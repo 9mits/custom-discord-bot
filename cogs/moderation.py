@@ -4,136 +4,45 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-import aiohttp
 import asyncio
-import copy
-import json
-import os
-import time
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, List, Union, Set, Tuple, Any
-from collections import Counter, deque, defaultdict
-import html
-import re
-import io
-import logging
-from pathlib import Path
+from typing import Optional, List, Union
 
 from core.constants import (
-    BRAND_NAME,
-    COOLDOWN_SECONDS,
-    DEFAULT_ROLE_ADMIN,
-    DEFAULT_ROLE_COMMUNITY_MANAGER,
-    DEFAULT_ROLE_MOD,
-    DEFAULT_ROLE_OWNER,
     DEFAULT_RULES,
-    EMBED_PALETTE,
     SCOPE_MODERATION,
-    SCOPE_SYSTEM,
-    TOKEN_ENV_VARS,
 )
-from core.models import CaseNote
 from core.services import (
-    DEFAULT_CANNED_REPLIES,
-    DEFAULT_ESCALATION_MATRIX,
     get_feature_flag,
-    get_escalation_steps,
-    has_capability,
-    normalize_case_record,
-    resolve_escalation_duration,
-    sanitize_evidence_links,
-    sanitize_linked_cases,
-    sanitize_tags,
-    validate_guild_configuration,
 )
 from core.context import abuse_system, bot, tree
 from core.utils import iso_to_dt, now_iso, parse_duration_str
 from .shared import (
-    logger,
-    DB_DIR,
-    PUNISHMENTS_FILE,
-    UNDO_REASON_PRESETS,
-    UNDO_REASON_PRESET_MAP,
-    truncate_text,
     format_duration,
     format_log_quote,
-    format_plain_log_block,
     format_reason_value,
-    format_log_notes,
-    make_action_log_embed,
-    normalize_log_embed,
     make_embed,
-    brand_embed,
     make_empty_state_embed,
     make_error_embed,
-    make_confirmation_embed,
-    join_lines,
     get_user_display_name,
     format_user_ref,
-    format_user_id_ref,
-    get_primary_guild,
-    get_context_guild,
-    send_log,
     send_punishment_log,
-    has_permission_capability,
     respond_with_error,
-    is_staff_member,
     is_staff,
     resolve_member,
     get_valid_duration,
     calculate_smart_punishment,
-    get_custom_role_limit,
     handle_abuse,
 )
 from .cases import (
-    get_case_id,
     get_case_label,
-    get_record_expiry,
-    format_case_status,
-    is_record_active,
-    describe_punishment_record,
-    get_punishment_duration_and_expiry,
-    build_case_summary_lines,
-    format_case_summary_block,
-    add_punishment_record_log_fields,
-    build_history_archive_attachment,
-    record_case_reversal_stats,
-    pop_case_record,
-    reverse_punishment_effect,
-    undo_case_record,
-    clear_user_history_records,
-    build_history_clear_summary,
     build_punishment_execution_log_embed,
-    calculate_member_risk,
-    get_active_records_for_user,
-    build_history_overview_embed,
     build_no_history_embed,
-    build_history_case_detail_embed,
-    build_undo_panel_embed,
-    build_punishment_undo_log_embed,
-    build_history_cleared_log_embed,
-    build_case_detail_embed,
     build_active_punishments_embed,
     build_mod_help_embed,
-    FinalConfirmClear,
-    HistorySelect,
-    UndoCaseSelect,
-    UndoReasonSelect,
-    HistoryActionButton,
-    HistoryNavButton,
-    UndoReasonModal,
-    UndoConfirmView,
-    HistoryClearConfirmView,
     HistoryView,
-    log_case_management_action,
-    CaseNoteModal,
-    CaseLinksModal,
-    CaseStateSelect,
-    CaseStateView,
-    CaseSwitchSelect,
     CasePanelView,
     FirstConfirmClear,
-    ActiveSelect,
     ActiveView,
 )
 from .roles import AppealView
@@ -939,7 +848,7 @@ class ModGroup(app_commands.Group):
             except Exception: pass
 
         if deleted_count == 0:
-             await interaction.followup.send(f"No matching messages found to purge.", ephemeral=True)
+             await interaction.followup.send("No matching messages found to purge.", ephemeral=True)
              return
 
         target_str = user.mention if user else "Anyone"
@@ -1042,10 +951,6 @@ async def history_context(interaction: discord.Interaction, user: discord.Member
 class ModerationCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-
-    @commands.Cog.listener()
-    async def on_raw_reaction_add(self, payload):
-        await on_raw_reaction_add(payload)
 
 
 async def setup(bot):

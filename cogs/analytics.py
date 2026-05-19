@@ -4,79 +4,29 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-import aiohttp
-import asyncio
-import copy
-import json
-import os
-import time
-from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, List, Union, Set, Tuple, Any
-from collections import Counter, deque, defaultdict
-import html
-import re
-import io
-import logging
-from pathlib import Path
+from datetime import timedelta
+from typing import Optional
+from collections import Counter
 
 from core.constants import (
-    BRAND_NAME,
     DEFAULT_ROLE_ADMIN,
     DEFAULT_ROLE_COMMUNITY_MANAGER,
-    DEFAULT_ROLE_MOD,
     DEFAULT_ROLE_OWNER,
-    EMBED_PALETTE,
     SCOPE_ANALYTICS,
-    SCOPE_MODERATION,
-    SCOPE_SYSTEM,
-    TOKEN_ENV_VARS,
 )
-from core.models import CaseNote
-from core.services import (
-    get_feature_flag,
-    has_capability,
-    validate_guild_configuration,
-)
-from core.context import abuse_system, bot, tree
-from core.utils import iso_to_dt, now_iso, parse_duration_str
+from core.context import bot, tree
+from core.utils import iso_to_dt
 from .shared import (
-    logger,
-    DB_DIR,
-    MOD_STATS_FILE,
     truncate_text,
     format_duration,
     format_log_quote,
-    format_plain_log_block,
-    format_reason_value,
     make_embed,
-    brand_embed,
-    make_empty_state_embed,
-    make_error_embed,
-    make_confirmation_embed,
-    make_analytics_card,
-    join_lines,
     create_progress_bar,
-    get_user_display_name,
     format_user_ref,
-    format_user_id_ref,
-    get_primary_guild,
-    get_context_guild,
-    send_log,
-    has_permission_capability,
-    respond_with_error,
-    is_staff_member,
-    is_staff,
-    resolve_member,
     check_admin,
-    check_owner,
 )
 from .cases import (
-    get_case_id,
     get_case_label,
-    describe_punishment_record,
-    calculate_member_risk,
-    get_active_records_for_user,
-    build_history_overview_embed,
     is_record_active,
 )
 

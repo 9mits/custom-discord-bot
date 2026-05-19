@@ -4,86 +4,39 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-import aiohttp
 import asyncio
-import copy
-import json
-import os
-import time
-from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, List, Union, Set, Tuple, Any
-from collections import Counter, deque, defaultdict
-import html
-import re
-import io
-import logging
-from pathlib import Path
+from typing import Optional, List, Union, Tuple
 
 from core.constants import (
-    BRAND_NAME,
     DEFAULT_ANCHOR_ROLE_ID,
-    DEFAULT_ROLE_ADMIN,
-    DEFAULT_ROLE_COMMUNITY_MANAGER,
-    DEFAULT_ROLE_MOD,
-    DEFAULT_ROLE_OWNER,
-    DEFAULT_RULES,
     EMBED_PALETTE,
     HOLO_PRIMARY,
     HOLO_SECONDARY,
     HOLO_TERTIARY,
     SCOPE_MODERATION,
     SCOPE_ROLES,
-    SCOPE_SYSTEM,
-    TOKEN_ENV_VARS,
 )
-from core.models import CaseNote
-from core.services import (
-    DEFAULT_CANNED_REPLIES,
-    get_feature_flag,
-    has_capability,
-    validate_guild_configuration,
-)
-from core.context import abuse_system, bot, tree
-from core.utils import iso_to_dt, now_iso, parse_duration_str
+from core.context import bot, tree
+from core.utils import iso_to_dt, now_iso
 from .shared import (
-    logger,
-    DB_DIR,
-    ROLES_FILE,
-    ROLE_ICON_MAX_BYTES,
     truncate_text,
-    format_duration,
-    format_log_quote,
-    format_plain_log_block,
     format_reason_value,
     make_embed,
     brand_embed,
     make_empty_state_embed,
-    make_error_embed,
     make_confirmation_embed,
     join_lines,
-    upsert_embed_field,
-    get_user_display_name,
     format_user_ref,
     format_user_id_ref,
-    get_primary_guild,
-    get_context_guild,
-    send_log,
-    has_permission_capability,
-    respond_with_error,
-    is_staff_member,
     is_staff,
-    resolve_member,
     fetch_image_bytes,
-    validate_image_fetch_url,
     get_custom_role_limit,
     hex_valid,
     build_role_landing_embed,
-    get_modal_item_label,
     make_action_log_embed,
     send_punishment_log,
     extract_snowflake_id,
     check_admin,
-    check_owner,
 )
 from .cases import (
     get_case_label,

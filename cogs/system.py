@@ -4,250 +4,87 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-import aiohttp
 import asyncio
-import copy
 import json
-import os
-import socket
 import time
-from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, List, Union, Set, Tuple, Any
-from collections import Counter, deque, defaultdict
-import html
+from datetime import timedelta
+from typing import Optional, Dict, List, Any
 import re
-import io
-import logging
-import tempfile
-from pathlib import Path
-from types import SimpleNamespace
 
 from core.constants import (
-    BRAND_NAME,
-    COOLDOWN_SECONDS,
     DEFAULT_ANCHOR_ROLE_ID,
     DEFAULT_ARCHIVE_CAT_ID,
-    DEFAULT_GUILD_ID,
-    DEFAULT_MAX_UNREAD_PINGS,
-    DEFAULT_MESSAGE_CACHE_LIMIT,
-    DEFAULT_MESSAGE_CACHE_RETENTION_DAYS,
     DEFAULT_ROLE_ADMIN,
     DEFAULT_ROLE_COMMUNITY_MANAGER,
     DEFAULT_ROLE_MOD,
     DEFAULT_ROLE_OWNER,
     DEFAULT_RULES,
     DEFAULT_SPAM_ROLE_ID,
-    EMBED_PALETTE,
-    FEATURE_FLAG_LABELS,
-    HOLO_PRIMARY,
-    HOLO_SECONDARY,
-    HOLO_TERTIARY,
-    MODMAIL_PANEL_BANNER_URL,
-    MODMAIL_PANEL_CATEGORIES,
-    SCOPE_ANALYTICS,
     SCOPE_MODERATION,
-    SCOPE_ROLES,
     SCOPE_SUPPORT,
     SCOPE_SYSTEM,
-    THEME_ORANGE,
-    TOKEN_ENV_VARS,
 )
-from core.models import CaseNote
 from core.services import (
-    DEFAULT_CANNED_REPLIES,
-    DEFAULT_ESCALATION_MATRIX,
-    DEFAULT_FEATURE_FLAGS,
-    DEFAULT_NATIVE_AUTOMOD_SETTINGS,
-    DEFAULT_SCHEMA_VERSION,
-    DEFAULT_TICKET_PRIORITIES,
-    export_case_payload,
-    export_config_payload,
     get_feature_flag,
-    get_escalation_steps,
     get_native_automod_settings,
-    has_capability,
-    import_config_payload,
-    normalize_case_record,
-    normalize_modmail_ticket,
-    resolve_escalation_duration,
     resolve_native_automod_policy,
-    run_schema_migrations,
-    sanitize_evidence_links,
-    sanitize_linked_cases,
-    sanitize_tags,
-    ticket_needs_sla_alert,
-    validate_guild_configuration,
 )
 from core.context import abuse_system, bot, tree
-from core.utils import iso_to_dt, now_iso, parse_duration_str
+from core.utils import now_iso
 from .shared import (
     logger,
-    DB_DIR,
-    BASE_DIR,
-    CONFIG_FILE,
-    PUNISHMENTS_FILE,
-    MOD_STATS_FILE,
-    MESSAGE_CACHE_FILE,
-    PINGS_FILE,
-    LOCKDOWN_FILE,
-    MODMAIL_FILE,
     DANGEROUS_PERMISSIONS,
     has_dangerous_perm,
     truncate_text,
     format_duration,
     format_log_quote,
-    format_plain_log_block,
     format_reason_value,
-    format_log_notes,
     make_action_log_embed,
-    normalize_log_embed,
     make_embed,
     brand_embed,
-    make_empty_state_embed,
     make_error_embed,
-    make_confirmation_embed,
-    make_analytics_card,
-    join_lines,
-    create_progress_bar,
-    upsert_embed_field,
     get_user_display_name,
     format_user_ref,
     format_user_id_ref,
     get_primary_guild,
-    get_context_guild,
     send_log,
     send_punishment_log,
-    send_automod_log,
     has_permission_capability,
     respond_with_error,
-    is_staff_member,
     is_staff,
     resolve_member,
     get_valid_duration,
-    get_general_log_channel_id,
-    get_general_log_channel_ids,
-    get_punishment_log_channel_id,
     get_punishment_log_channel_ids,
     prepare_modmail_relay_attachments,
-    fetch_image_bytes,
-    validate_image_fetch_url,
     maybe_send_dm_modmail_panel,
-    send_modmail_panel_message,
-    read_json_file,
-    parse_iso_datetime,
-    resolve_bot_token,
-    calculate_smart_punishment,
-    get_custom_role_limit,
     build_status_embed,
-    build_modmail_panel_embed,
-    build_setup_dashboard_embed,
-    build_modmail_settings_embed,
-    build_config_dashboard_embed,
     build_rules_dashboard_embed,
-    build_automod_dashboard_embed,
-    build_role_landing_embed,
-    build_feature_flags_embed,
-    build_escalation_matrix_embed,
-    build_canned_replies_embed,
-    build_setup_validation_embed,
-    handle_abuse,
     punish_rogue_mod,
     extract_snowflake_id,
 )
 from .cases import (
-    get_feature_flag_name,
-    get_case_id,
     get_case_label,
-    get_record_expiry,
-    format_case_status,
-    is_record_active,
     describe_punishment_record,
-    get_punishment_duration_and_expiry,
-    build_case_summary_lines,
-    format_case_summary_block,
-    add_punishment_record_log_fields,
-    build_history_archive_attachment,
-    record_case_reversal_stats,
-    pop_case_record,
-    reverse_punishment_effect,
-    undo_case_record,
-    clear_user_history_records,
-    build_history_clear_summary,
     build_punishment_execution_log_embed,
-    calculate_member_risk,
-    get_active_records_for_user,
-    build_history_overview_embed,
-    build_no_history_embed,
-    build_history_case_detail_embed,
-    build_undo_panel_embed,
-    build_punishment_undo_log_embed,
-    build_history_cleared_log_embed,
-    build_case_detail_embed,
-    build_active_punishments_embed,
-    build_mod_help_embed,
-    HistoryView,
-    CasePanelView,
-    ActiveView,
     AccessView,
     RuleEditModal,
-    RuleDeleteView,
-    RuleSelectView,
     RulesDashboardView,
 )
-from .moderation import (
-    execute_punishment,
-    show_punish_menu,
-    show_history_menu,
-    show_case_panel,
-    ModGroup,
-    punish_context,
-    history_context,
-    RevokeUndoView,
-)
 from .modmail import (
-    ModmailControlView,
-    ModmailPanelView,
-    apply_modmail_ticket_state,
-    export_modmail_transcript,
-    refresh_modmail_message,
     refresh_modmail_ticket_log,
     resolve_modmail_thread,
     resolve_modmail_user,
 )
 from .automod import (
-    run_smart_automod,
     apply_native_automod_escalation,
     claim_native_automod_execution,
     record_native_automod_event,
-    count_recent_native_automod_hits,
-    has_recent_native_automod_step_application,
     record_native_automod_step_application,
     get_triggered_native_automod_step,
     native_automod_rule_has_enforcement,
     is_native_automod_exempt,
     get_native_automod_action_label,
-    build_native_automod_dedupe_key,
-    get_native_automod_stats_bucket,
-    prune_native_automod_bucket,
-    AutoModDashboardView,
     AutoModWarningView,
-)
-from .analytics import (
-    get_mod_cases,
-    get_staff_stats_embed,
-    StaffView,
-)
-from .roles import (
-    RoleSettingsView,
-    role_cmd,
-    role_manage,
-    role_settings,
-    help_cmd,
-)
-from .config import (
-    ConfigDashboardView,
-    FeatureFlagView,
-    SetupDashboardView,
 )
 
 
@@ -624,7 +461,7 @@ class SafetyView(discord.ui.View):
             await interaction.response.send_message("Immunity list is empty.", ephemeral=True)
         else:
             mentions = [f"<@{uid}>" for uid in lst]
-            await interaction.response.send_message(f"**Immune Users:**\n" + ", ".join(mentions), ephemeral=True)
+            await interaction.response.send_message("**Immune Users:**\n" + ", ".join(mentions), ephemeral=True)
 
 class AntiNukeResolveConfirm2(discord.ui.View):
     def __init__(self, restore_data, origin_message):
@@ -896,7 +733,7 @@ async def unarchive(interaction: discord.Interaction):
     del bot.data_manager.config["archived_channels"][cid]
     await bot.data_manager.save_config()
     
-    await interaction.followup.send(f"Channel unarchived and restored.", ephemeral=True)
+    await interaction.followup.send("Channel unarchived and restored.", ephemeral=True)
     
     # Log
     log_embed = make_embed(

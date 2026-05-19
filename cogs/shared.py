@@ -2,8 +2,6 @@
 # Shared utilities, embed helpers, logging, and permission helpers.
 
 import discord
-from discord import app_commands
-from discord.ext import commands
 import aiohttp
 import asyncio
 import ipaddress
@@ -12,75 +10,42 @@ import os
 import socket
 import time
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, List, Union, Set, Tuple, Any
-from collections import Counter, deque, defaultdict
-import html
+from typing import Optional, List, Union, Tuple, Any
+from collections import Counter, defaultdict
 import re
 import io
 import logging
-import tempfile
 from pathlib import Path
-from types import SimpleNamespace
 from urllib.parse import urlsplit
 
 from core.constants import (
     BRAND_NAME,
-    COOLDOWN_SECONDS,
     DEFAULT_ANCHOR_ROLE_ID,
-    DEFAULT_ARCHIVE_CAT_ID,
     DEFAULT_GUILD_ID,
-    DEFAULT_MAX_UNREAD_PINGS,
-    DEFAULT_MESSAGE_CACHE_LIMIT,
-    DEFAULT_MESSAGE_CACHE_RETENTION_DAYS,
     DEFAULT_ROLE_ADMIN,
     DEFAULT_ROLE_COMMUNITY_MANAGER,
     DEFAULT_ROLE_MOD,
     DEFAULT_ROLE_OWNER,
     DEFAULT_RULES,
-    DEFAULT_SPAM_ROLE_ID,
     EMBED_PALETTE,
-    FEATURE_FLAG_LABELS,
-    HOLO_PRIMARY,
-    HOLO_SECONDARY,
-    HOLO_TERTIARY,
     MODMAIL_PANEL_BANNER_URL,
-    MODMAIL_PANEL_CATEGORIES,
     SCOPE_ANALYTICS,
     SCOPE_MODERATION,
     SCOPE_ROLES,
     SCOPE_SUPPORT,
     SCOPE_SYSTEM,
-    THEME_ORANGE,
     TOKEN_ENV_VARS,
 )
-from core.models import CaseNote
 from core.services import (
-    DEFAULT_CANNED_REPLIES,
-    DEFAULT_ESCALATION_MATRIX,
-    DEFAULT_FEATURE_FLAGS,
-    DEFAULT_NATIVE_AUTOMOD_SETTINGS,
     DEFAULT_SCHEMA_VERSION,
-    DEFAULT_TICKET_PRIORITIES,
-    export_case_payload,
-    export_config_payload,
     get_feature_flag,
     get_escalation_steps,
     get_native_automod_settings,
     has_capability,
-    import_config_payload,
-    normalize_case_record,
-    normalize_modmail_ticket,
     resolve_escalation_duration,
-    resolve_native_automod_policy,
-    run_schema_migrations,
-    sanitize_evidence_links,
-    sanitize_linked_cases,
-    sanitize_tags,
-    ticket_needs_sla_alert,
-    validate_guild_configuration,
 )
-from core.context import abuse_system, bot, tree
-from core.utils import iso_to_dt, now_iso, parse_duration_str, truncate_text, format_duration, create_progress_bar
+from core.context import bot
+from core.utils import iso_to_dt, truncate_text, format_duration, create_progress_bar
 
 # Setup Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')

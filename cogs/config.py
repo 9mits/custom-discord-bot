@@ -4,117 +4,39 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
-import aiohttp
-import asyncio
-import copy
 import json
-import os
-import time
-from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, List, Union, Set, Tuple, Any
-from collections import Counter, deque, defaultdict
-import html
-import re
+from typing import Optional
 import io
-import logging
-from pathlib import Path
 
 from core.constants import (
-    BRAND_NAME,
-    DEFAULT_ROLE_ADMIN,
-    DEFAULT_ROLE_COMMUNITY_MANAGER,
-    DEFAULT_ROLE_MOD,
-    DEFAULT_ROLE_OWNER,
-    DEFAULT_RULES,
-    DEFAULT_ANCHOR_ROLE_ID,
-    EMBED_PALETTE,
-    FEATURE_FLAG_LABELS,
-    SCOPE_MODERATION,
     SCOPE_SUPPORT,
     SCOPE_SYSTEM,
-    TOKEN_ENV_VARS,
 )
-from core.models import CaseNote
 from core.services import (
-    DEFAULT_CANNED_REPLIES,
     DEFAULT_ESCALATION_MATRIX,
-    DEFAULT_FEATURE_FLAGS,
-    DEFAULT_NATIVE_AUTOMOD_SETTINGS,
-    DEFAULT_SCHEMA_VERSION,
-    DEFAULT_TICKET_PRIORITIES,
     export_config_payload,
     get_feature_flag,
-    get_escalation_steps,
-    get_native_automod_settings,
-    has_capability,
     import_config_payload,
-    normalize_modmail_ticket,
-    resolve_escalation_duration,
-    run_schema_migrations,
-    sanitize_evidence_links,
-    sanitize_linked_cases,
-    sanitize_tags,
-    ticket_needs_sla_alert,
     validate_guild_configuration,
 )
-from core.context import abuse_system, bot, tree
-from core.utils import iso_to_dt, now_iso, parse_duration_str
+from core.context import bot, tree
 from .shared import (
-    logger,
-    DB_DIR,
-    CONFIG_FILE,
-    PUNISHMENTS_FILE,
-    MODMAIL_FILE,
-    truncate_text,
-    format_duration,
-    format_log_quote,
-    format_plain_log_block,
-    format_reason_value,
-    make_embed,
-    brand_embed,
-    make_empty_state_embed,
-    make_error_embed,
     make_confirmation_embed,
-    join_lines,
-    upsert_embed_field,
-    get_user_display_name,
-    format_user_ref,
-    format_user_id_ref,
-    get_primary_guild,
-    get_context_guild,
-    send_log,
-    has_permission_capability,
     respond_with_error,
-    is_staff_member,
-    is_staff,
-    resolve_member,
-    get_general_log_channel_id,
-    get_general_log_channel_ids,
-    get_punishment_log_channel_id,
-    get_punishment_log_channel_ids,
     build_setup_dashboard_embed,
     build_modmail_settings_embed,
     build_config_dashboard_embed,
-    build_rules_dashboard_embed,
     build_feature_flags_embed,
     build_escalation_matrix_embed,
     build_canned_replies_embed,
     build_setup_validation_embed,
     check_admin,
-    check_owner,
 )
 from .cases import get_feature_flag_name
-from .automod import (
-    ensure_native_rule_override_policy,
-    AutoModBridgeSettingsView,
-    AutoModRuleBrowserView,
-    AutoModPolicyEditorView,
-    AutoModChannelSettingsView,
-    AutoModImmunityView,
-    SmartAutoModSettingsView,
-    AutoModDashboardView,
-)
-# ModmailSettingsView not yet implemented
+class ModmailSettingsView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=300)
+        self.add_item(ModmailDiscussionThreadSelect())
 
 class ConfigRoleSelect(discord.ui.RoleSelect):
     def __init__(self, config_key: str, config_name: str):

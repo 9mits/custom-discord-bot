@@ -2,102 +2,55 @@
 # Case management helpers, embed builders, and interactive Views.
 
 import discord
-from discord import app_commands
 from discord.ext import commands
-import aiohttp
-import asyncio
 import copy
 import json
-import os
-import time
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, List, Union, Set, Tuple, Any
-from collections import Counter, deque, defaultdict
+from typing import Optional, Dict, List, Union, Tuple, Any
+from collections import Counter
 import html
 import re
 import io
-import logging
-import tempfile
-from pathlib import Path
-from types import SimpleNamespace
 
 from core.constants import (
     BRAND_NAME,
-    DEFAULT_ROLE_ADMIN,
-    DEFAULT_ROLE_COMMUNITY_MANAGER,
-    DEFAULT_ROLE_MOD,
     DEFAULT_ROLE_OWNER,
     DEFAULT_RULES,
-    EMBED_PALETTE,
     FEATURE_FLAG_LABELS,
     SCOPE_ANALYTICS,
     SCOPE_MODERATION,
-    SCOPE_ROLES,
-    SCOPE_SUPPORT,
     SCOPE_SYSTEM,
-    TOKEN_ENV_VARS,
 )
 from core.models import CaseNote
 from core.services import (
-    DEFAULT_CANNED_REPLIES,
-    DEFAULT_ESCALATION_MATRIX,
-    DEFAULT_FEATURE_FLAGS,
-    DEFAULT_NATIVE_AUTOMOD_SETTINGS,
-    DEFAULT_SCHEMA_VERSION,
-    DEFAULT_TICKET_PRIORITIES,
     export_case_payload,
-    get_feature_flag,
-    get_escalation_steps,
-    get_native_automod_settings,
-    has_capability,
     normalize_case_record,
-    resolve_escalation_duration,
     sanitize_evidence_links,
     sanitize_linked_cases,
     sanitize_tags,
-    validate_guild_configuration,
 )
-from core.context import abuse_system, bot, tree
+from core.context import bot
 from core.utils import iso_to_dt, now_iso, parse_duration_str
 from .shared import (
-    logger,
-    DB_DIR,
-    PUNISHMENTS_FILE,
-    MOD_STATS_FILE,
     UNDO_REASON_PRESETS,
     UNDO_REASON_PRESET_MAP,
-    LOG_QUOTE_FIELD_NAMES,
-    LOG_NONINLINE_FIELD_NAMES,
     truncate_text,
     format_duration,
     format_log_quote,
     format_plain_log_block,
     format_reason_value,
     format_log_notes,
-    format_log_field_value,
-    build_log_detail_fields,
     make_action_log_embed,
-    normalize_log_embed,
     make_embed,
     brand_embed,
     make_empty_state_embed,
-    make_error_embed,
     make_confirmation_embed,
-    make_analytics_card,
     join_lines,
-    upsert_embed_field,
-    get_user_display_name,
     format_user_ref,
     format_user_id_ref,
-    extract_snowflake_id,
-    get_primary_guild,
-    get_context_guild,
     send_log,
     send_punishment_log,
-    has_permission_capability,
     respond_with_error,
-    is_staff_member,
-    is_staff,
     resolve_member,
     create_progress_bar,
 )
@@ -2491,7 +2444,7 @@ class SafetyView(discord.ui.View):
             await interaction.response.send_message("Immunity list is empty.", ephemeral=True)
         else:
             mentions = [f"<@{uid}>" for uid in lst]
-            await interaction.response.send_message(f"**Immune Users:**\n" + ", ".join(mentions), ephemeral=True)
+            await interaction.response.send_message("**Immune Users:**\n" + ", ".join(mentions), ephemeral=True)
 
 class AntiNukeResolveConfirm2(discord.ui.View):
     def __init__(self, restore_data, origin_message):

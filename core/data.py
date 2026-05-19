@@ -11,7 +11,7 @@ import os
 import tempfile
 import time
 from collections import defaultdict, deque
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -39,7 +39,6 @@ from core.services import (
     DEFAULT_SCHEMA_VERSION,
     normalize_case_record,
     run_schema_migrations,
-    ticket_needs_sla_alert,
 )
 
 logger = logging.getLogger("MGXBot")
