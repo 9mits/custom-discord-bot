@@ -83,6 +83,7 @@ from .shared import (
     get_valid_duration,
     calculate_smart_punishment,
     get_custom_role_limit,
+    handle_abuse,
 )
 from .cases import (
     get_case_id,
@@ -327,6 +328,7 @@ async def execute_punishment(interaction, target, moderator, reason, minutes, no
     
     if origin_message:
         try:
+            from .roles import build_punish_embed
             await origin_message.edit(embed=build_punish_embed(target))
         except Exception:
             pass
@@ -701,6 +703,7 @@ class RevokeUndoView(discord.ui.View):
 
 async def show_punish_menu(interaction: discord.Interaction, user: discord.User, public=False, reaction_count=None):
     await interaction.response.defer(ephemeral=True)
+    from .roles import build_punish_embed
     embed = build_punish_embed(user)
     view = PunishView(user, interaction.user, public=public, reaction_count=reaction_count)
     await interaction.followup.send(embed=embed, view=view, ephemeral=True)

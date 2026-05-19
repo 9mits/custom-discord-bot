@@ -158,6 +158,7 @@ class ConfigChannelSelect(discord.ui.ChannelSelect):
         if self.config_key == "modmail_panel_channel":
             await interaction.response.defer(ephemeral=True)
             try:
+                from .shared import send_modmail_panel_message
                 await send_modmail_panel_message(channel, interaction.guild)
                 await interaction.followup.send(f"✅ **{self.config_name}** updated to {channel.mention} and panel sent.", ephemeral=True)
             except Exception as e:

@@ -76,6 +76,7 @@ from .cases import (
     calculate_member_risk,
     get_active_records_for_user,
     build_history_overview_embed,
+    is_record_active,
 )
 
 def get_mod_cases(mod_id: str) -> list:

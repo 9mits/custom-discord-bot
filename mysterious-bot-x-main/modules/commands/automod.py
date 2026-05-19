@@ -30,6 +30,7 @@ from modules.constants import (
     EMBED_PALETTE,
     SCOPE_ANALYTICS,
     SCOPE_MODERATION,
+    SCOPE_SUPPORT,
     SCOPE_SYSTEM,
     TOKEN_ENV_VARS,
 )
@@ -87,6 +88,7 @@ from .shared import (
     build_escalation_matrix_embed,
     build_canned_replies_embed,
     build_setup_validation_embed,
+    get_punishment_log_channel_id,
     build_modmail_panel_embed,
     build_setup_dashboard_embed,
     build_modmail_settings_embed,
@@ -755,22 +757,6 @@ def build_escalation_matrix_embed(guild: discord.Guild) -> discord.Embed:
     return embed
 
 
-def build_canned_replies_embed(guild: discord.Guild) -> discord.Embed:
-    replies = bot.data_manager.config.get("modmail_canned_replies", {})
-    embed = make_embed(
-        "Saved Replies",
-        "> Quick reply templates staff can send in modmail.",
-        kind="support",
-        scope=SCOPE_SUPPORT,
-        guild=guild,
-    )
-    for key, value in list(replies.items())[:10]:
-        embed.add_field(name=key, value=truncate_text(value, 200), inline=False)
-    if not replies:
-        embed.add_field(name="Templates", value="No saved replies have been added yet.", inline=False)
-    return embed
-
-
 def build_setup_validation_embed(guild: discord.Guild, findings: List[Any]) -> discord.Embed:
     summary_counter = Counter(finding.level for finding in findings)
     kind = "success" if summary_counter.get("error", 0) == 0 and summary_counter.get("warning", 0) == 0 else ("warning" if summary_counter.get("error", 0) == 0 else "danger")
@@ -823,34 +809,6 @@ def build_status_embed(guild: discord.Guild) -> discord.Embed:
     embed.add_field(name="Punishment Records", value=str(total_records), inline=True)
     embed.add_field(name="Cache Size", value=str(len(bot.data_manager.message_cache)), inline=True)
     return embed
-
-async def handle_abuse(interaction: discord.Interaction, moderator: discord.Member):
-    # Security Protocol: Strip Roles
-    mod_roles = bot.data_manager.config.get("mod_roles", [])
-    to_remove = []
-    for rid in mod_roles:
-        role = interaction.guild.get_role(rid)
-        if role and role in moderator.roles:
-            to_remove.append(role)
-    
-    if to_remove:
-        try:
-            await moderator.remove_roles(*to_remove, reason="Anti-Abuse: Rate limit exceeded")
-        except Exception:
-            pass
-            
-    embed = make_embed(
-        "Security Alert: Abuse Detected",
-        "> The anti-abuse rate limiter flagged a moderation action burst and removed elevated roles.",
-        kind="danger",
-        scope=SCOPE_SYSTEM,
-        guild=interaction.guild,
-        thumbnail=moderator.display_avatar.url,
-    )
-    embed.add_field(name="Actor", value=format_user_ref(moderator), inline=True)
-    embed.add_field(name="System Action", value="Roles stripped due to rate-limit violation", inline=True)
-    await send_log(interaction.guild, embed)
-    await interaction.response.send_message("Action blocked. You have been flagged for abuse.", ephemeral=True)
 
 def get_native_automod_stats_bucket(user_id: int) -> dict:
     store = bot.data_manager.mod_stats.setdefault("native_automod", {})

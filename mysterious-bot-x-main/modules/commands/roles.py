@@ -21,6 +21,7 @@ from pathlib import Path
 
 from modules.constants import (
     BRAND_NAME,
+    DEFAULT_ANCHOR_ROLE_ID,
     DEFAULT_ROLE_ADMIN,
     DEFAULT_ROLE_COMMUNITY_MANAGER,
     DEFAULT_ROLE_MOD,
@@ -79,6 +80,14 @@ from .shared import (
     hex_valid,
     build_role_landing_embed,
     get_modal_item_label,
+    make_action_log_embed,
+    send_punishment_log,
+    extract_snowflake_id,
+)
+from .cases import (
+    get_case_label,
+    get_active_records_for_user,
+    calculate_member_risk,
 )
 
 def build_role_info_embed(member: discord.Member, rec: dict, role_obj: Optional[discord.Role], include_tips=False) -> discord.Embed:

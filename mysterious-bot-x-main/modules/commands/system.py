@@ -153,6 +153,7 @@ from .shared import (
     handle_abuse,
     punish_rogue_mod,
     get_feature_flag_name,
+    extract_snowflake_id,
 )
 from .cases import (
     get_case_id,
@@ -484,85 +485,6 @@ class RuleSelectView(discord.ui.View):
         super().__init__(timeout=60)
         self.add_item(RuleSelectForEdit())
 
-def generate_transcript_html(messages, user):
-    style = """
-    body { background-color: #313338; color: #dbdee1; font-family: "gg sans", "Helvetica Neue", Helvetica, Arial, sans-serif; margin: 0; padding: 20px; }
-    .chat-container { max-width: 100%; display: flex; flex-direction: column; }
-    .message { display: flex; margin-top: 1rem; padding: 5px; }
-    .message:hover { background-color: #2e3035; }
-    .message.deleted { background-color: rgba(242, 63, 66, 0.1); border-left: 3px solid #f23f42; }
-    .avatar { width: 40px; height: 40px; border-radius: 50%; margin-right: 16px; margin-top: 2px; }
-    .content { display: flex; flex-direction: column; width: 100%; }
-    .header { display: flex; align-items: center; margin-bottom: 2px; }
-    .username { font-weight: 500; color: #f2f3f5; margin-right: 0.25rem; font-size: 1rem; }
-    .timestamp { font-size: 0.75rem; color: #949ba4; margin-left: 0.25rem; }
-    .msg-content { font-size: 1rem; line-height: 1.375rem; white-space: pre-wrap; color: #dbdee1; }
-    .attachment-container { margin-top: 5px; }
-    .attachment-img { max-width: 400px; max-height: 300px; border-radius: 8px; cursor: pointer; }
-    .deleted-tag { font-size: 0.625rem; color: #f23f42; margin-left: 4px; border: 1px solid #f23f42; border-radius: 3px; padding: 0 4px; vertical-align: middle; }
-    .edited-tag { font-size: 0.625rem; color: #949ba4; margin-left: 4px; vertical-align: middle; }
-    .channel-ref { font-size: 0.75rem; color: #949ba4; font-weight: bold; margin-bottom: 2px; }
-    a { color: #00a8fc; text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    """
-    
-    safe_display_name = html.escape(user.display_name)
-    html_parts = [
-        f'<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>History - {safe_display_name}</title><style>{style}</style></head><body>',
-        f'<div class="chat-container"><h2 style="color:white; border-bottom: 1px solid #4e5058; padding-bottom: 10px;">Chat History: {safe_display_name} ({user.id})</h2>'
-    ]
-
-    # messages is Newest -> Oldest. Reverse to show Oldest -> Newest in HTML.
-    for m in reversed(messages):
-        ts = m["created_at"].strftime("%Y-%m-%d %H:%M:%S")
-        content = html.escape(m.get("content", ""))
-        if not content: content = "<em>[No Text Content]</em>"
-        author_name = html.escape(m.get("author_name", user.display_name))
-        author_avatar_url = html.escape(m.get("author_avatar_url", user.display_avatar.url if getattr(user, "display_avatar", None) else ""))
-
-        # Status tags
-        tags = ""
-        if m.get("deleted"): tags += '<span class="deleted-tag">DELETED</span>'
-        if m.get("edited"): tags += '<span class="edited-tag">(edited)</span>'
-
-        # Attachments
-        att_html = ""
-        if m.get("attachments"):
-            att_html += '<div class="attachment-container">'
-            for a in m["attachments"]:
-                safe_url = html.escape(a["url"])
-                safe_filename = html.escape(a["filename"])
-                ext = a["filename"].split('.')[-1].lower()
-                if ext in ['png', 'jpg', 'jpeg', 'gif', 'webp']:
-                    att_html += f'<a href="{safe_url}" target="_blank"><img src="{safe_url}" class="attachment-img" alt="{safe_filename}"></a><br>'
-                else:
-                    att_html += f'<a href="{safe_url}" target="_blank">📎 {safe_filename}</a><br>'
-            att_html += '</div>'
-
-        # Stickers
-        if m.get("stickers"):
-            att_html += f'<div style="color:#949ba4; font-size:0.8rem;">Stickers: {html.escape(", ".join(m["stickers"]))}</div>'
-
-        div_class = "message deleted" if m.get("deleted") else "message"
-        row = f"""
-        <div class="{div_class}">
-            <img class="avatar" src="{author_avatar_url}" alt="Avatar">
-            <div class="content">
-                <div class="channel-ref">#{html.escape(str(m['channel_id']))}</div>
-                <div class="header">
-                    <span class="username">{author_name}</span>
-                    <span class="timestamp">{ts}</span>
-                    {tags}
-                </div>
-                <div class="msg-content">{content}</div>
-                {att_html}
-            </div>
-        </div>
-        """
-        html_parts.append(row)
-        
-    html_parts.append('</div></body></html>')
-    return "\n".join(html_parts)
 
 class ArchiveConfirmView(discord.ui.View):
     def __init__(self, channel, target_cat, old_name, new_name, overwrites_save_data, final_overwrites):
@@ -1413,6 +1335,7 @@ async def on_raw_reaction_add(payload):
                     elif minutes > 0:
                         dm_embed.add_field(name="Duration", value=format_duration(minutes), inline=True)
 
+                    from .roles import AppealView
                     view = AppealView(guild.id, target.id, data["moderator_id"], minutes, now_iso(), data["reason"])
                     await target.send(embed=dm_embed, view=view)
                 except Exception: pass

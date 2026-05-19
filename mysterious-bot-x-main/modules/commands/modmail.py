@@ -18,6 +18,7 @@ import re
 import io
 import logging
 from pathlib import Path
+from types import SimpleNamespace
 
 from modules.constants import (
     BRAND_NAME,
@@ -83,7 +84,11 @@ from .shared import (
     fetch_image_bytes,
     maybe_send_dm_modmail_panel,
     send_modmail_panel_message,
+    upsert_embed_field,
+    get_modal_item_label,
+    build_canned_replies_embed,
 )
+from .cases import _split_case_input
 
 async def log_modmail_action(guild, title, fields):
     cid = bot.data_manager.config.get("modmail_action_log_channel")
@@ -182,6 +187,7 @@ async def export_modmail_transcript(thread: discord.Thread, user_id: str) -> dis
             "edited": bool(message.edited_at),
         })
     transcript_user = SimpleNamespace(display_name=f"Ticket {user_id}", id=int(user_id))
+    from .cases import generate_transcript_html
     html_content = generate_transcript_html(messages, transcript_user)
     return discord.File(io.BytesIO(html_content.encode("utf-8")), filename=f"modmail_transcript_{user_id}.html")
 

@@ -822,6 +822,7 @@ class FinalConfirmClear(discord.ui.View):
 
             if self.origin_message:
                 try:
+                    from .roles import build_punish_embed
                     await self.origin_message.edit(embed=build_punish_embed(self.target))
                 except Exception:
                     pass
@@ -1018,6 +1019,7 @@ class UndoConfirmView(discord.ui.View):
             },
         )
         log_embed = build_punishment_undo_log_embed(interaction.guild, interaction.user, self.panel.user, removed_record, undo_reason, action_result)
+        from .moderation import RevokeUndoView
         view = RevokeUndoView(self.panel.user.id, removed_record, interaction.user.id)
         await send_punishment_log(interaction.guild, log_embed, view=view, attachments=[attachment])
 
@@ -1623,6 +1625,7 @@ class PunishView(discord.ui.View):
         super().__init__(timeout=60)
         self.target = target
         self.moderator = moderator
+        from .moderation import PunishSelect
         self.add_item(PunishSelect(target, moderator, public=public, reaction_count=reaction_count))
 
     @discord.ui.button(label="Clear History", style=discord.ButtonStyle.danger, row=1)

@@ -1233,6 +1233,7 @@ def build_automod_dashboard_embed(guild: discord.Guild) -> discord.Embed:
     total_steps = 0
     configured_rules = 0
     for payload in settings.get("rule_overrides", {}).values():
+        from .automod import get_native_automod_policy_steps
         step_count = len(get_native_automod_policy_steps(payload))
         total_steps += step_count
         if step_count:
@@ -1287,6 +1288,7 @@ def build_feature_flags_embed(guild: discord.Guild) -> discord.Embed:
     )
     for key, value in sorted(flags.items()):
         status = "✅ On" if value else "⬜ Off"
+        from .cases import get_feature_flag_name
         embed.add_field(name=get_feature_flag_name(key), value=status, inline=True)
     return embed
 
