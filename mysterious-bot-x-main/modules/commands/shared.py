@@ -80,7 +80,7 @@ from modules.services import (
     validate_guild_configuration,
 )
 from modules.context import abuse_system, bot, tree
-from modules.utils import iso_to_dt, now_iso, parse_duration_str
+from modules.utils import iso_to_dt, now_iso, parse_duration_str, truncate_text, format_duration, create_progress_bar
 
 # Setup Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
@@ -142,7 +142,7 @@ def resolve_bot_token() -> str:
     )
 
 
-# Runtime bootstrap moved to modules.mbx_bot.
+# Runtime bootstrap lives in modules.bot.
 
 def calculate_smart_punishment(user_id: str, reason: str, rules: dict, history: list) -> tuple[int, bool, str]:
     """
@@ -408,24 +408,6 @@ async def send_modmail_thread_intro(thread: discord.Thread, user, category: str,
         f"**Ticket Created**\nUser: {user.mention}\nCategory: {category}\n\n" + "\n".join(fields_data),
         allowed_mentions=discord.AllowedMentions.none(),
     )
-
-def format_duration(minutes: int) -> str:
-    if minutes == -1:
-        return "Ban"
-    if minutes == 0:
-        return "Warning"
-    if minutes < 60:
-        return f"{minutes} mins"
-    hours = minutes // 60
-    if hours < 24:
-        return f"{hours} hour{'s' if hours != 1 else ''}"
-    days = hours // 24
-    return f"{days} day{'s' if days != 1 else ''}"
-
-def create_progress_bar(percent: float, length: int = 10) -> str:
-    percent = max(0.0, min(1.0, percent))
-    filled = int(length * percent)
-    return "█" * filled + "░" * (length - filled)
 
 def format_log_quote(value: Optional[str], *, limit: int = 1000) -> str:
     text = truncate_text(str(value or "None").strip(), limit)
@@ -837,13 +819,6 @@ def is_staff(interaction: discord.Interaction) -> bool:
     return interaction.user.guild_permissions.moderate_members
 
 
-def truncate_text(value: Optional[str], limit: int) -> str:
-    if not value:
-        return ""
-    text = str(value)
-    if len(text) <= limit:
-        return text
-    return text[: max(0, limit - 3)] + "..."
 
 
 async def resolve_member(guild: discord.Guild, user_id: int) -> Optional[discord.Member]:

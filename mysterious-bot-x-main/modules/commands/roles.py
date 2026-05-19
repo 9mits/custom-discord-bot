@@ -44,6 +44,7 @@ from modules.services import (
 )
 from modules.context import abuse_system, bot, tree
 from modules.utils import iso_to_dt, now_iso, parse_duration_str
+from .system import check_admin, check_owner
 from .shared import (
     logger,
     DB_DIR,
@@ -1340,10 +1341,7 @@ async def role_settings(interaction: discord.Interaction):
     embed = build_role_settings_embed(interaction.guild)
     await interaction.response.send_message(embed=embed, view=RoleSettingsView(), ephemeral=True)
 
-@tree.command(name="automod", description="Open the AutoMod control panel | admin")
-@app_commands.default_permissions(administrator=True)
-@app_commands.check(check_admin)
-
+@tree.command(name="rolehelp", description="Guide for creating and managing custom roles")
 async def help_cmd(interaction: discord.Interaction):
     embed = make_embed(
         "Custom Role Guide",
@@ -1358,4 +1356,3 @@ async def help_cmd(interaction: discord.Interaction):
     embed.add_field(name="3. Reopen Anytime", value="Use `/role` again whenever you want to update or remove your role.", inline=False)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
-tree.add_command(ModGroup())

@@ -852,66 +852,6 @@ async def handle_abuse(interaction: discord.Interaction, moderator: discord.Memb
     await send_log(interaction.guild, embed)
     await interaction.response.send_message("Action blocked. You have been flagged for abuse.", ephemeral=True)
 
-async def punish_rogue_mod(guild: discord.Guild, member: discord.User, reason: str, embed: discord.Embed = None, restore_data: dict = None):
-    # Fetch fresh member to ensure roles are up to date and we have a Member object
-    target_member = guild.get_member(member.id)
-    if not target_member:
-        try:
-            target_member = await guild.fetch_member(member.id)
-        except Exception:
-            target_member = None
-
-    action_log = "No configured staff roles found on user."
-    stripped_ids = []
-    
-    if target_member:
-        # 1. Strip Mod Roles
-        mod_roles_ids = bot.data_manager.config.get("mod_roles", [])
-        to_remove = []
-        for rid in mod_roles_ids:
-            role = guild.get_role(rid)
-            if role and role in target_member.roles:
-                to_remove.append(role)
-        
-        if to_remove:
-            try:
-                await target_member.remove_roles(*to_remove, reason=f"ANTI-NUKE: {reason}")
-                action_log = f"Stripped Staff Roles: {', '.join([r.name for r in to_remove])}"
-                stripped_ids = [r.id for r in to_remove]
-            except Exception as e:
-                action_log = f"Failed to strip roles: {e}"
-    else:
-        action_log = "User left guild or not found."
-
-    # 2. Log
-    if embed is None:
-        embed = make_embed(
-            "Security Alert: Anti-Nuke Triggered",
-            "> A protected action was automatically reverted and the actor was restricted.",
-            kind="danger",
-            scope=SCOPE_SYSTEM,
-            guild=guild,
-        )
-        embed.add_field(name="Actor", value=f"<@{member.id}> (`{member.id}`)", inline=True)
-        embed.add_field(name="Violation", value=truncate_text(reason, 1000), inline=False)
-
-    embed.add_field(name="System Action", value=f"> {action_log}", inline=True)
-    brand_embed(embed, guild=guild, scope=SCOPE_SYSTEM)
-    
-    view = None
-    if restore_data:
-        restore_data["stripped_roles"] = stripped_ids
-        restore_data["actor_id"] = member.id
-        view = AntiNukeResolveView(restore_data)
-        
-    # Dynamic pings
-    r_admin = bot.data_manager.config.get("role_admin", DEFAULT_ROLE_ADMIN)
-    r_owner = bot.data_manager.config.get("role_owner", DEFAULT_ROLE_OWNER)
-    pings = f"<@&{r_admin}> <@&{r_owner}>"
-    
-    await send_log(guild, embed, content=pings, view=view)
-
-
 def get_native_automod_stats_bucket(user_id: int) -> dict:
     store = bot.data_manager.mod_stats.setdefault("native_automod", {})
     if not isinstance(store, dict):
