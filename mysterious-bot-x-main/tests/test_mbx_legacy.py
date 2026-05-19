@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import discord
 
-from modules import mbx_legacy
+from modules import legacy
 
 
 def make_interaction():
@@ -71,9 +71,9 @@ class FakeAttachment:
 class MbxLegacyAuthTests(unittest.IsolatedAsyncioTestCase):
     async def test_revoke_appeal_entrypoint_rejects_non_staff(self):
         interaction = make_interaction()
-        view = mbx_legacy.RevokeAppealView(target_id=1, moderator_id=2, duration=0, timestamp="2026-01-01T00:00:00+00:00")
+        view = legacy.RevokeAppealView(target_id=1, moderator_id=2, duration=0, timestamp="2026-01-01T00:00:00+00:00")
 
-        with patch.object(mbx_legacy, "is_staff", return_value=False):
+        with patch.object(legacy, "is_staff", return_value=False):
             await view.children[0].callback(interaction)
 
         interaction.response.send_message.assert_awaited_once_with("Access denied.", ephemeral=True)
@@ -81,9 +81,9 @@ class MbxLegacyAuthTests(unittest.IsolatedAsyncioTestCase):
     async def test_confirm_revoke_view_rejects_non_staff(self):
         interaction = make_interaction()
         parent_view = SimpleNamespace(finish_revoke=AsyncMock())
-        view = mbx_legacy.ConfirmRevokeView(parent_view, SimpleNamespace())
+        view = legacy.ConfirmRevokeView(parent_view, SimpleNamespace())
 
-        with patch.object(mbx_legacy, "is_staff", return_value=False):
+        with patch.object(legacy, "is_staff", return_value=False):
             await view.children[0].callback(interaction)
 
         interaction.response.send_message.assert_awaited_once_with("Access denied.", ephemeral=True)
@@ -91,22 +91,22 @@ class MbxLegacyAuthTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_deny_appeal_modal_rejects_non_staff(self):
         interaction = make_interaction()
-        modal = mbx_legacy.DenyAppealModal(
+        modal = legacy.DenyAppealModal(
             target_id=1,
             origin_message=SimpleNamespace(embeds=[SimpleNamespace()]),
             view=SimpleNamespace(children=[]),
         )
 
-        with patch.object(mbx_legacy, "is_staff", return_value=False):
+        with patch.object(legacy, "is_staff", return_value=False):
             await modal.on_submit(interaction)
 
         interaction.response.send_message.assert_awaited_once_with("Access denied.", ephemeral=True)
 
     async def test_finish_revoke_rejects_non_staff(self):
         interaction = make_interaction()
-        view = mbx_legacy.RevokeAppealView(target_id=1, moderator_id=2, duration=0, timestamp="2026-01-01T00:00:00+00:00")
+        view = legacy.RevokeAppealView(target_id=1, moderator_id=2, duration=0, timestamp="2026-01-01T00:00:00+00:00")
 
-        with patch.object(mbx_legacy, "is_staff", return_value=False):
+        with patch.object(legacy, "is_staff", return_value=False):
             await view.finish_revoke(interaction, SimpleNamespace(embeds=[SimpleNamespace()]))
 
         interaction.response.send_message.assert_awaited_once_with("Access denied.", ephemeral=True)
@@ -114,8 +114,8 @@ class MbxLegacyAuthTests(unittest.IsolatedAsyncioTestCase):
     async def test_apply_automod_report_response_rejects_non_staff(self):
         interaction = make_interaction()
 
-        with patch.object(mbx_legacy, "is_staff", return_value=False), patch.object(mbx_legacy, "respond_with_error", AsyncMock()) as mock_error:
-            success = await mbx_legacy.apply_automod_report_response(
+        with patch.object(legacy, "is_staff", return_value=False), patch.object(legacy, "respond_with_error", AsyncMock()) as mock_error:
+            success = await legacy.apply_automod_report_response(
                 interaction,
                 guild_id=1,
                 reporter_id=2,
@@ -127,33 +127,33 @@ class MbxLegacyAuthTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertFalse(success)
-        mock_error.assert_awaited_once_with(interaction, "Access denied.", scope=mbx_legacy.SCOPE_MODERATION)
+        mock_error.assert_awaited_once_with(interaction, "Access denied.", scope=legacy.SCOPE_MODERATION)
 
 
 class MbxLegacyFetchTests(unittest.IsolatedAsyncioTestCase):
     async def test_validate_image_fetch_url_rejects_non_https(self):
-        _, error = await mbx_legacy.validate_image_fetch_url("http://example.com/image.png")
+        _, error = await legacy.validate_image_fetch_url("http://example.com/image.png")
         self.assertEqual(error, "Image URLs must use HTTPS.")
 
     async def test_validate_image_fetch_url_rejects_credentials(self):
-        _, error = await mbx_legacy.validate_image_fetch_url("https://user:pass@example.com/image.png")
+        _, error = await legacy.validate_image_fetch_url("https://user:pass@example.com/image.png")
         self.assertEqual(error, "Image URLs with embedded credentials are not allowed.")
 
     async def test_validate_image_fetch_url_rejects_private_host(self):
-        with patch.object(mbx_legacy, "_resolve_image_host_addresses", AsyncMock(return_value=(["127.0.0.1"], None))):
-            _, error = await mbx_legacy.validate_image_fetch_url("https://localhost/image.png")
+        with patch.object(legacy, "_resolve_image_host_addresses", AsyncMock(return_value=(["127.0.0.1"], None))):
+            _, error = await legacy.validate_image_fetch_url("https://localhost/image.png")
 
         self.assertEqual(error, "Image URLs must use a public host.")
 
     async def test_fetch_image_bytes_rejects_redirects(self):
         session = FakeSession(FakeResponse(302))
 
-        with patch.object(mbx_legacy, "validate_image_fetch_url", AsyncMock(return_value=("https://cdn.example/image.png", None))), patch.object(
-            mbx_legacy,
+        with patch.object(legacy, "validate_image_fetch_url", AsyncMock(return_value=("https://cdn.example/image.png", None))), patch.object(
+            legacy,
             "bot",
             SimpleNamespace(session=session),
         ):
-            payload, error = await mbx_legacy.fetch_image_bytes("https://cdn.example/image.png")
+            payload, error = await legacy.fetch_image_bytes("https://cdn.example/image.png")
 
         self.assertIsNone(payload)
         self.assertEqual(error, "Image URLs cannot redirect.")
@@ -173,7 +173,7 @@ class MbxLegacyModmailTests(unittest.IsolatedAsyncioTestCase):
             FakeAttachment("extra.png", mib),
         ]
 
-        files, notice = await mbx_legacy.prepare_modmail_relay_attachments(attachments)
+        files, notice = await legacy.prepare_modmail_relay_attachments(attachments)
 
         self.assertEqual(files, ["keep-1.png", "keep-2.png", "keep-3.png", "keep-4.png", "keep-5.png"])
         self.assertIn("first 5", notice)
@@ -189,7 +189,7 @@ class MbxLegacyModmailTests(unittest.IsolatedAsyncioTestCase):
             FakeAttachment("skip-total.png", 5 * mib),
         ]
 
-        files, notice = await mbx_legacy.prepare_modmail_relay_attachments(attachments)
+        files, notice = await legacy.prepare_modmail_relay_attachments(attachments)
 
         self.assertEqual(files, ["keep-1.png", "keep-2.png"])
         self.assertIn("20 MiB total", notice)
@@ -199,7 +199,7 @@ class MbxLegacyModmailTests(unittest.IsolatedAsyncioTestCase):
         thread = SimpleNamespace(send=AsyncMock())
         user = SimpleNamespace(mention="<@123>")
 
-        await mbx_legacy.send_modmail_thread_intro(thread, user, "Report", ["**Subject**: @everyone"])
+        await legacy.send_modmail_thread_intro(thread, user, "Report", ["**Subject**: @everyone"])
 
         allowed_mentions = thread.send.await_args.kwargs["allowed_mentions"]
         self.assertIsInstance(allowed_mentions, discord.AllowedMentions)

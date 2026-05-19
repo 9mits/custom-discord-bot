@@ -1,7 +1,7 @@
 import unittest
 from datetime import datetime, timezone
 
-from modules.mbx_utils import (
+from modules.utils import (
     create_progress_bar,
     extract_snowflake_id,
     format_duration,

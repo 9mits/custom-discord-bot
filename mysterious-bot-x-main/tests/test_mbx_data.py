@@ -8,8 +8,8 @@ from unittest.mock import patch
 
 import discord
 
-from modules import mbx_data
-from modules.mbx_data import DataManager
+from modules import data
+from modules.data import DataManager
 
 
 class DummyBot:
@@ -58,14 +58,14 @@ class MbxDataTests(unittest.TestCase):
             }.items():
                 (db_dir / name).write_text(payload, encoding="utf-8")
 
-            with patch.object(mbx_data, "CONFIG_FILE", db_dir / "config.json"), \
-                patch.object(mbx_data, "ROLES_FILE", db_dir / "roles.json"), \
-                patch.object(mbx_data, "PUNISHMENTS_FILE", db_dir / "punishments.json"), \
-                patch.object(mbx_data, "MOD_STATS_FILE", db_dir / "mod_stats.json"), \
-                patch.object(mbx_data, "MESSAGE_CACHE_FILE", db_dir / "message_cache.json"), \
-                patch.object(mbx_data, "PINGS_FILE", db_dir / "pings.json"), \
-                patch.object(mbx_data, "MODMAIL_FILE", db_dir / "modmail.json"), \
-                patch.object(mbx_data, "LOCKDOWN_FILE", db_dir / "lockdown.json"):
+            with patch.object(data, "CONFIG_FILE", db_dir / "config.json"), \
+                patch.object(data, "ROLES_FILE", db_dir / "roles.json"), \
+                patch.object(data, "PUNISHMENTS_FILE", db_dir / "punishments.json"), \
+                patch.object(data, "MOD_STATS_FILE", db_dir / "mod_stats.json"), \
+                patch.object(data, "MESSAGE_CACHE_FILE", db_dir / "message_cache.json"), \
+                patch.object(data, "PINGS_FILE", db_dir / "pings.json"), \
+                patch.object(data, "MODMAIL_FILE", db_dir / "modmail.json"), \
+                patch.object(data, "LOCKDOWN_FILE", db_dir / "lockdown.json"):
                 asyncio.run(self.manager.load_all())
 
         self.assertIn("feature_flags", self.manager.config)
@@ -76,17 +76,17 @@ class MbxDataTests(unittest.TestCase):
             config_file = Path(temp_dir) / "config.json"
             config_file.write_text('{"token_env_var": "CUSTOM_BOT_TOKEN", "bot_token": "config-secret"}', encoding="utf-8")
 
-            with patch.object(mbx_data, "CONFIG_FILE", config_file), patch.dict(os.environ, {"CUSTOM_BOT_TOKEN": "env-secret"}, clear=True):
-                self.assertEqual(mbx_data.resolve_bot_token(), "env-secret")
+            with patch.object(data, "CONFIG_FILE", config_file), patch.dict(os.environ, {"CUSTOM_BOT_TOKEN": "env-secret"}, clear=True):
+                self.assertEqual(data.resolve_bot_token(), "env-secret")
 
     def test_resolve_bot_token_rejects_config_json_fallback(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             config_file = Path(temp_dir) / "config.json"
             config_file.write_text('{"bot_token": "config-secret"}', encoding="utf-8")
 
-            with patch.object(mbx_data, "CONFIG_FILE", config_file), patch.dict(os.environ, {}, clear=True):
+            with patch.object(data, "CONFIG_FILE", config_file), patch.dict(os.environ, {}, clear=True):
                 with self.assertRaises(RuntimeError):
-                    mbx_data.resolve_bot_token()
+                    data.resolve_bot_token()
 
 
 if __name__ == "__main__":

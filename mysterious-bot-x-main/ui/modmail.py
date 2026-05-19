@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from modules.mbx_legacy import (
+from modules.legacy import (
     CannedReplyView,
     ModmailControlView,
     ModmailModal,

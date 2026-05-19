@@ -1,23 +1,2 @@
-from __future__ import annotations
-
-from modules.mbx_legacy import (
-    RoleSettingsView,
-    build_role_info_embed,
-    build_role_landing_embed,
-    get_custom_role_limit,
-    help_cmd,
-    role_cmd,
-    role_manage,
-    role_settings,
-)
-
-__all__ = [
-    "RoleSettingsView",
-    "build_role_info_embed",
-    "build_role_landing_embed",
-    "get_custom_role_limit",
-    "help_cmd",
-    "role_cmd",
-    "role_manage",
-    "role_settings",
-]
+# Backward-compatibility shim — use modules.roles instead.
+from modules.roles import *  # noqa: F401, F403

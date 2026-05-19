@@ -2,7 +2,7 @@ import asyncio
 import importlib
 import unittest
 
-from modules.mbx_bot import EXTENSIONS, create_bot
+from modules.bot import EXTENSIONS, create_bot
 
 
 class MbxBootstrapTests(unittest.TestCase):

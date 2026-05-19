@@ -1,6 +1,6 @@
 import unittest
 
-from modules.mbx_services import (
+from modules.services import (
     DEFAULT_ESCALATION_MATRIX,
     DEFAULT_SCHEMA_VERSION,
     get_native_automod_settings,

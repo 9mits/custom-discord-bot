@@ -2,7 +2,7 @@
 # This file is preserved for backward compatibility.
 # All implementation has been moved to modules/commands/ subpackage.
 # External code that does:
-#   from modules.mbx_legacy import SomeName
+#   from modules.legacy import SomeName
 # will continue to work because the commands package re-exports everything.
 
 from modules.commands import *  # noqa: F401, F403
@@ -37,7 +37,7 @@ from modules.commands import *  # noqa: F401, F403
 # from pathlib import Path
 # from types import SimpleNamespace
 # from urllib.parse import urlsplit
-# from modules.mbx_constants import (
+# from modules.constants import (
 #     BRAND_NAME,
 #     COOLDOWN_SECONDS,
 #     DEFAULT_ANCHOR_ROLE_ID,
@@ -67,8 +67,8 @@ from modules.commands import *  # noqa: F401, F403
 #     THEME_ORANGE,
 #     TOKEN_ENV_VARS,
 # )
-# from modules.mbx_models import CaseNote
-# from modules.mbx_services import (
+# from modules.models import CaseNote
+# from modules.services import (
 #     DEFAULT_CANNED_REPLIES,
 #     DEFAULT_ESCALATION_MATRIX,
 #     DEFAULT_FEATURE_FLAGS,
@@ -93,8 +93,8 @@ from modules.commands import *  # noqa: F401, F403
 #     ticket_needs_sla_alert,
 #     validate_guild_configuration,
 # )
-# from modules.mbx_context import abuse_system, bot, tree
-# from modules.mbx_utils import iso_to_dt, now_iso, parse_duration_str
+# from modules.context import abuse_system, bot, tree
+# from modules.utils import iso_to_dt, now_iso, parse_duration_str
 #
 # # Setup Logging
 # logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')

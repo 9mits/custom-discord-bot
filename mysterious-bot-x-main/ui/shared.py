@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from modules.mbx_legacy import (
+from modules.legacy import (
     brand_embed,
     format_log_quote,
     format_reason_value,
