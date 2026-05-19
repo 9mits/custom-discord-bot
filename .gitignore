@@ -3,4 +3,5 @@ __pycache__/
 .DS_Store
 .env
 config.json
-database/config.json
+database/
+.claude/
