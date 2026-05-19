@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import aiosqlite
 import discord
 
-from modules.constants import (
+from core.constants import (
     DEFAULT_GUILD_ID,
     DEFAULT_MAX_UNREAD_PINGS,
     DEFAULT_MESSAGE_CACHE_LIMIT,
@@ -33,7 +33,7 @@ from modules.constants import (
     DEFAULT_ARCHIVE_CAT_ID,
     TOKEN_ENV_VARS,
 )
-from modules.services import (
+from core.services import (
     DEFAULT_CANNED_REPLIES,
     DEFAULT_NATIVE_AUTOMOD_SETTINGS,
     DEFAULT_SCHEMA_VERSION,
@@ -919,7 +919,7 @@ class DataManager:
         return next_case_id
 
     def prepare_punishment_record(self, record: dict) -> dict:
-        from modules.utils import now_iso
+        from core.utils import now_iso
         prepared = dict(record)
         case_id = prepared.get("case_id")
         if not isinstance(case_id, int) or case_id <= 0:

@@ -8,18 +8,21 @@ import aiohttp
 import discord
 from discord.ext import commands, tasks
 
-from modules.constants import DEFAULT_GUILD_ID, SCOPE_ROLES, SCOPE_SUPPORT
-from modules.context import set_bot
-from modules.data import DataManager, resolve_bot_token
-from modules.services import get_feature_flag, ticket_needs_sla_alert
-from modules.utils import iso_to_dt, now_iso
+from core.constants import DEFAULT_GUILD_ID, SCOPE_ROLES, SCOPE_SUPPORT
+from core.context import set_bot
+from core.data import DataManager, resolve_bot_token
+from core.services import get_feature_flag, ticket_needs_sla_alert
+from core.utils import iso_to_dt, now_iso
 
 
 EXTENSIONS = (
-    "cogs.roles",
+    "cogs.cases",
     "cogs.moderation",
+    "cogs.roles",
     "cogs.modmail",
     "cogs.automod",
+    "cogs.config",
+    "cogs.analytics",
     "cogs.system",
 )
 
@@ -48,7 +51,7 @@ class MGXBot(commands.Bot):
         self.abuse_system = None
 
     async def setup_hook(self):
-        from modules.data import AntiAbuseSystem
+        from core.data import AntiAbuseSystem
 
         self.session = aiohttp.ClientSession()
         self.data_manager = DataManager(self)
@@ -67,7 +70,7 @@ class MGXBot(commands.Bot):
         self.role_cleanup_task.start()
 
     async def _restore_persistent_views(self) -> None:
-        from ui.modmail import ModmailControlView, ModmailPanelView
+        from cogs.modmail import ModmailControlView, ModmailPanelView
 
         self.add_view(ModmailPanelView())
         if not self.data_manager:
@@ -132,7 +135,7 @@ class MGXBot(commands.Bot):
 
     @tasks.loop(minutes=10)
     async def modmail_sla_task(self):
-        from ui.shared import make_embed
+        from cogs.shared import make_embed
 
         if not self.data_manager or not get_feature_flag(self.data_manager.config, "advanced_modmail", True):
             return
@@ -183,9 +186,9 @@ class MGXBot(commands.Bot):
 
     @tasks.loop(hours=6)
     async def role_cleanup_task(self):
-        from modules.logging import send_log
-        from modules.roles import get_custom_role_limit
-        from ui.shared import format_reason_value, make_embed
+        from cogs.shared import send_log
+        from cogs.shared import get_custom_role_limit
+        from cogs.shared import format_reason_value, make_embed
 
         if not self.data_manager or not get_feature_flag(self.data_manager.config, "role_cleanup", True):
             return

@@ -19,7 +19,7 @@ import io
 import logging
 from pathlib import Path
 
-from modules.constants import (
+from core.constants import (
     BRAND_NAME,
     DEFAULT_ROLE_ADMIN,
     DEFAULT_ROLE_COMMUNITY_MANAGER,
@@ -31,15 +31,14 @@ from modules.constants import (
     SCOPE_SYSTEM,
     TOKEN_ENV_VARS,
 )
-from modules.models import CaseNote
-from modules.services import (
+from core.models import CaseNote
+from core.services import (
     get_feature_flag,
     has_capability,
     validate_guild_configuration,
 )
-from modules.context import abuse_system, bot, tree
-from modules.utils import iso_to_dt, now_iso, parse_duration_str
-from .system import check_admin, check_owner
+from core.context import abuse_system, bot, tree
+from core.utils import iso_to_dt, now_iso, parse_duration_str
 from .shared import (
     logger,
     DB_DIR,
@@ -68,6 +67,8 @@ from .shared import (
     is_staff_member,
     is_staff,
     resolve_member,
+    check_admin,
+    check_owner,
 )
 from .cases import (
     get_case_id,
@@ -493,3 +494,13 @@ async def directory(interaction: discord.Interaction):
             
     view = StaffView(unique_staff) if unique_staff else None
     await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+
+
+class AnalyticsCog(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+
+
+async def setup(bot):
+    await bot.add_cog(AnalyticsCog(bot))
+    bot.tree.add_command(directory)

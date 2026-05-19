@@ -23,7 +23,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import urlsplit
 
-from modules.constants import (
+from core.constants import (
     BRAND_NAME,
     COOLDOWN_SECONDS,
     DEFAULT_ANCHOR_ROLE_ID,
@@ -53,8 +53,8 @@ from modules.constants import (
     THEME_ORANGE,
     TOKEN_ENV_VARS,
 )
-from modules.models import CaseNote
-from modules.services import (
+from core.models import CaseNote
+from core.services import (
     DEFAULT_CANNED_REPLIES,
     DEFAULT_ESCALATION_MATRIX,
     DEFAULT_FEATURE_FLAGS,
@@ -79,8 +79,8 @@ from modules.services import (
     ticket_needs_sla_alert,
     validate_guild_configuration,
 )
-from modules.context import abuse_system, bot, tree
-from modules.utils import iso_to_dt, now_iso, parse_duration_str, truncate_text, format_duration, create_progress_bar
+from core.context import abuse_system, bot, tree
+from core.utils import iso_to_dt, now_iso, parse_duration_str, truncate_text, format_duration, create_progress_bar
 
 # Setup Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
@@ -1000,7 +1000,7 @@ async def send_modmail_panel_message(
             embed.add_field(name="Quick Note", value=note_value, inline=False)
 
     # Lazy import to avoid circular dependency: modmail.py imports from shared.py
-    from modules.commands.modmail import ModmailPanelView  # noqa: PLC0415
+    from .modmail import ModmailPanelView  # noqa: PLC0415
 
     img_data, _ = await fetch_image_bytes(MODMAIL_PANEL_BANNER_URL)
     if img_data:
@@ -1460,7 +1460,7 @@ async def punish_rogue_mod(guild: discord.Guild, member: discord.User, reason: s
         restore_data["stripped_roles"] = stripped_ids
         restore_data["actor_id"] = member.id
         # Lazy import to avoid circular dependency
-        from modules.commands.system import AntiNukeResolveView  # noqa: PLC0415
+        from .system import AntiNukeResolveView  # noqa: PLC0415
         view = AntiNukeResolveView(restore_data)
         
     # Dynamic pings
@@ -1471,3 +1471,11 @@ async def punish_rogue_mod(guild: discord.Guild, member: discord.User, reason: s
     await send_log(guild, embed, content=pings, view=view)
 
 
+
+
+def check_admin(interaction: discord.Interaction) -> bool:
+    return has_permission_capability(interaction, "setup_panel")
+
+
+def check_owner(interaction: discord.Interaction) -> bool:
+    return has_permission_capability(interaction, "owner_panel")

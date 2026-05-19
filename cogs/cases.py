@@ -21,7 +21,7 @@ import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
-from modules.constants import (
+from core.constants import (
     BRAND_NAME,
     DEFAULT_ROLE_ADMIN,
     DEFAULT_ROLE_COMMUNITY_MANAGER,
@@ -37,8 +37,8 @@ from modules.constants import (
     SCOPE_SYSTEM,
     TOKEN_ENV_VARS,
 )
-from modules.models import CaseNote
-from modules.services import (
+from core.models import CaseNote
+from core.services import (
     DEFAULT_CANNED_REPLIES,
     DEFAULT_ESCALATION_MATRIX,
     DEFAULT_FEATURE_FLAGS,
@@ -57,8 +57,8 @@ from modules.services import (
     sanitize_tags,
     validate_guild_configuration,
 )
-from modules.context import abuse_system, bot, tree
-from modules.utils import iso_to_dt, now_iso, parse_duration_str
+from core.context import abuse_system, bot, tree
+from core.utils import iso_to_dt, now_iso, parse_duration_str
 from .shared import (
     logger,
     DB_DIR,
@@ -2598,3 +2598,12 @@ class AntiNukeResolveView(discord.ui.View):
         )
 
 # ----------------- Modmail System -----------------
+
+
+class CasesCog(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+
+
+async def setup(bot):
+    await bot.add_cog(CasesCog(bot))

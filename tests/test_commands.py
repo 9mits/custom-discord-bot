@@ -4,7 +4,37 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import discord
 
-from modules import commands as legacy
+import types as _types
+from cogs.shared import (
+    is_staff,
+    respond_with_error,
+    validate_image_fetch_url,
+    _resolve_image_host_addresses,
+    fetch_image_bytes,
+    bot,
+    prepare_modmail_relay_attachments,
+    send_modmail_thread_intro,
+    SCOPE_MODERATION,
+)
+from cogs.roles import RevokeAppealView, ConfirmRevokeView, DenyAppealModal
+from cogs.automod import apply_automod_report_response
+
+# Build a legacy namespace that mirrors modules.commands
+legacy = _types.SimpleNamespace(
+    is_staff=is_staff,
+    respond_with_error=respond_with_error,
+    validate_image_fetch_url=validate_image_fetch_url,
+    _resolve_image_host_addresses=_resolve_image_host_addresses,
+    fetch_image_bytes=fetch_image_bytes,
+    bot=bot,
+    prepare_modmail_relay_attachments=prepare_modmail_relay_attachments,
+    send_modmail_thread_intro=send_modmail_thread_intro,
+    SCOPE_MODERATION=SCOPE_MODERATION,
+    RevokeAppealView=RevokeAppealView,
+    ConfirmRevokeView=ConfirmRevokeView,
+    DenyAppealModal=DenyAppealModal,
+    apply_automod_report_response=apply_automod_report_response,
+)
 
 
 def make_interaction():
@@ -18,7 +48,7 @@ def make_interaction():
     return SimpleNamespace(
         response=response,
         followup=followup,
-        user=SimpleNamespace(id=42, mention="<@42>", display_name="Moderator"),
+        user=SimpleNamespace(id=42, mention="<@42>", display_name="Moderator", roles=[], guild_permissions=SimpleNamespace(moderate_members=False)),
         guild=SimpleNamespace(name="Guild", icon=None),
         message=SimpleNamespace(embeds=[]),
         client=SimpleNamespace(fetch_user=AsyncMock()),
@@ -68,12 +98,17 @@ class FakeAttachment:
         return self.filename
 
 
+import cogs.roles as _cogs_roles
+import cogs.automod as _cogs_automod
+import cogs.shared as _cogs_shared
+
+
 class MbxLegacyAuthTests(unittest.IsolatedAsyncioTestCase):
     async def test_revoke_appeal_entrypoint_rejects_non_staff(self):
         interaction = make_interaction()
         view = legacy.RevokeAppealView(target_id=1, moderator_id=2, duration=0, timestamp="2026-01-01T00:00:00+00:00")
 
-        with patch.object(legacy, "is_staff", return_value=False):
+        with patch.object(_cogs_roles, "is_staff", return_value=False):
             await view.children[0].callback(interaction)
 
         interaction.response.send_message.assert_awaited_once_with("Access denied.", ephemeral=True)
@@ -83,7 +118,7 @@ class MbxLegacyAuthTests(unittest.IsolatedAsyncioTestCase):
         parent_view = SimpleNamespace(finish_revoke=AsyncMock())
         view = legacy.ConfirmRevokeView(parent_view, SimpleNamespace())
 
-        with patch.object(legacy, "is_staff", return_value=False):
+        with patch.object(_cogs_roles, "is_staff", return_value=False):
             await view.children[0].callback(interaction)
 
         interaction.response.send_message.assert_awaited_once_with("Access denied.", ephemeral=True)
@@ -97,7 +132,7 @@ class MbxLegacyAuthTests(unittest.IsolatedAsyncioTestCase):
             view=SimpleNamespace(children=[]),
         )
 
-        with patch.object(legacy, "is_staff", return_value=False):
+        with patch.object(_cogs_roles, "is_staff", return_value=False):
             await modal.on_submit(interaction)
 
         interaction.response.send_message.assert_awaited_once_with("Access denied.", ephemeral=True)
@@ -106,7 +141,7 @@ class MbxLegacyAuthTests(unittest.IsolatedAsyncioTestCase):
         interaction = make_interaction()
         view = legacy.RevokeAppealView(target_id=1, moderator_id=2, duration=0, timestamp="2026-01-01T00:00:00+00:00")
 
-        with patch.object(legacy, "is_staff", return_value=False):
+        with patch.object(_cogs_roles, "is_staff", return_value=False):
             await view.finish_revoke(interaction, SimpleNamespace(embeds=[SimpleNamespace()]))
 
         interaction.response.send_message.assert_awaited_once_with("Access denied.", ephemeral=True)
@@ -114,7 +149,7 @@ class MbxLegacyAuthTests(unittest.IsolatedAsyncioTestCase):
     async def test_apply_automod_report_response_rejects_non_staff(self):
         interaction = make_interaction()
 
-        with patch.object(legacy, "is_staff", return_value=False), patch.object(legacy, "respond_with_error", AsyncMock()) as mock_error:
+        with patch.object(_cogs_automod, "is_staff", return_value=False), patch.object(_cogs_automod, "respond_with_error", AsyncMock()) as mock_error:
             success = await legacy.apply_automod_report_response(
                 interaction,
                 guild_id=1,
@@ -140,7 +175,7 @@ class MbxLegacyFetchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(error, "Image URLs with embedded credentials are not allowed.")
 
     async def test_validate_image_fetch_url_rejects_private_host(self):
-        with patch.object(legacy, "_resolve_image_host_addresses", AsyncMock(return_value=(["127.0.0.1"], None))):
+        with patch.object(_cogs_shared, "_resolve_image_host_addresses", AsyncMock(return_value=(["127.0.0.1"], None))):
             _, error = await legacy.validate_image_fetch_url("https://localhost/image.png")
 
         self.assertEqual(error, "Image URLs must use a public host.")
@@ -148,8 +183,8 @@ class MbxLegacyFetchTests(unittest.IsolatedAsyncioTestCase):
     async def test_fetch_image_bytes_rejects_redirects(self):
         session = FakeSession(FakeResponse(302))
 
-        with patch.object(legacy, "validate_image_fetch_url", AsyncMock(return_value=("https://cdn.example/image.png", None))), patch.object(
-            legacy,
+        with patch.object(_cogs_shared, "validate_image_fetch_url", AsyncMock(return_value=("https://cdn.example/image.png", None))), patch.object(
+            _cogs_shared,
             "bot",
             SimpleNamespace(session=session),
         ):

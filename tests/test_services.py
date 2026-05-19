@@ -1,6 +1,6 @@
 import unittest
 
-from modules.services import (
+from core.services import (
     DEFAULT_ESCALATION_MATRIX,
     DEFAULT_SCHEMA_VERSION,
     get_native_automod_settings,

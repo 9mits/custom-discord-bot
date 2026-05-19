@@ -19,7 +19,7 @@ import io
 import logging
 from pathlib import Path
 
-from modules.constants import (
+from core.constants import (
     BRAND_NAME,
     DEFAULT_ROLE_ADMIN,
     DEFAULT_ROLE_COMMUNITY_MANAGER,
@@ -34,8 +34,8 @@ from modules.constants import (
     SCOPE_SYSTEM,
     TOKEN_ENV_VARS,
 )
-from modules.models import CaseNote
-from modules.services import (
+from core.models import CaseNote
+from core.services import (
     DEFAULT_CANNED_REPLIES,
     DEFAULT_ESCALATION_MATRIX,
     DEFAULT_FEATURE_FLAGS,
@@ -57,9 +57,8 @@ from modules.services import (
     ticket_needs_sla_alert,
     validate_guild_configuration,
 )
-from modules.context import abuse_system, bot, tree
-from modules.utils import iso_to_dt, now_iso, parse_duration_str
-from .system import check_admin, check_owner
+from core.context import abuse_system, bot, tree
+from core.utils import iso_to_dt, now_iso, parse_duration_str
 from .shared import (
     logger,
     DB_DIR,
@@ -101,8 +100,10 @@ from .shared import (
     build_escalation_matrix_embed,
     build_canned_replies_embed,
     build_setup_validation_embed,
-    get_feature_flag_name,
+    check_admin,
+    check_owner,
 )
+from .cases import get_feature_flag_name
 from .automod import (
     ensure_native_rule_override_policy,
     AutoModBridgeSettingsView,
@@ -113,7 +114,7 @@ from .automod import (
     SmartAutoModSettingsView,
     AutoModDashboardView,
 )
-from .modmail import ModmailSettingsView
+# ModmailSettingsView not yet implemented
 
 class ConfigRoleSelect(discord.ui.RoleSelect):
     def __init__(self, config_key: str, config_name: str):
@@ -499,7 +500,10 @@ class SetupDashboardView(discord.ui.View):
         self.add_item(SetupDashboardActionSelect())
 
 
-async def setup(interaction: discord.Interaction):
+@tree.command(name="setup", description="Open the server configuration panel | admin")
+@app_commands.default_permissions(administrator=True)
+@app_commands.check(check_admin)
+async def setup_slash(interaction: discord.Interaction):
     embed = build_setup_dashboard_embed(interaction.guild)
     await interaction.response.send_message(embed=embed, view=SetupDashboardView(), ephemeral=True)
 
@@ -514,3 +518,14 @@ async def config_cmd(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed, view=ConfigDashboardView(), ephemeral=True)
 
 
+
+
+class ConfigCog(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+
+
+async def setup(bot):
+    await bot.add_cog(ConfigCog(bot))
+    bot.tree.add_command(setup_slash)
+    bot.tree.add_command(config_cmd)

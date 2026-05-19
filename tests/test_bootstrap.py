@@ -2,7 +2,7 @@ import asyncio
 import importlib
 import unittest
 
-from modules.bot import EXTENSIONS, create_bot
+from core.bot import EXTENSIONS, create_bot
 
 
 class MbxBootstrapTests(unittest.TestCase):
@@ -13,10 +13,13 @@ class MbxBootstrapTests(unittest.TestCase):
 
     def test_cogs_import_without_running_bot(self):
         for module_name in (
-            "cogs.roles",
+            "cogs.cases",
             "cogs.moderation",
+            "cogs.roles",
             "cogs.modmail",
             "cogs.automod",
+            "cogs.config",
+            "cogs.analytics",
             "cogs.system",
         ):
             module = importlib.import_module(module_name)

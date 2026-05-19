@@ -8,8 +8,8 @@ from unittest.mock import patch
 
 import discord
 
-from modules import data
-from modules.data import DataManager
+from core import data
+from core.data import DataManager
 
 
 class DummyBot:
