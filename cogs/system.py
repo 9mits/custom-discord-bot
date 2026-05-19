@@ -1934,6 +1934,133 @@ async def on_message(message: discord.Message):
 
     await bot.process_commands(message)
 
+# ──────────────────────────── /branding ────────────────────────────
+
+class BrandingUsernameModal(discord.ui.Modal, title="Change Bot Username"):
+    username = discord.ui.TextInput(
+        label="New Username",
+        placeholder="Enter new bot username...",
+        min_length=2,
+        max_length=32,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await bot.user.edit(username=self.username.value.strip())
+            await interaction.followup.send(f"Username updated to **{self.username.value.strip()}**.", ephemeral=True)
+        except discord.HTTPException as e:
+            await interaction.followup.send(f"Failed to update username: {e}", ephemeral=True)
+
+
+class BrandingAvatarModal(discord.ui.Modal, title="Change Bot Avatar"):
+    url = discord.ui.TextInput(
+        label="Image URL",
+        placeholder="https://example.com/image.png",
+        min_length=10,
+        max_length=500,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            async with bot.session.get(self.url.value.strip()) as resp:
+                if resp.status != 200:
+                    await interaction.followup.send(f"Failed to fetch image (HTTP {resp.status}).", ephemeral=True)
+                    return
+                data = await resp.read()
+            await bot.user.edit(avatar=data)
+            await interaction.followup.send("Avatar updated.", ephemeral=True)
+        except discord.HTTPException as e:
+            await interaction.followup.send(f"Failed to update avatar: {e}", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"Error fetching image: {e}", ephemeral=True)
+
+
+class BrandingBannerModal(discord.ui.Modal, title="Change Bot Banner"):
+    url = discord.ui.TextInput(
+        label="Image URL",
+        placeholder="https://example.com/banner.png",
+        min_length=10,
+        max_length=500,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            async with bot.session.get(self.url.value.strip()) as resp:
+                if resp.status != 200:
+                    await interaction.followup.send(f"Failed to fetch image (HTTP {resp.status}).", ephemeral=True)
+                    return
+                data = await resp.read()
+            await bot.user.edit(banner=data)
+            await interaction.followup.send("Banner updated.", ephemeral=True)
+        except discord.HTTPException as e:
+            await interaction.followup.send(f"Failed to update banner: {e}", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"Error fetching image: {e}", ephemeral=True)
+
+
+def _build_branding_embed() -> discord.Embed:
+    user = bot.user
+    embed = make_embed(
+        "Bot Branding",
+        "> Edit the bot's profile — username, avatar, and banner.",
+        kind="info",
+        scope=SCOPE_SYSTEM,
+    )
+    embed.add_field(name="Current Username", value=str(user), inline=True)
+    embed.add_field(name="Bot ID", value=str(user.id), inline=True)
+    if user.avatar:
+        embed.set_thumbnail(url=user.avatar.url)
+    if user.banner:
+        embed.set_image(url=user.banner.url)
+    return embed
+
+
+class BrandingView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=180)
+
+    @discord.ui.button(label="Change Username", style=discord.ButtonStyle.primary, row=0)
+    async def change_username(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(BrandingUsernameModal())
+
+    @discord.ui.button(label="Change Avatar", style=discord.ButtonStyle.primary, row=0)
+    async def change_avatar(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(BrandingAvatarModal())
+
+    @discord.ui.button(label="Change Banner", style=discord.ButtonStyle.primary, row=0)
+    async def change_banner(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(BrandingBannerModal())
+
+    @discord.ui.button(label="Remove Avatar", style=discord.ButtonStyle.danger, row=1)
+    async def remove_avatar(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await bot.user.edit(avatar=None)
+            await interaction.followup.send("Avatar removed.", ephemeral=True)
+        except discord.HTTPException as e:
+            await interaction.followup.send(f"Failed to remove avatar: {e}", ephemeral=True)
+
+    @discord.ui.button(label="Remove Banner", style=discord.ButtonStyle.danger, row=1)
+    async def remove_banner(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await bot.user.edit(banner=None)
+            await interaction.followup.send("Banner removed.", ephemeral=True)
+        except discord.HTTPException as e:
+            await interaction.followup.send(f"Failed to remove banner: {e}", ephemeral=True)
+
+
+@tree.command(name="branding", description="Edit the bot's profile — username, avatar, banner | owner")
+@app_commands.check(check_owner)
+async def branding_cmd(interaction: discord.Interaction):
+    await interaction.response.send_message(embed=_build_branding_embed(), view=BrandingView(), ephemeral=True)
+
+
+# ──────────────────────────────────────────────────────────────────
+
 @bot.event
 async def on_ready():
     bot.start_time = time.time()
@@ -1978,5 +2105,6 @@ async def setup(bot):
     bot.tree.add_command(lockdown)
     bot.tree.add_command(unlockdown)
     bot.tree.add_command(status_cmd)
+    bot.tree.add_command(branding_cmd)
     bot.add_command(sync)
     bot.tree.on_error = on_app_command_error
