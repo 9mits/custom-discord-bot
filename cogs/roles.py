@@ -35,7 +35,6 @@ from .shared import (
     build_role_landing_embed,
     make_action_log_embed,
     send_punishment_log,
-    extract_snowflake_id,
     check_admin,
 )
 from .cases import (
@@ -948,68 +947,111 @@ def build_role_registry_embed(guild: discord.Guild) -> discord.Embed:
     return embed
 
 
-class RoleSettingsTargetModal(discord.ui.Modal):
-    target_value = discord.ui.TextInput(label="Target ID or Mention", placeholder="Paste a user or role ID", max_length=30)
+class RoleSettingsLimitModal(discord.ui.Modal, title="Set Role Limit"):
     limit_value = discord.ui.TextInput(label="Role Limit", placeholder="1", required=False, max_length=3)
 
-    def __init__(self, *, title: str, action: str, target_type: str, require_limit: bool = False):
-        super().__init__(title=title)
+    def __init__(self, *, action: str, target: Union[discord.Member, discord.Role]):
+        super().__init__()
         self.action = action
-        self.target_type = target_type
-        self.require_limit = require_limit
-        self.limit_value.required = require_limit
-        if not require_limit:
-            self.remove_item(self.limit_value)
+        self.target = target
 
     async def on_submit(self, interaction: discord.Interaction):
-        target_id = extract_snowflake_id(self.target_value.value)
-        if not target_id:
-            await interaction.response.send_message("Enter a valid ID or mention.", ephemeral=True)
+        try:
+            limit = max(1, int(self.limit_value.value or 1))
+        except ValueError:
+            await interaction.response.send_message("Role limit must be a number.", ephemeral=True)
             return
 
-        if self.target_type == "member":
-            target = interaction.guild.get_member(target_id)
-            if not target:
-                try:
-                    target = await interaction.guild.fetch_member(target_id)
-                except Exception:
-                    target = None
+        await role_manage(interaction, self.action, self.target, limit)
+
+
+class RoleSettingsMemberTargetSelect(discord.ui.UserSelect):
+    def __init__(self, parent: "RoleSettingsTargetSelectView"):
+        self.parent = parent
+        super().__init__(
+            placeholder="Choose a member...",
+            min_values=1,
+            max_values=1,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        selected = self.values[0]
+        if isinstance(selected, discord.Member):
+            member = selected
         else:
-            target = interaction.guild.get_role(target_id)
-
-        if target is None:
-            await interaction.response.send_message("That target could not be found in this server.", ephemeral=True)
-            return
-
-        limit = 1
-        if self.require_limit:
             try:
-                limit = max(1, int(self.limit_value.value or 1))
-            except ValueError:
-                await interaction.response.send_message("Role limit must be a number.", ephemeral=True)
-                return
-
-        await role_manage.callback(interaction, self.action, target, limit)
-
-
-class RoleSettingsManageMemberModal(discord.ui.Modal, title="Open Member Role Panel"):
-    member_value = discord.ui.TextInput(label="Member ID or Mention", placeholder="Paste a user ID", max_length=30)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        member_id = extract_snowflake_id(self.member_value.value)
-        if not member_id:
-            await interaction.response.send_message("Enter a valid member ID or mention.", ephemeral=True)
-            return
-        member = interaction.guild.get_member(member_id)
-        if not member:
-            try:
-                member = await interaction.guild.fetch_member(member_id)
+                member = await interaction.guild.fetch_member(selected.id)
             except Exception:
                 member = None
         if member is None:
             await interaction.response.send_message("That member could not be found in this server.", ephemeral=True)
             return
-        await role_manage.callback(interaction, "manage_user", member, 1)
+        await self.parent.handle_target(interaction, member)
+
+
+class RoleSettingsRoleTargetSelect(discord.ui.RoleSelect):
+    def __init__(self, parent: "RoleSettingsTargetSelectView"):
+        self.parent = parent
+        super().__init__(
+            placeholder="Choose a role...",
+            min_values=1,
+            max_values=1,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        await self.parent.handle_target(interaction, self.values[0])
+
+
+class RoleSettingsTargetSelectView(discord.ui.View):
+    def __init__(self, *, requester_id: int, action: str, target_type: str, require_limit: bool = False):
+        super().__init__(timeout=180)
+        self.requester_id = requester_id
+        self.action = action
+        self.require_limit = require_limit
+        if target_type == "member":
+            self.add_item(RoleSettingsMemberTargetSelect(self))
+        else:
+            self.add_item(RoleSettingsRoleTargetSelect(self))
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id == self.requester_id:
+            return True
+        await interaction.response.send_message("This selector belongs to another administrator.", ephemeral=True)
+        return False
+
+    async def handle_target(self, interaction: discord.Interaction, target: Union[discord.Member, discord.Role]):
+        if self.require_limit:
+            await interaction.response.send_modal(RoleSettingsLimitModal(action=self.action, target=target))
+            return
+        await role_manage(interaction, self.action, target, 1)
+
+
+async def send_role_target_picker(
+    interaction: discord.Interaction,
+    *,
+    title: str,
+    action: str,
+    target_type: str,
+    require_limit: bool = False,
+):
+    target_label = "member" if target_type == "member" else "role"
+    embed = make_embed(
+        title,
+        f"> Choose the {target_label} from the selector below.",
+        kind="info",
+        scope=SCOPE_ROLES,
+        guild=interaction.guild,
+    )
+    await interaction.response.send_message(
+        embed=embed,
+        view=RoleSettingsTargetSelectView(
+            requester_id=interaction.user.id,
+            action=action,
+            target_type=target_type,
+            require_limit=require_limit,
+        ),
+        ephemeral=True,
+    )
 
 
 class RoleSettingsAccessSelect(discord.ui.Select):
@@ -1027,22 +1069,22 @@ class RoleSettingsAccessSelect(discord.ui.Select):
     async def callback(self, interaction: discord.Interaction):
         value = self.values[0]
         if value == "whitelist_member":
-            await interaction.response.send_modal(RoleSettingsTargetModal(title="Allow Member", action="whitelist", target_type="member", require_limit=True))
+            await send_role_target_picker(interaction, title="Allow Member", action="whitelist", target_type="member", require_limit=True)
             return
         if value == "whitelist_role":
-            await interaction.response.send_modal(RoleSettingsTargetModal(title="Allow Role", action="whitelist", target_type="role", require_limit=True))
+            await send_role_target_picker(interaction, title="Allow Role", action="whitelist", target_type="role", require_limit=True)
             return
         if value == "blacklist_member":
-            await interaction.response.send_modal(RoleSettingsTargetModal(title="Block Member", action="blacklist", target_type="member"))
+            await send_role_target_picker(interaction, title="Block Member", action="blacklist", target_type="member")
             return
         if value == "blacklist_role":
-            await interaction.response.send_modal(RoleSettingsTargetModal(title="Block Role", action="blacklist", target_type="role"))
+            await send_role_target_picker(interaction, title="Block Role", action="blacklist", target_type="role")
             return
         if value == "reset_member":
-            await interaction.response.send_modal(RoleSettingsTargetModal(title="Reset Member", action="reset", target_type="member"))
+            await send_role_target_picker(interaction, title="Reset Member", action="reset", target_type="member")
             return
         if value == "reset_role":
-            await interaction.response.send_modal(RoleSettingsTargetModal(title="Reset Role", action="reset", target_type="role"))
+            await send_role_target_picker(interaction, title="Reset Role", action="reset", target_type="role")
 
 
 class RoleSettingsAccessView(discord.ui.View):
@@ -1081,7 +1123,7 @@ class RoleSettingsActionSelect(discord.ui.Select):
             )
             return
         if action == "manage_member":
-            await interaction.response.send_modal(RoleSettingsManageMemberModal())
+            await send_role_target_picker(interaction, title="Manage Member Role", action="manage_user", target_type="member")
 
 
 class RoleSettingsView(discord.ui.View):

@@ -709,18 +709,144 @@ def _staff_check(interaction: discord.Interaction) -> bool:
     return is_staff(interaction)
 
 
+async def _resolve_selected_member(interaction: discord.Interaction, selected_user: Union[discord.Member, discord.User]) -> Optional[discord.Member]:
+    if isinstance(selected_user, discord.Member):
+        return selected_user
+    return await resolve_member(interaction.guild, selected_user.id)
+
+
+class CaseIdModal(discord.ui.Modal, title="Open Case by ID"):
+    case_id = discord.ui.TextInput(label="Case ID", placeholder="123", max_length=12)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            selected_case_id = int(self.case_id.value.strip())
+        except ValueError:
+            await respond_with_error(interaction, "Enter a valid numeric case ID.", scope=SCOPE_MODERATION)
+            return
+        await show_case_panel(interaction, case_id=selected_case_id)
+
+
+class ModerationTargetSelect(discord.ui.UserSelect):
+    def __init__(self, parent: "ModerationTargetPickerView"):
+        self.parent = parent
+        super().__init__(
+            placeholder="Choose a member...",
+            min_values=1,
+            max_values=1,
+            row=0,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        await self.parent.handle_user(interaction, self.values[0])
+
+
+class ModerationTargetPickerView(discord.ui.View):
+    def __init__(self, *, requester_id: int, action: str, public: bool = False, initial_undo_reason: Optional[str] = None):
+        super().__init__(timeout=180)
+        self.requester_id = requester_id
+        self.action = action
+        self.public = public
+        self.initial_undo_reason = initial_undo_reason
+        self.add_item(ModerationTargetSelect(self))
+        if action == "case":
+            self.add_item(CaseIdButton())
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id == self.requester_id:
+            return True
+        await interaction.response.send_message("This picker belongs to another moderator.", ephemeral=True)
+        return False
+
+    async def handle_user(self, interaction: discord.Interaction, selected_user: Union[discord.Member, discord.User]) -> None:
+        if not is_staff(interaction):
+            await interaction.response.send_message("You do not have permission to use this panel.", ephemeral=True)
+            return
+
+        if self.action == "punish":
+            await show_punish_menu(interaction, selected_user, public=self.public)
+            return
+
+        member = await _resolve_selected_member(interaction, selected_user)
+        if member is None:
+            await respond_with_error(interaction, "That user is not currently in this server.", scope=SCOPE_MODERATION)
+            return
+
+        if self.action == "history":
+            await show_history_menu(interaction, member)
+            return
+        if self.action == "undo":
+            await show_history_menu(interaction, member, mode="undo", initial_undo_reason=self.initial_undo_reason)
+            return
+        if self.action == "case":
+            await show_case_panel(interaction, user=member)
+
+
+class CaseIdButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Open by Case ID", style=discord.ButtonStyle.secondary, row=1)
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.send_modal(CaseIdModal())
+
+
+async def send_target_picker(
+    interaction: discord.Interaction,
+    *,
+    action: str,
+    title: str,
+    description: str,
+    public: bool = False,
+    initial_undo_reason: Optional[str] = None,
+) -> None:
+    embed = make_embed(
+        title,
+        description,
+        kind="info",
+        scope=SCOPE_MODERATION,
+        guild=interaction.guild,
+    )
+    await interaction.response.send_message(
+        embed=embed,
+        view=ModerationTargetPickerView(
+            requester_id=interaction.user.id,
+            action=action,
+            public=public,
+            initial_undo_reason=initial_undo_reason,
+        ),
+        ephemeral=True,
+    )
+
+
 @tree.command(name="punish", description="Open the moderation action panel.")
 @app_commands.describe(public="Send the result to this channel.")
 @app_commands.default_permissions(moderate_members=True)
 @app_commands.check(_staff_check)
-async def punish(interaction: discord.Interaction, user: discord.User, public: bool = False):
+async def punish(interaction: discord.Interaction, user: Optional[discord.User] = None, public: bool = False):
+    if user is None:
+        await send_target_picker(
+            interaction,
+            action="punish",
+            title="Choose a Target",
+            description="> Select a member to open the moderation action panel.",
+            public=public,
+        )
+        return
     await show_punish_menu(interaction, user, public=public)
 
 
 @tree.command(name="history", description="View a user's moderation history.")
 @app_commands.default_permissions(moderate_members=True)
 @app_commands.check(_staff_check)
-async def history(interaction: discord.Interaction, user: discord.Member):
+async def history(interaction: discord.Interaction, user: Optional[discord.Member] = None):
+    if user is None:
+        await send_target_picker(
+            interaction,
+            action="history",
+            title="Choose a Member",
+            description="> Select a member to view their moderation history.",
+        )
+        return
     await show_history_menu(interaction, user)
 
 
@@ -764,7 +890,16 @@ async def active(interaction: discord.Interaction):
 @app_commands.describe(reason="Reason to prefill in the undo panel.")
 @app_commands.default_permissions(moderate_members=True)
 @app_commands.check(_staff_check)
-async def undo(interaction: discord.Interaction, user: discord.Member, reason: Optional[str] = None):
+async def undo(interaction: discord.Interaction, user: Optional[discord.Member] = None, reason: Optional[str] = None):
+    if user is None:
+        await send_target_picker(
+            interaction,
+            action="undo",
+            title="Choose a Member",
+            description="> Select a member to open the undo panel.",
+            initial_undo_reason=reason,
+        )
+        return
     await show_history_menu(interaction, user, mode="undo", initial_undo_reason=reason)
 
 
@@ -923,6 +1058,14 @@ async def mod_help(interaction: discord.Interaction):
 @app_commands.describe(case_id="Case ID to open.", user="User whose latest case should open.")
 @app_commands.check(_staff_check)
 async def case(interaction: discord.Interaction, case_id: Optional[app_commands.Range[int, 1, 999999]] = None, user: Optional[discord.Member] = None):
+    if case_id is None and user is None:
+        await send_target_picker(
+            interaction,
+            action="case",
+            title="Open a Case",
+            description="> Select a member to open their latest case, or open a specific case by ID.",
+        )
+        return
     await show_case_panel(interaction, case_id=case_id, user=user)
 
 
