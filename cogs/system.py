@@ -1957,7 +1957,7 @@ class GlobalUsernameModal(discord.ui.Modal, title="Change Bot Username"):
             await interaction.followup.send(f"Failed: {e}", ephemeral=True)
 
 
-class GlobalAvatarModal(discord.ui.Modal, title="Change Bot Avatar"):
+class GlobalAvatarModal(discord.ui.Modal, title="Change Global Avatar"):
     url = discord.ui.TextInput(label="Image URL", placeholder="https://example.com/image.png", min_length=10, max_length=500)
 
     async def on_submit(self, interaction: discord.Interaction):
@@ -1970,10 +1970,23 @@ class GlobalAvatarModal(discord.ui.Modal, title="Change Bot Avatar"):
             await interaction.followup.send(f"Failed: {e}", ephemeral=True)
 
 
+class GlobalBannerModal(discord.ui.Modal, title="Change Global Banner"):
+    url = discord.ui.TextInput(label="Image URL", placeholder="https://example.com/banner.png", min_length=10, max_length=500)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            data = await _fetch_image(self.url.value.strip())
+            await bot.user.edit(banner=data)
+            await interaction.followup.send("Global banner updated.", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"Failed: {e}", ephemeral=True)
+
+
 # ── Server branding modals ──
 
 class ServerNicknameModal(discord.ui.Modal, title="Change Server Nickname"):
-    nickname = discord.ui.TextInput(label="Nickname", placeholder="Leave blank to reset to username", max_length=32, required=False)
+    nickname = discord.ui.TextInput(label="Nickname", placeholder="Leave blank to clear back to username", max_length=32, required=False)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
@@ -1999,6 +2012,39 @@ class ServerAvatarModal(discord.ui.Modal, title="Change Server Avatar"):
             await interaction.followup.send(f"Failed: {e}", ephemeral=True)
 
 
+class ServerBannerModal(discord.ui.Modal, title="Change Server Banner"):
+    url = discord.ui.TextInput(label="Image URL", placeholder="https://example.com/banner.png", min_length=10, max_length=500)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            data = await _fetch_image(self.url.value.strip())
+            await interaction.guild.me.edit(banner=data)
+            await interaction.followup.send("Server banner updated.", ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"Failed: {e}", ephemeral=True)
+
+
+class ServerBioModal(discord.ui.Modal, title="Change Server Bio"):
+    bio = discord.ui.TextInput(
+        label="Bio",
+        style=discord.TextStyle.paragraph,
+        placeholder="Enter a bio for this server...",
+        max_length=190,
+        required=False,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            bio_value = self.bio.value.strip() or None
+            await interaction.guild.me.edit(bio=bio_value)
+            msg = "Server bio updated." if bio_value else "Server bio cleared."
+            await interaction.followup.send(msg, ephemeral=True)
+        except Exception as e:
+            await interaction.followup.send(f"Failed: {e}", ephemeral=True)
+
+
 # ── Embed builders ──
 
 def _build_global_branding_embed() -> discord.Embed:
@@ -2012,8 +2058,11 @@ def _build_global_branding_embed() -> discord.Embed:
     embed.add_field(name="Username", value=str(user), inline=True)
     embed.add_field(name="Bot ID", value=str(user.id), inline=True)
     embed.add_field(name="Avatar", value="Set" if user.avatar else "Default", inline=True)
+    embed.add_field(name="Banner", value="Set" if user.banner else "None", inline=True)
     if user.avatar:
         embed.set_thumbnail(url=user.avatar.url)
+    if user.banner:
+        embed.set_image(url=user.banner.url)
     return embed
 
 
@@ -2028,6 +2077,7 @@ def _build_server_branding_embed(guild: discord.Guild) -> discord.Embed:
     )
     embed.add_field(name="Nickname", value=me.nick or "None (using username)", inline=True)
     embed.add_field(name="Server Avatar", value="Set" if me.guild_avatar else "Using global", inline=True)
+    embed.add_field(name="Server Banner", value="Set" if getattr(me, "guild_banner", None) else "None", inline=True)
     if me.guild_avatar:
         embed.set_thumbnail(url=me.guild_avatar.url)
     elif me.avatar:
@@ -2041,13 +2091,17 @@ class GlobalBrandingView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=180)
 
-    @discord.ui.button(label="Change Username", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Username", style=discord.ButtonStyle.primary, row=0)
     async def change_username(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(GlobalUsernameModal())
 
-    @discord.ui.button(label="Change Avatar", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Avatar", style=discord.ButtonStyle.primary, row=0)
     async def change_avatar(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(GlobalAvatarModal())
+
+    @discord.ui.button(label="Banner", style=discord.ButtonStyle.primary, row=0)
+    async def change_banner(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(GlobalBannerModal())
 
     @discord.ui.button(label="Remove Avatar", style=discord.ButtonStyle.danger, row=1)
     async def remove_avatar(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2058,18 +2112,35 @@ class GlobalBrandingView(discord.ui.View):
         except discord.HTTPException as e:
             await interaction.followup.send(f"Failed: {e}", ephemeral=True)
 
+    @discord.ui.button(label="Remove Banner", style=discord.ButtonStyle.danger, row=1)
+    async def remove_banner(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await bot.user.edit(banner=None)
+            await interaction.followup.send("Global banner removed.", ephemeral=True)
+        except discord.HTTPException as e:
+            await interaction.followup.send(f"Failed: {e}", ephemeral=True)
+
 
 class ServerBrandingView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=180)
 
-    @discord.ui.button(label="Change Nickname", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Nickname", style=discord.ButtonStyle.primary, row=0)
     async def change_nickname(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(ServerNicknameModal())
 
-    @discord.ui.button(label="Change Server Avatar", style=discord.ButtonStyle.primary, row=0)
+    @discord.ui.button(label="Avatar", style=discord.ButtonStyle.primary, row=0)
     async def change_server_avatar(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(ServerAvatarModal())
+
+    @discord.ui.button(label="Banner", style=discord.ButtonStyle.primary, row=0)
+    async def change_server_banner(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(ServerBannerModal())
+
+    @discord.ui.button(label="Bio", style=discord.ButtonStyle.primary, row=0)
+    async def change_server_bio(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(ServerBioModal())
 
     @discord.ui.button(label="Clear Nickname", style=discord.ButtonStyle.secondary, row=1)
     async def clear_nickname(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -2080,12 +2151,30 @@ class ServerBrandingView(discord.ui.View):
         except discord.HTTPException as e:
             await interaction.followup.send(f"Failed: {e}", ephemeral=True)
 
-    @discord.ui.button(label="Remove Server Avatar", style=discord.ButtonStyle.danger, row=1)
+    @discord.ui.button(label="Remove Avatar", style=discord.ButtonStyle.danger, row=1)
     async def remove_server_avatar(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         try:
             await interaction.guild.me.edit(avatar=None)
             await interaction.followup.send("Server avatar removed (reverted to global).", ephemeral=True)
+        except discord.HTTPException as e:
+            await interaction.followup.send(f"Failed: {e}", ephemeral=True)
+
+    @discord.ui.button(label="Remove Banner", style=discord.ButtonStyle.danger, row=2)
+    async def remove_server_banner(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await interaction.guild.me.edit(banner=None)
+            await interaction.followup.send("Server banner removed.", ephemeral=True)
+        except discord.HTTPException as e:
+            await interaction.followup.send(f"Failed: {e}", ephemeral=True)
+
+    @discord.ui.button(label="Clear Bio", style=discord.ButtonStyle.danger, row=2)
+    async def clear_server_bio(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await interaction.guild.me.edit(bio=None)
+            await interaction.followup.send("Server bio cleared.", ephemeral=True)
         except discord.HTTPException as e:
             await interaction.followup.send(f"Failed: {e}", ephemeral=True)
 
@@ -2095,13 +2184,13 @@ class ServerBrandingView(discord.ui.View):
 branding_group = app_commands.Group(name="branding", description="Manage the bot's profile and appearance | owner")
 
 
-@branding_group.command(name="global", description="Edit the bot's global profile — username and avatar")
+@branding_group.command(name="global", description="Edit the bot's global profile — username, avatar, banner")
 @app_commands.check(check_owner)
 async def branding_global(interaction: discord.Interaction):
     await interaction.response.send_message(embed=_build_global_branding_embed(), view=GlobalBrandingView(), ephemeral=True)
 
 
-@branding_group.command(name="server", description="Edit the bot's appearance in this server — nickname and server avatar")
+@branding_group.command(name="server", description="Edit the bot's appearance in this server — nickname, avatar, banner, bio")
 @app_commands.check(check_owner)
 async def branding_server(interaction: discord.Interaction):
     await interaction.response.send_message(embed=_build_server_branding_embed(interaction.guild), view=ServerBrandingView(), ephemeral=True)
