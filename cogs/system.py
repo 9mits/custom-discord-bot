@@ -1110,11 +1110,45 @@ async def sync(ctx):
         return
     
     guild = ctx.guild
-    await ctx.send(f"Syncing commands to **{guild.name}**...")
+    await ctx.send(f"Cleaning and syncing commands for **{guild.name}**...")
+    bot._remove_disabled_application_commands()
+    guild_deleted = await prune_disabled_remote_commands(guild=guild)
+    global_deleted = await prune_disabled_remote_commands(guild=None)
     bot.tree.copy_global_to(guild=guild)
-    cmds = await bot.tree.sync(guild=guild)
-    await ctx.send(f"Synced {len(cmds)} commands! Check console for list.")
-    logger.info(f"Synced commands: {[c.name for c in cmds]}")
+    guild_cmds = await bot.tree.sync(guild=guild)
+    global_cmds = await bot.tree.sync()
+    deleted = sorted(set(guild_deleted + global_deleted))
+    deleted_text = f" Removed stale commands: {', '.join(f'/{name}' for name in deleted)}." if deleted else ""
+    await ctx.send(f"Synced {len(guild_cmds)} server commands and {len(global_cmds)} global commands.{deleted_text}")
+    logger.info(
+        "Synced guild commands: %s | global commands: %s | removed stale commands: %s",
+        [c.name for c in guild_cmds],
+        [c.name for c in global_cmds],
+        deleted,
+    )
+
+
+async def prune_disabled_remote_commands(*, guild: Optional[discord.Guild]) -> List[str]:
+    from core.bot import DISABLED_APPLICATION_COMMANDS
+
+    try:
+        remote_commands = await bot.tree.fetch_commands(guild=guild)
+    except discord.HTTPException as exc:
+        scope = guild.name if guild else "global"
+        logger.warning("Failed to fetch %s commands before sync: %s", scope, exc)
+        return []
+
+    deleted = []
+    for command in remote_commands:
+        if command.name not in DISABLED_APPLICATION_COMMANDS:
+            continue
+        try:
+            await command.delete()
+        except discord.HTTPException as exc:
+            logger.warning("Failed to delete stale command /%s: %s", command.name, exc)
+            continue
+        deleted.append(command.name)
+    return deleted
 
 @tree.command(name="status", description="View bot latency and uptime.")
 @app_commands.default_permissions(moderate_members=True)
