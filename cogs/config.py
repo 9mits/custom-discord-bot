@@ -77,6 +77,8 @@ class ConfigTypeSelect(discord.ui.Select):
                 discord.SelectOption(label="AutoMod Log Channel", value="automod_log_channel_id", description="Where AutoMod bridge events should be logged."),
                 discord.SelectOption(label="AutoMod Report Channel", value="automod_report_channel_id", description="Where user AutoMod reports should be sent."),
                 discord.SelectOption(label="Archive Category", value="category_archive", description="Category for archive or storage channels."),
+                discord.SelectOption(label="Modmail Inbox Channel", value="modmail_inbox_channel", description="Where incoming modmail tickets appear for staff."),
+                discord.SelectOption(label="Modmail Action Log Channel", value="modmail_action_log_channel", description="Where modmail staff actions are logged."),
             ]
         super().__init__(
             placeholder=f"Select {category[:-1]} to configure...",
