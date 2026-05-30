@@ -967,12 +967,12 @@ class RoleSettingsLimitModal(discord.ui.Modal, title="Set Role Limit"):
 
 class RoleSettingsMemberTargetSelect(discord.ui.UserSelect):
     def __init__(self, parent: "RoleSettingsTargetSelectView"):
-        self.parent = parent
         super().__init__(
             placeholder="Choose a member...",
             min_values=1,
             max_values=1,
         )
+        self._target_view = parent
 
     async def callback(self, interaction: discord.Interaction):
         selected = self.values[0]
@@ -986,20 +986,20 @@ class RoleSettingsMemberTargetSelect(discord.ui.UserSelect):
         if member is None:
             await interaction.response.send_message("That member could not be found in this server.", ephemeral=True)
             return
-        await self.parent.handle_target(interaction, member)
+        await self._target_view.handle_target(interaction, member)
 
 
 class RoleSettingsRoleTargetSelect(discord.ui.RoleSelect):
     def __init__(self, parent: "RoleSettingsTargetSelectView"):
-        self.parent = parent
         super().__init__(
             placeholder="Choose a role...",
             min_values=1,
             max_values=1,
         )
+        self._target_view = parent
 
     async def callback(self, interaction: discord.Interaction):
-        await self.parent.handle_target(interaction, self.values[0])
+        await self._target_view.handle_target(interaction, self.values[0])
 
 
 class RoleSettingsTargetSelectView(discord.ui.View):

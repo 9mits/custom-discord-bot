@@ -729,16 +729,16 @@ class CaseIdModal(discord.ui.Modal, title="Open Case by ID"):
 
 class ModerationTargetSelect(discord.ui.UserSelect):
     def __init__(self, parent: "ModerationTargetPickerView"):
-        self.parent = parent
         super().__init__(
             placeholder="Choose a member...",
             min_values=1,
             max_values=1,
             row=0,
         )
+        self._target_view = parent
 
     async def callback(self, interaction: discord.Interaction):
-        await self.parent.handle_user(interaction, self.values[0])
+        await self._target_view.handle_user(interaction, self.values[0])
 
 
 class ModerationTargetPickerView(discord.ui.View):
