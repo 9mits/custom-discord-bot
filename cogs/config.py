@@ -275,12 +275,66 @@ class SetupDashboardActionSelect(discord.ui.Select):
             await interaction.response.send_message(embed=build_setup_validation_embed(interaction.guild, findings), ephemeral=True)
 
 
-class SetupDashboardView(discord.ui.View):
+class SetupRolesView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=180)
         self.add_item(ConfigTypeSelect("roles", row=0))
-        self.add_item(ConfigTypeSelect("channels", row=1))
+
+
+class SetupChannelsView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=180)
+        self.add_item(ConfigTypeSelect("channels", row=0))
+
+
+class SetupOtherView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=180)
         self.add_item(SetupDashboardActionSelect())
+
+
+class SetupLandingView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=180)
+
+    @discord.ui.button(label="Roles", style=discord.ButtonStyle.primary, emoji="🛡️", row=0)
+    async def roles_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        config = bot.data_manager.config
+        from core.constants import DEFAULT_ROLE_OWNER, DEFAULT_ROLE_ADMIN, DEFAULT_ROLE_MOD, DEFAULT_ROLE_COMMUNITY_MANAGER, DEFAULT_ANCHOR_ROLE_ID
+        embed = discord.Embed(title="Configure Roles", color=discord.Color.blurple())
+        embed.description = (
+            f"**Owner:** <@&{config.get('role_owner', DEFAULT_ROLE_OWNER)}>\n"
+            f"**Admin:** <@&{config.get('role_admin', DEFAULT_ROLE_ADMIN)}>\n"
+            f"**Moderator:** <@&{config.get('role_mod', DEFAULT_ROLE_MOD)}>\n"
+            f"**Community Manager:** <@&{config.get('role_community_manager', DEFAULT_ROLE_COMMUNITY_MANAGER)}>\n"
+            f"**Anchor Role:** <@&{config.get('role_anchor', DEFAULT_ANCHOR_ROLE_ID)}>\n\n"
+            "Use the dropdown below to update a role."
+        )
+        await interaction.response.send_message(embed=embed, view=SetupRolesView(), ephemeral=True)
+
+    @discord.ui.button(label="Channels", style=discord.ButtonStyle.primary, emoji="📋", row=0)
+    async def channels_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        config = bot.data_manager.config
+        def _ch(key): return f"<#{config[key]}>" if config.get(key) else "Not set"
+        embed = discord.Embed(title="Configure Channels", color=discord.Color.blurple())
+        embed.description = (
+            f"**General Log:** {_ch('general_log_channel_id')}\n"
+            f"**Punishment Log:** {_ch('punishment_log_channel_id')}\n"
+            f"**Appeal:** {_ch('appeal_channel_id')}\n"
+            f"**AutoMod Log:** {_ch('automod_log_channel_id')}\n"
+            f"**AutoMod Reports:** {_ch('automod_report_channel_id')}\n"
+            f"**Archive Category:** {_ch('category_archive')}\n"
+            f"**Modmail Inbox:** {_ch('modmail_inbox_channel')}\n"
+            f"**Modmail Action Log:** {_ch('modmail_action_log_channel')}\n\n"
+            "Use the dropdown below to update a channel."
+        )
+        await interaction.response.send_message(embed=embed, view=SetupChannelsView(), ephemeral=True)
+
+    @discord.ui.button(label="Other", style=discord.ButtonStyle.secondary, emoji="⚙️", row=0)
+    async def other_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = discord.Embed(title="Other Settings", color=discord.Color.greyple())
+        embed.description = "Set the Guild ID or run a full configuration validation check."
+        await interaction.response.send_message(embed=embed, view=SetupOtherView(), ephemeral=True)
 
 
 @tree.command(name="setup", description="Configure server roles and channels.")
@@ -288,7 +342,7 @@ class SetupDashboardView(discord.ui.View):
 @app_commands.check(check_admin)
 async def setup_slash(interaction: discord.Interaction):
     embed = build_setup_dashboard_embed(interaction.guild)
-    await interaction.response.send_message(embed=embed, view=SetupDashboardView(), ephemeral=True)
+    await interaction.response.send_message(embed=embed, view=SetupLandingView(), ephemeral=True)
 
 @tree.command(name="config", description="Manage bot settings and backups.")
 @app_commands.default_permissions(administrator=True)
