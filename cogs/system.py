@@ -2335,6 +2335,7 @@ async def setup(bot):
     bot.tree.add_command(lockdown)
     bot.tree.add_command(lift_lockdown)
     bot.tree.add_command(status_cmd)
+    bot.tree.add_command(serverinfo_cmd)
     bot.tree.add_command(branding_group)
     bot.add_command(sync)
     bot.tree.on_error = on_app_command_error
