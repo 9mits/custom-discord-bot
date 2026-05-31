@@ -56,6 +56,11 @@ class ConfigChannelSelect(discord.ui.ChannelSelect):
         if self.config_key == "general_log_channel_id":
             bot.data_manager.config["log_channel_id"] = channel.id
         await bot.data_manager.save_config()
+
+        if self.config_key == "modmail_panel_channel":
+            await send_configured_modmail_panel(interaction, channel)
+            return
+
         await interaction.response.send_message(f"✅ **{self.config_name}** updated to {channel.mention}", ephemeral=True)
 
 class ConfigTypeSelect(discord.ui.Select):

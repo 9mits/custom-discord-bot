@@ -1,9 +1,12 @@
 import asyncio
 import importlib
 import unittest
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock, patch
 
 from core.bot import DISABLED_APPLICATION_COMMANDS, EXTENSIONS, create_bot
-from cogs.config import ConfigTypeSelect, SetupDashboardActionSelect
+from cogs.config import ConfigChannelSelect, ConfigTypeSelect, SetupDashboardActionSelect
+import cogs.config as config_module
 
 
 class MbxBootstrapTests(unittest.TestCase):
@@ -72,6 +75,32 @@ class MbxBootstrapTests(unittest.TestCase):
             self.assertFalse(next(param for param in case_command.parameters if param.name == "user").required)
 
         asyncio.run(runner())
+
+
+class MbxSetupModmailPanelTests(unittest.IsolatedAsyncioTestCase):
+    async def test_selecting_modmail_panel_channel_posts_panel(self):
+        selected = SimpleNamespace(id=123)
+        channel = SimpleNamespace(id=123, mention="<#123>")
+        guild = SimpleNamespace(
+            get_channel=Mock(return_value=channel),
+            fetch_channel=AsyncMock(),
+        )
+        interaction = SimpleNamespace(guild=guild)
+        data_manager = SimpleNamespace(config={}, save_config=AsyncMock())
+
+        select = ConfigChannelSelect("modmail_panel_channel", "Modmail Panel Channel")
+        select._values = [selected]
+
+        with patch.object(config_module, "bot", SimpleNamespace(data_manager=data_manager)), patch.object(
+            config_module,
+            "send_configured_modmail_panel",
+            AsyncMock(),
+        ) as send_panel:
+            await select.callback(interaction)
+
+        self.assertEqual(data_manager.config["modmail_panel_channel"], 123)
+        data_manager.save_config.assert_awaited_once()
+        send_panel.assert_awaited_once_with(interaction, channel)
 
 
 if __name__ == "__main__":
