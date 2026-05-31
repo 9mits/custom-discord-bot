@@ -297,7 +297,7 @@ class SetupLandingView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=180)
 
-    @discord.ui.button(label="Roles", style=discord.ButtonStyle.primary, emoji="🛡️", row=0)
+    @discord.ui.button(label="Roles", style=discord.ButtonStyle.primary, row=0)
     async def roles_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         config = bot.data_manager.config
         from core.constants import DEFAULT_ROLE_OWNER, DEFAULT_ROLE_ADMIN, DEFAULT_ROLE_MOD, DEFAULT_ROLE_COMMUNITY_MANAGER, DEFAULT_ANCHOR_ROLE_ID
@@ -312,7 +312,7 @@ class SetupLandingView(discord.ui.View):
         )
         await interaction.response.send_message(embed=embed, view=SetupRolesView(), ephemeral=True)
 
-    @discord.ui.button(label="Channels", style=discord.ButtonStyle.primary, emoji="📋", row=0)
+    @discord.ui.button(label="Channels", style=discord.ButtonStyle.primary, row=0)
     async def channels_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         config = bot.data_manager.config
         def _ch(key): return f"<#{config[key]}>" if config.get(key) else "Not set"
@@ -330,7 +330,7 @@ class SetupLandingView(discord.ui.View):
         )
         await interaction.response.send_message(embed=embed, view=SetupChannelsView(), ephemeral=True)
 
-    @discord.ui.button(label="Other", style=discord.ButtonStyle.secondary, emoji="⚙️", row=0)
+    @discord.ui.button(label="Other", style=discord.ButtonStyle.secondary, row=0)
     async def other_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
         embed = discord.Embed(title="Other Settings", color=discord.Color.greyple())
         embed.description = "Set the Guild ID or run a full configuration validation check."
