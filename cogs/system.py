@@ -1157,6 +1157,7 @@ async def status_cmd(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @tree.command(name="serverinfo", description="View detailed information about this server.")
+@app_commands.default_permissions(send_messages=True)
 async def serverinfo_cmd(interaction: discord.Interaction):
     g = interaction.guild
     await g.fetch_channels()
