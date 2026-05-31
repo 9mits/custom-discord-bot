@@ -56,6 +56,7 @@ class MbxBootstrapTests(unittest.TestCase):
                     "role-guide",
                     "role-settings",
                     "derole",
+                    "modmail-panel",
                     "security",
                     "lift-lockdown",
                     "undo",

@@ -246,6 +246,115 @@ class GuildIdModal(discord.ui.Modal, title="Set Guild ID"):
         await interaction.response.send_message(f"Guild ID set to `{self.guild_id.value}`.", ephemeral=True)
 
 
+async def _fetch_configured_modmail_panel_channel(interaction: discord.Interaction, channel_id: int):
+    channel = interaction.guild.get_channel(channel_id)
+    if channel is not None:
+        return channel
+
+    try:
+        return await interaction.guild.fetch_channel(channel_id)
+    except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+        return None
+
+
+def _channel_can_receive_panel(channel) -> bool:
+    return channel is not None and hasattr(channel, "send")
+
+
+async def _resolve_modmail_panel_channel(
+    interaction: discord.Interaction,
+    channel: Optional[discord.TextChannel] = None,
+):
+    if interaction.guild is None:
+        return None, "The modmail panel can only be posted from a server.", False
+
+    if channel is not None:
+        return channel, None, False
+
+    channel_id = bot.data_manager.config.get("modmail_panel_channel")
+    if channel_id:
+        try:
+            normalized_channel_id = int(channel_id)
+        except (TypeError, ValueError):
+            return None, "The configured modmail panel channel ID is invalid.", False
+
+        configured_channel = await _fetch_configured_modmail_panel_channel(interaction, normalized_channel_id)
+        if not _channel_can_receive_panel(configured_channel):
+            return None, "The configured modmail panel channel could not be found.", False
+        return configured_channel, None, False
+
+    current_channel = getattr(interaction, "channel", None)
+    if _channel_can_receive_panel(current_channel):
+        return current_channel, None, True
+
+    return None, "Set **Modmail Panel Channel** under setup channels first.", False
+
+
+def _missing_panel_permissions(channel, guild: discord.Guild) -> list[str]:
+    if bot.user is None:
+        return []
+
+    me = guild.me or guild.get_member(bot.user.id)
+    if me is None or not isinstance(channel, discord.abc.GuildChannel):
+        return []
+
+    permissions = channel.permissions_for(me)
+    missing = []
+    if not permissions.view_channel:
+        missing.append("View Channel")
+    if not permissions.send_messages:
+        missing.append("Send Messages")
+    return missing
+
+
+async def send_configured_modmail_panel(
+    interaction: discord.Interaction,
+    channel: Optional[discord.TextChannel] = None,
+) -> None:
+    target_channel, error, used_current_channel = await _resolve_modmail_panel_channel(interaction, channel)
+    if error:
+        await respond_with_error(interaction, error, scope=SCOPE_SYSTEM)
+        return
+
+    missing_permissions = _missing_panel_permissions(target_channel, interaction.guild)
+    if missing_permissions:
+        await respond_with_error(
+            interaction,
+            "I am missing these permissions in the modmail panel channel: "
+            + ", ".join(f"**{permission}**" for permission in missing_permissions)
+            + ".",
+            scope=SCOPE_SYSTEM,
+        )
+        return
+
+    if not interaction.response.is_done():
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+    try:
+        message = await send_modmail_panel_message(target_channel, interaction.guild)
+    except discord.Forbidden:
+        await respond_with_error(interaction, "I cannot send messages in the modmail panel channel.", scope=SCOPE_SYSTEM)
+        return
+    except discord.HTTPException as exc:
+        await respond_with_error(interaction, f"Discord rejected the modmail panel message: HTTP {exc.status}.", scope=SCOPE_SYSTEM)
+        return
+
+    if used_current_channel:
+        bot.data_manager.config["modmail_panel_channel"] = target_channel.id
+        await bot.data_manager.save_config()
+
+    channel_mention = getattr(target_channel, "mention", f"`{target_channel.id}`")
+    await interaction.followup.send(
+        embed=make_confirmation_embed(
+            "Modmail Panel Sent",
+            f"> Posted the support panel in {channel_mention}.\n> [Jump to message]({message.jump_url})",
+            scope=SCOPE_SYSTEM,
+            guild=interaction.guild,
+        ),
+        ephemeral=True,
+    )
+
+
 class SetupDashboardActionSelect(discord.ui.Select):
     def __init__(self):
         options = [
@@ -267,7 +376,7 @@ class SetupDashboardActionSelect(discord.ui.Select):
             await interaction.response.send_modal(GuildIdModal(interaction.guild.id))
             return
         if action == "send_modmail_panel":
-            await self.send_modmail_panel(interaction)
+            await send_configured_modmail_panel(interaction)
             return
         if action == "validate":
             if not get_feature_flag(bot.data_manager.config, "setup_validation", True):
@@ -279,54 +388,6 @@ class SetupDashboardActionSelect(discord.ui.Select):
                 return
             findings = validate_guild_configuration(bot.data_manager.config, interaction.guild, me)
             await interaction.response.send_message(embed=build_setup_validation_embed(interaction.guild, findings), ephemeral=True)
-
-    async def send_modmail_panel(self, interaction: discord.Interaction) -> None:
-        if interaction.guild is None:
-            await respond_with_error(interaction, "The modmail panel can only be posted from a server.", scope=SCOPE_SYSTEM)
-            return
-
-        channel_id = bot.data_manager.config.get("modmail_panel_channel")
-        if not channel_id:
-            await respond_with_error(interaction, "Set **Modmail Panel Channel** under setup channels first.", scope=SCOPE_SYSTEM)
-            return
-
-        try:
-            normalized_channel_id = int(channel_id)
-        except (TypeError, ValueError):
-            await respond_with_error(interaction, "The configured modmail panel channel ID is invalid.", scope=SCOPE_SYSTEM)
-            return
-
-        channel = interaction.guild.get_channel(normalized_channel_id)
-        if channel is None:
-            try:
-                channel = await interaction.guild.fetch_channel(normalized_channel_id)
-            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-                channel = None
-
-        if channel is None or not hasattr(channel, "send"):
-            await respond_with_error(interaction, "The configured modmail panel channel could not be found.", scope=SCOPE_SYSTEM)
-            return
-
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        try:
-            message = await send_modmail_panel_message(channel, interaction.guild)
-        except discord.Forbidden:
-            await respond_with_error(interaction, "I cannot send messages in the configured modmail panel channel.", scope=SCOPE_SYSTEM)
-            return
-        except discord.HTTPException as exc:
-            await respond_with_error(interaction, f"Discord rejected the modmail panel message: HTTP {exc.status}.", scope=SCOPE_SYSTEM)
-            return
-
-        channel_mention = getattr(channel, "mention", f"`{normalized_channel_id}`")
-        await interaction.followup.send(
-            embed=make_confirmation_embed(
-                "Modmail Panel Sent",
-                f"> Posted the support panel in {channel_mention}.\n> [Jump to message]({message.jump_url})",
-                scope=SCOPE_SYSTEM,
-                guild=interaction.guild,
-            ),
-            ephemeral=True,
-        )
 
 
 class SetupRolesView(discord.ui.View):
@@ -410,6 +471,15 @@ async def config_cmd(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed, view=ConfigDashboardView(), ephemeral=True)
 
 
+@tree.command(name="modmail-panel", description="Post the public modmail support panel.")
+@app_commands.describe(channel="Channel to post in. Defaults to the configured panel channel or the current channel.")
+@app_commands.default_permissions(administrator=True)
+@app_commands.guild_only()
+@app_commands.check(check_admin)
+async def modmail_panel_cmd(interaction: discord.Interaction, channel: Optional[discord.TextChannel] = None):
+    await send_configured_modmail_panel(interaction, channel)
+
+
 
 
 class ConfigCog(commands.Cog):
@@ -421,3 +491,4 @@ async def setup(bot):
     await bot.add_cog(ConfigCog(bot))
     bot.tree.add_command(setup_slash)
     bot.tree.add_command(config_cmd)
+    bot.tree.add_command(modmail_panel_cmd)

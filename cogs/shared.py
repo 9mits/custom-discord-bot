@@ -955,26 +955,42 @@ async def send_modmail_panel_message(
     intro: Optional[str] = None,
     in_dm: bool = False,
 ):
-    is_dm_panel = in_dm or isinstance(destination, (discord.User, discord.Member, discord.DMChannel))
-    embed = build_modmail_panel_embed(guild, in_dm=is_dm_panel)
-    if intro:
-        note_value = str(intro).strip()
-        if note_value and not note_value.lstrip().startswith((">", "-", "*")):
-            note_value = f"> {note_value}"
-        if note_value:
-            embed.add_field(name="Quick Note", value=note_value, inline=False)
+    def make_panel_embed() -> discord.Embed:
+        is_dm_panel = in_dm or isinstance(destination, (discord.User, discord.Member, discord.DMChannel))
+        embed = build_modmail_panel_embed(guild, in_dm=is_dm_panel)
+        if intro:
+            note_value = str(intro).strip()
+            if note_value and not note_value.lstrip().startswith((">", "-", "*")):
+                note_value = f"> {note_value}"
+            if note_value:
+                embed.add_field(name="Quick Note", value=note_value, inline=False)
+        return embed
 
     # Lazy import to avoid circular dependency: modmail.py imports from shared.py
     from .modmail import ModmailPanelView  # noqa: PLC0415
 
-    img_data, _ = await fetch_image_bytes(MODMAIL_PANEL_BANNER_URL)
+    img_data, _ = await fetch_image_bytes(MODMAIL_PANEL_BANNER_URL, timeout=3)
     if img_data:
+        embed = make_panel_embed()
         embed.set_image(url="attachment://banner.png")
         file = discord.File(io.BytesIO(img_data), filename="banner.png")
-        return await destination.send(embed=embed, file=file, view=ModmailPanelView())
+        try:
+            return await destination.send(embed=embed, file=file, view=ModmailPanelView())
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            logger.warning("Failed to send modmail panel with banner; retrying without attachment: %s", exc)
 
-    embed.set_image(url=MODMAIL_PANEL_BANNER_URL)
-    return await destination.send(embed=embed, view=ModmailPanelView())
+    try:
+        return await destination.send(embed=make_panel_embed(), view=ModmailPanelView())
+    except (discord.Forbidden, discord.HTTPException) as exc:
+        logger.warning("Failed to send modmail panel embed; retrying with plain content: %s", exc)
+        content = "Need staff help? Open a private ticket below."
+        if intro:
+            content = f"{str(intro).strip()}\n\n{content}"
+        return await destination.send(
+            content=content,
+            view=ModmailPanelView(),
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
 
 
 async def maybe_send_dm_modmail_panel(user: discord.User, *, guild: Optional[discord.Guild] = None, force: bool = False, intro: Optional[str] = None) -> bool:
