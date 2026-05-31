@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, Mock, patch
 from core.bot import DISABLED_APPLICATION_COMMANDS, EXTENSIONS, create_bot
 from cogs.config import ConfigChannelSelect, ConfigTypeSelect, SetupDashboardActionSelect
 import cogs.config as config_module
+import cogs.shared as shared_module
 
 
 class MbxBootstrapTests(unittest.TestCase):
@@ -78,6 +79,19 @@ class MbxBootstrapTests(unittest.TestCase):
 
 
 class MbxSetupModmailPanelTests(unittest.IsolatedAsyncioTestCase):
+    async def test_modmail_panel_embed_uses_local_banner_attachment(self):
+        sent_message = SimpleNamespace(id=456)
+        destination = SimpleNamespace(send=AsyncMock(return_value=sent_message))
+        guild = SimpleNamespace(icon=None)
+
+        result = await shared_module.send_modmail_panel_message(destination, guild)
+
+        self.assertIs(result, sent_message)
+        send_kwargs = destination.send.await_args.kwargs
+        self.assertEqual(send_kwargs["embed"].image.url, "attachment://modmail_panel_banner.png")
+        self.assertEqual(send_kwargs["file"].filename, "modmail_panel_banner.png")
+        send_kwargs["file"].close()
+
     async def test_selecting_modmail_panel_channel_posts_panel(self):
         selected = SimpleNamespace(id=123)
         channel = SimpleNamespace(id=123, mention="<#123>")

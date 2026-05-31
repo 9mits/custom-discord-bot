@@ -311,6 +311,8 @@ def _missing_panel_permissions(channel, guild: discord.Guild) -> list[str]:
         missing.append("Send Messages")
     if not permissions.embed_links:
         missing.append("Embed Links")
+    if not permissions.attach_files:
+        missing.append("Attach Files")
     return missing
 
 
@@ -346,7 +348,7 @@ async def send_configured_modmail_panel(
     except discord.Forbidden:
         await respond_with_error(
             interaction,
-            "I cannot send the modmail panel embed in that channel. Make sure I have **View Channel**, **Send Messages**, and **Embed Links**.",
+            "I cannot send the modmail panel embed in that channel. Make sure I have **View Channel**, **Send Messages**, **Embed Links**, and **Attach Files**.",
             scope=SCOPE_SYSTEM,
         )
         return

@@ -629,6 +629,8 @@ def validate_guild_configuration(config: Dict[str, Any], guild: discord.Guild, m
                 findings.append(ValidationFinding("warning", "Permissions", "Bot cannot send messages in the modmail panel channel."))
             if not perms.embed_links:
                 findings.append(ValidationFinding("warning", "Permissions", "Bot cannot embed links in the modmail panel channel."))
+            if not perms.attach_files:
+                findings.append(ValidationFinding("warning", "Permissions", "Bot cannot attach the modmail panel banner in the panel channel."))
 
     if not findings:
         findings.append(ValidationFinding("success", "Validation", "No issues detected in the current setup."))

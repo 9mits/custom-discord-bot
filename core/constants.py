@@ -103,10 +103,11 @@ HOLO_TERTIARY  = 16761760
 # Modmail panel
 # ---------------------------------------------------------------------------
 MODMAIL_PANEL_BANNER_URL = (
-    "https://cdn.discordapp.com/attachments/1430583478713450506/"
+    "https://media.discordapp.net/attachments/1430583478713450506/"
     "1475440172790452466/New_Project_4_2.png"
-    "?ex=699d7e3d&is=699c2cbd"
-    "&hm=3ab07aa5ab3a612760ce8b4d8af6e6460a67df380fe28059468b9570429093e5&"
+    "?ex=6a1cb6fd&is=6a1b657d"
+    "&hm=93c3ea2333eb59973097ffbb6f3c45c2d3629d7391574394ae60d5642a2cf94f"
+    "&=&format=webp&quality=lossless&width=2804&height=636"
 )
 
 MODMAIL_PANEL_CATEGORIES = [

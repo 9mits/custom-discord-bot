@@ -63,6 +63,7 @@ MESSAGE_CACHE_FILE = DB_DIR / "message_cache.json"
 PINGS_FILE = DB_DIR / "pings.json"
 LOCKDOWN_FILE = DB_DIR / "lockdown.json"
 MODMAIL_FILE = DB_DIR / "modmail.json"
+MODMAIL_PANEL_BANNER_FILE = BASE_DIR / "assets" / "modmail_panel_banner.png"
 # -----------------------------------------
 
 def read_json_file(path: Path, default: Any):
@@ -970,7 +971,16 @@ async def send_modmail_panel_message(
     # Lazy import to avoid circular dependency: modmail.py imports from shared.py
     from .modmail import ModmailPanelView  # noqa: PLC0415
 
-    img_data, _ = await fetch_image_bytes(MODMAIL_PANEL_BANNER_URL, timeout=3)
+    if MODMAIL_PANEL_BANNER_FILE.is_file():
+        embed = make_panel_embed()
+        embed.set_image(url="attachment://modmail_panel_banner.png")
+        file = discord.File(MODMAIL_PANEL_BANNER_FILE, filename="modmail_panel_banner.png")
+        try:
+            return await destination.send(embed=embed, file=file, view=ModmailPanelView())
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            logger.warning("Failed to send modmail panel with local banner; retrying with hosted image: %s", exc)
+
+    img_data, _ = await fetch_image_bytes(MODMAIL_PANEL_BANNER_URL, timeout=5, max_bytes=2 * 1024 * 1024)
     if img_data:
         embed = make_panel_embed()
         embed.set_image(url="attachment://banner.png")
@@ -978,10 +988,12 @@ async def send_modmail_panel_message(
         try:
             return await destination.send(embed=embed, file=file, view=ModmailPanelView())
         except (discord.Forbidden, discord.HTTPException) as exc:
-            logger.warning("Failed to send modmail panel with banner; retrying without attachment: %s", exc)
+            logger.warning("Failed to send modmail panel with banner; retrying with hosted image: %s", exc)
 
     try:
-        return await destination.send(embed=make_panel_embed(), view=ModmailPanelView())
+        embed = make_panel_embed()
+        embed.set_image(url=MODMAIL_PANEL_BANNER_URL)
+        return await destination.send(embed=embed, view=ModmailPanelView())
     except (discord.Forbidden, discord.HTTPException) as exc:
         if require_embed:
             raise
