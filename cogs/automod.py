@@ -1392,38 +1392,6 @@ class AutoModPolicyEditorView(discord.ui.View):
             return
         await self.persist_policy(policy)
 
-    async def set_step_value(self, interaction: discord.Interaction, key: str, value: int):
-        policy = self.get_current_policy()
-        steps = self.get_current_steps()
-        if not steps:
-            view = AutoModPolicyEditorView(rule=self.rule, rules=self.rules, step_index=self.step_index)
-            await interaction.response.edit_message(embed=view.build_embed(interaction.guild), view=view)
-            return
-        steps[self.step_index][key] = value
-        policy["steps"] = steps
-        await self.save_policy(interaction, policy)
-        view = AutoModPolicyEditorView(rule=self.rule, rules=self.rules, step_index=self.step_index)
-        await interaction.response.edit_message(embed=view.build_embed(interaction.guild), view=view)
-
-    async def set_step_punishment_type(self, interaction: discord.Interaction, punishment_type: str):
-        policy = self.get_current_policy()
-        steps = self.get_current_steps()
-        if not steps:
-            view = AutoModPolicyEditorView(rule=self.rule, rules=self.rules, step_index=self.step_index)
-            await interaction.response.edit_message(embed=view.build_embed(interaction.guild), view=view)
-            return
-        steps[self.step_index]["punishment_type"] = punishment_type
-        if punishment_type == "timeout" and int(steps[self.step_index].get("duration_minutes", 0) or 0) <= 0:
-            steps[self.step_index]["duration_minutes"] = 60
-        elif punishment_type == "ban":
-            steps[self.step_index]["duration_minutes"] = -1
-        else:
-            steps[self.step_index]["duration_minutes"] = 0
-        policy["steps"] = steps
-        await self.save_policy(interaction, policy)
-        view = AutoModPolicyEditorView(rule=self.rule, rules=self.rules, step_index=self.step_index)
-        await interaction.response.edit_message(embed=view.build_embed(interaction.guild), view=view)
-
     @discord.ui.button(label="Auto Punish", style=discord.ButtonStyle.secondary, row=1)
     async def toggle_enabled(self, interaction: discord.Interaction, button: discord.ui.Button):
         settings = get_native_automod_settings(bot.data_manager.config)
