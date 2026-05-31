@@ -1156,6 +1156,73 @@ async def status_cmd(interaction: discord.Interaction):
     embed = build_status_embed(interaction.guild)
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
+@tree.command(name="serverinfo", description="View detailed information about this server.")
+async def serverinfo_cmd(interaction: discord.Interaction):
+    g = interaction.guild
+    await g.fetch_channels()
+
+    # Counts
+    text_channels   = sum(1 for c in g.channels if isinstance(c, discord.TextChannel))
+    voice_channels  = sum(1 for c in g.channels if isinstance(c, discord.VoiceChannel))
+    stage_channels  = sum(1 for c in g.channels if isinstance(c, discord.StageChannel))
+    forum_channels  = sum(1 for c in g.channels if isinstance(c, discord.ForumChannel))
+    categories      = sum(1 for c in g.channels if isinstance(c, discord.CategoryChannel))
+    total_channels  = text_channels + voice_channels + stage_channels + forum_channels
+
+    # Members
+    total_members = g.member_count or len(g.members)
+    bots   = sum(1 for m in g.members if m.bot)
+    humans = total_members - bots
+
+    # Boost
+    boost_level = g.premium_tier
+    boosters    = g.premium_subscription_count or 0
+
+    # Roles (exclude @everyone)
+    role_count = len(g.roles) - 1
+
+    created_ts = int(g.created_at.timestamp())
+
+    embed = make_embed(
+        g.name,
+        kind="info",
+        scope=SCOPE_SYSTEM,
+        guild=g,
+        thumbnail=g.icon.url if g.icon else None,
+    )
+    if g.banner:
+        embed.set_image(url=g.banner.url)
+
+    embed.add_field(name="Server ID",      value=str(g.id),                                         inline=True)
+    embed.add_field(name="Owner",          value=f"<@{g.owner_id}>",                                inline=True)
+    embed.add_field(name="Created",        value=f"<t:{created_ts}:D> (<t:{created_ts}:R>)",        inline=True)
+
+    embed.add_field(name="Members",
+        value=f"Total: **{total_members}**\nHumans: {humans} · Bots: {bots}",
+        inline=True)
+    embed.add_field(name="Channels",
+        value=f"Text: {text_channels} · Voice: {voice_channels}\nStage: {stage_channels} · Forum: {forum_channels}\nCategories: {categories} · Total: {total_channels}",
+        inline=True)
+    embed.add_field(name="Roles",          value=str(role_count),                                   inline=True)
+
+    embed.add_field(name="Emojis",         value=f"{len(g.emojis)} / {g.emoji_limit}",              inline=True)
+    embed.add_field(name="Stickers",       value=f"{len(g.stickers)} / {g.sticker_limit}",          inline=True)
+    embed.add_field(name="Boost Status",   value=f"Level {boost_level} · {boosters} boosts",        inline=True)
+
+    embed.add_field(name="Verification",   value=str(g.verification_level).replace("_", " ").title(), inline=True)
+    embed.add_field(name="Content Filter", value=str(g.explicit_content_filter).replace("_", " ").title(), inline=True)
+    embed.add_field(name="2FA Requirement", value="Enabled" if g.mfa_level else "Disabled",         inline=True)
+
+    if g.description:
+        embed.add_field(name="Description", value=g.description, inline=False)
+
+    features = [f.replace("_", " ").title() for f in g.features]
+    if features:
+        embed.add_field(name="Features", value=", ".join(features), inline=False)
+
+    await interaction.response.send_message(embed=embed)
+
+
 @bot.event
 async def on_member_update(before: discord.Member, after: discord.Member):
     # Check if roles were added
