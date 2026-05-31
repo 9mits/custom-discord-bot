@@ -1522,7 +1522,7 @@ class AutoModPolicyEditorView(discord.ui.View):
         view = AutoModPolicyEditorView(rule=self.rule, rules=self.rules, step_index=len(steps) - 1)
         await interaction.response.edit_message(embed=view.build_embed(interaction.guild), view=view)
 
-    @discord.ui.button(label="Edit Selected Step", style=discord.ButtonStyle.primary, row=1)
+    @discord.ui.button(label="Edit Step", style=discord.ButtonStyle.primary, row=1)
     async def custom_amounts(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(AutoModStepValuesModal(parent_view=self))
 
@@ -1530,7 +1530,7 @@ class AutoModPolicyEditorView(discord.ui.View):
     async def edit_reason(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(AutoModPolicyReasonModal(rule=self.rule, rules=self.rules))
 
-    @discord.ui.button(label="Remove Selected", style=discord.ButtonStyle.danger, row=2)
+    @discord.ui.button(label="Remove Step", style=discord.ButtonStyle.danger, row=2)
     async def remove_step(self, interaction: discord.Interaction, button: discord.ui.Button):
         policy = self.get_current_policy()
         steps = self.get_current_steps()
