@@ -576,6 +576,7 @@ def check_owner(interaction: discord.Interaction) -> bool:
     return has_permission_capability(interaction, "owner_panel")
 
 @tree.command(name="commands", description="View registered slash commands.")
+@app_commands.default_permissions(administrator=True)
 async def list_commands(interaction: discord.Interaction):
     # Owner/Admin only
     conf = bot.data_manager.config
@@ -1157,7 +1158,7 @@ async def status_cmd(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @tree.command(name="serverinfo", description="View detailed information about this server.")
-@app_commands.default_permissions(view_channel=True)
+@app_commands.default_permissions(moderate_members=True)
 async def serverinfo_cmd(interaction: discord.Interaction):
     g = interaction.guild
     await g.fetch_channels()
@@ -2291,7 +2292,7 @@ class ServerBrandingView(discord.ui.View):
 
 # ── Commands ──
 
-branding_group = app_commands.Group(name="branding", description="Manage bot profile and server appearance.")
+branding_group = app_commands.Group(name="branding", description="Manage bot profile and server appearance.", default_member_permissions=discord.Permissions(administrator=True))
 
 
 @branding_group.command(name="global", description="Edit the bot's global profile.")

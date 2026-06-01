@@ -1459,23 +1459,6 @@ async def role_settings(interaction: discord.Interaction):
     embed = build_role_settings_embed(interaction.guild)
     await interaction.response.send_message(embed=embed, view=RoleSettingsView(), ephemeral=True)
 
-@tree.command(name="role-guide", description="View the custom role guide.")
-async def help_cmd(interaction: discord.Interaction):
-    embed = make_embed(
-        "Custom Role Guide",
-        "> Create, edit, and manage your custom role from one reusable control panel.",
-        kind="warning",
-        scope=SCOPE_ROLES,
-        guild=interaction.guild,
-    )
-    embed.add_field(name="Requirement", value="Access must be granted by a staff member via `/role settings`.", inline=False)
-    embed.add_field(name="1. Open the Studio", value="Run `/role` to open your personal role dashboard.", inline=False)
-    embed.add_field(name="2. Create or Edit", value="Set a name, primary color, icon, and advanced style options.", inline=False)
-    embed.add_field(name="3. Reopen Anytime", value="Use `/role` again whenever you want to update or remove your role.", inline=False)
-    await interaction.response.send_message(embed=embed, ephemeral=True)
-
-
-
 class RolesCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -1485,4 +1468,3 @@ async def setup(bot):
     await bot.add_cog(RolesCog(bot))
     bot.tree.add_command(role_cmd)
     bot.tree.add_command(role_settings)
-    bot.tree.add_command(help_cmd)
