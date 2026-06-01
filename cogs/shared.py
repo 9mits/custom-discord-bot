@@ -205,10 +205,6 @@ def get_custom_role_limit(member: discord.Member) -> int:
             
     limit = 0
 
-    # Server boosters receive at least one personal role slot.
-    if member.premium_since is not None:
-        limit = 1
-    
     # 2. Check User Whitelist
     wl_users = conf.get("cr_whitelist_users", {})
     if uid in wl_users:

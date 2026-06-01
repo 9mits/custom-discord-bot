@@ -1148,12 +1148,11 @@ async def role_cmd(interaction: discord.Interaction):
         if e.code != 40060:
             raise e
     
-    # Check for Booster or Whitelist
-    is_booster = interaction.user.premium_since is not None
     limit = get_custom_role_limit(interaction.user)
-    
-    if not is_booster and limit <= 0:
-        await interaction.followup.send("You must be a **Server Booster** to use this perk.", ephemeral=True)
+    is_booster = interaction.user.premium_since is not None
+
+    if limit <= 0:
+        await interaction.followup.send("You don't have access to custom roles. Ask a staff member to grant you access via `/role settings`.", ephemeral=True)
         return
 
     rec = bot.data_manager.roles.get(str(interaction.user.id))
@@ -1355,12 +1354,12 @@ async def role_settings(interaction: discord.Interaction):
 async def help_cmd(interaction: discord.Interaction):
     embed = make_embed(
         "Custom Role Guide",
-        "> Create, edit, and manage your booster custom role from one reusable control panel.",
+        "> Create, edit, and manage your custom role from one reusable control panel.",
         kind="warning",
         scope=SCOPE_ROLES,
         guild=interaction.guild,
     )
-    embed.add_field(name="Requirement", value="You must be a server booster to unlock this perk.", inline=False)
+    embed.add_field(name="Requirement", value="Access must be granted by a staff member via `/role settings`.", inline=False)
     embed.add_field(name="1. Open the Studio", value="Run `/role` to open your personal role dashboard.", inline=False)
     embed.add_field(name="2. Create or Edit", value="Set a name, primary color, icon, and advanced style options.", inline=False)
     embed.add_field(name="3. Reopen Anytime", value="Use `/role` again whenever you want to update or remove your role.", inline=False)
