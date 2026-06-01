@@ -170,18 +170,23 @@ class CreateRoleModal(discord.ui.Modal, title="Create your custom role"):
             await interaction.followup.send(f"Failed to create role: {e}", ephemeral=True)
             return
 
-        anchor_id = bot.data_manager.config.get("role_anchor", DEFAULT_ANCHOR_ROLE_ID)
+        anchor_id = int(bot.data_manager.config.get("role_anchor", DEFAULT_ANCHOR_ROLE_ID))
         anchor = guild.get_role(anchor_id)
         if not anchor:
-            try: anchor = await guild.fetch_role(anchor_id)
-            except Exception: pass
-            
+            try:
+                anchor = await guild.fetch_role(anchor_id)
+            except Exception:
+                pass
+
         if anchor:
             try:
                 target_pos = max(anchor.position - 1, 1)
                 await new_role.edit(position=target_pos, reason="Positioning under anchor")
-            except Exception:
-                pass
+            except discord.Forbidden:
+                pass  # bot role not high enough to reposition
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning("Failed to position custom role under anchor: %s", e)
 
         icon_val = self.icon_url.value.strip() if self.icon_url.value else None
         icon_warning = None
