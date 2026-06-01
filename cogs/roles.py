@@ -43,6 +43,22 @@ from .cases import (
     calculate_member_risk,
 )
 
+def get_user_role_records(user_id: int) -> list:
+    uid = str(user_id)
+    data = bot.data_manager.roles.get(uid)
+    if data is None:
+        return []
+    if isinstance(data, dict):
+        data = [data]
+        bot.data_manager.roles[uid] = data
+    return data
+
+def find_role_rec(user_id: int, role_id: int) -> Optional[dict]:
+    for rec in get_user_role_records(user_id):
+        if rec.get("role_id") == role_id:
+            return rec
+    return None
+
 def build_role_info_embed(member: discord.Member, rec: dict, role_obj: Optional[discord.Role], include_tips=False) -> discord.Embed:
     color_hex = rec.get("color", "#000000")
     color = discord.Color(int(color_hex.lstrip("#"), 16)) if hex_valid(color_hex) else EMBED_PALETTE["muted"]
@@ -141,7 +157,7 @@ class CreateRoleModal(discord.ui.Modal, title="Create your custom role"):
             await interaction.followup.send(embed=make_embed("Access Denied", "> You are not authorized to create a custom role.", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
             return
 
-        current = 1 if str(member.id) in bot.data_manager.roles else 0
+        current = len(get_user_role_records(member.id))
         if current >= allowed:
             await interaction.followup.send(embed=make_embed("Role Limit Reached", f"> You are allowed {allowed} role(s) and already have {current}.", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
             return
@@ -205,13 +221,15 @@ class CreateRoleModal(discord.ui.Modal, title="Create your custom role"):
         except Exception:
             pass
 
-        bot.data_manager.roles[str(member.id)] = {
+        records = get_user_role_records(member.id)
+        records.append({
             "role_id": new_role.id,
             "name": name,
             "color": color_text,
             "icon": applied_icon_url,
-            "created_at": now_iso()
-        }
+            "created_at": now_iso(),
+        })
+        bot.data_manager.roles[str(member.id)] = records
         await bot.data_manager.save_roles()
 
         embed = make_embed(
@@ -243,7 +261,7 @@ class EditNameModal(discord.ui.Modal, title="Edit role name"):
         except Exception as e:
             await interaction.response.send_message(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
             return
-        rec = bot.data_manager.roles.get(str(self.member.id))
+        rec = find_role_rec(self.member.id, self.role.id)
         if rec:
             rec["name"] = name
             await bot.data_manager.save_roles()
@@ -274,7 +292,7 @@ class EditColorModal(discord.ui.Modal, title="Edit role color"):
         except Exception as e:
             await interaction.response.send_message(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
             return
-        rec = bot.data_manager.roles.get(str(self.member.id))
+        rec = find_role_rec(self.member.id, self.role.id)
         if rec:
             rec["color"] = c
             await bot.data_manager.save_roles()
@@ -589,7 +607,7 @@ class GradientModal(discord.ui.Modal, title="Set Gradient Style"):
             if edited_role is not None:
                 self.role = edited_role
 
-            rec = bot.data_manager.roles.get(str(self.member.id))
+            rec = find_role_rec(self.member.id, self.role.id)
             if rec:
                 rec['color'] = f"#{prim_int:06X}"
                 rec['secondary_color'] = sec_val
@@ -628,7 +646,7 @@ class RoleStyleView(discord.ui.View):
             if edited_role is not None:
                 self.role = edited_role
 
-            rec = bot.data_manager.roles.get(str(self.member.id))
+            rec = find_role_rec(self.member.id, self.role.id)
             if rec:
                 rec['secondary_color'] = None
                 rec['tertiary_color'] = None
@@ -655,7 +673,7 @@ class RoleStyleView(discord.ui.View):
             if edited_role is not None:
                 self.role = edited_role
 
-            rec = bot.data_manager.roles.get(str(self.member.id))
+            rec = find_role_rec(self.member.id, self.role.id)
             if rec:
                 rec['color'] = f"#{HOLO_PRIMARY:06X}"
                 rec['secondary_color'] = f"#{HOLO_SECONDARY:06X}"
@@ -695,7 +713,7 @@ class IconURLModal(discord.ui.Modal, title="Set Icon via URL"):
 
         try:
             await self.role.edit(display_icon=img, reason=f"Icon updated by {interaction.user}")
-            rec = bot.data_manager.roles.get(str(self.member.id))
+            rec = find_role_rec(self.member.id, self.role.id)
             if rec:
                 rec["icon"] = val
                 await bot.data_manager.save_roles()
@@ -731,7 +749,7 @@ class UploadIconView(discord.ui.View):
             await self.role.edit(display_icon=img_data, reason=f"Icon updated by {interaction.user}")
             await interaction.followup.send(embed=make_embed("Icon Updated", "> Icon updated successfully!", kind="success", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
             
-            rec = bot.data_manager.roles.get(str(self.member.id))
+            rec = find_role_rec(self.member.id, self.role.id)
             if rec:
                 rec["icon"] = attachment.url
                 await bot.data_manager.save_roles()
@@ -796,8 +814,8 @@ class EditView(discord.ui.View):
 
     @discord.ui.button(label="Refresh Panel", style=discord.ButtonStyle.secondary, row=1)
     async def refresh_panel(self, interaction: discord.Interaction, button: discord.ui.Button):
-        rec = bot.data_manager.roles.get(str(self.member.id))
-        role_obj = interaction.guild.get_role(rec.get("role_id")) if rec else None
+        rec = find_role_rec(self.member.id, self.role.id)
+        role_obj = interaction.guild.get_role(self.role.id) if rec else None
         if not rec or not role_obj:
             await interaction.response.edit_message(
                 embed=make_empty_state_embed(
@@ -825,9 +843,15 @@ class ConfirmDelete(discord.ui.View):
             await self.role.delete(reason=f"Deleted by {interaction.user} (via Menu)")
         except Exception:
             pass
-        bot.data_manager.roles.pop(str(self.member.id), None)
+        uid = str(self.member.id)
+        records = get_user_role_records(self.member.id)
+        records = [r for r in records if r.get("role_id") != self.role.id]
+        if records:
+            bot.data_manager.roles[uid] = records
+        else:
+            bot.data_manager.roles.pop(uid, None)
         await bot.data_manager.save_roles()
-        await interaction.response.edit_message(content="Role deleted.", embed=None, view=None)
+        await interaction.response.edit_message(embed=make_embed("Role Deleted", "> Your custom role has been deleted.", kind="success", scope=SCOPE_ROLES, guild=interaction.guild), view=None)
         self.stop()
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
@@ -848,7 +872,8 @@ def build_role_settings_embed(guild: discord.Guild) -> discord.Embed:
     embed.add_field(name="Whitelisted Users", value=str(len(conf.get("cr_whitelist_users", {}))), inline=True)
     embed.add_field(name="Whitelisted Roles", value=str(len(conf.get("cr_whitelist_roles", {}))), inline=True)
     embed.add_field(name="Blocked Entries", value=str(len(conf.get("cr_blacklist_users", [])) + len(conf.get("cr_blacklist_roles", []))), inline=True)
-    embed.add_field(name="Tracked Custom Roles", value=str(len(bot.data_manager.roles)), inline=True)
+    total_tracked = sum(len(v) if isinstance(v, list) else 1 for v in bot.data_manager.roles.values())
+    embed.add_field(name="Tracked Custom Roles", value=str(total_tracked), inline=True)
     embed.add_field(
         name="What You Can Do",
         value=join_lines([
@@ -916,21 +941,22 @@ def split_embed_entries(entries: List[str], *, limit: int = 1024) -> List[str]:
 def build_custom_role_registry_entries(guild: discord.Guild) -> List[str]:
     entries: List[Tuple[str, str]] = []
     for uid, data in bot.data_manager.roles.items():
-        rid = data.get("role_id")
-        role = guild.get_role(rid) if rid else None
+        recs = data if isinstance(data, list) else [data]
         owner = guild.get_member(int(uid)) if str(uid).isdigit() else None
-        role_name = discord.utils.escape_markdown(str(role.name if role else data.get("name", "Unknown") or "Unknown"))
-        role_ref = role.mention if role else f"`Missing role ({rid or 'unknown'})`"
         owner_ref = owner.mention if owner else f"<@{uid}>"
-
-        entry_lines = [
-            f"**{truncate_text(role_name, 90)}**",
-            f"> Role: {role_ref}",
-            f"> Owner: {owner_ref}",
-        ]
-        if role is None:
-            entry_lines.append("> Status: Missing from server")
-        entries.append((role_name.lower(), "\n".join(entry_lines)))
+        for rec in recs:
+            rid = rec.get("role_id")
+            role = guild.get_role(rid) if rid else None
+            role_name = discord.utils.escape_markdown(str(role.name if role else rec.get("name", "Unknown") or "Unknown"))
+            role_ref = role.mention if role else f"`Missing role ({rid or 'unknown'})`"
+            entry_lines = [
+                f"**{truncate_text(role_name, 90)}**",
+                f"> Role: {role_ref}",
+                f"> Owner: {owner_ref}",
+            ]
+            if role is None:
+                entry_lines.append("> Status: Missing from server")
+            entries.append((role_name.lower(), "\n".join(entry_lines)))
 
     entries.sort(key=lambda item: item[0])
     return [entry for _, entry in entries]
@@ -1146,6 +1172,47 @@ class RoleSettingsView(discord.ui.View):
         self.add_item(RoleSettingsActionSelect())
 
 
+class RolePickerSelect(discord.ui.Select):
+    def __init__(self, member: discord.Member, valid_roles: list, at_limit: bool):
+        self.member = member
+        options = []
+        for rec, role_obj in valid_roles:
+            color_hex = rec.get("color", "#000000")
+            options.append(discord.SelectOption(
+                label=truncate_text(role_obj.name, 100),
+                value=str(role_obj.id),
+                description=f"Color: {color_hex}",
+            ))
+        if not at_limit:
+            options.append(discord.SelectOption(
+                label="✦ Create New Role",
+                value="__create__",
+                description="Add another custom role.",
+            ))
+        super().__init__(placeholder="Choose a role to manage...", min_values=1, max_values=1, options=options)
+        self._valid_roles = valid_roles
+
+    async def callback(self, interaction: discord.Interaction):
+        value = self.values[0]
+        if value == "__create__":
+            await interaction.response.send_modal(CreateRoleModal(self.member))
+            return
+        role_id = int(value)
+        pair = next(((rec, r) for rec, r in self._valid_roles if r.id == role_id), None)
+        if not pair:
+            await interaction.response.send_message(embed=make_embed("Not Found", "> That role could not be found.", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
+            return
+        rec, role_obj = pair
+        embed = build_role_info_embed(self.member, rec, role_obj, include_tips=True)
+        await interaction.response.send_message(embed=embed, view=EditView(self.member, role_obj), ephemeral=True)
+
+
+class RolePickerView(discord.ui.View):
+    def __init__(self, member: discord.Member, valid_roles: list, at_limit: bool):
+        super().__init__(timeout=120)
+        self.add_item(RolePickerSelect(member, valid_roles, at_limit))
+
+
 # ----------------- Commands -----------------
 # --- Command Groups ---
 
@@ -1164,40 +1231,62 @@ async def role_cmd(interaction: discord.Interaction):
         await interaction.followup.send(embed=make_embed("Access Denied", "> You don't have access to custom roles. Ask a staff member to grant you access via `/role settings`.", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
         return
 
-    rec = bot.data_manager.roles.get(str(interaction.user.id))
-    
-    # Check if role exists on Discord
-    role = None
-    if rec:
+    uid = str(interaction.user.id)
+    records = get_user_role_records(interaction.user.id)
+
+    # Validate each stored record against Discord, clean up deleted roles
+    valid_roles: List[tuple] = []
+    cleaned = False
+    for rec in list(records):
         role_id = rec.get("role_id")
-        role = interaction.guild.get_role(role_id)
-        if not role:
+        role_obj = interaction.guild.get_role(role_id)
+        if not role_obj:
             try:
-                role = await interaction.guild.fetch_role(role_id)
+                role_obj = await interaction.guild.fetch_role(role_id)
             except discord.NotFound:
-                # Role was deleted manually, clean up DB
-                bot.data_manager.roles.pop(str(interaction.user.id), None)
-                await bot.data_manager.save_roles()
-                rec = None
-            except Exception: pass
-    
-    if role:
-        # User has a valid role -> Show Manage View
-        embed = build_role_info_embed(interaction.user, rec, role, include_tips=True)
-        view = EditView(interaction.user, role)
-        await interaction.followup.send(embed=embed, view=view, ephemeral=True)
-    else:
-        # User has no role (or it's deleted) -> Show Create Option
+                records.remove(rec)
+                cleaned = True
+                continue
+            except Exception:
+                pass
+        if role_obj:
+            valid_roles.append((rec, role_obj))
+
+    if cleaned:
+        if records:
+            bot.data_manager.roles[uid] = records
+        else:
+            bot.data_manager.roles.pop(uid, None)
+        await bot.data_manager.save_roles()
+
+    n = len(valid_roles)
+    at_limit = n >= limit
+
+    if n == 0:
+        # No roles — show landing with Create button
         embed = build_role_landing_embed(interaction.user, is_booster=is_booster, limit=max(1, limit))
         view = discord.ui.View()
         btn = discord.ui.Button(label="Create Role", style=discord.ButtonStyle.success)
-        
         async def create_callback(inter: discord.Interaction):
             await inter.response.send_modal(CreateRoleModal(inter.user))
-        
         btn.callback = create_callback
         view.add_item(btn)
         await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+    elif n == 1 and limit == 1:
+        # Exactly one role, no room for more — go straight to manage
+        rec, role_obj = valid_roles[0]
+        embed = build_role_info_embed(interaction.user, rec, role_obj, include_tips=True)
+        await interaction.followup.send(embed=embed, view=EditView(interaction.user, role_obj), ephemeral=True)
+    else:
+        # Multiple roles, or 1 role with room to create more — show picker
+        embed = make_embed(
+            "Your Custom Roles",
+            f"> You have **{n}** custom role(s) (limit: **{limit}**).\n> Select a role to manage, or create a new one.",
+            kind="info",
+            scope=SCOPE_ROLES,
+            guild=interaction.guild,
+        )
+        await interaction.followup.send(embed=embed, view=RolePickerView(interaction.user, valid_roles, at_limit), ephemeral=True)
 
 # --- Setup / Config System ---
 
@@ -1276,18 +1365,26 @@ async def role_manage(interaction: discord.Interaction, action: str, target: Opt
             await interaction.followup.send(embed=make_embed("Invalid Target", "> Target must be a user.", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
             return
 
-        rec = bot.data_manager.roles.get(str(target.id))
-        role = None
-        if rec:
-            role = interaction.guild.get_role(rec.get("role_id"))
+        records = get_user_role_records(target.id)
+        valid_roles = [(rec, interaction.guild.get_role(rec.get("role_id"))) for rec in records]
+        valid_roles = [(rec, r) for rec, r in valid_roles if r]
 
-        if role:
+        if not valid_roles:
+            await interaction.followup.send(embed=make_embed("No Custom Role", f"> {target.mention} does not have a custom role.", kind="info", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
+        elif len(valid_roles) == 1:
+            rec, role = valid_roles[0]
             embed = build_role_info_embed(target, rec, role, include_tips=True)
             embed.set_footer(text=f"Admin Control Panel for {target.display_name}")
-            view = EditView(target, role)
-            await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+            await interaction.followup.send(embed=embed, view=EditView(target, role), ephemeral=True)
         else:
-            await interaction.followup.send(embed=make_embed("No Custom Role", f"> {target.mention} does not have a custom role.", kind="info", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
+            embed = make_embed(
+                f"Custom Roles — {target.display_name}",
+                f"> This member has **{len(valid_roles)}** custom roles. Select one to manage.",
+                kind="info",
+                scope=SCOPE_ROLES,
+                guild=interaction.guild,
+            )
+            await interaction.followup.send(embed=embed, view=RolePickerView(target, valid_roles, at_limit=True), ephemeral=True)
         return
 
     if target is None:

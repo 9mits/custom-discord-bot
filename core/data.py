@@ -727,7 +727,12 @@ class DataManager:
         self._configure_cache_limits()
 
         # ---- other sections ----
-        self.roles = await self._load_simple_dict_from_db(db, "roles", "role_id")
+        raw_roles = await self._load_simple_dict_from_db(db, "roles", "role_id")
+        # Migrate single-dict entries to lists
+        self.roles = {
+            uid: (v if isinstance(v, list) else [v])
+            for uid, v in raw_roles.items()
+        }
         self.punishments = await self._load_punishments_from_db(db)
         self._normalize_punishments()
         self.mod_stats = await self._load_simple_dict_from_db(db, "mod_stats", "user_id")
