@@ -1133,6 +1133,57 @@ class RoleSettingsAccessView(discord.ui.View):
         self.add_item(RoleSettingsAccessSelect())
 
 
+class TrackedRolesSelect(discord.ui.Select):
+    def __init__(self, guild: discord.Guild):
+        options = []
+        for uid, data in bot.data_manager.roles.items():
+            recs = data if isinstance(data, list) else [data]
+            owner = guild.get_member(int(uid)) if str(uid).isdigit() else None
+            owner_name = owner.display_name if owner else f"Unknown ({uid})"
+            for rec in recs:
+                rid = rec.get("role_id")
+                role = guild.get_role(rid) if rid else None
+                role_name = role.name if role else rec.get("name", "Unknown Role")
+                options.append(discord.SelectOption(
+                    label=truncate_text(role_name, 100),
+                    value=f"{uid}:{rid}",
+                    description=truncate_text(f"Owner: {owner_name}", 100),
+                ))
+        if not options:
+            options = [discord.SelectOption(label="No roles tracked", value="__empty__", description="There are no custom roles yet.")]
+        super().__init__(placeholder="Select a role to inspect...", min_values=1, max_values=1, options=options[:25])
+
+    async def callback(self, interaction: discord.Interaction):
+        if self.values[0] == "__empty__":
+            await interaction.response.defer()
+            return
+        uid_str, rid_str = self.values[0].split(":", 1)
+        try:
+            role_id = int(rid_str)
+            user_id = int(uid_str)
+        except ValueError:
+            await interaction.response.defer()
+            return
+        rec = find_role_rec(user_id, role_id)
+        target = interaction.guild.get_member(user_id)
+        role_obj = interaction.guild.get_role(role_id)
+        if rec and role_obj and target:
+            embed = build_role_info_embed(target, rec, role_obj, include_tips=True)
+            embed.set_footer(text=f"Admin view — owner: {target.display_name}")
+            await interaction.response.send_message(embed=embed, view=EditView(target, role_obj), ephemeral=True)
+        else:
+            await interaction.response.send_message(
+                embed=make_embed("Not Found", "> That role or member could not be resolved.", kind="error", scope=SCOPE_ROLES, guild=interaction.guild),
+                ephemeral=True,
+            )
+
+
+class TrackedRolesView(discord.ui.View):
+    def __init__(self, guild: discord.Guild):
+        super().__init__(timeout=180)
+        self.add_item(TrackedRolesSelect(guild))
+
+
 class RoleSettingsActionSelect(discord.ui.Select):
     def __init__(self):
         options = [
@@ -1153,7 +1204,26 @@ class RoleSettingsActionSelect(discord.ui.Select):
             await interaction.response.send_message(embed=build_role_permissions_overview_embed(interaction.guild), ephemeral=True)
             return
         if action == "tracked_roles":
-            await interaction.response.send_message(embed=build_role_registry_embed(interaction.guild), ephemeral=True)
+            roles_data = bot.data_manager.roles
+            total_roles = sum(len(v) if isinstance(v, list) else 1 for v in roles_data.values())
+            total_owners = len(roles_data)
+            missing = 0
+            for uid, data in roles_data.items():
+                recs = data if isinstance(data, list) else [data]
+                for rec in recs:
+                    if not interaction.guild.get_role(rec.get("role_id", 0)):
+                        missing += 1
+            embed = make_embed(
+                "Tracked Custom Roles",
+                "> Overview of all custom roles in this server.\n> Select a role from the dropdown to open its management panel.",
+                kind="info",
+                scope=SCOPE_ROLES,
+                guild=interaction.guild,
+            )
+            embed.add_field(name="Total Roles", value=str(total_roles), inline=True)
+            embed.add_field(name="Unique Owners", value=str(total_owners), inline=True)
+            embed.add_field(name="Missing from Server", value=str(missing), inline=True)
+            await interaction.response.send_message(embed=embed, view=TrackedRolesView(interaction.guild), ephemeral=True)
             return
         if action == "access_rules":
             await interaction.response.send_message(
