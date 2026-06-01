@@ -286,7 +286,7 @@ class StaffSelect(discord.ui.Select):
             view = StaffProfileView(target, cases, self.staff_members, directory_embed, stats_embed, interaction.guild)
             await interaction.response.edit_message(embed=stats_embed, view=view)
         else:
-            await interaction.response.send_message("User not found.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("User Not Found", "> User not found.", kind="error", scope=SCOPE_ANALYTICS, guild=interaction.guild), ephemeral=True)
 
 class StaffView(discord.ui.View):
     def __init__(self, staff_members):
@@ -303,7 +303,7 @@ async def stats(interaction: discord.Interaction, target: Optional[discord.Membe
         conf.get("role_community_manager", DEFAULT_ROLE_COMMUNITY_MANAGER)
     }
     if not any(r.id in allowed for r in interaction.user.roles):
-        await interaction.response.send_message("**Access Denied:** You do not have the required Admin role.", ephemeral=True)
+        await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have the required Admin role.", kind="error", scope=SCOPE_ANALYTICS, guild=interaction.guild), ephemeral=True)
         return
 
     if target:
@@ -323,7 +323,7 @@ async def stats(interaction: discord.Interaction, target: Optional[discord.Membe
                 is_target_staff = True
         
         if not is_target_staff and not cases:
-            await interaction.response.send_message(f"{target.mention} is not a staff member and has no recorded history.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("No Data", f"> {target.mention} is not a staff member and has no recorded history.", kind="info", scope=SCOPE_ANALYTICS, guild=interaction.guild), ephemeral=True)
             return
 
         reversals = bot.data_manager.mod_stats.get("reversals", {}).get(uid, 0)
@@ -399,7 +399,7 @@ async def directory(interaction: discord.Interaction):
         conf.get("role_community_manager", DEFAULT_ROLE_COMMUNITY_MANAGER)
     }
     if not any(r.id in allowed for r in interaction.user.roles):
-        await interaction.response.send_message("**Access Denied:** You do not have the required Admin role.", ephemeral=True)
+        await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have the required Admin role.", kind="error", scope=SCOPE_ANALYTICS, guild=interaction.guild), ephemeral=True)
         return
 
     await interaction.response.defer(ephemeral=True)

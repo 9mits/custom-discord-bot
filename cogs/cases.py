@@ -1200,7 +1200,7 @@ class HistoryView(discord.ui.View):
 
         if action == "clear_history":
             await interaction.response.send_message(
-                "**Are you sure you want to clear this user's punishment history?**",
+                embed=make_embed("Confirm Clear", "> Are you sure you want to clear this user's punishment history?", kind="warning", scope=SCOPE_MODERATION, guild=interaction.guild),
                 view=HistoryClearConfirmView(self),
                 ephemeral=True,
             )
@@ -1592,14 +1592,14 @@ class PunishView(discord.ui.View):
     async def view_history(self, interaction: discord.Interaction, button: discord.ui.Button):
         member = self.target if isinstance(self.target, discord.Member) else await resolve_member(interaction.guild, self.target.id)
         if not member:
-            await interaction.response.send_message("This user is no longer in the server, so the interactive history panel is unavailable.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("User Left Server", "> This user is no longer in the server, so the interactive history panel is unavailable.", kind="info", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
             return
 
         uid = str(member.id)
         history_data = bot.data_manager.punishments.get(uid, [])
-        
+
         if not history_data:
-            await interaction.response.send_message(f"**{member.display_name}** has a clean record (No history found).", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Clean Record", f"> **{member.display_name}** has a clean record (No history found).", kind="success", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
             return
 
         view = HistoryView(member)
@@ -1614,7 +1614,7 @@ class RuleEditModal(discord.ui.Modal, title="Add/Edit Punishment Rule"):
     async def on_submit(self, interaction: discord.Interaction):
         name = self.rule_name.value.strip()
         if not name:
-            await interaction.response.send_message("Rule name cannot be empty.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Invalid Input", "> Rule name cannot be empty.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
             return
             
         # Use parse_duration_str to allow "ban", "1d", "30m" etc.
@@ -1639,7 +1639,7 @@ class RuleEditModal(discord.ui.Modal, title="Add/Edit Punishment Rule"):
         log_embed.add_field(name="Values", value=f"> Base: {base}m\n> Escalated: {esc}m", inline=True)
         await send_log(interaction.guild, log_embed)
         
-        await interaction.response.send_message(f"Rule **{name}** saved successfully.", ephemeral=True)
+        await interaction.response.send_message(embed=make_embed("Rule Saved", f"> Rule **{name}** saved successfully.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 class ActiveSelect(discord.ui.Select):
     def __init__(self, active_list):
@@ -1758,7 +1758,7 @@ class AccessView(discord.ui.View):
         else:
             await interaction.response.edit_message(view=self)
             
-        await interaction.followup.send(f"Role {role.mention} {action} mod access.", ephemeral=True)
+        await interaction.followup.send(embed=make_embed("Access Updated", f"> Role {role.mention} {action} mod access.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 class RuleDeleteSelect(discord.ui.Select):
     def __init__(self):
@@ -1770,16 +1770,16 @@ class RuleDeleteSelect(discord.ui.Select):
     
     async def callback(self, interaction: discord.Interaction):
         if self.values[0] == "none":
-            await interaction.response.send_message("No rules to delete.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("No Rules", "> No rules to delete.", kind="info", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
             return
-            
+
         name = self.values[0]
         rules = bot.data_manager.config.get("punishment_rules", DEFAULT_RULES)
         if name in rules:
             del rules[name]
             bot.data_manager.config["punishment_rules"] = rules
             await bot.data_manager.save_config()
-            
+
             # Log
             log_embed = make_embed(
                 "Punishment Rule Deleted",
@@ -1791,10 +1791,10 @@ class RuleDeleteSelect(discord.ui.Select):
             log_embed.add_field(name="Actor", value=format_user_ref(interaction.user), inline=True)
             log_embed.add_field(name="Rule", value=name, inline=True)
             await send_log(interaction.guild, log_embed)
-            
-            await interaction.response.send_message(f"Rule **{name}** deleted.", ephemeral=True)
+
+            await interaction.response.send_message(embed=make_embed("Rule Deleted", f"> Rule **{name}** deleted.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         else:
-            await interaction.response.send_message("Rule not found.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Not Found", "> Rule not found.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 class RuleDeleteView(discord.ui.View):
     def __init__(self):
@@ -1817,9 +1817,9 @@ class RuleSelectForEdit(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         if self.values[0] == "none":
-            await interaction.response.send_message("No rules to edit.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("No Rules", "> No rules to edit.", kind="info", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
             return
-            
+
         name = self.values[0]
         rules = bot.data_manager.config.get("punishment_rules", DEFAULT_RULES)
         if name in rules:
@@ -1829,11 +1829,11 @@ class RuleSelectForEdit(discord.ui.Select):
             # Fix: Display "Ban" instead of -1
             modal.base_dur.default = "Ban" if data['base'] == -1 else str(data['base'])
             modal.esc_dur.default = "Ban" if data['escalated'] == -1 else str(data['escalated'])
-            
+
             modal.title = f"Edit Rule: {name}"[:45]
             await interaction.response.send_modal(modal)
         else:
-            await interaction.response.send_message("Rule not found.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Not Found", "> Rule not found.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 class RuleSelectView(discord.ui.View):
     def __init__(self):
@@ -1951,11 +1951,11 @@ class RulesDashboardView(discord.ui.View):
 
     @discord.ui.button(label="Edit Rule", style=discord.ButtonStyle.secondary)
     async def edit_rule(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("Select rule to edit:", view=RuleSelectView(), ephemeral=True)
+        await interaction.response.send_message(embed=make_embed("Edit Rule", "> Select the rule you want to edit below.", kind="info", scope=SCOPE_SYSTEM, guild=interaction.guild), view=RuleSelectView(), ephemeral=True)
 
     @discord.ui.button(label="Delete Rule", style=discord.ButtonStyle.danger)
     async def delete_rule(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_message("Select rule to delete:", view=RuleDeleteView(), ephemeral=True)
+        await interaction.response.send_message(embed=make_embed("Delete Rule", "> Select the rule you want to delete below.", kind="warning", scope=SCOPE_SYSTEM, guild=interaction.guild), view=RuleDeleteView(), ephemeral=True)
 
 def get_mod_cases(mod_id: str) -> list:
     cases = []
@@ -2213,7 +2213,7 @@ class StaffSelect(discord.ui.Select):
             view = StaffProfileView(target, cases, self.staff_members, directory_embed, stats_embed, interaction.guild)
             await interaction.response.edit_message(embed=stats_embed, view=view)
         else:
-            await interaction.response.send_message("User not found.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("User Not Found", "> User not found.", kind="error", scope=SCOPE_ANALYTICS, guild=interaction.guild), ephemeral=True)
 
 class StaffView(discord.ui.View):
     def __init__(self, staff_members):
@@ -2267,7 +2267,7 @@ class ImmunityModal(discord.ui.Modal):
     async def on_submit(self, interaction: discord.Interaction):
         uid = self.user_id.value.strip()
         if not uid.isdigit():
-            await interaction.response.send_message("Invalid ID.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Invalid ID", "> Invalid user ID.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
             return
             
         lst = bot.data_manager.config.get("immunity_list", [])
@@ -2287,7 +2287,7 @@ class ImmunityModal(discord.ui.Modal):
         
         bot.data_manager.config["immunity_list"] = lst
         await bot.data_manager.save_config()
-        await interaction.response.send_message(msg, ephemeral=True)
+        await interaction.response.send_message(embed=make_embed("Immunity Updated", f"> {msg}", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 class SafetyView(discord.ui.View):
     def __init__(self):
@@ -2305,10 +2305,10 @@ class SafetyView(discord.ui.View):
     async def view_list(self, interaction: discord.Interaction, button: discord.ui.Button):
         lst = bot.data_manager.config.get("immunity_list", [])
         if not lst:
-            await interaction.response.send_message("Immunity list is empty.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Immunity List", "> Immunity list is empty.", kind="info", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         else:
             mentions = [f"<@{uid}>" for uid in lst]
-            await interaction.response.send_message("**Immune Users:**\n" + ", ".join(mentions), ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Immune Users", "> " + ", ".join(mentions), kind="info", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 
 

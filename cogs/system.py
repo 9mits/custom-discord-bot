@@ -169,16 +169,16 @@ class RuleDeleteSelect(discord.ui.Select):
     
     async def callback(self, interaction: discord.Interaction):
         if self.values[0] == "none":
-            await interaction.response.send_message("No rules to delete.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("No Rules", "> No rules to delete.", kind="info", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
             return
-            
+
         name = self.values[0]
         rules = bot.data_manager.config.get("punishment_rules", DEFAULT_RULES)
         if name in rules:
             del rules[name]
             bot.data_manager.config["punishment_rules"] = rules
             await bot.data_manager.save_config()
-            
+
             # Log
             log_embed = make_embed(
                 "Punishment Rule Deleted",
@@ -190,10 +190,10 @@ class RuleDeleteSelect(discord.ui.Select):
             log_embed.add_field(name="Actor", value=format_user_ref(interaction.user), inline=True)
             log_embed.add_field(name="Rule", value=name, inline=True)
             await send_log(interaction.guild, log_embed)
-            
-            await interaction.response.send_message(f"Rule **{name}** deleted.", ephemeral=True)
+
+            await interaction.response.send_message(embed=make_embed("Rule Deleted", f"> Rule **{name}** deleted.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         else:
-            await interaction.response.send_message("Rule not found.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Not Found", "> Rule not found.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 
 class RuleSelectForEdit(discord.ui.Select):
@@ -212,9 +212,9 @@ class RuleSelectForEdit(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         if self.values[0] == "none":
-            await interaction.response.send_message("No rules to edit.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("No Rules", "> No rules to edit.", kind="info", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
             return
-            
+
         name = self.values[0]
         rules = bot.data_manager.config.get("punishment_rules", DEFAULT_RULES)
         if name in rules:
@@ -224,11 +224,11 @@ class RuleSelectForEdit(discord.ui.Select):
             # Fix: Display "Ban" instead of -1
             modal.base_dur.default = "Ban" if data['base'] == -1 else str(data['base'])
             modal.esc_dur.default = "Ban" if data['escalated'] == -1 else str(data['escalated'])
-            
+
             modal.title = f"Edit Rule: {name}"[:45]
             await interaction.response.send_modal(modal)
         else:
-            await interaction.response.send_message("Rule not found.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Not Found", "> Rule not found.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 
 
@@ -420,7 +420,7 @@ class ImmunityModal(discord.ui.Modal):
     async def on_submit(self, interaction: discord.Interaction):
         uid = self.user_id.value.strip()
         if not uid.isdigit():
-            await interaction.response.send_message("Invalid ID.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Invalid ID", "> Invalid user ID.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
             return
             
         lst = bot.data_manager.config.get("immunity_list", [])
@@ -440,7 +440,7 @@ class ImmunityModal(discord.ui.Modal):
         
         bot.data_manager.config["immunity_list"] = lst
         await bot.data_manager.save_config()
-        await interaction.response.send_message(msg, ephemeral=True)
+        await interaction.response.send_message(embed=make_embed("Immunity Updated", f"> {msg}", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 class SafetyView(discord.ui.View):
     def __init__(self):
@@ -458,10 +458,10 @@ class SafetyView(discord.ui.View):
     async def view_list(self, interaction: discord.Interaction, button: discord.ui.Button):
         lst = bot.data_manager.config.get("immunity_list", [])
         if not lst:
-            await interaction.response.send_message("Immunity list is empty.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Immunity List", "> Immunity list is empty.", kind="info", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         else:
             mentions = [f"<@{uid}>" for uid in lst]
-            await interaction.response.send_message("**Immune Users:**\n" + ", ".join(mentions), ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Immune Users", "> " + ", ".join(mentions), kind="info", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 class AntiNukeResolveConfirm2(discord.ui.View):
     def __init__(self, restore_data, origin_message):
@@ -558,7 +558,7 @@ class AntiNukeResolveView(discord.ui.View):
     async def resolve(self, interaction: discord.Interaction, button: discord.ui.Button):
         owner_role = bot.data_manager.config.get("role_owner", DEFAULT_ROLE_OWNER)
         if not any(r.id == owner_role for r in interaction.user.roles):
-            await interaction.response.send_message("Only the Owner can use this.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Access Denied", "> Only the Owner can use this.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
             return
         
         await interaction.response.send_message(
@@ -580,7 +580,7 @@ async def list_commands(interaction: discord.Interaction):
     # Owner/Admin only
     conf = bot.data_manager.config
     if not any(r.id in {conf.get("role_admin", DEFAULT_ROLE_ADMIN), conf.get("role_owner", DEFAULT_ROLE_OWNER)} for r in interaction.user.roles):
-        await interaction.response.send_message("Access Denied.", ephemeral=True)
+        await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this command.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         return
         
     embed = make_embed(
@@ -650,7 +650,7 @@ async def archive(interaction: discord.Interaction):
     target_cat = guild.get_channel(target_cat_id)
 
     if not target_cat or not isinstance(target_cat, discord.CategoryChannel):
-        await interaction.response.send_message(f"Archive category ({target_cat_id}) not found.", ephemeral=True)
+        await interaction.response.send_message(embed=make_embed("Category Not Found", f"> Archive category ({target_cat_id}) not found.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         return
 
     old_name = channel.name
@@ -674,7 +674,7 @@ async def archive(interaction: discord.Interaction):
     }
 
     view = ArchiveConfirmView(channel, target_cat, old_name, new_name, overwrites_data, final_overwrites)
-    await interaction.response.send_message(f"Are you sure you want to archive **{channel.name}**?", view=view, ephemeral=True)
+    await interaction.response.send_message(embed=make_embed("Confirm Archive", f"> Are you sure you want to archive **{channel.name}**?", kind="warning", scope=SCOPE_SYSTEM, guild=interaction.guild), view=view, ephemeral=True)
 
 @tree.command(name="unarchive", description="Restore an archived channel.")
 @app_commands.default_permissions(administrator=True)
@@ -700,9 +700,9 @@ async def unarchive(interaction: discord.Interaction):
             archives[cid] = data
             bot.data_manager.config["archived_channels"] = archives
             await bot.data_manager.save_config()
-            await interaction.followup.send(f"**System:** Channel ID mismatch detected (Server Transfer?).\n> Migrated archive data from `{found_old_id}` to `{cid}`.", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Migration Notice", f"> Channel ID mismatch detected (Server Transfer?). Migrated archive data from `{found_old_id}` to `{cid}`.", kind="info", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         else:
-            await interaction.followup.send("This channel is not in the archive registry.", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Not Archived", "> This channel is not in the archive registry.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
             return
     
     data = archives[cid]
@@ -725,14 +725,14 @@ async def unarchive(interaction: discord.Interaction):
     try:
         await channel.edit(name=new_name, category=category, overwrites=new_overwrites, reason=f"Unarchived by {interaction.user}")
     except Exception as e:
-        await interaction.followup.send(f"Failed to unarchive channel: {e}", ephemeral=True)
+        await interaction.followup.send(embed=make_embed("Failed", f"> Failed to unarchive channel: {e}", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         return
-        
+
     # Cleanup
     del bot.data_manager.config["archived_channels"][cid]
     await bot.data_manager.save_config()
-    
-    await interaction.followup.send("Channel unarchived and restored.", ephemeral=True)
+
+    await interaction.followup.send(embed=make_embed("Channel Unarchived", "> Channel unarchived and restored.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
     
     # Log
     log_embed = make_embed(
@@ -757,7 +757,7 @@ async def clone(interaction: discord.Interaction):
     target_cat = guild.get_channel(target_cat_id)
 
     if not target_cat or not isinstance(target_cat, discord.CategoryChannel):
-        await interaction.response.send_message(f"Archive category ({target_cat_id}) not found.", ephemeral=True)
+        await interaction.response.send_message(embed=make_embed("Category Not Found", f"> Archive category ({target_cat_id}) not found.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         return
 
     old_name = channel.name
@@ -779,7 +779,7 @@ async def clone(interaction: discord.Interaction):
     }
 
     view = CloneConfirmView(channel, target_cat, old_name, new_name, overwrites_data, final_overwrites)
-    await interaction.response.send_message(f"**WARNING:** This will archive **{channel.name}** and create a fresh clone.\nAre you sure?", view=view, ephemeral=True)
+    await interaction.response.send_message(embed=make_embed("Confirm Clone & Archive", f"> **WARNING:** This will archive **{channel.name}** and create a fresh clone. Are you sure?", kind="warning", scope=SCOPE_SYSTEM, guild=interaction.guild), view=view, ephemeral=True)
 
 @tree.command(name="rules", description="Configure punishment scaling rules.")
 @app_commands.default_permissions(administrator=True)
@@ -850,7 +850,7 @@ async def lockdown(interaction: discord.Interaction):
     bot.data_manager.lockdown = lockdown_data
     await bot.data_manager.save_lockdown()
         
-    await interaction.followup.send(f"**SERVER LOCKDOWN ACTIVE.**\n> Hidden {channels_affected} channels from @everyone.", ephemeral=True)
+    await interaction.followup.send(embed=make_embed("Server Lockdown Active", f"> Hidden {channels_affected} channels from @everyone.", kind="danger", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 @tree.command(name="lift-lockdown", description="Restore channel visibility after lockdown.")
 @app_commands.default_permissions(administrator=True)
@@ -861,7 +861,7 @@ async def lift_lockdown(interaction: discord.Interaction):
     lockdown_data = bot.data_manager.lockdown
     
     if not lockdown_data:
-        await interaction.followup.send("No lockdown data found.", ephemeral=True)
+        await interaction.followup.send(embed=make_embed("No Lockdown", "> No lockdown data found.", kind="info", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         return
 
     restored_count = 0
@@ -878,7 +878,7 @@ async def lift_lockdown(interaction: discord.Interaction):
     bot.data_manager.lockdown = {}
     await bot.data_manager.save_lockdown()
     
-    await interaction.followup.send(f"**LOCKDOWN LIFTED.**\n> Restored visibility for {restored_count} channels.", ephemeral=True)
+    await interaction.followup.send(embed=make_embed("Lockdown Lifted", f"> Restored visibility for {restored_count} channels.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
     if isinstance(error, app_commands.CheckFailure):
@@ -1150,7 +1150,7 @@ async def delete_remote_commands(*, guild: Optional[discord.Guild]) -> List[str]
 @app_commands.default_permissions(moderate_members=True)
 async def status_cmd(interaction: discord.Interaction):
     if not is_staff(interaction):
-        await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
+        await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this command.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         return
 
     embed = build_status_embed(interaction.guild)
@@ -2051,9 +2051,9 @@ class GlobalUsernameModal(discord.ui.Modal, title="Change Bot Username"):
         await interaction.response.defer(ephemeral=True)
         try:
             await bot.user.edit(username=self.username.value.strip())
-            await interaction.followup.send(f"Global username updated to **{self.username.value.strip()}**.", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Username Updated", f"> Global username updated to **{self.username.value.strip()}**.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         except discord.HTTPException as e:
-            await interaction.followup.send(f"Failed: {e}", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 
 class GlobalAvatarModal(discord.ui.Modal, title="Change Global Avatar"):
@@ -2064,9 +2064,9 @@ class GlobalAvatarModal(discord.ui.Modal, title="Change Global Avatar"):
         try:
             data = await _fetch_image(self.url.value.strip())
             await bot.user.edit(avatar=data)
-            await interaction.followup.send("Global avatar updated.", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Avatar Updated", "> Global avatar updated.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         except Exception as e:
-            await interaction.followup.send(f"Failed: {e}", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 
 class GlobalBannerModal(discord.ui.Modal, title="Change Global Banner"):
@@ -2077,9 +2077,9 @@ class GlobalBannerModal(discord.ui.Modal, title="Change Global Banner"):
         try:
             data = await _fetch_image(self.url.value.strip())
             await bot.user.edit(banner=data)
-            await interaction.followup.send("Global banner updated.", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Banner Updated", "> Global banner updated.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         except Exception as e:
-            await interaction.followup.send(f"Failed: {e}", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 
 # ── Server branding modals ──
@@ -2093,9 +2093,9 @@ class ServerNicknameModal(discord.ui.Modal, title="Change Server Nickname"):
             nick = self.nickname.value.strip() or None
             await interaction.guild.me.edit(nick=nick)
             msg = f"Server nickname set to **{nick}**." if nick else "Server nickname cleared."
-            await interaction.followup.send(msg, ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Nickname Updated", f"> {msg}", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         except discord.HTTPException as e:
-            await interaction.followup.send(f"Failed: {e}", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 
 class ServerAvatarModal(discord.ui.Modal, title="Change Server Avatar"):
@@ -2106,9 +2106,9 @@ class ServerAvatarModal(discord.ui.Modal, title="Change Server Avatar"):
         try:
             data = await _fetch_image(self.url.value.strip())
             await interaction.guild.me.edit(avatar=data)
-            await interaction.followup.send("Server avatar updated.", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Avatar Updated", "> Server avatar updated.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         except Exception as e:
-            await interaction.followup.send(f"Failed: {e}", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 
 class ServerBannerModal(discord.ui.Modal, title="Change Server Banner"):
@@ -2119,9 +2119,9 @@ class ServerBannerModal(discord.ui.Modal, title="Change Server Banner"):
         try:
             data = await _fetch_image(self.url.value.strip())
             await interaction.guild.me.edit(banner=data)
-            await interaction.followup.send("Server banner updated.", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Banner Updated", "> Server banner updated.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         except Exception as e:
-            await interaction.followup.send(f"Failed: {e}", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 
 class ServerBioModal(discord.ui.Modal, title="Change Server Bio"):
@@ -2139,9 +2139,9 @@ class ServerBioModal(discord.ui.Modal, title="Change Server Bio"):
             bio_value = self.bio.value.strip() or None
             await interaction.guild.me.edit(bio=bio_value)
             msg = "Server bio updated." if bio_value else "Server bio cleared."
-            await interaction.followup.send(msg, ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Bio Updated", f"> {msg}", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         except Exception as e:
-            await interaction.followup.send(f"Failed: {e}", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 
 # ── Embed builders ──
@@ -2213,12 +2213,12 @@ class GlobalBrandingActionSelect(discord.ui.Select):
         try:
             if action == "remove_avatar":
                 await bot.user.edit(avatar=None)
-                await interaction.followup.send("Global avatar removed.", ephemeral=True)
+                await interaction.followup.send(embed=make_embed("Avatar Removed", "> Global avatar removed.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
             elif action == "remove_banner":
                 await bot.user.edit(banner=None)
-                await interaction.followup.send("Global banner removed.", ephemeral=True)
+                await interaction.followup.send(embed=make_embed("Banner Removed", "> Global banner removed.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         except discord.HTTPException as e:
-            await interaction.followup.send(f"Failed: {e}", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 
 class GlobalBrandingView(discord.ui.View):
@@ -2260,18 +2260,18 @@ class ServerBrandingActionSelect(discord.ui.Select):
         try:
             if action == "clear_nickname":
                 await interaction.guild.me.edit(nick=None)
-                await interaction.followup.send("Server nickname cleared.", ephemeral=True)
+                await interaction.followup.send(embed=make_embed("Nickname Cleared", "> Server nickname cleared.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
             elif action == "remove_avatar":
                 await interaction.guild.me.edit(avatar=None)
-                await interaction.followup.send("Server avatar removed (reverted to global).", ephemeral=True)
+                await interaction.followup.send(embed=make_embed("Avatar Removed", "> Server avatar removed (reverted to global).", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
             elif action == "remove_banner":
                 await interaction.guild.me.edit(banner=None)
-                await interaction.followup.send("Server banner removed.", ephemeral=True)
+                await interaction.followup.send(embed=make_embed("Banner Removed", "> Server banner removed.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
             elif action == "clear_bio":
                 await interaction.guild.me.edit(bio=None)
-                await interaction.followup.send("Server bio cleared.", ephemeral=True)
+                await interaction.followup.send(embed=make_embed("Bio Cleared", "> Server bio cleared.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         except discord.HTTPException as e:
-            await interaction.followup.send(f"Failed: {e}", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 
 class ServerBrandingView(discord.ui.View):

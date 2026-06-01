@@ -192,7 +192,7 @@ class ModmailPrioritySelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         if not is_staff(interaction):
-            await interaction.response.send_message("Access denied.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this.", kind="error", scope=SCOPE_SUPPORT, guild=interaction.guild), ephemeral=True)
             return
         ticket = bot.data_manager.modmail.get(self.panel.user_id)
         if not ticket:
@@ -239,7 +239,7 @@ class ModmailTagsModal(discord.ui.Modal, title="Update Ticket Tags"):
 
     async def on_submit(self, interaction: discord.Interaction):
         if not is_staff(interaction):
-            await interaction.response.send_message("Access denied.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this.", kind="error", scope=SCOPE_SUPPORT, guild=interaction.guild), ephemeral=True)
             return
         ticket = bot.data_manager.modmail.get(self.panel.user_id)
         if not ticket:
@@ -273,7 +273,7 @@ class CannedReplySelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         if not is_staff(interaction):
-            await interaction.response.send_message("Access denied.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this.", kind="error", scope=SCOPE_SUPPORT, guild=interaction.guild), ephemeral=True)
             return
         if self.values[0] == "__empty__":
             await respond_with_error(interaction, "No saved replies have been set up yet.", scope=SCOPE_SUPPORT)
@@ -347,13 +347,13 @@ class ModmailControlView(discord.ui.View):
     @discord.ui.button(label="Close Ticket", style=discord.ButtonStyle.danger, custom_id="mm_close", row=0)
     async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not is_staff(interaction):
-            await interaction.response.send_message("Access denied.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this.", kind="error", scope=SCOPE_SUPPORT, guild=interaction.guild), ephemeral=True)
             return
 
         self.message = interaction.message
         ticket = self._get_ticket()
         if not ticket or ticket.get("status") == "closed":
-            await interaction.response.send_message("Ticket is already closed.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Already Closed", "> Ticket is already closed.", kind="info", scope=SCOPE_SUPPORT, guild=interaction.guild), ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True, thinking=True)
@@ -416,13 +416,13 @@ class ModmailControlView(discord.ui.View):
     @discord.ui.button(label="Open Ticket", style=discord.ButtonStyle.success, custom_id="mm_open", disabled=True, row=0)
     async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not is_staff(interaction):
-            await interaction.response.send_message("Access denied.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this.", kind="error", scope=SCOPE_SUPPORT, guild=interaction.guild), ephemeral=True)
             return
 
         self.message = interaction.message
         ticket = self._get_ticket()
         if not ticket:
-            await interaction.response.send_message("Ticket data not found.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Ticket Not Found", "> Ticket data not found.", kind="error", scope=SCOPE_SUPPORT, guild=interaction.guild), ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True, thinking=True)
@@ -468,13 +468,13 @@ class ModmailControlView(discord.ui.View):
     @discord.ui.button(label="Claim Ticket", style=discord.ButtonStyle.success, custom_id="mm_claim", row=0)
     async def claim_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not is_staff(interaction):
-            await interaction.response.send_message("Access denied.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this.", kind="error", scope=SCOPE_SUPPORT, guild=interaction.guild), ephemeral=True)
             return
 
         self.message = interaction.message
         ticket = self._get_ticket()
         if not ticket:
-            await interaction.response.send_message("Ticket data not found.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Ticket Not Found", "> Ticket data not found.", kind="error", scope=SCOPE_SUPPORT, guild=interaction.guild), ephemeral=True)
             return
 
         await interaction.response.defer(ephemeral=True, thinking=True)
@@ -489,12 +489,12 @@ class ModmailControlView(discord.ui.View):
             ("Moderator", interaction.user.mention),
             ("Assigned", interaction.user.mention if ticket.get("assigned_moderator") else "Unclaimed"),
         ])
-        await interaction.followup.send("Ticket assignment updated.", ephemeral=True)
+        await interaction.followup.send(embed=make_embed("Assignment Updated", "> Ticket assignment has been updated.", kind="success", scope=SCOPE_SUPPORT, guild=interaction.guild), ephemeral=True)
 
     @discord.ui.button(label="Urgency", style=discord.ButtonStyle.primary, custom_id="mm_priority", row=1)
     async def priority(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not is_staff(interaction):
-            await interaction.response.send_message("Access denied.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this.", kind="error", scope=SCOPE_SUPPORT, guild=interaction.guild), ephemeral=True)
             return
         self.message = interaction.message
         await interaction.response.send_message(
@@ -506,7 +506,7 @@ class ModmailControlView(discord.ui.View):
     @discord.ui.button(label="Tags", style=discord.ButtonStyle.primary, custom_id="mm_tags", row=1)
     async def tags(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not is_staff(interaction):
-            await interaction.response.send_message("Access denied.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this.", kind="error", scope=SCOPE_SUPPORT, guild=interaction.guild), ephemeral=True)
             return
         self.message = interaction.message
         await interaction.response.send_modal(ModmailTagsModal(self))
@@ -514,7 +514,7 @@ class ModmailControlView(discord.ui.View):
     @discord.ui.button(label="Quick Reply", style=discord.ButtonStyle.secondary, custom_id="mm_canned", row=1)
     async def canned_reply(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not is_staff(interaction):
-            await interaction.response.send_message("Access denied.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this.", kind="error", scope=SCOPE_SUPPORT, guild=interaction.guild), ephemeral=True)
             return
         self.message = interaction.message
         await interaction.response.send_message(embed=build_canned_replies_embed(interaction.guild), view=CannedReplyView(self), ephemeral=True)
@@ -522,7 +522,7 @@ class ModmailControlView(discord.ui.View):
     @discord.ui.button(label="Download Transcript", style=discord.ButtonStyle.secondary, custom_id="mm_export", row=1)
     async def export_transcript(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not is_staff(interaction):
-            await interaction.response.send_message("Access denied.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this.", kind="error", scope=SCOPE_SUPPORT, guild=interaction.guild), ephemeral=True)
             return
         ticket = self._get_ticket()
         thread = await resolve_modmail_thread(interaction.guild, ticket)
@@ -560,22 +560,22 @@ class ModmailModal(discord.ui.Modal):
 
         guild = get_context_guild(interaction)
         if guild is None:
-            await interaction.followup.send("This server could not be resolved for modmail. Ask an administrator to set the Guild ID in setup.", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Server Not Found", "> This server could not be resolved for modmail. Ask an administrator to set the Guild ID in setup.", kind="error", scope=SCOPE_SUPPORT, guild=interaction.guild), ephemeral=True)
             return
 
         existing_ticket = bot.data_manager.modmail.get(str(interaction.user.id))
         if existing_ticket and existing_ticket.get("status") == "open":
-            await interaction.followup.send("You already have an open ticket. Keep replying in DM and staff will receive it.", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Ticket Already Open", "> You already have an open ticket. Keep replying in DM and staff will receive it.", kind="info", scope=SCOPE_SUPPORT, guild=interaction.guild), ephemeral=True)
             return
-        
+
         log_channel_id = bot.data_manager.config.get("modmail_inbox_channel")
         if not log_channel_id:
-            await interaction.followup.send("Modmail system is not fully configured (Inbox channel missing). Contact admin.", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Configuration Error", "> Modmail system is not fully configured (Inbox channel missing). Contact admin.", kind="error", scope=SCOPE_SUPPORT, guild=interaction.guild), ephemeral=True)
             return
-            
+
         log_channel = guild.get_channel(log_channel_id)
         if not log_channel:
-            await interaction.followup.send("Inbox channel not found.", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Channel Not Found", "> Inbox channel not found.", kind="error", scope=SCOPE_SUPPORT, guild=interaction.guild), ephemeral=True)
             return
 
         # Create Log Embed
@@ -658,10 +658,10 @@ class ModmailModal(discord.ui.Modal):
                 ("Ticket ID", str(thread.id))
             ])
             
-            await interaction.followup.send("Ticket created successfully! Check your DMs.", ephemeral=True)
-            
+            await interaction.followup.send(embed=make_embed("Ticket Created", "> Ticket created successfully! Check your DMs.", kind="success", scope=SCOPE_SUPPORT, guild=interaction.guild), ephemeral=True)
+
         except Exception as e:
-            await interaction.followup.send(f"Failed to create ticket: {e}", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Failed", f"> Failed to create ticket: {e}", kind="error", scope=SCOPE_SUPPORT, guild=interaction.guild), ephemeral=True)
 
 class ModmailPanelSelect(discord.ui.Select):
     def __init__(self):

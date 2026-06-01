@@ -1372,7 +1372,7 @@ async def handle_abuse(interaction: discord.Interaction, moderator: discord.Memb
     embed.add_field(name="Actor", value=format_user_ref(moderator), inline=True)
     embed.add_field(name="System Action", value="Roles stripped due to rate-limit violation", inline=True)
     await send_log(interaction.guild, embed)
-    await interaction.response.send_message("Action blocked. You have been flagged for abuse.", ephemeral=True)
+    await interaction.response.send_message(embed=make_embed("Action Blocked", "> Action blocked. You have been flagged for abuse.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
 
 async def punish_rogue_mod(guild: discord.Guild, member: discord.User, reason: str, embed: discord.Embed = None, restore_data: dict = None):
     # Fetch fresh member to ensure roles are up to date and we have a Member object

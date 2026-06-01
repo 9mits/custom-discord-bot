@@ -1619,7 +1619,7 @@ class AutoModImmunityView(discord.ui.View):
         settings = get_native_automod_settings(bot.data_manager.config)
         values = settings.get(config_key, [])
         if not values:
-            await interaction.response.send_message(f"No {label.lower()} are configured.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Nothing Configured", f"> No {label.lower()} are configured.", kind="info", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
             return
         options = []
         for value in values[:25]:
@@ -1754,7 +1754,7 @@ class SmartAutoModSettingsView(discord.ui.View):
         settings = get_smart_automod_settings()
         values = settings.get(config_key, [])
         if not values:
-            await interaction.response.send_message(f"No {label.lower()} are configured.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Nothing Configured", f"> No {label.lower()} are configured.", kind="info", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
             return
         options = []
         for value in values[:25]:
@@ -1955,9 +1955,9 @@ class AutoModCustomReportResponseModal(discord.ui.Modal, title="Custom AutoMod R
             source_message=self.source_message,
         )
         if success and not interaction.response.is_done():
-            await interaction.response.send_message("Response sent.", ephemeral=True)
+            await interaction.response.send_message(embed=make_confirmation_embed("Response Sent", "> The response was sent to the user.", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
         elif success:
-            await interaction.followup.send("Response sent.", ephemeral=True)
+            await interaction.followup.send(embed=make_confirmation_embed("Response Sent", "> The response was sent to the user.", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
 
 
 class AutoModReportResponseSelect(discord.ui.Select):
@@ -2053,7 +2053,7 @@ class AutoModReportModal(discord.ui.Modal, title="Report AutoMod Warning"):
     async def on_submit(self, interaction: discord.Interaction):
         guild = bot.get_guild(self.guild_id) or get_primary_guild()
         if guild is None:
-            await interaction.response.send_message("The server for this report could not be resolved.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Server Not Found", "> The server for this report could not be resolved.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
             return
 
         channel_id = (
@@ -2063,7 +2063,7 @@ class AutoModReportModal(discord.ui.Modal, title="Report AutoMod Warning"):
         )
         channel = guild.get_channel(int(channel_id)) if channel_id else None
         if channel is None:
-            await interaction.response.send_message("No AutoMod report channel is configured yet. Please contact staff directly.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Not Configured", "> No AutoMod report channel is configured yet. Please contact staff directly.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
             return
 
         embed = make_action_log_embed(

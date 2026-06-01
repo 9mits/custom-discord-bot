@@ -20,6 +20,7 @@ from core.services import (
 )
 from core.context import bot, tree
 from .shared import (
+    make_embed,
     make_confirmation_embed,
     respond_with_error,
     build_setup_dashboard_embed,
@@ -41,7 +42,7 @@ class ConfigRoleSelect(discord.ui.RoleSelect):
         role = self.values[0]
         bot.data_manager.config[self.config_key] = role.id
         await bot.data_manager.save_config()
-        await interaction.response.send_message(f"✅ **{self.config_name}** updated to {role.mention}", ephemeral=True)
+        await interaction.response.send_message(embed=make_embed("Setting Updated", f"> **{self.config_name}** updated to {role.mention}.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 class ConfigChannelSelect(discord.ui.ChannelSelect):
     def __init__(self, config_key: str, config_name: str, channel_types=None):
@@ -61,7 +62,7 @@ class ConfigChannelSelect(discord.ui.ChannelSelect):
             await send_configured_modmail_panel(interaction, channel)
             return
 
-        await interaction.response.send_message(f"✅ **{self.config_name}** updated to {channel.mention}", ephemeral=True)
+        await interaction.response.send_message(embed=make_embed("Setting Updated", f"> **{self.config_name}** updated to {channel.mention}.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 class ConfigTypeSelect(discord.ui.Select):
     def __init__(self, category: str, *, row: Optional[int] = None):
@@ -108,7 +109,7 @@ class ConfigTypeSelect(discord.ui.Select):
                 c_types = [discord.ChannelType.category]
             view.add_item(ConfigChannelSelect(key, name, channel_types=c_types))
             
-        await interaction.response.send_message(f"Select the new **{name}** below:", view=view, ephemeral=True)
+        await interaction.response.send_message(embed=make_embed(f"Configure {name}", f"> Select the new **{name}** below.", kind="info", scope=SCOPE_SYSTEM, guild=interaction.guild), view=view, ephemeral=True)
 
 class EscalationMatrixModal(discord.ui.Modal, title="Edit Punishment Scaling"):
     matrix_json = discord.ui.TextInput(
@@ -244,11 +245,11 @@ class GuildIdModal(discord.ui.Modal, title="Set Guild ID"):
 
     async def on_submit(self, interaction: discord.Interaction):
         if not self.guild_id.value.isdigit():
-            await interaction.response.send_message("Invalid ID.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Invalid ID", "> Invalid guild ID.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
             return
         bot.data_manager.config["guild_id"] = int(self.guild_id.value)
         await bot.data_manager.save_config()
-        await interaction.response.send_message(f"Guild ID set to `{self.guild_id.value}`.", ephemeral=True)
+        await interaction.response.send_message(embed=make_embed("Guild ID Updated", f"> Guild ID set to `{self.guild_id.value}`.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 
 async def _fetch_configured_modmail_panel_channel(interaction: discord.Interaction, channel_id: int):
@@ -465,8 +466,7 @@ class SetupLandingView(discord.ui.View):
 
     @discord.ui.button(label="Other", style=discord.ButtonStyle.secondary, row=0)
     async def other_btn(self, interaction: discord.Interaction, button: discord.ui.Button):
-        embed = discord.Embed(title="Other Settings", color=discord.Color.greyple())
-        embed.description = "Set the Guild ID, send the modmail panel, or run a full configuration validation check."
+        embed = make_embed("Other Settings", "> Set the Guild ID, send the modmail panel, or run a full configuration validation check.", kind="info", scope=SCOPE_SYSTEM, guild=interaction.guild)
         await interaction.response.send_message(embed=embed, view=SetupOtherView(), ephemeral=True)
 
 

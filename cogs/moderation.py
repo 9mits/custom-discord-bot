@@ -67,7 +67,7 @@ async def execute_punishment(interaction, target, moderator, reason, minutes, no
     # Anti-Abuse: Hierarchy Check
     if member_target and member_target.id != guild.owner_id and member_target != moderator:
         if member_target.top_role >= moderator.top_role:
-            await interaction.response.send_message("**Anti-Abuse:** You cannot punish a user with equal or higher role hierarchy.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Anti-Abuse Blocked", "> You cannot punish a user with equal or higher role hierarchy.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
             return
 
     # Anti-Abuse: Rate Limit
@@ -81,7 +81,7 @@ async def execute_punishment(interaction, target, moderator, reason, minutes, no
     try:
         if is_kick:
             if not member_target:
-                await interaction.followup.send("User is not in the server, cannot kick.", ephemeral=True)
+                await interaction.followup.send(embed=make_embed("Cannot Kick", "> User is not in the server, cannot kick.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
                 return
             await guild.kick(member_target, reason=f"{reason} (By {moderator})")
         elif is_softban:
@@ -93,15 +93,15 @@ async def execute_punishment(interaction, target, moderator, reason, minutes, no
             await guild.ban(target, reason=f"{reason} (By {moderator})", delete_message_days=0)
         elif punishment_type == "timeout":
             if not member_target:
-                await interaction.followup.send("User is not in the server, cannot timeout.", ephemeral=True)
+                await interaction.followup.send(embed=make_embed("Cannot Timeout", "> User is not in the server, cannot timeout.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
                 return
             duration = get_valid_duration(minutes)
             await member_target.timeout(duration, reason=f"{reason} (By {moderator})")
     except discord.Forbidden:
-        await interaction.followup.send("I cannot punish this user (Permission Error).", ephemeral=True)
+        await interaction.followup.send(embed=make_embed("Permission Error", "> I cannot punish this user (Permission Error).", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
         return
     except Exception as e:
-        await interaction.followup.send(f"Error: {e}", ephemeral=True)
+        await interaction.followup.send(embed=make_embed("Error", f"> Error: {e}", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
         return
 
     timestamp_iso = now_iso()
@@ -401,14 +401,14 @@ class CustomPunishDetailsModal(discord.ui.Modal):
             if self.duration_str:
                 minutes = parse_duration_str(self.duration_str.value)
                 if minutes <= 0:
-                    await interaction.followup.send("Invalid duration for temporary ban.", ephemeral=True)
+                    await interaction.followup.send(embed=make_embed("Invalid Duration", "> Invalid duration for temporary ban.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
                     return
         elif self.p_type == "timeout":
             final_type = "timeout"
             if self.duration_str:
                 minutes = parse_duration_str(self.duration_str.value)
                 if minutes <= 0:
-                    await interaction.followup.send("Invalid duration for timeout.", ephemeral=True)
+                    await interaction.followup.send(embed=make_embed("Invalid Duration", "> Invalid duration for timeout.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
                     return
         elif self.p_type == "kick":
             final_type = "kick"
@@ -517,7 +517,7 @@ class PunishSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction):
         if self.values[0] == "custom":
-            await interaction.response.send_message("Select the type of custom punishment:", view=CustomTypeView(self.target, self.moderator, interaction.message, public=self.public, reaction_count=self.reaction_count), ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Custom Punishment", "> Select the type of custom punishment below.", kind="info", scope=SCOPE_MODERATION, guild=interaction.guild), view=CustomTypeView(self.target, self.moderator, interaction.message, public=self.public, reaction_count=self.reaction_count), ephemeral=True)
             return
         reason = self.values[0]
         rules_config = bot.data_manager.config.get("punishment_rules", DEFAULT_RULES)
@@ -537,8 +537,8 @@ class PunishView(discord.ui.View):
     @discord.ui.button(label="Clear History", style=discord.ButtonStyle.danger, row=1)
     async def clear_history(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_message(
-            "**Are you sure you want to clear this user's punishment history?**", 
-            view=FirstConfirmClear(self.target, self.moderator, interaction.message), 
+            embed=make_embed("Confirm Clear", "> Are you sure you want to clear this user's punishment history?", kind="warning", scope=SCOPE_MODERATION, guild=interaction.guild),
+            view=FirstConfirmClear(self.target, self.moderator, interaction.message),
             ephemeral=True
         )
 
@@ -546,14 +546,14 @@ class PunishView(discord.ui.View):
     async def view_history(self, interaction: discord.Interaction, button: discord.ui.Button):
         member = self.target if isinstance(self.target, discord.Member) else await resolve_member(interaction.guild, self.target.id)
         if not member:
-            await interaction.response.send_message("This user is no longer in the server, so the interactive history panel is unavailable.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("User Left Server", "> This user is no longer in the server, so the interactive history panel is unavailable.", kind="info", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
             return
 
         uid = str(member.id)
         history_data = bot.data_manager.punishments.get(uid, [])
-        
+
         if not history_data:
-            await interaction.response.send_message(f"**{member.display_name}** has a clean record (No history found).", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Clean Record", f"> **{member.display_name}** has a clean record (No history found).", kind="success", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
             return
 
         view = HistoryView(member)
@@ -571,7 +571,7 @@ class RevokeUndoView(discord.ui.View):
     @discord.ui.button(label="Revoke Undo", style=discord.ButtonStyle.danger)
     async def revoke_undo(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not is_staff(interaction):
-             await interaction.response.send_message("Access denied.", ephemeral=True)
+             await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
              return
 
         await interaction.response.defer()
@@ -755,12 +755,12 @@ class ModerationTargetPickerView(discord.ui.View):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id == self.requester_id:
             return True
-        await interaction.response.send_message("This picker belongs to another moderator.", ephemeral=True)
+        await interaction.response.send_message(embed=make_embed("Access Denied", "> This picker belongs to another moderator.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
         return False
 
     async def handle_user(self, interaction: discord.Interaction, selected_user: Union[discord.Member, discord.User]) -> None:
         if not is_staff(interaction):
-            await interaction.response.send_message("You do not have permission to use this panel.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this panel.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
             return
 
         if self.action == "punish":
@@ -878,7 +878,7 @@ async def active(interaction: discord.Interaction):
                 name = member.display_name if member else uid
                 active_list.append((uid, rec, expiry, i+1, name))
     if not active_list:
-        await interaction.followup.send("No active punishments found.", ephemeral=True)
+        await interaction.followup.send(embed=make_embed("No Active Punishments", "> No active punishments found.", kind="info", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
         return
     active_list.sort(key=lambda x: x[2])
     embed = build_active_punishments_embed(interaction.guild, active_list, now)
@@ -909,7 +909,7 @@ async def undo(interaction: discord.Interaction, user: Optional[discord.Member] 
 @app_commands.check(_staff_check)
 async def purge(interaction: discord.Interaction, amount: int, user: discord.Member = None, keyword: str = None):
     if amount < 1 or amount > 999:
-        await interaction.response.send_message("Amount must be between 1 and 999.", ephemeral=True)
+        await interaction.response.send_message(embed=make_embed("Invalid Amount", "> Amount must be between 1 and 999.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
         return
 
     await interaction.response.defer(ephemeral=True)
@@ -917,7 +917,7 @@ async def purge(interaction: discord.Interaction, amount: int, user: discord.Mem
     if not user and not keyword:
         try:
             deleted = await interaction.channel.purge(limit=amount)
-            await interaction.followup.send(f"Cleared **{len(deleted)}** messages.", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Messages Cleared", f"> Cleared **{len(deleted)}** messages.", kind="success", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
 
             log_embed = make_embed(
                 "Messages Purged",
@@ -931,7 +931,7 @@ async def purge(interaction: discord.Interaction, amount: int, user: discord.Mem
             log_embed.add_field(name="Amount", value=str(len(deleted)), inline=True)
             await send_punishment_log(interaction.guild, log_embed)
         except discord.HTTPException as e:
-            await interaction.followup.send(f"Failed to purge: {e}", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Failed to Purge", f"> Failed to purge: {e}", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
         return
 
     to_delete = []
@@ -975,11 +975,11 @@ async def purge(interaction: discord.Interaction, amount: int, user: discord.Mem
         except Exception: pass
 
     if deleted_count == 0:
-        await interaction.followup.send("No matching messages found to purge.", ephemeral=True)
+        await interaction.followup.send(embed=make_embed("No Messages Found", "> No matching messages found to purge.", kind="info", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
         return
 
     target_str = user.mention if user else "Anyone"
-    await interaction.followup.send(f"Cleared **{deleted_count}** messages from {target_str}.", ephemeral=True)
+    await interaction.followup.send(embed=make_embed("Messages Cleared", f"> Cleared **{deleted_count}** messages from {target_str}.", kind="success", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
 
     log_embed = make_embed(
         "Filtered Purge",
@@ -1018,9 +1018,9 @@ async def lock(interaction: discord.Interaction):
         if "locked_channels" not in bot.data_manager.config: bot.data_manager.config["locked_channels"] = {}
         bot.data_manager.config["locked_channels"][str(channel.id)] = msg.id
         await bot.data_manager.save_config()
-        await interaction.followup.send("Channel locked.", ephemeral=True)
+        await interaction.followup.send(embed=make_embed("Channel Locked", "> Channel has been locked successfully.", kind="success", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
     except Exception as e:
-        await interaction.followup.send(f"Error: {e}", ephemeral=True)
+        await interaction.followup.send(embed=make_embed("Error", f"> Error: {e}", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
 
 
 @tree.command(name="unlock", description="Unlock the current channel.")
@@ -1043,9 +1043,9 @@ async def unlock(interaction: discord.Interaction):
                 except Exception: pass
                 del bot.data_manager.config["locked_channels"][cid]
                 await bot.data_manager.save_config()
-        await interaction.followup.send("Channel unlocked.", ephemeral=True)
+        await interaction.followup.send(embed=make_embed("Channel Unlocked", "> Channel has been unlocked successfully.", kind="success", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
     except Exception as e:
-        await interaction.followup.send(f"Error: {e}", ephemeral=True)
+        await interaction.followup.send(embed=make_embed("Error", f"> Error: {e}", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
 
 
 @tree.command(name="mod-guide", description="View the moderation command guide.")
@@ -1073,7 +1073,7 @@ async def case(interaction: discord.Interaction, case_id: Optional[app_commands.
 @app_commands.default_permissions(moderate_members=True)
 async def punish_context(interaction: discord.Interaction, user: discord.User):
     if not is_staff(interaction):
-        await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
+        await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this command.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
         return
     await show_punish_menu(interaction, user)
 
@@ -1082,7 +1082,7 @@ async def punish_context(interaction: discord.Interaction, user: discord.User):
 @app_commands.default_permissions(moderate_members=True)
 async def history_context(interaction: discord.Interaction, user: discord.Member):
     if not is_staff(interaction):
-        await interaction.response.send_message("You do not have permission to use this command.", ephemeral=True)
+        await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this command.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
         return
     await show_history_menu(interaction, user)
 

@@ -138,20 +138,20 @@ class CreateRoleModal(discord.ui.Modal, title="Create your custom role"):
 
         allowed = get_custom_role_limit(member)
         if allowed <= 0:
-            await interaction.followup.send("You are not authorized to create a custom role.", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Access Denied", "> You are not authorized to create a custom role.", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
             return
 
         current = 1 if str(member.id) in bot.data_manager.roles else 0
         if current >= allowed:
-            await interaction.followup.send(f"You are allowed {allowed} role(s) and already have {current}.", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Role Limit Reached", f"> You are allowed {allowed} role(s) and already have {current}.", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
             return
 
         name = self.role_name.value.strip()[:100]
         color_text = self.hex_color.value.strip() if self.hex_color.value else None
-        
+
         if color_text:
             if not hex_valid(color_text):
-                await interaction.followup.send("Invalid hex color (use #RRGGBB).", ephemeral=True)
+                await interaction.followup.send(embed=make_embed("Invalid Color", "> Invalid hex color (use #RRGGBB).", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
                 return
         else:
             color_text = "#000000" # Default
@@ -164,10 +164,10 @@ class CreateRoleModal(discord.ui.Modal, title="Create your custom role"):
         try:
             new_role = await guild.create_role(name=name, color=color, mentionable=True, reason=f"Custom role created by {member}")
         except discord.Forbidden:
-            await interaction.followup.send("Bot lacks permissions or role hierarchy prevents creation.", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Permission Error", "> Bot lacks permissions or role hierarchy prevents creation.", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
             return
         except Exception as e:
-            await interaction.followup.send(f"Failed to create role: {e}", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Failed", f"> Failed to create role: {e}", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
             return
 
         anchor_id = int(bot.data_manager.config.get("role_anchor", DEFAULT_ANCHOR_ROLE_ID))
@@ -241,7 +241,7 @@ class EditNameModal(discord.ui.Modal, title="Edit role name"):
         try:
             await self.role.edit(name=name, reason=f"Renamed by {interaction.user}")
         except Exception as e:
-            await interaction.response.send_message(f"Failed: {e}", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
             return
         rec = bot.data_manager.roles.get(str(self.member.id))
         if rec:
@@ -266,13 +266,13 @@ class EditColorModal(discord.ui.Modal, title="Edit role color"):
     async def on_submit(self, interaction):
         c = self.new_color.value.strip()
         if not hex_valid(c):
-            await interaction.response.send_message("Invalid hex color.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Invalid Color", "> Invalid hex color.", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
             return
         try:
             color = discord.Color(int(c.lstrip("#"),16))
             await self.role.edit(color=color, reason=f"Edited by {interaction.user}")
         except Exception as e:
-            await interaction.response.send_message(f"Failed: {e}", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
             return
         rec = bot.data_manager.roles.get(str(self.member.id))
         if rec:
@@ -297,7 +297,7 @@ class ConfirmRevokeView(discord.ui.View):
     @discord.ui.button(label="Yes, Revoke", style=discord.ButtonStyle.danger)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not is_staff(interaction):
-            await interaction.response.send_message("Access denied.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this.", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
             return
         await self.parent_view.finish_revoke(interaction, self.target_message)
 
@@ -316,7 +316,7 @@ class DenyAppealModal(discord.ui.Modal, title="Deny Appeal"):
 
     async def on_submit(self, interaction: discord.Interaction):
         if not is_staff(interaction):
-            await interaction.response.send_message("Access denied.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
             return
         embed = self.origin_message.embeds[0]
         embed.color = discord.Color.red()
@@ -348,7 +348,7 @@ class DenyAppealModal(discord.ui.Modal, title="Deny Appeal"):
             except Exception:
                 pass
         
-        await interaction.response.send_message("Appeal denied.", ephemeral=True)
+        await interaction.response.send_message(embed=make_embed("Appeal Denied", "> The appeal has been denied and the user has been notified.", kind="success", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
 
 class RevokeAppealView(discord.ui.View):
     def __init__(self, target_id: int, moderator_id: int, duration: int, timestamp: str):
@@ -361,20 +361,20 @@ class RevokeAppealView(discord.ui.View):
     @discord.ui.button(label="Revoke Punishment", style=discord.ButtonStyle.danger, custom_id="revoke_punishment_btn")
     async def start_revoke(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not is_staff(interaction):
-            await interaction.response.send_message("Access denied.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
             return
-        await interaction.response.send_message("Are you sure you want to revoke this punishment?", view=ConfirmRevokeView(self, interaction.message), ephemeral=True)
+        await interaction.response.send_message(embed=make_embed("Confirm Revocation", "> Are you sure you want to revoke this punishment?", kind="warning", scope=SCOPE_MODERATION, guild=interaction.guild), view=ConfirmRevokeView(self, interaction.message), ephemeral=True)
 
     @discord.ui.button(label="Deny Appeal", style=discord.ButtonStyle.secondary, custom_id="deny_appeal_btn")
     async def deny_appeal(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not is_staff(interaction):
-            await interaction.response.send_message("Access denied.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
             return
         await interaction.response.send_modal(DenyAppealModal(self.target_id, interaction.message, self))
 
     async def finish_revoke(self, interaction: discord.Interaction, message: discord.Message):
         if not is_staff(interaction):
-            await interaction.response.send_message("Access denied.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
             return
         await interaction.response.edit_message(content="Processing revocation...", view=None)
         
@@ -465,7 +465,7 @@ class RevokeAppealView(discord.ui.View):
             except Exception:
                 pass
             
-        await interaction.followup.send("Punishment revoked successfully.", ephemeral=True)
+        await interaction.followup.send(embed=make_embed("Punishment Revoked", "> The punishment has been revoked successfully.", kind="success", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
         
         # 6. Log to General Logs (if different from current channel)
         target_str = format_user_ref(user) if user else format_user_id_ref(self.target_id, fallback_name=(revoked_record or {}).get("target_name"))
@@ -500,7 +500,7 @@ class AppealModal(discord.ui.Modal, title="Appeal Punishment"):
     async def on_submit(self, interaction: discord.Interaction):
         guild = bot.get_guild(self.guild_id)
         if not guild:
-            await interaction.response.send_message("Server not found.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Server Not Found", "> The server could not be found.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
             return
 
         record = next(
@@ -546,7 +546,7 @@ class AppealModal(discord.ui.Modal, title="Appeal Punishment"):
         if not sent:
             await send_punishment_log(guild, embed, view=view)
             
-        await interaction.response.send_message("Your appeal has been sent to the staff team.", ephemeral=True)
+        await interaction.response.send_message(embed=make_embed("Appeal Submitted", "> Your appeal has been sent to the staff team.", kind="success", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
 
 class AppealView(discord.ui.View):
     def __init__(self, guild_id: int, target_id: int, moderator_id: int, duration: int, timestamp: str, reason: str):
@@ -573,7 +573,7 @@ class GradientModal(discord.ui.Modal, title="Set Gradient Style"):
     async def on_submit(self, interaction: discord.Interaction):
         sec_val = self.secondary.value.strip()
         if not hex_valid(sec_val):
-            await interaction.response.send_message("Invalid hex color.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Invalid Color", "> Invalid hex color.", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
             return
 
         sec_int = int(sec_val.lstrip("#"), 16)
@@ -606,9 +606,9 @@ class GradientModal(discord.ui.Modal, title="Set Gradient Style"):
                 ephemeral=True,
             )
         except discord.HTTPException as e:
-            await interaction.response.send_message(f"Failed to update style: {e.status} {e.text}", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Failed", f"> Failed to update style: {e.status} {e.text}", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
         except Exception as e:
-            await interaction.response.send_message(f"Failed to update style: {e}", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Failed", f"> Failed to update style: {e}", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
 
 class RoleStyleView(discord.ui.View):
     def __init__(self, member, role):
@@ -633,11 +633,11 @@ class RoleStyleView(discord.ui.View):
                 rec['secondary_color'] = None
                 rec['tertiary_color'] = None
                 await bot.data_manager.save_roles()
-            await interaction.response.send_message("Role style reset to Static.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Style Reset", "> Role style has been reset to static.", kind="success", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
         except discord.HTTPException as e:
-            await interaction.response.send_message(f"Failed: {e.status} {e.text}", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Failed", f"> Failed: {e.status} {e.text}", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
         except Exception as e:
-            await interaction.response.send_message(f"Failed: {e}", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
 
     @discord.ui.button(label="Gradient", style=discord.ButtonStyle.primary)
     async def gradient_style(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -672,9 +672,9 @@ class RoleStyleView(discord.ui.View):
                 ephemeral=True,
             )
         except discord.HTTPException as e:
-            await interaction.response.send_message(f"Failed: {e.status} {e.text}", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Failed", f"> Failed: {e.status} {e.text}", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
         except Exception as e:
-            await interaction.response.send_message(f"Failed: {e}", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
 
 class IconURLModal(discord.ui.Modal, title="Set Icon via URL"):
     url = discord.ui.TextInput(label="Image URL", placeholder="https://...", required=True)
@@ -690,7 +690,7 @@ class IconURLModal(discord.ui.Modal, title="Set Icon via URL"):
         
         img, error = await fetch_image_bytes(val)
         if not img:
-            await interaction.followup.send(error or "Failed to download image. Check the URL.", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Failed", f"> {error or 'Failed to download image. Check the URL.'}", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
             return
 
         try:
@@ -699,9 +699,9 @@ class IconURLModal(discord.ui.Modal, title="Set Icon via URL"):
             if rec:
                 rec["icon"] = val
                 await bot.data_manager.save_roles()
-            await interaction.followup.send("Icon updated successfully!", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Icon Updated", "> Icon updated successfully!", kind="success", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
         except Exception as e:
-            await interaction.followup.send(f"Failed to update icon: {e}", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Failed", f"> Failed to update icon: {e}", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
 
 class UploadIconView(discord.ui.View):
     def __init__(self, member, role):
@@ -715,7 +715,7 @@ class UploadIconView(discord.ui.View):
             child.disabled = True
         await interaction.response.edit_message(view=self)
         
-        await interaction.followup.send(f"{interaction.user.mention}, please reply to this message with your image file now.", ephemeral=True)
+        await interaction.followup.send(interaction.user.mention, embed=make_embed("Upload Image", "> Please reply to this message with your image file now.", kind="info", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
         
         def check(m):
             return m.author.id == interaction.user.id and m.channel.id == interaction.channel.id and m.attachments
@@ -724,12 +724,12 @@ class UploadIconView(discord.ui.View):
             msg = await bot.wait_for('message', check=check, timeout=60)
             attachment = msg.attachments[0]
             if attachment.size > 256000:
-                await interaction.followup.send("Image too big! Max size is 256KB.", ephemeral=True)
+                await interaction.followup.send(embed=make_embed("File Too Large", "> Image too big! Max size is 256KB.", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
                 return
-            
+
             img_data = await attachment.read()
             await self.role.edit(display_icon=img_data, reason=f"Icon updated by {interaction.user}")
-            await interaction.followup.send("Icon updated successfully!", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Icon Updated", "> Icon updated successfully!", kind="success", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
             
             rec = bot.data_manager.roles.get(str(self.member.id))
             if rec:
@@ -740,9 +740,9 @@ class UploadIconView(discord.ui.View):
             except Exception: pass
 
         except asyncio.TimeoutError:
-            await interaction.followup.send("Timed out.", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Timed Out", "> The upload timed out. Please try again.", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
         except Exception as e:
-            await interaction.followup.send(f"Failed: {e}", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
 
     @discord.ui.button(label="Enter URL", style=discord.ButtonStyle.secondary)
     async def enter_url(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -782,10 +782,10 @@ class RoleActionSelect(discord.ui.Select):
             await interaction.response.send_message(embed=embed, view=UploadIconView(self.member, self.role), ephemeral=True)
             return
         if action == "style":
-            await interaction.response.send_message("Choose a role style:", view=RoleStyleView(self.member, self.role), ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Role Style", "> Choose a role style below.", kind="info", scope=SCOPE_ROLES, guild=interaction.guild), view=RoleStyleView(self.member, self.role), ephemeral=True)
             return
         if action == "delete":
-            await interaction.response.send_message("Are you sure?", view=ConfirmDelete(self.member, self.role), ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Confirm Deletion", "> Are you sure you want to delete this role?", kind="warning", scope=SCOPE_ROLES, guild=interaction.guild), view=ConfirmDelete(self.member, self.role), ephemeral=True)
 
 class EditView(discord.ui.View):
     def __init__(self, member, role):
@@ -973,7 +973,7 @@ class RoleSettingsLimitModal(discord.ui.Modal, title="Set Role Limit"):
         try:
             limit = max(1, int(self.limit_value.value or 1))
         except ValueError:
-            await interaction.response.send_message("Role limit must be a number.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Invalid Input", "> Role limit must be a number.", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
             return
 
         await role_manage(interaction, self.action, self.target, limit)
@@ -998,7 +998,7 @@ class RoleSettingsMemberTargetSelect(discord.ui.UserSelect):
             except Exception:
                 member = None
         if member is None:
-            await interaction.response.send_message("That member could not be found in this server.", ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Member Not Found", "> That member could not be found in this server.", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
             return
         await self._target_view.handle_target(interaction, member)
 
@@ -1030,7 +1030,7 @@ class RoleSettingsTargetSelectView(discord.ui.View):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id == self.requester_id:
             return True
-        await interaction.response.send_message("This selector belongs to another administrator.", ephemeral=True)
+        await interaction.response.send_message(embed=make_embed("Access Denied", "> This selector belongs to another administrator.", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
         return False
 
     async def handle_target(self, interaction: discord.Interaction, target: Union[discord.Member, discord.Role]):
@@ -1161,7 +1161,7 @@ async def role_cmd(interaction: discord.Interaction):
     is_booster = interaction.user.premium_since is not None
 
     if limit <= 0:
-        await interaction.followup.send("You don't have access to custom roles. Ask a staff member to grant you access via `/role settings`.", ephemeral=True)
+        await interaction.followup.send(embed=make_embed("Access Denied", "> You don't have access to custom roles. Ask a staff member to grant you access via `/role settings`.", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
         return
 
     rec = bot.data_manager.roles.get(str(interaction.user.id))
@@ -1273,25 +1273,25 @@ async def role_manage(interaction: discord.Interaction, action: str, target: Opt
 
     if action == "manage_user":
         if not isinstance(target, discord.Member):
-            await interaction.followup.send("Target must be a user.", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Invalid Target", "> Target must be a user.", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
             return
-        
+
         rec = bot.data_manager.roles.get(str(target.id))
         role = None
         if rec:
             role = interaction.guild.get_role(rec.get("role_id"))
-        
+
         if role:
             embed = build_role_info_embed(target, rec, role, include_tips=True)
             embed.set_footer(text=f"Admin Control Panel for {target.display_name}")
             view = EditView(target, role)
             await interaction.followup.send(embed=embed, view=view, ephemeral=True)
         else:
-            await interaction.followup.send(f"{target.mention} does not have a custom role.", ephemeral=True)
+            await interaction.followup.send(embed=make_embed("No Custom Role", f"> {target.mention} does not have a custom role.", kind="info", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
         return
 
     if target is None:
-        await interaction.followup.send("Target is required for this action.", ephemeral=True)
+        await interaction.followup.send(embed=make_embed("Missing Target", "> Target is required for this action.", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
         return
 
     tid = str(target.id)
@@ -1350,7 +1350,7 @@ async def role_manage(interaction: discord.Interaction, action: str, target: Opt
             msg = f"{target.mention} was not in any list."
 
     await bot.data_manager.save_config()
-    await interaction.followup.send(msg, ephemeral=True)
+    await interaction.followup.send(embed=make_embed("Access Updated", f"> {msg}", kind="success", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
 
 @tree.command(name="role-settings", description="Configure custom role access.")
 @app_commands.default_permissions(administrator=True)
