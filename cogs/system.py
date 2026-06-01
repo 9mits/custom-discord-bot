@@ -2293,7 +2293,7 @@ class ServerBrandingView(discord.ui.View):
 
 # ── Commands ──
 
-branding_group = app_commands.Group(name="branding", description="Manage bot profile and server appearance.", default_member_permissions=discord.Permissions(administrator=True))
+branding_group = app_commands.Group(name="branding", description="Manage bot profile and server appearance.", default_permissions=discord.Permissions(administrator=True))
 
 
 @branding_group.command(name="global", description="Edit the bot's global profile.")
