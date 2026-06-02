@@ -228,12 +228,10 @@ class MGXBot(commands.Bot):
             return
 
         removed_any = False
-        for user_id, record in list(self.data_manager.roles.items()):
-            if not isinstance(record, dict):
-                continue
+        for user_id, records in list(self.data_manager.roles.items()):
+            # Records are stored as a list of role dicts per user
+            records = records if isinstance(records, list) else [records]
 
-            role_id = record.get("role_id")
-            role = guild.get_role(role_id) if role_id else None
             member = guild.get_member(int(user_id))
             if not member:
                 try:
@@ -241,14 +239,21 @@ class MGXBot(commands.Bot):
                 except Exception:
                     member = None
 
+            # Still eligible — leave all their roles intact
             if member and get_custom_role_limit(member) > 0:
                 continue
 
-            if role:
-                try:
-                    await role.delete(reason="Custom role eligibility cleanup")
-                except Exception:
-                    pass
+            # No longer eligible — remove every custom role this user owns
+            for record in records:
+                if not isinstance(record, dict):
+                    continue
+                role_id = record.get("role_id")
+                role = guild.get_role(role_id) if role_id else None
+                if role:
+                    try:
+                        await role.delete(reason="Custom role eligibility cleanup")
+                    except Exception:
+                        pass
 
             self.data_manager.roles.pop(user_id, None)
             removed_any = True
