@@ -1350,8 +1350,8 @@ async def handle_abuse(interaction: discord.Interaction, moderator: discord.Memb
     if to_remove:
         try:
             await moderator.remove_roles(*to_remove, reason="Anti-Abuse: Rate limit exceeded")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Anti-Abuse: failed to strip roles from %s: %s", moderator.id, exc)
             
     embed = make_embed(
         "Security Alert: Abuse Detected",

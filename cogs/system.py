@@ -490,8 +490,8 @@ class AntiNukeResolveConfirm2(discord.ui.View):
             if roles_to_add:
                 try:
                     await actor.add_roles(*roles_to_add, reason="Anti-Nuke: Action Resolved by Owner")
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("Anti-Nuke resolve: failed to restore stripped roles to %s: %s", actor.id, exc)
 
         # 2. Restore Original Action
         r_type = self.restore_data.get("type")
@@ -509,8 +509,8 @@ class AntiNukeResolveConfirm2(discord.ui.View):
             if target and role:
                 try:
                     await target.add_roles(role, reason="Anti-Nuke: Action Resolved by Owner")
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning("Anti-Nuke resolve: failed to restore role %s to %s: %s", role.id, target.id, exc)
 
         # 3. Disable the button on the original log message to prevent reuse
         if self.origin_message:
@@ -1227,52 +1227,68 @@ async def serverinfo_cmd(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
+async def _find_role_grant_actor(guild: discord.Guild, target_id: int, role: discord.Role):
+    """Return the member who granted `role` to `target_id`, matched precisely
+    against the audit log rather than blindly trusting the newest entry."""
+    try:
+        async for entry in guild.audit_logs(limit=5, action=discord.AuditLogAction.member_role_update):
+            if not entry.target or entry.target.id != target_id:
+                continue
+            added_roles = getattr(entry.after, "roles", None) or []
+            if role in added_roles:
+                return entry.user
+    except discord.Forbidden:
+        return None
+    except Exception as exc:
+        logger.warning("Anti-Nuke: failed to read audit log for role grant: %s", exc)
+        return None
+    return None
+
+
 @bot.event
 async def on_member_update(before: discord.Member, after: discord.Member):
-    # Check if roles were added
-    if len(before.roles) < len(after.roles):
-        added_roles = [r for r in after.roles if r not in before.roles]
-        for role in added_roles:
-            if has_dangerous_perm(role.permissions):
-                # Dangerous role added
-                async for entry in after.guild.audit_logs(limit=1, action=discord.AuditLogAction.member_role_update):
-                    if entry.target.id == after.id:
-                        actor = entry.user
-                        if actor.id == bot.user.id: return # Ignore self
-                        
-                        # Check Immunity
-                        if str(actor.id) in bot.data_manager.config.get("immunity_list", []):
-                            return
-                        
-                        # Capture dangerous state for potential resolve
-                        restore_data = {"type": "member_role", "target_id": after.id, "extra_id": role.id}
-                        
-                        # REVERT (Remove the role from the target)
-                        try:
-                            await after.remove_roles(role, reason=f"Anti-Nuke: Reverting unauthorized role grant by {actor}")
-                        except Exception:
-                            pass
-                        
-                        # Build Detailed Embed
-                        embed = make_embed(
-                            "Security Alert: Dangerous Role Granted",
-                            "> A protected role grant was reverted and the actor was flagged.",
-                            kind="danger",
-                            scope=SCOPE_SYSTEM,
-                            guild=after.guild,
-                        )
-                        embed.add_field(name="Actor", value=f"{actor.mention} (`{actor.id}`)", inline=True)
-                        
-                        embed.add_field(name="Target", value=f"{after.mention} (`{after.id}`)", inline=True)
-                        embed.add_field(name="Target Account Age", value=f"Created: {discord.utils.format_dt(after.created_at, 'R')}\nJoined: {discord.utils.format_dt(after.joined_at, 'R') if after.joined_at else 'Unknown'}", inline=True)
-                        
-                        embed.add_field(name="Role Granted", value=f"{role.mention} (`{role.id}`)", inline=True)
-                        embed.add_field(name="Role Created", value=discord.utils.format_dt(role.created_at, 'F'), inline=True)
-                        embed.add_field(name="Immediate Action", value="> Role Grant Reverted", inline=True)
+    # Only react when roles were added
+    if len(before.roles) >= len(after.roles):
+        return
 
-                        # PUNISH
-                        await punish_rogue_mod(after.guild, actor, f"Granted dangerous role **{role.name}** to {after.mention}", embed=embed, restore_data=restore_data)
-                        break
+    added_roles = [r for r in after.roles if r not in before.roles]
+    immunity_list = bot.data_manager.config.get("immunity_list", [])
+
+    for role in added_roles:
+        if not has_dangerous_perm(role.permissions):
+            continue
+
+        actor = await _find_role_grant_actor(after.guild, after.id, role)
+        if actor is None:
+            continue  # couldn't attribute this grant — leave it for manual review
+        if actor.id == bot.user.id:
+            continue  # the bot granted it (e.g. its own automation)
+        if str(actor.id) in immunity_list:
+            continue  # actor is explicitly trusted
+
+        restore_data = {"type": "member_role", "target_id": after.id, "extra_id": role.id}
+
+        # REVERT (remove the dangerous role from the target)
+        try:
+            await after.remove_roles(role, reason=f"Anti-Nuke: Reverting unauthorized role grant by {actor}")
+        except Exception as exc:
+            logger.warning("Anti-Nuke: failed to revert role %s on %s: %s", role.id, after.id, exc)
+
+        embed = make_embed(
+            "Security Alert: Dangerous Role Granted",
+            "> A protected role grant was reverted and the actor was flagged.",
+            kind="danger",
+            scope=SCOPE_SYSTEM,
+            guild=after.guild,
+        )
+        embed.add_field(name="Actor", value=f"{actor.mention} (`{actor.id}`)", inline=True)
+        embed.add_field(name="Target", value=f"{after.mention} (`{after.id}`)", inline=True)
+        embed.add_field(name="Target Account Age", value=f"Created: {discord.utils.format_dt(after.created_at, 'R')}\nJoined: {discord.utils.format_dt(after.joined_at, 'R') if after.joined_at else 'Unknown'}", inline=True)
+        embed.add_field(name="Role Granted", value=f"{role.mention} (`{role.id}`)", inline=True)
+        embed.add_field(name="Role Created", value=discord.utils.format_dt(role.created_at, 'F'), inline=True)
+        embed.add_field(name="Immediate Action", value="> Role Grant Reverted", inline=True)
+
+        await punish_rogue_mod(after.guild, actor, f"Granted dangerous role **{role.name}** to {after.mention}", embed=embed, restore_data=restore_data)
 
 def claim_native_automod_bridge_event(
     *,

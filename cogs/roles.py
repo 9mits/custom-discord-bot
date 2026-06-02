@@ -19,6 +19,7 @@ from core.constants import (
 from core.context import bot, tree
 from core.utils import iso_to_dt, now_iso
 from .shared import (
+    logger,
     truncate_text,
     format_reason_value,
     make_embed,
@@ -197,8 +198,7 @@ class CreateRoleModal(discord.ui.Modal, title="Create your custom role"):
             except discord.Forbidden:
                 pass  # bot role not high enough to reposition
             except Exception as e:
-                import logging
-                logging.getLogger(__name__).warning("Failed to position custom role under anchor: %s", e)
+                logger.warning("Failed to position custom role under anchor: %s", e)
 
         icon_val = self.icon_url.value.strip() if self.icon_url.value else None
         icon_warning = None
@@ -214,8 +214,8 @@ class CreateRoleModal(discord.ui.Modal, title="Create your custom role"):
 
         try:
             await member.add_roles(new_role, reason="Assigned custom role")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to assign custom role %s to %s: %s", new_role.id, member.id, e)
 
         records = get_user_role_records(member.id)
         records.append({
