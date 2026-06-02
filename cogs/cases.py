@@ -14,7 +14,6 @@ import io
 
 from core.constants import (
     BRAND_NAME,
-    DEFAULT_ROLE_OWNER,
     DEFAULT_RULES,
     FEATURE_FLAG_LABELS,
     SCOPE_ANALYTICS,
@@ -30,7 +29,7 @@ from core.services import (
     sanitize_tags,
 )
 from core.context import bot
-from core.utils import iso_to_dt, now_iso, parse_duration_str
+from core.utils import iso_to_dt, now_iso, parse_duration_str, create_progress_bar
 from .shared import (
     UNDO_REASON_PRESETS,
     UNDO_REASON_PRESET_MAP,
@@ -42,7 +41,6 @@ from .shared import (
     format_log_notes,
     make_action_log_embed,
     make_embed,
-    brand_embed,
     make_empty_state_embed,
     make_confirmation_embed,
     join_lines,
@@ -52,7 +50,6 @@ from .shared import (
     send_punishment_log,
     respond_with_error,
     resolve_member,
-    create_progress_bar,
 )
 
 def get_case_id(record: dict) -> Optional[int]:

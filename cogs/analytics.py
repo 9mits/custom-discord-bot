@@ -15,13 +15,12 @@ from core.constants import (
     SCOPE_ANALYTICS,
 )
 from core.context import bot, tree
-from core.utils import iso_to_dt
+from core.utils import iso_to_dt, create_progress_bar
 from .shared import (
     truncate_text,
     format_duration,
     format_log_quote,
     make_embed,
-    create_progress_bar,
     format_user_ref,
     check_admin,
 )

@@ -45,7 +45,7 @@ from core.services import (
     resolve_escalation_duration,
 )
 from core.context import bot
-from core.utils import iso_to_dt, truncate_text, format_duration, create_progress_bar
+from core.utils import iso_to_dt, truncate_text, format_duration
 
 # Setup Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')

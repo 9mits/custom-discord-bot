@@ -1196,13 +1196,6 @@ async def serverinfo_cmd(interaction: discord.Interaction):
     if g.banner:
         embed.set_image(url=g.banner.url)
 
-    channel_breakdown = (
-        f"{text_channels} text · {voice_channels} voice"
-        + (f" · {stage_channels} stage" if stage_channels else "")
-        + (f" · {forum_channels} forum" if forum_channels else "")
-        + f" · {categories} categories"
-    )
-
     embed.add_field(name="Owner",   value=f"<@{g.owner_id}>",                            inline=True)
     embed.add_field(name="Created", value=f"<t:{created_ts}:D> — <t:{created_ts}:R>",    inline=True)
     embed.add_field(name="ID",      value=str(g.id),                                     inline=True)
