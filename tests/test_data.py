@@ -2,11 +2,8 @@ import asyncio
 import os
 import tempfile
 import unittest
-from collections import deque
 from pathlib import Path
 from unittest.mock import patch
-
-import discord
 
 from core import data
 from core.data import DataManager
@@ -32,15 +29,6 @@ class MbxDataTests(unittest.TestCase):
         self.assertIn("timestamp", record)
         self.assertFalse(record["active"])
 
-    def test_message_cache_normalization_coerces_ids(self):
-        normalized = self.manager._normalize_message_cache_record(
-            {"id": "42", "author_id": "7", "channel_id": "9", "created_at": "2026-01-01T00:00:00+00:00"}
-        )
-        self.assertEqual(normalized["id"], 42)
-        self.assertEqual(normalized["author_id"], 7)
-        self.assertEqual(normalized["channel_id"], 9)
-        self.assertIsInstance(normalized["created_at"], type(discord.utils.utcnow()))
-
     def test_load_all_initializes_defaults_and_migrations(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             base = Path(temp_dir)
@@ -51,7 +39,6 @@ class MbxDataTests(unittest.TestCase):
                 "roles.json": "{}",
                 "punishments.json": "{}",
                 "mod_stats.json": "{}",
-                "message_cache.json": "[]",
                 "pings.json": "{}",
                 "modmail.json": "{}",
                 "lockdown.json": "{}",
@@ -62,14 +49,12 @@ class MbxDataTests(unittest.TestCase):
                 patch.object(data, "ROLES_FILE", db_dir / "roles.json"), \
                 patch.object(data, "PUNISHMENTS_FILE", db_dir / "punishments.json"), \
                 patch.object(data, "MOD_STATS_FILE", db_dir / "mod_stats.json"), \
-                patch.object(data, "MESSAGE_CACHE_FILE", db_dir / "message_cache.json"), \
                 patch.object(data, "PINGS_FILE", db_dir / "pings.json"), \
                 patch.object(data, "MODMAIL_FILE", db_dir / "modmail.json"), \
                 patch.object(data, "LOCKDOWN_FILE", db_dir / "lockdown.json"):
                 asyncio.run(self.manager.load_all())
 
         self.assertIn("feature_flags", self.manager.config)
-        self.assertIsInstance(self.manager.message_cache, deque)
 
     def test_resolve_bot_token_prefers_environment_variable(self):
         with tempfile.TemporaryDirectory() as temp_dir:

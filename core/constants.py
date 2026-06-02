@@ -30,8 +30,6 @@ DEFAULT_SPAM_ROLE_ID = 1352841838985482322
 # ---------------------------------------------------------------------------
 # Operational defaults
 # ---------------------------------------------------------------------------
-DEFAULT_MESSAGE_CACHE_LIMIT = 5000
-DEFAULT_MESSAGE_CACHE_RETENTION_DAYS = 14
 DEFAULT_MAX_UNREAD_PINGS = 100
 COOLDOWN_SECONDS = 60
 

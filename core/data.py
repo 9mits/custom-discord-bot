@@ -21,8 +21,6 @@ import discord
 from core.constants import (
     DEFAULT_GUILD_ID,
     DEFAULT_MAX_UNREAD_PINGS,
-    DEFAULT_MESSAGE_CACHE_LIMIT,
-    DEFAULT_MESSAGE_CACHE_RETENTION_DAYS,
     DEFAULT_ROLE_ADMIN,
     DEFAULT_ANCHOR_ROLE_ID,
     DEFAULT_ROLE_COMMUNITY_MANAGER,
@@ -52,7 +50,6 @@ ROLES_FILE = DB_DIR / "roles.json"
 CONFIG_FILE = DB_DIR / "config.json"
 PUNISHMENTS_FILE = DB_DIR / "punishments.json"
 MOD_STATS_FILE = DB_DIR / "mod_stats.json"
-MESSAGE_CACHE_FILE = DB_DIR / "message_cache.json"
 PINGS_FILE = DB_DIR / "pings.json"
 LOCKDOWN_FILE = DB_DIR / "lockdown.json"
 MODMAIL_FILE = DB_DIR / "modmail.json"
@@ -95,12 +92,6 @@ CREATE TABLE IF NOT EXISTS modmail (
 CREATE TABLE IF NOT EXISTS lockdown (
     channel_id TEXT PRIMARY KEY,
     data       TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS message_cache (
-    message_id INTEGER PRIMARY KEY,
-    created_at TEXT    NOT NULL,
-    data       TEXT    NOT NULL
 );
 """
 
@@ -156,19 +147,15 @@ class DataManager:
         self.punishments: dict = {}
         self.case_index: Dict[int, Tuple[str, dict]] = {}
         self.mod_stats: dict = {}
-        self.message_cache: deque = deque(maxlen=DEFAULT_MESSAGE_CACHE_LIMIT)
-        self.message_cache_index: Dict[int, dict] = {}
         self.pings: dict = {}
         self.modmail: dict = {}
         self.modmail_threads: Dict[int, str] = {}
         self.lockdown: dict = {}
-        self.message_cache_retention_days: int = DEFAULT_MESSAGE_CACHE_RETENTION_DAYS
 
         self._dirty_config = False
         self._dirty_roles = False
         self._dirty_punishments = False
         self._dirty_stats = False
-        self._dirty_message_cache = False
         self._dirty_pings = False
         self._dirty_modmail = False
         self._dirty_lockdown = False
@@ -349,33 +336,6 @@ class DataManager:
             except Exception as exc:
                 logger.warning("Migration: failed to import lockdown.json: %s", exc)
 
-        # message_cache.json → message_cache table
-        if MESSAGE_CACHE_FILE.exists():
-            try:
-                raw = read_json_file(MESSAGE_CACHE_FILE, [])
-                if isinstance(raw, list):
-                    for record in raw:
-                        if not isinstance(record, dict):
-                            continue
-                        msg_id = record.get("id")
-                        try:
-                            msg_id = int(msg_id)
-                        except (TypeError, ValueError):
-                            continue
-                        created_at = record.get("created_at", "")
-                        if isinstance(created_at, datetime):
-                            created_at = created_at.isoformat()
-                        if not isinstance(created_at, str):
-                            created_at = ""
-                        await db.execute(
-                            "INSERT OR IGNORE INTO message_cache(message_id, created_at, data) VALUES (?, ?, ?)",
-                            (msg_id, created_at, json.dumps(record)),
-                        )
-                    logger.info("Migration: imported message_cache.json into SQLite")
-                MESSAGE_CACHE_FILE.rename(MESSAGE_CACHE_FILE.with_suffix(".json.bak"))
-            except Exception as exc:
-                logger.warning("Migration: failed to import message_cache.json: %s", exc)
-
         await db.commit()
 
     # ------------------------------------------------------------------
@@ -391,61 +351,11 @@ class DataManager:
             normalized = min(normalized, maximum)
         return max(minimum, normalized)
 
-    def _configure_cache_limits(self):
-        cache_limit = self._normalize_positive_int(
-            self.config.get("message_cache_limit", DEFAULT_MESSAGE_CACHE_LIMIT),
-            DEFAULT_MESSAGE_CACHE_LIMIT,
-            minimum=100,
-            maximum=50000,
-        )
-        if self.message_cache.maxlen != cache_limit:
-            self.message_cache = deque(list(self.message_cache)[-cache_limit:], maxlen=cache_limit)
-        self.message_cache_retention_days = self._normalize_positive_int(
-            self.config.get("message_cache_retention_days", DEFAULT_MESSAGE_CACHE_RETENTION_DAYS),
-            DEFAULT_MESSAGE_CACHE_RETENTION_DAYS,
-            minimum=1,
-            maximum=90,
-        )
-        self._rebuild_message_cache_index()
-
     def _parse_optional_int(self, value: Any) -> Optional[int]:
         try:
             return int(value)
         except (TypeError, ValueError):
             return None
-
-    def _normalize_message_cache_record(self, record: Any) -> Optional[dict]:
-        if not isinstance(record, dict):
-            return None
-        normalized = dict(record)
-        message_id = self._parse_optional_int(normalized.get("id"))
-        if message_id is None:
-            return None
-        normalized["id"] = message_id
-        author_id = self._parse_optional_int(normalized.get("author_id"))
-        if author_id is not None:
-            normalized["author_id"] = author_id
-        channel_id = self._parse_optional_int(normalized.get("channel_id"))
-        if channel_id is not None:
-            normalized["channel_id"] = channel_id
-        created_at = normalized.get("created_at")
-        if not isinstance(created_at, datetime):
-            normalized["created_at"] = parse_iso_datetime(created_at) or discord.utils.utcnow()
-        attachments = normalized.get("attachments", [])
-        normalized["attachments"] = attachments if isinstance(attachments, list) else []
-        stickers = normalized.get("stickers", [])
-        normalized["stickers"] = stickers if isinstance(stickers, list) else []
-        normalized["deleted"] = bool(normalized.get("deleted", False))
-        normalized["edited"] = bool(normalized.get("edited", False))
-        return normalized
-
-    def _rebuild_message_cache_index(self):
-        self.message_cache_index = {}
-        for record in self.message_cache:
-            record_id = self._parse_optional_int(record.get("id"))
-            if record_id is not None:
-                record["id"] = record_id
-                self.message_cache_index[record_id] = record
 
     def _rebuild_modmail_index(self):
         self.modmail_threads = {}
@@ -468,49 +378,6 @@ class DataManager:
         case_id = record.get("case_id")
         if isinstance(case_id, int) and case_id > 0:
             self.case_index[case_id] = (user_id, record)
-
-    def _prune_message_cache(self):
-        cutoff = discord.utils.utcnow() - timedelta(days=self.message_cache_retention_days)
-        pruned = False
-        while self.message_cache:
-            oldest = self.message_cache[0]
-            created_at = oldest.get("created_at")
-            if not isinstance(created_at, datetime):
-                created_at = parse_iso_datetime(created_at) or discord.utils.utcnow()
-                oldest["created_at"] = created_at
-            if created_at >= cutoff:
-                break
-            removed = self.message_cache.popleft()
-            self.message_cache_index.pop(removed.get("id"), None)
-            pruned = True
-        if pruned:
-            self._dirty_message_cache = True
-
-    def _append_message_record(self, record: dict, *, mark_dirty: bool = True):
-        normalized = self._normalize_message_cache_record(record)
-        if normalized is None:
-            if mark_dirty:
-                self._dirty_message_cache = True
-            return
-        if len(self.message_cache) >= self.message_cache.maxlen:
-            removed = self.message_cache.popleft()
-            self.message_cache_index.pop(removed.get("id"), None)
-        self.message_cache.append(normalized)
-        record_id = normalized["id"]
-        if record_id is not None:
-            self.message_cache_index[record_id] = normalized
-        self._prune_message_cache()
-        if mark_dirty:
-            self._dirty_message_cache = True
-
-    def _serialize_message_cache(self) -> List[dict]:
-        serializable = []
-        for msg in list(self.message_cache):
-            msg_copy = msg.copy()
-            if isinstance(msg_copy.get("created_at"), datetime):
-                msg_copy["created_at"] = msg_copy["created_at"].isoformat()
-            serializable.append(msg_copy)
-        return serializable
 
     def _ensure_dict(self, value: Any, path: Path) -> dict:
         if isinstance(value, dict):
@@ -559,16 +426,6 @@ class DataManager:
                 except Exception:
                     continue
         return result
-
-    async def _load_message_cache_from_db(self, db: aiosqlite.Connection) -> List[dict]:
-        records = []
-        async with db.execute("SELECT data FROM message_cache ORDER BY message_id ASC") as cursor:
-            async for row in cursor:
-                try:
-                    records.append(json.loads(row["data"]))
-                except Exception:
-                    continue
-        return records
 
     # ------------------------------------------------------------------
     # Internal: write sections from memory → SQLite
@@ -629,25 +486,6 @@ class DataManager:
         if rows:
             await db.executemany("INSERT INTO lockdown(channel_id, data) VALUES (?, ?)", rows)
 
-    async def _save_message_cache_to_db(self, db: aiosqlite.Connection):
-        await db.execute("DELETE FROM message_cache")
-        rows = []
-        for msg in self._serialize_message_cache():
-            msg_id = msg.get("id")
-            try:
-                msg_id = int(msg_id)
-            except (TypeError, ValueError):
-                continue
-            created_at = msg.get("created_at", "")
-            if not isinstance(created_at, str):
-                created_at = ""
-            rows.append((msg_id, created_at, json.dumps(msg)))
-        if rows:
-            await db.executemany(
-                "INSERT OR REPLACE INTO message_cache(message_id, created_at, data) VALUES (?, ?, ?)",
-                rows,
-            )
-
     # ------------------------------------------------------------------
     # Public: load / save
     # ------------------------------------------------------------------
@@ -661,7 +499,7 @@ class DataManager:
             p.exists()
             for p in (
                 CONFIG_FILE, PUNISHMENTS_FILE, ROLES_FILE, MOD_STATS_FILE,
-                PINGS_FILE, MODMAIL_FILE, LOCKDOWN_FILE, MESSAGE_CACHE_FILE,
+                PINGS_FILE, MODMAIL_FILE, LOCKDOWN_FILE,
             )
         )
         if any_legacy:
@@ -693,8 +531,6 @@ class DataManager:
             "token_env_var": "DISCORD_BOT_TOKEN",
             "case_counter": 0,
             "schema_version": DEFAULT_SCHEMA_VERSION,
-            "message_cache_limit": DEFAULT_MESSAGE_CACHE_LIMIT,
-            "message_cache_retention_days": DEFAULT_MESSAGE_CACHE_RETENTION_DAYS,
             "max_unread_pings_per_user": DEFAULT_MAX_UNREAD_PINGS,
             "feature_flags": {},
             "modmail_canned_replies": DEFAULT_CANNED_REPLIES,
@@ -723,8 +559,6 @@ class DataManager:
             self.config["general_log_channel_id"] = legacy_log_channel_id
             self._dirty_config = True
 
-        self._configure_cache_limits()
-
         # ---- other sections ----
         raw_roles = await self._load_simple_dict_from_db(db, "roles", "role_id")
         # Migrate single-dict entries to lists
@@ -750,18 +584,6 @@ class DataManager:
         self._rebuild_case_index()
         self._rebuild_modmail_index()
 
-        # ---- message cache ----
-        self.message_cache.clear()
-        self.message_cache_index.clear()
-        raw_cache = await self._load_message_cache_from_db(db)
-        for msg in raw_cache:
-            normalized = self._normalize_message_cache_record(msg)
-            if normalized is None:
-                self._dirty_message_cache = True
-                continue
-            self._append_message_record(normalized, mark_dirty=False)
-        self._prune_message_cache()
-
         # Flush any defaults / migrations written during load
         if any(
             [
@@ -769,7 +591,6 @@ class DataManager:
                 self._dirty_roles,
                 self._dirty_punishments,
                 self._dirty_stats,
-                self._dirty_message_cache,
                 self._dirty_pings,
                 self._dirty_modmail,
                 self._dirty_lockdown,
@@ -803,12 +624,6 @@ class DataManager:
                 self._dirty_stats = False
                 needs_commit = True
 
-            if self._dirty_message_cache or force:
-                self._prune_message_cache()
-                await self._save_message_cache_to_db(db)
-                self._dirty_message_cache = False
-                needs_commit = True
-
             if self._dirty_pings or force:
                 await self._save_pings_to_db(db)
                 self._dirty_pings = False
@@ -827,10 +642,6 @@ class DataManager:
 
             if needs_commit:
                 await db.commit()
-
-    async def save_message_cache(self):
-        self._dirty_message_cache = True
-        await self.save_all()
 
     def mark_config_dirty(self):
         self._dirty_config = True
@@ -869,28 +680,6 @@ class DataManager:
     async def save_modmail(self):
         self._dirty_modmail = True
         await self.save_all()
-
-    def cache_message(self, record: dict):
-        self._append_message_record(record)
-
-    def get_cached_message(self, message_id: int) -> Optional[dict]:
-        return self.message_cache_index.get(message_id)
-
-    def mark_message_deleted(self, message_id: int) -> bool:
-        record = self.get_cached_message(message_id)
-        if not record:
-            return False
-        record["deleted"] = True
-        self._dirty_message_cache = True
-        return True
-
-    def update_cached_message(self, message_id: int, **changes) -> bool:
-        record = self.get_cached_message(message_id)
-        if not record:
-            return False
-        record.update(changes)
-        self._dirty_message_cache = True
-        return True
 
     def get_modmail_user_id(self, thread_id: int) -> Optional[str]:
         return self.modmail_threads.get(thread_id)

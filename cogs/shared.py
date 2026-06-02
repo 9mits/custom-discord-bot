@@ -59,7 +59,6 @@ ROLES_FILE = DB_DIR / "roles.json"
 CONFIG_FILE = DB_DIR / "config.json"
 PUNISHMENTS_FILE = DB_DIR / "punishments.json"
 MOD_STATS_FILE = DB_DIR / "mod_stats.json"
-MESSAGE_CACHE_FILE = DB_DIR / "message_cache.json"
 PINGS_FILE = DB_DIR / "pings.json"
 LOCKDOWN_FILE = DB_DIR / "lockdown.json"
 MODMAIL_FILE = DB_DIR / "modmail.json"
@@ -1337,7 +1336,6 @@ def build_status_embed(guild: discord.Guild) -> discord.Embed:
     embed.add_field(name="Members", value=str(guild.member_count or 0), inline=True)
     embed.add_field(name="Open Tickets", value=str(open_tickets), inline=True)
     embed.add_field(name="Punishment Records", value=str(total_records), inline=True)
-    embed.add_field(name="Cache Size", value=str(len(bot.data_manager.message_cache)), inline=True)
     return embed
 
 async def handle_abuse(interaction: discord.Interaction, moderator: discord.Member):
