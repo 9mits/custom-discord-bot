@@ -64,14 +64,18 @@ async def execute_punishment(interaction, target, moderator, reason, minutes, no
     is_softban = (punishment_type == "softban")
     is_warning = (punishment_type == "warn")
 
-    # Anti-Abuse: Hierarchy Check
-    if member_target and member_target.id != guild.owner_id and member_target != moderator:
+    # Anti-Abuse: Hierarchy Check (moderator must outrank target; guild owner always bypasses)
+    if member_target and member_target.id != guild.owner_id and member_target != moderator and moderator.id != guild.owner_id:
         if member_target.top_role >= moderator.top_role:
-            await interaction.response.send_message(embed=make_embed("Anti-Abuse Blocked", "> You cannot punish a user with equal or higher role hierarchy.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
+            blocked_embed = make_embed("Anti-Abuse Blocked", "> You cannot punish a user with equal or higher role hierarchy.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild)
+            if interaction.response.is_done():
+                await interaction.followup.send(embed=blocked_embed, ephemeral=True)
+            else:
+                await interaction.response.send_message(embed=blocked_embed, ephemeral=True)
             return
 
     # Anti-Abuse: Rate Limit
-    if abuse_system.check_rate_limit(moderator.id):
+    if abuse_system.check_rate_limit(moderator.id, bot.data_manager.config):
         await handle_abuse(interaction, moderator)
         return
 
