@@ -40,7 +40,7 @@ from .shared import make_embed
 EVENT_REFRESH_SECONDS = 60
 
 DEFAULT_GOAL_HOURS = 1000
-DEFAULT_TITLE = "1,000 Hour Voice Chat Event Leaderboard"
+DEFAULT_TITLE = "1000 Hour Voice Chat Event Leaderboard"
 
 # ---------------------------------------------------------------------------
 # Shared state files (single writer each)
@@ -465,7 +465,8 @@ class EventLeaderboardCog(commands.Cog):
         self._channel_id = cfg.get("channel_id")
         self._voice_channel_id = cfg.get("voice_channel_id")
         self._goal_hours = int(cfg.get("goal_hours", DEFAULT_GOAL_HOURS))
-        self._title = cfg.get("title", DEFAULT_TITLE)
+        # Title is a fixed constant, not read from (possibly stale) config.
+        self._title = DEFAULT_TITLE
         self._baseline_seconds = int(cfg.get("baseline_seconds", 0))
 
         # Honour a reset issued from the control instance.
