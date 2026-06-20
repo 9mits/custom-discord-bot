@@ -30,7 +30,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from core.constants import SCOPE_SYSTEM
+from core.constants import BRAND_NAME, SCOPE_SYSTEM, THEME_ORANGE
 from core.utils import create_progress_bar, now_iso
 from .shared import make_embed
 
@@ -375,7 +375,8 @@ class EventLeaderboardCog(commands.Cog):
             "applied_baseline_token": self._applied_baseline_token,
         })
 
-    def _build_embed(self, guild: discord.Guild) -> discord.Embed:
+    def _build_view(self, guild: discord.Guild) -> discord.ui.LayoutView:
+        """Build the leaderboard as a Components V2 layout (container + dividers)."""
         # Include people currently in a voice channel even at 0s so they appear
         # on the board immediately, not only once they've banked some time.
         totals = dict(self._totals)
@@ -386,8 +387,10 @@ class EventLeaderboardCog(commands.Cog):
         top = ranked[:10]
 
         if top:
-            lines = [f"**#{idx + 1}** <@{uid}> — `{format_vc_time(seconds)}`" for idx, (uid, seconds) in enumerate(top)]
-            board = "\n".join(lines)
+            board = "\n".join(
+                f"**#{idx + 1}** <@{uid}> — `{format_vc_time(seconds)}`"
+                for idx, (uid, seconds) in enumerate(top)
+            )
         else:
             board = "*No one is in voice chat yet. Hop in to get on the board.*"
 
@@ -400,34 +403,43 @@ class EventLeaderboardCog(commands.Cog):
         goal = max(1, int(self._goal_hours))
         pct = active_hours / goal
         bar = create_progress_bar(pct, 20)
+        now_unix = int(time.time())
 
-        description = (
-            f"{board}\n\n"
+        view = discord.ui.LayoutView(timeout=None)
+        container = discord.ui.Container(accent_colour=THEME_ORANGE)
+        container.add_item(discord.ui.TextDisplay(f"## {self._title}"))
+        container.add_item(discord.ui.Separator())
+        container.add_item(discord.ui.TextDisplay(board))
+        container.add_item(discord.ui.Separator())
+        container.add_item(discord.ui.TextDisplay(
             f"> {bar}\n"
             f"> -# **{active_hours:,.1f}** / {goal:,} hours of voice activity ({min(100, pct * 100):.1f}%)"
-        )
-
-        return make_embed(
-            self._title,
-            description,
-            kind="info",
-            scope=f"Updates every {EVENT_REFRESH_SECONDS} seconds",
-            guild=guild,
-        )
+        ))
+        container.add_item(discord.ui.Separator(visible=False))
+        container.add_item(discord.ui.TextDisplay(
+            f"-# {BRAND_NAME} • Updates every {EVENT_REFRESH_SECONDS} seconds • Updated <t:{now_unix}:R>"
+        ))
+        view.add_item(container)
+        return view
 
     async def _update_message(self, guild: discord.Guild, channel: discord.TextChannel) -> None:
-        embed = self._build_embed(guild)
+        view = self._build_view(guild)
         if self._message_id:
             try:
                 msg = await channel.fetch_message(self._message_id)
-                await msg.edit(embed=embed)
-                return
+                # An old embed message can't be converted to a V2 message in place;
+                # replace it once, then edit normally from then on.
+                if msg.flags.components_v2:
+                    await msg.edit(view=view)
+                    return
+                await msg.delete()
+                self._message_id = None
             except discord.NotFound:
                 self._message_id = None  # message deleted — repost below
             except discord.HTTPException:
                 return  # transient; try again next tick
         try:
-            msg = await channel.send(embed=embed)
+            msg = await channel.send(view=view)
             self._message_id = msg.id
         except discord.HTTPException:
             pass
