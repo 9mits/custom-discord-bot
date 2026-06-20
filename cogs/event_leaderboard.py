@@ -40,7 +40,7 @@ from .shared import make_embed
 EVENT_REFRESH_SECONDS = 60
 
 DEFAULT_GOAL_HOURS = 1000
-DEFAULT_TITLE = "1000 Hour Voice Chat Event Leaderboard"
+DEFAULT_TITLE = "1,000 Hour Voice Chat Event Leaderboard"
 
 # ---------------------------------------------------------------------------
 # Shared state files (single writer each)
