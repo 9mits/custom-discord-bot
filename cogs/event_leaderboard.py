@@ -40,7 +40,7 @@ from .shared import make_embed
 EVENT_REFRESH_SECONDS = 60
 
 DEFAULT_GOAL_HOURS = 1000
-DEFAULT_TITLE = "1000 Hour VC Event"
+DEFAULT_TITLE = "1,000 Hour Voice Chat Event Leaderboard"
 
 # ---------------------------------------------------------------------------
 # Shared state files (single writer each)
@@ -311,35 +311,40 @@ class EventLeaderboardCog(commands.Cog):
         })
 
     def _build_embed(self, guild: discord.Guild) -> discord.Embed:
-        ranked = sorted(self._totals.items(), key=lambda kv: kv[1], reverse=True)
+        # Include people currently in a voice channel even at 0s so they appear
+        # on the board immediately, not only once they've banked some time.
+        totals = dict(self._totals)
+        for uid in self._sessions:
+            totals.setdefault(str(uid), 0)
+
+        ranked = sorted(totals.items(), key=lambda kv: kv[1], reverse=True)
         top = ranked[:10]
 
         if top:
-            lines = []
-            for idx, (uid, seconds) in enumerate(top):
-                lines.append(f"`#{idx + 1}` <@{uid}> — **{format_vc_time(seconds)}**")
+            lines = [f"**#{idx + 1}** <@{uid}> — `{format_vc_time(seconds)}`" for idx, (uid, seconds) in enumerate(top)]
             board = "\n".join(lines)
         else:
-            board = "*No voice time tracked yet. Join a voice channel to get on the board.*"
+            board = "*No one is in voice chat yet. Hop in to get on the board.*"
 
-        total_seconds = sum(self._totals.values())
+        total_seconds = sum(totals.values())
         total_hours = total_seconds / 3600
         goal = max(1, int(self._goal_hours))
         pct = total_hours / goal
         bar = create_progress_bar(pct, 20)
 
         description = (
+            f"{board}\n\n"
             f"{bar}\n"
-            f"**{total_hours:,.1f}** / {goal:,} hours combined ({min(100, pct * 100):.1f}%)\n\n"
-            f"{board}"
+            f"**{total_hours:,.1f}** / {goal:,} hours combined ({min(100, pct * 100):.1f}%)"
         )
 
-        embed = make_embed(self._title, description, kind="info", scope=SCOPE_SYSTEM, guild=guild)
-        status = "Live" if self._active else "Paused"
-        embed.add_field(name="Status", value=f"**{status}**", inline=True)
-        embed.add_field(name="Participants", value=str(len(self._totals)), inline=True)
-        embed.add_field(name="Refresh", value=f"every {EVENT_REFRESH_SECONDS}s", inline=True)
-        return embed
+        return make_embed(
+            self._title,
+            description,
+            kind="info",
+            scope=f"Updates every {EVENT_REFRESH_SECONDS} Seconds",
+            guild=guild,
+        )
 
     async def _update_message(self, guild: discord.Guild, channel: discord.TextChannel) -> None:
         embed = self._build_embed(guild)
