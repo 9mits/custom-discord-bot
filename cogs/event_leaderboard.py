@@ -342,7 +342,7 @@ class EventLeaderboardCog(commands.Cog):
             self._title,
             description,
             kind="info",
-            scope=f"Updates every {EVENT_REFRESH_SECONDS} Seconds",
+            scope=f"Updates every {EVENT_REFRESH_SECONDS} seconds",
             guild=guild,
         )
 
