@@ -883,7 +883,7 @@ async def delete_remote_commands(*, guild: Optional[discord.Guild]) -> List[str]
     return deleted
 
 @tree.command(name="status", description="View bot latency and uptime.")
-@app_commands.default_permissions(moderate_members=True)
+@app_commands.default_permissions(manage_messages=True)
 async def status_cmd(interaction: discord.Interaction):
     if not is_staff(interaction):
         await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this command.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
@@ -893,7 +893,7 @@ async def status_cmd(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 @tree.command(name="serverinfo", description="View detailed information about this server.")
-@app_commands.default_permissions(moderate_members=True)
+@app_commands.default_permissions(administrator=True)
 @app_commands.check(check_admin)
 async def serverinfo_cmd(interaction: discord.Interaction):
     g = interaction.guild
