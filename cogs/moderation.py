@@ -819,7 +819,6 @@ async def send_target_picker(
 
 @tree.command(name="punish", description="Open the moderation action panel.")
 @app_commands.describe(public="Send the result to this channel.")
-@app_commands.default_permissions(manage_messages=True)
 @app_commands.check(_staff_check)
 async def punish(interaction: discord.Interaction, user: Optional[discord.User] = None, public: bool = False):
     if user is None:
@@ -835,7 +834,6 @@ async def punish(interaction: discord.Interaction, user: Optional[discord.User] 
 
 
 @tree.command(name="history", description="View a user's moderation history.")
-@app_commands.default_permissions(manage_messages=True)
 @app_commands.check(_staff_check)
 async def history(interaction: discord.Interaction, user: Optional[discord.Member] = None):
     if user is None:
@@ -850,7 +848,6 @@ async def history(interaction: discord.Interaction, user: Optional[discord.Membe
 
 
 @tree.command(name="active", description="View active bans and timeouts.")
-@app_commands.default_permissions(manage_messages=True)
 @app_commands.check(_staff_check)
 async def active(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
@@ -887,7 +884,6 @@ async def active(interaction: discord.Interaction):
 
 @tree.command(name="undo", description="Reverse a logged moderation action.")
 @app_commands.describe(reason="Reason to prefill in the undo panel.")
-@app_commands.default_permissions(manage_messages=True)
 @app_commands.check(_staff_check)
 async def undo(interaction: discord.Interaction, user: Optional[discord.Member] = None, reason: Optional[str] = None):
     if user is None:
@@ -904,7 +900,6 @@ async def undo(interaction: discord.Interaction, user: Optional[discord.Member] 
 
 @tree.command(name="purge", description="Delete recent messages with optional filters.")
 @app_commands.describe(amount="Messages to scan or delete. Max 999.", user="Only delete messages from this user.", keyword="Only delete messages containing this text.")
-@app_commands.default_permissions(manage_messages=True)
 @app_commands.check(_staff_check)
 async def purge(interaction: discord.Interaction, amount: int, user: discord.Member = None, keyword: str = None):
     if amount < 1 or amount > 999:
@@ -996,7 +991,6 @@ async def purge(interaction: discord.Interaction, amount: int, user: discord.Mem
 
 
 @tree.command(name="lock", description="Lock the current channel.")
-@app_commands.default_permissions(manage_channels=True)
 @app_commands.check(_staff_check)
 async def lock(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
@@ -1023,7 +1017,6 @@ async def lock(interaction: discord.Interaction):
 
 
 @tree.command(name="unlock", description="Unlock the current channel.")
-@app_commands.default_permissions(manage_channels=True)
 @app_commands.check(_staff_check)
 async def unlock(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
@@ -1048,7 +1041,6 @@ async def unlock(interaction: discord.Interaction):
 
 
 @tree.command(name="mod-guide", description="View the moderation command guide.")
-@app_commands.default_permissions(manage_messages=True)
 @app_commands.check(_staff_check)
 async def mod_help(interaction: discord.Interaction):
     embed = build_mod_help_embed(interaction.guild)
@@ -1071,7 +1063,6 @@ async def case(interaction: discord.Interaction, case_id: Optional[app_commands.
 
 
 @tree.context_menu(name="Punish")
-@app_commands.default_permissions(manage_messages=True)
 async def punish_context(interaction: discord.Interaction, user: discord.User):
     if not is_staff(interaction):
         await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this command.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
@@ -1080,7 +1071,6 @@ async def punish_context(interaction: discord.Interaction, user: discord.User):
 
 
 @tree.context_menu(name="Moderation History")
-@app_commands.default_permissions(manage_messages=True)
 async def history_context(interaction: discord.Interaction, user: discord.Member):
     if not is_staff(interaction):
         await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this command.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
