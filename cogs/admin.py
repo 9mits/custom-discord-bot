@@ -843,6 +843,12 @@ SYNC_NOTICE_DELETE_AFTER = 15
 
 @commands.command(name="sync")
 async def sync(ctx):
+    # Remove the invoking "!sync" message too so the whole exchange clears out.
+    try:
+        await ctx.message.delete()
+    except (discord.Forbidden, discord.HTTPException):
+        pass
+
     # Check for Owner Role, Server Owner, or Administrator
     owner_role = bot.data_manager.config.get("role_owner", DEFAULT_ROLE_OWNER)
     is_owner = ctx.author.id == ctx.guild.owner_id
