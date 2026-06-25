@@ -787,10 +787,19 @@ async def resolve_member(guild: discord.Guild, user_id: int) -> Optional[discord
     if member:
         return member
 
-    try:
-        return await guild.fetch_member(user_id)
-    except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-        return None
+    # Fall back to the API. Only a genuine 404 (NotFound) means the user is not
+    # a member — transient errors (rate limits, 5xx) are retried once so they
+    # don't masquerade as "user not in the server".
+    for attempt in range(2):
+        try:
+            return await guild.fetch_member(user_id)
+        except discord.NotFound:
+            return None
+        except (discord.Forbidden, discord.HTTPException):
+            if attempt == 0:
+                continue
+            return None
+    return None
 
 
 def make_embed(

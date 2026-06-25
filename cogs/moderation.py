@@ -99,7 +99,7 @@ async def execute_punishment(interaction, target, moderator, reason, minutes, no
             duration = get_valid_duration(minutes)
             await member_target.timeout(duration, reason=f"{reason} (By {moderator})")
     except discord.Forbidden:
-        await interaction.followup.send(embed=make_embed("Permission Error", "> I cannot punish this user (Permission Error).", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
+        await interaction.followup.send(embed=make_embed("Permission Error", "> I cannot action this user. My role must be **above** theirs in the role list, and I need the matching permission (Moderate Members for timeouts, Ban Members for bans, Kick Members for kicks).", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
         return
     except Exception as e:
         await interaction.followup.send(embed=make_embed("Error", f"> Error: {e}", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
@@ -830,6 +830,14 @@ async def punish(interaction: discord.Interaction, user: Optional[discord.User] 
             public=public,
         )
         return
+    # The inline `user:` option can resolve to a bare discord.User (no guild
+    # member data) for some accounts, which later blocks muting/kicking even
+    # though the target is in the server. Upgrade to a full guild Member up
+    # front so this path matches the in-app member picker.
+    if not isinstance(user, discord.Member) and interaction.guild is not None:
+        member = await resolve_member(interaction.guild, user.id)
+        if member is not None:
+            user = member
     await show_punish_menu(interaction, user, public=public)
 
 
