@@ -1,0 +1,9 @@
+# Normalize line endings across platforms.
+# Without this, Windows checkouts can store CRLF in shell scripts, which breaks
+# the `#!/usr/bin/env bash` shebang on a Linux production host ("bad interpreter").
+
+# Let git decide line endings for text files automatically.
+* text=auto
+
+# Shell scripts must always use LF, even on Windows, so they run on Linux hosts.
+*.sh text eol=lf
