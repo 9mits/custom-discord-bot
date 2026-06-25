@@ -1889,7 +1889,6 @@ async def apply_automod_report_response(
         thumbnail=guild.icon.url if guild and guild.icon else None,
     )
     dm_embed.add_field(name="Regarding", value=f"Your reported AutoMod warning for **{truncate_text(rule_name, 200)}**", inline=False)
-    dm_embed.add_field(name="Outcome", value=preset.get("status", "Staff Replied"), inline=True)
 
     try:
         await target_user.send(embed=dm_embed)
