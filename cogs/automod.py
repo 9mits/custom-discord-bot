@@ -2102,7 +2102,7 @@ class AutoModReportModal(discord.ui.Modal, title="Report AutoMod Warning"):
                 else:
                     updated_embed = discord.Embed()
                 updated_embed.color = EMBED_PALETTE.get("success", EMBED_PALETTE["info"])
-                upsert_embed_field(updated_embed, "Report Status", "✅ Reported to staff — under review", inline=False)
+                upsert_embed_field(updated_embed, "Report Status", "Reported to staff — under review", inline=False)
                 reported_view = discord.ui.View(timeout=None)
                 reported_view.add_item(discord.ui.Button(label="Reported", style=discord.ButtonStyle.success, disabled=True))
                 await self.source_message.edit(embed=updated_embed, view=reported_view)

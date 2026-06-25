@@ -1074,7 +1074,7 @@ async def on_message(message: discord.Message):
             if ticket and ticket.get("status") == "open":
                 user = await resolve_modmail_user(target_uid)
                 if user is None:
-                    await message.channel.send("❌ Failed to send: The ticket user could not be resolved.")
+                    await message.channel.send("Failed to send: The ticket user could not be resolved.")
                     return
                 try:
                     content = message.content if message.content else None
@@ -1101,9 +1101,9 @@ async def on_message(message: discord.Message):
                         await message.channel.send(attachment_notice)
                     await message.add_reaction("📨")
                 except discord.Forbidden:
-                    await message.channel.send("❌ Failed to send: User has blocked the bot or DMs are disabled.")
+                    await message.channel.send("Failed to send: User has blocked the bot or DMs are disabled.")
                 except Exception as e:
-                    await message.channel.send(f"❌ Failed to send message: {e}")
+                    await message.channel.send(f"Failed to send message: {e}")
             return
 
 # ──────────────────────────── /branding ────────────────────────────

@@ -721,7 +721,7 @@ def generate_transcript_html(messages, user):
                 if ext in ['png', 'jpg', 'jpeg', 'gif', 'webp']:
                     att_html += f'<a href="{safe_url}" target="_blank"><img src="{safe_url}" class="attachment-img" alt="{safe_filename}"></a><br>'
                 else:
-                    att_html += f'<a href="{safe_url}" target="_blank">📎 {safe_filename}</a><br>'
+                    att_html += f'<a href="{safe_url}" target="_blank">{safe_filename}</a><br>'
             att_html += '</div>'
 
         # Stickers
