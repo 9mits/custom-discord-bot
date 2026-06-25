@@ -293,6 +293,12 @@ class MGXBot(commands.Bot):
         if removed_any:
             await self.data_manager.save_roles()
 
+    async def on_ready(self) -> None:
+        logger.info("Logged in as %s (id=%s)", self.user, self.user.id)
+        # BisectHosting panel watches for this exact phrase to flip the server
+        # state from "starting" to "running".
+        print("successfully finished startup", flush=True)
+
     @status_task.before_loop
     async def before_status_task(self) -> None:
         await self.wait_until_ready()
