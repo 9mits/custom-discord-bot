@@ -3,9 +3,9 @@ event_leaderboard.py — Limited-time VC time leaderboard for a single server.
 
 Cross-instance design (see cogs/registry.py for the broader picture):
 
-  CONTROL half  — activated by env TEST_MODE=1 (the test bot).
-      Registers the /event command group. Writes event_config.json only.
-      Never posts or edits the leaderboard message itself.
+  CONTROL half  — activated by env EVENT_CONTROL=1 (TEST_MODE=1 also works,
+      for backward compatibility). Registers the /event command group. Writes
+      event_config.json only. Never posts or edits the leaderboard message itself.
 
   DISPLAY half  — activated by env EVENT_DISPLAY=1 (e.g. bot2, the public instance).
       Tracks voice time, owns the leaderboard message, edits it every
@@ -127,7 +127,7 @@ def format_vc_time(seconds: int) -> str:
 
 
 # ---------------------------------------------------------------------------
-# CONTROL half — /event command group (registered only when TEST_MODE=1)
+# CONTROL half — /event command group (registered only when EVENT_CONTROL=1)
 # ---------------------------------------------------------------------------
 event_group = app_commands.Group(
     name="event",
@@ -523,8 +523,10 @@ class EventLeaderboardCog(commands.Cog):
 
 
 async def setup(bot_instance: commands.Bot) -> None:
-    # Control commands live only on the test instance.
-    if os.environ.get("TEST_MODE"):
+    # Control commands run on whichever instance is the event control plane.
+    # EVENT_CONTROL is the dedicated flag; TEST_MODE is still honoured so
+    # existing .env.test files keep working without changes.
+    if os.environ.get("EVENT_CONTROL") or os.environ.get("TEST_MODE"):
         bot_instance.tree.add_command(event_group)
     # Tracking + display runs only on the designated display instance.
     if os.environ.get("EVENT_DISPLAY"):
