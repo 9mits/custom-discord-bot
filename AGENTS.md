@@ -142,13 +142,16 @@ Read the relevant file when you touch an area; these are the non-obvious points.
 - **Cogs:** each domain file defines a `*Cog` and `async def setup(bot)`. Slash
   commands are module-level `@tree.command` functions registered via
   `core/context.tree` at import; `setup()` only adds the Cog and its listeners.
-- **Command sync:** `setup_hook` auto-syncs the tree (guild-scoped, instant) on
-  startup — to `TEST_GUILD_ID` under `TEST_MODE=1`, else the configured
-  `guild_id`. Each single-guild instance keeps its own guild current on deploy
-  (= panel restart), so there's no manual step. A command-set fingerprint is
-  cached in `config[synced_command_fingerprint_<guild>]` so unchanged restarts
-  skip the API call (rate-limit safety). The `!sync` prefix command in
-  `admin.py` remains as a manual override; a sync failure never blocks startup.
+- **Command sync:** `on_ready` auto-syncs the tree once per process (guild-scoped,
+  instant) so each single-guild instance keeps its own guild current on deploy (=
+  panel restart) with no manual step. Target via `_resolve_sync_targets`: under
+  `TEST_MODE=1` strictly `TEST_GUILD_ID` (no fallback, so staging can't leak into
+  a live server); in production the configured `guild_id` when the bot is a member
+  of it, else a fallback to whatever guild(s) the bot is actually in (covers a
+  fresh instance pre-`/setup`). A per-guild command fingerprint is cached in
+  `config[synced_command_fingerprint_<guild>]` so unchanged restarts skip the API
+  call (rate-limit safety). The `!sync` prefix command in `admin.py` stays as a
+  manual override; sync runs after the panel's startup print and never blocks it.
 - **Circular imports:** `shared.py` ↔ `automod.py`/`cases.py`/`roles.py`/
   `modmail.py`/`admin.py` are mutually dependent. Resolve any new cross-domain
   call with a lazy import inside the function body, matching the existing pattern.
