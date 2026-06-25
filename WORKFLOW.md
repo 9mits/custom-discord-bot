@@ -95,14 +95,15 @@ Merge the PR on GitHub. `main` now contains the change, proven to pass CI.
 
 ### 7. Deploy to production
 
-Pull `main` on the host and restart the live bots:
+On the production host, run the deploy script:
 
 ```bash
-git checkout main && git pull
-python start.py
+./deploy.sh        # Windows: run from Git Bash
 ```
 
-Production is now running a known-good commit. Done.
+It refuses to run unless you're on a clean `main`, pulls the latest code, runs
+the unit tests as a final gate, and only then launches the bots. Production is
+now running a known-good commit. Done.
 
 ---
 
