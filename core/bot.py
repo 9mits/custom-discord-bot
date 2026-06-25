@@ -1,11 +1,13 @@
 """MGXBot class, background tasks, extension loading, and bot lifecycle."""
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
 import time
 from datetime import timedelta
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import aiohttp
 import discord
@@ -13,7 +15,7 @@ from discord.ext import commands, tasks
 
 logger = logging.getLogger("MGXBot")
 
-from core.constants import DEFAULT_GUILD_ID, SCOPE_ROLES, SCOPE_SUPPORT
+from core.constants import DEFAULT_GUILD_ID, SCOPE_ROLES, SCOPE_SUPPORT, TEST_GUILD_ID
 from core.context import set_bot
 from core.data import DataManager, resolve_bot_token
 from core.services import get_feature_flag, ticket_needs_sla_alert
@@ -69,6 +71,25 @@ def _build_intents() -> discord.Intents:
     return intents
 
 
+def command_payloads(tree: discord.app_commands.CommandTree) -> List[dict]:
+    """Serialise the current global command tree to plain dicts for hashing."""
+    payloads = []
+    for command in tree.get_commands():
+        try:
+            payloads.append(command.to_dict(tree))
+        except Exception:
+            # Fall back to a coarse identity if a command can't be serialised, so
+            # a change there still nudges the fingerprint rather than crashing.
+            payloads.append({"name": getattr(command, "qualified_name", repr(command))})
+    return payloads
+
+
+def fingerprint_payloads(payloads: List[dict]) -> str:
+    """Order-independent SHA-256 of serialised commands; same set → same hash."""
+    encoded = sorted(json.dumps(p, sort_keys=True, default=str) for p in payloads)
+    return hashlib.sha256("\n".join(encoded).encode("utf-8")).hexdigest()
+
+
 class MGXBot(commands.Bot):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -79,6 +100,7 @@ class MGXBot(commands.Bot):
         self.dm_modmail_prompt_cooldowns: Dict[int, float] = {}
         self.native_automod_event_cache: Dict[Tuple[int, int, int, str, str], float] = {}
         self.abuse_system = None
+        self._commands_synced = False
 
     async def setup_hook(self) -> None:
         from core.data import AntiAbuseSystem
@@ -126,6 +148,70 @@ class MGXBot(commands.Bot):
                 discord.AppCommandType.message,
             ):
                 self.tree.remove_command(command_name, type=command_type)
+
+    def _resolve_sync_targets(self) -> list:
+        """Guild id(s) to register commands in, decided once the bot is ready.
+
+        Under TEST_MODE the target is strictly ``TEST_GUILD_ID`` with no fallback,
+        so a staging bot can never leak commands into a live server it happens to
+        be in. In production the configured ``guild_id`` is used when the bot is
+        actually a member of it; otherwise (unset/wrong guild, e.g. a fresh
+        instance before /setup) it falls back to whatever guild(s) the bot is in so
+        commands still register.
+        """
+        if os.environ.get("TEST_MODE"):
+            return [TEST_GUILD_ID]
+
+        configured = self.data_manager.config.get("guild_id", DEFAULT_GUILD_ID)
+        if configured and self.get_guild(int(configured)):
+            return [int(configured)]
+
+        if configured:
+            logger.warning(
+                "Not a member of configured guild %s (run /setup) — syncing to current guild(s) instead",
+                configured,
+            )
+        return [g.id for g in self.guilds]
+
+    async def _auto_sync_commands(self) -> None:
+        """Sync slash commands to this instance's guild(s) once the bot is ready.
+
+        Replaces the manual ``!sync`` for the common case: each single-guild
+        instance keeps its own guild current on deploy. A per-guild fingerprint of
+        the command set is stored in config so unchanged restarts skip the API call
+        and don't burn Discord's command-sync rate limit. ``!sync`` stays as a
+        manual override; a sync failure here must never block startup.
+        """
+        if not self.data_manager:
+            return
+
+        targets = self._resolve_sync_targets()
+        if not targets:
+            return
+
+        fingerprint = fingerprint_payloads(command_payloads(self.tree))
+        changed = False
+        for target_id in targets:
+            state_key = f"synced_command_fingerprint_{target_id}"
+            if self.data_manager.config.get(state_key) == fingerprint:
+                logger.info("Slash commands unchanged for guild %s — skipping sync", target_id)
+                continue
+
+            guild = discord.Object(id=int(target_id))
+            try:
+                self.tree.copy_global_to(guild=guild)
+                synced = await self.tree.sync(guild=guild)
+            except discord.HTTPException as exc:
+                logger.warning("Auto-sync to guild %s failed: %s", target_id, exc)
+                continue
+
+            self.data_manager.config[state_key] = fingerprint
+            changed = True
+            logger.info("Auto-synced %d slash commands to guild %s", len(synced), target_id)
+
+        if changed:
+            self.data_manager.mark_config_dirty()
+            await self.data_manager.save_all()
 
     async def close(self) -> None:
         for task_loop in (
@@ -305,8 +391,14 @@ class MGXBot(commands.Bot):
     async def on_ready(self) -> None:
         logger.info("Logged in as %s (id=%s)", self.user, self.user.id)
         # BisectHosting panel watches for this exact phrase to flip the server
-        # state from "starting" to "running".
+        # state from "starting" to "running". Print it before syncing so a slow
+        # command sync never delays the panel's running signal.
         print("successfully finished startup", flush=True)
+
+        # Sync once per process; on_ready also fires on every gateway reconnect.
+        if not self._commands_synced:
+            self._commands_synced = True
+            await self._auto_sync_commands()
 
     @status_task.before_loop
     async def before_status_task(self) -> None:
