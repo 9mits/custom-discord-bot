@@ -714,6 +714,36 @@ async def _resolve_selected_member(interaction: discord.Interaction, selected_us
     return await resolve_member(interaction.guild, selected_user.id)
 
 
+async def _resolve_user_id_input(
+    interaction: discord.Interaction,
+    raw: str,
+) -> Optional[Union[discord.Member, discord.User]]:
+    """Resolve a raw user-ID or mention string to a Member (preferred) or User.
+
+    Sends an error response and returns None when the input is malformed or no
+    matching user exists. Used as a reliable fallback for the native user:
+    picker, which can fail to select some real members client-side.
+    """
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    if not digits:
+        await respond_with_error(interaction, "That isn't a valid user ID or mention.", scope=SCOPE_MODERATION)
+        return None
+
+    uid = int(digits)
+    target: Optional[Union[discord.Member, discord.User]] = None
+    if interaction.guild is not None:
+        target = await resolve_member(interaction.guild, uid)
+    if target is None:
+        try:
+            target = await bot.fetch_user(uid)
+        except (discord.NotFound, discord.HTTPException):
+            target = None
+    if target is None:
+        await respond_with_error(interaction, "No user was found with that ID.", scope=SCOPE_MODERATION)
+        return None
+    return target
+
+
 class CaseIdModal(discord.ui.Modal, title="Open Case by ID"):
     case_id = discord.ui.TextInput(label="Case ID", placeholder="123", max_length=12)
 
@@ -818,9 +848,22 @@ async def send_target_picker(
 
 
 @tree.command(name="punish", description="Open the moderation action panel.")
-@app_commands.describe(public="Send the result to this channel.")
+@app_commands.describe(
+    user="The member to action.",
+    user_id="A user ID or mention — use this if a member can't be found in the user: picker.",
+    public="Send the result to this channel.",
+)
 @app_commands.check(_staff_check)
-async def punish(interaction: discord.Interaction, user: Optional[discord.User] = None, public: bool = False):
+async def punish(interaction: discord.Interaction, user: Optional[discord.User] = None, user_id: Optional[str] = None, public: bool = False):
+    # `user_id` is a reliable fallback for the native user: picker, which (being
+    # client-side) silently fails to select some real members in larger servers.
+    if user is None and user_id:
+        target = await _resolve_user_id_input(interaction, user_id)
+        if target is None:
+            return
+        await show_punish_menu(interaction, target, public=public)
+        return
+
     if user is None:
         await send_target_picker(
             interaction,
