@@ -31,9 +31,9 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
-from core.constants import BRAND_NAME, SCOPE_SYSTEM, THEME_ORANGE
+from core.constants import BRAND_NAME, SCOPE_SYSTEM
 from core.utils import create_progress_bar, now_iso
-from .shared import make_embed
+from .shared import get_theme_color, make_embed
 
 # How often the display instance edits the leaderboard message.
 # Editing one message every 60s is far below Discord's rate limits; lower it
@@ -407,7 +407,7 @@ class EventLeaderboardCog(commands.Cog):
         now_unix = int(time.time())
 
         view = discord.ui.LayoutView(timeout=None)
-        container = discord.ui.Container(accent_colour=THEME_ORANGE)
+        container = discord.ui.Container(accent_colour=get_theme_color())
         container.add_item(discord.ui.TextDisplay(f"## {self._title}"))
         container.add_item(discord.ui.Separator())
         container.add_item(discord.ui.TextDisplay(board))

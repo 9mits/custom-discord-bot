@@ -1092,6 +1092,43 @@ class ServerBioModal(discord.ui.Modal, title="Change Server Bio"):
             await interaction.followup.send(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 
+class ThemeColorModal(discord.ui.Modal, title="Change Theme Color"):
+    color = discord.ui.TextInput(
+        label="Hex Color",
+        placeholder="#FF9900 — leave blank to reset to the default",
+        min_length=0,
+        max_length=7,
+        required=False,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        raw = self.color.value.strip().lstrip("#")
+        if not raw:
+            bot.data_manager.config.pop("theme_color", None)
+            await bot.data_manager.save_config()
+            await interaction.followup.send(embed=make_embed("Theme Color Reset", "> Embed accent reset to the default brand color.", kind="info", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
+            return
+        try:
+            value = int(raw, 16)
+            if len(raw) != 6 or not (0 <= value <= 0xFFFFFF):
+                raise ValueError
+        except ValueError:
+            await interaction.followup.send(embed=make_embed("Invalid Color", "> Enter a 6-digit hex color like `#FF9900`.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
+            return
+        bot.data_manager.config["theme_color"] = value
+        await bot.data_manager.save_config()
+        # kind="info" follows the theme, so the confirmation previews the new color.
+        embed = make_embed(
+            "Theme Color Updated",
+            f"> Embed accent set to `#{value:06X}`.\n> Confirmation green and error red stay unchanged.",
+            kind="info",
+            scope=SCOPE_SYSTEM,
+            guild=interaction.guild,
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
+
+
 # ── Embed builders ──
 
 def _build_global_branding_embed() -> discord.Embed:
@@ -1122,9 +1159,12 @@ def _build_server_branding_embed(guild: discord.Guild) -> discord.Embed:
         scope=SCOPE_SYSTEM,
         guild=guild,
     )
+    theme_raw = bot.data_manager.config.get("theme_color") if getattr(bot, "data_manager", None) else None
+    theme_label = f"#{int(theme_raw):06X}" if theme_raw is not None else "Default"
     embed.add_field(name="Nickname", value=me.nick or "None (using username)", inline=True)
     embed.add_field(name="Server Avatar", value="Set" if me.guild_avatar else "Using global", inline=True)
     embed.add_field(name="Server Banner", value="Set" if getattr(me, "guild_banner", None) else "None", inline=True)
+    embed.add_field(name="Theme Color", value=theme_label, inline=True)
     if me.guild_avatar:
         embed.set_thumbnail(url=me.guild_avatar.url)
     elif me.avatar:
@@ -1189,6 +1229,7 @@ class ServerBrandingActionSelect(discord.ui.Select):
             discord.SelectOption(label="Change Avatar", value="avatar", description="Upload a server avatar from an image URL."),
             discord.SelectOption(label="Change Banner", value="banner", description="Upload a server banner from an image URL."),
             discord.SelectOption(label="Change Bio", value="bio", description="Update the server-specific bot bio."),
+            discord.SelectOption(label="Change Theme Color", value="theme_color", description="Set the accent color for the bot's embeds."),
         ]
         if me.nick:
             options.append(discord.SelectOption(label="╌ Clear Nickname", value="clear_nickname", description="Revert back to the global bot username."))
@@ -1211,6 +1252,9 @@ class ServerBrandingActionSelect(discord.ui.Select):
             return
         if action == "bio":
             await interaction.response.send_modal(ServerBioModal())
+            return
+        if action == "theme_color":
+            await interaction.response.send_modal(ThemeColorModal())
             return
 
         await interaction.response.defer(ephemeral=True)
