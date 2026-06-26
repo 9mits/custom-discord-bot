@@ -802,6 +802,31 @@ async def resolve_member(guild: discord.Guild, user_id: int) -> Optional[discord
     return None
 
 
+# Kinds whose colour carries meaning (confirmed = green, declined/error = red).
+# These must stay fixed regardless of the configured branding theme so users can
+# always read a result at a glance. Everything else follows the theme accent.
+SEMANTIC_KINDS = {k for k, v in EMBED_PALETTE.items() if v != THEME_ORANGE}
+
+
+def get_theme_color() -> discord.Colour:
+    """The configured branding accent for embeds, or the default brand orange."""
+    dm = getattr(bot, "data_manager", None)
+    raw = dm.config.get("theme_color") if dm else None
+    if raw is None:
+        return THEME_ORANGE
+    try:
+        return discord.Colour(int(raw))
+    except (ValueError, TypeError):
+        return THEME_ORANGE
+
+
+def resolve_embed_color(kind: str) -> discord.Colour:
+    """Semantic kinds keep their fixed colour; all others use the theme accent."""
+    if kind in SEMANTIC_KINDS:
+        return EMBED_PALETTE[kind]
+    return get_theme_color()
+
+
 def make_embed(
     title: str,
     description: Optional[str] = None,
@@ -816,7 +841,7 @@ def make_embed(
     embed = discord.Embed(
         title=title,
         description=description,
-        color=EMBED_PALETTE.get(kind, EMBED_PALETTE["neutral"]),
+        color=resolve_embed_color(kind),
     )
     embed.timestamp = discord.utils.utcnow()
     footer_text = BRAND_NAME
@@ -901,7 +926,7 @@ def panel_container(
     Callers add their own components (text, dropdowns, buttons) to the returned
     container, then add it to a LayoutView.
     """
-    container = discord.ui.Container(accent_colour=accent or THEME_ORANGE)
+    container = discord.ui.Container(accent_colour=accent or get_theme_color())
     icon_url = guild.icon.url if (guild and guild.icon) else None
     if icon_url:
         section = discord.ui.Section(accessory=discord.ui.Thumbnail(media=icon_url))
@@ -930,7 +955,7 @@ def embed_to_panel(
     by the caller via a LayoutView when needed.
     """
     view = discord.ui.LayoutView(timeout=None)
-    container = discord.ui.Container(accent_colour=embed.colour or THEME_ORANGE)
+    container = discord.ui.Container(accent_colour=embed.colour or get_theme_color())
 
     if content:
         container.add_item(discord.ui.TextDisplay(content))
