@@ -33,7 +33,6 @@ from .shared import (
     make_embed,
     make_empty_state_embed,
     respond_with_error,
-    resolve_member,
     send_log,
     send_punishment_log,
     truncate_text,
@@ -45,7 +44,7 @@ from .cases import (
     format_case_status,
     get_case_label,
 )
-from .history import FinalConfirmClear, HistoryView
+from .history import FinalConfirmClear
 
 async def log_case_management_action(
     guild: discord.Guild,
@@ -399,40 +398,6 @@ class FirstConfirmClear(discord.ui.View):
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await interaction.response.edit_message(embed=make_embed("Cancelled", "> The history was not cleared.", kind="muted", scope=SCOPE_MODERATION, guild=interaction.guild), view=None)
-
-class PunishView(discord.ui.View):
-    def __init__(self, target, moderator, public=False, reaction_count=None):
-        super().__init__(timeout=60)
-        self.target = target
-        self.moderator = moderator
-        from .moderation import PunishSelect
-        self.add_item(PunishSelect(target, moderator, public=public, reaction_count=reaction_count))
-
-    @discord.ui.button(label="Clear History", style=discord.ButtonStyle.danger, row=1)
-    async def clear_history(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await interaction.response.send_message(
-            "**Are you sure you want to clear this user's punishment history?**", 
-            view=FirstConfirmClear(self.target, self.moderator, interaction.message), 
-            ephemeral=True
-        )
-
-    @discord.ui.button(label="View History", style=discord.ButtonStyle.secondary, row=1)
-    async def view_history(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        member = self.target if isinstance(self.target, discord.Member) else await resolve_member(interaction.guild, self.target.id)
-        if not member:
-            await interaction.response.send_message(embed=make_embed("User Left Server", "> This user is no longer in the server, so the interactive history panel is unavailable.", kind="info", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
-            return
-
-        uid = str(member.id)
-        history_data = bot.data_manager.punishments.get(uid, [])
-
-        if not history_data:
-            await interaction.response.send_message(embed=make_embed("Clean Record", f"> **{member.display_name}** has a clean record (No history found).", kind="success", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
-            return
-
-        view = HistoryView(member)
-        await interaction.response.send_message(embed=view.build_embed(), view=view, ephemeral=True)
-        view.message = await interaction.original_response()
 
 class RuleEditModal(discord.ui.Modal, title="Add/Edit Punishment Rule"):
     rule_name = discord.ui.TextInput(label="Rule Name", placeholder="e.g. Spamming", max_length=50)
