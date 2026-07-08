@@ -1330,14 +1330,13 @@ def build_automod_dashboard_embed(guild: discord.Guild) -> discord.Embed:
         total_steps += step_count
         if step_count:
             configured_rules += 1
-    smart_enabled = bool(bot.data_manager.config.get("feature_flags", {}).get("smart_automod", False))
     embed = make_embed(
         "AutoMod Control Center",
         join_lines([
-            "> Manage how the bot follows up on Discord AutoMod and runs its own smart filters.",
+            "> Manage how the bot follows up on Discord AutoMod.",
             "",
             "**Rules** — `Rule Punishments` set escalating actions per AutoMod rule · `Response Settings` control what the user sees.",
-            "**Protection** — `Smart Filters`, `Immunity`, and `Log Channels`.",
+            "**Protection** — `Immunity` and `Log Channels`.",
         ]),
         kind="warning",
         scope=SCOPE_MODERATION,
@@ -1358,11 +1357,6 @@ def build_automod_dashboard_embed(guild: discord.Guild) -> discord.Embed:
             f"User DM: {'On' if settings.get('warning_dm_enabled', True) else 'Off'}",
             f"Report button: {'On' if settings.get('report_button_enabled', True) else 'Off'}",
         ]),
-        inline=True,
-    )
-    embed.add_field(
-        name="Smart Filters",
-        value=f"Status: {'Enabled' if smart_enabled else 'Disabled'}",
         inline=True,
     )
     embed.add_field(

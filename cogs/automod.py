@@ -1,4 +1,4 @@
-"""Native and smart AutoMod engine, policy views, report flows, and /automod command."""
+"""Native AutoMod follow-up engine, policy views, report flows, and /automod command."""
 
 import discord
 from discord import app_commands
@@ -17,7 +17,7 @@ from core.services import (
     get_feature_flag,
     get_native_automod_settings,
 )
-from core.context import abuse_system, bot, tree
+from core.context import bot, tree
 from core.utils import iso_to_dt, now_iso
 from .shared import (
     truncate_text,
@@ -34,10 +34,8 @@ from .shared import (
     get_user_display_name,
     format_user_ref,
     get_primary_guild,
-    send_automod_log,
     has_permission_capability,
     respond_with_error,
-    is_staff_member,
     is_staff,
     get_valid_duration,
     build_automod_dashboard_embed,
@@ -55,10 +53,6 @@ AUTOMOD_PUNISHMENT_OPTIONS = [
 AUTOMOD_THRESHOLD_PRESETS = [1, 2, 3, 4, 5, 6, 8, 10, 12]
 AUTOMOD_WINDOW_PRESETS = [15, 60, 120, 360, 720, 1440, 2880, 4320, 10080]
 AUTOMOD_TIMEOUT_PRESETS = [10, 30, 60, 120, 180, 720, 1440, 2880, 10080, 40320]
-SMART_DUPLICATE_THRESHOLD_PRESETS = [2, 3, 4, 5, 6, 8, 10]
-SMART_DUPLICATE_WINDOW_PRESETS = [10, 15, 20, 30, 45, 60, 120]
-SMART_CAPS_PERCENT_PRESETS = [50, 60, 70, 75, 80, 90]
-SMART_CAPS_LENGTH_PRESETS = [5, 8, 12, 16, 24, 32]
 AUTOMOD_REPORT_RESPONSE_PRESETS = {
     "fixed": {
         "label": "We fixed the AutoMod",
@@ -88,15 +82,6 @@ AUTOMOD_REPORT_RESPONSE_PRESETS = {
         "status": "Staff Replied",
         "kind": "info",
     },
-}
-SMART_AUTOMOD_DEFAULTS = {
-    "duplicate_window_seconds": 20,
-    "duplicate_threshold": 4,
-    "max_caps_ratio": 0.75,
-    "caps_min_length": 12,
-    "blocked_patterns": [],
-    "exempt_channels": [],
-    "exempt_roles": [],
 }
 
 
@@ -199,38 +184,9 @@ def build_numeric_select_options(current: int, presets: List[int], formatter) ->
     ]
 
 
-def get_smart_automod_settings() -> dict:
-    current = bot.data_manager.config.get("smart_automod", {})
-    normalized = {
-        "duplicate_window_seconds": max(5, int(current.get("duplicate_window_seconds", SMART_AUTOMOD_DEFAULTS["duplicate_window_seconds"]) or SMART_AUTOMOD_DEFAULTS["duplicate_window_seconds"])),
-        "duplicate_threshold": max(2, int(current.get("duplicate_threshold", SMART_AUTOMOD_DEFAULTS["duplicate_threshold"]) or SMART_AUTOMOD_DEFAULTS["duplicate_threshold"])),
-        "max_caps_ratio": max(0.1, min(1.0, float(current.get("max_caps_ratio", SMART_AUTOMOD_DEFAULTS["max_caps_ratio"]) or SMART_AUTOMOD_DEFAULTS["max_caps_ratio"]))),
-        "caps_min_length": max(3, int(current.get("caps_min_length", SMART_AUTOMOD_DEFAULTS["caps_min_length"]) or SMART_AUTOMOD_DEFAULTS["caps_min_length"])),
-        "blocked_patterns": [str(item).strip()[:80] for item in current.get("blocked_patterns", []) if str(item).strip()][:50],
-        "exempt_channels": [int(item) for item in current.get("exempt_channels", []) if isinstance(item, int) or str(item).isdigit()],
-        "exempt_roles": [int(item) for item in current.get("exempt_roles", []) if isinstance(item, int) or str(item).isdigit()],
-    }
-    return normalized
-
-
 def store_native_automod_settings(settings: dict) -> dict:
     normalized = get_native_automod_settings({"native_automod": settings})
     bot.data_manager.config["native_automod"] = normalized
-    return normalized
-
-
-def store_smart_automod_settings(settings: dict) -> dict:
-    normalized = get_smart_automod_settings()
-    normalized.update({
-        "duplicate_window_seconds": max(5, int(settings.get("duplicate_window_seconds", normalized["duplicate_window_seconds"]) or normalized["duplicate_window_seconds"])),
-        "duplicate_threshold": max(2, int(settings.get("duplicate_threshold", normalized["duplicate_threshold"]) or normalized["duplicate_threshold"])),
-        "max_caps_ratio": max(0.1, min(1.0, float(settings.get("max_caps_ratio", normalized["max_caps_ratio"]) or normalized["max_caps_ratio"]))),
-        "caps_min_length": max(3, int(settings.get("caps_min_length", normalized["caps_min_length"]) or normalized["caps_min_length"])),
-        "blocked_patterns": [str(item).strip()[:80] for item in settings.get("blocked_patterns", normalized["blocked_patterns"]) if str(item).strip()][:50],
-        "exempt_channels": [int(item) for item in settings.get("exempt_channels", normalized["exempt_channels"]) if isinstance(item, int) or str(item).isdigit()],
-        "exempt_roles": [int(item) for item in settings.get("exempt_roles", normalized["exempt_roles"]) if isinstance(item, int) or str(item).isdigit()],
-    })
-    bot.data_manager.config["smart_automod"] = normalized
     return normalized
 
 
@@ -419,28 +375,6 @@ def build_automod_routing_embed(guild: discord.Guild) -> discord.Embed:
         value=f"<#{bot.data_manager.config.get('automod_report_channel_id', 0)}>" if bot.data_manager.config.get("automod_report_channel_id") else "Uses the appeal log channel or punishment logs",
         inline=False,
     )
-    return embed
-
-
-def build_smart_automod_embed(guild: discord.Guild) -> discord.Embed:
-    settings = get_smart_automod_settings()
-    embed = make_embed(
-        "Smart AutoMod Filters",
-        "> Configure the bot's own duplicate, caps, and blocked-pattern checks.",
-        kind="warning",
-        scope=SCOPE_MODERATION,
-        guild=guild,
-    )
-    embed.add_field(name="Duplicate Window", value=f"{settings.get('duplicate_threshold', 4)} messages in {settings.get('duplicate_window_seconds', 20)} seconds", inline=True)
-    embed.add_field(name="Caps Rule", value=f"{round(float(settings.get('max_caps_ratio', 0.75)) * 100)}% after {settings.get('caps_min_length', 12)} chars", inline=True)
-    embed.add_field(name="Blocked Patterns", value=str(len(settings.get("blocked_patterns", []))), inline=True)
-    embed.add_field(
-        name="Current Pattern Preview",
-        value=join_lines([f"- `{pattern}`" for pattern in settings.get("blocked_patterns", [])[:8]], fallback="No patterns configured."),
-        inline=False,
-    )
-    embed.add_field(name="Exempt Roles", value=render_id_mentions(settings.get("exempt_roles", []), prefix="@&"), inline=False)
-    embed.add_field(name="Exempt Channels", value=render_id_mentions(settings.get("exempt_channels", []), prefix="#"), inline=False)
     return embed
 
 
@@ -971,104 +905,6 @@ async def apply_native_automod_escalation(
     return True, f"Applied {status} automatically at {warning_count} warnings in {format_minutes_interval(window_minutes)}.", case_record
 
 
-async def run_smart_automod(message: discord.Message) -> bool:
-    if not message.guild or isinstance(message.channel, discord.Thread):
-        return False
-    if not get_feature_flag(bot.data_manager.config, "smart_automod", False):
-        return False
-    if not isinstance(message.author, discord.Member) or message.author.bot:
-        return False
-
-    settings = bot.data_manager.config.get("smart_automod", {})
-    exempt_channels = {int(cid) for cid in settings.get("exempt_channels", []) if str(cid).isdigit()}
-    exempt_roles = {int(rid) for rid in settings.get("exempt_roles", []) if str(rid).isdigit()}
-
-    if message.channel.id in exempt_channels:
-        return False
-    if any(role.id in exempt_roles for role in message.author.roles):
-        return False
-    if is_staff_member(message.author):
-        return False
-
-    content = (message.content or "").strip()
-    if not content:
-        return False
-
-    now = time.time()
-    window_seconds = max(5, int(settings.get("duplicate_window_seconds", 20)))
-    duplicate_threshold = max(2, int(settings.get("duplicate_threshold", 4)))
-    tracker = abuse_system.smart_automod_tracker[message.author.id]
-    normalized = re.sub(r"\s+", " ", content.lower())
-    tracker.append((now, normalized))
-    while tracker and now - tracker[0][0] > window_seconds:
-        tracker.popleft()
-
-    duplicate_count = sum(1 for _, entry in tracker if entry == normalized)
-    alpha_chars = [char for char in content if char.isalpha()]
-    max_caps_ratio = float(settings.get("max_caps_ratio", 0.75))
-    caps_min_length = max(5, int(settings.get("caps_min_length", 12)))
-    caps_ratio = (
-        sum(1 for char in alpha_chars if char.isupper()) / len(alpha_chars)
-        if len(alpha_chars) >= caps_min_length
-        else 0.0
-    )
-
-    blocked_pattern = None
-    for pattern in settings.get("blocked_patterns", []):
-        try:
-            if re.search(pattern, content, re.IGNORECASE):
-                blocked_pattern = pattern
-                break
-        except re.error:
-            continue
-
-    trigger_reason = None
-    if blocked_pattern:
-        trigger_reason = f"Blocked pattern matched: `{blocked_pattern}`"
-    elif duplicate_count >= duplicate_threshold:
-        trigger_reason = f"Duplicate spam detected ({duplicate_count} matching messages in {window_seconds}s)"
-    elif caps_ratio >= max_caps_ratio:
-        trigger_reason = f"Excessive caps ratio detected ({round(caps_ratio * 100)}%)"
-
-    if not trigger_reason:
-        return False
-
-    try:
-        await message.delete()
-    except Exception:
-        pass
-
-    try:
-        await message.channel.send(
-            f"{message.author.mention} your message was removed by smart automod.",
-            delete_after=10,
-        )
-    except Exception:
-        pass
-
-    embed = make_action_log_embed(
-        "Smart AutoMod Triggered",
-        "A message was removed by the bot's smart filter layer.",
-        guild=message.guild,
-        kind="warning",
-        scope=SCOPE_MODERATION,
-        actor=format_user_ref(message.author),
-        target=f"{message.channel.mention} (`{message.channel.id}`)",
-        reason=trigger_reason,
-        duration="Message Removed",
-        expires="N/A",
-        message=content,
-        notes=[
-            f"Duplicate Hits: {duplicate_count}",
-            f"Caps Ratio: {round(caps_ratio * 100)}%",
-            f"Blocked Pattern: {blocked_pattern or 'None'}",
-        ],
-        thumbnail=message.author.display_avatar.url,
-    )
-    await send_automod_log(message.guild, embed)
-    return True
-
-
 def ensure_native_rule_override_policy(settings: dict, rule: discord.AutoModRule) -> Tuple[str, dict]:
     override_key, current_policy, _ = get_native_rule_override(settings, rule)
     policy = {
@@ -1529,8 +1365,7 @@ class AutoModChannelActionSelect(discord.ui.Select):
 
 
 class AutoModStoredValueRemoveSelect(discord.ui.Select):
-    def __init__(self, *, label: str, config_scope: str, config_key: str, options: List[discord.SelectOption]):
-        self.config_scope = config_scope
+    def __init__(self, *, label: str, config_key: str, options: List[discord.SelectOption]):
         self.config_key = config_key
         super().__init__(
             placeholder=f"Remove {label}...",
@@ -1541,22 +1376,17 @@ class AutoModStoredValueRemoveSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction) -> None:
         selected_ids = {int(value) for value in self.values}
-        if self.config_scope == "native":
-            settings = get_native_automod_settings(bot.data_manager.config)
-            settings[self.config_key] = [value for value in settings.get(self.config_key, []) if int(value) not in selected_ids]
-            store_native_automod_settings(settings)
-        else:
-            settings = get_smart_automod_settings()
-            settings[self.config_key] = [value for value in settings.get(self.config_key, []) if int(value) not in selected_ids]
-            store_smart_automod_settings(settings)
+        settings = get_native_automod_settings(bot.data_manager.config)
+        settings[self.config_key] = [value for value in settings.get(self.config_key, []) if int(value) not in selected_ids]
+        store_native_automod_settings(settings)
         await bot.data_manager.save_config()
         await interaction.response.edit_message(embed=make_embed("Entries Removed", "> The selected entries have been removed.", kind="success", scope=SCOPE_MODERATION, guild=interaction.guild), view=None)
 
 
 class AutoModStoredValueRemoveView(discord.ui.View):
-    def __init__(self, *, label: str, config_scope: str, config_key: str, options: List[discord.SelectOption]):
+    def __init__(self, *, label: str, config_key: str, options: List[discord.SelectOption]):
         super().__init__(timeout=180)
-        self.add_item(AutoModStoredValueRemoveSelect(label=label, config_scope=config_scope, config_key=config_key, options=options))
+        self.add_item(AutoModStoredValueRemoveSelect(label=label, config_key=config_key, options=options))
 
 
 class AutoModImmunityUserSelect(discord.ui.UserSelect):
@@ -1628,7 +1458,7 @@ class AutoModImmunityView(discord.ui.View):
             options.append(discord.SelectOption(label=truncate_text(option_label, 100), value=str(value)))
         await interaction.response.send_message(
             f"Choose which {label.lower()} to remove:",
-            view=AutoModStoredValueRemoveView(label=label, config_scope="native", config_key=config_key, options=options),
+            view=AutoModStoredValueRemoveView(label=label, config_key=config_key, options=options),
             ephemeral=True,
         )
 
@@ -1643,150 +1473,6 @@ class AutoModImmunityView(discord.ui.View):
     @discord.ui.button(label="Remove Channels", style=discord.ButtonStyle.secondary, row=3)
     async def remove_channels(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await self._send_remove_picker(interaction, label="Channels", config_key="immunity_channels")
-
-    @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, row=3)
-    async def back(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await interaction.response.edit_message(embed=build_automod_dashboard_embed(interaction.guild), view=AutoModDashboardView())
-
-
-class SmartAutoModThresholdModal(discord.ui.Modal, title="Edit Smart Filter Thresholds"):
-    duplicate_window_seconds = discord.ui.TextInput(label="Duplicate window seconds", placeholder="20", max_length=4)
-    duplicate_threshold = discord.ui.TextInput(label="Duplicate message count", placeholder="4", max_length=4)
-    caps_min_length = discord.ui.TextInput(label="Minimum length before caps check", placeholder="12", max_length=4)
-    max_caps_ratio = discord.ui.TextInput(label="Caps percent before block", placeholder="75", max_length=5)
-
-    def __init__(self):
-        super().__init__()
-        settings = get_smart_automod_settings()
-        self.duplicate_window_seconds.default = str(settings.get("duplicate_window_seconds", 20))
-        self.duplicate_threshold.default = str(settings.get("duplicate_threshold", 4))
-        self.caps_min_length.default = str(settings.get("caps_min_length", 12))
-        self.max_caps_ratio.default = str(int(round(float(settings.get("max_caps_ratio", 0.75)) * 100)))
-
-    async def on_submit(self, interaction: discord.Interaction) -> None:
-        try:
-            ratio_value = float(self.max_caps_ratio.value)
-            if ratio_value > 1:
-                ratio_value = ratio_value / 100
-            settings = get_smart_automod_settings()
-            settings["duplicate_window_seconds"] = max(5, int(self.duplicate_window_seconds.value))
-            settings["duplicate_threshold"] = max(2, int(self.duplicate_threshold.value))
-            settings["caps_min_length"] = max(3, int(self.caps_min_length.value))
-            settings["max_caps_ratio"] = max(0.1, min(1.0, ratio_value))
-        except ValueError:
-            await respond_with_error(interaction, "Smart AutoMod thresholds must be valid numbers.", scope=SCOPE_MODERATION)
-            return
-
-        store_smart_automod_settings(settings)
-        await bot.data_manager.save_config()
-        view = SmartAutoModSettingsView()
-        await interaction.response.send_message(embed=build_smart_automod_embed(interaction.guild), view=view, ephemeral=True)
-
-
-class SmartAutoModPatternModal(discord.ui.Modal, title="Edit Blocked Patterns"):
-    blocked_patterns = discord.ui.TextInput(
-        label="One pattern per line",
-        style=discord.TextStyle.paragraph,
-        required=False,
-        max_length=2000,
-        placeholder="slur here\nanother blocked phrase",
-    )
-
-    def __init__(self):
-        super().__init__()
-        self.blocked_patterns.default = "\n".join(get_smart_automod_settings().get("blocked_patterns", []))
-
-    async def on_submit(self, interaction: discord.Interaction) -> None:
-        lines = [line.strip() for line in self.blocked_patterns.value.splitlines() if line.strip()]
-        settings = get_smart_automod_settings()
-        settings["blocked_patterns"] = lines[:50]
-        store_smart_automod_settings(settings)
-        await bot.data_manager.save_config()
-        view = SmartAutoModSettingsView()
-        await interaction.response.send_message(embed=build_smart_automod_embed(interaction.guild), view=view, ephemeral=True)
-
-
-class SmartAutoModExemptRoleSelect(discord.ui.RoleSelect):
-    def __init__(self):
-        super().__init__(placeholder="Add smart-filter exempt roles...", min_values=1, max_values=10, row=0)
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        settings = get_smart_automod_settings()
-        current = {int(value) for value in settings.get("exempt_roles", [])}
-        current.update(int(role.id) for role in self.values)
-        settings["exempt_roles"] = sorted(current)
-        store_smart_automod_settings(settings)
-        await bot.data_manager.save_config()
-        await interaction.response.edit_message(embed=build_smart_automod_embed(interaction.guild), view=SmartAutoModSettingsView())
-
-
-class SmartAutoModExemptChannelSelect(discord.ui.ChannelSelect):
-    def __init__(self):
-        super().__init__(placeholder="Add smart-filter exempt channels...", min_values=1, max_values=10, channel_types=[discord.ChannelType.text], row=1)
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        settings = get_smart_automod_settings()
-        current = {int(value) for value in settings.get("exempt_channels", [])}
-        current.update(int(channel.id) for channel in self.values)
-        settings["exempt_channels"] = sorted(current)
-        store_smart_automod_settings(settings)
-        await bot.data_manager.save_config()
-        await interaction.response.edit_message(embed=build_smart_automod_embed(interaction.guild), view=SmartAutoModSettingsView())
-
-
-class SmartAutoModSettingsView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=180)
-        self.add_item(SmartAutoModExemptRoleSelect())
-        self.add_item(SmartAutoModExemptChannelSelect())
-        enabled = get_feature_flag(bot.data_manager.config, "smart_automod", False)
-        self.toggle_feature.label = f"Smart Filters: {'On' if enabled else 'Off'}"
-        self.toggle_feature.style = discord.ButtonStyle.success if enabled else discord.ButtonStyle.secondary
-
-    async def _send_remove_picker(self, interaction: discord.Interaction, *, label: str, config_key: str) -> None:
-        settings = get_smart_automod_settings()
-        values = settings.get(config_key, [])
-        if not values:
-            await interaction.response.send_message(embed=make_embed("Nothing Configured", f"> No {label.lower()} are configured.", kind="info", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
-            return
-        options = []
-        for value in values[:25]:
-            if config_key == "exempt_roles":
-                role = interaction.guild.get_role(int(value))
-                option_label = role.name if role else f"Role {value}"
-            else:
-                channel = interaction.guild.get_channel(int(value)) or interaction.guild.get_channel_or_thread(int(value))
-                option_label = f"#{channel.name}" if channel else f"Channel {value}"
-            options.append(discord.SelectOption(label=truncate_text(option_label, 100), value=str(value)))
-        await interaction.response.send_message(
-            f"Choose which {label.lower()} to remove:",
-            view=AutoModStoredValueRemoveView(label=label, config_scope="smart", config_key=config_key, options=options),
-            ephemeral=True,
-        )
-
-    @discord.ui.button(label="Smart Filters", style=discord.ButtonStyle.secondary, row=2)
-    async def toggle_feature(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        flags = bot.data_manager.config.setdefault("feature_flags", {})
-        flags["smart_automod"] = not bool(flags.get("smart_automod", False))
-        await bot.data_manager.save_config()
-        view = SmartAutoModSettingsView()
-        await interaction.response.edit_message(embed=build_smart_automod_embed(interaction.guild), view=view)
-
-    @discord.ui.button(label="Edit Thresholds", style=discord.ButtonStyle.primary, row=2)
-    async def edit_thresholds(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await interaction.response.send_modal(SmartAutoModThresholdModal())
-
-    @discord.ui.button(label="Edit Pattern List", style=discord.ButtonStyle.primary, row=2)
-    async def edit_patterns(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await interaction.response.send_modal(SmartAutoModPatternModal())
-
-    @discord.ui.button(label="Remove Exempt Roles", style=discord.ButtonStyle.secondary, row=3)
-    async def remove_roles(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await self._send_remove_picker(interaction, label="Roles", config_key="exempt_roles")
-
-    @discord.ui.button(label="Remove Exempt Channels", style=discord.ButtonStyle.secondary, row=3)
-    async def remove_channels(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await self._send_remove_picker(interaction, label="Channels", config_key="exempt_channels")
 
     @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, row=3)
     async def back(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -1810,10 +1496,6 @@ class AutoModDashboardView(discord.ui.View):
         await interaction.response.edit_message(embed=build_automod_bridge_embed(interaction.guild), view=AutoModBridgeSettingsView())
 
     # ── Row 1 · Filtering & routing ──────────────────────────────────────
-    @discord.ui.button(label="Smart Filters", style=discord.ButtonStyle.secondary, row=1)
-    async def smart(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await interaction.response.edit_message(embed=build_smart_automod_embed(interaction.guild), view=SmartAutoModSettingsView())
-
     @discord.ui.button(label="Immunity", style=discord.ButtonStyle.secondary, row=1)
     async def immunity(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await interaction.response.edit_message(embed=build_automod_immunity_embed(interaction.guild), view=AutoModImmunityView())

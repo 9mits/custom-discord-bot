@@ -91,7 +91,6 @@ FEATURE_FLAG_LABELS = {
     "setup_validation":      "Setup Check",
     "config_panel":          "Bot Settings Panel",
     "role_cleanup":          "Lost Booster Role Cleanup",
-    "smart_automod":         "Smart Auto-Moderation",
     "native_automod_bridge": "Native AutoMod Follow-Up",
     "automod_panel":         "AutoMod Panel",
     "dm_modmail_prompt":     "DM Modmail Prompt",
