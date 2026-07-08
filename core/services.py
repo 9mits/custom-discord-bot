@@ -19,7 +19,6 @@ DEFAULT_FEATURE_FLAGS = {
     "setup_validation": True,
     "config_panel": True,
     "role_cleanup": True,
-    "smart_automod": False,
     "native_automod_bridge": True,
     "automod_panel": True,
     "dm_modmail_prompt": True,

@@ -540,15 +540,6 @@ class DataManager:
             "locked_channels": {}, "archived_channels": {},
             "cr_whitelist_users": {}, "cr_whitelist_roles": {}, "cr_blacklist_users": [], "cr_blacklist_roles": [],
             "security": {"max_actions_per_min": 10},
-            "smart_automod": {
-                "duplicate_window_seconds": 20,
-                "duplicate_threshold": 4,
-                "max_caps_ratio": 0.75,
-                "caps_min_length": 12,
-                "blocked_patterns": [],
-                "exempt_channels": [],
-                "exempt_roles": [],
-            },
             "native_automod": DEFAULT_NATIVE_AUTOMOD_SETTINGS,
             "immunity_list": [], "debug": {},
             "token_env_var": "DISCORD_BOT_TOKEN",
@@ -867,7 +858,6 @@ class AntiAbuseSystem:
         self._tracker = defaultdict(lambda: deque(maxlen=15))
         self.cooldowns: Dict[str, float] = {}
         self.mention_spam_tracker = defaultdict(lambda: deque(maxlen=10))
-        self.smart_automod_tracker = defaultdict(lambda: deque(maxlen=8))
 
     def check_rate_limit(self, user_id: int, config: dict) -> bool:
         now = time.time()
