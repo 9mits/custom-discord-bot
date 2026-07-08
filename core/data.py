@@ -93,6 +93,16 @@ CREATE TABLE IF NOT EXISTS lockdown (
     channel_id TEXT PRIMARY KEY,
     data       TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS exports (
+    export_id     INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at    TEXT    NOT NULL,
+    requester_id  TEXT    NOT NULL,
+    title         TEXT    NOT NULL,
+    filename      TEXT    NOT NULL,
+    message_count INTEGER NOT NULL,
+    content       BLOB    NOT NULL
+);
 """
 
 
@@ -728,6 +738,48 @@ class DataManager:
                     cases.append((user_id, record))
         cases.sort(key=lambda item: item[1].get("case_id", 0), reverse=True)
         return cases
+
+    # ------------------------------------------------------------------
+    # Message exports (stored on-demand, not held in memory)
+    # ------------------------------------------------------------------
+
+    _EXPORT_RETENTION = 50
+
+    async def save_export(self, *, requester_id: int, title: str, filename: str, message_count: int, content: bytes) -> int:
+        """Persist an HTML export blob and return its new export id. Old exports
+        beyond the retention cap are pruned so the DB doesn't grow unbounded."""
+        from core.utils import now_iso
+        db = await self._db_conn()
+        cursor = await db.execute(
+            "INSERT INTO exports (created_at, requester_id, title, filename, message_count, content) VALUES (?, ?, ?, ?, ?, ?)",
+            (now_iso(), str(requester_id), title, filename, int(message_count), content),
+        )
+        export_id = cursor.lastrowid
+        await db.execute(
+            "DELETE FROM exports WHERE export_id NOT IN (SELECT export_id FROM exports ORDER BY export_id DESC LIMIT ?)",
+            (self._EXPORT_RETENTION,),
+        )
+        await db.commit()
+        return export_id
+
+    async def list_exports(self, limit: int = 25) -> List[dict]:
+        """Return export metadata (no blob) newest-first."""
+        db = await self._db_conn()
+        rows = await db.execute_fetchall(
+            "SELECT export_id, created_at, requester_id, title, filename, message_count FROM exports ORDER BY export_id DESC LIMIT ?",
+            (int(limit),),
+        )
+        return [dict(row) for row in rows]
+
+    async def get_export(self, export_id: int) -> Optional[dict]:
+        """Return a single export including its blob content, or None."""
+        db = await self._db_conn()
+        async with db.execute(
+            "SELECT export_id, created_at, requester_id, title, filename, message_count, content FROM exports WHERE export_id = ?",
+            (int(export_id),),
+        ) as cursor:
+            row = await cursor.fetchone()
+        return dict(row) if row else None
 
     def allocate_case_id(self) -> int:
         current = self._normalize_positive_int(self.config.get("case_counter", 0), 0, minimum=0)
