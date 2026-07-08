@@ -27,6 +27,7 @@ EXTENSIONS = (
     "cogs.history",
     "cogs.case_panel",
     "cogs.moderation",
+    "cogs.export",
     "cogs.roles",
     "cogs.derole",
     "cogs.modmail",
