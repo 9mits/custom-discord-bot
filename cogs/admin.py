@@ -218,10 +218,10 @@ class ArchiveConfirmView(discord.ui.View):
             )
 
         except Exception as e:
-            await interaction.edit_original_response(content=f"Failed to archive channel: {e}")
+            await interaction.edit_original_response(embed=make_embed("Archive Failed", f"> Failed to archive channel: {e}", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild))
             return
 
-        await interaction.edit_original_response(content=f"Channel archived successfully to **{self.target_cat.name}**.")
+        await interaction.edit_original_response(embed=make_embed("Channel Archived", f"> Channel archived successfully to **{self.target_cat.name}**.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild))
 
         # Log
         log_embed = make_embed(
@@ -262,7 +262,7 @@ class CloneConfirmView(discord.ui.View):
             new_channel = await self.channel.clone(reason=f"Cloned by {interaction.user}")
             await new_channel.edit(position=self.channel.position)
         except Exception as e:
-            await interaction.edit_original_response(content=f"Failed to clone channel: {e}")
+            await interaction.edit_original_response(embed=make_embed("Clone Failed", f"> Failed to clone channel: {e}", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild))
             return
 
         # 2. Archive the old channel
@@ -282,10 +282,10 @@ class CloneConfirmView(discord.ui.View):
                 reason=f"Archived (Cloned) by {interaction.user}"
             )
         except Exception as e:
-            await interaction.edit_original_response(content=f"Channel cloned to {new_channel.mention}, but failed to archive old channel: {e}")
+            await interaction.edit_original_response(embed=make_embed("Partially Complete", f"> Channel cloned to {new_channel.mention}, but failed to archive the old channel: {e}", kind="warning", scope=SCOPE_SYSTEM, guild=interaction.guild))
             return
 
-        await interaction.edit_original_response(content=f"Success! Channel cloned to {new_channel.mention} and original archived.")
+        await interaction.edit_original_response(embed=make_embed("Clone Complete", f"> Channel cloned to {new_channel.mention} and the original archived.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild))
         
         try:
             embed = make_embed(
@@ -647,6 +647,7 @@ async def unarchive(interaction: discord.Interaction):
     channel = interaction.channel
     cid = str(channel.id)
     archives = bot.data_manager.config.get("archived_channels", {})
+    migration_note = ""
 
     if cid not in archives:
         # Migration Logic: Check for name match
@@ -663,7 +664,7 @@ async def unarchive(interaction: discord.Interaction):
             archives[cid] = data
             bot.data_manager.config["archived_channels"] = archives
             await bot.data_manager.save_config()
-            await interaction.followup.send(embed=make_embed("Migration Notice", f"> Channel ID mismatch detected (Server Transfer?). Migrated archive data from `{found_old_id}` to `{cid}`.", kind="info", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
+            migration_note = f"\n> Channel ID mismatch detected (server transfer?). Archive data was migrated from `{found_old_id}` to `{cid}`."
         else:
             await interaction.followup.send(embed=make_embed("Not Archived", "> This channel is not in the archive registry.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
             return
@@ -695,7 +696,7 @@ async def unarchive(interaction: discord.Interaction):
     del bot.data_manager.config["archived_channels"][cid]
     await bot.data_manager.save_config()
 
-    await interaction.followup.send(embed=make_embed("Channel Unarchived", "> Channel unarchived and restored.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
+    await interaction.followup.send(embed=make_embed("Channel Unarchived", "> Channel unarchived and restored." + migration_note, kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
     
     # Log
     log_embed = make_embed(
