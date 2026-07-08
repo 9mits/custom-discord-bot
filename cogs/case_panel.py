@@ -305,12 +305,6 @@ class CasePanelView(discord.ui.View):
         if self.message:
             await self.message.edit(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="Refresh", style=discord.ButtonStyle.secondary, row=0)
-    async def refresh_case(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        self.message = interaction.message
-        self.sync_buttons()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
-
     @discord.ui.button(label="Claim Case", style=discord.ButtonStyle.success, row=0)
     async def claim_case(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         self.message = interaction.message
@@ -479,16 +473,6 @@ class AllCasesNavButton(discord.ui.Button):
         await interaction.response.edit_message(embed=view.build_embed(), view=view)
 
 
-class AllCasesRefreshButton(discord.ui.Button):
-    def __init__(self):
-        super().__init__(label="Refresh", style=discord.ButtonStyle.secondary, row=2)
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        view: "AllCasesView" = self.view
-        view.reload()
-        await interaction.response.edit_message(embed=view.build_embed(), view=view)
-
-
 class AllCasesView(discord.ui.View):
     def __init__(self, guild: discord.Guild):
         super().__init__(timeout=300)
@@ -534,7 +518,6 @@ class AllCasesView(discord.ui.View):
             self.add_item(AllCasesNavButton("Previous", -1, disabled=(self.page == 0)))
             self.add_item(discord.ui.Button(label=f"Page {self.page + 1}/{self.max_pages}", disabled=True, style=discord.ButtonStyle.secondary, row=1))
             self.add_item(AllCasesNavButton("Next", 1, disabled=(self.page >= self.max_pages - 1)))
-        self.add_item(AllCasesRefreshButton())
 
 class AccessView(discord.ui.View):
     def __init__(self):

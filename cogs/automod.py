@@ -1287,12 +1287,6 @@ class AutoModRuleBrowserView(discord.ui.View):
         if self.rules:
             self.add_item(AutoModRuleSelect(self, self.rules))
 
-    @discord.ui.button(label="Refresh Rules", style=discord.ButtonStyle.secondary, row=1)
-    async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        rules = await fetch_native_automod_rules(interaction.guild)
-        view = AutoModRuleBrowserView(rules)
-        await interaction.response.edit_message(embed=build_automod_rule_browser_embed(interaction.guild, rules), view=view)
-
     @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, row=1)
     async def back(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await interaction.response.edit_message(embed=build_automod_dashboard_embed(interaction.guild), view=AutoModDashboardView())
@@ -1827,11 +1821,6 @@ class AutoModDashboardView(discord.ui.View):
     @discord.ui.button(label="Log Channels", style=discord.ButtonStyle.secondary, row=1)
     async def routing(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await interaction.response.edit_message(embed=build_automod_routing_embed(interaction.guild), view=AutoModChannelSettingsView())
-
-    # ── Row 2 · Utility ──────────────────────────────────────────────────
-    @discord.ui.button(label="Refresh", style=discord.ButtonStyle.secondary, row=2)
-    async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await interaction.response.edit_message(embed=build_automod_dashboard_embed(interaction.guild), view=AutoModDashboardView())
 
 
 async def resolve_user_for_automod_report(guild: Optional[discord.Guild], user_id: int) -> Optional[Union[discord.Member, discord.User]]:

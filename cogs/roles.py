@@ -23,7 +23,6 @@ from .shared import (
     format_reason_value,
     make_embed,
     brand_embed,
-    make_empty_state_embed,
     make_confirmation_embed,
     join_lines,
     format_user_ref,
@@ -809,25 +808,6 @@ class EditView(discord.ui.View):
         self.role = role
         self.add_item(RoleActionSelect(member, role))
 
-    @discord.ui.button(label="Refresh Panel", style=discord.ButtonStyle.secondary, row=1)
-    async def refresh_panel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        rec = find_role_rec(self.member.id, self.role.id)
-        role_obj = interaction.guild.get_role(self.role.id) if rec else None
-        if not rec or not role_obj:
-            await interaction.response.edit_message(
-                embed=make_empty_state_embed(
-                    "Custom Role Not Found",
-                    "> The tracked custom role could not be loaded. Re-run `/role` to create or reopen it.",
-                    scope=SCOPE_ROLES,
-                    guild=interaction.guild,
-                    thumbnail=self.member.display_avatar.url,
-                ),
-                view=None,
-            )
-            return
-        self.role = role_obj
-        await interaction.response.edit_message(embed=build_role_info_embed(self.member, rec, role_obj, include_tips=True), view=EditView(self.member, role_obj))
-
 class ConfirmDelete(discord.ui.View):
     def __init__(self, member, role):
         super().__init__(timeout=60)
@@ -1125,7 +1105,6 @@ class TrackedRolesView(discord.ui.View):
 class RoleSettingsActionSelect(discord.ui.Select):
     def __init__(self):
         options = [
-            discord.SelectOption(label="Refresh Overview", value="refresh", description="Reload the counts and dashboard summary."),
             discord.SelectOption(label="Review Access", value="review_access", description="Open the current allow and block lists."),
             discord.SelectOption(label="Tracked Roles", value="tracked_roles", description="Open the current custom role registry."),
             discord.SelectOption(label="Change Access Rules", value="access_rules", description="Open the access rule action menu."),
@@ -1135,9 +1114,6 @@ class RoleSettingsActionSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction) -> None:
         action = self.values[0]
-        if action == "refresh":
-            await interaction.response.edit_message(embed=build_role_settings_embed(interaction.guild), view=RoleSettingsView())
-            return
         if action == "review_access":
             await interaction.response.send_message(embed=build_role_permissions_overview_embed(interaction.guild), ephemeral=True)
             return
