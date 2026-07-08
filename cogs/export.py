@@ -10,7 +10,7 @@ import asyncio
 import io
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import List, Set
+from typing import List, Optional, Set
 
 import discord
 from discord import app_commands
@@ -41,7 +41,7 @@ def _staff_check(interaction: discord.Interaction) -> bool:
 
 # ----------------- Collection + rendering -----------------
 
-async def _scan_channel(channel, me, user_ids: Set[int], per_channel_limit: int):
+async def _scan_channel(channel, me, user_ids: Set[int], per_channel_limit: int, progress: Optional[dict] = None):
     if not channel.permissions_for(me).read_message_history:
         return []
     found = []
@@ -50,14 +50,17 @@ async def _scan_channel(channel, me, user_ids: Set[int], per_channel_limit: int)
             if user_ids and message.author.id not in user_ids:
                 continue
             found.append(message)
+            if progress is not None:
+                progress["messages"] += 1
     except (discord.Forbidden, discord.HTTPException):
         return []
     return found
 
 
-async def collect_export_messages(guild, user_ids: Set[int], channel_ids: Set[int]) -> List[discord.Message]:
+async def collect_export_messages(guild, user_ids: Set[int], channel_ids: Set[int], progress: Optional[dict] = None) -> List[discord.Message]:
     """Gather messages matching the selected members and/or channels, newest
-    first, capped at EXPORT_MESSAGE_CAP. Channels are scanned concurrently."""
+    first, capped at EXPORT_MESSAGE_CAP. Channels are scanned concurrently. When a
+    `progress` dict is passed, it is updated live with counts for the loading bar."""
     if channel_ids:
         channels = [guild.get_channel(cid) for cid in channel_ids]
         channels = [c for c in channels if c is not None]
@@ -66,19 +69,47 @@ async def collect_export_messages(guild, user_ids: Set[int], channel_ids: Set[in
         channels = list(guild.text_channels)
         per_channel_limit = PER_CHANNEL_USER_SCAN
 
+    if progress is not None:
+        progress["total"] = len(channels)
+
     semaphore = asyncio.Semaphore(SCAN_CONCURRENCY)
 
     async def _guarded(channel):
         async with semaphore:
-            return await _scan_channel(channel, guild.me, user_ids, per_channel_limit)
+            found = await _scan_channel(channel, guild.me, user_ids, per_channel_limit, progress)
+        if progress is not None:
+            progress["done"] += 1
+        return found
 
-    results = await asyncio.gather(*[_guarded(c) for c in channels], return_exceptions=True)
+    tasks = [asyncio.ensure_future(_guarded(c)) for c in channels]
     messages: List[discord.Message] = []
-    for result in results:
+    for future in asyncio.as_completed(tasks):
+        result = await future
         if isinstance(result, list):
             messages.extend(result)
     messages.sort(key=lambda m: m.created_at, reverse=True)
     return messages[:EXPORT_MESSAGE_CAP]
+
+
+def _progress_bar(done: int, total: int, width: int = 14) -> str:
+    total = total or 1
+    filled = max(0, min(width, round(width * done / total)))
+    return "▰" * filled + "▱" * (width - filled)
+
+
+def _loading_embed(guild, progress: dict) -> discord.Embed:
+    total = progress.get("total", 0)
+    done = progress.get("done", 0)
+    found = progress.get("messages", 0)
+    if total > 1:
+        body = (
+            "> Collecting messages, please wait…\n\n"
+            f"`{_progress_bar(done, total)}`  {done}/{total} channels\n"
+            f"Messages found: **{found}**"
+        )
+    else:
+        body = f"> Collecting messages, please wait…\n\nMessages found: **{found}**"
+    return make_embed("Exporting…", body, kind="info", scope=SCOPE_MODERATION, guild=guild)
 
 
 def build_export_bytes(messages: List[discord.Message], title: str) -> bytes:
@@ -139,8 +170,32 @@ class ExportRunButton(discord.ui.Button):
             return
 
         await interaction.response.defer()
-        messages = await collect_export_messages(interaction.guild, view.selected_user_ids, view.selected_channel_ids)
+
+        # Drive a live loading bar while channels are scanned: the collector
+        # updates `progress` in place and a ticker re-renders it every 2s.
+        progress = {"messages": 0, "done": 0, "total": 0}
+        stop = asyncio.Event()
+
+        async def ticker():
+            while not stop.is_set():
+                try:
+                    await interaction.edit_original_response(embed=_loading_embed(interaction.guild, progress), view=None)
+                except Exception:
+                    pass
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    pass
+
+        ticker_task = asyncio.create_task(ticker())
+        try:
+            messages = await collect_export_messages(interaction.guild, view.selected_user_ids, view.selected_channel_ids, progress)
+        finally:
+            stop.set()
+            await ticker_task
+
         if not messages:
+            await interaction.edit_original_response(embed=view.build_embed(), view=view)
             await interaction.followup.send(
                 embed=make_empty_state_embed(
                     "Nothing to Export",
@@ -171,17 +226,6 @@ class ExportRunButton(discord.ui.Button):
             file=discord.File(io.BytesIO(data), filename=filename),
             ephemeral=True,
         )
-
-
-class ExportRefreshButton(discord.ui.Button):
-    def __init__(self):
-        super().__init__(label="Refresh", style=discord.ButtonStyle.secondary, row=2)
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        view: "ExportMenuView" = self.view
-        await view.reload_exports()
-        view.sync_download_options()
-        await interaction.response.edit_message(embed=view.build_embed(), view=view)
 
 
 class ExportDownloadSelect(discord.ui.Select):
@@ -216,7 +260,6 @@ class ExportMenuView(discord.ui.View):
         self.add_item(ExportMemberSelect())
         self.add_item(ExportChannelSelect())
         self.add_item(ExportRunButton())
-        self.add_item(ExportRefreshButton())
         self.add_item(self.download_select)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
@@ -249,17 +292,15 @@ class ExportMenuView(discord.ui.View):
     def build_embed(self) -> discord.Embed:
         embed = make_embed(
             "Message Export",
-            f"> Pick member(s) and/or channel(s), then run the export. Up to {EXPORT_MESSAGE_CAP} "
-            "newest messages are saved as an HTML transcript. Past exports can be re-downloaded below.",
+            "> Choose member(s) and/or channel(s) below, then **Run Export**.",
             kind="info",
             scope=SCOPE_MODERATION,
             guild=self.guild,
         )
         members = ", ".join(f"<@{uid}>" for uid in self.selected_user_ids) if self.selected_user_ids else "Any member"
         channels = ", ".join(f"<#{cid}>" for cid in self.selected_channel_ids) if self.selected_channel_ids else "All text channels"
-        embed.add_field(name="Members", value=truncate_text(members, 1024), inline=False)
-        embed.add_field(name="Channels", value=truncate_text(channels, 1024), inline=False)
-        embed.add_field(name="Saved Exports", value=str(len(self.exports)), inline=True)
+        embed.add_field(name="Members", value=truncate_text(members, 1024), inline=True)
+        embed.add_field(name="Channels", value=truncate_text(channels, 1024), inline=True)
         return embed
 
 

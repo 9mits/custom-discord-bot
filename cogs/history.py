@@ -406,14 +406,12 @@ class HistoryView(discord.ui.View):
                 self.add_item(HistoryNavButton("Next", discord.ButtonStyle.primary, 1, row=2, disabled=(self.page >= self.max_pages - 1)))
             self.add_item(HistoryActionButton("Back to History", discord.ButtonStyle.secondary, "back_to_history", row=3))
             self.add_item(HistoryActionButton("Custom Reason", discord.ButtonStyle.primary, "custom_reason", row=3))
-            self.add_item(HistoryActionButton("Refresh", discord.ButtonStyle.secondary, "refresh", row=3))
             self.add_item(HistoryActionButton("Undo Selected", discord.ButtonStyle.danger, "undo_selected", row=3, disabled=(self.get_selected_record() is None)))
             return
 
         if self.selected_case_id:
             self.add_item(HistoryActionButton("Back to Overview", discord.ButtonStyle.secondary, "history_overview", row=0))
             self.add_item(HistoryActionButton("Undo This Case", discord.ButtonStyle.danger, "open_undo", row=0))
-            self.add_item(HistoryActionButton("Refresh", discord.ButtonStyle.secondary, "refresh", row=0))
             self.add_item(HistoryActionButton("Clear History", discord.ButtonStyle.danger, "clear_history", row=1))
             return
 
@@ -422,16 +420,11 @@ class HistoryView(discord.ui.View):
             self.add_item(HistoryNavButton("Previous", discord.ButtonStyle.primary, -1, row=1, disabled=(self.page == 0)))
             self.add_item(discord.ui.Button(label=f"Page {self.page + 1}/{self.max_pages}", disabled=True, style=discord.ButtonStyle.secondary, row=1))
             self.add_item(HistoryNavButton("Next", discord.ButtonStyle.primary, 1, row=1, disabled=(self.page >= self.max_pages - 1)))
-        self.add_item(HistoryActionButton("Refresh", discord.ButtonStyle.secondary, "refresh", row=2))
         self.add_item(HistoryActionButton("Undo Punishment", discord.ButtonStyle.danger, "open_undo", row=2))
         self.add_item(HistoryActionButton("Clear History", discord.ButtonStyle.danger, "clear_history", row=2))
 
     async def handle_action(self, interaction: discord.Interaction, action: str) -> None:
         self.message = interaction.message
-        if action == "refresh":
-            await self.refresh_after_interaction(interaction)
-            return
-
         if action == "history_overview":
             self.mode = "history"
             self.selected_case_id = None
@@ -489,20 +482,6 @@ class HistoryView(discord.ui.View):
                 ephemeral=True,
             )
             return
-
-    async def refresh_after_interaction(self, interaction: discord.Interaction) -> None:
-        self.reload_history()
-        if self.mode == "undo" and not self.selected_case_id and self.sorted_history:
-            self.selected_case_id = get_case_id(self.sorted_history[0])
-        self.ensure_page_for_selected_case()
-        self.update_components()
-        if not self.sorted_history:
-            self.stop()
-            await interaction.response.edit_message(embed=build_no_history_embed(self.user, interaction.guild), view=None)
-            return
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
-
-
 
 
 async def setup(bot) -> None:
