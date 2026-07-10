@@ -68,6 +68,7 @@ from .automod import (
     get_native_automod_action_label,
     AutoModWarningView,
 )
+from .case_panel import build_case_link_view
 
 
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
@@ -279,7 +280,7 @@ async def on_raw_reaction_add(payload):
                     log_embed.title = f"{case_label} Public Execution"
                     log_embed.description = "> A community vote threshold was reached and the configured action was executed."
                     log_embed.insert_field_at(2, name="Votes Reached", value=str(data["count"]), inline=True)
-                    await send_punishment_log(guild, log_embed)
+                    await send_punishment_log(guild, log_embed, view=build_case_link_view(record["case_id"]))
                     
                 except Exception as e:
                     await channel.send(f"Execution failed: {e}")

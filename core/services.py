@@ -15,7 +15,6 @@ DEFAULT_CASE_STATUSES = {"open", "review", "appealed", "closed"}
 DEFAULT_RESOLUTION_STATES = {"pending", "active", "resolved", "reversed", "expired"}
 DEFAULT_TICKET_PRIORITIES = ("low", "normal", "high", "urgent")
 DEFAULT_FEATURE_FLAGS = {
-    "advanced_case_panel": True,
     "advanced_modmail": True,
     "setup_validation": True,
     "config_panel": True,

@@ -554,6 +554,26 @@ def build_undo_panel_embed(
     return embed
 
 
+def build_undo_confirm_embed(
+    target: Union[discord.Member, discord.User],
+    record: dict,
+    undo_reason: str,
+    *,
+    guild: Optional[discord.Guild],
+) -> discord.Embed:
+    embed = make_embed(
+        f"Undo {get_case_label(record)}",
+        "> Confirm this reversal. The case will be removed from history and the bot will try to reverse any active punishment.",
+        kind="danger",
+        scope=SCOPE_MODERATION,
+        guild=guild,
+        thumbnail=target.display_avatar.url,
+    )
+    embed.add_field(name="Undo Reason", value=format_reason_value(undo_reason, limit=500), inline=False)
+    embed.add_field(name="Case Details", value=format_case_summary_block(record, include_original_reason=True), inline=False)
+    return embed
+
+
 def build_punishment_undo_log_embed(
     guild: discord.Guild,
     actor: Union[discord.Member, discord.User],
@@ -708,7 +728,7 @@ def build_mod_help_embed(guild: discord.Guild) -> discord.Embed:
     embed.add_field(
         name="Case Management",
         value="\n".join([
-            "`/case` — Open a case panel for notes, status, evidence, and assignment.",
+            "`/case` — Open a case control panel: punish again, undo, notes, status, evidence, and assignment.",
             "`/cases` — Browse every case on the server in case order.",
             "`/history` — Browse a user’s disciplinary record case-by-case.",
             "`/undo` — Reverse a punishment with a reason and case selector.",
