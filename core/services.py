@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import copy
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Sequence, Tuple
 
 import discord
 
-from .models import CaseMetadata, EscalationStep, ValidationFinding
+from .models import CaseMetadata, ValidationFinding
+from .utils import iso_to_dt
 
 
 DEFAULT_SCHEMA_VERSION = 3
@@ -28,13 +29,21 @@ DEFAULT_CANNED_REPLIES = {
     "Need More Details": "Please send any extra context, message links, screenshots, or IDs that might help.",
     "Resolved": "The issue has been resolved on our side. Let us know if you need anything else.",
 }
-DEFAULT_ESCALATION_MATRIX = [
-    {"minimum_points": 0, "mode": "base", "multiplier": 1, "force_ban": False, "label": "Standard"},
-    {"minimum_points": 3, "mode": "escalated", "multiplier": 1, "force_ban": False, "label": "Escalated"},
-    {"minimum_points": 8, "mode": "escalated", "multiplier": 2, "force_ban": False, "label": "Escalated x2"},
-    {"minimum_points": 12, "mode": "escalated", "multiplier": 4, "force_ban": False, "label": "Escalated x4"},
-    {"minimum_points": 16, "mode": "ban", "multiplier": 1, "force_ban": True, "label": "Auto Ban"},
-]
+class OffenseTier(NamedTuple):
+    min_prior_offenses: int
+    mode: str  # "base" | "escalated" | "ban"
+    multiplier: int
+    label: str
+
+
+OFFENSE_LOOKBACK_DAYS = 90
+OFFENSE_LADDER: Tuple[OffenseTier, ...] = (
+    OffenseTier(0, "base", 1, "First Offense"),
+    OffenseTier(1, "escalated", 1, "Repeat Offense"),
+    OffenseTier(3, "escalated", 2, "Repeat Offense x2"),
+    OffenseTier(5, "escalated", 4, "Repeat Offense x4"),
+    OffenseTier(7, "ban", 1, "Auto Ban"),
+)
 DEFAULT_NATIVE_AUTOMOD_SETTINGS = {
     "enabled": True,
     "warning_dm_enabled": True,
@@ -170,30 +179,6 @@ def get_feature_flag(config: Dict[str, Any], key: str, default: bool = False) ->
     if not isinstance(flags, dict):
         return default
     return bool(flags.get(key, default))
-
-
-def get_escalation_steps(config: Dict[str, Any]) -> List[EscalationStep]:
-    raw_steps = config.get("escalation_matrix", DEFAULT_ESCALATION_MATRIX)
-    if not isinstance(raw_steps, list):
-        raw_steps = DEFAULT_ESCALATION_MATRIX
-    steps = []
-    for payload in raw_steps:
-        if isinstance(payload, dict):
-            steps.append(EscalationStep.from_dict(payload))
-    if not steps:
-        steps = [EscalationStep.from_dict(payload) for payload in DEFAULT_ESCALATION_MATRIX]
-    steps.sort(key=lambda step: step.minimum_points)
-    return steps
-
-
-def ensure_escalation_matrix(config: Dict[str, Any]) -> bool:
-    if not isinstance(config.get("escalation_matrix"), list):
-        config["escalation_matrix"] = copy.deepcopy(DEFAULT_ESCALATION_MATRIX)
-        return True
-    if not config["escalation_matrix"]:
-        config["escalation_matrix"] = copy.deepcopy(DEFAULT_ESCALATION_MATRIX)
-        return True
-    return False
 
 
 def _normalize_native_escalation(payload: Any) -> Dict[str, Any]:
@@ -345,21 +330,42 @@ def resolve_native_automod_policy(config: Dict[str, Any], *, rule_id: Optional[i
     }
 
 
-def resolve_escalation_duration(points: float, base: int, escalated: int, config: Dict[str, Any]) -> Tuple[int, bool, str]:
-    steps = get_escalation_steps(config)
-    selected = steps[0]
-    for step in steps:
-        if points >= step.minimum_points:
-            selected = step
+def count_recent_offenses(
+    history: Sequence[Dict[str, Any]],
+    *,
+    now: Optional[datetime] = None,
+    lookback_days: int = OFFENSE_LOOKBACK_DAYS,
+) -> int:
+    reference = now or datetime.now(timezone.utc)
+    window = timedelta(days=lookback_days)
+    count = 0
+    for record in history:
+        if not isinstance(record, dict):
+            continue
+        recorded_at = iso_to_dt(record.get("timestamp"))
+        if recorded_at is None:
+            continue
+        if recorded_at.tzinfo is None:
+            recorded_at = recorded_at.replace(tzinfo=timezone.utc)
+        if reference - recorded_at <= window:
+            count += 1
+    return count
+
+
+def resolve_offense_punishment(prior_offenses: int, base: int, escalated: int) -> Tuple[int, bool, str]:
+    selected = OFFENSE_LADDER[0]
+    for tier in OFFENSE_LADDER:
+        if prior_offenses >= tier.min_prior_offenses:
+            selected = tier
 
     if base == -1:
-        return -1, False, "Standard (Ban Rule)"
+        return -1, False, "Ban Rule"
 
-    if selected.force_ban or selected.mode == "ban":
-        return -1, True, selected.label or "Auto Ban"
+    if selected.mode == "ban":
+        return -1, True, selected.label
 
     if selected.mode == "base":
-        return base, False, selected.label or "Standard"
+        return base, False, selected.label
 
     duration = escalated
     if duration != -1:
@@ -367,7 +373,22 @@ def resolve_escalation_duration(points: float, base: int, escalated: int, config
         if duration > 40320:
             duration = -1
 
-    return duration, True, selected.label or "Escalated"
+    return duration, True, selected.label
+
+
+def calculate_offense_punishment(
+    rules: Dict[str, Any],
+    history: Sequence[Dict[str, Any]],
+    *,
+    now: Optional[datetime] = None,
+) -> Tuple[int, bool, str]:
+    prior = count_recent_offenses(history, now=now)
+    base = int(rules.get("base", 0))
+    escalated = int(rules.get("escalated", 0))
+    duration, is_escalated, label = resolve_offense_punishment(prior, base, escalated)
+    if prior > 0:
+        label = f"{label} ({prior} prior in {OFFENSE_LOOKBACK_DAYS}d)"
+    return duration, is_escalated, label
 
 
 def normalize_case_record(record: Dict[str, Any]) -> bool:
@@ -463,10 +484,6 @@ def run_schema_migrations(
         changed = True
         notes.append("Default canned replies initialized.")
 
-    if ensure_escalation_matrix(config):
-        changed = True
-        notes.append("Escalation matrix initialized.")
-
     if ensure_native_automod_settings(config):
         changed = True
         notes.append("Native automod settings initialized.")
@@ -509,6 +526,7 @@ def export_case_payload(user_id: str, record: Dict[str, Any]) -> Dict[str, Any]:
 def export_config_payload(config: Dict[str, Any]) -> Dict[str, Any]:
     payload = copy.deepcopy(config)
     payload.pop("bot_token", None)
+    payload.pop("escalation_matrix", None)
     return payload
 
 
@@ -520,13 +538,15 @@ def import_config_payload(current_config: Dict[str, Any], payload: Dict[str, Any
     if "bot_token" in safe_payload:
         safe_payload.pop("bot_token")
         warnings.append("Ignored bot_token during import for safety.")
+    if "escalation_matrix" in safe_payload:
+        safe_payload.pop("escalation_matrix")
+        warnings.append("Ignored legacy escalation_matrix key.")
 
     for key, value in safe_payload.items():
         merged[key] = value
 
     ensure_feature_flags(merged)
     ensure_canned_replies(merged)
-    ensure_escalation_matrix(merged)
     ensure_native_automod_settings(merged)
     merged["schema_version"] = DEFAULT_SCHEMA_VERSION
     return merged, warnings

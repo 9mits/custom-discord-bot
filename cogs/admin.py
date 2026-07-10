@@ -13,7 +13,6 @@ from core.constants import (
     DEFAULT_ROLE_COMMUNITY_MANAGER,
     DEFAULT_ROLE_MOD,
     DEFAULT_ROLE_OWNER,
-    DEFAULT_RULES,
     SCOPE_MODERATION,
     SCOPE_SYSTEM,
 )
@@ -22,7 +21,6 @@ from .shared import (
     logger,
     DANGEROUS_PERMISSIONS,
     truncate_text,
-    format_duration,
     format_log_quote,
     format_reason_value,
     make_embed,
@@ -38,7 +36,7 @@ from .cases import (
     get_case_label,
     describe_punishment_record,
 )
-from .case_panel import AccessView, RuleEditModal, RulesDashboardView
+from .case_panel import AccessView, RulesDashboardView
 
 class ActiveSelect(discord.ui.Select):
     def __init__(self, active_list):
@@ -108,79 +106,6 @@ class ActiveSelect(discord.ui.Select):
             embed.add_field(name="Message to User", value=format_log_quote(user_msg, limit=1000), inline=False)
 
         await interaction.response.edit_message(embed=embed, view=self.view)
-
-
-
-class RuleDeleteSelect(discord.ui.Select):
-    def __init__(self):
-        rules = bot.data_manager.config.get("punishment_rules", DEFAULT_RULES)
-        options = [discord.SelectOption(label=r) for r in list(rules.keys())[:25]]
-        if not options:
-            options = [discord.SelectOption(label="No rules found", value="none")]
-        super().__init__(placeholder="Select rule to delete...", min_values=1, max_values=1, options=options)
-    
-    async def callback(self, interaction: discord.Interaction) -> None:
-        if self.values[0] == "none":
-            await interaction.response.send_message(embed=make_embed("No Rules", "> No rules to delete.", kind="info", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
-            return
-
-        name = self.values[0]
-        rules = bot.data_manager.config.get("punishment_rules", DEFAULT_RULES)
-        if name in rules:
-            del rules[name]
-            bot.data_manager.config["punishment_rules"] = rules
-            await bot.data_manager.save_config()
-
-            # Log
-            log_embed = make_embed(
-                "Punishment Rule Deleted",
-                "> A punishment escalation rule was removed from the dashboard.",
-                kind="danger",
-                scope=SCOPE_SYSTEM,
-                guild=interaction.guild,
-            )
-            log_embed.add_field(name="Actor", value=format_user_ref(interaction.user), inline=True)
-            log_embed.add_field(name="Rule", value=name, inline=True)
-            await send_log(interaction.guild, log_embed)
-
-            await interaction.response.send_message(embed=make_embed("Rule Deleted", f"> Rule **{name}** deleted.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
-        else:
-            await interaction.response.send_message(embed=make_embed("Not Found", "> Rule not found.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
-
-
-class RuleSelectForEdit(discord.ui.Select):
-    def __init__(self):
-        rules = bot.data_manager.config.get("punishment_rules", DEFAULT_RULES)
-        options = []
-        for name in list(rules.keys())[:25]:
-            data = rules[name]
-            desc = f"{format_duration(data['base'])} -> {format_duration(data['escalated'])}"
-            options.append(discord.SelectOption(label=name, value=name, description=desc))
-        
-        if not options:
-            options = [discord.SelectOption(label="No rules found", value="none")]
-            
-        super().__init__(placeholder="Select rule to edit...", min_values=1, max_values=1, options=options)
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        if self.values[0] == "none":
-            await interaction.response.send_message(embed=make_embed("No Rules", "> No rules to edit.", kind="info", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
-            return
-
-        name = self.values[0]
-        rules = bot.data_manager.config.get("punishment_rules", DEFAULT_RULES)
-        if name in rules:
-            data = rules[name]
-            modal = RuleEditModal()
-            modal.rule_name.default = name
-            # Fix: Display "Ban" instead of -1
-            modal.base_dur.default = "Ban" if data['base'] == -1 else str(data['base'])
-            modal.esc_dur.default = "Ban" if data['escalated'] == -1 else str(data['escalated'])
-
-            modal.title = f"Edit Rule: {name}"[:45]
-            await interaction.response.send_modal(modal)
-        else:
-            await interaction.response.send_message(embed=make_embed("Not Found", "> Rule not found.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 
 
@@ -745,7 +670,7 @@ async def clone(interaction: discord.Interaction):
     view = CloneConfirmView(channel, target_cat, old_name, new_name, overwrites_data, final_overwrites)
     await interaction.response.send_message(embed=make_embed("Confirm Clone & Archive", f"> **WARNING:** This will archive **{channel.name}** and create a fresh clone. Are you sure?", kind="warning", scope=SCOPE_SYSTEM, guild=interaction.guild), view=view, ephemeral=True)
 
-@tree.command(name="rules", description="Configure punishment scaling rules.")
+@tree.command(name="rules", description="Configure per-reason punishment durations.")
 @app_commands.default_permissions(administrator=True)
 @app_commands.check(check_admin)
 async def rules(interaction: discord.Interaction):

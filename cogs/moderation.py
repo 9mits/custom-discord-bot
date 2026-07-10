@@ -12,6 +12,7 @@ from core.constants import (
     SCOPE_MODERATION,
 )
 from core.services import (
+    calculate_offense_punishment,
     get_feature_flag,
 )
 from core.context import abuse_system, bot, tree
@@ -30,7 +31,6 @@ from .shared import (
     is_staff,
     resolve_member,
     get_valid_duration,
-    calculate_smart_punishment,
     handle_abuse,
 )
 from .cases import (
@@ -449,7 +449,7 @@ class PunishDetailsModal(discord.ui.Modal):
                 elif minutes == 0: punishment_type = "warn"
         else:
             # Use advanced calculation
-            minutes, is_escalated, tier_info = calculate_smart_punishment(str(self.target.id), reason, rules, bot.data_manager.punishments.get(str(self.target.id), []))
+            minutes, is_escalated, tier_info = calculate_offense_punishment(rules, bot.data_manager.punishments.get(str(self.target.id), []))
             
             # Append tier info to internal note for context
             if note: note = f"[{tier_info}] {note}"

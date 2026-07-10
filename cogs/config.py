@@ -16,7 +16,6 @@ from core.constants import (
     SCOPE_SYSTEM,
 )
 from core.services import (
-    DEFAULT_ESCALATION_MATRIX,
     export_config_payload,
     get_feature_flag,
     import_config_payload,
@@ -28,7 +27,7 @@ from .shared import (
     make_confirmation_embed,
     panel_container,
     respond_with_error,
-    build_escalation_matrix_embed,
+    build_offense_ladder_embed,
     build_setup_validation_embed,
     check_admin,
     send_modmail_panel_message,
@@ -116,55 +115,6 @@ class ConfigTypeSelect(discord.ui.Select):
         view.add_item(container)
         await interaction.response.send_message(view=view, ephemeral=True)
 
-class EscalationMatrixModal(discord.ui.Modal, title="Edit Punishment Scaling"):
-    matrix_json = discord.ui.TextInput(
-        label="Punishment Scaling JSON",
-        style=discord.TextStyle.paragraph,
-        required=True,
-        max_length=4000,
-    )
-
-    def __init__(self):
-        super().__init__()
-        self.matrix_json.default = json.dumps(bot.data_manager.config.get("escalation_matrix", DEFAULT_ESCALATION_MATRIX), indent=2)
-
-    async def on_submit(self, interaction: discord.Interaction) -> None:
-        try:
-            payload = json.loads(self.matrix_json.value)
-            if not isinstance(payload, list):
-                raise ValueError("Matrix must be a JSON array.")
-        except Exception as exc:
-            await respond_with_error(interaction, f"Invalid punishment scaling JSON: {exc}", scope=SCOPE_SYSTEM)
-            return
-
-        bot.data_manager.config["escalation_matrix"] = payload
-        await bot.data_manager.save_config()
-        await interaction.response.send_message(
-            embed=make_confirmation_embed(
-                "Punishment Scaling Saved",
-                "> The punishment scaling settings were updated successfully.",
-                scope=SCOPE_SYSTEM,
-                guild=interaction.guild,
-            ),
-            ephemeral=True,
-        )
-
-
-class EscalationMatrixView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=180)
-
-    @discord.ui.button(label="Edit JSON", style=discord.ButtonStyle.primary)
-    async def edit_matrix(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await interaction.response.send_modal(EscalationMatrixModal())
-
-    @discord.ui.button(label="Reset Defaults", style=discord.ButtonStyle.secondary)
-    async def reset_matrix(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        bot.data_manager.config["escalation_matrix"] = json.loads(json.dumps(DEFAULT_ESCALATION_MATRIX))
-        await bot.data_manager.save_config()
-        await interaction.response.edit_message(embed=build_escalation_matrix_embed(interaction.guild), view=self)
-
-
 class ConfigImportModal(discord.ui.Modal, title="Paste Settings Backup"):
     config_json = discord.ui.TextInput(
         label="Settings JSON",
@@ -201,7 +151,7 @@ class ConfigDashboardActionSelect(discord.ui.Select):
         options = [
             discord.SelectOption(label="Download Settings", value="export", description="Export a safe JSON backup of the current settings."),
             discord.SelectOption(label="Paste Settings", value="import", description="Import a settings backup from raw JSON."),
-            discord.SelectOption(label="Punishment Scaling", value="scaling", description="Edit the escalation matrix used by punishments."),
+            discord.SelectOption(label="Escalation Ladder", value="ladder", description="View the automatic repeat-offense ladder."),
         ]
         super().__init__(
             placeholder="Choose a settings action...",
@@ -230,8 +180,8 @@ class ConfigDashboardActionSelect(discord.ui.Select):
         if action == "import":
             await interaction.response.send_modal(ConfigImportModal())
             return
-        if action == "scaling":
-            await interaction.response.send_message(embed=build_escalation_matrix_embed(interaction.guild), view=EscalationMatrixView(), ephemeral=True)
+        if action == "ladder":
+            await interaction.response.send_message(embed=build_offense_ladder_embed(interaction.guild), ephemeral=True)
             return
 
 
@@ -240,7 +190,7 @@ class ConfigDashboardView(discord.ui.LayoutView):
         super().__init__(timeout=180)
         container = panel_container(
             "Bot Settings",
-            "> Manage backups, imports, and punishment scaling using the menu below.",
+            "> Manage backups, imports, and escalation settings using the menu below.",
             guild=guild,
         )
         container.add_item(discord.ui.Separator())

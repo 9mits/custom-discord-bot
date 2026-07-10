@@ -550,7 +550,6 @@ class DataManager:
             "modmail_canned_replies": DEFAULT_CANNED_REPLIES,
             "modmail_sla_minutes": 60,
             "dm_modmail_panel_cooldown_minutes": 30,
-            "escalation_matrix": [],
             "guild_id": DEFAULT_GUILD_ID,
             "general_log_channel_id": 0,
             "punishment_log_channel_id": 0,

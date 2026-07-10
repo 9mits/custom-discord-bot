@@ -139,7 +139,7 @@ async def test_simulate_punishment(
         await interaction.response.send_message("No permission.", ephemeral=True)
         return
 
-    from core.services import resolve_escalation_duration
+    from core.services import OFFENSE_LOOKBACK_DAYS, calculate_offense_punishment, count_recent_offenses
     dm = bot.data_manager
     if not dm:
         await interaction.response.send_message("DataManager not ready.", ephemeral=True)
@@ -147,15 +147,16 @@ async def test_simulate_punishment(
 
     uid = str(member.id)
     records = dm.punishments.get(uid, [])
-    active = [r for r in records if r.get("active")]
-    points = sum(r.get("points", 1) for r in active)
 
-    rules = dm.config.get("rules", {})
-    rule_data = rules.get(rule, {})
-    base = rule_data.get("base", 0)
-    escalated = rule_data.get("escalated", 0)
+    rules = dm.config.get("punishment_rules", {})
+    rule_data = rules.get(rule)
+    if not rule_data:
+        known = ", ".join(list(rules.keys())[:15]) or "none configured"
+        await interaction.response.send_message(f"Unknown rule `{rule}`. Known rules: {known}", ephemeral=True)
+        return
 
-    duration, is_escalated, step_label = resolve_escalation_duration(points, base, escalated, dm.config)
+    prior = count_recent_offenses(records)
+    duration, is_escalated, tier_label = calculate_offense_punishment(rule_data, records)
     if duration == -1:
         outcome = "Ban (permanent)"
     elif duration == 0:
@@ -166,8 +167,8 @@ async def test_simulate_punishment(
     lines = [
         f"> **Target:** {member.mention} (`{uid}`)",
         f"> **Rule:** {rule}",
-        f"> **Active points:** {points}",
-        f"> **Escalation step:** {step_label}",
+        f"> **Prior offenses ({OFFENSE_LOOKBACK_DAYS}d):** {prior}",
+        f"> **Ladder tier:** {tier_label}",
         f"> **Would issue:** {outcome}",
         "",
         "*No action was taken. This is a dry-run.*",
