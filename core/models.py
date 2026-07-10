@@ -77,34 +77,6 @@ class CaseMetadata:
 
 
 @dataclass
-class EscalationStep:
-    minimum_points: float
-    mode: str
-    multiplier: int = 1
-    force_ban: bool = False
-    label: str = ""
-
-    @classmethod
-    def from_dict(cls, payload: Dict[str, Any]) -> "EscalationStep":
-        return cls(
-            minimum_points=float(payload.get("minimum_points", 0)),
-            mode=str(payload.get("mode", "base") or "base"),
-            multiplier=max(1, int(payload.get("multiplier", 1) or 1)),
-            force_ban=bool(payload.get("force_ban", False)),
-            label=str(payload.get("label", "") or ""),
-        )
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "minimum_points": self.minimum_points,
-            "mode": self.mode,
-            "multiplier": self.multiplier,
-            "force_ban": self.force_ban,
-            "label": self.label,
-        }
-
-
-@dataclass
 class ValidationFinding:
     level: str
     section: str

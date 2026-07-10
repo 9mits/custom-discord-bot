@@ -718,7 +718,7 @@ def build_mod_help_embed(guild: discord.Guild) -> discord.Embed:
     embed.add_field(
         name="Actions",
         value="\n".join([
-            "`/punish` — Open the sanction console with smart escalation and optional public posting.",
+            "`/punish` — Open the sanction console; durations escalate automatically for repeat offenses.",
             "`/purge` — Bulk-delete messages with user or keyword filtering.",
         ]),
         inline=False,

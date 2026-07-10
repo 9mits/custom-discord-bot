@@ -8,7 +8,7 @@ import json
 import os
 import socket
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 from typing import Optional, List, Union, Tuple, Any
 from collections import Counter, defaultdict
 import re
@@ -38,14 +38,14 @@ from core.constants import (
 )
 from core.services import (
     DEFAULT_SCHEMA_VERSION,
+    OFFENSE_LADDER,
+    OFFENSE_LOOKBACK_DAYS,
     get_feature_flag,
-    get_escalation_steps,
     get_native_automod_settings,
     has_capability,
-    resolve_escalation_duration,
 )
 from core.context import bot
-from core.utils import iso_to_dt, truncate_text, format_duration
+from core.utils import truncate_text, format_duration
 
 # Setup Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
@@ -108,62 +108,6 @@ def resolve_bot_token() -> str:
 
 
 # Runtime bootstrap lives in modules.bot.
-
-def calculate_smart_punishment(user_id: str, reason: str, rules: dict, history: list) -> tuple[int, bool, str]:
-    """
-    Internal Point System Calculation:
-    - Lookback: 90 days.
-    - Points:
-        - Standard: Different=1, Same=4
-        - Light: Different=0.5, Same=2
-    
-    Light Offenses: Spamming, Begging, Political, Inappropriate Lang, Off-Topic, Argumentative
-    
-    Thresholds:
-    - 0-2 points: Tier 0 (Base)
-    - 3-7 points: Tier 1 (Escalated)
-    - 8-11 points: Tier 2 (Escalated x2)
-    - 12+ points: Tier 3 (Escalated x4 or Ban)
-    - 16+ points: Tier 4 (Auto-Ban)
-    """
-    now = discord.utils.utcnow()
-    lookback_days = 90
-    
-    light_offenses = {
-        "Spamming", "Begging", "Political", "Inappropriate Lang", 
-        "Off-Topic", "Argumentative"
-    }
-    
-    points = 0
-    has_same_offense = False
-    
-    for rec in history:
-        ts_str = rec.get("timestamp")
-        if not ts_str: continue
-        dt = iso_to_dt(ts_str)
-        if not dt: continue
-        if dt.tzinfo is None: dt = dt.replace(tzinfo=timezone.utc)
-            
-        if (now - dt).days <= lookback_days:
-            rec_reason = rec.get("reason")
-            is_light = rec_reason in light_offenses
-            
-            if rec_reason == reason:
-                points += 2 if is_light else 4
-                has_same_offense = True
-            else:
-                points += 0.5 if is_light else 1
-    
-    base = rules.get("base", 0)
-    esc = rules.get("escalated", 0)
-    config = bot.data_manager.config if getattr(bot, "data_manager", None) else {}
-    duration, escalated, label = resolve_escalation_duration(points, base, esc, config)
-
-    if not escalated:
-        return duration, False, label
-
-    context = "Recidivism" if has_same_offense else "General Toxicity"
-    return duration, True, f"{label} ({context})"
 
 # ----------------- Security & Utils -----------------
 DANGEROUS_PERMISSIONS = {
@@ -1287,20 +1231,18 @@ def build_config_dashboard_embed(guild: discord.Guild) -> discord.Embed:
     native_settings = get_native_automod_settings(config)
     embed = make_embed(
         "Bot Settings",
-        "> Manage backups, imports, punishment scaling, and automation settings.",
+        "> Manage backups, imports, and automation settings.",
         kind="info",
         scope=SCOPE_SYSTEM,
         guild=guild,
     )
     embed.add_field(name="Schema Version", value=f"v{config.get('schema_version', DEFAULT_SCHEMA_VERSION)}", inline=True)
     embed.add_field(name="Native AutoMod", value="On" if native_settings.get("enabled", True) else "Off", inline=True)
-    embed.add_field(name="Escalation Steps", value=str(len(get_escalation_steps(config))), inline=True)
     return embed
 
 
 def build_rules_dashboard_embed(guild: discord.Guild) -> discord.Embed:
     rules = bot.data_manager.config.get("punishment_rules", DEFAULT_RULES)
-    steps = get_escalation_steps(bot.data_manager.config)
     embed = make_embed(
         "Punishment Rules",
         "> Preset rule baselines used by the punishment console. Base = first offence, Escalated = repeat offence.",
@@ -1309,8 +1251,6 @@ def build_rules_dashboard_embed(guild: discord.Guild) -> discord.Embed:
         guild=guild,
     )
     embed.add_field(name="Total Rules", value=str(len(rules)), inline=True)
-    embed.add_field(name="Escalation Tiers", value=str(len(steps)), inline=True)
-    embed.add_field(name="\u200b", value="\u200b", inline=True)
     for rule_name, data in list(rules.items())[:6]:
         embed.add_field(
             name=rule_name,
@@ -1373,20 +1313,26 @@ def build_automod_dashboard_embed(guild: discord.Guild) -> discord.Embed:
     return embed
 
 
-def build_escalation_matrix_embed(guild: discord.Guild) -> discord.Embed:
+def build_offense_ladder_embed(guild: discord.Guild) -> discord.Embed:
     embed = make_embed(
-        "Punishment Scaling",
-        "> Controls how punishments scale when a user reoffends. Each tier activates at a point threshold.",
-        kind="warning",
+        "Escalation Ladder",
+        f"> Punishments escalate automatically based on how many offenses a member has in the last {OFFENSE_LOOKBACK_DAYS} days. No configuration is needed; per-reason durations come from the punishment rules.",
+        kind="info",
         scope=SCOPE_MODERATION,
         guild=guild,
     )
-    for step in get_escalation_steps(bot.data_manager.config):
-        mode_label = "Base duration" if step.mode == "base" else ("Scaled duration" if step.mode == "escalated" else "Ban")
-        ban_note = " • Auto Ban" if step.force_ban else ""
+    for tier in OFFENSE_LADDER:
+        if tier.mode == "base":
+            outcome = "Base duration"
+        elif tier.mode == "ban":
+            outcome = "Ban"
+        elif tier.multiplier > 1:
+            outcome = f"Escalated duration × {tier.multiplier}"
+        else:
+            outcome = "Escalated duration"
         embed.add_field(
-            name=step.label or f"{step.mode.title()} Tier",
-            value=f"From **{step.minimum_points}** pts\n{mode_label} × {step.multiplier}{ban_note}",
+            name=tier.label,
+            value=f"From offense #{tier.min_prior_offenses + 1}\n{outcome}",
             inline=True,
         )
     return embed
