@@ -20,7 +20,6 @@ from .shared import (
     UNDO_REASON_PRESET_MAP,
     truncate_text,
     format_duration,
-    format_log_quote,
     format_plain_log_block,
     format_reason_value,
     format_log_notes,
@@ -447,7 +446,7 @@ def get_active_records_for_user(user_id: int) -> List[dict]:
 def build_history_overview_embed(user: discord.Member, history: List[dict]) -> discord.Embed:
     embed = make_embed(
         f"History: {user.display_name}",
-        "> Browse cases below, then use the panel buttons to undo a case or wipe the full record.",
+        "> Select a case to open its control panel, or use the buttons to undo a case or wipe the full record.",
         kind="info",
         scope=SCOPE_MODERATION,
         guild=user.guild,
@@ -478,46 +477,6 @@ def build_no_history_embed(user: Union[discord.Member, discord.User], guild: dis
         guild=guild,
         thumbnail=user.display_avatar.url,
     )
-
-
-def build_history_case_detail_embed(user: discord.Member, record: dict) -> discord.Embed:
-    embed = make_embed(
-        f"{get_case_label(record)} Details",
-        "> Staff-only case record with punishment, issuer, timeline, and notes.",
-        kind="warning",
-        scope=SCOPE_MODERATION,
-        guild=user.guild,
-        thumbnail=user.display_avatar.url,
-        author_name=f"History for {user.display_name}",
-        author_icon=user.display_avatar.url,
-    )
-
-    mod_id = record.get("moderator")
-    embed.add_field(name="User", value=format_user_ref(user), inline=True)
-    embed.add_field(name="Moderator", value=f"<@{mod_id}> (`{mod_id}`)", inline=True)
-    embed.add_field(name="Status", value=format_case_status(record), inline=True)
-    embed.add_field(name="Violation", value=format_reason_value(record.get("reason", "Unknown"), limit=250), inline=False)
-    embed.add_field(name="Punishment", value=describe_punishment_record(record), inline=True)
-
-    issued_at = iso_to_dt(record.get("timestamp"))
-    expiry = get_record_expiry(record)
-    embed.add_field(name="Issued", value=discord.utils.format_dt(issued_at, "F") if issued_at else "Unknown", inline=True)
-    if record.get("duration_minutes") not in (0, None):
-        embed.add_field(
-            name="Expires",
-            value="Never" if record.get("duration_minutes") == -1 else (discord.utils.format_dt(expiry, "F") if expiry else "Unknown"),
-            inline=True,
-        )
-
-    note = truncate_text(str(record.get("note") or "").strip(), 1000)
-    if note:
-        embed.add_field(name="Internal Note", value=format_log_quote(note, limit=1000), inline=False)
-
-    user_msg = record.get("user_msg")
-    if user_msg:
-        embed.add_field(name="Message to User", value=format_log_quote(user_msg, limit=1000), inline=False)
-
-    return embed
 
 
 def build_undo_panel_embed(

@@ -19,7 +19,6 @@ from .shared import (
 from .roles import build_punish_embed
 from .cases import (
     build_history_archive_attachment,
-    build_history_case_detail_embed,
     build_history_cleared_log_embed,
     build_history_overview_embed,
     build_no_history_embed,
@@ -121,7 +120,7 @@ class HistorySelect(discord.ui.Select):
         if not options:
             options.append(discord.SelectOption(label="No cases found", value="0", description="There are no valid cases on this page."))
 
-        super().__init__(placeholder="Select a case to view details...", min_values=1, max_values=1, options=options)
+        super().__init__(placeholder="Select a case to open its control panel...", min_values=1, max_values=1, options=options)
 
     async def callback(self, interaction: discord.Interaction) -> None:
         if self.values[0] == "0":
@@ -129,10 +128,8 @@ class HistorySelect(discord.ui.Select):
             return
 
         self.panel.message = interaction.message
-        self.panel.selected_case_id = int(self.values[0])
-        self.panel.mode = "history"
-        self.panel.update_components()
-        await interaction.response.edit_message(embed=self.panel.build_embed(), view=self.panel)
+        from .case_panel import show_case_panel
+        await show_case_panel(interaction, case_id=int(self.values[0]))
 
 
 class UndoCaseSelect(discord.ui.Select):
@@ -403,9 +400,6 @@ class HistoryView(discord.ui.View):
                 reason_mode=self.get_current_undo_reason_mode(),
                 undo_reason=self.get_current_undo_reason_text(),
             )
-        selected_record = self.get_selected_record()
-        if selected_record:
-            return build_history_case_detail_embed(self.user, selected_record)
         return build_history_overview_embed(self.user, self.history)
 
     async def refresh_panel_message(self) -> None:
@@ -439,12 +433,6 @@ class HistoryView(discord.ui.View):
             self.add_item(HistoryActionButton("Undo Selected", discord.ButtonStyle.danger, "undo_selected", row=3, disabled=(self.get_selected_record() is None)))
             return
 
-        if self.selected_case_id:
-            self.add_item(HistoryActionButton("Back to Overview", discord.ButtonStyle.secondary, "history_overview", row=0))
-            self.add_item(HistoryActionButton("Undo This Case", discord.ButtonStyle.danger, "open_undo", row=0))
-            self.add_item(HistoryActionButton("Clear History", discord.ButtonStyle.danger, "clear_history", row=1))
-            return
-
         self.add_item(HistorySelect(self.get_page_items(), self))
         if self.max_pages > 1:
             self.add_item(HistoryNavButton("Previous", discord.ButtonStyle.primary, -1, row=1, disabled=(self.page == 0)))
@@ -455,13 +443,6 @@ class HistoryView(discord.ui.View):
 
     async def handle_action(self, interaction: discord.Interaction, action: str) -> None:
         self.message = interaction.message
-        if action == "history_overview":
-            self.mode = "history"
-            self.selected_case_id = None
-            self.update_components()
-            await interaction.response.edit_message(embed=self.build_embed(), view=self)
-            return
-
         if action == "back_to_history":
             self.mode = "history"
             self.ensure_page_for_selected_case()

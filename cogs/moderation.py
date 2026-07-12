@@ -39,7 +39,7 @@ from .cases import (
 )
 from .history import HistoryView
 from .case_panel import FirstConfirmClear, AllCasesView, build_case_link_view, generate_transcript_html, show_case_panel
-from .roles import AppealView, build_punish_embed
+from .roles import build_appeal_view, build_punish_embed
 
 # ----------------- Message capture / purge helpers -----------------
 
@@ -197,6 +197,22 @@ async def execute_punishment(interaction, target, moderator, reason, minutes, no
 
     timestamp_iso = now_iso()
 
+    # Create the case record first so the DM's appeal button can reference its case_id.
+    record = {
+        "reason": reason,
+        "moderator": moderator.id,
+        "duration_minutes": minutes,
+        "timestamp": timestamp_iso,
+        "escalated": is_escalated,
+        "note": note,
+        "user_msg": user_msg,
+        "target_name": get_user_display_name(target),
+        "type": punishment_type,
+        "active": is_ban
+    }
+    record = await bot.data_manager.add_punishment(uid, record, persist=False)
+    case_label = get_case_label(record, len(history) + 1)
+
     # DM User
     try:
         if is_kick:
@@ -219,37 +235,20 @@ async def execute_punishment(interaction, target, moderator, reason, minutes, no
         dm_embed.add_field(name="Reason", value=format_reason_value(reason, limit=1000), inline=False)
         if user_msg:
             dm_embed.add_field(name="Moderator Message", value=format_log_quote(user_msg, limit=1024), inline=False)
-        
+
         if punishment_type == "timeout":
             dm_embed.add_field(name="Duration", value=format_duration(minutes), inline=True)
             unmute_dt = discord.utils.utcnow() + get_valid_duration(minutes if minutes > 0 else 0)
             dm_embed.add_field(name="Expires", value=discord.utils.format_dt(unmute_dt, "R"), inline=True)
         elif is_ban and minutes == -1:
             dm_embed.add_field(name="Duration", value="Ban", inline=True)
-        
+
         if interaction.guild.icon:
             dm_embed.set_thumbnail(url=interaction.guild.icon.url)
-        
-        view = AppealView(interaction.guild.id, target.id, moderator.id, minutes, timestamp_iso, reason)
-        await target.send(embed=dm_embed, view=view)
+
+        await target.send(embed=dm_embed, view=build_appeal_view(interaction.guild.id, record["case_id"]))
     except discord.Forbidden:
         pass
-
-    # Log punishment
-    record = {
-        "reason": reason,
-        "moderator": moderator.id,
-        "duration_minutes": minutes,
-        "timestamp": timestamp_iso,
-        "escalated": is_escalated,
-        "note": note,
-        "user_msg": user_msg,
-        "target_name": get_user_display_name(target),
-        "type": punishment_type,
-        "active": is_ban
-    }
-    record = await bot.data_manager.add_punishment(uid, record, persist=False)
-    case_label = get_case_label(record, len(history) + 1)
     
     # Update Stats
     bot.data_manager.config["stats"]["total_issued"] = bot.data_manager.config["stats"].get("total_issued", 0) + 1

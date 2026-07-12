@@ -26,7 +26,6 @@ from .shared import (
     make_confirmation_embed,
     join_lines,
     format_user_ref,
-    format_user_id_ref,
     is_staff,
     fetch_image_bytes,
     get_custom_role_limit,
@@ -39,6 +38,7 @@ from .shared import (
 from .cases import (
     get_case_label,
     get_active_records_for_user,
+    get_undo_reason_details,
     calculate_member_risk,
 )
 
@@ -320,11 +320,10 @@ class ConfirmRevokeView(discord.ui.View):
 class DenyAppealModal(discord.ui.Modal, title="Deny Appeal"):
     reason = discord.ui.TextInput(label="Reason for Denial", style=discord.TextStyle.paragraph, required=True)
 
-    def __init__(self, target_id: int, origin_message: discord.Message, view: discord.ui.View):
+    def __init__(self, target_id: int, origin_message: discord.Message):
         super().__init__()
         self.target_id = target_id
         self.origin_message = origin_message
-        self.view = view
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         if not is_staff(interaction):
@@ -334,11 +333,8 @@ class DenyAppealModal(discord.ui.Modal, title="Deny Appeal"):
         embed.color = discord.Color.red()
         embed.add_field(name="Status", value=f"> Denied by {interaction.user.mention}\n> Reason: {self.reason.value}", inline=False)
         brand_embed(embed, guild=interaction.guild, scope=SCOPE_MODERATION)
-        
-        for child in self.view.children:
-            child.disabled = True
-        
-        await self.origin_message.edit(embed=embed, view=self.view)
+
+        await self.origin_message.edit(embed=embed, view=None)
         
         user = interaction.guild.get_member(self.target_id)
         if not user:
@@ -362,167 +358,146 @@ class DenyAppealModal(discord.ui.Modal, title="Deny Appeal"):
         
         await interaction.response.send_message(embed=make_embed("Appeal Denied", "> The appeal has been denied and the user has been notified.", kind="success", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
 
-class RevokeAppealView(discord.ui.View):
-    def __init__(self, target_id: int, moderator_id: int, duration: int, timestamp: str):
-        super().__init__(timeout=None)
-        self.target_id = target_id
-        self.moderator_id = moderator_id
-        self.duration = duration
-        self.timestamp = timestamp
+class AppealRevokeButton(
+    discord.ui.DynamicItem[discord.ui.Button],
+    template=r"case:appeal_revoke:(?P<case_id>[0-9]+)",
+):
+    """Restart-surviving accept button on appeal log messages. Delegates the
+    reversal to the shared undo engine instead of timestamp-matched removal."""
 
-    @discord.ui.button(label="Revoke Punishment", style=discord.ButtonStyle.danger, custom_id="revoke_punishment_btn")
-    async def start_revoke(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+    def __init__(self, case_id: int) -> None:
+        super().__init__(
+            discord.ui.Button(
+                label="Revoke Punishment",
+                style=discord.ButtonStyle.danger,
+                custom_id=f"case:appeal_revoke:{case_id}",
+            )
+        )
+        self.case_id = case_id
+
+    @classmethod
+    async def from_custom_id(cls, interaction: discord.Interaction, item: discord.ui.Button, match, /) -> "AppealRevokeButton":
+        return cls(int(match["case_id"]))
+
+    async def callback(self, interaction: discord.Interaction) -> None:
         if not is_staff(interaction):
             await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
             return
         await interaction.response.send_message(embed=make_embed("Confirm Revocation", "> Are you sure you want to revoke this punishment?", kind="warning", scope=SCOPE_MODERATION, guild=interaction.guild), view=ConfirmRevokeView(self, interaction.message), ephemeral=True)
-
-    @discord.ui.button(label="Deny Appeal", style=discord.ButtonStyle.secondary, custom_id="deny_appeal_btn")
-    async def deny_appeal(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if not is_staff(interaction):
-            await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
-            return
-        await interaction.response.send_modal(DenyAppealModal(self.target_id, interaction.message, self))
 
     async def finish_revoke(self, interaction: discord.Interaction, message: discord.Message) -> None:
         if not is_staff(interaction):
             await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
             return
         await interaction.response.edit_message(embed=make_embed("Processing", "> Processing the revocation request...", kind="muted", scope=SCOPE_MODERATION, guild=interaction.guild), view=None)
-        
+
         guild = interaction.guild
-        uid = str(self.target_id)
-        revoked_record = None
-        records = bot.data_manager.punishments.get(uid, [])
-        for record in records:
-            if record.get("timestamp") == self.timestamp:
-                revoked_record = record
-                break
-        case_label = get_case_label(revoked_record) if revoked_record else "Case"
-        
-        # 1. Remove from database
-        if uid in bot.data_manager.punishments:
-            original_len = len(bot.data_manager.punishments[uid])
-            bot.data_manager.punishments[uid] = [r for r in bot.data_manager.punishments[uid] if r.get("timestamp") != self.timestamp]
-            
-            if len(bot.data_manager.punishments[uid]) != original_len:
-                await bot.data_manager.save_punishments()
+        target_user_id, record = bot.data_manager.get_case(self.case_id)
+        if not record or not target_user_id:
+            await interaction.edit_original_response(embed=make_embed("Case Not Found", "> This case is no longer on record — it may have been undone already.", kind="error", scope=SCOPE_MODERATION, guild=guild))
+            return
+        case_label = get_case_label(record)
 
-        # 2. Reverse Stats
-        mod_id = str(self.moderator_id)
-        if "reversals" not in bot.data_manager.mod_stats: bot.data_manager.mod_stats["reversals"] = {}
-        bot.data_manager.mod_stats["reversals"][mod_id] = bot.data_manager.mod_stats["reversals"].get(mod_id, 0) + 1
-        await bot.data_manager.save_mod_stats()
-
-        # 3. Physical Revocation
-        action_taken = "Record removed"
-        try:
-            if self.duration == -1:
-                # Unban
-                user_obj = discord.Object(id=self.target_id)
-                try:
-                    await guild.unban(user_obj, reason=f"Appeal Accepted by {interaction.user}")
-                    action_taken = "Unbanned & Record removed"
-                except Exception:
-                    action_taken = "User not banned (Record removed)"
-            elif self.duration > 0:
-                # Untimeout
-                member = guild.get_member(self.target_id)
-                if member:
-                    if member.is_timed_out():
-                        await member.timeout(None, reason=f"Appeal Accepted by {interaction.user}")
-                        action_taken = "Timeout removed & Record removed"
-                    else:
-                        action_taken = "User not timed out (Record removed)"
-                else:
-                    action_taken = "User not in server (Record removed)"
-            else:
-                # Warning
-                action_taken = "Warning revoked (Points removed)"
-        except Exception as e:
-            action_taken = f"Revocation error: {e}"
-
-        # 4. Update Embed
-        embed = message.embeds[0]
-        embed.color = discord.Color.green()
-        embed.title = f"{case_label} Appeal Resolved"
-        embed.add_field(name="Status", value=f"> Revoked by {interaction.user.mention}\n> {action_taken}", inline=False)
-        brand_embed(embed, guild=guild, scope=SCOPE_MODERATION)
-        
-        self.children[0].label = "Punishment Revoked"
-        for child in self.children:
-            child.disabled = True
-        await message.edit(embed=embed, view=self)
-
-        # 5. DM User
-        user = interaction.guild.get_member(self.target_id)
+        user = guild.get_member(int(target_user_id))
         if not user:
             try:
-                user = await interaction.client.fetch_user(self.target_id)
+                user = await bot.fetch_user(int(target_user_id))
             except Exception:
                 user = None
-            
-        if user:
-            try:
-                dm_embed = make_embed(
-                    "Punishment Revoked",
-                    f"> {case_label} in **{interaction.guild.name}** has been revoked.",
-                    kind="success",
-                    scope=SCOPE_MODERATION,
-                    guild=interaction.guild,
-                    thumbnail=interaction.guild.icon.url if interaction.guild.icon else None,
-                )
-                dm_embed.add_field(name="Outcome", value=truncate_text(action_taken, 1024), inline=False)
-                await user.send(embed=dm_embed)
-            except Exception:
-                pass
-            
-        await interaction.followup.send(embed=make_embed("Punishment Revoked", "> The punishment has been revoked successfully.", kind="success", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
-        
-        # 6. Log to General Logs (if different from current channel)
-        target_str = format_user_ref(user) if user else format_user_id_ref(self.target_id, fallback_name=(revoked_record or {}).get("target_name"))
-        log_embed = make_action_log_embed(
-            f"{case_label} Revoked",
-            "A punishment appeal was accepted and the system attempted to reverse the action.",
-            guild=guild,
-            kind="success",
-            scope=SCOPE_MODERATION,
-            actor=format_user_ref(interaction.user),
-            target=target_str,
-            reason="Appeal accepted",
-            duration="Revoked",
-            expires="N/A",
-            notes=[f"Result: {truncate_text(action_taken, 500)}"],
-            thumbnail=user.display_avatar.url if user else None,
+        if user is None:
+            await interaction.edit_original_response(embed=make_embed("User Not Found", "> The punished user could not be resolved.", kind="error", scope=SCOPE_MODERATION, guild=guild))
+            return
+
+        undo_reason = get_undo_reason_details("appeal_accepted", None)[1]
+        from .history import execute_undo_and_log
+        success, removed_record, action_taken = await execute_undo_and_log(interaction, user, self.case_id, undo_reason)
+        if not success or not removed_record:
+            await interaction.edit_original_response(embed=make_embed("Revocation Failed", f"> {action_taken}", kind="error", scope=SCOPE_MODERATION, guild=guild))
+            return
+
+        # Mark the appeal message resolved and drop its buttons.
+        try:
+            embed = message.embeds[0]
+            embed.color = discord.Color.green()
+            embed.title = f"{case_label} Appeal Resolved"
+            embed.add_field(name="Status", value=f"> Revoked by {interaction.user.mention}\n> {action_taken}", inline=False)
+            brand_embed(embed, guild=guild, scope=SCOPE_MODERATION)
+            await message.edit(embed=embed, view=None)
+        except Exception:
+            pass
+
+        try:
+            dm_embed = make_embed(
+                "Punishment Revoked",
+                f"> {case_label} in **{guild.name}** has been revoked.",
+                kind="success",
+                scope=SCOPE_MODERATION,
+                guild=guild,
+                thumbnail=guild.icon.url if guild.icon else None,
+            )
+            dm_embed.add_field(name="Outcome", value=truncate_text(action_taken, 1024), inline=False)
+            await user.send(embed=dm_embed)
+        except Exception:
+            pass
+
+        await interaction.edit_original_response(embed=make_embed("Punishment Revoked", "> The punishment has been revoked successfully.", kind="success", scope=SCOPE_MODERATION, guild=guild))
+
+
+class AppealDenyButton(
+    discord.ui.DynamicItem[discord.ui.Button],
+    template=r"case:appeal_deny:(?P<case_id>[0-9]+)",
+):
+    def __init__(self, case_id: int) -> None:
+        super().__init__(
+            discord.ui.Button(
+                label="Deny Appeal",
+                style=discord.ButtonStyle.secondary,
+                custom_id=f"case:appeal_deny:{case_id}",
+            )
         )
-        await send_punishment_log(guild, log_embed)
+        self.case_id = case_id
+
+    @classmethod
+    async def from_custom_id(cls, interaction: discord.Interaction, item: discord.ui.Button, match, /) -> "AppealDenyButton":
+        return cls(int(match["case_id"]))
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if not is_staff(interaction):
+            await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
+            return
+        target_user_id, _ = bot.data_manager.get_case(self.case_id)
+        target_id = int(target_user_id) if target_user_id else 0
+        await interaction.response.send_modal(DenyAppealModal(target_id, interaction.message))
+
+
+def build_appeal_decision_view(case_id: int) -> discord.ui.View:
+    from .case_panel import OpenCaseButton
+    view = discord.ui.View(timeout=None)
+    view.add_item(AppealRevokeButton(case_id))
+    view.add_item(AppealDenyButton(case_id))
+    view.add_item(OpenCaseButton(case_id))
+    return view
+
 
 class AppealModal(discord.ui.Modal, title="Appeal Punishment"):
     reason = discord.ui.TextInput(label="Why should this be revoked?", style=discord.TextStyle.paragraph, max_length=500)
-    
-    def __init__(self, guild_id: int, target_id: int, moderator_id: int, duration: int, timestamp: str, original_reason: str):
+
+    def __init__(self, guild_id: int, case_id: int):
         super().__init__()
         self.guild_id = guild_id
-        self.target_id = target_id
-        self.moderator_id = moderator_id
-        self.duration = duration
-        self.timestamp = timestamp
-        self.original_reason = original_reason
+        self.case_id = case_id
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         guild = bot.get_guild(self.guild_id)
         if not guild:
-            await interaction.response.send_message(embed=make_embed("Server Not Found", "> The server could not be found.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
+            await interaction.response.send_message(embed=make_embed("Server Not Found", "> The server could not be found.", kind="error", scope=SCOPE_MODERATION), ephemeral=True)
             return
 
-        record = next(
-            (
-                item for item in bot.data_manager.punishments.get(str(self.target_id), [])
-                if item.get("timestamp") == self.timestamp
-            ),
-            None,
-        )
-        case_label = get_case_label(record) if record else "Case"
+        target_user_id, record = bot.data_manager.get_case(self.case_id)
+        if not record:
+            await interaction.response.send_message(embed=make_embed("Nothing to Appeal", "> This punishment is no longer on record.", kind="muted", scope=SCOPE_MODERATION), ephemeral=True)
+            return
+        case_label = get_case_label(record)
 
         embed = make_action_log_embed(
             f"{case_label} Appeal",
@@ -532,16 +507,16 @@ class AppealModal(discord.ui.Modal, title="Appeal Punishment"):
             scope=SCOPE_MODERATION,
             actor=format_user_ref(interaction.user),
             target=case_label,
-            reason=self.original_reason,
+            reason=record.get("reason", "Unknown"),
             message=self.reason.value,
-            notes=[f"Moderator ID: {self.moderator_id}", f"Original Timestamp: {self.timestamp}"],
+            notes=[f"Case ID: {self.case_id}"],
             thumbnail=interaction.user.display_avatar.url,
             author_name=f"{interaction.user.display_name} ({interaction.user.id})",
             author_icon=interaction.user.display_avatar.url,
         )
-        
-        view = RevokeAppealView(self.target_id, self.moderator_id, self.duration, self.timestamp)
-        
+
+        view = build_appeal_decision_view(self.case_id)
+
         # Check for specific appeal channel
         appeal_cid = bot.data_manager.config.get("appeal_channel_id")
         sent = False
@@ -553,26 +528,51 @@ class AppealModal(discord.ui.Modal, title="Appeal Punishment"):
                     sent = True
                 except Exception:
                     pass
-        
+
         # Fallback to General Logs only if Appeal Log failed or isn't set
         if not sent:
             await send_punishment_log(guild, embed, view=view)
-            
+
         await interaction.response.send_message(embed=make_embed("Appeal Submitted", "> Your appeal has been sent to the staff team.", kind="success", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
 
-class AppealView(discord.ui.View):
-    def __init__(self, guild_id: int, target_id: int, moderator_id: int, duration: int, timestamp: str, reason: str):
-        super().__init__(timeout=None)
-        self.guild_id = guild_id
-        self.target_id = target_id
-        self.moderator_id = moderator_id
-        self.duration = duration
-        self.timestamp = timestamp
-        self.reason = reason
+class AppealButton(
+    discord.ui.DynamicItem[discord.ui.Button],
+    template=r"case:appeal:(?P<guild_id>[0-9]+):(?P<case_id>[0-9]+)",
+):
+    """Restart-surviving appeal button attached to punishment DMs. Resolves the
+    case at click time instead of carrying a payload."""
 
-    @discord.ui.button(label="Appeal Punishment", style=discord.ButtonStyle.secondary)
-    async def appeal(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await interaction.response.send_modal(AppealModal(self.guild_id, self.target_id, self.moderator_id, self.duration, self.timestamp, self.reason))
+    def __init__(self, guild_id: int, case_id: int) -> None:
+        super().__init__(
+            discord.ui.Button(
+                label="Appeal Punishment",
+                style=discord.ButtonStyle.secondary,
+                custom_id=f"case:appeal:{guild_id}:{case_id}",
+            )
+        )
+        self.guild_id = guild_id
+        self.case_id = case_id
+
+    @classmethod
+    async def from_custom_id(cls, interaction: discord.Interaction, item: discord.ui.Button, match, /) -> "AppealButton":
+        return cls(int(match["guild_id"]), int(match["case_id"]))
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        guild = bot.get_guild(self.guild_id)
+        if not guild:
+            await interaction.response.send_message(embed=make_embed("Server Not Found", "> The server could not be found.", kind="error", scope=SCOPE_MODERATION), ephemeral=True)
+            return
+        target_user_id, record = bot.data_manager.get_case(self.case_id)
+        if not record or target_user_id != str(interaction.user.id):
+            await interaction.response.send_message(embed=make_embed("Nothing to Appeal", "> This punishment is no longer on record.", kind="muted", scope=SCOPE_MODERATION), ephemeral=True)
+            return
+        await interaction.response.send_modal(AppealModal(self.guild_id, self.case_id))
+
+
+def build_appeal_view(guild_id: int, case_id: int) -> discord.ui.View:
+    view = discord.ui.View(timeout=None)
+    view.add_item(AppealButton(guild_id, case_id))
+    return view
 
 class GradientModal(discord.ui.Modal, title="Set Gradient Style"):
     secondary = discord.ui.TextInput(label="Secondary Color (Hex)", placeholder="#RRGGBB", min_length=7, max_length=7)

@@ -131,8 +131,9 @@ class MGXBot(commands.Bot):
     async def _restore_persistent_views(self) -> None:
         from cogs.case_panel import OpenCaseButton
         from cogs.modmail import ModmailControlView, ModmailPanelView
+        from cogs.roles import AppealButton, AppealDenyButton, AppealRevokeButton
 
-        self.add_dynamic_items(OpenCaseButton)
+        self.add_dynamic_items(OpenCaseButton, AppealButton, AppealRevokeButton, AppealDenyButton)
         self.add_view(ModmailPanelView())
         if not self.data_manager:
             return
