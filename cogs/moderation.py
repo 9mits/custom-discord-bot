@@ -5,7 +5,7 @@ from discord import app_commands
 from discord.ext import commands
 import asyncio
 from datetime import timedelta
-from typing import Optional, List, Union
+from typing import Optional, Union
 
 from core.constants import (
     DEFAULT_RULES,
@@ -13,7 +13,6 @@ from core.constants import (
 )
 from core.services import (
     calculate_offense_punishment,
-    get_feature_flag,
 )
 from core.context import abuse_system, bot, tree
 from core.utils import now_iso, parse_duration_str
@@ -23,7 +22,6 @@ from .shared import (
     format_reason_value,
     make_embed,
     make_empty_state_embed,
-    make_error_embed,
     get_user_display_name,
     format_user_ref,
     send_punishment_log,
@@ -40,7 +38,7 @@ from .cases import (
     build_mod_help_embed,
 )
 from .history import HistoryView
-from .case_panel import CasePanelView, FirstConfirmClear, AllCasesView, generate_transcript_html
+from .case_panel import FirstConfirmClear, AllCasesView, build_case_link_view, generate_transcript_html, show_case_panel
 from .roles import AppealView, build_punish_embed
 
 # ----------------- Message capture / purge helpers -----------------
@@ -353,11 +351,11 @@ async def execute_punishment(interaction, target, moderator, reason, minutes, no
     
     if interaction.message:
         try:
-            await interaction.message.edit(content=None, embed=response_embed, view=None)
+            await interaction.message.edit(content=None, embed=response_embed, view=build_case_link_view(record["case_id"]))
         except Exception:
-            await interaction.followup.send(embed=response_embed, ephemeral=True)
+            await interaction.followup.send(embed=response_embed, view=build_case_link_view(record["case_id"]), ephemeral=True)
     else:
-        await interaction.followup.send(embed=response_embed, ephemeral=True)
+        await interaction.followup.send(embed=response_embed, view=build_case_link_view(record["case_id"]), ephemeral=True)
 
     try:
         await interaction.delete_original_response()
@@ -382,8 +380,8 @@ async def execute_punishment(interaction, target, moderator, reason, minutes, no
         except Exception:
             pass
 
-    await send_punishment_log(interaction.guild, log_embed)
-    
+    await send_punishment_log(interaction.guild, log_embed, view=build_case_link_view(record["case_id"]))
+
     if origin_message:
         try:
             await origin_message.edit(embed=build_punish_embed(target))
@@ -884,70 +882,6 @@ async def show_history_menu(
     message = await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
     view.message = message
 
-
-async def show_case_panel(
-    interaction: discord.Interaction,
-    *,
-    case_id: Optional[int] = None,
-    user: Optional[discord.Member] = None,
-):
-    if not get_feature_flag(bot.data_manager.config, "advanced_case_panel", True):
-        await respond_with_error(interaction, "The case panel is currently turned off in the feature settings.", scope=SCOPE_MODERATION)
-        return
-
-    await interaction.response.defer(ephemeral=True)
-
-    target_user_id: Optional[str] = None
-    target_user: Optional[Union[discord.Member, discord.User]] = user
-    case_ids: List[int] = []
-
-    if case_id:
-        target_user_id, record = bot.data_manager.get_case(case_id)
-        if not record or not target_user_id:
-            await interaction.followup.send(
-                embed=make_empty_state_embed(
-                    "Case Not Found",
-                    f"> No case with ID `{case_id}` was found.",
-                    scope=SCOPE_MODERATION,
-                    guild=interaction.guild,
-                ),
-                ephemeral=True,
-            )
-            return
-        case_ids = [case_id]
-        if not target_user:
-            target_user = interaction.guild.get_member(int(target_user_id))
-
-    elif user:
-        target_user_id = str(user.id)
-        case_ids = [record.get("case_id") for record in bot.data_manager.get_user_cases(user.id) if record.get("case_id")]
-        if not case_ids:
-            await interaction.followup.send(
-                embed=make_empty_state_embed(
-                    "No Cases Found",
-                    f"> **{user.display_name}** has no recorded cases to manage.",
-                    scope=SCOPE_MODERATION,
-                    guild=interaction.guild,
-                    thumbnail=user.display_avatar.url,
-                ),
-                ephemeral=True,
-            )
-            return
-    else:
-        await interaction.followup.send(
-            embed=make_error_embed(
-                "Case Panel Requires Context",
-                "> Choose a `case_id` or a `user` so the bot knows which case to open.",
-                scope=SCOPE_MODERATION,
-                guild=interaction.guild,
-            ),
-            ephemeral=True,
-        )
-        return
-
-    view = CasePanelView(target_user_id, case_ids, target_user=target_user)
-    message = await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
-    view.message = message
 
 def _staff_check(interaction: discord.Interaction) -> bool:
     return is_staff(interaction)

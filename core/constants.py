@@ -86,7 +86,6 @@ EMBED_PALETTE = {
 }
 
 FEATURE_FLAG_LABELS = {
-    "advanced_case_panel":   "Case Panel",
     "advanced_modmail":      "Advanced Modmail",
     "setup_validation":      "Setup Check",
     "config_panel":          "Bot Settings Panel",

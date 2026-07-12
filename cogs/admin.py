@@ -13,16 +13,12 @@ from core.constants import (
     DEFAULT_ROLE_COMMUNITY_MANAGER,
     DEFAULT_ROLE_MOD,
     DEFAULT_ROLE_OWNER,
-    SCOPE_MODERATION,
     SCOPE_SYSTEM,
 )
 from core.context import bot, tree
 from .shared import (
     logger,
     DANGEROUS_PERMISSIONS,
-    truncate_text,
-    format_log_quote,
-    format_reason_value,
     make_embed,
     brand_embed,
     panel_container,
@@ -32,82 +28,7 @@ from .shared import (
     is_staff,
     build_status_embed,
 )
-from .cases import (
-    get_case_label,
-    describe_punishment_record,
-)
 from .case_panel import AccessView, RulesDashboardView
-
-class ActiveSelect(discord.ui.Select):
-    def __init__(self, active_list):
-        self.active_list = active_list
-        options = []
-        for idx, (uid, rec, expiry, case_num, name) in enumerate(active_list[:25]):
-            reason = rec.get("reason", "Unknown")
-            label = f"{name} ({get_case_label(rec, case_num)})"
-            if len(label) > 100: label = label[:100]
-            
-            dur = rec.get("duration_minutes", 0)
-            p_type = rec.get("type", "timeout")
-            
-            if dur == -1:
-                desc = f"Banned • {reason}"
-            elif dur > 0:
-                remaining = expiry - discord.utils.utcnow()
-                if remaining.days > 0:
-                    rem_str = f"{remaining.days}d"
-                else:
-                    hours = remaining.seconds // 3600
-                    if hours > 0:
-                        rem_str = f"{hours}h"
-                    else:
-                        rem_str = f"{remaining.seconds // 60}m"
-                desc = f"{'Tempban' if p_type=='ban' else 'Timeout'} • Expires in {rem_str}"
-            
-            if len(desc) > 100: desc = desc[:97] + "..."
-            options.append(discord.SelectOption(label=label, description=desc, value=str(idx)))
-            
-        super().__init__(placeholder="Select active punishment to view details...", min_values=1, max_values=1, options=options)
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        idx = int(self.values[0])
-        uid, rec, expiry, case_num, name = self.active_list[idx]
-
-        embed = make_embed(
-            f"{get_case_label(rec, case_num)} Active Details",
-            "> Current punishment state, timing, and staff notes.",
-            kind="danger",
-            scope=SCOPE_MODERATION,
-            guild=interaction.guild,
-        )
-
-        embed.add_field(name="User", value=f"<@{uid}> (`{uid}`)", inline=True)
-
-        mod_id = rec.get("moderator")
-        embed.add_field(name="Moderator", value=f"<@{mod_id}> (`{mod_id}`)", inline=True)
-        embed.add_field(name="Action", value=describe_punishment_record(rec), inline=True)
-        embed.add_field(name="Violation", value=format_reason_value(rec.get("reason", "Unknown"), limit=250), inline=False)
-
-        dur = rec.get("duration_minutes")
-        if dur == -1:
-            exp_str = "Never"
-        else:
-            exp_str = discord.utils.format_dt(expiry, "F")
-        embed.add_field(name="Expires", value=exp_str, inline=True)
-        if rec.get("escalated", False):
-            embed.add_field(name="Escalated", value="Yes", inline=True)
-
-        note = truncate_text(str(rec.get("note") or "").strip(), 1000)
-        if note:
-            embed.add_field(name="Internal Note", value=format_log_quote(note, limit=1000), inline=False)
-
-        user_msg = rec.get("user_msg")
-        if user_msg:
-            embed.add_field(name="Message to User", value=format_log_quote(user_msg, limit=1000), inline=False)
-
-        await interaction.response.edit_message(embed=embed, view=self.view)
-
-
 
 class ArchiveConfirmView(discord.ui.View):
     def __init__(self, channel, target_cat, old_name, new_name, overwrites_save_data, final_overwrites):

@@ -1,7 +1,7 @@
 """History and case-panel UI views — split from cases.py."""
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Awaitable, Callable, List, Optional, Tuple, Union
 
 import discord
 
@@ -10,7 +10,6 @@ from core.context import bot
 from core.utils import iso_to_dt
 from .shared import (
     UNDO_REASON_PRESETS,
-    format_reason_value,
     make_confirmation_embed,
     make_embed,
     respond_with_error,
@@ -25,15 +24,50 @@ from .cases import (
     build_history_overview_embed,
     build_no_history_embed,
     build_punishment_undo_log_embed,
+    build_undo_confirm_embed,
     build_undo_panel_embed,
     clear_user_history_records,
     describe_punishment_record,
-    format_case_summary_block,
     get_case_label,
     get_case_id,
     get_undo_reason_details,
     undo_case_record,
 )
+
+
+async def execute_undo_and_log(
+    interaction: discord.Interaction,
+    target: Union[discord.Member, discord.User],
+    case_id: int,
+    undo_reason: str,
+) -> Tuple[bool, Optional[dict], str]:
+    """Undo a case and post the undo log. The single undo->log path shared by
+    /undo, the history panel, and the case panel."""
+    success, removed_record, action_result = await undo_case_record(
+        interaction.guild,
+        interaction.user,
+        target,
+        case_id,
+        undo_reason,
+    )
+    if not success or not removed_record:
+        return success, removed_record, action_result
+
+    attachment = build_history_archive_attachment(
+        "undo_case",
+        target_user_id=str(target.id),
+        actor_id=interaction.user.id,
+        payload={
+            "action": "undo_case",
+            "undo_reason": undo_reason,
+            "record": removed_record,
+        },
+    )
+    log_embed = build_punishment_undo_log_embed(interaction.guild, interaction.user, target, removed_record, undo_reason, action_result)
+    from .moderation import RevokeUndoView
+    view = RevokeUndoView(target.id, removed_record, interaction.user.id)
+    await send_punishment_log(interaction.guild, log_embed, view=view, attachments=[attachment])
+    return success, removed_record, action_result
 
 class FinalConfirmClear(discord.ui.View):
     def __init__(self, target, moderator, origin_message=None):
@@ -139,25 +173,26 @@ class UndoCaseSelect(discord.ui.Select):
 
 
 class UndoReasonSelect(discord.ui.Select):
-    def __init__(self, panel: "HistoryView"):
-        self.panel = panel
+    """Reason preset picker. The host must expose undo_reason_value,
+    custom_undo_reason, and an async on_reason_change(interaction) hook."""
+
+    def __init__(self, host, *, row: int = 1):
+        self.host = host
         options = [
             discord.SelectOption(
                 label=preset["label"],
                 value=preset["value"],
                 description=truncate_text(preset["description"], 100),
-                default=(not panel.custom_undo_reason and preset["value"] == panel.undo_reason_value),
+                default=(not host.custom_undo_reason and preset["value"] == host.undo_reason_value),
             )
             for preset in UNDO_REASON_PRESETS
         ]
-        super().__init__(placeholder="Select an undo reason preset...", min_values=1, max_values=1, options=options, row=1)
+        super().__init__(placeholder="Select an undo reason preset...", min_values=1, max_values=1, options=options, row=row)
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        self.panel.message = interaction.message
-        self.panel.undo_reason_value = self.values[0]
-        self.panel.custom_undo_reason = None
-        self.panel.update_components()
-        await interaction.response.edit_message(embed=self.panel.build_embed(), view=self.panel)
+        self.host.undo_reason_value = self.values[0]
+        self.host.custom_undo_reason = None
+        await self.host.on_reason_change(interaction)
 
 
 class HistoryActionButton(discord.ui.Button):
@@ -187,6 +222,9 @@ class HistoryNavButton(discord.ui.Button):
 
 
 class UndoReasonModal(discord.ui.Modal, title="Custom Undo Reason"):
+    """Custom reason input. The host must expose custom_undo_reason and an
+    async on_custom_reason_set(interaction) hook."""
+
     reason = discord.ui.TextInput(
         label="Undo Reason",
         style=discord.TextStyle.paragraph,
@@ -194,11 +232,11 @@ class UndoReasonModal(discord.ui.Modal, title="Custom Undo Reason"):
         max_length=500,
     )
 
-    def __init__(self, panel: "HistoryView"):
+    def __init__(self, host):
         super().__init__()
-        self.panel = panel
-        if panel.custom_undo_reason:
-            self.reason.default = panel.custom_undo_reason
+        self.host = host
+        if host.custom_undo_reason:
+            self.reason.default = host.custom_undo_reason
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         custom_reason = self.reason.value.strip()
@@ -206,60 +244,35 @@ class UndoReasonModal(discord.ui.Modal, title="Custom Undo Reason"):
             await respond_with_error(interaction, "The undo reason cannot be empty.", scope=SCOPE_MODERATION)
             return
 
-        self.panel.custom_undo_reason = custom_reason
-        await self.panel.refresh_panel_message()
-        await interaction.response.send_message(
-            embed=make_confirmation_embed(
-                "Undo Reason Saved",
-                "> The custom undo reason was saved to the panel.",
-                scope=SCOPE_MODERATION,
-                guild=interaction.guild,
-            ),
-            ephemeral=True,
-        )
+        self.host.custom_undo_reason = custom_reason
+        await self.host.on_custom_reason_set(interaction)
 
 
 class UndoConfirmView(discord.ui.View):
-    def __init__(self, panel: "HistoryView"):
+    def __init__(
+        self,
+        target: Union[discord.Member, discord.User],
+        case_id: int,
+        undo_reason: str,
+        *,
+        on_undone: Optional[Callable[[], Awaitable[None]]] = None,
+    ):
         super().__init__(timeout=120)
-        self.panel = panel
+        self.target = target
+        self.case_id = case_id
+        self.undo_reason = undo_reason
+        self.on_undone = on_undone
 
     @discord.ui.button(label="Confirm Undo", style=discord.ButtonStyle.danger)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        record = self.panel.get_selected_record()
-        undo_reason = self.panel.get_current_undo_reason_text()
-        if not record or not undo_reason:
-            await interaction.response.edit_message(content="The selected case is no longer available.", embed=None, view=None)
-            return
-
         await interaction.response.edit_message(content="Processing undo...", embed=None, view=None)
-        success, removed_record, action_result = await undo_case_record(
-            interaction.guild,
-            interaction.user,
-            self.panel.user,
-            get_case_id(record) or 0,
-            undo_reason,
-        )
+        success, removed_record, action_result = await execute_undo_and_log(interaction, self.target, self.case_id, self.undo_reason)
         if not success or not removed_record:
             await interaction.edit_original_response(content=action_result, embed=None, view=None)
             return
 
-        attachment = build_history_archive_attachment(
-            "undo_case",
-            target_user_id=str(self.panel.user.id),
-            actor_id=interaction.user.id,
-            payload={
-                "action": "undo_case",
-                "undo_reason": undo_reason,
-                "record": removed_record,
-            },
-        )
-        log_embed = build_punishment_undo_log_embed(interaction.guild, interaction.user, self.panel.user, removed_record, undo_reason, action_result)
-        from .moderation import RevokeUndoView
-        view = RevokeUndoView(self.panel.user.id, removed_record, interaction.user.id)
-        await send_punishment_log(interaction.guild, log_embed, view=view, attachments=[attachment])
-
-        await self.panel.refresh_panel_message()
+        if self.on_undone:
+            await self.on_undone()
         await interaction.edit_original_response(
             content=f"**{get_case_label(removed_record)}** was undone.\n{action_result}",
             embed=None,
@@ -362,6 +375,23 @@ class HistoryView(discord.ui.View):
     def get_current_undo_reason_text(self) -> str:
         return get_undo_reason_details(self.undo_reason_value, self.custom_undo_reason)[1]
 
+    async def on_reason_change(self, interaction: discord.Interaction) -> None:
+        self.message = interaction.message
+        self.update_components()
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+
+    async def on_custom_reason_set(self, interaction: discord.Interaction) -> None:
+        await self.refresh_panel_message()
+        await interaction.response.send_message(
+            embed=make_confirmation_embed(
+                "Undo Reason Saved",
+                "> The custom undo reason was saved to the panel.",
+                scope=SCOPE_MODERATION,
+                guild=interaction.guild,
+            ),
+            ephemeral=True,
+        )
+
     def build_embed(self) -> discord.Embed:
         if not self.sorted_history:
             return build_no_history_embed(self.user, self.user.guild)
@@ -462,17 +492,14 @@ class HistoryView(discord.ui.View):
                 await respond_with_error(interaction, "Select a case to undo first.", scope=SCOPE_MODERATION)
                 return
 
-            confirm_embed = make_embed(
-                f"Undo {get_case_label(record)}",
-                "> Confirm this reversal. The case will be removed from history and the bot will try to reverse any active punishment.",
-                kind="danger",
-                scope=SCOPE_MODERATION,
-                guild=interaction.guild,
-                thumbnail=self.user.display_avatar.url,
+            confirm_embed = build_undo_confirm_embed(self.user, record, self.get_current_undo_reason_text(), guild=interaction.guild)
+            confirm_view = UndoConfirmView(
+                self.user,
+                get_case_id(record) or 0,
+                self.get_current_undo_reason_text(),
+                on_undone=self.refresh_panel_message,
             )
-            confirm_embed.add_field(name="Undo Reason", value=format_reason_value(self.get_current_undo_reason_text(), limit=500), inline=False)
-            confirm_embed.add_field(name="Case Details", value=format_case_summary_block(record, include_original_reason=True), inline=False)
-            await interaction.response.send_message(embed=confirm_embed, view=UndoConfirmView(self), ephemeral=True)
+            await interaction.response.send_message(embed=confirm_embed, view=confirm_view, ephemeral=True)
             return
 
         if action == "clear_history":

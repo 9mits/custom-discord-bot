@@ -26,25 +26,31 @@ from core.services import (
 from core.utils import now_iso, parse_duration_str
 from .shared import (
     format_duration,
+    is_staff,
     panel_container,
     format_user_ref,
     make_action_log_embed,
     make_confirmation_embed,
     make_embed,
     make_empty_state_embed,
+    make_error_embed,
+    resolve_member,
     respond_with_error,
     send_log,
     send_punishment_log,
     truncate_text,
+    UNDO_REASON_PRESETS,
 )
 from .cases import (
     build_all_cases_embed,
     build_case_detail_embed,
+    build_undo_confirm_embed,
     describe_punishment_record,
     format_case_status,
     get_case_label,
+    get_undo_reason_details,
 )
-from .history import FinalConfirmClear
+from .history import FinalConfirmClear, UndoReasonModal, UndoReasonSelect, execute_undo_and_log
 
 async def log_case_management_action(
     guild: discord.Guild,
@@ -255,7 +261,7 @@ class CaseSwitchSelect(discord.ui.Select):
             )
         if not options:
             options.append(discord.SelectOption(label="No cases found", value="0"))
-        super().__init__(placeholder="Open another case...", min_values=1, max_values=1, options=options, row=2)
+        super().__init__(placeholder="Open another case...", min_values=1, max_values=1, options=options, row=3)
 
     async def callback(self, interaction: discord.Interaction) -> None:
         if self.values[0] == "0":
@@ -274,9 +280,58 @@ class CasePanelView(discord.ui.View):
         self.case_id = case_ids[0]
         self.target_user = target_user
         self.message: Optional[discord.Message] = None
+        self.switch_select: Optional[CaseSwitchSelect] = None
         if len(self.case_ids) > 1:
-            self.add_item(CaseSwitchSelect(self))
+            self.switch_select = CaseSwitchSelect(self)
+            self.add_item(self.switch_select)
         self.sync_buttons()
+
+    async def resolve_target(self, guild: Optional[discord.Guild]) -> Optional[Union[discord.Member, discord.User]]:
+        """Resolve the case target, falling back to a global user lookup so
+        panel actions still work for members who left the server."""
+        if isinstance(self.target_user, discord.Member):
+            return self.target_user
+        if guild:
+            member = await resolve_member(guild, int(self.target_user_id))
+            if member:
+                self.target_user = member
+                return member
+        if self.target_user:
+            return self.target_user
+        try:
+            user = await bot.fetch_user(int(self.target_user_id))
+        except discord.HTTPException:
+            return None
+        self.target_user = user
+        return user
+
+    async def handle_case_removed(self) -> None:
+        """Called after this panel's current case was undone."""
+        if self.case_id in self.case_ids:
+            self.case_ids.remove(self.case_id)
+        if self.switch_select:
+            self.remove_item(self.switch_select)
+            self.switch_select = None
+        if not self.case_ids:
+            self.stop()
+            if self.message:
+                await self.message.edit(
+                    embed=make_empty_state_embed(
+                        "No Cases Remaining",
+                        "> Every case for this member has been resolved or removed.",
+                        scope=SCOPE_MODERATION,
+                        guild=self.message.guild,
+                    ),
+                    view=None,
+                )
+            return
+        self.case_id = self.case_ids[0]
+        if len(self.case_ids) > 1:
+            self.switch_select = CaseSwitchSelect(self)
+            self.add_item(self.switch_select)
+        self.sync_buttons()
+        if self.message:
+            await self.message.edit(embed=self.build_embed(), view=self)
 
     def current_record(self) -> Optional[dict]:
         _, record = bot.data_manager.get_case(self.case_id)
@@ -374,6 +429,187 @@ class CasePanelView(discord.ui.View):
             ephemeral=True,
         )
 
+    @discord.ui.button(label="Punish Target", style=discord.ButtonStyle.danger, row=2)
+    async def punish_target(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        target = await self.resolve_target(interaction.guild)
+        if target is None:
+            await respond_with_error(interaction, "The case target could not be resolved.", scope=SCOPE_MODERATION)
+            return
+        from .moderation import show_punish_menu
+        await show_punish_menu(interaction, target)
+
+    @discord.ui.button(label="Undo This Case", style=discord.ButtonStyle.danger, row=2)
+    async def undo_case(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        self.message = interaction.message
+        record = self.current_record()
+        if not record:
+            await respond_with_error(interaction, "The selected case could not be loaded.", scope=SCOPE_MODERATION)
+            return
+        target = await self.resolve_target(interaction.guild)
+        if target is None:
+            await respond_with_error(interaction, "The case target could not be resolved.", scope=SCOPE_MODERATION)
+            return
+        prompt = CaseUndoPromptView(self, target, self.case_id)
+        await interaction.response.send_message(
+            embed=prompt.build_embed(interaction.guild, record),
+            view=prompt,
+            ephemeral=True,
+        )
+
+
+class CaseUndoPromptView(discord.ui.View):
+    """Single-prompt undo flow for the case panel: reason preset select,
+    optional custom reason, and confirm — all on one ephemeral message."""
+
+    def __init__(self, panel: CasePanelView, target: Union[discord.Member, discord.User], case_id: int):
+        super().__init__(timeout=120)
+        self.panel = panel
+        self.target = target
+        self.case_id = case_id
+        self.undo_reason_value = UNDO_REASON_PRESETS[0]["value"]
+        self.custom_undo_reason: Optional[str] = None
+        self.add_item(UndoReasonSelect(self, row=0))
+
+    def get_reason_text(self) -> str:
+        return get_undo_reason_details(self.undo_reason_value, self.custom_undo_reason)[1]
+
+    def build_embed(self, guild: Optional[discord.Guild], record: Optional[dict] = None) -> discord.Embed:
+        record = record or self.panel.current_record() or {}
+        return build_undo_confirm_embed(self.target, record, self.get_reason_text(), guild=guild)
+
+    async def _refresh_prompt(self, interaction: discord.Interaction) -> None:
+        # Rebuild the reason select so the chosen preset shows as default.
+        for item in list(self.children):
+            if isinstance(item, UndoReasonSelect):
+                self.remove_item(item)
+        self.add_item(UndoReasonSelect(self, row=0))
+        await interaction.response.edit_message(embed=self.build_embed(interaction.guild), view=self)
+
+    async def on_reason_change(self, interaction: discord.Interaction) -> None:
+        await self._refresh_prompt(interaction)
+
+    async def on_custom_reason_set(self, interaction: discord.Interaction) -> None:
+        await self._refresh_prompt(interaction)
+
+    @discord.ui.button(label="Custom Reason", style=discord.ButtonStyle.primary, row=1)
+    async def custom_reason(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.send_modal(UndoReasonModal(self))
+
+    @discord.ui.button(label="Confirm Undo", style=discord.ButtonStyle.danger, row=1)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.edit_message(content="Processing undo...", embed=None, view=None)
+        success, removed_record, action_result = await execute_undo_and_log(interaction, self.target, self.case_id, self.get_reason_text())
+        if not success or not removed_record:
+            await interaction.edit_original_response(content=action_result, embed=None, view=None)
+            return
+        await self.panel.handle_case_removed()
+        await interaction.edit_original_response(
+            content=f"**{get_case_label(removed_record)}** was undone.\n{action_result}",
+            embed=None,
+            view=None,
+        )
+        self.stop()
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary, row=1)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.edit_message(content="Undo canceled.", embed=None, view=None)
+        self.stop()
+
+
+class OpenCaseButton(
+    discord.ui.DynamicItem[discord.ui.Button],
+    template=r"case:open:(?P<case_id>[0-9]+)",
+):
+    """Restart-surviving 'Open Case #N' button attached to log messages.
+    Registered via bot.add_dynamic_items in core/bot.py."""
+
+    def __init__(self, case_id: int) -> None:
+        super().__init__(
+            discord.ui.Button(
+                label=f"Open Case #{case_id}",
+                style=discord.ButtonStyle.secondary,
+                custom_id=f"case:open:{case_id}",
+            )
+        )
+        self.case_id = case_id
+
+    @classmethod
+    async def from_custom_id(cls, interaction: discord.Interaction, item: discord.ui.Button, match: "re.Match[str]", /) -> "OpenCaseButton":
+        return cls(int(match["case_id"]))
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if not is_staff(interaction):
+            await respond_with_error(interaction, "You do not have permission to open case panels.", scope=SCOPE_MODERATION)
+            return
+        await show_case_panel(interaction, case_id=self.case_id)
+
+
+def build_case_link_view(case_id: int) -> discord.ui.View:
+    view = discord.ui.View(timeout=None)
+    view.add_item(OpenCaseButton(case_id))
+    return view
+
+
+async def show_case_panel(
+    interaction: discord.Interaction,
+    *,
+    case_id: Optional[int] = None,
+    user: Optional[discord.Member] = None,
+):
+    await interaction.response.defer(ephemeral=True)
+
+    target_user_id: Optional[str] = None
+    target_user: Optional[Union[discord.Member, discord.User]] = user
+    case_ids: List[int] = []
+
+    if case_id:
+        target_user_id, record = bot.data_manager.get_case(case_id)
+        if not record or not target_user_id:
+            await interaction.followup.send(
+                embed=make_empty_state_embed(
+                    "Case Not Found",
+                    f"> No case with ID `{case_id}` was found.",
+                    scope=SCOPE_MODERATION,
+                    guild=interaction.guild,
+                ),
+                ephemeral=True,
+            )
+            return
+        case_ids = [case_id]
+        if not target_user:
+            target_user = interaction.guild.get_member(int(target_user_id))
+
+    elif user:
+        target_user_id = str(user.id)
+        case_ids = [record.get("case_id") for record in bot.data_manager.get_user_cases(user.id) if record.get("case_id")]
+        if not case_ids:
+            await interaction.followup.send(
+                embed=make_empty_state_embed(
+                    "No Cases Found",
+                    f"> **{user.display_name}** has no recorded cases to manage.\n> Use `/punish` to open the first case for this member.",
+                    scope=SCOPE_MODERATION,
+                    guild=interaction.guild,
+                    thumbnail=user.display_avatar.url,
+                ),
+                ephemeral=True,
+            )
+            return
+    else:
+        await interaction.followup.send(
+            embed=make_error_embed(
+                "Case Panel Requires Context",
+                "> Choose a `case_id` or a `user` so the bot knows which case to open.",
+                scope=SCOPE_MODERATION,
+                guild=interaction.guild,
+            ),
+            ephemeral=True,
+        )
+        return
+
+    view = CasePanelView(target_user_id, case_ids, target_user=target_user)
+    message = await interaction.followup.send(embed=view.build_embed(), view=view, ephemeral=True, wait=True)
+    view.message = message
+
 
 class FirstConfirmClear(discord.ui.View):
     def __init__(self, target, moderator, origin_message=None):
@@ -450,15 +686,7 @@ class AllCasesSelect(discord.ui.Select):
         if self.values[0] == "none":
             await interaction.response.defer()
             return
-        case_id = int(self.values[0])
-        user_id, record = bot.data_manager.get_case(case_id)
-        if not record or not user_id:
-            await respond_with_error(interaction, "That case could not be loaded — it may have been cleared.", scope=SCOPE_MODERATION)
-            return
-        target_user = interaction.guild.get_member(int(user_id)) if interaction.guild else None
-        panel = CasePanelView(user_id, [case_id], target_user=target_user)
-        await interaction.response.send_message(embed=panel.build_embed(), view=panel, ephemeral=True)
-        panel.message = await interaction.original_response()
+        await show_case_panel(interaction, case_id=int(self.values[0]))
 
 
 class AllCasesNavButton(discord.ui.Button):
