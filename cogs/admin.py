@@ -208,67 +208,57 @@ class TestEnvView(discord.ui.View):
         await interaction.response.edit_message(embed=embed, view=self)
 
 
-class ImmunityModal(discord.ui.Modal):
-    def __init__(self, action):
-        super().__init__(title=f"{action.capitalize()} Immunity")
-        self.action = action
-    
-    user_id = discord.ui.TextInput(label="User ID", min_length=17, max_length=20)
-    
-    async def on_submit(self, interaction: discord.Interaction) -> None:
-        uid = self.user_id.value.strip()
-        if not uid.isdigit():
-            await interaction.response.send_message(embed=make_embed("Invalid ID", "> Invalid user ID.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
-            return
-            
+class ImmunityToggleSelect(discord.ui.UserSelect):
+    def __init__(self):
+        super().__init__(placeholder="Toggle anti-nuke immunity for a member...", min_values=1, max_values=1)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        user = self.values[0]
+        uid = str(user.id)
         lst = bot.data_manager.config.get("immunity_list", [])
-        
-        if self.action == "add":
-            if uid not in lst:
-                lst.append(uid)
-                msg = f"Added <@{uid}> to immunity list."
-            else:
-                msg = "User is already immune."
+        if uid in lst:
+            lst.remove(uid)
+            action = "removed from"
         else:
-            if uid in lst:
-                lst.remove(uid)
-                msg = f"Removed <@{uid}> from immunity list."
-            else:
-                msg = "User not found in immunity list."
-        
+            lst.append(uid)
+            action = "added to"
         bot.data_manager.config["immunity_list"] = lst
         await bot.data_manager.save_config()
-        await interaction.response.send_message(embed=make_embed("Immunity Updated", f"> {msg}", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
-class SafetyButtons(discord.ui.ActionRow):
-    @discord.ui.button(label="Add User", style=discord.ButtonStyle.success)
-    async def add_user(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await interaction.response.send_modal(ImmunityModal("add"))
+        log_embed = make_embed(
+            "Anti-Nuke Immunity Updated",
+            "> The anti-nuke immunity list was changed.",
+            kind="info",
+            scope=SCOPE_SYSTEM,
+            guild=interaction.guild,
+        )
+        log_embed.add_field(name="Actor", value=format_user_ref(interaction.user), inline=True)
+        log_embed.add_field(name="User", value=f"{user.mention} (`{user.id}`)", inline=True)
+        log_embed.add_field(name="Action", value=action.capitalize(), inline=True)
+        await send_log(interaction.guild, log_embed)
 
-    @discord.ui.button(label="Remove User", style=discord.ButtonStyle.danger)
-    async def remove_user(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await interaction.response.send_modal(ImmunityModal("remove"))
-
-    @discord.ui.button(label="View List", style=discord.ButtonStyle.secondary)
-    async def view_list(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        lst = bot.data_manager.config.get("immunity_list", [])
-        if not lst:
-            await interaction.response.send_message(embed=make_embed("Immunity List", "> Immunity list is empty.", kind="info", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
-        else:
-            mentions = [f"<@{uid}>" for uid in lst]
-            await interaction.response.send_message(embed=make_embed("Immune Users", "> " + ", ".join(mentions), kind="info", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
+        await interaction.response.edit_message(view=SafetyView(interaction.guild))
 
 
 class SafetyView(discord.ui.LayoutView):
     def __init__(self, guild: "discord.Guild | None" = None) -> None:
-        super().__init__(timeout=None)
+        super().__init__(timeout=180)
+        conf = bot.data_manager.config
+        immune = conf.get("immunity_list", [])
+        immune_str = ", ".join(f"<@{uid}>" for uid in immune) if immune else "None"
+        rate_limit = conf.get("security", {}).get("max_actions_per_min", 10)
         container = panel_container(
-            "Anti-Nuke Safety Panel",
-            "> Manage users who are immune to automated anti-nuke enforcement.",
+            "Anti-Nuke Protections",
+            "> The bot automatically reverts dangerous permission grants and strips the actor's roles."
+            f"\n> Staff moderation actions are rate-limited to **{rate_limit}** per minute."
+            f"\n\n**Immune Users:** {immune_str}"
+            "\n\nPick a member below to toggle their immunity to this enforcement.",
             guild=guild,
         )
         container.add_item(discord.ui.Separator())
-        container.add_item(SafetyButtons())
+        row = discord.ui.ActionRow()
+        row.add_item(ImmunityToggleSelect())
+        container.add_item(row)
         self.add_item(container)
 
 class AntiNukeResolveConfirm2(discord.ui.View):
@@ -393,19 +383,25 @@ async def list_commands(interaction: discord.Interaction):
         return
         
     embed = make_embed(
-        "System Command Registry",
-        "> Registered application commands available to this bot instance.",
-        kind="warning",
+        "Command Registry",
+        "> Registered application commands, grouped by area.",
+        kind="info",
         scope=SCOPE_SYSTEM,
         guild=interaction.guild,
     )
-    cmds = []
+    buckets = {}
     for cmd in bot.tree.walk_commands():
-        cmds.append(f"**/{cmd.name}**: {cmd.description}")
-    
-    desc = "\n".join(cmds)
-    if len(desc) > 4000: desc = desc[:4000] + "..."
-    embed.description = desc or "> No commands were found."
+        if isinstance(cmd, app_commands.Group):
+            continue
+        area = (cmd.module or "other").rsplit(".", 1)[-1].replace("_", " ").title()
+        buckets.setdefault(area, []).append(f"`/{cmd.qualified_name}` — {cmd.description}")
+    for area in sorted(buckets):
+        value = "\n".join(buckets[area])
+        if len(value) > 1024:
+            value = value[:1000] + "\n…"
+        embed.add_field(name=area, value=value, inline=False)
+    if not buckets:
+        embed.description = "> No commands were found."
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 
@@ -610,15 +606,16 @@ async def safety_panel(interaction: discord.Interaction):
 async def access(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     roles = bot.data_manager.config.get("mod_roles", [])
-    mentions = [f"<@&{rid}>" for rid in roles]
-    desc = "**Allowed Mod Roles:**\n" + ", ".join(mentions) if mentions else "No specific roles configured (Admins & Mods allowed)."
+    role_lines = "\n".join(f"- <@&{rid}>" for rid in roles) if roles else "None configured — members with the Admin or Mod role can moderate."
     embed = make_embed(
-        "Mod Access Configuration",
-        f"> {desc}",
+        "Moderator Access",
+        "> Roles listed here can use the bot's moderation commands and panels."
+        "\n> Picking a role below toggles it: new roles are added, listed roles are removed.",
         kind="info",
         scope=SCOPE_SYSTEM,
         guild=interaction.guild,
     )
+    embed.add_field(name="Current Access Roles", value=role_lines, inline=False)
     view = AccessView()
     await interaction.followup.send(embed=embed, view=view, ephemeral=True)
 
@@ -1067,6 +1064,10 @@ class GlobalBrandingView(discord.ui.View):
     async def refresh(self, interaction: discord.Interaction) -> None:
         await interaction.response.edit_message(embed=_build_global_branding_embed(), view=GlobalBrandingView())
 
+    @discord.ui.button(label="Switch to Server Branding", style=discord.ButtonStyle.secondary, row=1)
+    async def switch_scope(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.edit_message(embed=_build_server_branding_embed(interaction.guild), view=ServerBrandingView(interaction.guild))
+
 
 class ServerBrandingActionSelect(discord.ui.Select):
     def __init__(self, guild: discord.Guild):
@@ -1126,6 +1127,10 @@ class ServerBrandingView(discord.ui.View):
 
     async def refresh(self, interaction: discord.Interaction) -> None:
         await interaction.response.edit_message(embed=_build_server_branding_embed(interaction.guild), view=ServerBrandingView(interaction.guild))
+
+    @discord.ui.button(label="Switch to Global Branding", style=discord.ButtonStyle.secondary, row=1)
+    async def switch_scope(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.edit_message(embed=_build_global_branding_embed(), view=GlobalBrandingView())
 
 
 # ── Commands ──
