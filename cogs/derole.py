@@ -7,7 +7,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 
-from .shared import is_staff
+from core.constants import SCOPE_ROLES
+from .shared import is_staff, make_embed
 
 
 MAX_ROLE_SELECT = 25
@@ -15,6 +16,10 @@ MAX_ROLE_SELECT = 25
 
 def _format_roles(roles: Iterable[discord.Role]) -> str:
     return ", ".join(role.mention for role in roles)
+
+
+def _derole_embed(guild, title: str, description: str, *, kind: str) -> discord.Embed:
+    return make_embed(title, description, kind=kind, scope=SCOPE_ROLES, guild=guild)
 
 
 class DeroleRoleSelect(discord.ui.RoleSelect):
@@ -82,8 +87,12 @@ class DeroleView(discord.ui.View):
             self.selected_roles = []
             self.confirm_button.disabled = True
             await interaction.response.edit_message(
-                content="I cannot derole that selection:\n"
-                + "\n".join(f"- {error}" for error in errors),
+                embed=_derole_embed(
+                    interaction.guild,
+                    "Selection Blocked",
+                    "> I cannot derole that selection:\n" + "\n".join(f"- {error}" for error in errors),
+                    kind="error",
+                ),
                 view=self,
             )
             return
@@ -91,10 +100,11 @@ class DeroleView(discord.ui.View):
         self.selected_roles = roles
         self.confirm_button.disabled = False
         await interaction.response.edit_message(
-            content=(
-                f"Selected: {_format_roles(roles)}\n"
-                "Click **Remove from everyone** to remove the selected role(s) "
-                "from every matching member."
+            embed=_derole_embed(
+                interaction.guild,
+                "Confirm Bulk Role Removal",
+                f"> Selected: {_format_roles(roles)}\n> Press **Remove from everyone** to strip the selection from every matching member.",
+                kind="warning",
             ),
             view=self,
         )
@@ -102,7 +112,7 @@ class DeroleView(discord.ui.View):
     async def confirm(self, interaction: discord.Interaction) -> None:
         if not self.selected_roles:
             await interaction.response.send_message(
-                "Select at least one role first.",
+                embed=_derole_embed(interaction.guild, "No Selection", "> Select at least one role first.", kind="error"),
                 ephemeral=True,
             )
             return
@@ -111,8 +121,12 @@ class DeroleView(discord.ui.View):
         if errors:
             self.confirm_button.disabled = True
             await interaction.response.edit_message(
-                content="I cannot derole that selection:\n"
-                + "\n".join(f"- {error}" for error in errors),
+                embed=_derole_embed(
+                    interaction.guild,
+                    "Selection Blocked",
+                    "> I cannot derole that selection:\n" + "\n".join(f"- {error}" for error in errors),
+                    kind="error",
+                ),
                 view=self,
             )
             return
@@ -121,9 +135,11 @@ class DeroleView(discord.ui.View):
             child.disabled = True
 
         await interaction.response.edit_message(
-            content=(
-                f"Removing {_format_roles(self.selected_roles)} from matching "
-                "members..."
+            embed=_derole_embed(
+                interaction.guild,
+                "Removing Roles",
+                f"> Removing {_format_roles(self.selected_roles)} from every matching member...",
+                kind="muted",
             ),
             view=self,
         )
@@ -132,7 +148,10 @@ class DeroleView(discord.ui.View):
             interaction,
             self.selected_roles,
         )
-        await interaction.edit_original_response(content=result, view=None)
+        await interaction.edit_original_response(
+            embed=_derole_embed(interaction.guild, "Bulk Role Removal Complete", "> " + result.replace("\n", "\n> "), kind="success"),
+            view=None,
+        )
         self.stop()
 
     async def cancel(self, interaction: discord.Interaction) -> None:
@@ -140,7 +159,7 @@ class DeroleView(discord.ui.View):
             child.disabled = True
 
         await interaction.response.edit_message(
-            content="Cancelled `/derole`.",
+            embed=_derole_embed(interaction.guild, "Cancelled", "> No roles were removed.", kind="muted"),
             view=None,
         )
         self.stop()
@@ -181,7 +200,12 @@ class Derole(commands.Cog):
 
         view = DeroleView(self, interaction.user.id)
         await interaction.response.send_message(
-            "Select one or more roles to remove from every member who has them.",
+            embed=_derole_embed(
+                interaction.guild,
+                "Bulk Role Removal",
+                "> Select one or more roles to remove from every member who has them.\n> You will confirm before anything is removed.",
+                kind="info",
+            ),
             view=view,
             ephemeral=True,
         )

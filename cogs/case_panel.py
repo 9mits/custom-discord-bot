@@ -780,17 +780,15 @@ class AccessView(discord.ui.View):
         log_embed.add_field(name="Action", value=action.capitalize(), inline=True)
         await send_log(interaction.guild, log_embed)
         
-        mentions = [f"<@&{r}>" for r in mod_roles]
-        desc = "**Allowed Mod Roles:**\n" + ", ".join(mentions) if mentions else "No specific roles configured (Admins & Mods allowed)."
-        
-        if interaction.message:
+        role_lines = "\n".join(f"- <@&{rid}>" for rid in mod_roles) if mod_roles else "None configured — members with the Admin or Mod role can moderate."
+
+        if interaction.message and interaction.message.embeds:
             embed = interaction.message.embeds[0]
-            embed.description = f"> {desc}"
+            embed.clear_fields()
+            embed.add_field(name="Current Access Roles", value=role_lines, inline=False)
             await interaction.response.edit_message(embed=embed, view=self)
         else:
             await interaction.response.edit_message(view=self)
-            
-        await interaction.followup.send(embed=make_embed("Access Updated", f"> Role {role.mention} {action} mod access.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 class RuleDeleteSelect(discord.ui.Select):
     def __init__(self):
@@ -956,20 +954,19 @@ class RulesDashboardButtons(discord.ui.ActionRow):
     @discord.ui.button(label="List Rules", style=discord.ButtonStyle.primary)
     async def list_rules(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         rules = bot.data_manager.config.get("punishment_rules", DEFAULT_RULES)
-        lines = []
-        for name, data in rules.items():
-            b = format_duration(data['base'])
-            e = format_duration(data['escalated'])
-            lines.append(f"**{name}**: {b} -> {e}")
-
         embed = make_embed(
             "Punishment Rules",
-            "> Current automated escalation baselines used by the moderation console.",
+            "> Per-reason durations used by the moderation console. First offense, then repeat offense.",
             kind="info",
             scope=SCOPE_MODERATION,
             guild=interaction.guild,
         )
-        embed.add_field(name="Configured Rules", value=truncate_text("\n".join(lines) or "No rules configured.", 4000), inline=False)
+        if not rules:
+            embed.add_field(name="Rules", value="No rules configured.", inline=False)
+        for name, data in list(rules.items())[:24]:
+            embed.add_field(name=name, value=f"{format_duration(data['base'])} → {format_duration(data['escalated'])}", inline=True)
+        if len(rules) > 24:
+            embed.add_field(name="…", value=f"{len(rules) - 24} more rules not shown.", inline=True)
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @discord.ui.button(label="Add Rule", style=discord.ButtonStyle.success)
