@@ -676,40 +676,53 @@ def build_all_cases_embed(
     return embed
 
 
-def build_mod_help_embed(guild: discord.Guild) -> discord.Embed:
-    embed = make_embed(
+MOD_GUIDE_PAGES = {
+    "overview": (
         "Moderation Command Guide",
-        "> Core moderation workflows, context tools, and channel controls.",
-        kind="info",
-        scope=SCOPE_MODERATION,
-        guild=guild,
-    )
-    embed.add_field(
-        name="Case Management",
-        value="\n".join([
-            "`/case` — Open a case control panel: punish again, undo, notes, status, evidence, and assignment.",
-            "`/cases` — Browse every case on the server in case order.",
-            "`/history` — Browse a user’s disciplinary record case-by-case.",
-            "`/undo` — Reverse a punishment with a reason and case selector.",
-        ]),
-        inline=False,
-    )
-    embed.add_field(
-        name="Actions",
-        value="\n".join([
-            "`/punish` — Open the sanction console; durations escalate automatically for repeat offenses.",
-            "`/purge` — Bulk-delete messages with user or keyword filtering.",
-        ]),
-        inline=False,
-    )
-    embed.add_field(
-        name="Channel Controls",
-        value="\n".join([
-            "`/lock` — Restrict messaging in the current channel.",
-            "`/unlock` — Restore messaging in the current channel.",
-        ]),
-        inline=False,
-    )
+        "> Pick a section below to see its commands in detail.",
+        [
+            ("Actions", "Punish members, run community votes, purge messages, and export chat logs."),
+            ("Cases & History", "Open case panels, browse records, and reverse punishments."),
+            ("Channel Controls", "Lock and unlock the current channel."),
+        ],
+    ),
+    "actions": (
+        "Guide: Actions",
+        "> Commands that act on members and messages.",
+        [
+            ("/punish", "Open the sanction console; durations escalate automatically for repeat offenses."),
+            ("/publicexecution", "Put a member up for a community vote; the panel sets the vote threshold."),
+            ("/purge", "Delete an amount instantly, or run without options for member and keyword filters."),
+            ("/export", "Export a member's or channel's messages to a downloadable HTML file."),
+        ],
+    ),
+    "cases": (
+        "Guide: Cases & History",
+        "> Every punishment is a numbered case; these commands work with them.",
+        [
+            ("/case", "Open a case control panel: punish again, undo, notes, status, evidence, assignment."),
+            ("/cases", "Browse every case on the server in case order."),
+            ("/history", "Browse a member's record; selecting a case opens its control panel."),
+            ("/undo", "Reverse a punishment with a reason and case selector."),
+        ],
+    ),
+    "channels": (
+        "Guide: Channel Controls",
+        "> Quick controls for the channel you run them in.",
+        [
+            ("/lock", "Restrict messaging in the current channel."),
+            ("/unlock", "Restore messaging in the current channel."),
+        ],
+    ),
+}
+
+
+def build_mod_help_embed(guild: discord.Guild, page: str = "overview") -> discord.Embed:
+    title, description, entries = MOD_GUIDE_PAGES.get(page, MOD_GUIDE_PAGES["overview"])
+    embed = make_embed(title, description, kind="info", scope=SCOPE_MODERATION, guild=guild)
+    for name, value in entries:
+        field_name = f"`{name}`" if name.startswith("/") else name
+        embed.add_field(name=field_name, value=value, inline=False)
     return embed
 
 

@@ -741,6 +741,30 @@ class PunishSaveButton(discord.ui.Button):
         await interaction.response.send_modal(PunishCountModal(self.view, "save"))
 
 
+EXECUTION_VOTE_PRESETS = (2, 3, 5, 8, 10, 15, 20, 25)
+
+
+class ExecutionVotesSelect(discord.ui.Select):
+    """Vote-threshold picker shown on the punish panel in public-execution mode."""
+
+    def __init__(self, panel: "PunishView"):
+        self.panel = panel
+        options = [
+            discord.SelectOption(label=f"{count} votes to trigger", value=str(count), default=count == panel.reaction_count)
+            for count in EXECUTION_VOTE_PRESETS
+        ]
+        if panel.reaction_count not in EXECUTION_VOTE_PRESETS:
+            options.insert(0, discord.SelectOption(label=f"{panel.reaction_count} votes to trigger", value=str(panel.reaction_count), default=True))
+        super().__init__(placeholder="Votes required to trigger...", min_values=1, max_values=1, options=options, row=1)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.panel
+        view.reaction_count = int(self.values[0])
+        view.remove_item(self)
+        view.add_item(ExecutionVotesSelect(view))
+        await interaction.response.edit_message(view=view)
+
+
 class PunishView(discord.ui.View):
     def __init__(self, target, moderator, public=False, reaction_count=None, purge_count=0, save_count=0):
         super().__init__(timeout=120)
@@ -755,7 +779,7 @@ class PunishView(discord.ui.View):
         self.save_btn = None
         self.add_item(PunishSelect(target, moderator))
         # The post-to-channel / purge / save-logs toggles only apply to a direct
-        # punishment, not a public-execution vote, so hide them in that mode.
+        # punishment, not a public-execution vote; that mode gets the vote picker.
         if reaction_count is None:
             self.public_btn = PunishPublicToggle()
             self.purge_btn = PunishPurgeButton()
@@ -764,6 +788,8 @@ class PunishView(discord.ui.View):
             self.add_item(self.purge_btn)
             self.add_item(self.save_btn)
             self.sync_modifier_buttons()
+        else:
+            self.add_item(ExecutionVotesSelect(self))
 
     def sync_modifier_buttons(self) -> None:
         if self.public_btn is not None:
@@ -1066,35 +1092,20 @@ async def punish(
 
 
 @tree.command(name="publicexecution", description="Put a member up for a community-vote punishment.")
-@app_commands.describe(
-    user="The member to put up for the vote.",
-    reactions="How many reactions trigger the punishment. Includes the bot's own. Default 5.",
-    userid="A user ID or mention. Use this if the member isn't selectable in the user picker.",
-)
+@app_commands.describe(user="The member to put up for the vote.")
 @app_commands.check(_staff_check)
-async def publicexecution(
-    interaction: discord.Interaction,
-    user: Optional[discord.User] = None,
-    reactions: app_commands.Range[int, 2, 100] = 5,
-    userid: Optional[str] = None,
-):
+async def publicexecution(interaction: discord.Interaction, user: Optional[discord.User] = None):
     # Same target-selection flow as /punish, but the chosen punishment is held
-    # until `reactions` ✅ reactions land on a public embed (see PunishDetailsModal
+    # until enough ✅ reactions land on a public embed (see PunishDetailsModal
     # / CustomPunishDetailsModal, counted in cogs/events.py:on_raw_reaction_add).
-    if user is None and userid:
-        target = await _resolve_user_id_input(interaction, userid)
-        if target is None:
-            return
-        await show_punish_menu(interaction, target, reaction_count=reactions)
-        return
-
+    # The vote threshold is adjusted on the panel itself (ExecutionVotesSelect).
     if user is None:
         await send_target_picker(
             interaction,
             action="punish",
             title="Choose a Target",
-            description=f"> Select a member to put up for a public execution (**{reactions}** reactions to trigger).",
-            reaction_count=reactions,
+            description="> Select a member to put up for a public execution. The vote threshold can be adjusted on the panel.",
+            reaction_count=5,
         )
         return
 
@@ -1102,7 +1113,7 @@ async def publicexecution(
         member = await resolve_member(interaction.guild, user.id)
         if member is not None:
             user = member
-    await show_punish_menu(interaction, user, reaction_count=reactions)
+    await show_punish_menu(interaction, user, reaction_count=5)
 
 
 @tree.command(name="history", description="View a member's moderation history.")
@@ -1159,55 +1170,22 @@ async def undo(interaction: discord.Interaction, user: Optional[discord.Member] 
     await show_history_menu(interaction, user, mode="undo", initial_undo_reason=reason)
 
 
-@tree.command(name="purge", description="Bulk-delete recent messages, with optional filters.")
-@app_commands.describe(
-    amount="How many messages to scan or delete. Max 999.",
-    user="Only delete messages from this member.",
-    userid="Only delete messages from this user ID. Works even if they've left the server.",
-    keyword="Only delete messages containing this text.",
-)
-@app_commands.check(_staff_check)
-async def purge(interaction: discord.Interaction, amount: int, user: discord.Member = None, userid: str = None, keyword: str = None):
-    if amount < 1 or amount > 999:
-        await interaction.response.send_message(embed=make_embed("Invalid Amount", "> Amount must be between 1 and 999.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
-        return
+# Filtered purges scan at most this many recent messages. Old messages need
+# per-message deletes anyway (no bulk past 14 days), so a deeper scan mostly
+# burns API time for nothing.
+PURGE_SCAN_LIMIT = 2000
 
-    # Resolve a single target id from either the member picker or a raw id/mention.
-    target_id = user.id if user else None
-    if userid:
-        digits = "".join(ch for ch in userid if ch.isdigit())
-        if not digits:
-            await interaction.response.send_message(embed=make_embed("Invalid User ID", "> That isn't a valid user ID or mention.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
-            return
-        target_id = int(digits)
 
-    await interaction.response.defer(ephemeral=True)
-
+async def execute_purge(channel, amount: int, target_id: Optional[int], keyword: Optional[str]) -> int:
     if target_id is None and not keyword:
-        try:
-            deleted = await interaction.channel.purge(limit=amount)
-            await interaction.followup.send(embed=make_embed("Messages Cleared", f"> Cleared **{len(deleted)}** messages.", kind="success", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
+        deleted = await channel.purge(limit=amount)
+        return len(deleted)
 
-            log_embed = make_embed(
-                "Messages Purged",
-                "> A bulk message purge was executed in a channel.",
-                kind="warning",
-                scope=SCOPE_MODERATION,
-                guild=interaction.guild,
-            )
-            log_embed.add_field(name="Actor", value=format_user_ref(interaction.user), inline=True)
-            log_embed.add_field(name="Channel", value=f"{interaction.channel.mention} (`{interaction.channel.id}`)", inline=True)
-            log_embed.add_field(name="Amount", value=str(len(deleted)), inline=True)
-            await send_punishment_log(interaction.guild, log_embed)
-        except discord.HTTPException as e:
-            await interaction.followup.send(embed=make_embed("Failed to Purge", f"> Failed to purge: {e}", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
-        return
-
-    # Filtered path: scan the channel once (stopping as soon as we have `amount`
-    # matches), then hand off to the shared bulk-delete helper.
+    # Filtered path: scan once, stopping as soon as we have `amount` matches,
+    # then hand off to the shared bulk-delete helper.
     keyword_lower = keyword.lower() if keyword else None
     matched = []
-    async for message in interaction.channel.history(limit=10000):
+    async for message in channel.history(limit=PURGE_SCAN_LIMIT):
         if len(matched) >= amount:
             break
         if target_id and message.author.id != target_id:
@@ -1215,34 +1193,145 @@ async def purge(interaction: discord.Interaction, amount: int, user: discord.Mem
         if keyword_lower and keyword_lower not in message.content.lower():
             continue
         matched.append(message)
+    return await delete_messages_efficiently(matched)
 
-    deleted_count = await delete_messages_efficiently(matched)
 
-    if deleted_count == 0:
-        await interaction.followup.send(embed=make_embed("No Messages Found", "> No matching messages found to purge.", kind="info", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
+async def send_purge_log(interaction: discord.Interaction, deleted: int, target_id: Optional[int], keyword: Optional[str]) -> None:
+    if deleted == 0:
         return
-
-    if user:
-        target_str = user.mention
-    elif target_id:
-        target_str = f"<@{target_id}>"
-    else:
-        target_str = "Anyone"
-    await interaction.followup.send(embed=make_embed("Messages Cleared", f"> Cleared **{deleted_count}** messages from {target_str}.", kind="success", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
-
     log_embed = make_embed(
-        "Filtered Purge",
-        "> A targeted purge removed messages using user or keyword filters.",
+        "Messages Purged",
+        "> A bulk message purge was executed in a channel.",
         kind="warning",
         scope=SCOPE_MODERATION,
         guild=interaction.guild,
     )
     log_embed.add_field(name="Actor", value=format_user_ref(interaction.user), inline=True)
-    log_embed.add_field(name="Target", value=f"{target_str}", inline=True)
     log_embed.add_field(name="Channel", value=f"{interaction.channel.mention} (`{interaction.channel.id}`)", inline=True)
-    log_embed.add_field(name="Amount", value=str(deleted_count), inline=True)
-    if keyword: log_embed.add_field(name="Keyword", value=keyword, inline=True)
+    log_embed.add_field(name="Amount", value=str(deleted), inline=True)
+    if target_id:
+        log_embed.add_field(name="Target", value=f"<@{target_id}>", inline=True)
+    if keyword:
+        log_embed.add_field(name="Keyword", value=keyword, inline=True)
     await send_punishment_log(interaction.guild, log_embed)
+
+
+class PurgeAmountSelect(discord.ui.Select):
+    def __init__(self, panel: "PurgePanelView"):
+        self.panel = panel
+        options = [
+            discord.SelectOption(label=f"{count} messages", value=str(count), default=count == panel.amount)
+            for count in (10, 25, 50, 100, 250, 500)
+        ]
+        super().__init__(placeholder="How many messages to remove...", min_values=1, max_values=1, options=options, row=0)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        self.panel.amount = int(self.values[0])
+        await self.panel.refresh(interaction)
+
+
+class PurgeUserSelect(discord.ui.UserSelect):
+    def __init__(self, panel: "PurgePanelView"):
+        self.panel = panel
+        super().__init__(placeholder="Filter by member (optional)...", min_values=0, max_values=1, row=1)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        self.panel.target_id = self.values[0].id if self.values else None
+        await self.panel.refresh(interaction)
+
+
+class PurgeFilterModal(discord.ui.Modal, title="Purge Filters"):
+    user_id_input = discord.ui.TextInput(label="User ID (optional)", required=False, max_length=25, placeholder="Filter by a raw user ID, even if they left.")
+    keyword_input = discord.ui.TextInput(label="Keyword (optional)", required=False, max_length=100, placeholder="Only delete messages containing this text.")
+
+    def __init__(self, panel: "PurgePanelView"):
+        super().__init__()
+        self.panel = panel
+        if panel.target_id:
+            self.user_id_input.default = str(panel.target_id)
+        if panel.keyword:
+            self.keyword_input.default = panel.keyword
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        digits = "".join(ch for ch in self.user_id_input.value if ch.isdigit())
+        self.panel.target_id = int(digits) if digits else None
+        self.panel.keyword = self.keyword_input.value.strip() or None
+        await self.panel.refresh(interaction)
+
+
+class PurgePanelView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=180)
+        self.amount = 50
+        self.target_id: Optional[int] = None
+        self.keyword: Optional[str] = None
+        self.amount_select = PurgeAmountSelect(self)
+        self.add_item(self.amount_select)
+        self.add_item(PurgeUserSelect(self))
+
+    def build_embed(self, guild: Optional[discord.Guild]) -> discord.Embed:
+        embed = make_embed(
+            "Purge Messages",
+            "> Set the sweep below, then press Run Purge. Filters are optional; without them the newest messages in this channel are removed.",
+            kind="warning",
+            scope=SCOPE_MODERATION,
+            guild=guild,
+        )
+        embed.add_field(name="Amount", value=str(self.amount), inline=True)
+        embed.add_field(name="Member Filter", value=f"<@{self.target_id}>" if self.target_id else "None", inline=True)
+        embed.add_field(name="Keyword Filter", value=self.keyword or "None", inline=True)
+        return embed
+
+    async def refresh(self, interaction: discord.Interaction) -> None:
+        self.remove_item(self.amount_select)
+        self.amount_select = PurgeAmountSelect(self)
+        self.add_item(self.amount_select)
+        await interaction.response.edit_message(embed=self.build_embed(interaction.guild), view=self)
+
+    @discord.ui.button(label="ID / Keyword Filters", style=discord.ButtonStyle.secondary, row=2)
+    async def more_filters(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.send_modal(PurgeFilterModal(self))
+
+    @discord.ui.button(label="Clear Filters", style=discord.ButtonStyle.secondary, row=2)
+    async def clear_filters(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        self.target_id = None
+        self.keyword = None
+        await self.refresh(interaction)
+
+    @discord.ui.button(label="Run Purge", style=discord.ButtonStyle.danger, row=2)
+    async def run(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.edit_message(embed=make_embed("Purging", "> Removing messages...", kind="muted", scope=SCOPE_MODERATION, guild=interaction.guild), view=None)
+        try:
+            deleted = await execute_purge(interaction.channel, self.amount, self.target_id, self.keyword)
+        except discord.HTTPException as e:
+            await interaction.edit_original_response(embed=make_embed("Failed to Purge", f"> Failed to purge: {e}", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild))
+            return
+        await send_purge_log(interaction, deleted, self.target_id, self.keyword)
+        if deleted == 0:
+            await interaction.edit_original_response(embed=make_embed("No Messages Found", "> No matching messages found to purge.", kind="info", scope=SCOPE_MODERATION, guild=interaction.guild))
+        else:
+            target_str = f"<@{self.target_id}>" if self.target_id else "Anyone"
+            await interaction.edit_original_response(embed=make_embed("Messages Cleared", f"> Cleared **{deleted}** messages from {target_str}.", kind="success", scope=SCOPE_MODERATION, guild=interaction.guild))
+        self.stop()
+
+
+@tree.command(name="purge", description="Bulk-delete recent messages; run without options to open the filter panel.")
+@app_commands.describe(amount="Delete this many recent messages right away. Omit to open the filter panel.")
+@app_commands.check(_staff_check)
+async def purge(interaction: discord.Interaction, amount: Optional[app_commands.Range[int, 1, 999]] = None):
+    if amount is None:
+        view = PurgePanelView()
+        await interaction.response.send_message(embed=view.build_embed(interaction.guild), view=view, ephemeral=True)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    try:
+        deleted = await execute_purge(interaction.channel, amount, None, None)
+    except discord.HTTPException as e:
+        await interaction.followup.send(embed=make_embed("Failed to Purge", f"> Failed to purge: {e}", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
+        return
+    await send_purge_log(interaction, deleted, None, None)
+    await interaction.followup.send(embed=make_embed("Messages Cleared", f"> Cleared **{deleted}** messages.", kind="success", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
 
 
 @tree.command(name="lock", description="Lock the current channel so members can't send messages.")
@@ -1295,11 +1384,31 @@ async def unlock(interaction: discord.Interaction):
         await interaction.followup.send(embed=make_embed("Error", f"> Error: {e}", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
 
 
+class ModGuideSelect(discord.ui.Select):
+    def __init__(self, current: str = "overview"):
+        options = [
+            discord.SelectOption(label="Overview", value="overview", default=current == "overview"),
+            discord.SelectOption(label="Actions", value="actions", default=current == "actions"),
+            discord.SelectOption(label="Cases & History", value="cases", default=current == "cases"),
+            discord.SelectOption(label="Channel Controls", value="channels", default=current == "channels"),
+        ]
+        super().__init__(placeholder="Choose a guide section...", min_values=1, max_values=1, options=options)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        page = self.values[0]
+        await interaction.response.edit_message(embed=build_mod_help_embed(interaction.guild, page), view=ModGuideView(page))
+
+
+class ModGuideView(discord.ui.View):
+    def __init__(self, page: str = "overview"):
+        super().__init__(timeout=300)
+        self.add_item(ModGuideSelect(page))
+
+
 @tree.command(name="mod-guide", description="View the moderation command guide.")
 @app_commands.check(_staff_check)
 async def mod_help(interaction: discord.Interaction):
-    embed = build_mod_help_embed(interaction.guild)
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    await interaction.response.send_message(embed=build_mod_help_embed(interaction.guild), view=ModGuideView(), ephemeral=True)
 
 
 @tree.command(name="case", description="Open a specific moderation case.")
