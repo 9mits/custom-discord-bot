@@ -66,6 +66,7 @@ from .automod import (
     native_automod_rule_has_enforcement,
     is_native_automod_exempt,
     get_native_automod_action_label,
+    run_image_filter,
     AutoModWarningView,
 )
 from .case_panel import build_case_link_view
@@ -954,6 +955,8 @@ async def on_message(message: discord.Message):
         return
     if message.author.bot: return
 
+    image_filter_result = None
+
     # Anti-Spam: Mentions
     # Check immunity
     is_immune = str(message.author.id) in bot.data_manager.config.get("immunity_list", [])
@@ -1009,6 +1012,15 @@ async def on_message(message: discord.Message):
                 await punish_rogue_mod(message.guild, message.author, "Mention Spam (Mass Pings)", embed=embed, restore_data=restore_data)
                 try: await message.delete()
                 except Exception: pass
+
+    if message.guild and message.attachments:
+        try:
+            image_filter_result = await run_image_filter(message)
+        except Exception as exc:
+            logger.warning("Image filter failed for message %s: %s", message.id, exc)
+
+    if image_filter_result and image_filter_result.block_downstream:
+        return
 
     # Modmail Logic
     # 1. User -> Bot (DM)

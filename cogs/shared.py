@@ -1107,6 +1107,7 @@ async def send_automod_log(
     embed: discord.Embed,
     *,
     content: Optional[str] = None,
+    view: Optional[discord.ui.View] = None,
     preferred_channel_id: Optional[int] = None,
 ):
     candidate_ids = []
@@ -1126,6 +1127,7 @@ async def send_automod_log(
         candidate_ids,
         embed,
         content=content,
+        view=view,
         log_label="automod log",
     )
 
