@@ -63,8 +63,10 @@ async def execute_undo_and_log(
         },
     )
     log_embed = build_punishment_undo_log_embed(interaction.guild, interaction.user, target, removed_record, undo_reason, action_result)
-    from .moderation import RevokeUndoView
-    view = RevokeUndoView(target.id, removed_record, interaction.user.id)
+    from .moderation import build_revoke_undo_view, stash_undone_case
+    stash_undone_case(target.id, removed_record)
+    await bot.data_manager.save_config()
+    view = build_revoke_undo_view(removed_record.get("case_id") or 0)
     await send_punishment_log(interaction.guild, log_embed, view=view, attachments=[attachment])
     return success, removed_record, action_result
 

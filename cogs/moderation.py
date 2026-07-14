@@ -829,39 +829,77 @@ class PunishView(discord.ui.View):
         view.message = await interaction.original_response()
 
 
-class RevokeUndoView(discord.ui.View):
-    def __init__(self, target_id: int, record: dict, actor_id: int):
-        super().__init__(timeout=None)
-        self.target_id = target_id
-        self.record = record
-        self.actor_id = actor_id
+# Undone records are stashed here (capped) so the undo log's "Revoke Undo"
+# button can restore them even after a bot restart.
+UNDONE_CASE_CACHE_LIMIT = 50
 
-    @discord.ui.button(label="Revoke Undo", style=discord.ButtonStyle.danger)
-    async def revoke_undo(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+
+def stash_undone_case(target_id: int, record: dict) -> None:
+    case_id = record.get("case_id")
+    if not isinstance(case_id, int):
+        return
+    store = bot.data_manager.config.setdefault("undone_cases", {})
+    store[str(case_id)] = {"target_id": target_id, "record": record}
+    while len(store) > UNDONE_CASE_CACHE_LIMIT:
+        del store[min(store, key=int)]
+    bot.data_manager.mark_config_dirty()
+
+
+class RevokeUndoButton(
+    discord.ui.DynamicItem[discord.ui.Button],
+    template=r"case:revoke_undo:(?P<case_id>[0-9]+)",
+):
+    """Restart-surviving 'Revoke Undo' button on undo log messages."""
+
+    def __init__(self, case_id: int) -> None:
+        super().__init__(
+            discord.ui.Button(
+                label="Revoke Undo",
+                style=discord.ButtonStyle.danger,
+                custom_id=f"case:revoke_undo:{case_id}",
+            )
+        )
+        self.case_id = case_id
+
+    @classmethod
+    async def from_custom_id(cls, interaction: discord.Interaction, item: discord.ui.Button, match, /) -> "RevokeUndoButton":
+        return cls(int(match["case_id"]))
+
+    async def callback(self, interaction: discord.Interaction) -> None:
         if not is_staff(interaction):
-             await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
-             return
+            await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
+            return
+
+        store = bot.data_manager.config.get("undone_cases", {})
+        entry = store.pop(str(self.case_id), None)
+        if not entry:
+            await interaction.response.send_message(embed=make_embed("Not Available", "> This undo can no longer be revoked — it was already restored or has expired.", kind="muted", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
+            return
+        bot.data_manager.mark_config_dirty()
 
         await interaction.response.defer()
-        
-        # Restore record
-        uid = str(self.target_id)
-        await bot.data_manager.add_punishment(uid, self.record)
-        
+
+        record = entry.get("record") or {}
+        target_id = int(entry.get("target_id") or 0)
+        await bot.data_manager.add_punishment(str(target_id), record)
+        await bot.data_manager.save_config()
+
         # Re-apply physical punishment
         guild = interaction.guild
-        target = guild.get_member(self.target_id)
+        target = guild.get_member(target_id)
         if not target:
-            try: target = await bot.fetch_user(self.target_id)
-            except Exception: pass
-            
+            try:
+                target = await bot.fetch_user(target_id)
+            except Exception:
+                pass
+
         action_taken = "History Restored"
-        p_type = self.record.get("type")
-        dur = self.record.get("duration_minutes", 0)
-        
+        p_type = record.get("type")
+        dur = record.get("duration_minutes", 0)
+
         try:
             if p_type == "ban":
-                await guild.ban(discord.Object(id=self.target_id), reason="Undo Revoked: Restoring Punishment")
+                await guild.ban(discord.Object(id=target_id), reason="Undo Revoked: Restoring Punishment")
                 action_taken += " & User Banned"
             elif p_type == "timeout" and isinstance(target, discord.Member):
                 if dur > 0:
@@ -873,10 +911,13 @@ class RevokeUndoView(discord.ui.View):
         embed = interaction.message.embeds[0]
         embed.color = discord.Color.orange()
         embed.add_field(name="Update", value=f"> **Undo Revoked** by {interaction.user.mention}\n> {action_taken}", inline=False)
-        
-        button.disabled = True
-        button.label = "Undo Revoked"
-        await interaction.edit_original_response(embed=embed, view=self)
+        await interaction.edit_original_response(embed=embed, view=None)
+
+
+def build_revoke_undo_view(case_id: int) -> discord.ui.View:
+    view = discord.ui.View(timeout=None)
+    view.add_item(RevokeUndoButton(case_id))
+    return view
 
 async def show_punish_menu(interaction: discord.Interaction, user: discord.User, reaction_count=None):
     await interaction.response.defer(ephemeral=True)

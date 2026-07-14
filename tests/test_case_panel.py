@@ -52,6 +52,15 @@ class OpenCaseButtonAsyncTests(unittest.IsolatedAsyncioTestCase):
         item = await OpenCaseButton.from_custom_id(SimpleNamespace(), None, match)
         self.assertEqual(item.case_id, 123)
 
+    async def test_revoke_undo_button_roundtrip(self):
+        from cogs.moderation import RevokeUndoButton
+        template = RevokeUndoButton.__discord_ui_compiled_template__
+        match = template.fullmatch("case:revoke_undo:77")
+        self.assertIsNotNone(match)
+        item = await RevokeUndoButton.from_custom_id(SimpleNamespace(), None, match)
+        self.assertEqual(item.case_id, 77)
+        self.assertEqual(item.item.custom_id, "case:revoke_undo:77")
+
     async def test_callback_rejects_non_staff(self):
         button = OpenCaseButton(5)
         interaction = SimpleNamespace(user=SimpleNamespace(id=1))
