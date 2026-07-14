@@ -16,7 +16,7 @@ from cogs.shared import (
     send_modmail_thread_intro,
     SCOPE_MODERATION,
 )
-from cogs.roles import RevokeAppealView, ConfirmRevokeView, DenyAppealModal
+from cogs.roles import AppealButton, AppealDenyButton, AppealRevokeButton, ConfirmRevokeView, DenyAppealModal
 from cogs.automod import apply_automod_report_response
 
 # Build a legacy namespace that mirrors modules.commands
@@ -30,7 +30,9 @@ legacy = _types.SimpleNamespace(
     prepare_modmail_relay_attachments=prepare_modmail_relay_attachments,
     send_modmail_thread_intro=send_modmail_thread_intro,
     SCOPE_MODERATION=SCOPE_MODERATION,
-    RevokeAppealView=RevokeAppealView,
+    AppealButton=AppealButton,
+    AppealDenyButton=AppealDenyButton,
+    AppealRevokeButton=AppealRevokeButton,
     ConfirmRevokeView=ConfirmRevokeView,
     DenyAppealModal=DenyAppealModal,
     apply_automod_report_response=apply_automod_report_response,
@@ -112,10 +114,19 @@ class MbxLegacyAuthTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_revoke_appeal_entrypoint_rejects_non_staff(self):
         interaction = make_interaction()
-        view = legacy.RevokeAppealView(target_id=1, moderator_id=2, duration=0, timestamp="2026-01-01T00:00:00+00:00")
+        button = legacy.AppealRevokeButton(1)
 
         with patch.object(_cogs_roles, "is_staff", return_value=False):
-            await view.children[0].callback(interaction)
+            await button.callback(interaction)
+
+        self.assert_denied_embed(interaction)
+
+    async def test_deny_appeal_entrypoint_rejects_non_staff(self):
+        interaction = make_interaction()
+        button = legacy.AppealDenyButton(1)
+
+        with patch.object(_cogs_roles, "is_staff", return_value=False):
+            await button.callback(interaction)
 
         self.assert_denied_embed(interaction)
 
@@ -135,7 +146,6 @@ class MbxLegacyAuthTests(unittest.IsolatedAsyncioTestCase):
         modal = legacy.DenyAppealModal(
             target_id=1,
             origin_message=SimpleNamespace(embeds=[SimpleNamespace()]),
-            view=SimpleNamespace(children=[]),
         )
 
         with patch.object(_cogs_roles, "is_staff", return_value=False):
@@ -145,12 +155,28 @@ class MbxLegacyAuthTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_finish_revoke_rejects_non_staff(self):
         interaction = make_interaction()
-        view = legacy.RevokeAppealView(target_id=1, moderator_id=2, duration=0, timestamp="2026-01-01T00:00:00+00:00")
+        button = legacy.AppealRevokeButton(1)
 
         with patch.object(_cogs_roles, "is_staff", return_value=False):
-            await view.finish_revoke(interaction, SimpleNamespace(embeds=[SimpleNamespace()]))
+            await button.finish_revoke(interaction, SimpleNamespace(embeds=[SimpleNamespace()]))
 
         self.assert_denied_embed(interaction)
+
+    async def test_appeal_button_templates_roundtrip(self):
+        appeal = legacy.AppealButton.__discord_ui_compiled_template__.fullmatch("case:appeal:10:42")
+        self.assertIsNotNone(appeal)
+        item = await legacy.AppealButton.from_custom_id(SimpleNamespace(), None, appeal)
+        self.assertEqual((item.guild_id, item.case_id), (10, 42))
+
+        revoke = legacy.AppealRevokeButton.__discord_ui_compiled_template__.fullmatch("case:appeal_revoke:42")
+        self.assertIsNotNone(revoke)
+        item = await legacy.AppealRevokeButton.from_custom_id(SimpleNamespace(), None, revoke)
+        self.assertEqual(item.case_id, 42)
+
+        deny = legacy.AppealDenyButton.__discord_ui_compiled_template__.fullmatch("case:appeal_deny:42")
+        self.assertIsNotNone(deny)
+        item = await legacy.AppealDenyButton.from_custom_id(SimpleNamespace(), None, deny)
+        self.assertEqual(item.case_id, 42)
 
     async def test_apply_automod_report_response_rejects_non_staff(self):
         interaction = make_interaction()

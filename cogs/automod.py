@@ -42,7 +42,7 @@ from .shared import (
     get_punishment_log_channel_id,
 )
 
-from .roles import AppealView
+from .roles import build_appeal_view
 
 AUTOMOD_PUNISHMENT_OPTIONS = [
     ("warn", "Warn Only"),
@@ -889,8 +889,7 @@ async def apply_native_automod_escalation(
             if duration_minutes > 0:
                 expires = discord.utils.format_dt(discord.utils.utcnow() + get_valid_duration(duration_minutes), "R")
                 dm_embed.add_field(name="Expires", value=expires, inline=True)
-        appeal_view = AppealView(guild.id, member.id, bot.user.id, duration_minutes if punishment_type != 'kick' else 0, timestamp_iso, reason)
-        await member.send(embed=dm_embed, view=appeal_view)
+        await member.send(embed=dm_embed, view=build_appeal_view(guild.id, case_record["case_id"]))
     except Exception:
         pass
 
