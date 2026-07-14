@@ -141,7 +141,6 @@ class CloneConfirmView(discord.ui.View):
                 scope=SCOPE_SYSTEM,
                 guild=interaction.guild,
             )
-            embed.add_field(name="Handled By", value=interaction.user.display_name, inline=True)
             await new_channel.send(embed=embed)
         except Exception:
             pass

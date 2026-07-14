@@ -11,8 +11,6 @@ from .utils import iso_to_dt
 
 
 DEFAULT_SCHEMA_VERSION = 3
-DEFAULT_CASE_STATUSES = {"open", "review", "appealed", "closed"}
-DEFAULT_RESOLUTION_STATES = {"pending", "active", "resolved", "reversed", "expired"}
 DEFAULT_TICKET_PRIORITIES = ("low", "normal", "high", "urgent")
 DEFAULT_FEATURE_FLAGS = {
     "advanced_modmail": True,
@@ -394,23 +392,14 @@ def normalize_case_record(record: Dict[str, Any]) -> bool:
     changed = False
     metadata = CaseMetadata.from_record(record)
 
+    for legacy_key in ("status", "resolution_state"):
+        if legacy_key in record:
+            record.pop(legacy_key)
+            changed = True
+
     case_id = record.get("case_id")
     if metadata.action_id != build_action_id(case_id):
         metadata.action_id = build_action_id(case_id)
-        changed = True
-
-    if metadata.status not in DEFAULT_CASE_STATUSES:
-        metadata.status = "open"
-        changed = True
-
-    if metadata.resolution_state not in DEFAULT_RESOLUTION_STATES:
-        punishment_type = record.get("type")
-        if record.get("active"):
-            metadata.resolution_state = "active"
-        elif punishment_type == "warn":
-            metadata.resolution_state = "resolved"
-        else:
-            metadata.resolution_state = "pending"
         changed = True
 
     normalized_tags = sanitize_tags(metadata.tags)

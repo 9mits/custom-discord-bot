@@ -300,16 +300,6 @@ def build_automod_bridge_embed(guild: discord.Guild) -> discord.Embed:
     embed.add_field(name="Bot Response", value="On" if settings.get("enabled", True) else "Off", inline=True)
     embed.add_field(name="User DMs", value="On" if settings.get("warning_dm_enabled", True) else "Off", inline=True)
     embed.add_field(name="False-Positive Report", value="On" if settings.get("report_button_enabled", True) else "Off", inline=True)
-    embed.add_field(
-        name="What Happens",
-        value=join_lines([
-            "Discord AutoMod blocks or flags a message.",
-            "The bot can DM the user and log the event.",
-            "Any automatic punishment must be turned on per rule.",
-            "The report button lets the user ask staff to review the warning.",
-        ]),
-        inline=False,
-    )
     return embed
 
 
@@ -327,9 +317,8 @@ def build_automod_policy_embed(
     embed = make_embed(title, description, kind="warning", scope=SCOPE_MODERATION, guild=guild)
     if rule is not None:
         embed.add_field(name="Rule", value=rule.name, inline=True)
-        embed.add_field(name="Discord Actions", value=describe_automod_rule_actions(rule), inline=True)
-    embed.add_field(name="Auto Punish", value="On" if policy.get("enabled") and steps else "Off", inline=True)
-    embed.add_field(name="Steps", value=str(len(steps)), inline=True)
+    enabled_label = "On" if policy.get("enabled") and steps else "Off"
+    embed.add_field(name="Auto Punish", value=f"{enabled_label} • {len(steps)} step{'s' if len(steps) != 1 else ''}", inline=True)
     if steps:
         step_lines = [f"{index + 1}. {format_native_automod_step_summary(step)}" for index, step in enumerate(steps[:5])]
         embed.add_field(name="Escalation Ladder", value=join_lines(step_lines, fallback="No punishment steps set yet."), inline=False)
@@ -401,19 +390,6 @@ def build_automod_rule_browser_embed(guild: discord.Guild, rules: List[discord.A
         return embed
     embed.add_field(name="Native Rules", value=str(len(rules)), inline=True)
     embed.add_field(name="Rules Configured", value=str(configured_rules), inline=True)
-    for rule in rules[:6]:
-        _, policy, using_override = get_native_rule_override(settings, rule)
-        steps = get_native_automod_policy_steps(policy)
-        embed.add_field(
-            name=f"{'On' if rule.enabled else 'Off'} • {rule.name}",
-            value=join_lines([
-                f"Discord: {describe_automod_rule_actions(rule)}",
-                f"Auto Punish: {'On' if policy.get('enabled') and steps else 'Off'}",
-                f"Steps: {len(steps)}",
-                (f"Last Step: {format_automod_punishment_label(steps[-1])}" if steps else "No steps set"),
-            ]),
-            inline=False,
-        )
     return embed
 
 
@@ -894,6 +870,9 @@ def normalize_image_filter_settings(current: dict) -> dict:
         color_hash = _normalize_hex(item.get("color"), 6)
         aspect = _coerce_image_filter_int(item.get("aspect"), 0, maximum=100_000)
         detail = _coerce_image_filter_int(item.get("detail"), 0, maximum=255)
+        source_url = str(item.get("url", "") or "").strip()
+        if not source_url.startswith(("http://", "https://")):
+            source_url = ""
         identity = sha256_hex or f"{hash_hex}:{vertical_hash}:{color_hash}:{aspect}"
         if identity in seen:
             continue
@@ -906,6 +885,7 @@ def normalize_image_filter_settings(current: dict) -> dict:
             "aspect": aspect,
             "detail": detail,
             "sha256": sha256_hex,
+            "url": source_url,
             "label": truncate_text(str(item.get("label", "Banned image") or "Banned image"), 80),
             "added_by": _coerce_image_filter_int(item.get("added_by"), 0),
             "added_at": str(item.get("added_at", "") or ""),
@@ -1120,6 +1100,18 @@ def image_match_allows_punishment(punishment_type: str, match: ImageMatch) -> bo
     return punishment_type in {"warn", "timeout", "kick", "ban"} and match.quality in {"exact", "strong"}
 
 
+def image_match_similarity(match: ImageMatch) -> int:
+    if not match.matched:
+        return 0
+    if match.quality == "exact":
+        return 100
+    if match.quality == "legacy":
+        return max(0, min(100, round((1 - min(64, match.distance) / 64) * 100)))
+    hash_similarity = 1 - min(128, match.distance + match.vertical_distance) / 128
+    color_similarity = 1 - min(765, match.color_distance) / 765
+    return max(0, min(100, round((hash_similarity * 0.8 + color_similarity * 0.2) * 100)))
+
+
 def _attachment_looks_like_image(attachment) -> bool:
     content_type = str(getattr(attachment, "content_type", "") or "").lower()
     filename = str(getattr(attachment, "filename", "") or "").lower()
@@ -1168,26 +1160,28 @@ async def inspect_image_attachment(attachment) -> ImageInspection:
 
 async def log_image_filter_inspection_failure(message: discord.Message) -> None:
     try:
-        embed = make_action_log_embed(
+        embed = make_embed(
             "Image Filter Inspection Incomplete",
-            "One or more image attachments could not be fully inspected within the filter's safety limits.",
-            guild=message.guild,
+            f"> {format_user_ref(message.author)} posted an attachment the image filter could not inspect. Review it manually in {message.channel.mention}.",
             kind="warning",
             scope=SCOPE_MODERATION,
-            actor=format_user_ref(message.author),
-            target=f"{message.channel.mention} (`{message.channel.id}`)",
-            reason="Attachment inspection could not complete",
-            duration="No automatic punishment applied",
-            expires="N/A",
-            notes=[
-                f"Per Attachment Limit: {IMAGE_FILTER_MAX_BYTES // (1024 * 1024)} MB",
-                f"Per Message Limit: {IMAGE_FILTER_MAX_TOTAL_BYTES // (1024 * 1024)} MB",
-                f"Pixel Limit: {IMAGE_FILTER_MAX_PIXELS:,}",
-                "Animated or unsupported images require manual review.",
-                "Review the message manually before taking action.",
-            ],
-            thumbnail=message.author.display_avatar.url,
+            guild=message.guild,
         )
+        embed.add_field(name="Action", value="No automatic action — manual review required", inline=False)
+        jump_url = str(getattr(message, "jump_url", "") or "")
+        message_value = f"[{message.id}]({jump_url})" if jump_url.startswith(("http://", "https://")) else f"`{message.id}`"
+        embed.add_field(name="Message ID", value=message_value, inline=True)
+        image_attachment = next(
+            (
+                attachment for attachment in message.attachments
+                if str(getattr(attachment, "content_type", "") or "").startswith("image/")
+            ),
+            None,
+        )
+        if image_attachment is not None:
+            image_url = str(getattr(image_attachment, "url", "") or "")
+            if image_url.startswith(("http://", "https://")):
+                embed.set_image(url=image_url)
         await send_automod_log(message.guild, embed)
     except Exception as exc:
         logger.warning("Image filter could not report incomplete inspection for message %s: %s", message.id, exc)
@@ -1381,28 +1375,25 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
 
     if settings["log_detections"] or failure_requires_log:
         try:
-            embed = make_action_log_embed(
+            flagged_url = str(getattr(matched_attachment, "url", "") or "").strip()
+            matched_url = str(matched.entry.get("url") or "").strip() or flagged_url
+            matched_label = discord.utils.escape_markdown(str(matched.entry["label"]))
+            matched_value = f"[{matched_label}]({matched_url})" if matched_url.startswith(("http://", "https://")) else matched_label
+            embed = make_embed(
                 "Banned Image Detected",
-                "A posted image matched an entry on the banned image list.",
-                guild=message.guild,
+                f"> {format_user_ref(message.author)} posted a banned image in {message.channel.mention}.",
                 kind="warning",
                 scope=SCOPE_MODERATION,
-                actor=format_user_ref(message.author),
-                target=f"{message.channel.mention} (`{message.channel.id}`)",
-                reason=f"Matched: {matched.entry['label']}",
-                duration=action_summary,
-                expires="N/A",
-                notes=[
-                    f"Attachment: {matched_attachment.filename}",
-                    f"Match Quality: {matched.quality.title()}",
-                    f"Hash Distance: {matched.distance}/{IMAGE_HASH_DISTANCE_THRESHOLD}",
-                    f"Vertical Distance: {matched.vertical_distance}/{IMAGE_HASH_DISTANCE_THRESHOLD}",
-                    f"Color Distance: {matched.color_distance}/{IMAGE_COLOR_DISTANCE_THRESHOLD}",
-                    f"Message Deleted: {'Yes' if deleted else 'No'}",
-                    f"Inspection Complete: {'No' if inspection_incomplete else 'Yes'}",
-                ],
-                thumbnail=message.author.display_avatar.url,
+                guild=message.guild,
             )
+            embed.add_field(name="Matched", value=matched_value, inline=True)
+            embed.add_field(name="Similarity", value=f"{image_match_similarity(matched)}%", inline=True)
+            embed.add_field(name="Action", value=action_summary, inline=False)
+            jump_url = str(getattr(message, "jump_url", "") or "")
+            message_value = f"[{message.id}]({jump_url})" if jump_url.startswith(("http://", "https://")) else f"`{message.id}`"
+            embed.add_field(name="Message ID", value=message_value, inline=True)
+            if flagged_url.startswith(("http://", "https://")):
+                embed.set_image(url=flagged_url)
             view = None
             if case_record:
                 from .case_panel import build_case_link_view
@@ -1690,10 +1681,45 @@ class AutoModRuleSelect(discord.ui.Select):
         await interaction.response.edit_message(embed=view.build_embed(interaction.guild), view=view)
 
 
+class AutoModSectionSelect(discord.ui.Select):
+    def __init__(self, current: str = "overview", *, row: int = 4):
+        options = [
+            discord.SelectOption(label="Overview", value="overview", default=current == "overview"),
+            discord.SelectOption(label="Rule Punishments", value="rules", default=current == "rules"),
+            discord.SelectOption(label="Response Settings", value="responses", default=current == "responses"),
+            discord.SelectOption(label="Image Filters", value="images", default=current == "images"),
+            discord.SelectOption(label="Immunity", value="immunity", default=current == "immunity"),
+            discord.SelectOption(label="Log Channels", value="logs", default=current == "logs"),
+        ]
+        super().__init__(placeholder="Choose an AutoMod section...", min_values=1, max_values=1, options=options, row=row)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        section = self.values[0]
+        if section == "rules":
+            await interaction.response.defer()
+            rules = await fetch_native_automod_rules(interaction.guild)
+            await interaction.edit_original_response(
+                embed=build_automod_rule_browser_embed(interaction.guild, rules),
+                view=AutoModRuleBrowserView(rules),
+            )
+            return
+
+        destinations = {
+            "overview": (build_automod_dashboard_embed, AutoModDashboardView),
+            "responses": (build_automod_bridge_embed, AutoModBridgeSettingsView),
+            "images": (build_image_filters_embed, ImageFiltersView),
+            "immunity": (build_automod_immunity_embed, AutoModImmunityView),
+            "logs": (build_automod_routing_embed, AutoModChannelSettingsView),
+        }
+        embed_builder, view_type = destinations[section]
+        await interaction.response.edit_message(embed=embed_builder(interaction.guild), view=view_type())
+
+
 class AutoModBridgeSettingsView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=180)
         self.sync_buttons()
+        self.add_item(AutoModSectionSelect("responses"))
 
     def sync_buttons(self) -> None:
         settings = get_native_automod_settings(bot.data_manager.config)
@@ -1728,21 +1754,13 @@ class AutoModBridgeSettingsView(discord.ui.View):
         settings["report_button_enabled"] = not settings.get("report_button_enabled", True)
         await self._save_and_refresh(interaction, settings)
 
-    @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, row=1)
-    async def back(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await interaction.response.edit_message(embed=build_automod_dashboard_embed(interaction.guild), view=AutoModDashboardView())
-
-
 class AutoModRuleBrowserView(discord.ui.View):
     def __init__(self, rules: List[discord.AutoModRule]):
         super().__init__(timeout=180)
         self.rules = rules[:25]
         if self.rules:
             self.add_item(AutoModRuleSelect(self, self.rules))
-
-    @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, row=1)
-    async def back(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await interaction.response.edit_message(embed=build_automod_dashboard_embed(interaction.guild), view=AutoModDashboardView())
+        self.add_item(AutoModSectionSelect("rules"))
 
 
 class AutoModPolicyEditorView(discord.ui.View):
@@ -1756,6 +1774,7 @@ class AutoModPolicyEditorView(discord.ui.View):
             self.step_index = max(0, min(step_index, len(steps) - 1))
             self.add_item(AutoModStepSelect(self))
         self.sync_buttons()
+        self.add_item(AutoModSectionSelect("rules"))
 
     def get_current_policy(self) -> dict:
         settings = get_native_automod_settings(bot.data_manager.config)
@@ -1913,15 +1932,6 @@ class AutoModPolicyEditorView(discord.ui.View):
         view = AutoModPolicyEditorView(rule=self.rule, rules=self.rules, step_index=0)
         await interaction.response.edit_message(embed=view.build_embed(interaction.guild), view=view)
 
-    @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, row=3)
-    async def back(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        if self.rule is None:
-            await interaction.response.edit_message(embed=build_automod_dashboard_embed(interaction.guild), view=AutoModDashboardView())
-            return
-        rules = self.rules or await fetch_native_automod_rules(interaction.guild)
-        await interaction.response.edit_message(embed=build_automod_rule_browser_embed(interaction.guild, rules), view=AutoModRuleBrowserView(rules))
-
-
 class AutoModChannelSelect(discord.ui.ChannelSelect):
     def __init__(self, config_key: str, label: str):
         super().__init__(
@@ -1948,12 +1958,12 @@ class AutoModChannelSettingsView(discord.ui.View):
         self.add_item(AutoModChannelSelect("automod_log_channel_id", "AutoMod Log Channel"))
         self.add_item(AutoModChannelSelect("automod_report_channel_id", "AutoMod Report Channel"))
         self.add_item(AutoModChannelActionSelect())
+        self.add_item(AutoModSectionSelect("logs"))
 
 
 class AutoModChannelActionSelect(discord.ui.Select):
     def __init__(self):
         options = [
-            discord.SelectOption(label="Back to Dashboard", value="back", description="Return to the main AutoMod control panel."),
             discord.SelectOption(label="Clear Log Channel", value="clear_log", description="Clear the dedicated AutoMod log channel."),
             discord.SelectOption(label="Clear Report Channel", value="clear_report", description="Clear the dedicated AutoMod report channel."),
         ]
@@ -1967,9 +1977,6 @@ class AutoModChannelActionSelect(discord.ui.Select):
 
     async def callback(self, interaction: discord.Interaction) -> None:
         action = self.values[0]
-        if action == "back":
-            await interaction.response.edit_message(embed=build_automod_dashboard_embed(interaction.guild), view=AutoModDashboardView())
-            return
         if action == "clear_log":
             bot.data_manager.config["automod_log_channel_id"] = 0
             await bot.data_manager.save_config()
@@ -2054,6 +2061,7 @@ class AutoModImmunityView(discord.ui.View):
         self.add_item(AutoModImmunityUserSelect())
         self.add_item(AutoModImmunityRoleSelect())
         self.add_item(AutoModImmunityChannelSelect())
+        self.add_item(AutoModSectionSelect("immunity"))
 
     async def _send_remove_picker(self, interaction: discord.Interaction, *, label: str, config_key: str) -> None:
         settings = get_native_automod_settings(bot.data_manager.config)
@@ -2091,11 +2099,6 @@ class AutoModImmunityView(discord.ui.View):
     async def remove_channels(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await self._send_remove_picker(interaction, label="Channels", config_key="immunity_channels")
 
-    @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, row=3)
-    async def back(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await interaction.response.edit_message(embed=build_automod_dashboard_embed(interaction.guild), view=AutoModDashboardView())
-
-
 def build_image_filters_embed(guild: discord.Guild) -> discord.Embed:
     settings = get_image_filter_settings()
     if settings["punish"]:
@@ -2106,21 +2109,18 @@ def build_image_filters_embed(guild: discord.Guild) -> discord.Embed:
         punishment_label = "Off"
     embed = make_embed(
         "Image Filters",
-        "> Posted images are fingerprinted and compared against the banned image list; near-copies are caught too."
-        "\n> Add images with the **Ban Image** right-click option on any message."
-        "\n> Auto Punish only runs for exact or high-confidence matches; weaker matches never punish automatically."
-        "\n> Animated or unsupported images are logged for manual review instead of being auto-actioned.",
+        "> Add images with the **Ban Image** right-click action. High-confidence matches can be deleted or punished; uncertain matches are sent for manual review.",
         kind="warning",
         scope=SCOPE_MODERATION,
         guild=guild,
     )
-    embed.add_field(name="Status", value="Enabled" if settings["enabled"] else "Disabled", inline=True)
+    embed.add_field(name="Filters", value="Enabled" if settings["enabled"] else "Disabled", inline=True)
     embed.add_field(name="Delete Message", value="On" if settings["delete_message"] else "Off", inline=True)
     embed.add_field(name="Log Detections", value="On" if settings["log_detections"] else "Off", inline=True)
     embed.add_field(name="Auto Punish", value=punishment_label, inline=True)
     embed.add_field(name="Banned Images", value=f"{len(settings['entries'])}/{IMAGE_FILTER_MAX_ENTRIES}", inline=True)
     if settings["entries"]:
-        preview = [f"- {entry['label']} (`{entry['hash'][:8]}`)" for entry in settings["entries"][:10]]
+        preview = [f"- {entry['label']}" for entry in settings["entries"][:10]]
         if len(settings["entries"]) > 10:
             preview.append(f"- …and {len(settings['entries']) - 10} more")
         embed.add_field(name="Entries", value="\n".join(preview), inline=False)
@@ -2152,7 +2152,7 @@ class ImageFilterRemoveSelect(discord.ui.Select):
         start = page * 25
         page_entries = settings["entries"][start:start + 25]
         options = [
-            discord.SelectOption(label=entry["label"], value=entry["id"], description=f"Hash {entry['hash'][:12]}")
+            discord.SelectOption(label=entry["label"], value=entry["id"])
             for entry in page_entries
         ]
         if not options:
@@ -2212,6 +2212,12 @@ class ImageFiltersView(discord.ui.View):
         self.toggle_punish.style = discord.ButtonStyle.danger if settings["punish"] else discord.ButtonStyle.secondary
         self.previous_page.disabled = self.page == 0
         self.next_page.disabled = self.page >= max_page
+        if max_page == 0:
+            self.remove_item(self.previous_page)
+            self.remove_item(self.next_page)
+        if settings["punishment_type"] != "timeout":
+            self.remove_item(self.set_duration)
+        self.add_item(AutoModSectionSelect("images"))
 
     async def _toggle(self, interaction: discord.Interaction, key: str) -> None:
         settings = get_image_filter_settings()
@@ -2254,39 +2260,10 @@ class ImageFiltersView(discord.ui.View):
             view=ImageFiltersView(page=self.page + 1),
         )
 
-    @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, row=3)
-    async def back(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await interaction.response.edit_message(embed=build_automod_dashboard_embed(interaction.guild), view=AutoModDashboardView())
-
-
 class AutoModDashboardView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=180)
-
-    # ── Row 0 · Discord AutoMod rule follow-ups ──────────────────────────
-    @discord.ui.button(label="Rule Punishments", style=discord.ButtonStyle.primary, row=0)
-    async def native_rules(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await interaction.response.defer()
-        rules = await fetch_native_automod_rules(interaction.guild)
-        view = AutoModRuleBrowserView(rules)
-        await interaction.edit_original_response(embed=build_automod_rule_browser_embed(interaction.guild, rules), view=view)
-
-    @discord.ui.button(label="Response Settings", style=discord.ButtonStyle.primary, row=0)
-    async def bridge(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await interaction.response.edit_message(embed=build_automod_bridge_embed(interaction.guild), view=AutoModBridgeSettingsView())
-
-    # ── Row 1 · Filtering & routing ──────────────────────────────────────
-    @discord.ui.button(label="Image Filters", style=discord.ButtonStyle.secondary, row=1)
-    async def image_filters(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await interaction.response.edit_message(embed=build_image_filters_embed(interaction.guild), view=ImageFiltersView())
-
-    @discord.ui.button(label="Immunity", style=discord.ButtonStyle.secondary, row=1)
-    async def immunity(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await interaction.response.edit_message(embed=build_automod_immunity_embed(interaction.guild), view=AutoModImmunityView())
-
-    @discord.ui.button(label="Log Channels", style=discord.ButtonStyle.secondary, row=1)
-    async def routing(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await interaction.response.edit_message(embed=build_automod_routing_embed(interaction.guild), view=AutoModChannelSettingsView())
+        self.add_item(AutoModSectionSelect("overview", row=0))
 
 
 async def resolve_user_for_automod_report(guild: Optional[discord.Guild], user_id: int) -> Optional[Union[discord.Member, discord.User]]:
@@ -2643,6 +2620,7 @@ async def ban_image_context(interaction: discord.Interaction, message: discord.M
             "id": fingerprint["sha256"],
             **fingerprint,
             "label": truncate_text(attachment.filename, 80),
+            "url": str(getattr(attachment, "url", "") or ""),
             "added_by": interaction.user.id,
             "added_at": now_iso(),
         })

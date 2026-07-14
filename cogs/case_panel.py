@@ -46,7 +46,6 @@ from .cases import (
     build_case_detail_embed,
     build_undo_confirm_embed,
     describe_punishment_record,
-    format_case_status,
     get_case_label,
     get_undo_reason_details,
 )
@@ -70,8 +69,6 @@ async def log_case_management_action(
         actor=format_user_ref(actor),
         target=f"<@{target_user_id}> (`{target_user_id}`)",
         reason=action,
-        duration="Record Updated",
-        expires="N/A",
         notes=detail_lines or [f"Result: {truncate_text(details, 500)}"],
     )
     if record.get("action_id"):
@@ -179,68 +176,6 @@ class CaseLinksModal(discord.ui.Modal, title="Update Evidence and Tags"):
         )
 
 
-class CaseStateSelect(discord.ui.Select):
-    def __init__(self, panel: "CasePanelView"):
-        self.panel = panel
-        _, record = bot.data_manager.get_case(panel.case_id)
-        current = f"{record.get('status', 'open')}|{record.get('resolution_state', 'pending')}" if record else ""
-        options = []
-        for status, resolution, label, description in [
-            ("open", "pending", "Open - Waiting", "New case that still needs review."),
-            ("open", "active", "Open - In Progress", "Staff are actively handling this case."),
-            ("review", "pending", "Under Review", "Waiting for staff review."),
-            ("appealed", "pending", "Appeal Waiting", "The user appealed and staff still need to decide."),
-            ("closed", "resolved", "Closed - Finished", "Handled and fully closed."),
-            ("closed", "reversed", "Closed - Reversed", "The action was undone or reversed."),
-            ("closed", "expired", "Closed - Expired", "The timed action ended on its own."),
-        ]:
-            options.append(
-                discord.SelectOption(
-                    label=label,
-                    value=f"{status}|{resolution}",
-                    description=description,
-                    default=current == f"{status}|{resolution}",
-                )
-            )
-        super().__init__(placeholder="Choose the case status...", min_values=1, max_values=1, options=options)
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        target_user_id, record = bot.data_manager.get_case(self.panel.case_id)
-        if not record or not target_user_id:
-            await respond_with_error(interaction, "The selected case no longer exists.", scope=SCOPE_MODERATION)
-            return
-
-        status, resolution = self.values[0].split("|", 1)
-        record["status"] = status
-        record["resolution_state"] = resolution
-        normalize_case_record(record)
-        await bot.data_manager.save_punishments()
-        await log_case_management_action(
-            interaction.guild,
-            interaction.user,
-            target_user_id,
-            record,
-            "Status updated",
-            f"Status: {status} | Resolution: {resolution}",
-        )
-        await self.panel.refresh_panel()
-        await interaction.response.edit_message(
-            embed=make_confirmation_embed(
-                f"{get_case_label(record)} Updated",
-                "> Case status and resolution state were updated.",
-                scope=SCOPE_MODERATION,
-                guild=interaction.guild,
-            ),
-            view=None,
-        )
-
-
-class CaseStateView(discord.ui.View):
-    def __init__(self, panel: "CasePanelView"):
-        super().__init__(timeout=120)
-        self.add_item(CaseStateSelect(panel))
-
-
 class CaseSwitchSelect(discord.ui.Select):
     def __init__(self, panel: "CasePanelView"):
         self.panel = panel
@@ -250,7 +185,7 @@ class CaseSwitchSelect(discord.ui.Select):
             if not record:
                 continue
             label = truncate_text(f"{get_case_label(record)} • {record.get('reason', 'Unknown')}", 100)
-            description = truncate_text(f"{describe_punishment_record(record)} • {format_case_status(record)}", 100)
+            description = truncate_text(describe_punishment_record(record), 100)
             options.append(
                 discord.SelectOption(
                     label=label,
@@ -268,7 +203,6 @@ class CaseSwitchSelect(discord.ui.Select):
             await respond_with_error(interaction, "No valid cases are available.", scope=SCOPE_MODERATION)
             return
         self.panel.case_id = int(self.values[0])
-        self.panel.sync_buttons()
         await interaction.response.edit_message(embed=self.panel.build_embed(), view=self.panel)
 
 
@@ -284,7 +218,6 @@ class CasePanelView(discord.ui.View):
         if len(self.case_ids) > 1:
             self.switch_select = CaseSwitchSelect(self)
             self.add_item(self.switch_select)
-        self.sync_buttons()
 
     async def resolve_target(self, guild: Optional[discord.Guild]) -> Optional[Union[discord.Member, discord.User]]:
         """Resolve the case target, falling back to a global user lookup so
@@ -329,7 +262,6 @@ class CasePanelView(discord.ui.View):
         if len(self.case_ids) > 1:
             self.switch_select = CaseSwitchSelect(self)
             self.add_item(self.switch_select)
-        self.sync_buttons()
         if self.message:
             await self.message.edit(embed=self.build_embed(), view=self)
 
@@ -349,59 +281,14 @@ class CasePanelView(discord.ui.View):
         guild = self.target_user.guild if isinstance(self.target_user, discord.Member) else (self.message.guild if self.message else None)
         return build_case_detail_embed(guild, self.target_user_id, record, target_user=self.target_user)
 
-    def sync_buttons(self) -> None:
-        record = self.current_record() or {}
-        assigned = record.get("assigned_moderator")
-        self.claim_case.label = "Unclaim Case" if assigned else "Claim Case"
-        self.claim_case.style = discord.ButtonStyle.secondary if assigned else discord.ButtonStyle.success
-
     async def refresh_panel(self) -> None:
-        self.sync_buttons()
         if self.message:
             await self.message.edit(embed=self.build_embed(), view=self)
-
-    @discord.ui.button(label="Claim Case", style=discord.ButtonStyle.success, row=0)
-    async def claim_case(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        self.message = interaction.message
-        record = self.current_record()
-        if not record:
-            await respond_with_error(interaction, "The selected case could not be loaded.", scope=SCOPE_MODERATION)
-            return
-
-        currently_assigned = record.get("assigned_moderator")
-        record["assigned_moderator"] = None if currently_assigned == interaction.user.id else interaction.user.id
-        normalize_case_record(record)
-        await bot.data_manager.save_punishments()
-        await log_case_management_action(
-            interaction.guild,
-            interaction.user,
-            self.target_user_id,
-            record,
-            "Assignment updated",
-            "Case claimed by moderator." if record.get("assigned_moderator") else "Case unclaimed.",
-        )
-        self.sync_buttons()
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
     @discord.ui.button(label="Add Note", style=discord.ButtonStyle.primary, row=0)
     async def add_note(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         self.message = interaction.message
         await interaction.response.send_modal(CaseNoteModal(self))
-
-    @discord.ui.button(label="Change Status", style=discord.ButtonStyle.primary, row=0)
-    async def case_state(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        self.message = interaction.message
-        await interaction.response.send_message(
-            embed=make_embed(
-                "Case Status",
-                "> Pick the status that best matches what is happening with this case right now.",
-                kind="info",
-                scope=SCOPE_MODERATION,
-                guild=interaction.guild,
-            ),
-            view=CaseStateView(self),
-            ephemeral=True,
-        )
 
     @discord.ui.button(label="Evidence & Tags", style=discord.ButtonStyle.primary, row=1)
     async def links_and_tags(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:

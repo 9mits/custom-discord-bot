@@ -190,9 +190,7 @@ class ModCasesSelect(discord.ui.Select):
         )
 
         # User Info
-        user_obj = interaction.guild.get_member(int(uid))
-        user_name = user_obj.name if user_obj else "Unknown (Left Server)"
-        user_field = f"**Name:** {user_name}\n**Mention:** <@{uid}>\n**ID:** `{uid}`"
+        user_field = f"**Mention:** <@{uid}>\n**ID:** `{uid}`"
         embed.add_field(name="User", value=f"> {user_field.replace(chr(10), chr(10)+'> ')}", inline=True)
         
         # Moderator Info
@@ -214,7 +212,6 @@ class ModCasesSelect(discord.ui.Select):
             
         action_field = f"**Type:** {type_str}\n**Duration:** {dur_str}"
         embed.add_field(name="Action", value=f"> {action_field.replace(chr(10), chr(10)+'> ')}", inline=True)
-        embed.add_field(name="Status", value="> Active" if is_record_active(rec) else "> Closed", inline=True)
         
         # Timestamps
         ts = iso_to_dt(rec.get("timestamp"))

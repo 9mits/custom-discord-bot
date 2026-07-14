@@ -59,12 +59,6 @@ def get_record_expiry(record: dict) -> Optional[datetime]:
     return issued_at + timedelta(minutes=duration)
 
 
-def format_case_status(record: dict) -> str:
-    status = str(record.get("status", "open")).replace("_", " ").title()
-    resolution = str(record.get("resolution_state", "pending")).replace("_", " ").title()
-    return f"{status} • {resolution}"
-
-
 def get_feature_flag_name(key: str) -> str:
     return FEATURE_FLAG_LABELS.get(key, key.replace("_", " ").title())
 
@@ -131,7 +125,7 @@ def get_undo_reason_details(preset_value: Optional[str], custom_reason: Optional
 
 
 def build_case_summary_lines(record: dict, *, include_original_reason: bool = False) -> List[str]:
-    lines = [f"Action: {describe_punishment_record(record)}", f"Status: {format_case_status(record)}"]
+    lines = [f"Action: {describe_punishment_record(record)}"]
     issued_at = iso_to_dt(record.get("timestamp"))
     if issued_at:
         lines.append(f"Issued: {discord.utils.format_dt(issued_at, 'R')}")
@@ -166,7 +160,6 @@ def add_punishment_record_log_fields(
     _, expires_at = get_punishment_duration_and_expiry(record)
 
     embed.add_field(name="Punishment", value=describe_punishment_record(record), inline=True)
-    embed.add_field(name="Status", value=format_case_status(record), inline=True)
     embed.add_field(
         name="Issued",
         value=discord.utils.format_dt(issued_at, "F") if issued_at else "Unknown",
@@ -184,6 +177,47 @@ def add_punishment_record_log_fields(
             value=format_plain_log_block(record.get("reason", "Unknown"), limit=1000),
             inline=False,
         )
+
+
+def add_source_message_log_fields(embed: discord.Embed, record: dict) -> None:
+    source_message = record.get("source_message")
+    if not isinstance(source_message, dict):
+        return
+
+    message_id = source_message.get("id")
+    jump_url = str(source_message.get("jump_url") or "").strip()
+    if message_id:
+        message_value = (
+            f"[{message_id}]({jump_url})"
+            if jump_url.startswith(("http://", "https://"))
+            else f"`{message_id}`"
+        )
+        embed.add_field(name="Message ID", value=message_value, inline=True)
+
+    content = truncate_text(str(source_message.get("content") or "").strip(), 900)
+    if content:
+        embed.add_field(name="Flagged Message", value=format_plain_log_block(content, limit=950), inline=False)
+
+    attachments = source_message.get("attachments", [])
+    attachment_links = []
+    flagged_image_url = None
+    for attachment in attachments[:5] if isinstance(attachments, list) else []:
+        if not isinstance(attachment, dict):
+            continue
+        url = str(attachment.get("url") or "").strip()
+        if not url.startswith(("http://", "https://")):
+            continue
+        filename = truncate_text(str(attachment.get("filename") or "Attachment"), 80)
+        attachment_links.append(f"[{discord.utils.escape_markdown(filename)}]({url})")
+        content_type = str(attachment.get("content_type") or "").lower()
+        if flagged_image_url is None and content_type.startswith("image/"):
+            flagged_image_url = url
+    if attachment_links:
+        embed.add_field(name="Attachments", value="\n".join(attachment_links), inline=False)
+    if flagged_image_url:
+        embed.set_image(url=flagged_image_url)
+    if source_message.get("delete_error"):
+        embed.add_field(name="Message Deletion", value="Failed — delete it manually.", inline=False)
 
 
 def build_history_archive_attachment(
@@ -381,6 +415,7 @@ def build_punishment_execution_log_embed(
         thumbnail=thumbnail,
     )
     add_punishment_record_log_fields(embed, record)
+    add_source_message_log_fields(embed, record)
 
     note = truncate_text(str(record.get("note") or "").strip(), 1000)
     if note:
@@ -603,8 +638,6 @@ def build_case_detail_embed(
     evidence_links = record.get("evidence_links", [])
     linked_cases = record.get("linked_cases", [])
     tags = record.get("tags", [])
-    assigned = record.get("assigned_moderator")
-
     embed = make_embed(
         f"{get_case_label(record)} Control Panel",
         "> Review and manage everything for this case from one panel.",
@@ -615,15 +648,14 @@ def build_case_detail_embed(
     )
     embed.add_field(name="Actor", value=f"<@{moderator_id}> (`{moderator_id}`)" if moderator_id else "Unknown", inline=True)
     embed.add_field(name="Target", value=target_line, inline=True)
-    embed.add_field(name="Status", value=format_case_status(record), inline=True)
     embed.add_field(name="Reason", value=format_reason_value(record.get("reason", "Unknown"), limit=1024), inline=False)
     embed.add_field(name="Duration", value=describe_punishment_record(record), inline=True)
+    add_source_message_log_fields(embed, record)
     if record.get("duration_minutes") not in (0, None):
         embed.add_field(name="Expires", value=("Never" if record.get("duration_minutes") == -1 else (discord.utils.format_dt(expires_at, "R") if expires_at else "Unknown")), inline=True)
     embed.add_field(name="Notes", value=join_lines(note_lines, "No internal notes."), inline=False)
     embed.add_field(name="Evidence", value=join_lines([truncate_text(url, 80) for url in evidence_links], "No evidence links."), inline=False)
     embed.add_field(name="Tags", value=", ".join(f"`{tag}`" for tag in tags) if tags else "No tags.", inline=True)
-    embed.add_field(name="Assigned Moderator", value=f"<@{assigned}> (`{assigned}`)" if assigned else "Unassigned", inline=True)
     embed.add_field(name="Linked Cases", value=", ".join(f"`#{case_id}`" for case_id in linked_cases) if linked_cases else "None", inline=True)
     if issued_at:
         embed.add_field(name="Issued", value=discord.utils.format_dt(issued_at, "F"), inline=True)
@@ -668,7 +700,7 @@ def build_all_cases_embed(
     lines = []
     for user_id, record in page_items:
         lines.append(
-            f"**{get_case_label(record)}** • <@{user_id}> — {describe_punishment_record(record)} — {format_case_status(record)}\n"
+            f"**{get_case_label(record)}** • <@{user_id}> — {describe_punishment_record(record)}\n"
             f"> {truncate_text(record.get('reason', 'Unknown'), 80)}"
         )
     if lines:
@@ -681,7 +713,7 @@ MOD_GUIDE_PAGES = {
         "Moderation Command Guide",
         "> Pick a section below to see its commands in detail.",
         [
-            ("Actions", "Punish members, run community votes, purge messages, and export chat logs."),
+            ("Actions", "Punish members or specific messages, run community votes, purge messages, and export chat logs."),
             ("Cases & History", "Open case panels, browse records, and reverse punishments."),
             ("Channel Controls", "Lock and unlock the current channel."),
         ],
@@ -690,7 +722,7 @@ MOD_GUIDE_PAGES = {
         "Guide: Actions",
         "> Commands that act on members and messages.",
         [
-            ("/punish", "Open the sanction console; durations escalate automatically for repeat offenses."),
+            ("/punish", "Open the sanction console. Add `message_id` to save and delete a specific message, or use the Punish Message right-click action."),
             ("/publicexecution", "Put a member up for a community vote; the panel sets the vote threshold."),
             ("/purge", "Delete an amount instantly, or run without options for member and keyword filters."),
             ("/export", "Export a member's or channel's messages to a downloadable HTML file."),
@@ -700,7 +732,7 @@ MOD_GUIDE_PAGES = {
         "Guide: Cases & History",
         "> Every punishment is a numbered case; these commands work with them.",
         [
-            ("/case", "Open a case control panel: punish again, undo, notes, status, evidence, assignment."),
+            ("/case", "Open a punishment record to review evidence, add notes, punish again, or undo it."),
             ("/cases", "Browse every case on the server in case order."),
             ("/history", "Browse a member's record; selecting a case opens its control panel."),
             ("/undo", "Reverse a punishment with a reason and case selector."),
