@@ -955,12 +955,7 @@ async def on_message(message: discord.Message):
         return
     if message.author.bot: return
 
-    if message.guild and message.attachments:
-        try:
-            if await run_image_filter(message):
-                return
-        except Exception as exc:
-            logger.warning("Image filter failed for message %s: %s", message.id, exc)
+    image_filter_result = None
 
     # Anti-Spam: Mentions
     # Check immunity
@@ -1017,6 +1012,15 @@ async def on_message(message: discord.Message):
                 await punish_rogue_mod(message.guild, message.author, "Mention Spam (Mass Pings)", embed=embed, restore_data=restore_data)
                 try: await message.delete()
                 except Exception: pass
+
+    if message.guild and message.attachments:
+        try:
+            image_filter_result = await run_image_filter(message)
+        except Exception as exc:
+            logger.warning("Image filter failed for message %s: %s", message.id, exc)
+
+    if image_filter_result and image_filter_result.block_downstream:
+        return
 
     # Modmail Logic
     # 1. User -> Bot (DM)
