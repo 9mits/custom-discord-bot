@@ -58,8 +58,12 @@ git push -u origin fix/short-description
 & "C:\Program Files\GitHub CLI\gh.exe" pr checks <number> --repo 9mits/custom-discord-bot
 ```
 
-`gh` lives at `C:\Program Files\GitHub CLI\gh.exe` (authed as `9mits`, often not
-on PATH — use the full path). Both `test (3.11)` and `test (3.12)` must pass; fix
+`gh` lives at `C:\Program Files\GitHub CLI\gh.exe` on the Windows dev machine
+(authed as `9mits`, often not on PATH — use the full path). On the macOS dev
+machine it is at `~/.local/bin/gh`; auth per invocation via
+`GH_TOKEN=$(printf 'protocol=https\nhost=github.com\n' | git credential fill | grep '^password=' | cut -d= -f2)`
+(the keychain token lacks the scope `gh auth login --with-token` wants).
+Both `test (3.11)` and `test (3.12)` must pass; fix
 failures on the branch rather than working around the gate. When CI is green,
 report back and wait. After the user says "merge":
 
