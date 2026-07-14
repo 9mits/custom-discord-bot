@@ -66,6 +66,7 @@ from .automod import (
     native_automod_rule_has_enforcement,
     is_native_automod_exempt,
     get_native_automod_action_label,
+    run_image_filter,
     AutoModWarningView,
 )
 from .case_panel import build_case_link_view
@@ -953,6 +954,13 @@ async def on_message(message: discord.Message):
         await handle_native_automod_alert_message(message)
         return
     if message.author.bot: return
+
+    if message.guild and message.attachments:
+        try:
+            if await run_image_filter(message):
+                return
+        except Exception as exc:
+            logger.warning("Image filter failed for message %s: %s", message.id, exc)
 
     # Anti-Spam: Mentions
     # Check immunity

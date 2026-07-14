@@ -3,6 +3,7 @@
 import discord
 from discord import app_commands
 from discord.ext import commands
+import io
 import time
 from datetime import datetime, timedelta
 from typing import Optional, List, Union, Tuple
@@ -40,6 +41,7 @@ from .shared import (
     get_valid_duration,
     build_automod_dashboard_embed,
     get_punishment_log_channel_id,
+    send_automod_log,
 )
 
 from .roles import build_appeal_view
@@ -795,6 +797,272 @@ def is_native_automod_exempt(member: discord.Member, channel_id: Optional[int], 
     return any(role.id in immunity_roles for role in member.roles)
 
 
+# ---------------- Image filter (banned-image detection) ----------------
+# Staff ban specific images via the "Ban Image" context menu; every posted
+# image is fingerprinted with a 64-bit dHash and matched against the list
+# within a Hamming-distance threshold, so re-uploads and near-copies (resizes,
+# recompression, small edits) are caught too.
+
+IMAGE_FILTER_MAX_ENTRIES = 100
+IMAGE_FILTER_MAX_BYTES = 8 * 1024 * 1024
+IMAGE_HASH_DISTANCE_THRESHOLD = 10
+
+
+def normalize_image_filter_settings(current: dict) -> dict:
+    if not isinstance(current, dict):
+        current = {}
+    entries = []
+    for item in current.get("entries", []):
+        if not isinstance(item, dict):
+            continue
+        hash_hex = str(item.get("hash", "")).strip().lower()
+        if not hash_hex:
+            continue
+        try:
+            int(hash_hex, 16)
+        except ValueError:
+            continue
+        entries.append({
+            "hash": hash_hex,
+            "label": truncate_text(str(item.get("label", "Banned image") or "Banned image"), 80),
+            "added_by": int(item.get("added_by", 0) or 0),
+            "added_at": str(item.get("added_at", "") or ""),
+        })
+    punishment_type = str(current.get("punishment_type", "warn") or "warn").lower()
+    if punishment_type not in {"warn", "timeout", "kick", "ban"}:
+        punishment_type = "warn"
+    return {
+        "enabled": bool(current.get("enabled", False)),
+        "delete_message": bool(current.get("delete_message", True)),
+        "log_detections": bool(current.get("log_detections", True)),
+        "punish": bool(current.get("punish", False)),
+        "punishment_type": punishment_type,
+        "duration_minutes": max(1, int(current.get("duration_minutes", 60) or 60)),
+        "entries": entries[:IMAGE_FILTER_MAX_ENTRIES],
+    }
+
+
+def get_image_filter_settings() -> dict:
+    return normalize_image_filter_settings(bot.data_manager.config.get("image_filters", {}))
+
+
+def store_image_filter_settings(settings: dict) -> dict:
+    normalized = normalize_image_filter_settings(settings)
+    bot.data_manager.config["image_filters"] = normalized
+    bot.data_manager.mark_config_dirty()
+    return normalized
+
+
+def hash_image_bytes(data: bytes) -> Optional[str]:
+    """64-bit dHash: 9x8 grayscale, one bit per adjacent-pixel comparison."""
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    try:
+        with Image.open(io.BytesIO(data)) as img:
+            gray = img.convert("L").resize((9, 8), Image.LANCZOS)
+            pixels = list(gray.getdata())
+    except Exception:
+        return None
+    bits = 0
+    for row in range(8):
+        for col in range(8):
+            bits = (bits << 1) | (pixels[row * 9 + col] > pixels[row * 9 + col + 1])
+    return f"{bits:016x}"
+
+
+def hash_distance(first: str, second: str) -> int:
+    return bin(int(first, 16) ^ int(second, 16)).count("1")
+
+
+def match_banned_image(hash_hex: str, entries: List[dict]) -> Tuple[Optional[dict], int]:
+    best_entry = None
+    best_distance = IMAGE_HASH_DISTANCE_THRESHOLD + 1
+    for entry in entries:
+        distance = hash_distance(hash_hex, entry["hash"])
+        if distance < best_distance:
+            best_entry = entry
+            best_distance = distance
+    if best_entry is None or best_distance > IMAGE_HASH_DISTANCE_THRESHOLD:
+        return None, 0
+    return best_entry, best_distance
+
+
+async def apply_image_filter_punishment(
+    guild: discord.Guild,
+    member: discord.Member,
+    *,
+    entry_label: str,
+    punishment_type: str,
+    duration_minutes: int,
+) -> Tuple[bool, str, Optional[dict]]:
+    reason = f"Banned image posted [{entry_label}]"
+    if punishment_type == "ban":
+        action_label = "Banned"
+    elif punishment_type == "timeout":
+        action_label = "Timed Out"
+    elif punishment_type == "kick":
+        action_label = "Kicked"
+    else:
+        action_label = "Warned"
+    user_message_text = f"You have been **{action_label}** in **{guild.name}**."
+    note = truncate_text(
+        "\n".join([
+            "Image recognition automod triggered.",
+            f"Matched Entry: {entry_label}",
+        ]),
+        1000,
+    )
+
+    if punishment_type == "timeout" and duration_minutes <= 0:
+        duration_minutes = 60
+    if punishment_type == "ban":
+        duration_minutes = -1
+
+    try:
+        if punishment_type == "timeout":
+            await member.timeout(get_valid_duration(duration_minutes), reason=f"{reason} (By {bot.user})")
+        elif punishment_type == "ban":
+            await guild.ban(member, reason=f"{reason} (By {bot.user})", delete_message_days=0)
+        elif punishment_type == "kick":
+            await guild.kick(member, reason=f"{reason} (By {bot.user})")
+    except discord.Forbidden:
+        return False, "The bot does not have permission to apply the configured punishment.", None
+    except Exception as exc:
+        return False, f"Failed to apply punishment: {exc}", None
+
+    record = {
+        "reason": reason,
+        "moderator": bot.user.id,
+        "duration_minutes": duration_minutes if punishment_type != "kick" else 0,
+        "timestamp": now_iso(),
+        "escalated": False,
+        "note": note,
+        "user_msg": user_message_text,
+        "target_name": get_user_display_name(member),
+        "type": punishment_type if punishment_type in {"warn", "timeout", "ban", "kick"} else "warn",
+        "active": punishment_type in {"ban", "timeout"},
+    }
+    case_record = await bot.data_manager.add_punishment(str(member.id), record, persist=False)
+    bot.data_manager.config.setdefault("stats", {})["total_issued"] = bot.data_manager.config.get("stats", {}).get("total_issued", 0) + 1
+    bot.data_manager.mark_config_dirty()
+    await bot.data_manager.save_all()
+
+    try:
+        dm_embed = make_embed(
+            "Moderation Action Issued",
+            f"> {user_message_text}",
+            kind="danger",
+            scope=SCOPE_MODERATION,
+            guild=guild,
+            thumbnail=guild.icon.url if guild.icon else None,
+        )
+        dm_embed.add_field(name="Reason", value=format_reason_value(reason, limit=1000), inline=False)
+        if punishment_type == "timeout" and duration_minutes > 0:
+            dm_embed.add_field(name="Duration", value=format_duration(duration_minutes), inline=True)
+            expires = discord.utils.format_dt(discord.utils.utcnow() + get_valid_duration(duration_minutes), "R")
+            dm_embed.add_field(name="Expires", value=expires, inline=True)
+        elif punishment_type == "ban":
+            dm_embed.add_field(name="Duration", value="Ban", inline=True)
+        dm_embed.add_field(
+            name="Automated Detection Notice",
+            value="> This action was taken by automated image recognition, which can make mistakes. If this was an error, press **Appeal Punishment** below and staff will review it.",
+            inline=False,
+        )
+        await member.send(embed=dm_embed, view=build_appeal_view(guild.id, case_record["case_id"]))
+    except Exception:
+        pass
+
+    status = punishment_type.title()
+    if punishment_type == "warn":
+        status = "Warning"
+    elif punishment_type == "timeout":
+        status = f"Timeout ({format_duration(duration_minutes)})"
+    return True, f"Applied {status} automatically", case_record
+
+
+async def run_image_filter(message: discord.Message) -> bool:
+    if not message.guild or message.author.bot or not message.attachments:
+        return False
+    if not isinstance(message.author, discord.Member):
+        return False
+    settings = get_image_filter_settings()
+    if not settings["enabled"] or not settings["entries"]:
+        return False
+    native_settings = get_native_automod_settings(bot.data_manager.config)
+    if is_native_automod_exempt(message.author, message.channel.id, native_settings):
+        return False
+
+    matched_entry = None
+    matched_attachment = None
+    matched_distance = 0
+    for attachment in message.attachments:
+        content_type = attachment.content_type or ""
+        if not content_type.startswith("image/") or attachment.size > IMAGE_FILTER_MAX_BYTES:
+            continue
+        try:
+            data = await attachment.read()
+        except Exception:
+            continue
+        hash_hex = hash_image_bytes(data)
+        if not hash_hex:
+            continue
+        entry, distance = match_banned_image(hash_hex, settings["entries"])
+        if entry:
+            matched_entry, matched_attachment, matched_distance = entry, attachment, distance
+            break
+    if not matched_entry:
+        return False
+
+    deleted = False
+    if settings["delete_message"]:
+        try:
+            await message.delete()
+            deleted = True
+        except Exception:
+            pass
+
+    case_record = None
+    action_summary = "Message deleted" if deleted else "Detection logged"
+    if settings["punish"]:
+        applied, punish_summary, case_record = await apply_image_filter_punishment(
+            message.guild,
+            message.author,
+            entry_label=matched_entry["label"],
+            punishment_type=settings["punishment_type"],
+            duration_minutes=settings["duration_minutes"],
+        )
+        if applied:
+            action_summary = punish_summary
+
+    if settings["log_detections"]:
+        embed = make_action_log_embed(
+            "Banned Image Detected",
+            "A posted image matched an entry on the banned image list.",
+            guild=message.guild,
+            kind="warning",
+            scope=SCOPE_MODERATION,
+            actor=format_user_ref(message.author),
+            target=f"{message.channel.mention} (`{message.channel.id}`)",
+            reason=f"Matched: {matched_entry['label']}",
+            duration=action_summary,
+            expires="N/A",
+            notes=[
+                f"Attachment: {matched_attachment.filename}",
+                f"Match Distance: {matched_distance}/{IMAGE_HASH_DISTANCE_THRESHOLD}",
+                f"Message Deleted: {'Yes' if deleted else 'No'}",
+            ],
+            thumbnail=message.author.display_avatar.url,
+        )
+        view = None
+        if case_record:
+            from .case_panel import build_case_link_view
+            view = build_case_link_view(case_record["case_id"])
+        await send_automod_log(message.guild, embed, view=view)
+    return True
+
+
 async def apply_native_automod_escalation(
     guild: discord.Guild,
     member: discord.Member,
@@ -1478,6 +1746,138 @@ class AutoModImmunityView(discord.ui.View):
         await interaction.response.edit_message(embed=build_automod_dashboard_embed(interaction.guild), view=AutoModDashboardView())
 
 
+def build_image_filters_embed(guild: discord.Guild) -> discord.Embed:
+    settings = get_image_filter_settings()
+    if settings["punish"]:
+        punishment_label = settings["punishment_type"].title()
+        if settings["punishment_type"] == "timeout":
+            punishment_label = f"Timeout ({format_duration(settings['duration_minutes'])})"
+    else:
+        punishment_label = "Off"
+    embed = make_embed(
+        "Image Filters",
+        "> Posted images are fingerprinted and compared against the banned image list; near-copies are caught too."
+        "\n> Add images with the **Ban Image** right-click option on any message.",
+        kind="warning",
+        scope=SCOPE_MODERATION,
+        guild=guild,
+    )
+    embed.add_field(name="Status", value="Enabled" if settings["enabled"] else "Disabled", inline=True)
+    embed.add_field(name="Delete Message", value="On" if settings["delete_message"] else "Off", inline=True)
+    embed.add_field(name="Log Detections", value="On" if settings["log_detections"] else "Off", inline=True)
+    embed.add_field(name="Auto Punish", value=punishment_label, inline=True)
+    embed.add_field(name="Banned Images", value=f"{len(settings['entries'])}/{IMAGE_FILTER_MAX_ENTRIES}", inline=True)
+    if settings["entries"]:
+        preview = [f"- {entry['label']} (`{entry['hash'][:8]}`)" for entry in settings["entries"][:10]]
+        if len(settings["entries"]) > 10:
+            preview.append(f"- …and {len(settings['entries']) - 10} more")
+        embed.add_field(name="Entries", value="\n".join(preview), inline=False)
+    return embed
+
+
+class ImageFilterPunishmentSelect(discord.ui.Select):
+    def __init__(self):
+        settings = get_image_filter_settings()
+        options = [
+            discord.SelectOption(label=label, value=value, default=settings["punish"] and value == settings["punishment_type"])
+            for value, label in AUTOMOD_PUNISHMENT_OPTIONS
+        ]
+        super().__init__(placeholder="Auto-punishment type (when Auto Punish is on)...", min_values=1, max_values=1, options=options, row=0)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        settings = get_image_filter_settings()
+        settings["punishment_type"] = self.values[0]
+        store_image_filter_settings(settings)
+        await bot.data_manager.save_config()
+        await interaction.response.edit_message(embed=build_image_filters_embed(interaction.guild), view=ImageFiltersView())
+
+
+class ImageFilterRemoveSelect(discord.ui.Select):
+    def __init__(self):
+        settings = get_image_filter_settings()
+        options = [
+            discord.SelectOption(label=entry["label"], value=entry["hash"], description=f"Hash {entry['hash'][:12]}")
+            for entry in settings["entries"][:25]
+        ]
+        if not options:
+            options = [discord.SelectOption(label="No banned images", value="none")]
+        super().__init__(placeholder="Remove a banned image...", min_values=1, max_values=1, options=options, row=1, disabled=not settings["entries"])
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if self.values[0] == "none":
+            await interaction.response.defer()
+            return
+        settings = get_image_filter_settings()
+        settings["entries"] = [entry for entry in settings["entries"] if entry["hash"] != self.values[0]]
+        store_image_filter_settings(settings)
+        await bot.data_manager.save_config()
+        await interaction.response.edit_message(embed=build_image_filters_embed(interaction.guild), view=ImageFiltersView())
+
+
+class ImageFilterDurationModal(discord.ui.Modal, title="Timeout Duration"):
+    duration_input = discord.ui.TextInput(label="Timeout minutes", placeholder="60", max_length=6)
+
+    def __init__(self):
+        super().__init__()
+        self.duration_input.default = str(get_image_filter_settings()["duration_minutes"])
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        digits = "".join(ch for ch in self.duration_input.value if ch.isdigit())
+        if not digits:
+            await respond_with_error(interaction, "The duration must be a number of minutes.", scope=SCOPE_MODERATION)
+            return
+        settings = get_image_filter_settings()
+        settings["duration_minutes"] = max(1, min(40320, int(digits)))
+        store_image_filter_settings(settings)
+        await bot.data_manager.save_config()
+        await interaction.response.edit_message(embed=build_image_filters_embed(interaction.guild), view=ImageFiltersView())
+
+
+class ImageFiltersView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=180)
+        self.add_item(ImageFilterPunishmentSelect())
+        self.add_item(ImageFilterRemoveSelect())
+        settings = get_image_filter_settings()
+        self.toggle_enabled.label = f"Filters: {'On' if settings['enabled'] else 'Off'}"
+        self.toggle_enabled.style = discord.ButtonStyle.success if settings["enabled"] else discord.ButtonStyle.secondary
+        self.toggle_delete.label = f"Delete: {'On' if settings['delete_message'] else 'Off'}"
+        self.toggle_log.label = f"Log: {'On' if settings['log_detections'] else 'Off'}"
+        self.toggle_punish.label = f"Auto Punish: {'On' if settings['punish'] else 'Off'}"
+        self.toggle_punish.style = discord.ButtonStyle.danger if settings["punish"] else discord.ButtonStyle.secondary
+
+    async def _toggle(self, interaction: discord.Interaction, key: str) -> None:
+        settings = get_image_filter_settings()
+        settings[key] = not settings[key]
+        store_image_filter_settings(settings)
+        await bot.data_manager.save_config()
+        await interaction.response.edit_message(embed=build_image_filters_embed(interaction.guild), view=ImageFiltersView())
+
+    @discord.ui.button(label="Filters", style=discord.ButtonStyle.secondary, row=2)
+    async def toggle_enabled(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await self._toggle(interaction, "enabled")
+
+    @discord.ui.button(label="Delete", style=discord.ButtonStyle.secondary, row=2)
+    async def toggle_delete(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await self._toggle(interaction, "delete_message")
+
+    @discord.ui.button(label="Log", style=discord.ButtonStyle.secondary, row=2)
+    async def toggle_log(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await self._toggle(interaction, "log_detections")
+
+    @discord.ui.button(label="Auto Punish", style=discord.ButtonStyle.secondary, row=2)
+    async def toggle_punish(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await self._toggle(interaction, "punish")
+
+    @discord.ui.button(label="Timeout Duration", style=discord.ButtonStyle.primary, row=3)
+    async def set_duration(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.send_modal(ImageFilterDurationModal())
+
+    @discord.ui.button(label="Back", style=discord.ButtonStyle.secondary, row=3)
+    async def back(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.edit_message(embed=build_automod_dashboard_embed(interaction.guild), view=AutoModDashboardView())
+
+
 class AutoModDashboardView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=180)
@@ -1495,6 +1895,10 @@ class AutoModDashboardView(discord.ui.View):
         await interaction.response.edit_message(embed=build_automod_bridge_embed(interaction.guild), view=AutoModBridgeSettingsView())
 
     # ── Row 1 · Filtering & routing ──────────────────────────────────────
+    @discord.ui.button(label="Image Filters", style=discord.ButtonStyle.secondary, row=1)
+    async def image_filters(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.edit_message(embed=build_image_filters_embed(interaction.guild), view=ImageFiltersView())
+
     @discord.ui.button(label="Immunity", style=discord.ButtonStyle.secondary, row=1)
     async def immunity(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await interaction.response.edit_message(embed=build_automod_immunity_embed(interaction.guild), view=AutoModImmunityView())
@@ -1822,6 +2226,70 @@ async def automod_cmd(interaction: discord.Interaction):
         await respond_with_error(interaction, "The AutoMod panel is currently turned off in feature settings.", scope=SCOPE_MODERATION)
         return
     await interaction.response.send_message(embed=build_automod_dashboard_embed(interaction.guild), view=AutoModDashboardView(), ephemeral=True)
+
+
+@tree.context_menu(name="Ban Image")
+@app_commands.default_permissions(manage_messages=True)
+async def ban_image_context(interaction: discord.Interaction, message: discord.Message):
+    if not is_staff(interaction):
+        await respond_with_error(interaction, "You do not have permission to ban images.", scope=SCOPE_MODERATION)
+        return
+
+    await interaction.response.defer(ephemeral=True)
+    settings = get_image_filter_settings()
+    added = []
+    duplicates = 0
+    for attachment in message.attachments:
+        content_type = attachment.content_type or ""
+        if not content_type.startswith("image/") or attachment.size > IMAGE_FILTER_MAX_BYTES:
+            continue
+        if len(settings["entries"]) >= IMAGE_FILTER_MAX_ENTRIES:
+            break
+        try:
+            data = await attachment.read()
+        except Exception:
+            continue
+        hash_hex = hash_image_bytes(data)
+        if not hash_hex:
+            continue
+        existing, _ = match_banned_image(hash_hex, settings["entries"])
+        if existing:
+            duplicates += 1
+            continue
+        settings["entries"].append({
+            "hash": hash_hex,
+            "label": truncate_text(attachment.filename, 80),
+            "added_by": interaction.user.id,
+            "added_at": now_iso(),
+        })
+        added.append(attachment.filename)
+
+    if not added:
+        detail = "That message has no image attachments the filter can fingerprint."
+        if duplicates:
+            detail = "Every image on that message is already on the banned list."
+        await interaction.followup.send(embed=make_embed("Nothing Added", f"> {detail}", kind="muted", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
+        return
+
+    store_image_filter_settings(settings)
+    await bot.data_manager.save_config()
+
+    lines = [f"- {name}" for name in added]
+    if duplicates:
+        lines.append(f"- {duplicates} image(s) skipped (already banned)")
+    if not settings["enabled"]:
+        lines.append("")
+        lines.append("The image filter is currently **disabled** — enable it under `/automod` → Image Filters.")
+    await interaction.followup.send(
+        embed=make_embed(
+            "Images Banned",
+            "> Added to the banned image list. Re-uploads and near-copies will now be detected.\n" + "\n".join(lines),
+            kind="success",
+            scope=SCOPE_MODERATION,
+            guild=interaction.guild,
+        ),
+        ephemeral=True,
+    )
 
 
 class AutoModCog(commands.Cog):
