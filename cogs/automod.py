@@ -13,7 +13,7 @@ import unicodedata
 import warnings
 from collections import OrderedDict
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, Optional, List, Union, Tuple
 
@@ -811,6 +811,8 @@ IMAGE_SCAM_CONFIDENCE_THRESHOLD = 85
 IMAGE_OCR_MAX_DIMENSION = 1600
 IMAGE_OCR_MIN_LINE_CONFIDENCE = 0.45
 IMAGE_CONTENT_CACHE_LIMIT = 256
+IMAGE_MESSAGE_CLEANUP_CONCURRENCY = 4
+IMAGE_MESSAGE_CLEANUP_HOURS = 24
 _image_filter_work_semaphore = asyncio.Semaphore(2)
 _image_ocr_lock = threading.Lock()
 _image_ocr_engine = None
@@ -869,6 +871,7 @@ class ImageFilterResult:
     matched: bool = False
     message_deleted: bool = False
     block_downstream: bool = False
+    cleanup_deleted: int = 0
 
 
 @dataclass(frozen=True)
@@ -979,6 +982,113 @@ def store_image_filter_settings(settings: dict) -> dict:
     bot.data_manager.config["image_filters"] = normalized
     bot.data_manager.mark_config_dirty()
     return normalized
+
+
+async def _collect_image_cleanup_channels(guild: discord.Guild, after: datetime) -> List:
+    channels = []
+    seen = set()
+
+    def add_channel(channel) -> None:
+        channel_id = getattr(channel, "id", None)
+        if channel_id is not None and channel_id not in seen:
+            seen.add(channel_id)
+            channels.append(channel)
+
+    text_channels = list(getattr(guild, "text_channels", []) or [])
+    message_channels = [
+        *text_channels,
+        *list(getattr(guild, "voice_channels", []) or []),
+        *list(getattr(guild, "stage_channels", []) or []),
+    ]
+    for channel in message_channels:
+        add_channel(channel)
+    for thread in list(getattr(guild, "threads", []) or []):
+        add_channel(thread)
+
+    parents = [*text_channels, *list(getattr(guild, "forums", []) or [])]
+    for parent in parents:
+        variants = ({},)
+        if isinstance(parent, discord.TextChannel):
+            variants = ({}, {"private": True, "joined": True})
+        for kwargs in variants:
+            try:
+                async for thread in parent.archived_threads(limit=None, **kwargs):
+                    archived_at = getattr(thread, "archive_timestamp", None)
+                    if archived_at and archived_at < after:
+                        break
+                    add_channel(thread)
+            except (discord.Forbidden, discord.HTTPException, AttributeError):
+                continue
+    return channels
+
+
+async def _delete_recent_user_messages_in_channel(
+    channel,
+    bot_member: discord.Member,
+    user_id: int,
+    after: datetime,
+    exclude_message_id: Optional[int] = None,
+) -> int:
+    try:
+        permissions = channel.permissions_for(bot_member)
+        if not permissions.view_channel or not permissions.read_message_history or not permissions.manage_messages:
+            return 0
+    except AttributeError:
+        return 0
+
+    messages = []
+    try:
+        async for candidate in channel.history(limit=None, after=after, oldest_first=False):
+            if candidate.author.id == user_id and candidate.id != exclude_message_id:
+                messages.append(candidate)
+    except (discord.Forbidden, discord.HTTPException, AttributeError):
+        return 0
+
+    deleted = 0
+    for index in range(0, len(messages), 100):
+        chunk = messages[index:index + 100]
+        try:
+            await channel.delete_messages(chunk, reason="24-hour cleanup after trusted image-filter detection")
+            deleted += len(chunk)
+        except (discord.Forbidden, discord.HTTPException, discord.NotFound):
+            for candidate in chunk:
+                try:
+                    await candidate.delete()
+                    deleted += 1
+                except (discord.Forbidden, discord.HTTPException, discord.NotFound):
+                    continue
+    return deleted
+
+
+async def delete_flagged_user_messages_for_24_hours(
+    guild: discord.Guild,
+    user_id: int,
+    *,
+    reference: Optional[datetime] = None,
+    exclude_message_id: Optional[int] = None,
+) -> int:
+    reference = reference or discord.utils.utcnow()
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=timezone.utc)
+    after = reference.astimezone(timezone.utc) - timedelta(hours=IMAGE_MESSAGE_CLEANUP_HOURS)
+    channels = await _collect_image_cleanup_channels(guild, after)
+    bot_member = getattr(guild, "me", None)
+    if bot_member is None:
+        return 0
+    semaphore = asyncio.Semaphore(IMAGE_MESSAGE_CLEANUP_CONCURRENCY)
+
+    async def guarded_cleanup(channel) -> int:
+        async with semaphore:
+            return await _delete_recent_user_messages_in_channel(
+                channel,
+                bot_member,
+                user_id,
+                after,
+                exclude_message_id,
+            )
+
+    results = await asyncio.gather(*(guarded_cleanup(channel) for channel in channels), return_exceptions=True)
+    return sum(result for result in results if isinstance(result, int))
 
 
 def _difference_hash(image, *, vertical: bool = False) -> str:
@@ -1734,6 +1844,7 @@ async def send_image_filter_user_dm(
     duration_minutes: int = 0,
     case_record: Optional[dict] = None,
     server_url: Optional[str] = None,
+    cleanup_deleted: int = 0,
     destination=None,
 ) -> bool:
     destination = destination or await prepare_image_filter_dm_destination(member)
@@ -1773,6 +1884,15 @@ async def send_image_filter_user_dm(
         else:
             review_text += " If this was an error, contact the moderation team for review."
         dm_embed.add_field(name="Automated Detection Notice", value=f"> {review_text}", inline=False)
+        if cleanup_deleted:
+            dm_embed.add_field(
+                name="24-Hour Message Cleanup",
+                value=(
+                    f"> {cleanup_deleted} earlier message{'s' if cleanup_deleted != 1 else ''} "
+                    "from the preceding 24 hours were removed."
+                ),
+                inline=False,
+            )
         if case_record:
             view = build_appeal_view(guild.id, case_record["case_id"], server_url=server_url)
         else:
@@ -1784,6 +1904,27 @@ async def send_image_filter_user_dm(
         return False
 
 
+async def send_image_filter_enforcement_correction(
+    guild: discord.Guild,
+    member: discord.Member,
+    *,
+    destination=None,
+) -> None:
+    if destination is None:
+        return
+    try:
+        embed = make_embed(
+            "Moderation Action Update",
+            "> The automatic punishment described in the previous message could not be applied. The detection was logged for staff review.",
+            kind="warning",
+            scope=SCOPE_MODERATION,
+            guild=guild,
+        )
+        await destination.send(embed=embed)
+    except Exception as exc:
+        logger.info("Image-filter correction DM could not be delivered to user %s: %s", member.id, exc)
+
+
 async def apply_image_filter_punishment(
     guild: discord.Guild,
     member: discord.Member,
@@ -1791,6 +1932,7 @@ async def apply_image_filter_punishment(
     entry_label: str,
     punishment_type: str,
     duration_minutes: int,
+    cleanup_deleted: int = 0,
 ) -> Tuple[bool, str, Optional[dict], bool]:
     if member.id == guild.owner_id or member.guild_permissions.administrator:
         return False, "Safety check skipped auto-punishment for the server owner or an administrator.", None, False
@@ -1821,6 +1963,7 @@ async def apply_image_filter_punishment(
         "\n".join([
             "Image recognition automod triggered.",
             f"Matched Entry: {entry_label}",
+            f"24-Hour Cleanup: {cleanup_deleted} earlier message(s) removed",
         ]),
         1000,
     )
@@ -1829,18 +1972,6 @@ async def apply_image_filter_punishment(
         duration_minutes = 60
     if punishment_type == "ban":
         duration_minutes = -1
-
-    try:
-        if punishment_type == "timeout":
-            await member.timeout(get_valid_duration(duration_minutes), reason=f"{reason} (By {bot.user})")
-        elif punishment_type == "ban":
-            await guild.ban(member, reason=f"{reason} (By {bot.user})", delete_message_days=0)
-        elif punishment_type == "kick":
-            await guild.kick(member, reason=f"{reason} (By {bot.user})")
-    except discord.Forbidden:
-        return False, "The bot does not have permission to apply the configured punishment.", None, False
-    except Exception as exc:
-        return False, f"Failed to apply punishment: {exc}", None, False
 
     record = {
         "reason": reason,
@@ -1854,21 +1985,61 @@ async def apply_image_filter_punishment(
         "type": punishment_type if punishment_type in {"warn", "timeout", "ban", "kick"} else "warn",
         "active": punishment_type == "ban",
     }
-    case_record = await bot.data_manager.add_punishment(str(member.id), record)
+    removal_action = punishment_type in {"kick", "ban"}
+    prepared_record = None
+    if removal_action:
+        prepare_record = getattr(bot.data_manager, "prepare_punishment_record", None)
+        if callable(prepare_record):
+            prepared_record = prepare_record(record)
+
+    dm_sent = False
+    if removal_action:
+        dm_sent = await send_image_filter_user_dm(
+            guild,
+            member,
+            entry_label=entry_label,
+            action_label=action_label,
+            punishment_type=punishment_type,
+            duration_minutes=duration_minutes,
+            case_record=prepared_record,
+            server_url=server_url,
+            cleanup_deleted=cleanup_deleted,
+            destination=dm_destination,
+        )
+
+    try:
+        if punishment_type == "timeout":
+            await member.timeout(get_valid_duration(duration_minutes), reason=f"{reason} (By {bot.user})")
+        elif punishment_type == "ban":
+            await guild.ban(member, reason=f"{reason} (By {bot.user})", delete_message_days=0)
+        elif punishment_type == "kick":
+            await guild.kick(member, reason=f"{reason} (By {bot.user})")
+    except discord.Forbidden:
+        if dm_sent:
+            await send_image_filter_enforcement_correction(guild, member, destination=dm_destination)
+        return False, "The bot does not have permission to apply the configured punishment.", None, dm_sent
+    except Exception as exc:
+        if dm_sent:
+            await send_image_filter_enforcement_correction(guild, member, destination=dm_destination)
+        return False, f"Failed to apply punishment: {exc}", None, dm_sent
+
+    case_record = await bot.data_manager.add_punishment(str(member.id), prepared_record or record)
     bot.data_manager.config.setdefault("stats", {})["total_issued"] = bot.data_manager.config.get("stats", {}).get("total_issued", 0) + 1
     await bot.data_manager.save_config()
 
-    dm_sent = await send_image_filter_user_dm(
-        guild,
-        member,
-        entry_label=entry_label,
-        action_label=action_label,
-        punishment_type=punishment_type,
-        duration_minutes=duration_minutes,
-        case_record=case_record,
-        server_url=server_url,
-        destination=dm_destination,
-    )
+    if not dm_sent:
+        dm_sent = await send_image_filter_user_dm(
+            guild,
+            member,
+            entry_label=entry_label,
+            action_label=action_label,
+            punishment_type=punishment_type,
+            duration_minutes=duration_minutes,
+            case_record=case_record,
+            server_url=server_url,
+            cleanup_deleted=cleanup_deleted,
+            destination=dm_destination,
+        )
 
     status = punishment_type.title()
     if punishment_type == "warn":
@@ -1982,10 +2153,22 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
         except Exception as exc:
             logger.warning("Image filter could not delete matched message %s: %s", message.id, exc)
 
+    cleanup_deleted = 0
+    if trusted_match:
+        try:
+            cleanup_deleted = await delete_flagged_user_messages_for_24_hours(
+                message.guild,
+                message.author.id,
+                exclude_message_id=message.id,
+            )
+        except Exception as exc:
+            logger.warning("Image filter could not complete the 24-hour cleanup for user %s: %s", message.author.id, exc)
+
     result = ImageFilterResult(
         matched=True,
         message_deleted=deleted,
         block_downstream=bool(settings["delete_message"] and (trusted_match or inspection_incomplete)),
+        cleanup_deleted=cleanup_deleted,
     )
 
     case_record = None
@@ -2011,6 +2194,7 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
                     entry_label=matched.entry["label"],
                     punishment_type=settings["punishment_type"],
                     duration_minutes=settings["duration_minutes"],
+                    cleanup_deleted=cleanup_deleted,
                 )
             except Exception as exc:
                 applied = False
@@ -2032,6 +2216,7 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
             entry_label=matched.entry["label"],
             action_label="Image Removed" if deleted else "Image Flagged",
             server_url=server_url,
+            cleanup_deleted=cleanup_deleted,
         )
 
     if settings["log_detections"] or failure_requires_log:
@@ -2097,6 +2282,12 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
                 embed.add_field(name="Submitted Image", value=f"[Open image]({flagged_url})", inline=True)
             embed.add_field(name="Result", value=action_summary, inline=True)
             embed.add_field(name="DM", value="Delivered" if dm_sent else "Failed or closed", inline=True)
+            if trusted_match:
+                embed.add_field(
+                    name="24-Hour Cleanup",
+                    value=f"{cleanup_deleted} earlier message{'s' if cleanup_deleted != 1 else ''} removed",
+                    inline=True,
+                )
             jump_url = str(getattr(message, "jump_url", "") or "")
             message_value = f"[{message.id}]({jump_url})" if jump_url.startswith(("http://", "https://")) else f"`{message.id}`"
             embed.add_field(name="Message ID", value=message_value, inline=True)
@@ -2814,7 +3005,7 @@ def build_image_filters_embed(guild: discord.Guild) -> discord.Embed:
         punishment_label = "Off"
     embed = make_embed(
         "Image Filters",
-        "> Detects banned images and high-confidence MrBeast crypto scams locally. No external recognition API is used.",
+        "> Detects banned images and high-confidence MrBeast crypto scams locally. Trusted detections also remove the sender's messages from the preceding 24 hours. No external recognition API is used.",
         kind="warning",
         scope=SCOPE_MODERATION,
         guild=guild,
