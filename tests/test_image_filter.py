@@ -1,4 +1,5 @@
 from collections import defaultdict, deque
+from datetime import datetime, timedelta, timezone
 import io
 from types import SimpleNamespace
 import unittest
@@ -13,6 +14,7 @@ from cogs.automod import (
     IMAGE_FILTER_MAX_ENTRIES,
     IMAGE_FILTER_MAX_FALSE_POSITIVES,
     IMAGE_FILTER_MAX_PIXELS,
+    IMAGE_MESSAGE_CLEANUP_HOURS,
     IMAGE_HASH_DISTANCE_THRESHOLD,
     IMAGE_OCR_MIN_LINE_CONFIDENCE,
     IMAGE_SCAM_CONFIDENCE_THRESHOLD,
@@ -35,6 +37,7 @@ from cogs.automod import (
     ban_image_context,
     detect_mrbeast_crypto_scam,
     decode_image_feedback_fingerprint,
+    delete_flagged_user_messages_for_24_hours,
     encode_image_feedback_fingerprint,
     fingerprint_image_bytes,
     hash_distance,
@@ -383,6 +386,89 @@ class ImageFingerprintTests(unittest.TestCase):
         self.assertIn("animated", inspection.reason)
 
 
+class ImageMessageCleanupTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cleanup_scans_preceding_24_hours_and_bulk_deletes_target_messages(self):
+        reference = datetime(2026, 7, 15, 12, 30, tzinfo=timezone.utc)
+        requested_after = []
+        target_messages = [
+            SimpleNamespace(id=message_id, author=SimpleNamespace(id=42), delete=AsyncMock())
+            for message_id in range(1, 103)
+        ]
+        other_message = SimpleNamespace(id=500, author=SimpleNamespace(id=99), delete=AsyncMock())
+
+        async def history(*, limit, after, oldest_first):
+            requested_after.append(after)
+            self.assertIsNone(limit)
+            self.assertFalse(oldest_first)
+            for candidate in [*target_messages, other_message]:
+                yield candidate
+
+        async def archived_threads(**kwargs):
+            if False:
+                yield None
+
+        permissions = SimpleNamespace(
+            view_channel=True,
+            read_message_history=True,
+            manage_messages=True,
+        )
+        channel = SimpleNamespace(
+            id=100,
+            permissions_for=Mock(return_value=permissions),
+            history=history,
+            archived_threads=archived_threads,
+            delete_messages=AsyncMock(),
+        )
+        guild = SimpleNamespace(
+            me=SimpleNamespace(id=777),
+            text_channels=[channel],
+            threads=[],
+            forums=[],
+        )
+
+        deleted = await delete_flagged_user_messages_for_24_hours(
+            guild,
+            42,
+            reference=reference,
+            exclude_message_id=1,
+        )
+
+        self.assertEqual(requested_after, [reference - timedelta(hours=IMAGE_MESSAGE_CLEANUP_HOURS)])
+        self.assertEqual(deleted, 101)
+        self.assertEqual(channel.delete_messages.await_count, 2)
+        deleted_ids = [
+            candidate.id
+            for awaited in channel.delete_messages.await_args_list
+            for candidate in awaited.args[0]
+        ]
+        self.assertEqual(deleted_ids, list(range(2, 103)))
+        self.assertTrue(all(
+            awaited.kwargs["reason"] == "24-hour cleanup after trusted image-filter detection"
+            for awaited in channel.delete_messages.await_args_list
+        ))
+
+    async def test_cleanup_skips_channels_without_manage_messages(self):
+        channel = SimpleNamespace(
+            id=100,
+            permissions_for=Mock(return_value=SimpleNamespace(
+                view_channel=True,
+                read_message_history=True,
+                manage_messages=False,
+            )),
+            history=Mock(),
+            archived_threads=Mock(side_effect=AttributeError),
+        )
+        guild = SimpleNamespace(
+            me=SimpleNamespace(id=777),
+            text_channels=[channel],
+            threads=[],
+            forums=[],
+        )
+
+        self.assertEqual(await delete_flagged_user_messages_for_24_hours(guild, 42), 0)
+        channel.history.assert_not_called()
+
+
 class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
     @staticmethod
     def _member(member_id=42):
@@ -422,13 +508,22 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
             },
         })
         message = SimpleNamespace(
+            id=98,
             guild=SimpleNamespace(),
             author=self._member(),
             channel=SimpleNamespace(id=123),
             attachments=attachments,
         )
 
-        with patch.object(automod_module, "bot", SimpleNamespace(data_manager=data_manager)):
+        with patch.object(automod_module, "bot", SimpleNamespace(data_manager=data_manager)), patch.object(
+            automod_module,
+            "delete_flagged_user_messages_for_24_hours",
+            AsyncMock(return_value=0),
+        ), patch.object(
+            automod_module,
+            "send_image_filter_user_dm",
+            AsyncMock(return_value=True),
+        ):
             result = await run_image_filter(message)
 
         self.assertTrue(result.matched)
@@ -459,11 +554,16 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
             automod_module,
             "inspect_image_attachment",
             AsyncMock(),
-        ) as inspect_attachment:
+        ) as inspect_attachment, patch.object(
+            automod_module,
+            "delete_flagged_user_messages_for_24_hours",
+            AsyncMock(),
+        ) as cleanup:
             result = await run_image_filter(message)
 
         self.assertFalse(result.matched)
         inspect_attachment.assert_not_awaited()
+        cleanup.assert_not_awaited()
 
     async def test_trusted_detection_dms_user_when_auto_punish_is_off(self):
         fingerprint = fingerprint_image_bytes(_png_bytes((30, 60, 90)))
@@ -504,6 +604,10 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
             AsyncMock(return_value="https://discord.com/channels/1"),
         ), patch.object(
             automod_module,
+            "delete_flagged_user_messages_for_24_hours",
+            AsyncMock(return_value=4),
+        ) as cleanup, patch.object(
+            automod_module,
             "send_image_filter_user_dm",
             AsyncMock(return_value=True),
         ) as send_dm:
@@ -511,10 +615,13 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(result.matched)
         self.assertTrue(result.message_deleted)
+        self.assertEqual(result.cleanup_deleted, 4)
         message.delete.assert_awaited_once()
+        cleanup.assert_awaited_once_with(message.guild, 42, exclude_message_id=102)
         send_dm.assert_awaited_once()
         self.assertEqual(send_dm.await_args.kwargs["action_label"], "Image Removed")
         self.assertEqual(send_dm.await_args.kwargs["entry_label"], "blocked image")
+        self.assertEqual(send_dm.await_args.kwargs["cleanup_deleted"], 4)
 
     async def test_staff_learned_false_positive_bypasses_future_enforcement(self):
         fingerprint = fingerprint_image_bytes(_png_bytes((30, 60, 90)))
@@ -550,6 +657,10 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
             AsyncMock(return_value=inspection),
         ), patch.object(automod_module, "send_image_filter_user_dm", AsyncMock()) as send_dm, patch.object(
             automod_module,
+            "delete_flagged_user_messages_for_24_hours",
+            AsyncMock(),
+        ) as cleanup, patch.object(
+            automod_module,
             "apply_image_filter_punishment",
             AsyncMock(),
         ) as punish, patch.object(automod_module, "send_automod_log", AsyncMock()) as send_log:
@@ -558,6 +669,7 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.matched)
         message.delete.assert_not_awaited()
         send_dm.assert_not_awaited()
+        cleanup.assert_not_awaited()
         punish.assert_not_awaited()
         send_log.assert_not_awaited()
 
@@ -617,6 +729,10 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
             AsyncMock(return_value=inspection),
         ) as inspect_attachment, patch.object(
             automod_module,
+            "delete_flagged_user_messages_for_24_hours",
+            AsyncMock(return_value=6),
+        ) as cleanup, patch.object(
+            automod_module,
             "make_action_log_embed",
             side_effect=_action_log_embed,
         ), patch.object(
@@ -644,10 +760,13 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.matched)
         self.assertTrue(result.message_deleted)
         self.assertTrue(result.block_downstream)
+        self.assertEqual(result.cleanup_deleted, 6)
         inspect_attachment.assert_awaited_once_with(attachment, analyze_content=True)
+        cleanup.assert_awaited_once_with(message.guild, 42, exclude_message_id=101)
         message.delete.assert_awaited_once()
         punish.assert_awaited_once()
         self.assertEqual(punish.await_args.kwargs["entry_label"], "MrBeast crypto scam")
+        self.assertEqual(punish.await_args.kwargs["cleanup_deleted"], 6)
         logged_embed = send_log.await_args.args[1]
         fields = {field.name: field.value for field in logged_embed.fields}
         self.assertEqual(logged_embed.title, "[Case #55] Banned Image Detected")
@@ -660,6 +779,7 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertRegex(fields["Matched Reference"], r"• \d+% visual similarity$")
         self.assertEqual(fields["Submitted Image"], "[Open image](https://example.invalid/daily-scam.png)")
         self.assertEqual(fields["DM"], "Delivered")
+        self.assertEqual(fields["24-Hour Cleanup"], "6 earlier messages removed")
         self.assertEqual(logged_embed.thumbnail.url, "https://example.invalid/reference.png")
         self.assertEqual(logged_embed.image.url, "https://example.invalid/daily-scam.png")
         self.assertEqual(len(send_log.await_args.kwargs["view"].children), 2)
@@ -709,6 +829,10 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
             side_effect=_action_log_embed,
         ), patch.object(
             automod_module,
+            "delete_flagged_user_messages_for_24_hours",
+            AsyncMock(),
+        ) as cleanup, patch.object(
+            automod_module,
             "send_automod_log",
             AsyncMock(),
         ) as send_log, patch.object(
@@ -722,6 +846,7 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.message_deleted)
         self.assertFalse(result.block_downstream)
         message.delete.assert_not_awaited()
+        cleanup.assert_not_awaited()
         punish.assert_not_awaited()
         send_log.assert_awaited_once()
         logged_embed = send_log.await_args.args[1]
@@ -831,7 +956,15 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 guild.kick.assert_not_awaited()
 
     async def test_automatic_kick_sends_dm_with_disclaimer_and_return_link(self):
-        dm_channel = SimpleNamespace(send=AsyncMock())
+        delivery_order = []
+
+        async def record_dm(**kwargs):
+            delivery_order.append("dm")
+
+        async def record_kick(*args, **kwargs):
+            delivery_order.append("kick")
+
+        dm_channel = SimpleNamespace(send=AsyncMock(side_effect=record_dm))
         member = SimpleNamespace(
             id=42,
             display_name="Member",
@@ -847,11 +980,12 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
             owner_id=999,
             me=SimpleNamespace(top_role=10),
             icon=None,
-            kick=AsyncMock(),
+            kick=AsyncMock(side_effect=record_kick),
             ban=AsyncMock(),
         )
         data_manager = SimpleNamespace(
             config={"stats": {}},
+            prepare_punishment_record=Mock(side_effect=lambda record: {**record, "case_id": 55}),
             add_punishment=AsyncMock(return_value={"case_id": 55}),
             save_config=AsyncMock(),
         )
@@ -887,12 +1021,14 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 entry_label="MrBeast crypto scam",
                 punishment_type="kick",
                 duration_minutes=60,
+                cleanup_deleted=3,
             )
 
         self.assertTrue(applied)
         self.assertEqual(summary, "Applied Kick automatically")
         self.assertEqual(case_record["case_id"], 55)
         self.assertTrue(dm_sent)
+        self.assertEqual(delivery_order, ["dm", "kick"])
         member.create_dm.assert_awaited_once()
         guild.kick.assert_awaited_once()
         dm_channel.send.assert_awaited_once()
@@ -900,8 +1036,72 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         notice = next(field.value for field in sent_embed.fields if field.name == "Automated Detection Notice")
         self.assertIn("handled automatically", notice)
         self.assertIn("False positives are possible", notice)
+        cleanup = next(field.value for field in sent_embed.fields if field.name == "24-Hour Message Cleanup")
+        self.assertIn("3 earlier messages", cleanup)
+        self.assertIn("preceding 24 hours", cleanup)
         build_view.assert_called_once_with(123, 55, server_url="https://discord.gg/return")
         self.assertIs(dm_channel.send.await_args.kwargs["view"], return_view)
+
+    async def test_failed_removal_sends_correction_after_pre_punishment_dm(self):
+        delivery_order = []
+
+        async def record_dm(**kwargs):
+            delivery_order.append("punishment_dm" if "view" in kwargs else "correction_dm")
+
+        async def fail_kick(*args, **kwargs):
+            delivery_order.append("kick")
+            raise RuntimeError("kick failed")
+
+        dm_channel = SimpleNamespace(send=AsyncMock(side_effect=record_dm))
+        member = SimpleNamespace(
+            id=42,
+            display_name="Member",
+            guild_permissions=SimpleNamespace(administrator=False),
+            roles=[],
+            top_role=1,
+            create_dm=AsyncMock(return_value=dm_channel),
+        )
+        guild = SimpleNamespace(
+            id=123,
+            name="Test Server",
+            owner_id=999,
+            me=SimpleNamespace(top_role=10),
+            icon=None,
+            kick=AsyncMock(side_effect=fail_kick),
+        )
+        data_manager = SimpleNamespace(
+            config={"stats": {}},
+            prepare_punishment_record=Mock(side_effect=lambda record: {**record, "case_id": 55}),
+            add_punishment=AsyncMock(),
+        )
+
+        with patch.object(
+            automod_module,
+            "bot",
+            SimpleNamespace(user=SimpleNamespace(id=777), data_manager=data_manager),
+        ), patch.object(automod_module, "is_staff_member", return_value=False), patch.object(
+            automod_module,
+            "resolve_image_filter_server_url",
+            AsyncMock(return_value="https://discord.gg/return"),
+        ), patch.object(automod_module, "build_appeal_view", return_value=object()), patch.object(
+            automod_module,
+            "make_embed",
+            side_effect=lambda title, description=None, **kwargs: discord.Embed(title=title, description=description),
+        ):
+            applied, summary, case_record, dm_sent = await apply_image_filter_punishment(
+                guild,
+                member,
+                entry_label="MrBeast crypto scam",
+                punishment_type="kick",
+                duration_minutes=60,
+            )
+
+        self.assertFalse(applied)
+        self.assertIn("kick failed", summary)
+        self.assertIsNone(case_record)
+        self.assertTrue(dm_sent)
+        self.assertEqual(delivery_order, ["punishment_dm", "kick", "correction_dm"])
+        data_manager.add_punishment.assert_not_awaited()
 
 
 class ImageFilterUiTests(unittest.IsolatedAsyncioTestCase):
