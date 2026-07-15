@@ -1,14 +1,17 @@
 """Native AutoMod follow-up engine, policy views, report flows, and /automod command."""
 
 import asyncio
+import base64
 import hashlib
 import io
 import logging
 import re
+import struct
 import threading
 import time
 import unicodedata
 import warnings
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -790,6 +793,7 @@ def is_native_automod_exempt(member: discord.Member, channel_id: Optional[int], 
 # bounded so a compressed image cannot consume unbounded memory.
 
 IMAGE_FILTER_MAX_ENTRIES = 100
+IMAGE_FILTER_MAX_FALSE_POSITIVES = 250
 IMAGE_FILTER_MAX_BYTES = 8 * 1024 * 1024
 IMAGE_FILTER_MAX_TOTAL_BYTES = 16 * 1024 * 1024
 IMAGE_FILTER_MAX_ATTACHMENTS = 10
@@ -806,10 +810,14 @@ IMAGE_STRONG_MIN_DETAIL = 10
 IMAGE_SCAM_CONFIDENCE_THRESHOLD = 85
 IMAGE_OCR_MAX_DIMENSION = 1600
 IMAGE_OCR_MIN_LINE_CONFIDENCE = 0.45
+IMAGE_CONTENT_CACHE_LIMIT = 256
 _image_filter_work_semaphore = asyncio.Semaphore(2)
 _image_ocr_lock = threading.Lock()
 _image_ocr_engine = None
 _image_ocr_unavailable = False
+_image_content_cache = OrderedDict()
+_image_content_cache_lock = threading.Lock()
+_image_feedback_struct = struct.Struct(">32sQQ3sIB")
 
 MRBEAST_ANCHOR = "mrbeast"
 CRYPTO_SCAM_TERMS = (
@@ -836,7 +844,9 @@ SCAM_DESTINATION_TERMS = (
 class ScamContentMatch:
     matched: bool = False
     confidence: int = 0
+    category: str = ""
     signals: Tuple[str, ...] = ()
+    matched_terms: Tuple[str, ...] = ()
     text: str = ""
 
 
@@ -892,12 +902,9 @@ def _coerce_image_filter_int(value, default: int, *, minimum: int = 0, maximum: 
     return normalized
 
 
-def normalize_image_filter_settings(current: dict) -> dict:
-    if not isinstance(current, dict):
-        current = {}
-    raw_entries = current.get("entries", [])
+def _normalize_image_fingerprint_entries(raw_entries, *, limit: int, default_label: str) -> List[dict]:
     if not isinstance(raw_entries, list):
-        raw_entries = []
+        return []
     entries = []
     seen = set()
     for item in raw_entries:
@@ -927,10 +934,26 @@ def normalize_image_filter_settings(current: dict) -> dict:
             "detail": detail,
             "sha256": sha256_hex,
             "url": source_url,
-            "label": truncate_text(str(item.get("label", "Banned image") or "Banned image"), 80),
+            "label": truncate_text(str(item.get("label", default_label) or default_label), 80),
             "added_by": _coerce_image_filter_int(item.get("added_by"), 0),
             "added_at": str(item.get("added_at", "") or ""),
         })
+    return entries[:limit]
+
+
+def normalize_image_filter_settings(current: dict) -> dict:
+    if not isinstance(current, dict):
+        current = {}
+    entries = _normalize_image_fingerprint_entries(
+        current.get("entries", []),
+        limit=IMAGE_FILTER_MAX_ENTRIES,
+        default_label="Banned image",
+    )
+    false_positives = _normalize_image_fingerprint_entries(
+        current.get("false_positives", []),
+        limit=IMAGE_FILTER_MAX_FALSE_POSITIVES,
+        default_label="Staff-confirmed false positive",
+    )
     punishment_type = str(current.get("punishment_type", "warn") or "warn").lower()
     if punishment_type not in {"warn", "timeout", "kick", "ban"}:
         punishment_type = "warn"
@@ -942,7 +965,8 @@ def normalize_image_filter_settings(current: dict) -> dict:
         "punish": bool(current.get("punish", False)),
         "punishment_type": punishment_type,
         "duration_minutes": _coerce_image_filter_int(current.get("duration_minutes"), 60, minimum=1, maximum=40320),
-        "entries": entries[:IMAGE_FILTER_MAX_ENTRIES],
+        "entries": entries,
+        "false_positives": false_positives,
     }
 
 
@@ -1022,16 +1046,16 @@ def _has_mrbeast_anchor(text: str) -> bool:
     return False
 
 
-def _has_scam_term(text: str, terms: Tuple[str, ...]) -> bool:
+def _find_scam_term(text: str, terms: Tuple[str, ...]) -> Optional[str]:
     for term in terms:
         if term.startswith(".") or term in {"http", "www"}:
             if term in text:
-                return True
+                return term
             continue
         pattern = r"(?<![a-z0-9])" + re.escape(term).replace(r"\ ", r"\s+") + r"(?![a-z0-9])"
         if re.search(pattern, text):
-            return True
-    return False
+            return term
+    return None
 
 
 def detect_mrbeast_crypto_scam(lines: Iterable[Union[str, Tuple[str, float]]]) -> ScamContentMatch:
@@ -1060,11 +1084,16 @@ def detect_mrbeast_crypto_scam(lines: Iterable[Union[str, Tuple[str, float]]]) -
         return ScamContentMatch()
 
     anchor = _has_mrbeast_anchor(text)
-    crypto = _has_scam_term(text, CRYPTO_SCAM_TERMS)
-    solicitation = _has_scam_term(text, SCAM_SOLICITATION_TERMS)
-    returns = _has_scam_term(text, SCAM_RETURN_TERMS)
-    giveaway = _has_scam_term(text, SCAM_GIVEAWAY_TERMS)
-    destination = _has_scam_term(text, SCAM_DESTINATION_TERMS)
+    crypto_term = _find_scam_term(text, CRYPTO_SCAM_TERMS)
+    solicitation_term = _find_scam_term(text, SCAM_SOLICITATION_TERMS)
+    return_term = _find_scam_term(text, SCAM_RETURN_TERMS)
+    giveaway_term = _find_scam_term(text, SCAM_GIVEAWAY_TERMS)
+    destination_term = _find_scam_term(text, SCAM_DESTINATION_TERMS)
+    crypto = crypto_term is not None
+    solicitation = solicitation_term is not None
+    returns = return_term is not None
+    giveaway = giveaway_term is not None
+    destination = destination_term is not None
     structural_match = anchor and crypto and solicitation and (returns or (giveaway and destination))
 
     score = (
@@ -1091,9 +1120,27 @@ def detect_mrbeast_crypto_scam(lines: Iterable[Union[str, Tuple[str, float]]]) -
     return ScamContentMatch(
         matched=structural_match and confidence >= IMAGE_SCAM_CONFIDENCE_THRESHOLD,
         confidence=confidence,
+        category="MrBeast crypto scam" if structural_match else "",
         signals=signals,
+        matched_terms=tuple(dict.fromkeys(
+            term for term in (
+                "MrBeast" if anchor else None,
+                crypto_term,
+                solicitation_term,
+                return_term,
+                giveaway_term,
+                destination_term,
+            )
+            if term
+        )),
         text=truncate_text(text, 1000),
     )
+
+
+def detect_image_content(lines: Iterable[Union[str, Tuple[str, float]]]) -> ScamContentMatch:
+    captured_lines = tuple(lines)
+    matches = (detect_mrbeast_crypto_scam(captured_lines),)
+    return max(matches, key=lambda match: (match.matched, match.confidence))
 
 
 def _run_local_image_ocr(image) -> Tuple[Tuple[str, float], ...]:
@@ -1138,12 +1185,23 @@ def _run_local_image_ocr(image) -> Tuple[Tuple[str, float], ...]:
     )
 
 
-def _analyze_image_scam_content(image) -> ScamContentMatch:
+def _analyze_image_content(image, sha256_hex: str) -> ScamContentMatch:
     from PIL import Image
 
+    with _image_content_cache_lock:
+        cached = _image_content_cache.get(sha256_hex)
+        if cached is not None:
+            _image_content_cache.move_to_end(sha256_hex)
+            return cached
     sample = image.convert("RGB")
     sample.thumbnail((IMAGE_OCR_MAX_DIMENSION, IMAGE_OCR_MAX_DIMENSION), Image.Resampling.LANCZOS)
-    return detect_mrbeast_crypto_scam(_run_local_image_ocr(sample))
+    match = detect_image_content(_run_local_image_ocr(sample))
+    with _image_content_cache_lock:
+        _image_content_cache[sha256_hex] = match
+        _image_content_cache.move_to_end(sha256_hex)
+        while len(_image_content_cache) > IMAGE_CONTENT_CACHE_LIMIT:
+            _image_content_cache.popitem(last=False)
+    return match
 
 
 def _fingerprint_sample(image, *, width: int, height: int, sha256_hex: str) -> dict:
@@ -1193,7 +1251,10 @@ def inspect_image_bytes(data: bytes, *, analyze_content: bool = False) -> ImageI
                 sha256_hex = hashlib.sha256(data).hexdigest()
                 content_match = ScamContentMatch()
                 if analyze_content:
-                    content_match = _analyze_image_scam_content(ImageOps.exif_transpose(source.copy()))
+                    content_match = _analyze_image_content(
+                        ImageOps.exif_transpose(source.copy()),
+                        sha256_hex,
+                    )
                 source.draft("RGB", (64, 64))
                 sample = _thumbnail_with_orientation(source, orientation)
                 fingerprint = _fingerprint_sample(sample, width=width, height=height, sha256_hex=sha256_hex)
@@ -1314,11 +1375,106 @@ def image_match_similarity(match: ImageMatch) -> int:
         return 100
     if match.quality == "content":
         return max(0, min(100, match.confidence))
+    if match.quality == "reference":
+        return max(0, min(100, match.confidence))
     if match.quality == "legacy":
         return max(0, min(100, round((1 - min(64, match.distance) / 64) * 100)))
     hash_similarity = 1 - min(128, match.distance + match.vertical_distance) / 128
     color_similarity = 1 - min(765, match.color_distance) / 765
     return max(0, min(100, round((hash_similarity * 0.8 + color_similarity * 0.2) * 100)))
+
+
+def find_closest_image_reference(fingerprint: dict, entries: List[dict]) -> ImageMatch:
+    hash_hex = _normalize_hex(fingerprint.get("hash"), 16) if isinstance(fingerprint, dict) else ""
+    if not hash_hex:
+        return ImageMatch()
+
+    best = ImageMatch()
+    best_similarity = -1
+    for entry in entries:
+        reference_url = str(entry.get("url", "") or "").strip() if isinstance(entry, dict) else ""
+        entry_hash = _normalize_hex(entry.get("hash"), 16) if isinstance(entry, dict) else ""
+        if not reference_url.startswith(("http://", "https://")) or not entry_hash:
+            continue
+        direct_match = match_banned_image(fingerprint, [entry])
+        if direct_match.matched:
+            candidate = direct_match
+            similarity = image_match_similarity(candidate)
+        else:
+            distance = hash_distance(hash_hex, entry_hash)
+            vertical_hash = _normalize_hex(fingerprint.get("vhash"), 16)
+            entry_vertical_hash = _normalize_hex(entry.get("vhash"), 16)
+            color_hash = _normalize_hex(fingerprint.get("color"), 6)
+            entry_color_hash = _normalize_hex(entry.get("color"), 6)
+            vertical_distance = (
+                hash_distance(vertical_hash, entry_vertical_hash)
+                if vertical_hash and entry_vertical_hash
+                else 64
+            )
+            color_distance = (
+                _color_distance(color_hash, entry_color_hash)
+                if color_hash and entry_color_hash
+                else 765
+            )
+            hash_similarity = 1 - min(128, distance + vertical_distance) / 128
+            color_similarity = 1 - min(765, color_distance) / 765
+            aspect = _coerce_image_filter_int(fingerprint.get("aspect"), 0)
+            entry_aspect = _coerce_image_filter_int(entry.get("aspect"), 0)
+            aspect_penalty = min(20, abs(aspect - entry_aspect) / 25) if aspect and entry_aspect else 10
+            similarity = max(0, min(100, round(hash_similarity * 80 + color_similarity * 20 - aspect_penalty)))
+            candidate = ImageMatch(
+                entry=entry,
+                distance=distance,
+                vertical_distance=vertical_distance,
+                color_distance=color_distance,
+                quality="reference",
+                confidence=similarity,
+            )
+        if similarity > best_similarity:
+            best = candidate
+            best_similarity = similarity
+    return best
+
+
+def encode_image_feedback_fingerprint(fingerprint: dict) -> str:
+    if not isinstance(fingerprint, dict):
+        return ""
+    sha256_hex = _normalize_hex(fingerprint.get("sha256"), 64)
+    hash_hex = _normalize_hex(fingerprint.get("hash"), 16)
+    vertical_hash = _normalize_hex(fingerprint.get("vhash"), 16)
+    color_hash = _normalize_hex(fingerprint.get("color"), 6)
+    aspect = _coerce_image_filter_int(fingerprint.get("aspect"), 0, maximum=100_000)
+    detail = _coerce_image_filter_int(fingerprint.get("detail"), 0, maximum=255)
+    if not all((sha256_hex, hash_hex, vertical_hash, color_hash, aspect)):
+        return ""
+    packed = _image_feedback_struct.pack(
+        bytes.fromhex(sha256_hex),
+        int(hash_hex, 16),
+        int(vertical_hash, 16),
+        bytes.fromhex(color_hash),
+        aspect,
+        detail,
+    )
+    return base64.urlsafe_b64encode(packed).decode("ascii").rstrip("=")
+
+
+def decode_image_feedback_fingerprint(payload: str) -> Optional[dict]:
+    try:
+        padding = "=" * (-len(payload) % 4)
+        packed = base64.urlsafe_b64decode(payload + padding)
+        sha256_bytes, hash_value, vertical_value, color_bytes, aspect, detail = _image_feedback_struct.unpack(packed)
+    except (ValueError, TypeError, struct.error):
+        return None
+    if aspect <= 0 or aspect > 100_000:
+        return None
+    return {
+        "sha256": sha256_bytes.hex(),
+        "hash": f"{hash_value:016x}",
+        "vhash": f"{vertical_value:016x}",
+        "color": color_bytes.hex(),
+        "aspect": aspect,
+        "detail": detail,
+    }
 
 
 def _attachment_looks_like_image(attachment) -> bool:
@@ -1365,6 +1521,110 @@ async def inspect_image_attachment(attachment, *, analyze_content: bool = False)
         if len(data) > IMAGE_FILTER_MAX_BYTES:
             return ImageInspection(complete=False, reason="attachment exceeds the byte limit")
         return await asyncio.to_thread(inspect_image_bytes, data, analyze_content=analyze_content)
+
+
+class ImageFalsePositiveButton(
+    discord.ui.DynamicItem[discord.ui.Button],
+    template=r"imagefp:false_positive:(?P<payload>[A-Za-z0-9_-]{75})",
+):
+    def __init__(self, fingerprint: dict) -> None:
+        payload = encode_image_feedback_fingerprint(fingerprint)
+        if not payload:
+            raise ValueError("A complete image fingerprint is required")
+        super().__init__(
+            discord.ui.Button(
+                label="Mark False Positive",
+                style=discord.ButtonStyle.secondary,
+                custom_id=f"imagefp:false_positive:{payload}",
+            )
+        )
+        self.fingerprint = fingerprint
+
+    @classmethod
+    async def from_custom_id(
+        cls,
+        interaction: discord.Interaction,
+        item: discord.ui.Button,
+        match: "re.Match[str]",
+        /,
+    ) -> "ImageFalsePositiveButton":
+        fingerprint = decode_image_feedback_fingerprint(match["payload"])
+        if fingerprint is None:
+            raise ValueError("Invalid image feedback fingerprint")
+        return cls(fingerprint)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if not is_staff(interaction):
+            await respond_with_error(
+                interaction,
+                "You do not have permission to review image-filter detections.",
+                scope=SCOPE_MODERATION,
+            )
+            return
+        if interaction.guild is None:
+            await respond_with_error(interaction, "This review action must be used in a server.", scope=SCOPE_MODERATION)
+            return
+
+        settings = get_image_filter_settings()
+        learned_match = match_banned_image(self.fingerprint, settings["false_positives"])
+        if learned_match.quality in {"exact", "strong"}:
+            await interaction.response.send_message(
+                embed=make_confirmation_embed(
+                    "Already Learned",
+                    "> Matching copies are already excluded from automatic image enforcement.",
+                    scope=SCOPE_MODERATION,
+                    guild=interaction.guild,
+                ),
+                ephemeral=True,
+            )
+            return
+
+        settings["false_positives"] = settings["false_positives"][-(IMAGE_FILTER_MAX_FALSE_POSITIVES - 1):]
+        settings["false_positives"].append({
+            **self.fingerprint,
+            "label": "Staff-confirmed false positive",
+            "added_by": interaction.user.id,
+            "added_at": now_iso(),
+        })
+        store_image_filter_settings(settings)
+        await bot.data_manager.save_config()
+
+        source_message = interaction.message
+        if source_message is None or not source_message.embeds:
+            await interaction.response.send_message(
+                embed=make_confirmation_embed(
+                    "False Positive Learned",
+                    "> Matching copies will now bypass automatic image enforcement. Any current punishment must still be reviewed from its case.",
+                    scope=SCOPE_MODERATION,
+                    guild=interaction.guild,
+                ),
+                ephemeral=True,
+            )
+            return
+
+        embed = discord.Embed.from_dict(source_message.embeds[0].to_dict())
+        upsert_embed_field(
+            embed,
+            "Review",
+            "False positive learned locally • matching copies will bypass future enforcement. Review the current case separately if a punishment was issued.",
+            inline=False,
+        )
+        view = discord.ui.View.from_message(source_message, timeout=None)
+        for child in view.children:
+            if getattr(child, "custom_id", "") == self.item.custom_id:
+                child.disabled = True
+                child.label = "False Positive Learned"
+        await interaction.response.edit_message(embed=embed, view=view)
+
+
+def build_image_filter_log_view(case_id: Optional[int], fingerprint: Optional[dict]) -> Optional[discord.ui.View]:
+    view = discord.ui.View(timeout=None)
+    if case_id:
+        from .case_panel import OpenCaseButton
+        view.add_item(OpenCaseButton(case_id))
+    if fingerprint and encode_image_feedback_fingerprint(fingerprint):
+        view.add_item(ImageFalsePositiveButton(fingerprint))
+    return view if view.children else None
 
 
 async def log_image_filter_inspection_failure(message: discord.Message) -> None:
@@ -1449,6 +1709,81 @@ async def resolve_image_filter_server_url(guild: discord.Guild, punishment_type:
     return None
 
 
+async def prepare_image_filter_dm_destination(member: discord.Member):
+    try:
+        return await member.create_dm()
+    except Exception:
+        return member if callable(getattr(member, "send", None)) else None
+
+
+def build_image_filter_return_view(server_url: Optional[str]) -> Optional[discord.ui.View]:
+    if not server_url:
+        return None
+    view = discord.ui.View()
+    view.add_item(discord.ui.Button(label="Return to Server", style=discord.ButtonStyle.link, url=server_url))
+    return view
+
+
+async def send_image_filter_user_dm(
+    guild: discord.Guild,
+    member: discord.Member,
+    *,
+    entry_label: str,
+    action_label: str,
+    punishment_type: Optional[str] = None,
+    duration_minutes: int = 0,
+    case_record: Optional[dict] = None,
+    server_url: Optional[str] = None,
+    destination=None,
+) -> bool:
+    destination = destination or await prepare_image_filter_dm_destination(member)
+    if destination is None:
+        return False
+    server_name = str(getattr(guild, "name", "this server") or "this server")
+    if punishment_type:
+        description = f"You have been **{action_label}** in **{server_name}**."
+    elif action_label == "Image Removed":
+        description = f"An image you posted in **{server_name}** was automatically detected and removed."
+    else:
+        description = f"An image you posted in **{server_name}** was automatically flagged."
+    reason = f"Banned image posted [{entry_label}]"
+    try:
+        icon = getattr(guild, "icon", None)
+        dm_embed = make_embed(
+            "Moderation Action Issued",
+            f"> {description}",
+            kind="danger",
+            scope=SCOPE_MODERATION,
+            guild=guild,
+            thumbnail=icon.url if icon else None,
+        )
+        dm_embed.add_field(name="Reason", value=format_reason_value(reason, limit=1000), inline=False)
+        if punishment_type == "timeout" and duration_minutes > 0:
+            dm_embed.add_field(name="Duration", value=format_duration(duration_minutes), inline=True)
+            expires = discord.utils.format_dt(discord.utils.utcnow() + get_valid_duration(duration_minutes), "R")
+            dm_embed.add_field(name="Expires", value=expires, inline=True)
+        elif punishment_type == "ban":
+            dm_embed.add_field(name="Duration", value="Ban", inline=True)
+        review_text = (
+            "This action was handled automatically by a local image detection system. "
+            "False positives are possible."
+        )
+        if case_record:
+            review_text += " If this was an error, press **Appeal Punishment** below and staff will review it."
+        else:
+            review_text += " If this was an error, contact the moderation team for review."
+        dm_embed.add_field(name="Automated Detection Notice", value=f"> {review_text}", inline=False)
+        if case_record:
+            view = build_appeal_view(guild.id, case_record["case_id"], server_url=server_url)
+        else:
+            view = build_image_filter_return_view(server_url)
+        await destination.send(embed=dm_embed, view=view)
+        return True
+    except Exception as exc:
+        logger.info("Image-filter DM could not be delivered to user %s: %s", member.id, exc)
+        return False
+
+
 async def apply_image_filter_punishment(
     guild: discord.Guild,
     member: discord.Member,
@@ -1456,20 +1791,21 @@ async def apply_image_filter_punishment(
     entry_label: str,
     punishment_type: str,
     duration_minutes: int,
-) -> Tuple[bool, str, Optional[dict]]:
+) -> Tuple[bool, str, Optional[dict], bool]:
     if member.id == guild.owner_id or member.guild_permissions.administrator:
-        return False, "Safety check skipped auto-punishment for the server owner or an administrator.", None
+        return False, "Safety check skipped auto-punishment for the server owner or an administrator.", None, False
     if punishment_type in {"timeout", "kick", "ban"}:
         bot_member = guild.me
         if bot_member is None or member.top_role >= bot_member.top_role:
-            return False, "Safety check skipped auto-punishment because the bot cannot manage this member.", None
+            return False, "Safety check skipped auto-punishment because the bot cannot manage this member.", None, False
     if is_staff_member(member, bot.data_manager.config):
-        return False, "Safety check skipped auto-punishment for a moderator.", None
+        return False, "Safety check skipped auto-punishment for a moderator.", None, False
     try:
         server_url = await resolve_image_filter_server_url(guild, punishment_type)
     except Exception as exc:
         logger.warning("Could not build an image-filter return link for guild %s: %s", guild.id, exc)
         server_url = None
+    dm_destination = await prepare_image_filter_dm_destination(member)
 
     reason = f"Banned image posted [{entry_label}]"
     if punishment_type == "ban":
@@ -1502,9 +1838,9 @@ async def apply_image_filter_punishment(
         elif punishment_type == "kick":
             await guild.kick(member, reason=f"{reason} (By {bot.user})")
     except discord.Forbidden:
-        return False, "The bot does not have permission to apply the configured punishment.", None
+        return False, "The bot does not have permission to apply the configured punishment.", None, False
     except Exception as exc:
-        return False, f"Failed to apply punishment: {exc}", None
+        return False, f"Failed to apply punishment: {exc}", None, False
 
     record = {
         "reason": reason,
@@ -1522,40 +1858,24 @@ async def apply_image_filter_punishment(
     bot.data_manager.config.setdefault("stats", {})["total_issued"] = bot.data_manager.config.get("stats", {}).get("total_issued", 0) + 1
     await bot.data_manager.save_config()
 
-    try:
-        dm_embed = make_embed(
-            "Moderation Action Issued",
-            f"> {user_message_text}",
-            kind="danger",
-            scope=SCOPE_MODERATION,
-            guild=guild,
-            thumbnail=guild.icon.url if guild.icon else None,
-        )
-        dm_embed.add_field(name="Reason", value=format_reason_value(reason, limit=1000), inline=False)
-        if punishment_type == "timeout" and duration_minutes > 0:
-            dm_embed.add_field(name="Duration", value=format_duration(duration_minutes), inline=True)
-            expires = discord.utils.format_dt(discord.utils.utcnow() + get_valid_duration(duration_minutes), "R")
-            dm_embed.add_field(name="Expires", value=expires, inline=True)
-        elif punishment_type == "ban":
-            dm_embed.add_field(name="Duration", value="Ban", inline=True)
-        dm_embed.add_field(
-            name="Automated Detection Notice",
-            value="> This was handled automatically by an image detection system. False positives are possible. If this was an error, press **Appeal Punishment** below and staff will review it.",
-            inline=False,
-        )
-        await member.send(
-            embed=dm_embed,
-            view=build_appeal_view(guild.id, case_record["case_id"], server_url=server_url),
-        )
-    except Exception:
-        pass
+    dm_sent = await send_image_filter_user_dm(
+        guild,
+        member,
+        entry_label=entry_label,
+        action_label=action_label,
+        punishment_type=punishment_type,
+        duration_minutes=duration_minutes,
+        case_record=case_record,
+        server_url=server_url,
+        destination=dm_destination,
+    )
 
     status = punishment_type.title()
     if punishment_type == "warn":
         status = "Warning"
     elif punishment_type == "timeout":
         status = f"Timeout ({format_duration(duration_minutes)})"
-    return True, f"Applied {status} automatically", case_record
+    return True, f"Applied {status} automatically", case_record, dm_sent
 
 
 async def run_image_filter(message: discord.Message) -> ImageFilterResult:
@@ -1573,6 +1893,7 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
         return ImageFilterResult()
 
     matched_attachment = None
+    matched_fingerprint = None
     matched = ImageMatch()
     quality_rank = {"exact": 0, "content": 1, "strong": 2, "fuzzy": 3, "legacy": 4, "none": 5}
     decoded_images = 0
@@ -1587,13 +1908,27 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
         if inspection.is_image:
             decoded_images += 1
 
+        learned_exception = next(
+            (
+                exception_match
+                for fingerprint in fingerprints
+                if (exception_match := match_banned_image(fingerprint, settings["false_positives"])).quality
+                in {"exact", "strong"}
+            ),
+            None,
+        )
+        if learned_exception is not None:
+            continue
+
         if inspection.content_match.matched:
-            attachment_url = str(getattr(attachment, "url", "") or "").strip()
+            content_label = inspection.content_match.category
+            if not content_label and {"MrBeast", "crypto"}.issubset(inspection.content_match.signals):
+                content_label = "MrBeast crypto scam"
             candidate = ImageMatch(
                 entry={
-                    "label": "MrBeast crypto scam",
-                    "url": attachment_url,
+                    "label": content_label or "Image content policy match",
                     "signals": inspection.content_match.signals,
+                    "matched_terms": inspection.content_match.matched_terms,
                     "ocr_text": inspection.content_match.text,
                 },
                 quality="content",
@@ -1608,6 +1943,7 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
             ):
                 matched = candidate
                 matched_attachment = attachment
+                matched_fingerprint = fingerprints[0] if fingerprints else None
 
         if not fingerprints:
             if matched.quality == "content" or decoded_images >= IMAGE_FILTER_MAX_ATTACHMENTS:
@@ -1618,6 +1954,7 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
             if candidate.matched and quality_rank[candidate.quality] < quality_rank[matched.quality]:
                 matched = candidate
                 matched_attachment = attachment
+                matched_fingerprint = fingerprint
             if matched.quality == "exact":
                 break
         if matched.quality in {"exact", "content"}:
@@ -1652,6 +1989,7 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
     )
 
     case_record = None
+    dm_sent = False
     action_summary = "Message deleted" if deleted else "Detection logged"
     failure_requires_log = not trusted_match or inspection_incomplete
     if inspection_incomplete and not trusted_match:
@@ -1667,7 +2005,7 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
             failure_requires_log = True
         else:
             try:
-                applied, punish_summary, case_record = await apply_image_filter_punishment(
+                applied, punish_summary, case_record, dm_sent = await apply_image_filter_punishment(
                     message.guild,
                     message.author,
                     entry_label=matched.entry["label"],
@@ -1678,35 +2016,93 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
                 applied = False
                 punish_summary = f"Auto-punish failed unexpectedly: {exc}"
                 case_record = None
+                dm_sent = False
             action_summary = punish_summary
             if not applied:
                 failure_requires_log = True
 
+    if trusted_match and not dm_sent:
+        try:
+            server_url = await resolve_image_filter_server_url(message.guild, "warn")
+        except Exception:
+            server_url = None
+        dm_sent = await send_image_filter_user_dm(
+            message.guild,
+            message.author,
+            entry_label=matched.entry["label"],
+            action_label="Image Removed" if deleted else "Image Flagged",
+            server_url=server_url,
+        )
+
     if settings["log_detections"] or failure_requires_log:
         try:
             flagged_url = str(getattr(matched_attachment, "url", "") or "").strip()
-            matched_url = str(matched.entry.get("url") or "").strip() or flagged_url
             matched_label = discord.utils.escape_markdown(str(matched.entry["label"]))
-            matched_value = f"[{matched_label}]({matched_url})" if matched_url.startswith(("http://", "https://")) else matched_label
-            embed = make_embed(
-                "Banned Image Detected",
-                f"> {format_user_ref(message.author)} posted a banned image in {message.channel.mention}.",
-                kind="warning",
-                scope=SCOPE_MODERATION,
+            reference_match = ImageMatch()
+            direct_reference_url = str(matched.entry.get("url") or "").strip()
+            if direct_reference_url.startswith(("http://", "https://")):
+                reference_match = matched
+            elif matched_fingerprint:
+                reference_match = find_closest_image_reference(matched_fingerprint, settings["entries"])
+            reference_entry = reference_match.entry or {}
+            reference_url = str(reference_entry.get("url") or "").strip()
+            reference_label = discord.utils.escape_markdown(str(reference_entry.get("label") or matched.entry["label"]))
+            reference_similarity = image_match_similarity(reference_match)
+
+            case_id = int(case_record.get("case_id", 0) or 0) if case_record else 0
+            case_label = ""
+            if case_record:
+                from .cases import add_punishment_record_log_fields, get_case_label
+                case_label = get_case_label(case_record)
+            title = f"[{case_label}] Banned Image Detected" if case_label else "Banned Image Detected"
+            system_user = getattr(bot, "user", None)
+            actor = format_user_ref(system_user) if getattr(system_user, "mention", None) else "Automated Image Detection"
+            embed = make_action_log_embed(
+                title,
+                "An automated image moderation action has been applied and logged.",
                 guild=message.guild,
+                kind="danger" if case_record else "warning",
+                scope=SCOPE_MODERATION,
+                actor=actor,
+                target=format_user_ref(message.author),
+                reason=case_record.get("reason") if case_record else f"Banned image posted [{matched_label}]",
+                thumbnail=reference_url if reference_url.startswith(("http://", "https://")) else None,
             )
-            embed.add_field(name="Matched", value=matched_value, inline=True)
-            embed.add_field(name="Similarity", value=f"{image_match_similarity(matched)}%", inline=True)
-            embed.add_field(name="Action", value=action_summary, inline=False)
+            if case_record:
+                add_punishment_record_log_fields(embed, case_record)
+            detector = (
+                "Local OCR + structural scam classifier"
+                if matched.quality == "content"
+                else "Perceptual image fingerprint"
+            )
+            detection_value = "\n".join([
+                f"Method: {detector}",
+                f"Confidence: {image_match_similarity(matched)}%",
+                f"Quality: {matched.quality.title()}",
+            ])
+            embed.add_field(name="Detection", value=detection_value, inline=False)
+            matched_terms = tuple(matched.entry.get("matched_terms", ()) or ())
+            if matched_terms:
+                term_value = ", ".join(
+                    f"`{discord.utils.escape_markdown(str(term)).replace('`', '')}`"
+                    for term in matched_terms
+                )
+                embed.add_field(name="Matched Words", value=truncate_text(term_value, 1000), inline=False)
+            if reference_url.startswith(("http://", "https://")):
+                reference_value = f"[{reference_label}]({reference_url}) • {reference_similarity}% visual similarity"
+            else:
+                reference_value = "No stored reference image • matched by the local content model"
+            embed.add_field(name="Matched Reference", value=reference_value, inline=False)
+            if flagged_url.startswith(("http://", "https://")):
+                embed.add_field(name="Submitted Image", value=f"[Open image]({flagged_url})", inline=True)
+            embed.add_field(name="Result", value=action_summary, inline=True)
+            embed.add_field(name="DM", value="Delivered" if dm_sent else "Failed or closed", inline=True)
             jump_url = str(getattr(message, "jump_url", "") or "")
             message_value = f"[{message.id}]({jump_url})" if jump_url.startswith(("http://", "https://")) else f"`{message.id}`"
             embed.add_field(name="Message ID", value=message_value, inline=True)
             if flagged_url.startswith(("http://", "https://")):
                 embed.set_image(url=flagged_url)
-            view = None
-            if case_record:
-                from .case_panel import build_case_link_view
-                view = build_case_link_view(case_record["case_id"])
+            view = build_image_filter_log_view(case_id or None, matched_fingerprint)
             await send_automod_log(message.guild, embed, view=view)
         except Exception as exc:
             logger.warning("Image filter could not send the detection log for message %s: %s", message.id, exc)
@@ -2433,6 +2829,7 @@ def build_image_filters_embed(guild: discord.Guild) -> discord.Embed:
     embed.add_field(name="Log Detections", value="On" if settings["log_detections"] else "Off", inline=True)
     embed.add_field(name="Auto Punish", value=punishment_label, inline=True)
     embed.add_field(name="Banned Images", value=f"{len(settings['entries'])}/{IMAGE_FILTER_MAX_ENTRIES}", inline=True)
+    embed.add_field(name="Learned Exceptions", value=str(len(settings["false_positives"])), inline=True)
     if settings["entries"]:
         preview = [f"- {entry['label']}" for entry in settings["entries"][:10]]
         if len(settings["entries"]) > 10:
