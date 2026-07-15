@@ -699,8 +699,8 @@ async def respond_with_error(interaction: discord.Interaction, message: str, *, 
         await interaction.followup.send(embed=embed, ephemeral=True)
 
 
-def is_staff_member(member: discord.Member) -> bool:
-    conf = bot.data_manager.config
+def is_staff_member(member: discord.Member, config: Optional[dict] = None) -> bool:
+    conf = config if isinstance(config, dict) else bot.data_manager.config
     allowed = {
         conf.get("role_mod", DEFAULT_ROLE_MOD),
         conf.get("role_admin", DEFAULT_ROLE_ADMIN),

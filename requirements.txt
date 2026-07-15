@@ -3,3 +3,5 @@ aiohttp~=3.13
 aiosqlite~=0.22
 python-dotenv~=1.0
 Pillow~=11.0
+rapidocr~=3.9.1
+onnxruntime~=1.27.0

@@ -13,6 +13,8 @@ from cogs.automod import (
     IMAGE_FILTER_MAX_ENTRIES,
     IMAGE_FILTER_MAX_PIXELS,
     IMAGE_HASH_DISTANCE_THRESHOLD,
+    IMAGE_OCR_MIN_LINE_CONFIDENCE,
+    IMAGE_SCAM_CONFIDENCE_THRESHOLD,
     AutoModBridgeSettingsView,
     AutoModChannelSettingsView,
     AutoModDashboardView,
@@ -22,11 +24,14 @@ from cogs.automod import (
     AutoModSectionSelect,
     ImageFilterRemoveSelect,
     ImageFilterResult,
+    ImageInspection,
     ImageFiltersView,
     ImageMatch,
+    ScamContentMatch,
     apply_image_filter_punishment,
     automod_cmd,
     ban_image_context,
+    detect_mrbeast_crypto_scam,
     fingerprint_image_bytes,
     hash_distance,
     hash_image_bytes,
@@ -35,8 +40,10 @@ from cogs.automod import (
     inspect_image_bytes,
     match_banned_image,
     normalize_image_filter_settings,
+    resolve_image_filter_server_url,
     run_image_filter,
 )
+from cogs.roles import build_appeal_view
 
 
 def _entry(hash_hex: str, label: str = "test") -> dict:
@@ -70,6 +77,7 @@ class ImageFilterSettingsTests(unittest.TestCase):
         self.assertFalse(settings["enabled"])
         self.assertTrue(settings["delete_message"])
         self.assertTrue(settings["log_detections"])
+        self.assertTrue(settings["scan_scam_content"])
         self.assertFalse(settings["punish"])
         self.assertEqual(settings["punishment_type"], "warn")
         self.assertEqual(settings["duration_minutes"], 60)
@@ -137,6 +145,66 @@ class ImageFilterSettingsTests(unittest.TestCase):
         entries = [{"hash": f"{index + 1:016x}"} for index in range(IMAGE_FILTER_MAX_ENTRIES + 10)]
         settings = normalize_image_filter_settings({"entries": entries})
         self.assertEqual(len(settings["entries"]), IMAGE_FILTER_MAX_ENTRIES)
+
+
+class ImageContentDetectionTests(unittest.TestCase):
+    def test_detects_changed_mrbeast_crypto_scam_copy(self):
+        variants = (
+            "MR BEA5T CRYPTO GIVEAWAY SEND 0.1 BTC TO THIS WALLET ADDRESS AND RECEIVE DOUBLE BACK",
+            "MrBeast Ethereum promotion. Claim your reward now and scan the QR code.",
+            "MRBEAST BITCOIN AIRDROP - deposit BTC at the contribution address to get 2x back",
+        )
+        for text in variants:
+            with self.subTest(text=text):
+                match = detect_mrbeast_crypto_scam([(text, 0.9)])
+                self.assertTrue(match.matched)
+                self.assertGreaterEqual(match.confidence, IMAGE_SCAM_CONFIDENCE_THRESHOLD)
+                self.assertIn("MrBeast", match.signals)
+                self.assertIn("crypto", match.signals)
+                self.assertIn("solicitation", match.signals)
+
+    def test_legitimate_or_unrelated_images_do_not_match(self):
+        safe_examples = (
+            "MrBeast explains Bitcoin in a new video",
+            "MrBeast gave away Bitcoin to subscribers",
+            "MrBeast giveaway claim your prize",
+            "Crypto giveaway: send BTC to this wallet and receive double back",
+            "MrBeast official channel announcement",
+        )
+        for text in safe_examples:
+            with self.subTest(text=text):
+                self.assertFalse(detect_mrbeast_crypto_scam([text]).matched)
+
+    def test_low_confidence_ocr_text_cannot_trigger(self):
+        match = detect_mrbeast_crypto_scam([(
+            "MRBEAST CRYPTO GIVEAWAY SEND BTC TO WALLET AND RECEIVE DOUBLE BACK",
+            IMAGE_OCR_MIN_LINE_CONFIDENCE - 0.01,
+        )])
+        self.assertFalse(match.matched)
+        self.assertEqual(match.confidence, 0)
+
+    def test_image_inspection_runs_local_ocr_only_when_requested(self):
+        data = _png_bytes((30, 60, 90))
+        ocr_lines = ((
+            "MRBEAST CRYPTO GIVEAWAY SEND BTC TO WALLET AND RECEIVE DOUBLE BACK",
+            0.95,
+        ),)
+        with patch.object(automod_module, "_run_local_image_ocr", return_value=ocr_lines) as run_ocr:
+            normal = inspect_image_bytes(data)
+            analyzed = inspect_image_bytes(data, analyze_content=True)
+
+        self.assertFalse(normal.content_match.matched)
+        self.assertTrue(analyzed.content_match.matched)
+        run_ocr.assert_called_once()
+
+    def test_high_confidence_content_match_can_auto_punish(self):
+        match = ImageMatch(
+            entry={"label": "MrBeast crypto scam"},
+            quality="content",
+            confidence=IMAGE_SCAM_CONFIDENCE_THRESHOLD,
+        )
+        self.assertTrue(image_match_allows_punishment("kick", match))
+        self.assertEqual(image_match_similarity(match), IMAGE_SCAM_CONFIDENCE_THRESHOLD)
 
 
 class ImageFingerprintTests(unittest.TestCase):
@@ -291,6 +359,7 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         member.id = member_id
         member.bot = False
         member.roles = []
+        member.guild_permissions = SimpleNamespace(administrator=False)
         member.mention = f"<@{member_id}>"
         member.display_name = "Member"
         member.display_avatar = SimpleNamespace(url="https://example.invalid/avatar.png")
@@ -335,6 +404,112 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.message_deleted)
         self.assertFalse(result.block_downstream)
         attachments[-1].read.assert_awaited_once()
+
+    async def test_moderators_are_immune_before_image_inspection(self):
+        member = self._member()
+        member.roles = [SimpleNamespace(id=900)]
+        data_manager = SimpleNamespace(config={
+            "role_mod": 900,
+            "immunity_list": [],
+            "image_filters": {
+                "enabled": True,
+                "scan_scam_content": True,
+                "entries": [],
+            },
+        })
+        message = SimpleNamespace(
+            guild=SimpleNamespace(),
+            author=member,
+            channel=SimpleNamespace(id=123),
+            attachments=[SimpleNamespace(size=100, filename="image.png")],
+        )
+
+        with patch.object(automod_module, "bot", SimpleNamespace(data_manager=data_manager)), patch.object(
+            automod_module,
+            "inspect_image_attachment",
+            AsyncMock(),
+        ) as inspect_attachment:
+            result = await run_image_filter(message)
+
+        self.assertFalse(result.matched)
+        inspect_attachment.assert_not_awaited()
+
+    async def test_content_detection_works_without_banned_image_entries(self):
+        attachment = SimpleNamespace(
+            filename="daily-scam.png",
+            content_type="image/png",
+            url="https://example.invalid/daily-scam.png",
+            size=100,
+        )
+        data_manager = SimpleNamespace(config={
+            "immunity_list": [],
+            "image_filters": {
+                "enabled": True,
+                "delete_message": True,
+                "log_detections": True,
+                "scan_scam_content": True,
+                "punish": True,
+                "punishment_type": "kick",
+                "entries": [],
+            },
+        })
+        message = SimpleNamespace(
+            id=101,
+            jump_url="https://discord.com/channels/1/123/101",
+            guild=SimpleNamespace(icon=None),
+            author=self._member(),
+            channel=SimpleNamespace(id=123, mention="<#123>"),
+            attachments=[attachment],
+            delete=AsyncMock(),
+        )
+        inspection = ImageInspection(
+            content_match=ScamContentMatch(
+                matched=True,
+                confidence=96,
+                signals=("MrBeast", "crypto", "solicitation", "promised return"),
+                text="mrbeast crypto send btc receive double back",
+            ),
+            is_image=True,
+        )
+
+        with patch.object(
+            automod_module,
+            "bot",
+            SimpleNamespace(data_manager=data_manager),
+        ), patch.object(
+            automod_module,
+            "inspect_image_attachment",
+            AsyncMock(return_value=inspection),
+        ) as inspect_attachment, patch.object(
+            automod_module,
+            "make_embed",
+            side_effect=lambda title, description=None, **kwargs: discord.Embed(
+                title=title,
+                description=description,
+            ),
+        ), patch.object(
+            automod_module,
+            "send_automod_log",
+            AsyncMock(),
+        ) as send_log, patch.object(
+            automod_module,
+            "apply_image_filter_punishment",
+            AsyncMock(return_value=(True, "Applied Kick automatically", None)),
+        ) as punish:
+            result = await run_image_filter(message)
+
+        self.assertTrue(result.matched)
+        self.assertTrue(result.message_deleted)
+        self.assertTrue(result.block_downstream)
+        inspect_attachment.assert_awaited_once_with(attachment, analyze_content=True)
+        message.delete.assert_awaited_once()
+        punish.assert_awaited_once()
+        self.assertEqual(punish.await_args.kwargs["entry_label"], "MrBeast crypto scam")
+        logged_embed = send_log.await_args.args[1]
+        fields = {field.name: field.value for field in logged_embed.fields}
+        self.assertEqual(fields["Matched"], "[MrBeast crypto scam](https://example.invalid/daily-scam.png)")
+        self.assertEqual(fields["Similarity"], "96%")
+        self.assertEqual(logged_embed.image.url, "https://example.invalid/daily-scam.png")
 
     async def test_fuzzy_match_is_log_only(self):
         original = fingerprint_image_bytes(
@@ -500,8 +675,116 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 guild.ban.assert_not_awaited()
                 guild.kick.assert_not_awaited()
 
+    async def test_automatic_kick_sends_dm_with_disclaimer_and_return_link(self):
+        member = SimpleNamespace(
+            id=42,
+            display_name="Member",
+            guild_permissions=SimpleNamespace(administrator=False),
+            roles=[],
+            top_role=1,
+            send=AsyncMock(),
+            timeout=AsyncMock(),
+        )
+        guild = SimpleNamespace(
+            id=123,
+            name="Test Server",
+            owner_id=999,
+            me=SimpleNamespace(top_role=10),
+            icon=None,
+            kick=AsyncMock(),
+            ban=AsyncMock(),
+        )
+        data_manager = SimpleNamespace(
+            config={"stats": {}},
+            add_punishment=AsyncMock(return_value={"case_id": 55}),
+            save_config=AsyncMock(),
+        )
+        return_view = object()
+
+        with patch.object(
+            automod_module,
+            "bot",
+            SimpleNamespace(user=SimpleNamespace(id=777), data_manager=data_manager),
+        ), patch.object(
+            automod_module,
+            "is_staff_member",
+            return_value=False,
+        ), patch.object(
+            automod_module,
+            "resolve_image_filter_server_url",
+            AsyncMock(return_value="https://discord.gg/return"),
+        ), patch.object(
+            automod_module,
+            "build_appeal_view",
+            return_value=return_view,
+        ) as build_view, patch.object(
+            automod_module,
+            "make_embed",
+            side_effect=lambda title, description=None, **kwargs: discord.Embed(
+                title=title,
+                description=description,
+            ),
+        ):
+            applied, summary, case_record = await apply_image_filter_punishment(
+                guild,
+                member,
+                entry_label="MrBeast crypto scam",
+                punishment_type="kick",
+                duration_minutes=60,
+            )
+
+        self.assertTrue(applied)
+        self.assertEqual(summary, "Applied Kick automatically")
+        self.assertEqual(case_record["case_id"], 55)
+        guild.kick.assert_awaited_once()
+        member.send.assert_awaited_once()
+        sent_embed = member.send.await_args.kwargs["embed"]
+        notice = next(field.value for field in sent_embed.fields if field.name == "Automated Detection Notice")
+        self.assertIn("handled automatically", notice)
+        self.assertIn("False positives are possible", notice)
+        build_view.assert_called_once_with(123, 55, server_url="https://discord.gg/return")
+        self.assertIs(member.send.await_args.kwargs["view"], return_view)
+
 
 class ImageFilterUiTests(unittest.IsolatedAsyncioTestCase):
+    async def test_punishment_dm_view_adds_return_link_only_when_available(self):
+        return_view = build_appeal_view(123, 55, server_url="https://discord.gg/return")
+        self.assertEqual([
+            getattr(getattr(item, "item", item), "label", None)
+            for item in return_view.children
+        ], [
+            "Appeal Punishment",
+            "Return to Server",
+        ])
+        return_button = return_view.children[1]
+        self.assertEqual(return_button.style, discord.ButtonStyle.link)
+        self.assertEqual(return_button.url, "https://discord.gg/return")
+
+        ban_view = build_appeal_view(123, 56)
+        self.assertEqual([
+            getattr(getattr(item, "item", item), "label", None)
+            for item in ban_view.children
+        ], ["Appeal Punishment"])
+
+    async def test_kick_return_url_reuses_permanent_invite(self):
+        invite = SimpleNamespace(
+            max_age=0,
+            max_uses=0,
+            uses=12,
+            url="https://discord.gg/existing",
+        )
+        guild = SimpleNamespace(
+            id=123,
+            vanity_invite=AsyncMock(return_value=None),
+            invites=AsyncMock(return_value=[invite]),
+        )
+
+        self.assertEqual(
+            await resolve_image_filter_server_url(guild, "kick"),
+            "https://discord.gg/existing",
+        )
+        self.assertIsNone(await resolve_image_filter_server_url(guild, "ban"))
+
     async def test_automod_dashboard_uses_one_section_menu(self):
         view = AutoModDashboardView()
         self.assertEqual(len(view.children), 1)

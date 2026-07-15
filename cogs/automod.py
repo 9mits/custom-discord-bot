@@ -3,12 +3,16 @@
 import asyncio
 import hashlib
 import io
+import logging
 import re
+import threading
 import time
+import unicodedata
 import warnings
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import Optional, List, Union, Tuple
+from pathlib import Path
+from typing import Iterable, Optional, List, Union, Tuple
 
 import discord
 from discord import app_commands
@@ -44,6 +48,7 @@ from .shared import (
     has_permission_capability,
     respond_with_error,
     is_staff,
+    is_staff_member,
     get_valid_duration,
     build_automod_dashboard_embed,
     get_punishment_log_channel_id,
@@ -798,7 +803,41 @@ IMAGE_STRONG_HASH_DISTANCE_THRESHOLD = 3
 IMAGE_STRONG_COLOR_DISTANCE_THRESHOLD = 24
 IMAGE_STRONG_ASPECT_DELTA_THRESHOLD = 30
 IMAGE_STRONG_MIN_DETAIL = 10
+IMAGE_SCAM_CONFIDENCE_THRESHOLD = 85
+IMAGE_OCR_MAX_DIMENSION = 1600
+IMAGE_OCR_MIN_LINE_CONFIDENCE = 0.45
 _image_filter_work_semaphore = asyncio.Semaphore(2)
+_image_ocr_lock = threading.Lock()
+_image_ocr_engine = None
+_image_ocr_unavailable = False
+
+MRBEAST_ANCHOR = "mrbeast"
+CRYPTO_SCAM_TERMS = (
+    "bitcoin", "btc", "ethereum", "eth", "usdt", "crypto", "cryptocurrency",
+    "solana", "dogecoin", "xrp",
+)
+SCAM_SOLICITATION_TERMS = (
+    "send", "deposit", "transfer", "contribution", "wallet", "claim", "scan",
+)
+SCAM_RETURN_TERMS = (
+    "send you back", "sent back", "get back", "receive back", "double", "multiply",
+    "guaranteed return", "2x", "x2",
+)
+SCAM_GIVEAWAY_TERMS = (
+    "giveaway", "give away", "airdrop", "promotion", "bonus", "reward", "prize",
+)
+SCAM_DESTINATION_TERMS = (
+    "wallet address", "contribution address", "qr code", "scan code", "website",
+    "visit", "http", "www", ".com", ".net", ".org",
+)
+
+
+@dataclass(frozen=True)
+class ScamContentMatch:
+    matched: bool = False
+    confidence: int = 0
+    signals: Tuple[str, ...] = ()
+    text: str = ""
 
 
 @dataclass(frozen=True)
@@ -808,6 +847,7 @@ class ImageMatch:
     vertical_distance: int = 0
     color_distance: int = 0
     quality: str = "none"
+    confidence: int = 0
 
     @property
     def matched(self) -> bool:
@@ -824,6 +864,7 @@ class ImageFilterResult:
 @dataclass(frozen=True)
 class ImageInspection:
     fingerprints: Tuple[dict, ...] = ()
+    content_match: ScamContentMatch = ScamContentMatch()
     complete: bool = True
     is_image: bool = False
     reason: str = ""
@@ -897,6 +938,7 @@ def normalize_image_filter_settings(current: dict) -> dict:
         "enabled": bool(current.get("enabled", False)),
         "delete_message": bool(current.get("delete_message", True)),
         "log_detections": bool(current.get("log_detections", True)),
+        "scan_scam_content": bool(current.get("scan_scam_content", True)),
         "punish": bool(current.get("punish", False)),
         "punishment_type": punishment_type,
         "duration_minutes": _coerce_image_filter_int(current.get("duration_minutes"), 60, minimum=1, maximum=40320),
@@ -949,6 +991,161 @@ def _thumbnail_with_orientation(image, orientation: int):
     return image.transpose(transpose) if transpose is not None else image
 
 
+def _within_one_edit(candidate: str, target: str) -> bool:
+    if abs(len(candidate) - len(target)) > 1:
+        return False
+    previous = list(range(len(target) + 1))
+    for row, left in enumerate(candidate, 1):
+        current = [row]
+        for column, right in enumerate(target, 1):
+            current.append(min(
+                current[-1] + 1,
+                previous[column] + 1,
+                previous[column - 1] + (left != right),
+            ))
+        previous = current
+    return previous[-1] <= 1
+
+
+def _has_mrbeast_anchor(text: str) -> bool:
+    anchor_text = text.translate(str.maketrans({
+        "0": "o", "1": "i", "3": "e", "4": "a", "5": "s",
+        "7": "t", "8": "b", "$": "s", "|": "i",
+    }))
+    compact = re.sub(r"[^a-z0-9]", "", anchor_text)
+    if MRBEAST_ANCHOR in compact:
+        return True
+    for size in range(len(MRBEAST_ANCHOR) - 1, len(MRBEAST_ANCHOR) + 2):
+        for start in range(0, max(0, len(compact) - size + 1)):
+            if _within_one_edit(compact[start:start + size], MRBEAST_ANCHOR):
+                return True
+    return False
+
+
+def _has_scam_term(text: str, terms: Tuple[str, ...]) -> bool:
+    for term in terms:
+        if term.startswith(".") or term in {"http", "www"}:
+            if term in text:
+                return True
+            continue
+        pattern = r"(?<![a-z0-9])" + re.escape(term).replace(r"\ ", r"\s+") + r"(?![a-z0-9])"
+        if re.search(pattern, text):
+            return True
+    return False
+
+
+def detect_mrbeast_crypto_scam(lines: Iterable[Union[str, Tuple[str, float]]]) -> ScamContentMatch:
+    accepted = []
+    confidences = []
+    for item in lines:
+        if isinstance(item, tuple):
+            raw_text = str(item[0] or "")
+            try:
+                confidence = float(item[1])
+            except (TypeError, ValueError):
+                confidence = 0.0
+        else:
+            raw_text = str(item or "")
+            confidence = 1.0
+        if confidence < IMAGE_OCR_MIN_LINE_CONFIDENCE:
+            continue
+        normalized = unicodedata.normalize("NFKC", raw_text).lower().strip()
+        if normalized:
+            accepted.append(normalized[:300])
+            confidences.append(min(1.0, max(0.0, confidence)))
+        if sum(len(value) for value in accepted) >= 3000:
+            break
+    text = "\n".join(accepted)
+    if not text:
+        return ScamContentMatch()
+
+    anchor = _has_mrbeast_anchor(text)
+    crypto = _has_scam_term(text, CRYPTO_SCAM_TERMS)
+    solicitation = _has_scam_term(text, SCAM_SOLICITATION_TERMS)
+    returns = _has_scam_term(text, SCAM_RETURN_TERMS)
+    giveaway = _has_scam_term(text, SCAM_GIVEAWAY_TERMS)
+    destination = _has_scam_term(text, SCAM_DESTINATION_TERMS)
+    structural_match = anchor and crypto and solicitation and (returns or (giveaway and destination))
+
+    score = (
+        (35 if anchor else 0)
+        + (20 if crypto else 0)
+        + (15 if solicitation else 0)
+        + (20 if returns else 0)
+        + (10 if giveaway else 0)
+        + (10 if destination else 0)
+    )
+    average_confidence = sum(confidences) / len(confidences)
+    confidence = min(100, round(score * (0.9 + 0.1 * average_confidence)))
+    signals = tuple(
+        label for label, present in (
+            ("MrBeast", anchor),
+            ("crypto", crypto),
+            ("solicitation", solicitation),
+            ("promised return", returns),
+            ("giveaway", giveaway),
+            ("payment destination", destination),
+        )
+        if present
+    )
+    return ScamContentMatch(
+        matched=structural_match and confidence >= IMAGE_SCAM_CONFIDENCE_THRESHOLD,
+        confidence=confidence,
+        signals=signals,
+        text=truncate_text(text, 1000),
+    )
+
+
+def _run_local_image_ocr(image) -> Tuple[Tuple[str, float], ...]:
+    global _image_ocr_engine, _image_ocr_unavailable
+    with _image_ocr_lock:
+        if _image_ocr_unavailable:
+            return ()
+        if _image_ocr_engine is None:
+            try:
+                import rapidocr
+                from rapidocr import RapidOCR
+                model_root = Path(rapidocr.__file__).resolve().parent / "models"
+                model_paths = {
+                    "Det.model_path": model_root / "PP-OCRv6_det_small.onnx",
+                    "Cls.model_path": model_root / "ch_ppocr_mobile_v2.0_cls_mobile.onnx",
+                    "Rec.model_path": model_root / "PP-OCRv6_rec_small.onnx",
+                }
+                if not all(path.is_file() for path in model_paths.values()):
+                    raise RuntimeError("the bundled OCR model files are missing")
+                logging.getLogger("RapidOCR").setLevel(logging.ERROR)
+                _image_ocr_engine = RapidOCR(params={
+                    "Global.log_level": "error",
+                    "EngineConfig.onnxruntime.intra_op_num_threads": 1,
+                    "EngineConfig.onnxruntime.inter_op_num_threads": 1,
+                    **{key: str(path) for key, path in model_paths.items()},
+                })
+            except Exception as exc:
+                _image_ocr_unavailable = True
+                logger.error("Local image OCR could not initialize: %s", exc)
+                return ()
+        try:
+            result = _image_ocr_engine(image)
+        except Exception as exc:
+            logger.warning("Local image OCR could not inspect an image: %s", exc)
+            return ()
+
+    texts = tuple(getattr(result, "txts", ()) or ())
+    scores = tuple(getattr(result, "scores", ()) or ())
+    return tuple(
+        (str(value), float(scores[index]) if index < len(scores) else 0.0)
+        for index, value in enumerate(texts)
+    )
+
+
+def _analyze_image_scam_content(image) -> ScamContentMatch:
+    from PIL import Image
+
+    sample = image.convert("RGB")
+    sample.thumbnail((IMAGE_OCR_MAX_DIMENSION, IMAGE_OCR_MAX_DIMENSION), Image.Resampling.LANCZOS)
+    return detect_mrbeast_crypto_scam(_run_local_image_ocr(sample))
+
+
 def _fingerprint_sample(image, *, width: int, height: int, sha256_hex: str) -> dict:
     from PIL import Image
 
@@ -968,9 +1165,9 @@ def _fingerprint_sample(image, *, width: int, height: int, sha256_hex: str) -> d
     }
 
 
-def inspect_image_bytes(data: bytes) -> ImageInspection:
+def inspect_image_bytes(data: bytes, *, analyze_content: bool = False) -> ImageInspection:
     try:
-        from PIL import Image, UnidentifiedImageError
+        from PIL import Image, ImageOps, UnidentifiedImageError
     except ImportError:
         return ImageInspection(complete=False, reason="Pillow is unavailable")
     if not data:
@@ -994,10 +1191,18 @@ def inspect_image_bytes(data: bytes) -> ImageInspection:
                 if orientation in {5, 6, 7, 8}:
                     width, height = height, width
                 sha256_hex = hashlib.sha256(data).hexdigest()
+                content_match = ScamContentMatch()
+                if analyze_content:
+                    content_match = _analyze_image_scam_content(ImageOps.exif_transpose(source.copy()))
                 source.draft("RGB", (64, 64))
                 sample = _thumbnail_with_orientation(source, orientation)
                 fingerprint = _fingerprint_sample(sample, width=width, height=height, sha256_hex=sha256_hex)
-                return ImageInspection(fingerprints=(fingerprint,), complete=True, is_image=True)
+                return ImageInspection(
+                    fingerprints=(fingerprint,),
+                    content_match=content_match,
+                    complete=True,
+                    is_image=True,
+                )
     except UnidentifiedImageError:
         return ImageInspection()
     except Exception:
@@ -1097,7 +1302,9 @@ def match_banned_image(fingerprint: Union[str, dict], entries: List[dict]) -> Im
 
 
 def image_match_allows_punishment(punishment_type: str, match: ImageMatch) -> bool:
-    return punishment_type in {"warn", "timeout", "kick", "ban"} and match.quality in {"exact", "strong"}
+    trusted_quality = match.quality in {"exact", "strong"}
+    trusted_content = match.quality == "content" and match.confidence >= IMAGE_SCAM_CONFIDENCE_THRESHOLD
+    return punishment_type in {"warn", "timeout", "kick", "ban"} and (trusted_quality or trusted_content)
 
 
 def image_match_similarity(match: ImageMatch) -> int:
@@ -1105,6 +1312,8 @@ def image_match_similarity(match: ImageMatch) -> int:
         return 0
     if match.quality == "exact":
         return 100
+    if match.quality == "content":
+        return max(0, min(100, match.confidence))
     if match.quality == "legacy":
         return max(0, min(100, round((1 - min(64, match.distance) / 64) * 100)))
     hash_similarity = 1 - min(128, match.distance + match.vertical_distance) / 128
@@ -1147,7 +1356,7 @@ def _bounded_image_filter_attachments(attachments):
     return selected, budget_exceeded
 
 
-async def inspect_image_attachment(attachment) -> ImageInspection:
+async def inspect_image_attachment(attachment, *, analyze_content: bool = False) -> ImageInspection:
     async with _image_filter_work_semaphore:
         try:
             data = await attachment.read()
@@ -1155,7 +1364,7 @@ async def inspect_image_attachment(attachment) -> ImageInspection:
             return ImageInspection(complete=False, reason="attachment download failed")
         if len(data) > IMAGE_FILTER_MAX_BYTES:
             return ImageInspection(complete=False, reason="attachment exceeds the byte limit")
-        return await asyncio.to_thread(inspect_image_bytes, data)
+        return await asyncio.to_thread(inspect_image_bytes, data, analyze_content=analyze_content)
 
 
 async def log_image_filter_inspection_failure(message: discord.Message) -> None:
@@ -1187,6 +1396,59 @@ async def log_image_filter_inspection_failure(message: discord.Message) -> None:
         logger.warning("Image filter could not report incomplete inspection for message %s: %s", message.id, exc)
 
 
+async def resolve_image_filter_server_url(guild: discord.Guild, punishment_type: str) -> Optional[str]:
+    if punishment_type == "ban":
+        return None
+    if punishment_type in {"warn", "timeout"}:
+        return f"https://discord.com/channels/{guild.id}"
+
+    try:
+        vanity_invite = await guild.vanity_invite()
+        vanity_url = str(getattr(vanity_invite, "url", "") or "")
+        if vanity_url.startswith(("http://", "https://")):
+            return vanity_url
+    except (discord.Forbidden, discord.HTTPException, AttributeError):
+        pass
+
+    try:
+        invites = await guild.invites()
+    except (discord.Forbidden, discord.HTTPException, AttributeError):
+        invites = []
+    for invite in invites:
+        max_uses = int(getattr(invite, "max_uses", 0) or 0)
+        uses = int(getattr(invite, "uses", 0) or 0)
+        if int(getattr(invite, "max_age", 0) or 0) != 0 or (max_uses and uses >= max_uses):
+            continue
+        invite_url = str(getattr(invite, "url", "") or "")
+        if invite_url.startswith(("http://", "https://")):
+            return invite_url
+
+    bot_member = guild.me
+    if bot_member is None:
+        return None
+    channels = []
+    if guild.system_channel is not None:
+        channels.append(guild.system_channel)
+    channels.extend(channel for channel in guild.text_channels if channel not in channels)
+    for channel in channels:
+        try:
+            permissions = channel.permissions_for(bot_member)
+            if not permissions.view_channel or not permissions.create_instant_invite:
+                continue
+            invite = await channel.create_invite(
+                max_age=0,
+                max_uses=0,
+                unique=False,
+                reason="Return link for an automated image-filter punishment",
+            )
+            invite_url = str(getattr(invite, "url", "") or "")
+            if invite_url.startswith(("http://", "https://")):
+                return invite_url
+        except (discord.Forbidden, discord.HTTPException, AttributeError):
+            continue
+    return None
+
+
 async def apply_image_filter_punishment(
     guild: discord.Guild,
     member: discord.Member,
@@ -1201,6 +1463,13 @@ async def apply_image_filter_punishment(
         bot_member = guild.me
         if bot_member is None or member.top_role >= bot_member.top_role:
             return False, "Safety check skipped auto-punishment because the bot cannot manage this member.", None
+    if is_staff_member(member, bot.data_manager.config):
+        return False, "Safety check skipped auto-punishment for a moderator.", None
+    try:
+        server_url = await resolve_image_filter_server_url(guild, punishment_type)
+    except Exception as exc:
+        logger.warning("Could not build an image-filter return link for guild %s: %s", guild.id, exc)
+        server_url = None
 
     reason = f"Banned image posted [{entry_label}]"
     if punishment_type == "ban":
@@ -1271,10 +1540,13 @@ async def apply_image_filter_punishment(
             dm_embed.add_field(name="Duration", value="Ban", inline=True)
         dm_embed.add_field(
             name="Automated Detection Notice",
-            value="> This action was taken by automated image recognition, which can make mistakes. If this was an error, press **Appeal Punishment** below and staff will review it.",
+            value="> This was handled automatically by an image detection system. False positives are possible. If this was an error, press **Appeal Punishment** below and staff will review it.",
             inline=False,
         )
-        await member.send(embed=dm_embed, view=build_appeal_view(guild.id, case_record["case_id"]))
+        await member.send(
+            embed=dm_embed,
+            view=build_appeal_view(guild.id, case_record["case_id"], server_url=server_url),
+        )
     except Exception:
         pass
 
@@ -1292,7 +1564,9 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
     if not isinstance(message.author, discord.Member):
         return ImageFilterResult()
     settings = get_image_filter_settings()
-    if not settings["enabled"] or not settings["entries"]:
+    if not settings["enabled"] or (not settings["entries"] and not settings["scan_scam_content"]):
+        return ImageFilterResult()
+    if is_staff_member(message.author, bot.data_manager.config):
         return ImageFilterResult()
     native_settings = get_native_automod_settings(bot.data_manager.config)
     if is_native_automod_exempt(message.author, message.channel.id, native_settings):
@@ -1300,16 +1574,45 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
 
     matched_attachment = None
     matched = ImageMatch()
-    quality_rank = {"exact": 0, "strong": 1, "fuzzy": 2, "legacy": 3, "none": 4}
+    quality_rank = {"exact": 0, "content": 1, "strong": 2, "fuzzy": 3, "legacy": 4, "none": 5}
     decoded_images = 0
     attachments, inspection_incomplete = _bounded_image_filter_attachments(message.attachments)
     for attachment in attachments:
-        inspection = await inspect_image_attachment(attachment)
+        inspection = await inspect_image_attachment(
+            attachment,
+            analyze_content=settings["scan_scam_content"],
+        )
         fingerprints = list(inspection.fingerprints)
         inspection_incomplete = inspection_incomplete or not inspection.complete
+        if inspection.is_image:
+            decoded_images += 1
+
+        if inspection.content_match.matched:
+            attachment_url = str(getattr(attachment, "url", "") or "").strip()
+            candidate = ImageMatch(
+                entry={
+                    "label": "MrBeast crypto scam",
+                    "url": attachment_url,
+                    "signals": inspection.content_match.signals,
+                    "ocr_text": inspection.content_match.text,
+                },
+                quality="content",
+                confidence=inspection.content_match.confidence,
+            )
+            if (
+                quality_rank[candidate.quality] < quality_rank[matched.quality]
+                or (
+                    matched.quality == "content"
+                    and candidate.confidence > matched.confidence
+                )
+            ):
+                matched = candidate
+                matched_attachment = attachment
+
         if not fingerprints:
+            if matched.quality == "content" or decoded_images >= IMAGE_FILTER_MAX_ATTACHMENTS:
+                break
             continue
-        decoded_images += 1
         for fingerprint in fingerprints:
             candidate = match_banned_image(fingerprint, settings["entries"])
             if candidate.matched and quality_rank[candidate.quality] < quality_rank[matched.quality]:
@@ -1317,7 +1620,7 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
                 matched_attachment = attachment
             if matched.quality == "exact":
                 break
-        if matched.quality == "exact":
+        if matched.quality in {"exact", "content"}:
             break
         if decoded_images >= IMAGE_FILTER_MAX_ATTACHMENTS:
             break
@@ -1327,7 +1630,13 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
             return ImageFilterResult(block_downstream=bool(settings["delete_message"]))
         return ImageFilterResult()
 
-    trusted_match = matched.quality in {"exact", "strong"}
+    trusted_match = (
+        matched.quality in {"exact", "strong"}
+        or (
+            matched.quality == "content"
+            and matched.confidence >= IMAGE_SCAM_CONFIDENCE_THRESHOLD
+        )
+    )
     deleted = False
     if settings["delete_message"] and trusted_match:
         try:
@@ -2109,12 +2418,17 @@ def build_image_filters_embed(guild: discord.Guild) -> discord.Embed:
         punishment_label = "Off"
     embed = make_embed(
         "Image Filters",
-        "> Add images with the **Ban Image** right-click action. High-confidence matches can be deleted or punished; uncertain matches are sent for manual review.",
+        "> Detects banned images and high-confidence MrBeast crypto scams locally. No external recognition API is used.",
         kind="warning",
         scope=SCOPE_MODERATION,
         guild=guild,
     )
-    embed.add_field(name="Filters", value="Enabled" if settings["enabled"] else "Disabled", inline=True)
+    filter_status = "Enabled"
+    if settings["enabled"] and settings["scan_scam_content"]:
+        filter_status = "Enabled • Scam scan on"
+    elif not settings["enabled"]:
+        filter_status = "Disabled"
+    embed.add_field(name="Filters", value=filter_status, inline=True)
     embed.add_field(name="Delete Message", value="On" if settings["delete_message"] else "Off", inline=True)
     embed.add_field(name="Log Detections", value="On" if settings["log_detections"] else "Off", inline=True)
     embed.add_field(name="Auto Punish", value=punishment_label, inline=True)

@@ -586,9 +586,15 @@ class AppealButton(
         await interaction.response.send_modal(AppealModal(self.guild_id, self.case_id))
 
 
-def build_appeal_view(guild_id: int, case_id: int) -> discord.ui.View:
+def build_appeal_view(guild_id: int, case_id: int, *, server_url: Optional[str] = None) -> discord.ui.View:
     view = discord.ui.View(timeout=None)
     view.add_item(AppealButton(guild_id, case_id))
+    if server_url and server_url.startswith(("http://", "https://")):
+        view.add_item(discord.ui.Button(
+            label="Return to Server",
+            style=discord.ButtonStyle.link,
+            url=server_url,
+        ))
     return view
 
 class GradientModal(discord.ui.Modal, title="Set Gradient Style"):
