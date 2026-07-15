@@ -28,8 +28,6 @@ class CaseNote:
 
 @dataclass
 class CaseMetadata:
-    status: str = "open"
-    resolution_state: str = "pending"
     tags: List[str] = field(default_factory=list)
     evidence_links: List[str] = field(default_factory=list)
     linked_cases: List[int] = field(default_factory=list)
@@ -45,8 +43,6 @@ class CaseMetadata:
                 notes.append(CaseNote.from_dict(note))
 
         return cls(
-            status=str(record.get("status", "open") or "open"),
-            resolution_state=str(record.get("resolution_state", "pending") or "pending"),
             tags=[str(tag) for tag in record.get("tags", []) if str(tag).strip()],
             evidence_links=[str(url) for url in record.get("evidence_links", []) if str(url).strip()],
             linked_cases=[
@@ -64,8 +60,6 @@ class CaseMetadata:
         )
 
     def apply_to_record(self, record: Dict[str, Any]) -> Dict[str, Any]:
-        record["status"] = self.status
-        record["resolution_state"] = self.resolution_state
         record["tags"] = list(self.tags)
         record["evidence_links"] = list(self.evidence_links)
         record["linked_cases"] = list(self.linked_cases)

@@ -983,16 +983,11 @@ def get_user_display_name(user: Union[discord.User, discord.Member]) -> str:
 
 
 def format_user_ref(user: Union[discord.User, discord.Member]) -> str:
-    return f"{get_user_display_name(user)} • {user.mention} (`{user.id}`)"
+    return f"{user.mention} (`{user.id}`)"
 
 
 def format_user_id_ref(user_id: Union[int, str], *, fallback_name: Optional[str] = None) -> str:
-    prefix = ""
-    if fallback_name:
-        clean_name = truncate_text(discord.utils.escape_markdown(str(fallback_name).strip()), 80)
-        if clean_name:
-            prefix = f"{clean_name} • "
-    return f"{prefix}<@{user_id}> (`{user_id}`)"
+    return f"<@{user_id}> (`{user_id}`)"
 
 
 def extract_snowflake_id(raw_value: str) -> Optional[int]:
@@ -1273,45 +1268,35 @@ def build_automod_dashboard_embed(guild: discord.Guild) -> discord.Embed:
         if step_count:
             configured_rules += 1
     embed = make_embed(
-        "AutoMod Control Center",
-        join_lines([
-            "> Manage how the bot follows up on Discord AutoMod.",
-            "",
-            "**Rules** — `Rule Punishments` set escalating actions per AutoMod rule · `Response Settings` control what the user sees.",
-            "**Protection** — `Immunity` and `Log Channels`.",
-        ]),
+        "AutoMod",
+        "> Choose one section from the menu below.",
         kind="warning",
         scope=SCOPE_MODERATION,
         guild=guild,
     )
     embed.add_field(
-        name="Rule Punishments",
-        value=join_lines([
-            f"Rules configured: {configured_rules}",
-            f"Punishment steps: {total_steps}",
-        ]),
+        name="Rules",
+        value=f"{configured_rules} configured • {total_steps} punishment steps",
         inline=True,
     )
     embed.add_field(
-        name="Response Settings",
-        value=join_lines([
-            f"Channel message: {'On' if settings.get('enabled', True) else 'Off'}",
-            f"User DM: {'On' if settings.get('warning_dm_enabled', True) else 'Off'}",
-            f"Report button: {'On' if settings.get('report_button_enabled', True) else 'Off'}",
-        ]),
+        name="Responses",
+        value=(
+            f"Bot: {'On' if settings.get('enabled', True) else 'Off'} • "
+            f"DM: {'On' if settings.get('warning_dm_enabled', True) else 'Off'} • "
+            f"Reports: {'On' if settings.get('report_button_enabled', True) else 'Off'}"
+        ),
         inline=True,
     )
     embed.add_field(
-        name="Log Channels",
-        value=join_lines([
-            f"Warn Logs: <#{bot.data_manager.config.get('automod_log_channel_id', 0)}>" if bot.data_manager.config.get('automod_log_channel_id') else "Warn Logs: Uses the native alert channel or punishment logs",
-            f"Reports: <#{bot.data_manager.config.get('automod_report_channel_id', 0)}>" if bot.data_manager.config.get('automod_report_channel_id') else "Reports: Uses appeals or punishment logs",
-        ]),
+        name="Immunity",
+        value=(
+            f"{len(settings.get('immunity_users', []))} users • "
+            f"{len(settings.get('immunity_roles', []))} roles • "
+            f"{len(settings.get('immunity_channels', []))} channels"
+        ),
         inline=False,
     )
-    embed.add_field(name="Exempt Users", value=str(len(settings.get("immunity_users", []))), inline=True)
-    embed.add_field(name="Exempt Roles", value=str(len(settings.get("immunity_roles", []))), inline=True)
-    embed.add_field(name="Exempt Channels", value=str(len(settings.get("immunity_channels", []))), inline=True)
     return embed
 
 

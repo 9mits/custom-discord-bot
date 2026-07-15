@@ -13,6 +13,13 @@ from cogs.automod import (
     IMAGE_FILTER_MAX_ENTRIES,
     IMAGE_FILTER_MAX_PIXELS,
     IMAGE_HASH_DISTANCE_THRESHOLD,
+    AutoModBridgeSettingsView,
+    AutoModChannelSettingsView,
+    AutoModDashboardView,
+    AutoModImmunityView,
+    AutoModPolicyEditorView,
+    AutoModRuleBrowserView,
+    AutoModSectionSelect,
     ImageFilterRemoveSelect,
     ImageFilterResult,
     ImageFiltersView,
@@ -24,6 +31,7 @@ from cogs.automod import (
     hash_distance,
     hash_image_bytes,
     image_match_allows_punishment,
+    image_match_similarity,
     inspect_image_bytes,
     match_banned_image,
     normalize_image_filter_settings,
@@ -94,6 +102,7 @@ class ImageFilterSettingsTests(unittest.TestCase):
         self.assertEqual(entry["vhash"], "")
         self.assertEqual(entry["color"], "")
         self.assertEqual(entry["sha256"], "")
+        self.assertEqual(entry["url"], "")
         self.assertEqual(entry["aspect"], 0)
         self.assertEqual(entry["detail"], 0)
         self.assertEqual(entry["added_by"], 0)
@@ -134,6 +143,22 @@ class ImageFingerprintTests(unittest.TestCase):
     def test_hash_distance(self):
         self.assertEqual(hash_distance("0" * 16, "0" * 16), 0)
         self.assertEqual(hash_distance("0" * 16, "f" + "0" * 15), 4)
+
+    def test_similarity_hides_internal_metrics_behind_one_percentage(self):
+        exact = ImageMatch(entry={"label": "exact"}, quality="exact")
+        strong = ImageMatch(
+            entry={"label": "strong"},
+            distance=2,
+            vertical_distance=3,
+            color_distance=20,
+            quality="strong",
+        )
+        legacy = ImageMatch(entry={"label": "legacy"}, distance=8, quality="legacy")
+
+        self.assertEqual(image_match_similarity(exact), 100)
+        self.assertGreaterEqual(image_match_similarity(strong), 90)
+        self.assertEqual(image_match_similarity(legacy), 88)
+        self.assertEqual(image_match_similarity(ImageMatch()), 0)
 
     def test_match_returns_image_match_for_legacy_entries(self):
         entries = [_entry("00ff00ff00ff00ff", "meme")]
@@ -318,6 +343,8 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         resized_data = _png_bytes((80, 100, 120), size=(128, 128), structured=False)
         attachment = SimpleNamespace(
             filename="near-copy.png",
+            content_type="image/png",
+            url="https://example.invalid/flagged.png",
             size=len(resized_data),
             read=AsyncMock(return_value=resized_data),
         )
@@ -329,28 +356,33 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 "log_detections": False,
                 "punish": True,
                 "punishment_type": "ban",
-                "entries": [_fingerprint_entry(original, "flat image")],
+                "entries": [{
+                    **_fingerprint_entry(original, "flat image"),
+                    "url": "https://example.invalid/original.png",
+                }],
             },
         })
         message = SimpleNamespace(
             id=99,
-            guild=SimpleNamespace(),
+            jump_url="https://discord.com/channels/1/123/99",
+            guild=SimpleNamespace(icon=None),
             author=self._member(),
             channel=SimpleNamespace(id=123, mention="<#123>"),
             attachments=[attachment],
             delete=AsyncMock(),
         )
-        log_embed = object()
-
         with patch.object(
             automod_module,
             "bot",
             SimpleNamespace(data_manager=data_manager),
         ), patch.object(
             automod_module,
-            "make_action_log_embed",
-            Mock(return_value=log_embed),
-        ) as make_log, patch.object(
+            "make_embed",
+            side_effect=lambda title, description=None, **kwargs: discord.Embed(
+                title=title,
+                description=description,
+            ),
+        ), patch.object(
             automod_module,
             "send_automod_log",
             AsyncMock(),
@@ -366,8 +398,17 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.block_downstream)
         message.delete.assert_not_awaited()
         punish.assert_not_awaited()
-        self.assertIn("fuzzy match", make_log.call_args.kwargs["duration"].lower())
-        send_log.assert_awaited_once_with(message.guild, log_embed, view=None)
+        send_log.assert_awaited_once()
+        logged_embed = send_log.await_args.args[1]
+        fields = {field.name: field.value for field in logged_embed.fields}
+        self.assertEqual(set(fields), {"Matched", "Similarity", "Action", "Message ID"})
+        self.assertEqual(fields["Matched"], "[flat image](https://example.invalid/original.png)")
+        self.assertRegex(fields["Similarity"], r"^\d+%$")
+        self.assertIn("fuzzy match", fields["Action"].lower())
+        self.assertNotIn("Message Deleted", fields)
+        self.assertNotIn("Inspection Complete", fields)
+        self.assertEqual(logged_embed.image.url, "https://example.invalid/flagged.png")
+        self.assertIsNone(send_log.await_args.kwargs["view"])
 
     async def test_incomplete_inspection_blocks_relay_and_forces_log(self):
         attachment = SimpleNamespace(
@@ -387,7 +428,8 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         })
         message = SimpleNamespace(
             id=100,
-            guild=SimpleNamespace(),
+            jump_url="https://discord.com/channels/1/123/100",
+            guild=SimpleNamespace(icon=None),
             author=self._member(),
             channel=SimpleNamespace(id=123, mention="<#123>"),
             attachments=[attachment],
@@ -399,8 +441,11 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
             SimpleNamespace(data_manager=data_manager),
         ), patch.object(
             automod_module,
-            "make_action_log_embed",
-            Mock(return_value=object()),
+            "make_embed",
+            side_effect=lambda title, description=None, **kwargs: discord.Embed(
+                title=title,
+                description=description,
+            ),
         ), patch.object(
             automod_module,
             "send_automod_log",
@@ -413,6 +458,11 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.block_downstream)
         attachment.read.assert_not_awaited()
         send_log.assert_awaited_once()
+        logged_embed = send_log.await_args.args[1]
+        self.assertEqual(
+            {field.name for field in logged_embed.fields},
+            {"Action", "Message ID"},
+        )
 
     async def test_auto_punishment_rejects_protected_members_before_actions(self):
         cases = (
@@ -452,6 +502,31 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ImageFilterUiTests(unittest.IsolatedAsyncioTestCase):
+    async def test_automod_dashboard_uses_one_section_menu(self):
+        view = AutoModDashboardView()
+        self.assertEqual(len(view.children), 1)
+        self.assertIsInstance(view.children[0], AutoModSectionSelect)
+        self.assertFalse(any(getattr(child, "label", "") == "Back" for child in view.children))
+
+    async def test_automod_subpanels_use_section_menu_without_back_buttons(self):
+        data_manager = SimpleNamespace(config={"native_automod": {}})
+        with patch.object(automod_module, "bot", SimpleNamespace(data_manager=data_manager)):
+            views = [
+                AutoModBridgeSettingsView(),
+                AutoModRuleBrowserView([]),
+                AutoModPolicyEditorView(),
+                AutoModChannelSettingsView(),
+                AutoModImmunityView(),
+            ]
+
+        for view in views:
+            with self.subTest(view=type(view).__name__):
+                self.assertEqual(
+                    sum(isinstance(child, AutoModSectionSelect) for child in view.children),
+                    1,
+                )
+                self.assertFalse(any(getattr(child, "label", "") == "Back" for child in view.children))
+
     async def test_ban_image_context_is_runtime_authorized_and_setup_registers_it(self):
         self.assertIsNone(ban_image_context.default_permissions)
 

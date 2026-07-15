@@ -20,6 +20,7 @@ from core.utils import iso_to_dt, now_iso
 from .shared import (
     logger,
     truncate_text,
+    format_log_quote,
     format_reason_value,
     make_embed,
     brand_embed,
@@ -39,7 +40,6 @@ from .cases import (
     get_case_label,
     get_active_records_for_user,
     get_undo_reason_details,
-    calculate_member_risk,
 )
 
 def get_user_role_records(user_id: int) -> list:
@@ -109,26 +109,43 @@ def build_role_info_embed(member: discord.Member, rec: dict, role_obj: Optional[
 
     return embed
 
-def build_punish_embed(user: discord.Member) -> discord.Embed:
+def build_punish_embed(user: discord.Member, *, evidence_message: Optional[discord.Message] = None) -> discord.Embed:
     uid = str(user.id)
     history = bot.data_manager.punishments.get(uid, [])
     active_records = get_active_records_for_user(user.id)
-    risk_score, risk_label = calculate_member_risk(history)
+    description = "> Select a violation category below."
+    if evidence_message is not None:
+        description += " The selected message will be saved to the punishment log and deleted when the action succeeds."
+    else:
+        description += " To include a message, use `/punish message_id:` or right-click it and choose **Punish Message**."
     embed = make_embed(
         "Moderation Console",
-        "> Select a violation category below, then review history if needed before acting.",
+        description,
         kind="muted",
         scope=SCOPE_MODERATION,
         guild=user.guild if isinstance(user, discord.Member) else None,
         thumbnail=user.display_avatar.url,
     )
     embed.add_field(name="Target", value=format_user_ref(user), inline=True)
-    embed.add_field(name="Total Cases", value=str(len(history)), inline=True)
-    embed.add_field(name="Active Cases", value=str(len(active_records)), inline=True)
-    embed.add_field(name="Risk", value=f"{risk_label} ({risk_score})", inline=True)
-    if isinstance(user, discord.Member) and user.joined_at:
-        embed.add_field(name="Joined Server", value=discord.utils.format_dt(user.joined_at, "f"), inline=True)
-    embed.add_field(name="Account Created", value=discord.utils.format_dt(user.created_at, "f"), inline=True)
+    embed.add_field(name="Prior Punishments", value=str(len(history)), inline=True)
+    if active_records:
+        embed.add_field(name="Active Punishments", value=str(len(active_records)), inline=True)
+    if evidence_message is not None:
+        jump_url = str(getattr(evidence_message, "jump_url", "") or "")
+        message_id = str(evidence_message.id)
+        message_value = f"[{message_id}]({jump_url})" if jump_url.startswith(("http://", "https://")) else f"`{message_id}`"
+        embed.add_field(name="Message ID", value=message_value, inline=True)
+        if evidence_message.content:
+            embed.add_field(name="Flagged Message", value=format_log_quote(evidence_message.content, limit=900), inline=False)
+        image_attachment = next(
+            (
+                attachment for attachment in evidence_message.attachments
+                if str(getattr(attachment, "content_type", "") or "").startswith("image/")
+            ),
+            None,
+        )
+        if image_attachment is not None:
+            embed.set_image(url=image_attachment.url)
     return embed
 
 
