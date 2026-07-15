@@ -813,6 +813,7 @@ IMAGE_OCR_MIN_LINE_CONFIDENCE = 0.45
 IMAGE_CONTENT_CACHE_LIMIT = 256
 IMAGE_MESSAGE_CLEANUP_CONCURRENCY = 4
 IMAGE_MESSAGE_CLEANUP_HOURS = 24
+IMAGE_FILTER_REASON = "You posted an image that is restricted in this server."
 _image_filter_work_semaphore = asyncio.Semaphore(2)
 _image_ocr_lock = threading.Lock()
 _image_ocr_engine = None
@@ -1844,7 +1845,6 @@ async def send_image_filter_user_dm(
     duration_minutes: int = 0,
     case_record: Optional[dict] = None,
     server_url: Optional[str] = None,
-    cleanup_deleted: int = 0,
     destination=None,
 ) -> bool:
     destination = destination or await prepare_image_filter_dm_destination(member)
@@ -1857,7 +1857,6 @@ async def send_image_filter_user_dm(
         description = f"An image you posted in **{server_name}** was automatically detected and removed."
     else:
         description = f"An image you posted in **{server_name}** was automatically flagged."
-    reason = f"Banned image posted [{entry_label}]"
     try:
         icon = getattr(guild, "icon", None)
         dm_embed = make_embed(
@@ -1868,31 +1867,19 @@ async def send_image_filter_user_dm(
             guild=guild,
             thumbnail=icon.url if icon else None,
         )
-        dm_embed.add_field(name="Reason", value=format_reason_value(reason, limit=1000), inline=False)
+        dm_embed.add_field(name="Reason", value=format_reason_value(IMAGE_FILTER_REASON, limit=1000), inline=False)
         if punishment_type == "timeout" and duration_minutes > 0:
             dm_embed.add_field(name="Duration", value=format_duration(duration_minutes), inline=True)
             expires = discord.utils.format_dt(discord.utils.utcnow() + get_valid_duration(duration_minutes), "R")
             dm_embed.add_field(name="Expires", value=expires, inline=True)
         elif punishment_type == "ban":
             dm_embed.add_field(name="Duration", value="Ban", inline=True)
-        review_text = (
-            "This action was handled automatically by a local image detection system. "
-            "False positives are possible."
-        )
+        review_text = "This action was handled automatically by a image detection system. False positives are possible."
         if case_record:
-            review_text += " If this was an error, press **Appeal Punishment** below and staff will review it."
+            review_text += " If you believe this was an error, press **Appeal Punishment** below."
         else:
-            review_text += " If this was an error, contact the moderation team for review."
+            review_text += " If you believe this was an error, contact the moderation team."
         dm_embed.add_field(name="Automated Detection Notice", value=f"> {review_text}", inline=False)
-        if cleanup_deleted:
-            dm_embed.add_field(
-                name="24-Hour Message Cleanup",
-                value=(
-                    f"> {cleanup_deleted} earlier message{'s' if cleanup_deleted != 1 else ''} "
-                    "from the preceding 24 hours were removed."
-                ),
-                inline=False,
-            )
         if case_record:
             view = build_appeal_view(guild.id, case_record["case_id"], server_url=server_url)
         else:
@@ -1949,7 +1936,7 @@ async def apply_image_filter_punishment(
         server_url = None
     dm_destination = await prepare_image_filter_dm_destination(member)
 
-    reason = f"Banned image posted [{entry_label}]"
+    reason = IMAGE_FILTER_REASON
     if punishment_type == "ban":
         action_label = "Banned"
     elif punishment_type == "timeout":
@@ -1986,11 +1973,9 @@ async def apply_image_filter_punishment(
         "active": punishment_type == "ban",
     }
     removal_action = punishment_type in {"kick", "ban"}
-    prepared_record = None
+    case_record = None
     if removal_action:
-        prepare_record = getattr(bot.data_manager, "prepare_punishment_record", None)
-        if callable(prepare_record):
-            prepared_record = prepare_record(record)
+        case_record = await bot.data_manager.add_punishment(str(member.id), record, persist=False)
 
     dm_sent = False
     if removal_action:
@@ -2001,9 +1986,8 @@ async def apply_image_filter_punishment(
             action_label=action_label,
             punishment_type=punishment_type,
             duration_minutes=duration_minutes,
-            case_record=prepared_record,
+            case_record=case_record,
             server_url=server_url,
-            cleanup_deleted=cleanup_deleted,
             destination=dm_destination,
         )
 
@@ -2015,15 +1999,26 @@ async def apply_image_filter_punishment(
         elif punishment_type == "kick":
             await guild.kick(member, reason=f"{reason} (By {bot.user})")
     except discord.Forbidden:
+        if case_record:
+            try:
+                await bot.data_manager.discard_pending_punishment(str(member.id), case_record["case_id"])
+            except Exception as exc:
+                logger.error("Could not discard failed image-filter case %s: %s", case_record.get("case_id"), exc)
         if dm_sent:
             await send_image_filter_enforcement_correction(guild, member, destination=dm_destination)
         return False, "The bot does not have permission to apply the configured punishment.", None, dm_sent
     except Exception as exc:
+        if case_record:
+            try:
+                await bot.data_manager.discard_pending_punishment(str(member.id), case_record["case_id"])
+            except Exception as discard_exc:
+                logger.error("Could not discard failed image-filter case %s: %s", case_record.get("case_id"), discard_exc)
         if dm_sent:
             await send_image_filter_enforcement_correction(guild, member, destination=dm_destination)
         return False, f"Failed to apply punishment: {exc}", None, dm_sent
 
-    case_record = await bot.data_manager.add_punishment(str(member.id), prepared_record or record)
+    if not removal_action:
+        case_record = await bot.data_manager.add_punishment(str(member.id), record)
     bot.data_manager.config.setdefault("stats", {})["total_issued"] = bot.data_manager.config.get("stats", {}).get("total_issued", 0) + 1
     await bot.data_manager.save_config()
 
@@ -2037,7 +2032,6 @@ async def apply_image_filter_punishment(
             duration_minutes=duration_minutes,
             case_record=case_record,
             server_url=server_url,
-            cleanup_deleted=cleanup_deleted,
             destination=dm_destination,
         )
 
@@ -2216,13 +2210,11 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
             entry_label=matched.entry["label"],
             action_label="Image Removed" if deleted else "Image Flagged",
             server_url=server_url,
-            cleanup_deleted=cleanup_deleted,
         )
 
     if settings["log_detections"] or failure_requires_log:
         try:
             flagged_url = str(getattr(matched_attachment, "url", "") or "").strip()
-            matched_label = discord.utils.escape_markdown(str(matched.entry["label"]))
             reference_match = ImageMatch()
             direct_reference_url = str(matched.entry.get("url") or "").strip()
             if direct_reference_url.startswith(("http://", "https://")):
@@ -2250,7 +2242,7 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
                 scope=SCOPE_MODERATION,
                 actor=actor,
                 target=format_user_ref(message.author),
-                reason=case_record.get("reason") if case_record else f"Banned image posted [{matched_label}]",
+                reason=case_record.get("reason") if case_record else IMAGE_FILTER_REASON,
                 thumbnail=reference_url if reference_url.startswith(("http://", "https://")) else None,
             )
             if case_record:

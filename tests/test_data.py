@@ -29,6 +29,24 @@ class MbxDataTests(unittest.TestCase):
         self.assertIn("timestamp", record)
         self.assertFalse(record["active"])
 
+    def test_discard_pending_punishment_removes_case_and_index(self):
+        record = asyncio.run(self.manager.add_punishment(
+            "42",
+            {"type": "kick", "reason": "Pending"},
+            persist=False,
+        ))
+        self.assertEqual(self.manager.get_case(record["case_id"]), ("42", record))
+
+        removed = asyncio.run(self.manager.discard_pending_punishment(
+            "42",
+            record["case_id"],
+            persist=False,
+        ))
+
+        self.assertIs(removed, record)
+        self.assertEqual(self.manager.get_case(record["case_id"]), (None, None))
+        self.assertNotIn("42", self.manager.punishments)
+
     def test_load_all_initializes_defaults_and_migrations(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             base = Path(temp_dir)

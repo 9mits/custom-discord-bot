@@ -16,7 +16,14 @@ from cogs.shared import (
     send_modmail_thread_intro,
     SCOPE_MODERATION,
 )
-from cogs.roles import AppealButton, AppealDenyButton, AppealRevokeButton, ConfirmRevokeView, DenyAppealModal
+from cogs.roles import (
+    AppealButton,
+    AppealDenyButton,
+    AppealModal,
+    AppealRevokeButton,
+    ConfirmRevokeView,
+    DenyAppealModal,
+)
 from cogs.automod import apply_automod_report_response
 
 # Build a legacy namespace that mirrors modules.commands
@@ -31,6 +38,7 @@ legacy = _types.SimpleNamespace(
     send_modmail_thread_intro=send_modmail_thread_intro,
     SCOPE_MODERATION=SCOPE_MODERATION,
     AppealButton=AppealButton,
+    AppealModal=AppealModal,
     AppealDenyButton=AppealDenyButton,
     AppealRevokeButton=AppealRevokeButton,
     ConfirmRevokeView=ConfirmRevokeView,
@@ -177,6 +185,64 @@ class MbxLegacyAuthTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(deny)
         item = await legacy.AppealDenyButton.from_custom_id(SimpleNamespace(), None, deny)
         self.assertEqual(item.case_id, 42)
+
+    async def test_appeal_modal_defers_before_sending_staff_log(self):
+        interaction = make_interaction()
+        interaction.guild = None
+        interaction.user.display_avatar = SimpleNamespace(url="https://cdn.example/avatar.png")
+        order = []
+
+        async def defer_first(*, ephemeral=False):
+            order.append(("defer", ephemeral))
+
+        async def send_staff_log(**_kwargs):
+            order.append(("staff_log", None))
+
+        interaction.response.defer.side_effect = defer_first
+        appeal_channel = SimpleNamespace(send=AsyncMock(side_effect=send_staff_log))
+        guild = SimpleNamespace(
+            id=10,
+            name="Guild",
+            icon=None,
+            get_channel=Mock(return_value=appeal_channel),
+        )
+        record = {
+            "case_id": 42,
+            "type": "kick",
+            "reason": "You posted an image that is restricted in this server.",
+        }
+        fake_bot = SimpleNamespace(
+            get_guild=Mock(return_value=guild),
+            data_manager=SimpleNamespace(
+                config={"appeal_channel_id": 99},
+                get_case=Mock(return_value=("42", record)),
+            ),
+        )
+        modal = legacy.AppealModal(10, 42)
+        modal.reason._value = "Please review this detection."
+
+        with patch.object(_cogs_roles, "bot", fake_bot), patch.object(
+            _cogs_roles,
+            "make_action_log_embed",
+            return_value=discord.Embed(title="Appeal"),
+        ), patch.object(
+            _cogs_roles,
+            "build_appeal_decision_view",
+            return_value=object(),
+        ), patch.object(
+            _cogs_roles,
+            "make_embed",
+            side_effect=lambda title, description=None, **kwargs: discord.Embed(
+                title=title,
+                description=description,
+            ),
+        ):
+            await modal.on_submit(interaction)
+
+        self.assertEqual(order, [("defer", True), ("staff_log", None)])
+        interaction.response.send_message.assert_not_awaited()
+        interaction.followup.send.assert_awaited_once()
+        self.assertTrue(interaction.followup.send.await_args.kwargs["ephemeral"])
 
     async def test_apply_automod_report_response_rejects_non_staff(self):
         interaction = make_interaction()

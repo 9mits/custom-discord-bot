@@ -690,6 +690,24 @@ class DataManager:
             await self.save_all()
         return prepared
 
+    async def discard_pending_punishment(self, uid, case_id: int, *, persist: bool = True):
+        normalized_uid = str(uid)
+        records = self.punishments.get(normalized_uid, [])
+        removed = None
+        for index, record in enumerate(records):
+            if isinstance(record, dict) and record.get("case_id") == case_id:
+                removed = records.pop(index)
+                break
+        if removed is None:
+            return None
+        if not records:
+            self.punishments.pop(normalized_uid, None)
+        self.case_index.pop(case_id, None)
+        self._dirty_punishments = True
+        if persist:
+            await self.save_all()
+        return removed
+
     async def save_modmail(self):
         self._dirty_modmail = True
         await self.save_all()
