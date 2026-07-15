@@ -52,6 +52,7 @@ from .shared import (
     respond_with_error,
     is_staff,
     is_staff_member,
+    resolve_member,
     get_valid_duration,
     build_automod_dashboard_embed,
     get_punishment_log_channel_id,
@@ -813,8 +814,13 @@ IMAGE_OCR_MIN_LINE_CONFIDENCE = 0.45
 IMAGE_CONTENT_CACHE_LIMIT = 256
 IMAGE_MESSAGE_CLEANUP_CONCURRENCY = 4
 IMAGE_MESSAGE_CLEANUP_HOURS = 24
-IMAGE_FILTER_REASON = "You posted an image that is restricted in this server."
+IMAGE_FILTER_REASON = (
+    "We believe your account may have been compromised and used to spread "
+    "malicious scam images or links."
+)
 _image_filter_work_semaphore = asyncio.Semaphore(2)
+_image_review_action_lock = asyncio.Lock()
+_image_review_resolutions = set()
 _image_ocr_lock = threading.Lock()
 _image_ocr_engine = None
 _image_ocr_unavailable = False
@@ -1676,10 +1682,12 @@ class ImageFalsePositiveButton(
             await respond_with_error(interaction, "This review action must be used in a server.", scope=SCOPE_MODERATION)
             return
 
+        await interaction.response.defer(ephemeral=True)
+
         settings = get_image_filter_settings()
         learned_match = match_banned_image(self.fingerprint, settings["false_positives"])
         if learned_match.quality in {"exact", "strong"}:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=make_confirmation_embed(
                     "Already Learned",
                     "> Matching copies are already excluded from automatic image enforcement.",
@@ -1690,19 +1698,52 @@ class ImageFalsePositiveButton(
             )
             return
 
-        settings["false_positives"] = settings["false_positives"][-(IMAGE_FILTER_MAX_FALSE_POSITIVES - 1):]
-        settings["false_positives"].append({
-            **self.fingerprint,
-            "label": "Staff-confirmed false positive",
-            "added_by": interaction.user.id,
-            "added_at": now_iso(),
-        })
-        store_image_filter_settings(settings)
-        await bot.data_manager.save_config()
-
         source_message = interaction.message
+        review_key = None
+        if source_message is not None and getattr(source_message, "id", None):
+            review_key = (interaction.guild.id, source_message.id)
+            async with _image_review_action_lock:
+                if review_key in _image_review_resolutions:
+                    await interaction.followup.send(
+                        embed=make_confirmation_embed(
+                            "Review Already Resolved",
+                            "> Another moderator already resolved this image review.",
+                            scope=SCOPE_MODERATION,
+                            guild=interaction.guild,
+                        ),
+                        ephemeral=True,
+                    )
+                    return
+                _image_review_resolutions.add(review_key)
+
+        try:
+            settings["false_positives"] = settings["false_positives"][-(IMAGE_FILTER_MAX_FALSE_POSITIVES - 1):]
+            settings["false_positives"].append({
+                **self.fingerprint,
+                "label": "Staff-confirmed false positive",
+                "added_by": interaction.user.id,
+                "added_at": now_iso(),
+            })
+            store_image_filter_settings(settings)
+            await bot.data_manager.save_config()
+        except Exception as exc:
+            if review_key is not None:
+                _image_review_resolutions.discard(review_key)
+            logger.error("Could not save image-filter false-positive feedback: %s", exc)
+            await interaction.followup.send(
+                embed=make_embed(
+                    "Review Failed",
+                    "> The false-positive decision could not be saved. Try again.",
+                    kind="error",
+                    scope=SCOPE_MODERATION,
+                    guild=interaction.guild,
+                ),
+                ephemeral=True,
+            )
+            return
+
         if source_message is None or not source_message.embeds:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=make_confirmation_embed(
                     "False Positive Learned",
                     "> Matching copies will now bypass automatic image enforcement. Any current punishment must still be reviewed from its case.",
@@ -1722,20 +1763,308 @@ class ImageFalsePositiveButton(
         )
         view = discord.ui.View.from_message(source_message, timeout=None)
         for child in view.children:
-            if getattr(child, "custom_id", "") == self.item.custom_id:
+            custom_id = getattr(child, "custom_id", "") or ""
+            if custom_id == self.item.custom_id:
                 child.disabled = True
                 child.label = "False Positive Learned"
-        await interaction.response.edit_message(embed=embed, view=view)
+            elif custom_id.startswith("imagefilter:punish:"):
+                child.disabled = True
+                child.label = "No Punishment"
+        try:
+            await source_message.edit(content=None, embed=embed, view=view)
+        except Exception as exc:
+            logger.warning(
+                "Image filter could not update false-positive review message %s: %s",
+                getattr(source_message, "id", "unknown"),
+                exc,
+            )
+        await interaction.followup.send(
+            embed=make_confirmation_embed(
+                "False Positive Learned",
+                "> Matching copies will now bypass automatic image enforcement.",
+                scope=SCOPE_MODERATION,
+                guild=interaction.guild,
+            ),
+            ephemeral=True,
+        )
 
 
-def build_image_filter_log_view(case_id: Optional[int], fingerprint: Optional[dict]) -> Optional[discord.ui.View]:
+class ImageReviewPunishButton(
+    discord.ui.DynamicItem[discord.ui.Button],
+    template=(
+        r"imagefilter:punish:(?P<user_id>[0-9]+):"
+        r"(?P<channel_id>[0-9]+):(?P<message_id>[0-9]+)"
+    ),
+):
+    def __init__(self, user_id: int, channel_id: int, message_id: int) -> None:
+        super().__init__(
+            discord.ui.Button(
+                label="Apply Configured Punishment",
+                style=discord.ButtonStyle.danger,
+                custom_id=f"imagefilter:punish:{user_id}:{channel_id}:{message_id}",
+            )
+        )
+        self.user_id = user_id
+        self.channel_id = channel_id
+        self.message_id = message_id
+
+    @classmethod
+    async def from_custom_id(
+        cls,
+        interaction: discord.Interaction,
+        item: discord.ui.Button,
+        match: "re.Match[str]",
+        /,
+    ) -> "ImageReviewPunishButton":
+        return cls(
+            int(match["user_id"]),
+            int(match["channel_id"]),
+            int(match["message_id"]),
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if not is_staff(interaction):
+            await respond_with_error(
+                interaction,
+                "You do not have permission to review image-filter detections.",
+                scope=SCOPE_MODERATION,
+            )
+            return
+        guild = interaction.guild
+        if guild is None:
+            await respond_with_error(interaction, "This review action must be used in a server.", scope=SCOPE_MODERATION)
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        log_message = interaction.message
+        log_message_id = getattr(log_message, "id", 0) or self.message_id
+        review_key = (guild.id, log_message_id)
+        async with _image_review_action_lock:
+            if review_key in _image_review_resolutions:
+                await interaction.followup.send(
+                    embed=make_confirmation_embed(
+                        "Review Already Resolved",
+                        "> Another moderator already resolved this image review.",
+                        scope=SCOPE_MODERATION,
+                        guild=guild,
+                    ),
+                    ephemeral=True,
+                )
+                return
+
+            existing_case = find_image_review_punishment(self.message_id)
+            if existing_case is not None:
+                _image_review_resolutions.add(review_key)
+                await interaction.followup.send(
+                    embed=make_confirmation_embed(
+                        "Review Already Resolved",
+                        f"> This image review was already resolved as Case #{existing_case.get('case_id', 'Unknown')}.",
+                        scope=SCOPE_MODERATION,
+                        guild=guild,
+                    ),
+                    ephemeral=True,
+                )
+                return
+
+            member = await resolve_member(guild, self.user_id)
+            if member is None:
+                await interaction.followup.send(
+                    embed=make_embed(
+                        "Member Not Found",
+                        "> The detected account is no longer in the server, so the configured punishment could not be applied.",
+                        kind="error",
+                        scope=SCOPE_MODERATION,
+                        guild=guild,
+                    ),
+                    ephemeral=True,
+                )
+                return
+
+            settings = get_image_filter_settings()
+            try:
+                applied, summary, case_record, dm_sent = await apply_image_filter_punishment(
+                    guild,
+                    member,
+                    entry_label="Staff-confirmed image detection",
+                    punishment_type=settings["punishment_type"],
+                    duration_minutes=settings["duration_minutes"],
+                )
+            except Exception as exc:
+                logger.error("Image review punishment failed unexpectedly for user %s: %s", member.id, exc)
+                await interaction.followup.send(
+                    embed=make_embed(
+                        "Punishment Not Applied",
+                        "> The configured punishment failed unexpectedly. Try again or punish the member manually.",
+                        kind="error",
+                        scope=SCOPE_MODERATION,
+                        guild=guild,
+                    ),
+                    ephemeral=True,
+                )
+                return
+            if not applied or not case_record:
+                await interaction.followup.send(
+                    embed=make_embed(
+                        "Punishment Not Applied",
+                        f"> {summary}",
+                        kind="error",
+                        scope=SCOPE_MODERATION,
+                        guild=guild,
+                    ),
+                    ephemeral=True,
+                )
+                return
+
+            cleanup_deleted = 0
+            try:
+                cleanup_deleted = await delete_flagged_user_messages_for_24_hours(
+                    guild,
+                    member.id,
+                    exclude_message_id=self.message_id,
+                )
+            except Exception as exc:
+                logger.warning("Image review could not complete cleanup for user %s: %s", member.id, exc)
+
+            source_deleted = False
+            if settings["delete_message"]:
+                get_channel_or_thread = getattr(guild, "get_channel_or_thread", None)
+                source_channel = get_channel_or_thread(self.channel_id) if callable(get_channel_or_thread) else None
+                if source_channel is None:
+                    source_channel = guild.get_channel(self.channel_id)
+                fetch_message = getattr(source_channel, "fetch_message", None)
+                if callable(fetch_message):
+                    try:
+                        source_message = await fetch_message(self.message_id)
+                        await source_message.delete()
+                        source_deleted = True
+                    except discord.NotFound:
+                        source_deleted = True
+                    except Exception as exc:
+                        logger.warning("Image review could not delete source message %s: %s", self.message_id, exc)
+
+            note_lines = [
+                line
+                for line in str(case_record.get("note") or "").splitlines()
+                if not line.startswith("24-Hour Cleanup:")
+            ]
+            note_lines.append(f"24-Hour Cleanup: {cleanup_deleted} earlier message(s) removed")
+            case_record["note"] = truncate_text("\n".join(note_lines), 1000)
+            case_record["image_review_source_message_id"] = self.message_id
+            case_record["image_review_source_channel_id"] = self.channel_id
+            try:
+                await bot.data_manager.save_punishments()
+            except Exception as exc:
+                logger.warning("Image review could not update cleanup audit for case %s: %s", case_record.get("case_id"), exc)
+
+            _image_review_resolutions.add(review_key)
+            if log_message is not None and log_message.embeds:
+                try:
+                    from .cases import add_punishment_record_log_fields, get_case_label
+                    from .case_panel import OpenCaseButton
+
+                    embed = discord.Embed.from_dict(log_message.embeds[0].to_dict())
+                    embed.title = f"[{get_case_label(case_record)}] Image Review Punished"
+                    upsert_embed_field(embed, "Result", summary, inline=True)
+                    upsert_embed_field(embed, "DM", "Delivered" if dm_sent else "Failed or closed", inline=True)
+                    upsert_embed_field(
+                        embed,
+                        "Review",
+                        "Configured punishment applied after moderator review.",
+                        inline=False,
+                    )
+                    if cleanup_deleted:
+                        upsert_embed_field(
+                            embed,
+                            "24-Hour Cleanup",
+                            f"{cleanup_deleted} earlier message{'s' if cleanup_deleted != 1 else ''} removed",
+                            inline=True,
+                        )
+                    if settings["delete_message"]:
+                        upsert_embed_field(
+                            embed,
+                            "Source Message",
+                            "Deleted" if source_deleted else "Could not be deleted",
+                            inline=True,
+                        )
+                    add_punishment_record_log_fields(embed, case_record)
+                    brand_embed(embed, guild=guild, scope=SCOPE_MODERATION)
+                    view = discord.ui.View.from_message(log_message, timeout=None)
+                    has_case_button = False
+                    for child in view.children:
+                        custom_id = getattr(child, "custom_id", "") or ""
+                        if custom_id.startswith("imagefilter:punish:"):
+                            child.disabled = True
+                            child.label = "Punishment Applied"
+                        elif custom_id.startswith("case:open:"):
+                            has_case_button = True
+                    if not has_case_button:
+                        view.add_item(OpenCaseButton(case_record["case_id"]))
+                    await log_message.edit(content=None, embed=embed, view=view)
+                except Exception as exc:
+                    logger.warning("Image review could not update log message %s: %s", log_message_id, exc)
+
+            await interaction.followup.send(
+                embed=make_confirmation_embed(
+                    "Punishment Applied",
+                    f"> {summary}",
+                    scope=SCOPE_MODERATION,
+                    guild=guild,
+                ),
+                ephemeral=True,
+            )
+
+
+def build_image_filter_log_view(
+    case_id: Optional[int],
+    fingerprint: Optional[dict],
+    *,
+    review_target: Optional[Tuple[int, int, int]] = None,
+) -> Optional[discord.ui.View]:
     view = discord.ui.View(timeout=None)
     if case_id:
         from .case_panel import OpenCaseButton
         view.add_item(OpenCaseButton(case_id))
+    if review_target:
+        view.add_item(ImageReviewPunishButton(*review_target))
     if fingerprint and encode_image_feedback_fingerprint(fingerprint):
         view.add_item(ImageFalsePositiveButton(fingerprint))
     return view if view.children else None
+
+
+def get_image_filter_review_ping(guild: discord.Guild) -> Optional[str]:
+    config = bot.data_manager.config
+    configured_mod_roles = config.get("mod_roles", [])
+    if not isinstance(configured_mod_roles, list):
+        configured_mod_roles = []
+    candidates = [config.get("role_mod"), *configured_mod_roles]
+    get_role = getattr(guild, "get_role", None)
+    if not callable(get_role):
+        return None
+    for raw_role_id in candidates:
+        try:
+            role_id = int(raw_role_id)
+        except (TypeError, ValueError):
+            continue
+        role = get_role(role_id)
+        if role is not None:
+            return role.mention
+    return None
+
+
+def find_image_review_punishment(source_message_id: int) -> Optional[dict]:
+    punishments = getattr(bot.data_manager, "punishments", {})
+    if not isinstance(punishments, dict):
+        return None
+    for records in punishments.values():
+        if not isinstance(records, list):
+            continue
+        for record in records:
+            if (
+                isinstance(record, dict)
+                and record.get("image_review_source_message_id") == source_message_id
+            ):
+                return record
+    return None
 
 
 async def log_image_filter_inspection_failure(message: discord.Message) -> None:
@@ -2139,6 +2468,7 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
             and matched.confidence >= IMAGE_SCAM_CONFIDENCE_THRESHOLD
         )
     )
+    review_required = not trusted_match
     deleted = False
     if settings["delete_message"] and trusted_match:
         try:
@@ -2168,6 +2498,8 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
     case_record = None
     dm_sent = False
     action_summary = "Message deleted" if deleted else "Detection logged"
+    if trusted_match and not settings["punish"]:
+        action_summary += " • automatic punishment is disabled in Image Filter settings"
     failure_requires_log = not trusted_match or inspection_incomplete
     if inspection_incomplete and not trusted_match:
         action_summary = "Staff review required: inspection incomplete"
@@ -2231,12 +2563,21 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
             if case_record:
                 from .cases import add_punishment_record_log_fields, get_case_label
                 case_label = get_case_label(case_record)
-            title = f"[{case_label}] Banned Image Detected" if case_label else "Banned Image Detected"
+            if case_label:
+                title = f"[{case_label}] Banned Image Detected"
+            elif review_required:
+                title = "Image Match Needs Review"
+            else:
+                title = "Banned Image Detected"
             system_user = getattr(bot, "user", None)
             actor = format_user_ref(system_user) if getattr(system_user, "mention", None) else "Automated Image Detection"
             embed = make_action_log_embed(
                 title,
-                "An automated image moderation action has been applied and logged.",
+                (
+                    "A lower-confidence image match needs a moderator decision. No automatic punishment was applied."
+                    if review_required
+                    else "An automated image moderation action has been applied and logged."
+                ),
                 guild=message.guild,
                 kind="danger" if case_record else "warning",
                 scope=SCOPE_MODERATION,
@@ -2273,7 +2614,8 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
             if flagged_url.startswith(("http://", "https://")):
                 embed.add_field(name="Submitted Image", value=f"[Open image]({flagged_url})", inline=True)
             embed.add_field(name="Result", value=action_summary, inline=True)
-            embed.add_field(name="DM", value="Delivered" if dm_sent else "Failed or closed", inline=True)
+            dm_status = "Not sent — awaiting review" if review_required else ("Delivered" if dm_sent else "Failed or closed")
+            embed.add_field(name="DM", value=dm_status, inline=True)
             if trusted_match:
                 embed.add_field(
                     name="24-Hour Cleanup",
@@ -2285,8 +2627,17 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
             embed.add_field(name="Message ID", value=message_value, inline=True)
             if flagged_url.startswith(("http://", "https://")):
                 embed.set_image(url=flagged_url)
-            view = build_image_filter_log_view(case_id or None, matched_fingerprint)
-            await send_automod_log(message.guild, embed, view=view)
+            review_target = None
+            if review_required:
+                review_target = (message.author.id, message.channel.id, message.id)
+            view = build_image_filter_log_view(
+                case_id or None,
+                matched_fingerprint,
+                review_target=review_target,
+            )
+            review_ping = get_image_filter_review_ping(message.guild) if review_required else None
+            content = f"{review_ping} Lower-confidence image match needs review." if review_ping else None
+            await send_automod_log(message.guild, embed, content=content, view=view)
         except Exception as exc:
             logger.warning("Image filter could not send the detection log for message %s: %s", message.id, exc)
     return result

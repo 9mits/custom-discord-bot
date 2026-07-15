@@ -28,6 +28,7 @@ from cogs.automod import (
     ImageFilterRemoveSelect,
     ImageFilterResult,
     ImageFalsePositiveButton,
+    ImageReviewPunishButton,
     ImageInspection,
     ImageFiltersView,
     ImageMatch,
@@ -100,6 +101,19 @@ class ImageFilterSettingsTests(unittest.TestCase):
         self.assertEqual(settings["duration_minutes"], 60)
         self.assertEqual(settings["entries"], [])
         self.assertEqual(settings["false_positives"], [])
+
+    def test_review_punishment_lookup_survives_restart_state(self):
+        record = {"case_id": 55, "image_review_source_message_id": 654}
+        data_manager = SimpleNamespace(punishments={"42": [record]})
+
+        with patch.object(
+            automod_module,
+            "bot",
+            SimpleNamespace(data_manager=data_manager),
+        ):
+            found = automod_module.find_image_review_punishment(654)
+
+        self.assertIs(found, record)
 
     def test_normalize_strictly_rejects_malformed_values(self):
         malformed_hashes = [
@@ -749,7 +763,10 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
                     "type": "kick",
                     "duration_minutes": 0,
                     "timestamp": "2026-07-15T00:00:00+00:00",
-                    "reason": "You posted an image that is restricted in this server.",
+                    "reason": (
+                        "We believe your account may have been compromised and used to spread "
+                        "malicious scam images or links."
+                    ),
                 },
                 True,
             )),
@@ -797,6 +814,7 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         )
         data_manager = SimpleNamespace(config={
             "immunity_list": [],
+            "role_mod": 900,
             "image_filters": {
                 "enabled": True,
                 "delete_message": True,
@@ -812,7 +830,10 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         message = SimpleNamespace(
             id=99,
             jump_url="https://discord.com/channels/1/123/99",
-            guild=SimpleNamespace(icon=None),
+            guild=SimpleNamespace(
+                icon=None,
+                get_role=Mock(return_value=SimpleNamespace(mention="<@&900>")),
+            ),
             author=self._member(),
             channel=SimpleNamespace(id=123, mention="<#123>"),
             attachments=[attachment],
@@ -850,6 +871,8 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         send_log.assert_awaited_once()
         logged_embed = send_log.await_args.args[1]
         fields = {field.name: field.value for field in logged_embed.fields}
+        self.assertEqual(logged_embed.title, "Image Match Needs Review")
+        self.assertIn("lower-confidence image match", logged_embed.description.lower())
         self.assertEqual(
             set(fields),
             {"Actor", "Target", "Reason", "Detection", "Matched Reference", "Submitted Image", "Result", "DM", "Message ID"},
@@ -857,11 +880,14 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("[flat image](https://example.invalid/original.png)", fields["Matched Reference"])
         self.assertRegex(fields["Detection"], r"Confidence: \d+%")
         self.assertIn("fuzzy match", fields["Result"].lower())
+        self.assertEqual(fields["DM"], "Not sent — awaiting review")
         self.assertNotIn("Message Deleted", fields)
         self.assertNotIn("Inspection Complete", fields)
         self.assertEqual(logged_embed.image.url, "https://example.invalid/flagged.png")
-        self.assertEqual(len(send_log.await_args.kwargs["view"].children), 1)
-        self.assertIsInstance(send_log.await_args.kwargs["view"].children[0], ImageFalsePositiveButton)
+        self.assertEqual(send_log.await_args.kwargs["content"], "<@&900> Lower-confidence image match needs review.")
+        self.assertEqual(len(send_log.await_args.kwargs["view"].children), 2)
+        self.assertIsInstance(send_log.await_args.kwargs["view"].children[0], ImageReviewPunishButton)
+        self.assertIsInstance(send_log.await_args.kwargs["view"].children[1], ImageFalsePositiveButton)
 
     async def test_incomplete_inspection_blocks_relay_and_forces_log(self):
         attachment = SimpleNamespace(
@@ -1038,7 +1064,10 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         sent_embed = dm_channel.send.await_args.kwargs["embed"]
         reason = next(field.value for field in sent_embed.fields if field.name == "Reason")
         notice = next(field.value for field in sent_embed.fields if field.name == "Automated Detection Notice")
-        self.assertEqual(reason, "> You posted an image that is restricted in this server.")
+        self.assertEqual(
+            reason,
+            "> We believe your account may have been compromised and used to spread malicious scam images or links.",
+        )
         self.assertEqual(
             notice,
             "> This action was handled automatically by a image detection system. False positives are possible. If you believe this was an error, press **Appeal Punishment** below.",
@@ -1137,7 +1166,8 @@ class ImageFilterUiTests(unittest.IsolatedAsyncioTestCase):
             guild=SimpleNamespace(icon=None),
             user=SimpleNamespace(id=900),
             message=None,
-            response=SimpleNamespace(send_message=AsyncMock()),
+            response=SimpleNamespace(defer=AsyncMock()),
+            followup=SimpleNamespace(send=AsyncMock()),
         )
         with patch.object(
             automod_module,
@@ -1156,7 +1186,128 @@ class ImageFilterUiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(learned[0]["added_by"], 900)
         data_manager.mark_config_dirty.assert_called()
         data_manager.save_config.assert_awaited_once()
-        interaction.response.send_message.assert_awaited_once()
+        interaction.response.defer.assert_awaited_once_with(ephemeral=True)
+        interaction.followup.send.assert_awaited_once()
+
+    async def test_review_punishment_button_applies_current_image_filter_policy(self):
+        button = ImageReviewPunishButton(42, 321, 654)
+        match = ImageReviewPunishButton.__discord_ui_compiled_template__.fullmatch(button.item.custom_id)
+        restored = await ImageReviewPunishButton.from_custom_id(SimpleNamespace(), button.item, match)
+        self.assertEqual((restored.user_id, restored.channel_id, restored.message_id), (42, 321, 654))
+
+        source_message = SimpleNamespace(delete=AsyncMock())
+        source_channel = SimpleNamespace(fetch_message=AsyncMock(return_value=source_message))
+        guild = SimpleNamespace(
+            id=123,
+            icon=None,
+            get_channel=Mock(return_value=source_channel),
+        )
+        member = SimpleNamespace(id=42)
+        log_embed = discord.Embed(title="Image Match Needs Review")
+        log_embed.add_field(name="Result", value="Awaiting review", inline=True)
+        log_message = SimpleNamespace(
+            id=777,
+            embeds=[log_embed],
+            edit=AsyncMock(),
+        )
+        interaction = SimpleNamespace(
+            guild=guild,
+            user=SimpleNamespace(id=900),
+            message=log_message,
+            response=SimpleNamespace(defer=AsyncMock()),
+            followup=SimpleNamespace(send=AsyncMock()),
+        )
+        data_manager = SimpleNamespace(
+            config={
+                "image_filters": {
+                    "enabled": True,
+                    "delete_message": True,
+                    "punishment_type": "ban",
+                    "duration_minutes": 60,
+                },
+            },
+            save_punishments=AsyncMock(),
+        )
+        case_record = {
+            "case_id": 55,
+            "type": "ban",
+            "duration_minutes": -1,
+            "timestamp": "2026-07-15T00:00:00+00:00",
+            "reason": "Compromised account",
+            "note": "Image recognition automod triggered.\n24-Hour Cleanup: 0 earlier message(s) removed",
+        }
+        raw_review_view = discord.ui.View(timeout=None)
+        raw_review_view.add_item(discord.ui.Button(
+            label="Apply Configured Punishment",
+            style=discord.ButtonStyle.danger,
+            custom_id=button.item.custom_id,
+        ))
+        apply_punishment = AsyncMock(return_value=(
+            True,
+            "Applied Ban automatically",
+            case_record,
+            True,
+        ))
+        automod_module._image_review_resolutions.clear()
+
+        with patch.object(
+            automod_module,
+            "bot",
+            SimpleNamespace(data_manager=data_manager),
+        ), patch.object(automod_module, "is_staff", return_value=True), patch.object(
+            automod_module,
+            "resolve_member",
+            AsyncMock(return_value=member),
+        ), patch.object(
+            automod_module,
+            "apply_image_filter_punishment",
+            apply_punishment,
+        ), patch.object(
+            automod_module,
+            "delete_flagged_user_messages_for_24_hours",
+            AsyncMock(return_value=5),
+        ) as cleanup, patch.object(
+            automod_module.discord.ui.View,
+            "from_message",
+            return_value=raw_review_view,
+        ), patch.object(
+            automod_module,
+            "brand_embed",
+        ), patch.object(
+            automod_module,
+            "make_confirmation_embed",
+            side_effect=lambda title, description=None, **kwargs: discord.Embed(
+                title=title,
+                description=description,
+            ),
+        ):
+            await button.callback(interaction)
+
+        interaction.response.defer.assert_awaited_once_with(ephemeral=True)
+        apply_punishment.assert_awaited_once_with(
+            guild,
+            member,
+            entry_label="Staff-confirmed image detection",
+            punishment_type="ban",
+            duration_minutes=60,
+        )
+        cleanup.assert_awaited_once_with(guild, 42, exclude_message_id=654)
+        source_channel.fetch_message.assert_awaited_once_with(654)
+        source_message.delete.assert_awaited_once()
+        data_manager.save_punishments.assert_awaited_once()
+        log_message.edit.assert_awaited_once()
+        edited_embed = log_message.edit.await_args.kwargs["embed"]
+        edited_fields = {field.name: field.value for field in edited_embed.fields}
+        self.assertEqual(edited_embed.title, "[Case #55] Image Review Punished")
+        self.assertEqual(edited_fields["Result"], "Applied Ban automatically")
+        self.assertEqual(edited_fields["24-Hour Cleanup"], "5 earlier messages removed")
+        self.assertEqual(edited_fields["Source Message"], "Deleted")
+        self.assertEqual(case_record["image_review_source_message_id"], 654)
+        self.assertEqual(case_record["image_review_source_channel_id"], 321)
+        self.assertTrue(raw_review_view.children[0].disabled)
+        self.assertEqual(raw_review_view.children[0].label, "Punishment Applied")
+        interaction.followup.send.assert_awaited_once()
+        automod_module._image_review_resolutions.clear()
 
     async def test_punishment_dm_view_adds_return_link_only_when_available(self):
         return_view = build_appeal_view(123, 55, server_url="https://discord.gg/return")
