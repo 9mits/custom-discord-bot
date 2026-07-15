@@ -129,7 +129,7 @@ class MGXBot(commands.Bot):
         self.project_stats_task.start()
 
     async def _restore_persistent_views(self) -> None:
-        from cogs.automod import ImageFalsePositiveButton
+        from cogs.automod import ImageFalsePositiveButton, ImageReviewPunishButton
         from cogs.case_panel import OpenCaseButton
         from cogs.moderation import RevokeUndoButton
         from cogs.modmail import ModmailControlView, ModmailPanelView
@@ -142,6 +142,7 @@ class MGXBot(commands.Bot):
             AppealDenyButton,
             RevokeUndoButton,
             ImageFalsePositiveButton,
+            ImageReviewPunishButton,
         )
         self.add_view(ModmailPanelView())
         if not self.data_manager:

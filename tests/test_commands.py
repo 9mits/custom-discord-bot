@@ -209,7 +209,10 @@ class MbxLegacyAuthTests(unittest.IsolatedAsyncioTestCase):
         record = {
             "case_id": 42,
             "type": "kick",
-            "reason": "You posted an image that is restricted in this server.",
+            "reason": (
+                "We believe your account may have been compromised and used to spread "
+                "malicious scam images or links."
+            ),
         }
         fake_bot = SimpleNamespace(
             get_guild=Mock(return_value=guild),
