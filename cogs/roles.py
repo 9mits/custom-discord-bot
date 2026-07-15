@@ -505,14 +505,15 @@ class AppealModal(discord.ui.Modal, title="Appeal Punishment"):
         self.case_id = case_id
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
         guild = bot.get_guild(self.guild_id)
         if not guild:
-            await interaction.response.send_message(embed=make_embed("Server Not Found", "> The server could not be found.", kind="error", scope=SCOPE_MODERATION), ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Server Not Found", "> The server could not be found.", kind="error", scope=SCOPE_MODERATION), ephemeral=True)
             return
 
         target_user_id, record = bot.data_manager.get_case(self.case_id)
-        if not record:
-            await interaction.response.send_message(embed=make_embed("Nothing to Appeal", "> This punishment is no longer on record.", kind="muted", scope=SCOPE_MODERATION), ephemeral=True)
+        if not record or target_user_id != str(interaction.user.id):
+            await interaction.followup.send(embed=make_embed("Nothing to Appeal", "> This punishment is no longer on record.", kind="muted", scope=SCOPE_MODERATION, guild=guild), ephemeral=True)
             return
         case_label = get_case_label(record)
 
@@ -550,7 +551,7 @@ class AppealModal(discord.ui.Modal, title="Appeal Punishment"):
         if not sent:
             await send_punishment_log(guild, embed, view=view)
 
-        await interaction.response.send_message(embed=make_embed("Appeal Submitted", "> Your appeal has been sent to the staff team.", kind="success", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
+        await interaction.followup.send(embed=make_embed("Appeal Submitted", "> Your appeal has been sent to the staff team.", kind="success", scope=SCOPE_MODERATION, guild=guild), ephemeral=True)
 
 class AppealButton(
     discord.ui.DynamicItem[discord.ui.Button],

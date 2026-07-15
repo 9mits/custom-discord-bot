@@ -621,7 +621,6 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         send_dm.assert_awaited_once()
         self.assertEqual(send_dm.await_args.kwargs["action_label"], "Image Removed")
         self.assertEqual(send_dm.await_args.kwargs["entry_label"], "blocked image")
-        self.assertEqual(send_dm.await_args.kwargs["cleanup_deleted"], 4)
 
     async def test_staff_learned_false_positive_bypasses_future_enforcement(self):
         fingerprint = fingerprint_image_bytes(_png_bytes((30, 60, 90)))
@@ -750,7 +749,7 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
                     "type": "kick",
                     "duration_minutes": 0,
                     "timestamp": "2026-07-15T00:00:00+00:00",
-                    "reason": "Banned image posted [MrBeast crypto scam]",
+                    "reason": "You posted an image that is restricted in this server.",
                 },
                 True,
             )),
@@ -964,6 +963,10 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         async def record_kick(*args, **kwargs):
             delivery_order.append("kick")
 
+        async def add_pending_case(user_id, record, *, persist=True):
+            delivery_order.append("case")
+            return {**record, "case_id": 55}
+
         dm_channel = SimpleNamespace(send=AsyncMock(side_effect=record_dm))
         member = SimpleNamespace(
             id=42,
@@ -985,8 +988,7 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         )
         data_manager = SimpleNamespace(
             config={"stats": {}},
-            prepare_punishment_record=Mock(side_effect=lambda record: {**record, "case_id": 55}),
-            add_punishment=AsyncMock(return_value={"case_id": 55}),
+            add_punishment=AsyncMock(side_effect=add_pending_case),
             save_config=AsyncMock(),
         )
         return_view = object()
@@ -1028,17 +1030,20 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(summary, "Applied Kick automatically")
         self.assertEqual(case_record["case_id"], 55)
         self.assertTrue(dm_sent)
-        self.assertEqual(delivery_order, ["dm", "kick"])
+        self.assertEqual(delivery_order, ["case", "dm", "kick"])
+        self.assertFalse(data_manager.add_punishment.await_args.kwargs["persist"])
         member.create_dm.assert_awaited_once()
         guild.kick.assert_awaited_once()
         dm_channel.send.assert_awaited_once()
         sent_embed = dm_channel.send.await_args.kwargs["embed"]
+        reason = next(field.value for field in sent_embed.fields if field.name == "Reason")
         notice = next(field.value for field in sent_embed.fields if field.name == "Automated Detection Notice")
-        self.assertIn("handled automatically", notice)
-        self.assertIn("False positives are possible", notice)
-        cleanup = next(field.value for field in sent_embed.fields if field.name == "24-Hour Message Cleanup")
-        self.assertIn("3 earlier messages", cleanup)
-        self.assertIn("preceding 24 hours", cleanup)
+        self.assertEqual(reason, "> You posted an image that is restricted in this server.")
+        self.assertEqual(
+            notice,
+            "> This action was handled automatically by a image detection system. False positives are possible. If you believe this was an error, press **Appeal Punishment** below.",
+        )
+        self.assertNotIn("24-Hour Message Cleanup", {field.name for field in sent_embed.fields})
         build_view.assert_called_once_with(123, 55, server_url="https://discord.gg/return")
         self.assertIs(dm_channel.send.await_args.kwargs["view"], return_view)
 
@@ -1051,6 +1056,13 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         async def fail_kick(*args, **kwargs):
             delivery_order.append("kick")
             raise RuntimeError("kick failed")
+
+        async def add_pending_case(user_id, record, *, persist=True):
+            delivery_order.append("case")
+            return {**record, "case_id": 55}
+
+        async def discard_pending_case(user_id, case_id):
+            delivery_order.append("discard")
 
         dm_channel = SimpleNamespace(send=AsyncMock(side_effect=record_dm))
         member = SimpleNamespace(
@@ -1071,8 +1083,8 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         )
         data_manager = SimpleNamespace(
             config={"stats": {}},
-            prepare_punishment_record=Mock(side_effect=lambda record: {**record, "case_id": 55}),
-            add_punishment=AsyncMock(),
+            add_punishment=AsyncMock(side_effect=add_pending_case),
+            discard_pending_punishment=AsyncMock(side_effect=discard_pending_case),
         )
 
         with patch.object(
@@ -1100,8 +1112,12 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("kick failed", summary)
         self.assertIsNone(case_record)
         self.assertTrue(dm_sent)
-        self.assertEqual(delivery_order, ["punishment_dm", "kick", "correction_dm"])
-        data_manager.add_punishment.assert_not_awaited()
+        self.assertEqual(
+            delivery_order,
+            ["case", "punishment_dm", "kick", "discard", "correction_dm"],
+        )
+        data_manager.add_punishment.assert_awaited_once()
+        data_manager.discard_pending_punishment.assert_awaited_once_with("42", 55)
 
 
 class ImageFilterUiTests(unittest.IsolatedAsyncioTestCase):
