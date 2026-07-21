@@ -4,6 +4,7 @@ import asyncio
 import base64
 import hashlib
 import io
+import json
 import logging
 import re
 import struct
@@ -796,6 +797,10 @@ def is_native_automod_exempt(member: discord.Member, channel_id: Optional[int], 
 IMAGE_FILTER_MAX_ENTRIES = 100
 IMAGE_FILTER_MAX_FALSE_POSITIVES = 250
 IMAGE_FILTER_MAX_BYTES = 8 * 1024 * 1024
+IMAGE_FILTER_DATASET_MAX_BYTES = 256 * 1024
+IMAGE_FILTER_DATASET_FORMAT = "mbx-scam-image-filter-dataset"
+IMAGE_FILTER_DATASET_VERSION = 1
+IMAGE_FILTER_DATASET_ENTRY_KEYS = ("hash", "vhash", "color", "aspect", "detail", "sha256", "label")
 IMAGE_FILTER_MAX_TOTAL_BYTES = 16 * 1024 * 1024
 IMAGE_FILTER_MAX_ATTACHMENTS = 10
 IMAGE_FILTER_MAX_PIXELS = 12_000_000
@@ -957,7 +962,7 @@ def normalize_image_filter_settings(current: dict) -> dict:
     entries = _normalize_image_fingerprint_entries(
         current.get("entries", []),
         limit=IMAGE_FILTER_MAX_ENTRIES,
-        default_label="Banned image",
+        default_label="Scam image",
     )
     false_positives = _normalize_image_fingerprint_entries(
         current.get("false_positives", []),
@@ -989,6 +994,67 @@ def store_image_filter_settings(settings: dict) -> dict:
     bot.data_manager.config["image_filters"] = normalized
     bot.data_manager.mark_config_dirty()
     return normalized
+
+
+def build_image_filter_dataset(settings: dict) -> dict:
+    normalized = normalize_image_filter_settings(settings)
+    entries = []
+    for entry in normalized["entries"]:
+        entries.append({key: entry[key] for key in IMAGE_FILTER_DATASET_ENTRY_KEYS})
+    return {
+        "format": IMAGE_FILTER_DATASET_FORMAT,
+        "version": IMAGE_FILTER_DATASET_VERSION,
+        "exported_at": now_iso(),
+        "entries": entries,
+    }
+
+
+def encode_image_filter_dataset(settings: dict) -> bytes:
+    payload = build_image_filter_dataset(settings)
+    return json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8")
+
+
+def merge_image_filter_dataset(settings: dict, data: bytes) -> Tuple[dict, dict]:
+    if len(data) > IMAGE_FILTER_DATASET_MAX_BYTES:
+        raise ValueError("The dataset file exceeds the 256 KiB limit.")
+    try:
+        payload = json.loads(data.decode("utf-8-sig"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("The dataset file is not valid UTF-8 JSON.") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("The dataset must be a JSON object.")
+    if payload.get("format") != IMAGE_FILTER_DATASET_FORMAT:
+        raise ValueError("This is not a Scam Image Filters dataset export.")
+    if payload.get("version") != IMAGE_FILTER_DATASET_VERSION:
+        raise ValueError("This dataset version is not supported.")
+    raw_entries = payload.get("entries")
+    if not isinstance(raw_entries, list):
+        raise ValueError("The dataset entries must be a JSON list.")
+
+    safe_entries = [
+        {key: entry.get(key) for key in IMAGE_FILTER_DATASET_ENTRY_KEYS if key in entry}
+        if isinstance(entry, dict) else entry
+        for entry in raw_entries
+    ]
+    imported = _normalize_image_fingerprint_entries(
+        safe_entries,
+        limit=IMAGE_FILTER_MAX_ENTRIES,
+        default_label="Scam image",
+    )
+    merged = normalize_image_filter_settings(settings)
+    existing_ids = {entry["id"] for entry in merged["entries"]}
+    new_entries = [entry for entry in imported if entry["id"] not in existing_ids]
+    available = max(0, IMAGE_FILTER_MAX_ENTRIES - len(merged["entries"]))
+    accepted = new_entries[:available]
+    merged["entries"].extend(accepted)
+    return merged, {
+        "source": len(raw_entries),
+        "valid": len(imported),
+        "added": len(accepted),
+        "duplicates": len(imported) - len(new_entries),
+        "capacity_skipped": max(0, len(new_entries) - available),
+        "invalid_skipped": max(0, len(raw_entries) - len(imported)),
+    }
 
 
 async def _collect_image_cleanup_channels(guild: discord.Guild, after: datetime) -> List:
@@ -1674,7 +1740,7 @@ class ImageFalsePositiveButton(
         if not is_staff(interaction):
             await respond_with_error(
                 interaction,
-                "You do not have permission to review image-filter detections.",
+                "You do not have permission to review Scam Image Filter detections.",
                 scope=SCOPE_MODERATION,
             )
             return
@@ -1826,7 +1892,7 @@ class ImageReviewPunishButton(
         if not is_staff(interaction):
             await respond_with_error(
                 interaction,
-                "You do not have permission to review image-filter detections.",
+                "You do not have permission to review Scam Image Filter detections.",
                 scope=SCOPE_MODERATION,
             )
             return
@@ -1885,7 +1951,7 @@ class ImageReviewPunishButton(
                 applied, summary, case_record, dm_sent = await apply_image_filter_punishment(
                     guild,
                     member,
-                    entry_label="Staff-confirmed image detection",
+                    entry_label="Staff-confirmed scam image detection",
                     punishment_type=settings["punishment_type"],
                     duration_minutes=settings["duration_minutes"],
                 )
@@ -2070,8 +2136,8 @@ def find_image_review_punishment(source_message_id: int) -> Optional[dict]:
 async def log_image_filter_inspection_failure(message: discord.Message) -> None:
     try:
         embed = make_embed(
-            "Image Filter Inspection Incomplete",
-            f"> {format_user_ref(message.author)} posted an attachment the image filter could not inspect. Review it manually in {message.channel.mention}.",
+            "Scam Image Filter Inspection Incomplete",
+            f"> {format_user_ref(message.author)} posted an attachment the Scam Image Filter could not inspect. Review it manually in {message.channel.mention}.",
             kind="warning",
             scope=SCOPE_MODERATION,
             guild=message.guild,
@@ -2203,7 +2269,7 @@ async def send_image_filter_user_dm(
             dm_embed.add_field(name="Expires", value=expires, inline=True)
         elif punishment_type == "ban":
             dm_embed.add_field(name="Duration", value="Ban", inline=True)
-        review_text = "This action was handled automatically by a image detection system. False positives are possible."
+        review_text = "This action was handled automatically by the Scam Image Filter. False positives are possible."
         if case_record:
             review_text += " If you believe this was an error, press **Appeal Punishment** below."
         else:
@@ -2277,7 +2343,7 @@ async def apply_image_filter_punishment(
     user_message_text = f"You have been **{action_label}** in **{guild.name}**."
     note = truncate_text(
         "\n".join([
-            "Image recognition automod triggered.",
+            "Scam Image Filter triggered.",
             f"Matched Entry: {entry_label}",
             f"24-Hour Cleanup: {cleanup_deleted} earlier message(s) removed",
         ]),
@@ -2499,7 +2565,7 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
     dm_sent = False
     action_summary = "Message deleted" if deleted else "Detection logged"
     if trusted_match and not settings["punish"]:
-        action_summary += " • automatic punishment is disabled in Image Filter settings"
+        action_summary += " • automatic punishment is disabled in Scam Image Filter settings"
     failure_requires_log = not trusted_match or inspection_incomplete
     if inspection_incomplete and not trusted_match:
         action_summary = "Staff review required: inspection incomplete"
@@ -2564,17 +2630,17 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
                 from .cases import add_punishment_record_log_fields, get_case_label
                 case_label = get_case_label(case_record)
             if case_label:
-                title = f"[{case_label}] Banned Image Detected"
+                title = f"[{case_label}] Scam Image Detected"
             elif review_required:
-                title = "Image Match Needs Review"
+                title = "Scam Image Match Needs Review"
             else:
-                title = "Banned Image Detected"
+                title = "Scam Image Detected"
             system_user = getattr(bot, "user", None)
-            actor = format_user_ref(system_user) if getattr(system_user, "mention", None) else "Automated Image Detection"
+            actor = format_user_ref(system_user) if getattr(system_user, "mention", None) else "Scam Image Filter"
             embed = make_action_log_embed(
                 title,
                 (
-                    "A lower-confidence image match needs a moderator decision. No automatic punishment was applied."
+                    "A lower-confidence scam image match needs a moderator decision. No automatic punishment was applied."
                     if review_required
                     else "An automated image moderation action has been applied and logged."
                 ),
@@ -2636,7 +2702,7 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
                 review_target=review_target,
             )
             review_ping = get_image_filter_review_ping(message.guild) if review_required else None
-            content = f"{review_ping} Lower-confidence image match needs review." if review_ping else None
+            content = f"{review_ping} Lower-confidence scam image match needs review." if review_ping else None
             await send_automod_log(message.guild, embed, content=content, view=view)
         except Exception as exc:
             logger.warning("Image filter could not send the detection log for message %s: %s", message.id, exc)
@@ -2926,7 +2992,7 @@ class AutoModSectionSelect(discord.ui.Select):
             discord.SelectOption(label="Overview", value="overview", default=current == "overview"),
             discord.SelectOption(label="Rule Punishments", value="rules", default=current == "rules"),
             discord.SelectOption(label="Response Settings", value="responses", default=current == "responses"),
-            discord.SelectOption(label="Image Filters", value="images", default=current == "images"),
+            discord.SelectOption(label="Scam Image Filters", value="images", default=current == "images"),
             discord.SelectOption(label="Immunity", value="immunity", default=current == "immunity"),
             discord.SelectOption(label="Log Channels", value="logs", default=current == "logs"),
         ]
@@ -3347,8 +3413,8 @@ def build_image_filters_embed(guild: discord.Guild) -> discord.Embed:
     else:
         punishment_label = "Off"
     embed = make_embed(
-        "Image Filters",
-        "> Detects banned images and high-confidence MrBeast crypto scams locally. Trusted detections also remove the sender's messages from the preceding 24 hours. No external recognition API is used.",
+        "Scam Image Filters",
+        "> Detects images in the scam dataset and high-confidence MrBeast crypto scams locally. Trusted detections also remove the sender's messages from the preceding 24 hours. No external recognition API is used.",
         kind="warning",
         scope=SCOPE_MODERATION,
         guild=guild,
@@ -3358,17 +3424,17 @@ def build_image_filters_embed(guild: discord.Guild) -> discord.Embed:
         filter_status = "Enabled • Scam scan on"
     elif not settings["enabled"]:
         filter_status = "Disabled"
-    embed.add_field(name="Filters", value=filter_status, inline=True)
+    embed.add_field(name="Scam Filter", value=filter_status, inline=True)
     embed.add_field(name="Delete Message", value="On" if settings["delete_message"] else "Off", inline=True)
     embed.add_field(name="Log Detections", value="On" if settings["log_detections"] else "Off", inline=True)
     embed.add_field(name="Auto Punish", value=punishment_label, inline=True)
-    embed.add_field(name="Banned Images", value=f"{len(settings['entries'])}/{IMAGE_FILTER_MAX_ENTRIES}", inline=True)
+    embed.add_field(name="Dataset Size", value=f"{len(settings['entries'])}/{IMAGE_FILTER_MAX_ENTRIES}", inline=True)
     embed.add_field(name="Learned Exceptions", value=str(len(settings["false_positives"])), inline=True)
     if settings["entries"]:
         preview = [f"- {entry['label']}" for entry in settings["entries"][:10]]
         if len(settings["entries"]) > 10:
             preview.append(f"- …and {len(settings['entries']) - 10} more")
-        embed.add_field(name="Entries", value="\n".join(preview), inline=False)
+        embed.add_field(name="Dataset", value="\n".join(preview), inline=False)
     return embed
 
 
@@ -3401,9 +3467,9 @@ class ImageFilterRemoveSelect(discord.ui.Select):
             for entry in page_entries
         ]
         if not options:
-            options = [discord.SelectOption(label="No banned images", value="none")]
+            options = [discord.SelectOption(label="Dataset is empty", value="none")]
         end = min(start + 25, len(settings["entries"]))
-        placeholder = f"Remove a banned image ({start + 1}-{end} of {len(settings['entries'])})..." if page_entries else "Remove a banned image..."
+        placeholder = f"Remove from dataset ({start + 1}-{end} of {len(settings['entries'])})..." if page_entries else "Remove from dataset..."
         super().__init__(placeholder=placeholder, min_values=1, max_values=1, options=options, row=1, disabled=not page_entries)
 
     async def callback(self, interaction: discord.Interaction) -> None:
@@ -3449,7 +3515,7 @@ class ImageFiltersView(discord.ui.View):
         self.page = max(0, min(page, max_page))
         self.add_item(ImageFilterPunishmentSelect(page=self.page))
         self.add_item(ImageFilterRemoveSelect(page=self.page))
-        self.toggle_enabled.label = f"Filters: {'On' if settings['enabled'] else 'Off'}"
+        self.toggle_enabled.label = f"Scam Filter: {'On' if settings['enabled'] else 'Off'}"
         self.toggle_enabled.style = discord.ButtonStyle.success if settings["enabled"] else discord.ButtonStyle.secondary
         self.toggle_delete.label = f"Delete: {'On' if settings['delete_message'] else 'Off'}"
         self.toggle_log.label = f"Log: {'On' if settings['log_detections'] else 'Off'}"
@@ -3471,7 +3537,7 @@ class ImageFiltersView(discord.ui.View):
         await bot.data_manager.save_config()
         await interaction.response.edit_message(embed=build_image_filters_embed(interaction.guild), view=ImageFiltersView(page=self.page))
 
-    @discord.ui.button(label="Filters", style=discord.ButtonStyle.secondary, row=2)
+    @discord.ui.button(label="Scam Filter", style=discord.ButtonStyle.secondary, row=2)
     async def toggle_enabled(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await self._toggle(interaction, "enabled")
 
@@ -3504,6 +3570,108 @@ class ImageFiltersView(discord.ui.View):
             embed=build_image_filters_embed(interaction.guild),
             view=ImageFiltersView(page=self.page + 1),
         )
+
+    @discord.ui.button(label="Export Dataset", style=discord.ButtonStyle.primary, row=3)
+    async def export_dataset(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        data = encode_image_filter_dataset(get_image_filter_settings())
+        file = discord.File(io.BytesIO(data), filename="scam-image-filter-dataset.json")
+        await interaction.response.send_message(
+            embed=make_confirmation_embed(
+                "Dataset Export Ready",
+                "> Download this JSON file and import it on another bot instance. You can also open the file to copy its JSON contents.",
+                scope=SCOPE_MODERATION,
+                guild=interaction.guild,
+            ),
+            file=file,
+            ephemeral=True,
+        )
+
+    @discord.ui.button(label="Import Dataset", style=discord.ButtonStyle.primary, row=3)
+    async def import_dataset(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.send_message(
+            embed=make_embed(
+                "Upload Dataset",
+                "> Upload a `scam-image-filter-dataset.json` export in this channel within 2 minutes. The upload message will be deleted after it is read.",
+                kind="info",
+                scope=SCOPE_MODERATION,
+                guild=interaction.guild,
+            ),
+            ephemeral=True,
+        )
+
+        channel_id = getattr(interaction.channel, "id", None)
+        user_id = interaction.user.id
+
+        def is_dataset_upload(message) -> bool:
+            return (
+                getattr(message.author, "id", None) == user_id
+                and getattr(message.channel, "id", None) == channel_id
+                and bool(getattr(message, "attachments", None))
+            )
+
+        try:
+            upload_message = await bot.wait_for("message", check=is_dataset_upload, timeout=120)
+        except asyncio.TimeoutError:
+            await interaction.followup.send(
+                embed=make_embed(
+                    "Import Timed Out",
+                    "> No dataset file was received. Press **Import Dataset** to try again.",
+                    kind="error",
+                    scope=SCOPE_MODERATION,
+                    guild=interaction.guild,
+                ),
+                ephemeral=True,
+            )
+            return
+
+        attachment = upload_message.attachments[0]
+        try:
+            if not str(getattr(attachment, "filename", "")).lower().endswith(".json"):
+                raise ValueError("Upload the JSON file created by Export Dataset.")
+            if _coerce_image_filter_int(getattr(attachment, "size", 0), 0) > IMAGE_FILTER_DATASET_MAX_BYTES:
+                raise ValueError("The dataset file exceeds the 256 KiB limit.")
+            data = await attachment.read()
+            merged, stats = merge_image_filter_dataset(get_image_filter_settings(), data)
+        except (ValueError, discord.HTTPException) as exc:
+            await interaction.followup.send(
+                embed=make_embed(
+                    "Dataset Import Failed",
+                    f"> {exc}",
+                    kind="error",
+                    scope=SCOPE_MODERATION,
+                    guild=interaction.guild,
+                ),
+                ephemeral=True,
+            )
+            return
+        finally:
+            try:
+                await upload_message.delete()
+            except (discord.Forbidden, discord.HTTPException):
+                pass
+
+        store_image_filter_settings(merged)
+        await bot.data_manager.save_config()
+        skipped = stats["source"] - stats["added"]
+        summary = f"> Added **{stats['added']}** image{'s' if stats['added'] != 1 else ''} to the dataset."
+        if skipped:
+            summary += f"\n> Skipped **{skipped}** invalid, duplicate, or over-limit record{'s' if skipped != 1 else ''}."
+        await interaction.followup.send(
+            embed=make_confirmation_embed(
+                "Dataset Imported",
+                summary,
+                scope=SCOPE_MODERATION,
+                guild=interaction.guild,
+            ),
+            ephemeral=True,
+        )
+        try:
+            await interaction.message.edit(
+                embed=build_image_filters_embed(interaction.guild),
+                view=ImageFiltersView(page=self.page),
+            )
+        except (AttributeError, discord.HTTPException):
+            pass
 
 class AutoModDashboardView(discord.ui.View):
     def __init__(self):
@@ -3831,10 +3999,10 @@ async def automod_cmd(interaction: discord.Interaction):
     await interaction.response.send_message(embed=build_automod_dashboard_embed(interaction.guild), view=AutoModDashboardView(), ephemeral=True)
 
 
-@tree.context_menu(name="Ban Image")
+@tree.context_menu(name="Add to Scam Image Dataset")
 async def ban_image_context(interaction: discord.Interaction, message: discord.Message):
     if not is_staff(interaction):
-        await respond_with_error(interaction, "You do not have permission to ban images.", scope=SCOPE_MODERATION)
+        await respond_with_error(interaction, "You do not have permission to update the Scam Image Filter dataset.", scope=SCOPE_MODERATION)
         return
 
     await interaction.response.defer(ephemeral=True)
@@ -3894,11 +4062,11 @@ async def ban_image_context(interaction: discord.Interaction, message: discord.M
         lines.append(f"- Some attachments were skipped: {reason_text}")
     if not settings["enabled"]:
         lines.append("")
-        lines.append("The image filter is currently **disabled** — enable it under `/automod` → Image Filters.")
+        lines.append("The Scam Image Filter is currently **disabled** — enable it under `/automod` → Scam Image Filters.")
     await interaction.followup.send(
         embed=make_embed(
-            "Images Banned",
-            "> Added to the banned image list. Re-uploads and near-copies will now be detected.\n" + "\n".join(lines),
+            "Dataset Updated",
+            "> Added to the Scam Image Filter dataset. Re-uploads and near-copies will now be detected.\n" + "\n".join(lines),
             kind="success",
             scope=SCOPE_MODERATION,
             guild=interaction.guild,

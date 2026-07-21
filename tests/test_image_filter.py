@@ -1,6 +1,7 @@
 from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 import io
+import json
 from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, Mock, call, patch
@@ -11,6 +12,9 @@ import cogs.automod as automod_module
 import cogs.events as events_module
 from cogs.automod import (
     IMAGE_FILTER_MAX_BYTES,
+    IMAGE_FILTER_DATASET_FORMAT,
+    IMAGE_FILTER_DATASET_MAX_BYTES,
+    IMAGE_FILTER_DATASET_VERSION,
     IMAGE_FILTER_MAX_ENTRIES,
     IMAGE_FILTER_MAX_FALSE_POSITIVES,
     IMAGE_FILTER_MAX_PIXELS,
@@ -36,6 +40,8 @@ from cogs.automod import (
     apply_image_filter_punishment,
     automod_cmd,
     ban_image_context,
+    build_image_filter_dataset,
+    build_image_filters_embed,
     detect_mrbeast_crypto_scam,
     decode_image_feedback_fingerprint,
     delete_flagged_user_messages_for_24_hours,
@@ -47,6 +53,7 @@ from cogs.automod import (
     image_match_similarity,
     inspect_image_bytes,
     match_banned_image,
+    merge_image_filter_dataset,
     normalize_image_filter_settings,
     resolve_image_filter_server_url,
     run_image_filter,
@@ -182,6 +189,78 @@ class ImageFilterSettingsTests(unittest.TestCase):
         entries = [{"hash": f"{index + 1:016x}"} for index in range(IMAGE_FILTER_MAX_FALSE_POSITIVES + 10)]
         settings = normalize_image_filter_settings({"false_positives": entries})
         self.assertEqual(len(settings["false_positives"]), IMAGE_FILTER_MAX_FALSE_POSITIVES)
+
+    def test_dataset_export_is_transferable_and_excludes_server_metadata(self):
+        settings = {
+            "entries": [{
+                "hash": "0123456789abcdef",
+                "vhash": "fedcba9876543210",
+                "color": "123abc",
+                "aspect": 1000,
+                "detail": 25,
+                "sha256": "a" * 64,
+                "label": "Known scam",
+                "url": "https://cdn.discordapp.com/server-specific.png",
+                "added_by": 987654321,
+                "added_at": "2026-07-22T00:00:00+00:00",
+            }],
+        }
+
+        payload = build_image_filter_dataset(settings)
+        exported_entry = payload["entries"][0]
+
+        self.assertEqual(payload["format"], IMAGE_FILTER_DATASET_FORMAT)
+        self.assertEqual(payload["version"], IMAGE_FILTER_DATASET_VERSION)
+        self.assertEqual(exported_entry["label"], "Known scam")
+        self.assertNotIn("added_by", exported_entry)
+        self.assertNotIn("added_at", exported_entry)
+        self.assertNotIn("url", exported_entry)
+
+    def test_dataset_import_merges_deduplicates_and_preserves_settings(self):
+        existing = {
+            "enabled": True,
+            "punish": True,
+            "entries": [{"hash": "0123456789abcdef", "label": "Existing"}],
+        }
+        payload = {
+            "format": IMAGE_FILTER_DATASET_FORMAT,
+            "version": IMAGE_FILTER_DATASET_VERSION,
+            "entries": [
+                {"hash": "0123456789abcdef", "label": "Duplicate"},
+                {
+                    "hash": "1123456789abcdef",
+                    "label": "Imported",
+                    "url": "https://example.invalid/untrusted.png",
+                    "added_by": 123,
+                },
+                {"hash": "invalid", "label": "Invalid"},
+            ],
+        }
+
+        merged, stats = merge_image_filter_dataset(
+            existing,
+            json.dumps(payload).encode("utf-8"),
+        )
+
+        self.assertTrue(merged["enabled"])
+        self.assertTrue(merged["punish"])
+        self.assertEqual([entry["label"] for entry in merged["entries"]], ["Existing", "Imported"])
+        self.assertEqual(merged["entries"][1]["url"], "")
+        self.assertEqual(merged["entries"][1]["added_by"], 0)
+        self.assertEqual(stats["source"], 3)
+        self.assertEqual(stats["added"], 1)
+        self.assertEqual(stats["duplicates"], 1)
+        self.assertEqual(stats["invalid_skipped"], 1)
+
+    def test_dataset_import_rejects_untrusted_or_oversized_files(self):
+        cases = (
+            b"not json",
+            json.dumps({"format": "other", "version": 1, "entries": []}).encode("utf-8"),
+            b"x" * (IMAGE_FILTER_DATASET_MAX_BYTES + 1),
+        )
+        for data in cases:
+            with self.subTest(size=len(data)), self.assertRaises(ValueError):
+                merge_image_filter_dataset({}, data)
 
 
 class ImageContentDetectionTests(unittest.TestCase):
@@ -785,8 +864,8 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(punish.await_args.kwargs["cleanup_deleted"], 6)
         logged_embed = send_log.await_args.args[1]
         fields = {field.name: field.value for field in logged_embed.fields}
-        self.assertEqual(logged_embed.title, "[Case #55] Banned Image Detected")
-        self.assertIn("Automated Image Detection", fields["Actor"])
+        self.assertEqual(logged_embed.title, "[Case #55] Scam Image Detected")
+        self.assertIn("Scam Image Filter", fields["Actor"])
         self.assertIn("<@42>", fields["Target"])
         self.assertIn("Local OCR", fields["Detection"])
         self.assertIn("Confidence: 96%", fields["Detection"])
@@ -871,8 +950,8 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         send_log.assert_awaited_once()
         logged_embed = send_log.await_args.args[1]
         fields = {field.name: field.value for field in logged_embed.fields}
-        self.assertEqual(logged_embed.title, "Image Match Needs Review")
-        self.assertIn("lower-confidence image match", logged_embed.description.lower())
+        self.assertEqual(logged_embed.title, "Scam Image Match Needs Review")
+        self.assertIn("lower-confidence scam image match", logged_embed.description.lower())
         self.assertEqual(
             set(fields),
             {"Actor", "Target", "Reason", "Detection", "Matched Reference", "Submitted Image", "Result", "DM", "Message ID"},
@@ -884,7 +963,7 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("Message Deleted", fields)
         self.assertNotIn("Inspection Complete", fields)
         self.assertEqual(logged_embed.image.url, "https://example.invalid/flagged.png")
-        self.assertEqual(send_log.await_args.kwargs["content"], "<@&900> Lower-confidence image match needs review.")
+        self.assertEqual(send_log.await_args.kwargs["content"], "<@&900> Lower-confidence scam image match needs review.")
         self.assertEqual(len(send_log.await_args.kwargs["view"].children), 2)
         self.assertIsInstance(send_log.await_args.kwargs["view"].children[0], ImageReviewPunishButton)
         self.assertIsInstance(send_log.await_args.kwargs["view"].children[1], ImageFalsePositiveButton)
@@ -1070,7 +1149,7 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             notice,
-            "> This action was handled automatically by a image detection system. False positives are possible. If you believe this was an error, press **Appeal Punishment** below.",
+            "> This action was handled automatically by the Scam Image Filter. False positives are possible. If you believe this was an error, press **Appeal Punishment** below.",
         )
         self.assertNotIn("24-Hour Message Cleanup", {field.name for field in sent_embed.fields})
         build_view.assert_called_once_with(123, 55, server_url="https://discord.gg/return")
@@ -1203,7 +1282,7 @@ class ImageFilterUiTests(unittest.IsolatedAsyncioTestCase):
             get_channel=Mock(return_value=source_channel),
         )
         member = SimpleNamespace(id=42)
-        log_embed = discord.Embed(title="Image Match Needs Review")
+        log_embed = discord.Embed(title="Scam Image Match Needs Review")
         log_embed.add_field(name="Result", value="Awaiting review", inline=True)
         log_message = SimpleNamespace(
             id=777,
@@ -1234,7 +1313,7 @@ class ImageFilterUiTests(unittest.IsolatedAsyncioTestCase):
             "duration_minutes": -1,
             "timestamp": "2026-07-15T00:00:00+00:00",
             "reason": "Compromised account",
-            "note": "Image recognition automod triggered.\n24-Hour Cleanup: 0 earlier message(s) removed",
+            "note": "Scam Image Filter triggered.\n24-Hour Cleanup: 0 earlier message(s) removed",
         }
         raw_review_view = discord.ui.View(timeout=None)
         raw_review_view.add_item(discord.ui.Button(
@@ -1287,7 +1366,7 @@ class ImageFilterUiTests(unittest.IsolatedAsyncioTestCase):
         apply_punishment.assert_awaited_once_with(
             guild,
             member,
-            entry_label="Staff-confirmed image detection",
+            entry_label="Staff-confirmed scam image detection",
             punishment_type="ban",
             duration_minutes=60,
         )
@@ -1372,8 +1451,133 @@ class ImageFilterUiTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertFalse(any(getattr(child, "label", "") == "Back" for child in view.children))
 
+    async def test_scam_image_filter_panel_uses_dataset_labels_and_transfer_actions(self):
+        data_manager = SimpleNamespace(config={"image_filters": {
+            "entries": [{"hash": "0123456789abcdef", "label": "Known scam"}],
+        }})
+        with patch.object(automod_module, "bot", SimpleNamespace(data_manager=data_manager)), patch.object(
+            automod_module,
+            "make_embed",
+            side_effect=lambda title, description=None, **kwargs: discord.Embed(
+                title=title,
+                description=description,
+            ),
+        ):
+            embed = build_image_filters_embed(SimpleNamespace(icon=None))
+            view = ImageFiltersView()
+
+        self.assertEqual(embed.title, "Scam Image Filters")
+        fields = {field.name: field.value for field in embed.fields}
+        self.assertEqual(fields["Dataset Size"], "1/100")
+        self.assertIn("Known scam", fields["Dataset"])
+        labels = {getattr(child, "label", None) for child in view.children}
+        self.assertIn("Export Dataset", labels)
+        self.assertIn("Import Dataset", labels)
+        section = next(child for child in view.children if isinstance(child, AutoModSectionSelect))
+        self.assertIn("Scam Image Filters", {option.label for option in section.options})
+
+    async def test_dataset_export_button_sends_downloadable_json(self):
+        data_manager = SimpleNamespace(config={"image_filters": {
+            "entries": [{
+                "hash": "0123456789abcdef",
+                "label": "Known scam",
+                "added_by": 999,
+                "url": "https://example.invalid/source.png",
+            }],
+        }})
+        interaction = SimpleNamespace(
+            guild=SimpleNamespace(icon=None),
+            response=SimpleNamespace(send_message=AsyncMock()),
+        )
+        with patch.object(automod_module, "bot", SimpleNamespace(data_manager=data_manager)), patch.object(
+            automod_module,
+            "make_confirmation_embed",
+            side_effect=lambda title, description=None, **kwargs: discord.Embed(
+                title=title,
+                description=description,
+            ),
+        ):
+            view = ImageFiltersView()
+            export_button = next(child for child in view.children if getattr(child, "label", None) == "Export Dataset")
+            await export_button.callback(interaction)
+
+        sent = interaction.response.send_message.await_args.kwargs
+        self.assertTrue(sent["ephemeral"])
+        self.assertEqual(sent["file"].filename, "scam-image-filter-dataset.json")
+        sent["file"].fp.seek(0)
+        payload = json.loads(sent["file"].fp.read().decode("utf-8"))
+        self.assertEqual(payload["format"], IMAGE_FILTER_DATASET_FORMAT)
+        self.assertEqual(payload["entries"][0]["label"], "Known scam")
+        self.assertNotIn("added_by", payload["entries"][0])
+        self.assertNotIn("url", payload["entries"][0])
+        sent["file"].close()
+
+    async def test_dataset_import_button_accepts_uploaded_export(self):
+        payload = {
+            "format": IMAGE_FILTER_DATASET_FORMAT,
+            "version": IMAGE_FILTER_DATASET_VERSION,
+            "entries": [{"hash": "1123456789abcdef", "label": "Imported scam"}],
+        }
+        data = json.dumps(payload).encode("utf-8")
+        attachment = SimpleNamespace(
+            filename="scam-image-filter-dataset.json",
+            size=len(data),
+            read=AsyncMock(return_value=data),
+        )
+        upload = SimpleNamespace(
+            author=SimpleNamespace(id=900),
+            channel=SimpleNamespace(id=321),
+            attachments=[attachment],
+            delete=AsyncMock(),
+        )
+        data_manager = SimpleNamespace(
+            config={"image_filters": {
+                "entries": [{"hash": "0123456789abcdef", "label": "Existing scam"}],
+            }},
+            mark_config_dirty=Mock(),
+            save_config=AsyncMock(),
+        )
+        fake_bot = SimpleNamespace(
+            data_manager=data_manager,
+            wait_for=AsyncMock(return_value=upload),
+        )
+        interaction = SimpleNamespace(
+            guild=SimpleNamespace(icon=None),
+            channel=SimpleNamespace(id=321),
+            user=SimpleNamespace(id=900),
+            message=SimpleNamespace(edit=AsyncMock()),
+            response=SimpleNamespace(send_message=AsyncMock()),
+            followup=SimpleNamespace(send=AsyncMock()),
+        )
+        embed_factory = lambda title, description=None, **kwargs: discord.Embed(
+            title=title,
+            description=description,
+        )
+        with patch.object(automod_module, "bot", fake_bot), patch.object(
+            automod_module,
+            "make_embed",
+            side_effect=embed_factory,
+        ), patch.object(
+            automod_module,
+            "make_confirmation_embed",
+            side_effect=embed_factory,
+        ):
+            view = ImageFiltersView()
+            import_button = next(child for child in view.children if getattr(child, "label", None) == "Import Dataset")
+            await import_button.callback(interaction)
+
+        labels = [entry["label"] for entry in data_manager.config["image_filters"]["entries"]]
+        self.assertEqual(labels, ["Existing scam", "Imported scam"])
+        fake_bot.wait_for.assert_awaited_once()
+        attachment.read.assert_awaited_once()
+        upload.delete.assert_awaited_once()
+        data_manager.save_config.assert_awaited_once()
+        interaction.followup.send.assert_awaited_once()
+        interaction.message.edit.assert_awaited_once()
+
     async def test_ban_image_context_is_runtime_authorized_and_setup_registers_it(self):
         self.assertIsNone(ban_image_context.default_permissions)
+        self.assertEqual(ban_image_context.name, "Add to Scam Image Dataset")
 
         fake_bot = SimpleNamespace(
             add_cog=AsyncMock(),
