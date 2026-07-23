@@ -72,10 +72,14 @@ def _build_intents() -> discord.Intents:
     return intents
 
 
-def command_payloads(tree: discord.app_commands.CommandTree) -> List[dict]:
-    """Serialise the current global command tree to plain dicts for hashing."""
+def command_payloads(
+    tree: discord.app_commands.CommandTree,
+    *,
+    guild: Optional[discord.abc.Snowflake] = None,
+) -> List[dict]:
+    """Serialise the current command tree scope to plain dicts for hashing."""
     payloads = []
-    for command in tree.get_commands():
+    for command in tree.get_commands(guild=guild):
         try:
             payloads.append(command.to_dict(tree))
         except Exception:
@@ -187,6 +191,15 @@ class MGXBot(commands.Bot):
             )
         return [g.id for g in self.guilds]
 
+    def _resolve_scoped_sync_targets(self) -> list:
+        """Return joined guilds that have commands explicitly scoped to them."""
+        targets = []
+        for guild in self.guilds:
+            guild_ref = discord.Object(id=int(guild.id))
+            if self.tree.get_commands(guild=guild_ref):
+                targets.append(int(guild.id))
+        return targets
+
     async def _auto_sync_commands(self) -> None:
         """Sync slash commands to this instance's guild(s) once the bot is ready.
 
@@ -199,21 +212,24 @@ class MGXBot(commands.Bot):
         if not self.data_manager:
             return
 
-        targets = self._resolve_sync_targets()
+        global_targets = self._resolve_sync_targets()
+        scoped_targets = self._resolve_scoped_sync_targets()
+        targets = list(dict.fromkeys([*global_targets, *scoped_targets]))
         if not targets:
             return
 
-        fingerprint = fingerprint_payloads(command_payloads(self.tree))
         changed = False
         for target_id in targets:
+            guild = discord.Object(id=int(target_id))
+            if target_id in global_targets:
+                self.tree.copy_global_to(guild=guild)
+            fingerprint = fingerprint_payloads(command_payloads(self.tree, guild=guild))
             state_key = f"synced_command_fingerprint_{target_id}"
             if self.data_manager.config.get(state_key) == fingerprint:
                 logger.info("Slash commands unchanged for guild %s — skipping sync", target_id)
                 continue
 
-            guild = discord.Object(id=int(target_id))
             try:
-                self.tree.copy_global_to(guild=guild)
                 synced = await self.tree.sync(guild=guild)
             except discord.HTTPException as exc:
                 logger.warning("Auto-sync to guild %s failed: %s", target_id, exc)
