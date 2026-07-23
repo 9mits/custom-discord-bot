@@ -1,9 +1,12 @@
 import os
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, Mock, patch
 
-from core.bot import MGXBot, fingerprint_payloads
+import discord
+
+import cogs.admin as admin_module
+from core.bot import MGXBot, command_payloads, fingerprint_payloads
 from core.constants import TEST_GUILD_ID
 
 
@@ -32,6 +35,90 @@ class FingerprintPayloadsTests(unittest.TestCase):
         self.assertEqual(fingerprint_payloads([]), fingerprint_payloads([]))
 
 
+class CommandPayloadsTests(unittest.TestCase):
+    def test_serializes_the_requested_guild_scope(self):
+        guild = SimpleNamespace(id=123)
+        command = SimpleNamespace(
+            qualified_name="event",
+            to_dict=Mock(return_value={"name": "event"}),
+        )
+        tree = SimpleNamespace(get_commands=Mock(return_value=[command]))
+
+        self.assertEqual(command_payloads(tree, guild=guild), [{"name": "event"}])
+        tree.get_commands.assert_called_once_with(guild=guild)
+        command.to_dict.assert_called_once_with(tree)
+
+
+class ManualSyncTests(unittest.IsolatedAsyncioTestCase):
+    async def test_manual_sync_preserves_local_guild_commands(self):
+        guild = SimpleNamespace(id=123, name="Event Server", owner_id=42)
+        tree = SimpleNamespace(
+            clear_commands=Mock(),
+            copy_global_to=Mock(),
+            sync=AsyncMock(return_value=[SimpleNamespace(name="event")]),
+        )
+        fake_bot = SimpleNamespace(
+            data_manager=SimpleNamespace(config={}),
+            tree=tree,
+            _remove_disabled_application_commands=Mock(),
+            _resolve_sync_targets=Mock(return_value=[123]),
+        )
+        ctx = SimpleNamespace(
+            guild=guild,
+            author=SimpleNamespace(
+                id=42,
+                roles=[],
+                guild_permissions=SimpleNamespace(administrator=False),
+            ),
+            message=SimpleNamespace(delete=AsyncMock()),
+            send=AsyncMock(),
+        )
+
+        with patch.object(admin_module, "bot", fake_bot), patch.object(
+            admin_module,
+            "delete_remote_commands",
+            AsyncMock(return_value=[]),
+        ):
+            await admin_module.sync.callback(ctx)
+
+        tree.clear_commands.assert_not_called()
+        tree.copy_global_to.assert_called_once_with(guild=guild)
+        tree.sync.assert_awaited_once_with(guild=guild)
+
+    async def test_manual_sync_does_not_copy_globals_to_scoped_only_guild(self):
+        guild = SimpleNamespace(id=222, name="Event Server", owner_id=42)
+        tree = SimpleNamespace(
+            copy_global_to=Mock(),
+            sync=AsyncMock(return_value=[SimpleNamespace(name="event")]),
+        )
+        fake_bot = SimpleNamespace(
+            data_manager=SimpleNamespace(config={}),
+            tree=tree,
+            _remove_disabled_application_commands=Mock(),
+            _resolve_sync_targets=Mock(return_value=[111]),
+        )
+        ctx = SimpleNamespace(
+            guild=guild,
+            author=SimpleNamespace(
+                id=42,
+                roles=[],
+                guild_permissions=SimpleNamespace(administrator=False),
+            ),
+            message=SimpleNamespace(delete=AsyncMock()),
+            send=AsyncMock(),
+        )
+
+        with patch.object(admin_module, "bot", fake_bot), patch.object(
+            admin_module,
+            "delete_remote_commands",
+            AsyncMock(return_value=[]),
+        ):
+            await admin_module.sync.callback(ctx)
+
+        tree.copy_global_to.assert_not_called()
+        tree.sync.assert_awaited_once_with(guild=guild)
+
+
 def _fake_bot(guild_id, member_guild_ids, present_ids):
     """Minimal stand-in exposing what _resolve_sync_targets reads off `self`."""
     return SimpleNamespace(
@@ -57,6 +144,51 @@ class ResolveSyncTargetsTests(unittest.TestCase):
         fake = _fake_bot(555, [777, 888], set())
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(sorted(MGXBot._resolve_sync_targets(fake)), [777, 888])
+
+
+class ScopedSyncTargetsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_finds_only_joined_guilds_with_scoped_commands(self):
+        tree = SimpleNamespace(
+            get_commands=Mock(side_effect=lambda *, guild: [object()] if guild.id == 222 else []),
+        )
+        fake = SimpleNamespace(
+            guilds=[SimpleNamespace(id=111), SimpleNamespace(id=222)],
+            tree=tree,
+        )
+
+        self.assertEqual(MGXBot._resolve_scoped_sync_targets(fake), [222])
+
+    async def test_scoped_only_target_does_not_receive_global_commands(self):
+        command = SimpleNamespace(
+            qualified_name="event",
+            to_dict=Mock(return_value={"name": "event"}),
+        )
+        tree = SimpleNamespace(
+            get_commands=Mock(return_value=[command]),
+            copy_global_to=Mock(),
+            sync=AsyncMock(return_value=[command]),
+        )
+        data_manager = SimpleNamespace(
+            config={},
+            mark_config_dirty=Mock(),
+            save_all=AsyncMock(),
+        )
+        fake = SimpleNamespace(
+            tree=tree,
+            data_manager=data_manager,
+            _resolve_sync_targets=Mock(return_value=[111]),
+            _resolve_scoped_sync_targets=Mock(return_value=[222]),
+        )
+
+        await MGXBot._auto_sync_commands(fake)
+
+        tree.copy_global_to.assert_called_once()
+        self.assertEqual(tree.copy_global_to.call_args.kwargs["guild"], discord.Object(id=111))
+        self.assertEqual(
+            {sync_call.kwargs["guild"].id for sync_call in tree.sync.await_args_list},
+            {111, 222},
+        )
+        data_manager.save_all.assert_awaited_once()
 
 
 if __name__ == "__main__":

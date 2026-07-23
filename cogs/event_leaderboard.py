@@ -3,11 +3,11 @@ event_leaderboard.py — Limited-time VC time leaderboard for a single server.
 
 Cross-instance design (see cogs/registry.py for the broader picture):
 
-  CONTROL half  — activated by env EVENT_CONTROL=1 (TEST_MODE=1 also works,
-      for backward compatibility). Registers the /event command group. Writes
-      event_config.json only. Never posts or edits the leaderboard message itself.
+  CONTROL half  — registered only on the Mysterious Bot X display instance and
+      only in the event server. Registers the owner-only /event command group
+      and /endtimestamp. Writes event_config.json only.
 
-  DISPLAY half  — activated by env EVENT_DISPLAY=1 (e.g. bot2, the public instance).
+  DISPLAY half  — activated by env EVENT_DISPLAY=1 (bot1, Mysterious Bot X).
       Tracks voice time, owns the leaderboard message, edits it every
       EVENT_REFRESH_SECONDS. Writes event_runtime.json only.
 
@@ -33,13 +33,15 @@ from discord.ext import commands, tasks
 
 from core.constants import BRAND_NAME, SCOPE_SYSTEM
 from core.utils import create_progress_bar, now_iso
-from .shared import get_theme_color, make_embed
+from .shared import get_theme_color, has_permission_capability, make_embed
 
 # How often the display instance edits the leaderboard message.
 # Editing one message every 60s is far below Discord's rate limits; lower it
 # if you want snappier updates (do not go below ~10s).
 EVENT_REFRESH_SECONDS = 60
 
+EVENT_GUILD_ID = 1476839721731620938
+EVENT_CONTROL_BRAND_NAME = "Mysterious Bot X"
 DEFAULT_GOAL_HOURS = 1000
 DEFAULT_TITLE = "1,000 Hour Voice Chat Event Leaderboard"
 
@@ -47,8 +49,8 @@ DEFAULT_TITLE = "1,000 Hour Voice Chat Event Leaderboard"
 # Shared state files (single writer each)
 # ---------------------------------------------------------------------------
 EVENT_DIR = Path(os.environ.get("EVENT_DATA_DIR", str(Path(__file__).resolve().parent.parent / "event_data")))
-CONFIG_FILE = EVENT_DIR / "event_config.json"     # writer: control (test bot)
-RUNTIME_FILE = EVENT_DIR / "event_runtime.json"   # writer: display (bot2)
+CONFIG_FILE = EVENT_DIR / "event_config.json"     # writer: Mysterious Bot X controls
+RUNTIME_FILE = EVENT_DIR / "event_runtime.json"   # writer: Mysterious Bot X display
 
 _DEFAULT_CONFIG: Dict[str, Any] = {
     "active": False,
@@ -127,12 +129,84 @@ def format_vc_time(seconds: int) -> str:
     return f"{secs}s"
 
 
+def _event_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def event_progress_seconds(
+    cfg: Dict[str, Any],
+    runtime: Dict[str, Any],
+    *,
+    cog: Optional["EventLeaderboardCog"] = None,
+    now: Optional[float] = None,
+) -> int:
+    """Return synchronized displayed progress without stale pre-baseline time."""
+    baseline = max(0, _event_int(cfg.get("baseline_seconds")))
+    baseline_token = _event_int(cfg.get("baseline_token"))
+    tracked = 0
+
+    if cog is not None and cog._loaded and cog._applied_baseline_token == baseline_token:
+        tracked = max(0, _event_int(cog._vc_active_seconds))
+        if cog._vc_active_since is not None:
+            tracked += max(0, int((time.time() if now is None else now) - cog._vc_active_since))
+    elif _event_int(runtime.get("applied_baseline_token")) == baseline_token:
+        tracked = max(0, _event_int(runtime.get("vc_active_seconds")))
+
+    return baseline + tracked
+
+
+def estimate_event_end_unix(progress_seconds: int, goal_hours: int, *, now_unix: Optional[int] = None) -> int:
+    now_unix = int(time.time()) if now_unix is None else int(now_unix)
+    remaining = max(0, max(1, int(goal_hours)) * 3600 - max(0, int(progress_seconds)))
+    return now_unix + remaining
+
+
+def discord_timestamp_lines(unix_timestamp: int) -> list[str]:
+    labels = (
+        ("Short Time", "t"),
+        ("Long Time", "T"),
+        ("Short Date", "d"),
+        ("Long Date", "D"),
+        ("Short Date/Time", "f"),
+        ("Long Date/Time", "F"),
+        ("Relative Time", "R"),
+    )
+    return [
+        f"> **{label}:** <t:{unix_timestamp}:{style}> — `<t:{unix_timestamp}:{style}>`"
+        for label, style in labels
+    ]
+
+
+def is_event_owner(interaction: discord.Interaction) -> bool:
+    return (
+        interaction.guild_id == EVENT_GUILD_ID
+        and has_permission_capability(interaction, "owner_panel")
+    )
+
+
+def event_display_enabled() -> bool:
+    return str(os.environ.get("EVENT_DISPLAY", "")).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def event_control_enabled() -> bool:
+    return event_display_enabled() and BRAND_NAME == EVENT_CONTROL_BRAND_NAME
+
+
 # ---------------------------------------------------------------------------
-# CONTROL half — /event command group (registered only when EVENT_CONTROL=1)
+# CONTROL half — owner-only commands on Mysterious Bot X in the event server
 # ---------------------------------------------------------------------------
-event_group = app_commands.Group(
+class EventControlGroup(app_commands.Group):
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return is_event_owner(interaction)
+
+
+event_group = EventControlGroup(
     name="event",
     description="Control the limited-time VC leaderboard event.",
+    guild_ids=[EVENT_GUILD_ID],
     default_permissions=discord.Permissions(administrator=True),
 )
 
@@ -232,8 +306,8 @@ async def event_vc(interaction: discord.Interaction, channel: Optional[discord.V
     )
 
 
-@event_group.command(name="elapsed", description="Set how many hours of VC activity have ALREADY happened (head start).")
-@app_commands.describe(hours="Hours already completed before the bot started tracking (e.g. 165).")
+@event_group.command(name="elapsed", description="Correct the leaderboard's current VC progress in hours.")
+@app_commands.describe(hours="Total hours the progress bar should show now (decimals are supported).")
 async def event_elapsed(interaction: discord.Interaction, hours: app_commands.Range[float, 0, 1000000]) -> None:
     cfg = load_config()
     cfg["baseline_seconds"] = int(hours * 3600)
@@ -241,9 +315,9 @@ async def event_elapsed(interaction: discord.Interaction, hours: app_commands.Ra
     save_config(cfg)
     await interaction.response.send_message(
         embed=_control_embed(
-            "Baseline Set",
-            f"> Progress now starts at **{hours:,.1f} hours** and counts up from there.\n"
-            f"> The display bot resets its live VC counter on the next refresh.",
+            "Progress Corrected",
+            f"> Leaderboard progress will show **{hours:,.2f} hours** on the next refresh and count up from there.\n"
+            f"> Stale tracked time from before this correction will not be added again.",
             kind="success",
             guild=interaction.guild,
         ),
@@ -260,7 +334,11 @@ async def event_status(interaction: discord.Interaction) -> None:
     voice_channel_id = cfg.get("voice_channel_id")
     message_id = rt.get("message_id")
     guild_id = cfg.get("guild_id")
-    active_seconds = int(cfg.get("baseline_seconds", 0)) + int(rt.get("vc_active_seconds", 0))
+    candidate = interaction.client.get_cog("EventLeaderboardCog")
+    cog = candidate if isinstance(candidate, EventLeaderboardCog) else None
+    active_seconds = event_progress_seconds(cfg, rt, cog=cog)
+    baseline_seconds = max(0, _event_int(cfg.get("baseline_seconds")))
+    tracked_seconds = max(0, active_seconds - baseline_seconds)
 
     lines = [
         f"> **Active:** {'Yes' if cfg.get('active') else 'No'}",
@@ -268,7 +346,7 @@ async def event_status(interaction: discord.Interaction) -> None:
         f"> **Tracked voice channel:** {f'<#{voice_channel_id}>' if voice_channel_id else 'Any non-AFK VC'}",
         f"> **Goal:** {int(cfg.get('goal_hours', DEFAULT_GOAL_HOURS)):,} hours",
         f"> **VC activity so far:** {format_vc_time(active_seconds)} "
-        f"(baseline {format_vc_time(int(cfg.get('baseline_seconds', 0)))} + tracked {format_vc_time(int(rt.get('vc_active_seconds', 0)))})",
+        f"(baseline {format_vc_time(baseline_seconds)} + tracked {format_vc_time(tracked_seconds)})",
         f"> **Participants tracked:** {len(totals)}",
         f"> **Last refresh:** {rt.get('last_updated') or 'never'}",
     ]
@@ -279,6 +357,44 @@ async def event_status(interaction: discord.Interaction) -> None:
 
     await interaction.response.send_message(
         embed=_control_embed("Event Status", "\n".join(lines), kind="info", guild=interaction.guild),
+        ephemeral=True,
+    )
+
+
+@app_commands.command(name="endtimestamp", description="Show every Discord timestamp format for the projected event end.")
+@app_commands.guilds(EVENT_GUILD_ID)
+@app_commands.default_permissions(administrator=True)
+@app_commands.check(is_event_owner)
+async def endtimestamp_command(interaction: discord.Interaction) -> None:
+    cfg = load_config()
+    rt = load_runtime()
+    candidate = interaction.client.get_cog("EventLeaderboardCog")
+    cog = candidate if isinstance(candidate, EventLeaderboardCog) else None
+    progress_seconds = event_progress_seconds(cfg, rt, cog=cog)
+    goal_hours = max(1, _event_int(cfg.get("goal_hours"), DEFAULT_GOAL_HOURS))
+    now_unix = int(time.time())
+    end_unix = estimate_event_end_unix(progress_seconds, goal_hours, now_unix=now_unix)
+    remaining_seconds = max(0, goal_hours * 3600 - progress_seconds)
+
+    lines = [
+        f"> **Unix:** `{end_unix}`",
+        f"> **Progress:** {format_vc_time(progress_seconds)} / {goal_hours:,}h",
+        f"> **Remaining:** {format_vc_time(remaining_seconds)}",
+        "",
+        *discord_timestamp_lines(end_unix),
+        "",
+        "> Projection assumes the tracked VC remains continuously active from now until the goal.",
+    ]
+    if not cfg.get("active"):
+        lines.append("> Tracking is currently paused, so the projected time will move until the event resumes.")
+
+    await interaction.response.send_message(
+        embed=_control_embed(
+            "Projected Event End",
+            "\n".join(lines),
+            kind="info",
+            guild=interaction.guild,
+        ),
         ephemeral=True,
     )
 
@@ -524,13 +640,10 @@ class EventLeaderboardCog(commands.Cog):
 
 
 async def setup(bot_instance: commands.Bot) -> None:
-    # Control commands run on whichever instance is the event control plane.
-    # EVENT_CONTROL is the dedicated flag; TEST_MODE is still honoured so
-    # existing .env.test files keep working without changes.
-    if os.environ.get("EVENT_CONTROL") or os.environ.get("TEST_MODE"):
+    if event_control_enabled():
         bot_instance.tree.add_command(event_group)
-    # Tracking + display runs only on the designated display instance.
-    if os.environ.get("EVENT_DISPLAY"):
+        bot_instance.tree.add_command(endtimestamp_command)
+    if event_display_enabled():
         cog = EventLeaderboardCog(bot_instance)
         await bot_instance.add_cog(cog)
         cog.refresh_loop.start()

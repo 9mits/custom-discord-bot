@@ -712,11 +712,9 @@ async def sync(ctx):
     )
     bot._remove_disabled_application_commands()
 
-    bot.tree.clear_commands(guild=guild)
-    await bot.tree.sync(guild=guild)
-
     global_deleted = await delete_remote_commands(guild=None)
-    bot.tree.copy_global_to(guild=guild)
+    if guild.id in bot._resolve_sync_targets():
+        bot.tree.copy_global_to(guild=guild)
     guild_cmds = await bot.tree.sync(guild=guild)
     global_text = f" Removed {len(global_deleted)} stale global command(s)." if global_deleted else ""
     await ctx.send(
