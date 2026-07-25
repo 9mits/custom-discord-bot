@@ -32,7 +32,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from core.constants import BRAND_NAME, SCOPE_SYSTEM
-from core.utils import create_progress_bar, now_iso
+from core.utils import create_progress_bar, iso_to_dt, now_iso
 from .shared import get_theme_color, has_permission_capability, make_embed
 
 # How often the display instance edits the leaderboard message.
@@ -42,6 +42,7 @@ EVENT_REFRESH_SECONDS = 60
 
 EVENT_GUILD_ID = 1476839721731620938
 EVENT_CONTROL_BRAND_NAME = "Mysterious Bot X"
+EVENT_HISTORY_LIMIT = 25
 DEFAULT_GOAL_HOURS = 1000
 DEFAULT_TITLE = "1,000 Hour Voice Chat Event Leaderboard"
 
@@ -63,6 +64,7 @@ _DEFAULT_CONFIG: Dict[str, Any] = {
     "reset_token": 0,
     "baseline_seconds": 0,         # VC time already elapsed before bot tracking
     "baseline_token": 0,           # bumped whenever baseline is (re)set
+    "history": [],                  # completed event snapshots, oldest to newest
 }
 
 _DEFAULT_RUNTIME: Dict[str, Any] = {
@@ -129,11 +131,103 @@ def format_vc_time(seconds: int) -> str:
     return f"{secs}s"
 
 
+def event_title(goal_hours: int) -> str:
+    return f"{max(1, int(goal_hours)):,} Hour Voice Chat Event Leaderboard"
+
+
 def _event_int(value: Any, default: int = 0) -> int:
     try:
         return int(value)
     except (TypeError, ValueError):
         return default
+
+
+def normalize_event_history(raw_history: Any) -> list[Dict[str, Any]]:
+    if not isinstance(raw_history, list):
+        return []
+    history = []
+    for index, item in enumerate(raw_history[-EVENT_HISTORY_LIMIT:]):
+        if not isinstance(item, dict):
+            continue
+        ended_at = str(item.get("ended_at") or "")
+        archive_id = str(item.get("id") or ended_at or f"event-{index}")[:100]
+        goal_hours = max(1, _event_int(item.get("goal_hours"), DEFAULT_GOAL_HOURS))
+        winners = []
+        raw_winners = item.get("top_10", [])
+        if isinstance(raw_winners, list):
+            for winner in raw_winners[:10]:
+                if not isinstance(winner, dict):
+                    continue
+                user_id = _event_int(winner.get("user_id"))
+                if user_id <= 0:
+                    continue
+                winners.append({
+                    "rank": len(winners) + 1,
+                    "user_id": user_id,
+                    "seconds": max(0, _event_int(winner.get("seconds"))),
+                })
+        history.append({
+            "id": archive_id,
+            "title": str(item.get("title") or event_title(goal_hours))[:100],
+            "goal_hours": goal_hours,
+            "started_at": str(item.get("started_at") or ""),
+            "ended_at": ended_at,
+            "top_10": winners,
+        })
+    return history
+
+
+def event_top_10(
+    runtime: Dict[str, Any],
+    *,
+    cog: Optional["EventLeaderboardCog"] = None,
+    now: Optional[float] = None,
+) -> list[Dict[str, int]]:
+    totals = {
+        str(user_id): max(0, _event_int(seconds))
+        for user_id, seconds in runtime.get("totals", {}).items()
+        if str(user_id).isdigit()
+    } if isinstance(runtime.get("totals"), dict) else {}
+
+    if cog is not None and cog._loaded:
+        totals = {
+            str(user_id): max(0, _event_int(seconds))
+            for user_id, seconds in cog._totals.items()
+            if str(user_id).isdigit()
+        }
+        if cog._active:
+            snapshot_time = time.time() if now is None else now
+            for user_id, started_at in cog._sessions.items():
+                totals[str(user_id)] = totals.get(str(user_id), 0) + max(
+                    0,
+                    int(snapshot_time - started_at),
+                )
+
+    ranked = sorted(totals.items(), key=lambda item: (-item[1], int(item[0])))[:10]
+    return [
+        {"rank": rank, "user_id": int(user_id), "seconds": seconds}
+        for rank, (user_id, seconds) in enumerate(ranked, start=1)
+    ]
+
+
+def build_event_archive(
+    cfg: Dict[str, Any],
+    runtime: Dict[str, Any],
+    *,
+    cog: Optional["EventLeaderboardCog"] = None,
+    ended_at: Optional[str] = None,
+    now: Optional[float] = None,
+) -> Dict[str, Any]:
+    goal_hours = max(1, _event_int(cfg.get("goal_hours"), DEFAULT_GOAL_HOURS))
+    completed_at = ended_at or now_iso()
+    return {
+        "id": completed_at,
+        "title": event_title(goal_hours),
+        "goal_hours": goal_hours,
+        "started_at": str(cfg.get("started_at") or ""),
+        "ended_at": completed_at,
+        "top_10": event_top_10(runtime, cog=cog, now=now),
+    }
 
 
 def event_progress_seconds(
@@ -225,8 +319,8 @@ async def event_setup(interaction: discord.Interaction, channel: discord.TextCha
     await interaction.response.send_message(
         embed=_control_embed(
             "Event Channel Set",
-            f"> Leaderboard will be posted in {channel.mention} by the display instance.\n"
-            f"> Run `/event start` to begin tracking. (The message is created by the display bot, not me.)",
+            f"> Leaderboard will be posted in {channel.mention} by Mysterious Bot X.\n"
+            "> Run `/event start` to begin tracking.",
             kind="success",
             guild=interaction.guild,
         ),
@@ -286,9 +380,61 @@ async def event_reset(interaction: discord.Interaction) -> None:
 async def event_goal(interaction: discord.Interaction, hours: app_commands.Range[int, 1, 1000000]) -> None:
     cfg = load_config()
     cfg["goal_hours"] = int(hours)
+    cfg["title"] = event_title(int(hours))
     save_config(cfg)
     await interaction.response.send_message(
         embed=_control_embed("Goal Updated", f"> Event goal set to **{hours:,} hours**.", kind="success", guild=interaction.guild),
+        ephemeral=True,
+    )
+
+
+@event_group.command(name="next", description="Archive the current top 10 and start a fresh leaderboard.")
+@app_commands.describe(hours="Goal in hours for the new leaderboard, such as 2000.")
+async def event_next(interaction: discord.Interaction, hours: app_commands.Range[int, 1, 1000000]) -> None:
+    cfg = load_config()
+    if not cfg.get("channel_id"):
+        await interaction.response.send_message(
+            embed=_control_embed(
+                "No Leaderboard",
+                "> Run `/event setup` before starting the next leaderboard.",
+                kind="error",
+                guild=interaction.guild,
+            ),
+            ephemeral=True,
+        )
+        return
+
+    runtime = load_runtime()
+    candidate = interaction.client.get_cog("EventLeaderboardCog")
+    cog = candidate if isinstance(candidate, EventLeaderboardCog) else None
+    archive = build_event_archive(cfg, runtime, cog=cog)
+    history = normalize_event_history(cfg.get("history"))
+    history.append(archive)
+
+    cfg["history"] = history[-EVENT_HISTORY_LIMIT:]
+    cfg["goal_hours"] = int(hours)
+    cfg["title"] = event_title(int(hours))
+    cfg["active"] = True
+    cfg["guild_id"] = interaction.guild_id
+    cfg["started_at"] = now_iso()
+    cfg["baseline_seconds"] = 0
+    cfg["baseline_token"] = _event_int(cfg.get("baseline_token")) + 1
+    cfg["reset_token"] = _event_int(cfg.get("reset_token")) + 1
+    save_config(cfg)
+
+    winner_count = len(archive["top_10"])
+    await interaction.response.send_message(
+        embed=_control_embed(
+            "Next Leaderboard Started",
+            (
+                f"> Archived the **{archive['goal_hours']:,}-hour** leaderboard with "
+                f"**{winner_count}** ranked participant{'s' if winner_count != 1 else ''}.\n"
+                f"> The new **{int(hours):,}-hour** leaderboard starts at zero on the next refresh.\n"
+                "> Previous top 10 results will be available from the dropdown on the live board."
+            ),
+            kind="success",
+            guild=interaction.guild,
+        ),
         ephemeral=True,
     )
 
@@ -399,6 +545,67 @@ async def endtimestamp_command(interaction: discord.Interaction) -> None:
     )
 
 
+def event_archive_description(archive: Dict[str, Any]) -> str:
+    lines = [f"> **Goal:** {archive['goal_hours']:,} hours"]
+    ended_at = iso_to_dt(archive.get("ended_at"))
+    if ended_at is not None:
+        lines.append(f"> **Completed:** <t:{int(ended_at.timestamp())}:F>")
+    lines.append("")
+    winners = archive.get("top_10", [])
+    if winners:
+        lines.extend(
+            f"**#{winner['rank']}** <@{winner['user_id']}> — `{format_vc_time(winner['seconds'])}`"
+            for winner in winners
+        )
+    else:
+        lines.append("*No participants were recorded for this event.*")
+    return "\n".join(lines)
+
+
+class EventHistorySelect(discord.ui.Select):
+    def __init__(self, history: list[Dict[str, Any]]) -> None:
+        archives = list(reversed(normalize_event_history(history)))[:EVENT_HISTORY_LIMIT]
+        self.archives = {archive["id"]: archive for archive in archives}
+        options = []
+        for archive in archives:
+            ended_label = archive["ended_at"][:10] if archive["ended_at"] else "Unknown date"
+            options.append(discord.SelectOption(
+                label=f"{archive['goal_hours']:,} Hour Event",
+                value=archive["id"],
+                description=f"Ended {ended_label} • {len(archive['top_10'])} ranked",
+            ))
+        super().__init__(
+            custom_id="event_history_select",
+            placeholder="View previous top 10 winners...",
+            min_values=1,
+            max_values=1,
+            options=options,
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        archive = self.archives.get(self.values[0])
+        if archive is None:
+            await interaction.response.send_message(
+                embed=_control_embed(
+                    "Event Not Found",
+                    "> That archived leaderboard is no longer available.",
+                    kind="error",
+                    guild=interaction.guild,
+                ),
+                ephemeral=True,
+            )
+            return
+        await interaction.response.send_message(
+            embed=_control_embed(
+                archive["title"],
+                event_archive_description(archive),
+                kind="info",
+                guild=interaction.guild,
+            ),
+            ephemeral=True,
+        )
+
+
 # ---------------------------------------------------------------------------
 # DISPLAY half — voice tracking + refresh loop (only when EVENT_DISPLAY=1)
 # ---------------------------------------------------------------------------
@@ -414,7 +621,8 @@ class EventLeaderboardCog(commands.Cog):
         self._channel_id: Optional[int] = None
         self._voice_channel_id: Optional[int] = None
         self._goal_hours = DEFAULT_GOAL_HOURS
-        self._title = DEFAULT_TITLE
+        self._title = event_title(DEFAULT_GOAL_HOURS)
+        self._history: list[Dict[str, Any]] = []
         self._message_id: Optional[int] = None
         self._applied_reset_token = 0
         self._baseline_seconds = 0
@@ -532,6 +740,11 @@ class EventLeaderboardCog(commands.Cog):
             f"> {bar}\n"
             f"> -# **{active_hours:,.1f}** / {goal:,} hours of voice activity ({min(100, pct * 100):.1f}%)"
         ))
+        if self._history:
+            container.add_item(discord.ui.Separator())
+            history_row = discord.ui.ActionRow()
+            history_row.add_item(EventHistorySelect(self._history))
+            container.add_item(history_row)
         container.add_item(discord.ui.Separator(visible=False))
         container.add_item(discord.ui.TextDisplay(
             f"-# {BRAND_NAME} • Updated <t:{now_unix}:R>"
@@ -594,8 +807,8 @@ class EventLeaderboardCog(commands.Cog):
         self._channel_id = cfg.get("channel_id")
         self._voice_channel_id = cfg.get("voice_channel_id")
         self._goal_hours = int(cfg.get("goal_hours", DEFAULT_GOAL_HOURS))
-        # Title is a fixed constant, not read from (possibly stale) config.
-        self._title = DEFAULT_TITLE
+        self._title = event_title(self._goal_hours)
+        self._history = normalize_event_history(cfg.get("history"))
         self._baseline_seconds = int(cfg.get("baseline_seconds", 0))
 
         # Honour a reset issued from the control instance.
