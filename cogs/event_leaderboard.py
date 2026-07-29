@@ -732,7 +732,13 @@ class EventLeaderboardCog(commands.Cog):
 
         view = discord.ui.LayoutView(timeout=None)
         container = discord.ui.Container(accent_colour=get_theme_color())
-        container.add_item(discord.ui.TextDisplay(f"## {self._title}"))
+        icon_url = guild.icon.url if guild.icon else None
+        if icon_url:
+            header = discord.ui.Section(accessory=discord.ui.Thumbnail(media=icon_url))
+            header.add_item(discord.ui.TextDisplay(f"## {self._title}"))
+            container.add_item(header)
+        else:
+            container.add_item(discord.ui.TextDisplay(f"## {self._title}"))
         container.add_item(discord.ui.Separator())
         container.add_item(discord.ui.TextDisplay(board))
         container.add_item(discord.ui.Separator())

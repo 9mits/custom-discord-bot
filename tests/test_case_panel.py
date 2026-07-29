@@ -2,9 +2,11 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import discord
+
 import cogs.case_panel as case_panel
-from cogs.case_panel import OpenCaseButton, build_case_link_view
-from cogs.cases import build_undo_confirm_embed
+from cogs.case_panel import CasePanelView, OpenCaseButton, build_case_link_view
+from cogs.cases import build_case_detail_embed, build_undo_confirm_embed
 
 CASE_OPEN_TEMPLATE = OpenCaseButton.__discord_ui_compiled_template__
 
@@ -12,6 +14,7 @@ CASE_OPEN_TEMPLATE = OpenCaseButton.__discord_ui_compiled_template__
 def make_target(user_id: int = 7):
     return SimpleNamespace(
         id=user_id,
+        mention=f"<@{user_id}>",
         display_name="Target",
         display_avatar=SimpleNamespace(url="https://example.com/avatar.png"),
     )
@@ -39,6 +42,7 @@ class OpenCaseButtonTests(unittest.TestCase):
     def test_template_rejects_foreign_custom_ids(self):
         for custom_id in ("case:open:", "case:open:abc", "mm_close", "revoke_punishment_btn"):
             self.assertIsNone(CASE_OPEN_TEMPLATE.fullmatch(custom_id))
+
 
 class OpenCaseButtonAsyncTests(unittest.IsolatedAsyncioTestCase):
     async def test_build_case_link_view_is_persistent(self):
@@ -89,6 +93,36 @@ class UndoConfirmEmbedTests(unittest.TestCase):
         self.assertIn("Case Details", field_names)
         reason_field = next(field for field in embed.fields if field.name == "Undo Reason")
         self.assertIn("Appeal accepted by staff.", reason_field.value)
+
+
+class CaseDetailEmbedTests(unittest.TestCase):
+    def test_case_panel_only_has_repeat_and_undo_actions(self):
+        view = CasePanelView("7", [12], target_user=make_target())
+        self.assertEqual([item.label for item in view.children], ["Punish Again", "Undo Case"])
+
+    def test_case_panel_only_shows_practical_punishment_details(self):
+        record = {
+            **make_record(12),
+            "action_id": "CASE-000012",
+            "evidence_links": ["https://example.com/old-evidence"],
+            "internal_notes": [{"author_id": 42, "note": "Old note", "created_at": "2026-07-01T00:00:00+00:00"}],
+            "linked_cases": [3],
+            "tags": ["old-tag"],
+        }
+
+        with patch("cogs.shared.get_theme_color", return_value=discord.Color.blurple()):
+            embed = build_case_detail_embed(None, "7", record, target_user=make_target())
+
+        self.assertEqual(embed.title, "Case #12")
+        self.assertEqual(embed.thumbnail.url, "https://example.com/avatar.png")
+        field_names = {field.name for field in embed.fields}
+        self.assertEqual(
+            field_names,
+            {"Target", "Punishment", "Reason", "Issued", "Moderator"},
+        )
+        self.assertTrue(
+            {"Evidence", "Notes", "Tags", "Linked Cases", "Action ID"}.isdisjoint(field_names)
+        )
 
 
 if __name__ == "__main__":

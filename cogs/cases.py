@@ -7,7 +7,6 @@ import json
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, List, Union, Tuple, Any
 from collections import Counter
-import re
 
 from core.constants import (
     FEATURE_FLAG_LABELS,
@@ -141,8 +140,6 @@ def build_case_summary_lines(record: dict, *, include_original_reason: bool = Fa
         lines.append("Escalated: Yes")
     if include_original_reason:
         lines.append(f"Original Reason: {truncate_text(record.get('reason', 'Unknown'), 140)}")
-    if record.get("action_id"):
-        lines.append(f"Action ID: {record['action_id']}")
     return lines
 
 
@@ -169,8 +166,6 @@ def add_punishment_record_log_fields(
         embed.add_field(name="Expires", value=expires_at, inline=True)
     if record.get("escalated"):
         embed.add_field(name="Escalated", value="Yes", inline=True)
-    if record.get("action_id"):
-        embed.add_field(name="Action ID", value=f"`{record['action_id']}`", inline=True)
     if include_original_reason:
         embed.add_field(
             name="Case Violation",
@@ -625,42 +620,23 @@ def build_case_detail_embed(
     moderator_id = record.get("moderator")
     issued_at = iso_to_dt(record.get("timestamp"))
     expires_at = get_record_expiry(record)
-    notes = record.get("internal_notes", [])
-    note_lines = []
-    for note in notes[-3:]:
-        if not isinstance(note, dict):
-            continue
-        created_at = iso_to_dt(note.get("created_at"))
-        note_lines.append(
-            f"<@{note.get('author_id', 0)}> • {discord.utils.format_dt(created_at, 'R') if created_at else 'Unknown'}\n{truncate_text(note.get('note', ''), 140)}"
-        )
-
-    evidence_links = record.get("evidence_links", [])
-    linked_cases = record.get("linked_cases", [])
-    tags = record.get("tags", [])
     embed = make_embed(
-        f"{get_case_label(record)} Control Panel",
-        "> Review and manage everything for this case from one panel.",
+        get_case_label(record),
+        "> Use the buttons below to punish the member again or undo this case.",
         kind="warning",
         scope=SCOPE_MODERATION,
         guild=guild,
         thumbnail=target_user.display_avatar.url if target_user else None,
     )
-    embed.add_field(name="Actor", value=f"<@{moderator_id}> (`{moderator_id}`)" if moderator_id else "Unknown", inline=True)
     embed.add_field(name="Target", value=target_line, inline=True)
+    embed.add_field(name="Punishment", value=describe_punishment_record(record), inline=True)
     embed.add_field(name="Reason", value=format_reason_value(record.get("reason", "Unknown"), limit=1024), inline=False)
-    embed.add_field(name="Duration", value=describe_punishment_record(record), inline=True)
-    add_source_message_log_fields(embed, record)
-    if record.get("duration_minutes") not in (0, None):
-        embed.add_field(name="Expires", value=("Never" if record.get("duration_minutes") == -1 else (discord.utils.format_dt(expires_at, "R") if expires_at else "Unknown")), inline=True)
-    embed.add_field(name="Notes", value=join_lines(note_lines, "No internal notes."), inline=False)
-    embed.add_field(name="Evidence", value=join_lines([truncate_text(url, 80) for url in evidence_links], "No evidence links."), inline=False)
-    embed.add_field(name="Tags", value=", ".join(f"`{tag}`" for tag in tags) if tags else "No tags.", inline=True)
-    embed.add_field(name="Linked Cases", value=", ".join(f"`#{case_id}`" for case_id in linked_cases) if linked_cases else "None", inline=True)
     if issued_at:
         embed.add_field(name="Issued", value=discord.utils.format_dt(issued_at, "F"), inline=True)
-    if record.get("action_id"):
-        embed.add_field(name="Action ID", value=f"`{record.get('action_id')}`", inline=True)
+    if record.get("duration_minutes") not in (0, None):
+        embed.add_field(name="Expires", value=("Never" if record.get("duration_minutes") == -1 else (discord.utils.format_dt(expires_at, "R") if expires_at else "Unknown")), inline=True)
+    embed.add_field(name="Moderator", value=f"<@{moderator_id}> (`{moderator_id}`)" if moderator_id else "Unknown", inline=True)
+    add_source_message_log_fields(embed, record)
     return embed
 
 
@@ -677,7 +653,7 @@ def build_all_cases_embed(
     softbans) in case order, paginated."""
     embed = make_embed(
         "Server Cases",
-        "> Every moderation case on record, newest first. Select one below to open its full panel.",
+        "> Every moderation case on record, newest first. Select one below to open its details.",
         kind="info",
         scope=SCOPE_MODERATION,
         guild=guild,
@@ -722,7 +698,7 @@ MOD_GUIDE_PAGES = {
         "Guide: Actions",
         "> Commands that act on members and messages.",
         [
-            ("/punish", "Open the sanction console. Add `message_id` to save and delete a specific message, or use the Punish Message right-click action."),
+            ("/punish", "Open the punishment menu. Add `message_id` to punish the author of a specific message."),
             ("/publicexecution", "Put a member up for a community vote; the panel sets the vote threshold."),
             ("/purge", "Delete an amount instantly, or run without options for member and keyword filters."),
             ("/export", "Export a member's or channel's messages to a downloadable HTML file."),
@@ -732,9 +708,9 @@ MOD_GUIDE_PAGES = {
         "Guide: Cases & History",
         "> Every punishment is a numbered case; these commands work with them.",
         [
-            ("/case", "Open a punishment record to review evidence, add notes, punish again, or undo it."),
+            ("/case", "Open a punishment record to punish the member again or undo it."),
             ("/cases", "Browse every case on the server in case order."),
-            ("/history", "Browse a member's record; selecting a case opens its control panel."),
+            ("/history", "Browse a member's record and open a case."),
             ("/undo", "Reverse a punishment with a reason and case selector."),
         ],
     ),
@@ -756,11 +732,6 @@ def build_mod_help_embed(guild: discord.Guild, page: str = "overview") -> discor
         field_name = f"`{name}`" if name.startswith("/") else name
         embed.add_field(name=field_name, value=value, inline=False)
     return embed
-
-
-
-def _split_case_input(value: str) -> List[str]:
-    return [part.strip() for part in re.split(r"[\n,]+", value or "") if part.strip()]
 
 
 class CasesCog(commands.Cog):

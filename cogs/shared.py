@@ -1103,6 +1103,7 @@ async def send_automod_log(
     *,
     content: Optional[str] = None,
     view: Optional[discord.ui.View] = None,
+    attachments: Optional[List[Tuple[str, bytes]]] = None,
     preferred_channel_id: Optional[int] = None,
 ):
     candidate_ids = []
@@ -1123,6 +1124,7 @@ async def send_automod_log(
         embed,
         content=content,
         view=view,
+        attachments=attachments,
         log_label="automod log",
     )
 

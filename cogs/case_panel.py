@@ -2,8 +2,6 @@
 from __future__ import annotations
 
 import html
-import io
-import json
 import re
 from typing import List, Optional, Union
 
@@ -15,29 +13,18 @@ from core.constants import (
     SCOPE_SYSTEM,
 )
 from core.context import bot
-from core.models import CaseNote
-from core.services import (
-    export_case_payload,
-    normalize_case_record,
-    sanitize_evidence_links,
-    sanitize_linked_cases,
-    sanitize_tags,
-)
-from core.utils import now_iso, parse_duration_str
+from core.utils import parse_duration_str
 from .shared import (
     format_duration,
     is_staff,
     panel_container,
     format_user_ref,
-    make_action_log_embed,
-    make_confirmation_embed,
     make_embed,
     make_empty_state_embed,
     make_error_embed,
     resolve_member,
     respond_with_error,
     send_log,
-    send_punishment_log,
     truncate_text,
     UNDO_REASON_PRESETS,
 )
@@ -50,130 +37,6 @@ from .cases import (
     get_undo_reason_details,
 )
 from .history import FinalConfirmClear, UndoReasonModal, UndoReasonSelect, execute_undo_and_log
-
-async def log_case_management_action(
-    guild: discord.Guild,
-    actor: discord.Member,
-    target_user_id: str,
-    record: dict,
-    action: str,
-    details: str,
-):
-    detail_lines = [line.strip() for line in str(details or "").splitlines() if line.strip()]
-    embed = make_action_log_embed(
-        f"{get_case_label(record)} Updated",
-        "A case-management action modified the record metadata.",
-        guild=guild,
-        kind="info",
-        scope=SCOPE_MODERATION,
-        actor=format_user_ref(actor),
-        target=f"<@{target_user_id}> (`{target_user_id}`)",
-        reason=action,
-        notes=detail_lines or [f"Result: {truncate_text(details, 500)}"],
-    )
-    if record.get("action_id"):
-        embed.add_field(name="Action ID", value=f"`{record['action_id']}`", inline=True)
-    await send_punishment_log(guild, embed)
-
-
-def _split_case_input(value: str) -> List[str]:
-    return [part.strip() for part in re.split(r"[\n,]+", value or "") if part.strip()]
-
-
-class CaseNoteModal(discord.ui.Modal, title="Add Internal Case Note"):
-    note = discord.ui.TextInput(
-        label="Internal Note",
-        style=discord.TextStyle.paragraph,
-        placeholder="Staff-only note for future context.",
-        max_length=1000,
-    )
-
-    def __init__(self, panel: "CasePanelView"):
-        super().__init__()
-        self.panel = panel
-
-    async def on_submit(self, interaction: discord.Interaction) -> None:
-        target_user_id, record = bot.data_manager.get_case(self.panel.case_id)
-        if not record or not target_user_id:
-            await respond_with_error(interaction, "The selected case no longer exists.", scope=SCOPE_MODERATION)
-            return
-
-        notes = record.setdefault("internal_notes", [])
-        notes.append(CaseNote(interaction.user.id, self.note.value.strip(), now_iso()).to_dict())
-        normalize_case_record(record)
-        await bot.data_manager.save_punishments()
-        await log_case_management_action(interaction.guild, interaction.user, target_user_id, record, "Internal note added", self.note.value)
-        await self.panel.refresh_panel()
-        await interaction.response.send_message(
-            embed=make_confirmation_embed(
-                f"{get_case_label(record)} Saved",
-                "> Internal note added to the case record.",
-                scope=SCOPE_MODERATION,
-                guild=interaction.guild,
-            ),
-            ephemeral=True,
-        )
-
-
-class CaseLinksModal(discord.ui.Modal, title="Update Evidence and Tags"):
-    evidence_links = discord.ui.TextInput(
-        label="Evidence Links",
-        style=discord.TextStyle.paragraph,
-        placeholder="Paste URLs separated by commas or new lines.",
-        required=False,
-        max_length=1000,
-    )
-    linked_cases = discord.ui.TextInput(
-        label="Related Case IDs",
-        placeholder="Example: 101, 118, 204",
-        required=False,
-        max_length=200,
-    )
-    tags = discord.ui.TextInput(
-        label="Tags",
-        placeholder="Example: scam, repeat-offender, escalated",
-        required=False,
-        max_length=200,
-    )
-
-    def __init__(self, panel: "CasePanelView"):
-        super().__init__()
-        self.panel = panel
-        _, record = bot.data_manager.get_case(panel.case_id)
-        if record:
-            self.evidence_links.default = "\n".join(record.get("evidence_links", []))
-            self.linked_cases.default = ", ".join(str(case_id) for case_id in record.get("linked_cases", []))
-            self.tags.default = ", ".join(record.get("tags", []))
-
-    async def on_submit(self, interaction: discord.Interaction) -> None:
-        target_user_id, record = bot.data_manager.get_case(self.panel.case_id)
-        if not record or not target_user_id:
-            await respond_with_error(interaction, "The selected case no longer exists.", scope=SCOPE_MODERATION)
-            return
-
-        record["evidence_links"] = sanitize_evidence_links(_split_case_input(self.evidence_links.value))
-        record["linked_cases"] = sanitize_linked_cases(_split_case_input(self.linked_cases.value), current_case_id=record.get("case_id"))
-        record["tags"] = sanitize_tags(_split_case_input(self.tags.value))
-        normalize_case_record(record)
-        await bot.data_manager.save_punishments()
-        await log_case_management_action(
-            interaction.guild,
-            interaction.user,
-            target_user_id,
-            record,
-            "Links and tags updated",
-            f"Tags: {', '.join(record['tags']) or 'None'} | Linked: {', '.join(str(case_id) for case_id in record['linked_cases']) or 'None'}",
-        )
-        await self.panel.refresh_panel()
-        await interaction.response.send_message(
-            embed=make_confirmation_embed(
-                f"{get_case_label(record)} Saved",
-                "> Evidence links, linked cases, and tags were updated.",
-                scope=SCOPE_MODERATION,
-                guild=interaction.guild,
-            ),
-            ephemeral=True,
-        )
 
 
 class CaseSwitchSelect(discord.ui.Select):
@@ -285,38 +148,7 @@ class CasePanelView(discord.ui.View):
         if self.message:
             await self.message.edit(embed=self.build_embed(), view=self)
 
-    @discord.ui.button(label="Add Note", style=discord.ButtonStyle.primary, row=0)
-    async def add_note(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        self.message = interaction.message
-        await interaction.response.send_modal(CaseNoteModal(self))
-
-    @discord.ui.button(label="Evidence & Tags", style=discord.ButtonStyle.primary, row=1)
-    async def links_and_tags(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        self.message = interaction.message
-        await interaction.response.send_modal(CaseLinksModal(self))
-
-    @discord.ui.button(label="Download Case", style=discord.ButtonStyle.secondary, row=1)
-    async def export_case(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        record = self.current_record()
-        if not record:
-            await respond_with_error(interaction, "The selected case could not be loaded.", scope=SCOPE_MODERATION)
-            return
-
-        payload = export_case_payload(self.target_user_id, record)
-        buffer = io.BytesIO(json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8"))
-        file = discord.File(buffer, filename=f"case_{record.get('case_id', 'unknown')}.json")
-        await interaction.response.send_message(
-            embed=make_confirmation_embed(
-                f"{get_case_label(record)} Download Ready",
-                "> A case file was generated for this case.",
-                scope=SCOPE_MODERATION,
-                guild=interaction.guild,
-            ),
-            file=file,
-            ephemeral=True,
-        )
-
-    @discord.ui.button(label="Punish Target", style=discord.ButtonStyle.danger, row=2)
+    @discord.ui.button(label="Punish Again", style=discord.ButtonStyle.danger, row=0)
     async def punish_target(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         target = await self.resolve_target(interaction.guild)
         if target is None:
@@ -325,7 +157,7 @@ class CasePanelView(discord.ui.View):
         from .moderation import show_punish_menu
         await show_punish_menu(interaction, target)
 
-    @discord.ui.button(label="Undo This Case", style=discord.ButtonStyle.danger, row=2)
+    @discord.ui.button(label="Undo Case", style=discord.ButtonStyle.danger, row=0)
     async def undo_case(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         self.message = interaction.message
         record = self.current_record()
