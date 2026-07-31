@@ -37,8 +37,12 @@ from .shared import (
     get_modal_item_label,
     build_canned_replies_embed,
 )
-from .cases import _split_case_input
 from .case_panel import generate_transcript_html
+
+
+def _split_tag_input(value: str):
+    return [part.strip() for part in str(value or "").replace("\n", ",").split(",") if part.strip()]
+
 
 async def log_modmail_action(guild, title, fields):
     cid = bot.data_manager.config.get("modmail_action_log_channel")
@@ -245,7 +249,7 @@ class ModmailTagsModal(discord.ui.Modal, title="Update Ticket Tags"):
         if not ticket:
             await respond_with_error(interaction, "Ticket data not found.", scope=SCOPE_SUPPORT)
             return
-        ticket["tags"] = sanitize_tags(_split_case_input(self.tags.value), limit=10)
+        ticket["tags"] = sanitize_tags(_split_tag_input(self.tags.value), limit=10)
         await bot.data_manager.save_modmail()
         await refresh_modmail_message(self.panel.message, interaction.guild, self.panel.user_id, self.panel)
         await log_modmail_action(interaction.guild, "Ticket Tags Updated", [

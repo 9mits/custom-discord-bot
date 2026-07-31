@@ -13,7 +13,7 @@ import time
 import unicodedata
 import warnings
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable, Optional, List, Union, Tuple
@@ -893,6 +893,7 @@ class ImageInspection:
     complete: bool = True
     is_image: bool = False
     reason: str = ""
+    image_data: bytes = b""
 
 
 def _normalize_hex(value, length: int) -> str:
@@ -1666,6 +1667,13 @@ def _attachment_looks_like_image(attachment) -> bool:
     return content_type.startswith("image/") or filename.endswith(IMAGE_FILTER_FILENAME_SUFFIXES)
 
 
+def _flagged_image_filename(message_id: int, attachment) -> str:
+    suffix = Path(str(getattr(attachment, "filename", "") or "")).suffix.lower()
+    if suffix not in {".png", ".jpg", ".jpeg", ".webp", ".gif"}:
+        suffix = ".png"
+    return f"flagged-image-{message_id}{suffix}"
+
+
 def _bounded_image_filter_attachments(attachments):
     def attachment_priority(attachment) -> int:
         content_type = str(getattr(attachment, "content_type", "") or "").lower()
@@ -1703,7 +1711,223 @@ async def inspect_image_attachment(attachment, *, analyze_content: bool = False)
             return ImageInspection(complete=False, reason="attachment download failed")
         if len(data) > IMAGE_FILTER_MAX_BYTES:
             return ImageInspection(complete=False, reason="attachment exceeds the byte limit")
-        return await asyncio.to_thread(inspect_image_bytes, data, analyze_content=analyze_content)
+        inspection = await asyncio.to_thread(inspect_image_bytes, data, analyze_content=analyze_content)
+        return replace(inspection, image_data=data)
+
+
+def _remove_embed_fields(embed: discord.Embed, *names: str) -> None:
+    lowered_names = {name.casefold() for name in names}
+    for index in reversed(range(len(embed.fields))):
+        if embed.fields[index].name.casefold() in lowered_names:
+            embed.remove_field(index)
+
+
+def _learned_false_positive_match(fingerprint: dict, settings: dict) -> ImageMatch:
+    learned_match = match_banned_image(fingerprint, settings["false_positives"])
+    return learned_match if learned_match.quality in {"exact", "strong"} else ImageMatch()
+
+
+async def _update_false_positive_log(
+    source_message,
+    *,
+    button_custom_id: str,
+    undone: bool,
+) -> None:
+    if source_message is None or not getattr(source_message, "embeds", None):
+        return
+
+    embed = discord.Embed.from_dict(source_message.embeds[0].to_dict())
+    if embed.title and "Image Review Punished" in embed.title:
+        embed.title = embed.title.replace("Image Review Punished", "Scam Image Detected")
+    _remove_embed_fields(embed, "Review")
+
+    view = discord.ui.View.from_message(source_message, timeout=None)
+    for child in view.children:
+        custom_id = getattr(child, "custom_id", "") or ""
+        if custom_id == button_custom_id:
+            child.disabled = False
+            child.label = "Mark False Positive" if undone else "Undo False Positive"
+        elif custom_id.startswith("imagefilter:punish:"):
+            child.disabled = not undone
+            child.label = "Apply Configured Punishment" if undone else "No Punishment"
+    try:
+        await source_message.edit(content=None, embed=embed, view=view)
+    except Exception as exc:
+        logger.warning(
+            "Image filter could not update false-positive message %s: %s",
+            getattr(source_message, "id", "unknown"),
+            exc,
+        )
+
+
+async def apply_image_false_positive_decision(
+    interaction: discord.Interaction,
+    fingerprint: dict,
+    *,
+    source_message,
+    button_custom_id: str,
+    undo: bool,
+    response_ready: bool = False,
+) -> None:
+    if not is_staff(interaction):
+        await respond_with_error(
+            interaction,
+            "You do not have permission to manage Scam Image Filter detections.",
+            scope=SCOPE_MODERATION,
+        )
+        return
+    if interaction.guild is None:
+        await respond_with_error(interaction, "This action must be used in a server.", scope=SCOPE_MODERATION)
+        return
+
+    if not response_ready:
+        await interaction.response.defer(ephemeral=True)
+    review_key = None
+    if source_message is not None and getattr(source_message, "id", None):
+        review_key = (interaction.guild.id, source_message.id)
+
+    async with _image_review_action_lock:
+        settings = get_image_filter_settings()
+        learned_match = _learned_false_positive_match(fingerprint, settings)
+        if undo and not learned_match.matched:
+            await interaction.followup.send(
+                embed=make_confirmation_embed(
+                    "False Positive Already Undone",
+                    "> Matching images are already being checked normally.",
+                    scope=SCOPE_MODERATION,
+                    guild=interaction.guild,
+                ),
+                ephemeral=True,
+            )
+            return
+        if not undo and learned_match.matched:
+            await interaction.followup.send(
+                embed=make_confirmation_embed(
+                    "Already Marked False Positive",
+                    "> Matching images already bypass automatic enforcement.",
+                    scope=SCOPE_MODERATION,
+                    guild=interaction.guild,
+                ),
+                ephemeral=True,
+            )
+            return
+        if not undo and review_key in _image_review_resolutions:
+            await interaction.followup.send(
+                embed=make_confirmation_embed(
+                    "Detection Already Resolved",
+                    "> Another moderator already resolved this detection.",
+                    scope=SCOPE_MODERATION,
+                    guild=interaction.guild,
+                ),
+                ephemeral=True,
+            )
+            return
+
+        original_settings = settings
+        updated_settings = {
+            **settings,
+            "false_positives": list(settings["false_positives"]),
+        }
+        if undo:
+            matched_entry = learned_match.entry
+            updated_settings["false_positives"] = [
+                entry for entry in updated_settings["false_positives"]
+                if entry is not matched_entry
+            ]
+        else:
+            updated_settings["false_positives"] = updated_settings["false_positives"][
+                -(IMAGE_FILTER_MAX_FALSE_POSITIVES - 1):
+            ]
+            updated_settings["false_positives"].append({
+                **fingerprint,
+                "label": "Staff-confirmed false positive",
+                "added_by": interaction.user.id,
+                "added_at": now_iso(),
+            })
+
+        try:
+            store_image_filter_settings(updated_settings)
+            await bot.data_manager.save_config()
+        except Exception as exc:
+            store_image_filter_settings(original_settings)
+            logger.error("Could not save image-filter false-positive feedback: %s", exc)
+            await interaction.followup.send(
+                embed=make_embed(
+                    "False Positive Update Failed",
+                    "> The change could not be saved. Try again.",
+                    kind="error",
+                    scope=SCOPE_MODERATION,
+                    guild=interaction.guild,
+                ),
+                ephemeral=True,
+            )
+            return
+
+        if review_key is not None:
+            if undo:
+                _image_review_resolutions.discard(review_key)
+            else:
+                _image_review_resolutions.add(review_key)
+
+    await _update_false_positive_log(
+        source_message,
+        button_custom_id=button_custom_id,
+        undone=undo,
+    )
+    await interaction.followup.send(
+        embed=make_confirmation_embed(
+            "False Positive Undone" if undo else "False Positive Saved",
+            (
+                "> Matching images will be checked and enforced again."
+                if undo
+                else "> Matching images will now bypass automatic enforcement. Use **Undo False Positive** on the alert if this was a mistake."
+            ),
+            scope=SCOPE_MODERATION,
+            guild=interaction.guild,
+        ),
+        ephemeral=True,
+    )
+
+
+class ImageFalsePositiveConfirmationView(discord.ui.View):
+    def __init__(
+        self,
+        fingerprint: dict,
+        *,
+        source_message,
+        button_custom_id: str,
+        undo: bool,
+    ) -> None:
+        super().__init__(timeout=60)
+        self.fingerprint = fingerprint
+        self.source_message = source_message
+        self.button_custom_id = button_custom_id
+        self.undo = undo
+        self.confirm.label = "Yes, Undo False Positive" if undo else "Yes, Mark False Positive"
+
+    @discord.ui.button(label="Confirm", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.edit_message(view=None)
+        await apply_image_false_positive_decision(
+            interaction,
+            self.fingerprint,
+            source_message=self.source_message,
+            button_custom_id=self.button_custom_id,
+            undo=self.undo,
+            response_ready=True,
+        )
+
+    @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await interaction.response.edit_message(
+            embed=make_confirmation_embed(
+                "No Changes Made",
+                "> The false-positive setting was not changed.",
+                scope=SCOPE_MODERATION,
+                guild=interaction.guild,
+            ),
+            view=None,
+        )
 
 
 class ImageFalsePositiveButton(
@@ -1740,117 +1964,39 @@ class ImageFalsePositiveButton(
         if not is_staff(interaction):
             await respond_with_error(
                 interaction,
-                "You do not have permission to review Scam Image Filter detections.",
+                "You do not have permission to manage Scam Image Filter detections.",
                 scope=SCOPE_MODERATION,
             )
             return
         if interaction.guild is None:
-            await respond_with_error(interaction, "This review action must be used in a server.", scope=SCOPE_MODERATION)
+            await respond_with_error(interaction, "This action must be used in a server.", scope=SCOPE_MODERATION)
             return
-
-        await interaction.response.defer(ephemeral=True)
 
         settings = get_image_filter_settings()
-        learned_match = match_banned_image(self.fingerprint, settings["false_positives"])
-        if learned_match.quality in {"exact", "strong"}:
-            await interaction.followup.send(
-                embed=make_confirmation_embed(
-                    "Already Learned",
-                    "> Matching copies are already excluded from automatic image enforcement.",
-                    scope=SCOPE_MODERATION,
-                    guild=interaction.guild,
-                ),
-                ephemeral=True,
-            )
-            return
-
-        source_message = interaction.message
-        review_key = None
-        if source_message is not None and getattr(source_message, "id", None):
-            review_key = (interaction.guild.id, source_message.id)
-            async with _image_review_action_lock:
-                if review_key in _image_review_resolutions:
-                    await interaction.followup.send(
-                        embed=make_confirmation_embed(
-                            "Review Already Resolved",
-                            "> Another moderator already resolved this image review.",
-                            scope=SCOPE_MODERATION,
-                            guild=interaction.guild,
-                        ),
-                        ephemeral=True,
-                    )
-                    return
-                _image_review_resolutions.add(review_key)
-
-        try:
-            settings["false_positives"] = settings["false_positives"][-(IMAGE_FILTER_MAX_FALSE_POSITIVES - 1):]
-            settings["false_positives"].append({
-                **self.fingerprint,
-                "label": "Staff-confirmed false positive",
-                "added_by": interaction.user.id,
-                "added_at": now_iso(),
-            })
-            store_image_filter_settings(settings)
-            await bot.data_manager.save_config()
-        except Exception as exc:
-            if review_key is not None:
-                _image_review_resolutions.discard(review_key)
-            logger.error("Could not save image-filter false-positive feedback: %s", exc)
-            await interaction.followup.send(
-                embed=make_embed(
-                    "Review Failed",
-                    "> The false-positive decision could not be saved. Try again.",
-                    kind="error",
-                    scope=SCOPE_MODERATION,
-                    guild=interaction.guild,
-                ),
-                ephemeral=True,
-            )
-            return
-
-        if source_message is None or not source_message.embeds:
-            await interaction.followup.send(
-                embed=make_confirmation_embed(
-                    "False Positive Learned",
-                    "> Matching copies will now bypass automatic image enforcement. Any current punishment must still be reviewed from its case.",
-                    scope=SCOPE_MODERATION,
-                    guild=interaction.guild,
-                ),
-                ephemeral=True,
-            )
-            return
-
-        embed = discord.Embed.from_dict(source_message.embeds[0].to_dict())
-        upsert_embed_field(
-            embed,
-            "Review",
-            "False positive learned locally • matching copies will bypass future enforcement. Review the current case separately if a punishment was issued.",
-            inline=False,
+        undo = _learned_false_positive_match(self.fingerprint, settings).matched
+        question = (
+            "**Are you sure you want to undo this false positive?**\n"
+            "> Matching images will be checked and enforced again."
+            if undo
+            else
+            "**Are you sure you want to mark this detection as a false positive?**\n"
+            "> Matching images will bypass automatic enforcement. This does not undo an existing punishment."
         )
-        view = discord.ui.View.from_message(source_message, timeout=None)
-        for child in view.children:
-            custom_id = getattr(child, "custom_id", "") or ""
-            if custom_id == self.item.custom_id:
-                child.disabled = True
-                child.label = "False Positive Learned"
-            elif custom_id.startswith("imagefilter:punish:"):
-                child.disabled = True
-                child.label = "No Punishment"
-        try:
-            await source_message.edit(content=None, embed=embed, view=view)
-        except Exception as exc:
-            logger.warning(
-                "Image filter could not update false-positive review message %s: %s",
-                getattr(source_message, "id", "unknown"),
-                exc,
-            )
-        await interaction.followup.send(
-            embed=make_confirmation_embed(
-                "False Positive Learned",
-                "> Matching copies will now bypass automatic image enforcement.",
+        view = ImageFalsePositiveConfirmationView(
+            self.fingerprint,
+            source_message=interaction.message,
+            button_custom_id=self.item.custom_id,
+            undo=undo,
+        )
+        await interaction.response.send_message(
+            embed=make_embed(
+                "Confirm False Positive Change",
+                question,
+                kind="warning",
                 scope=SCOPE_MODERATION,
                 guild=interaction.guild,
             ),
+            view=view,
             ephemeral=True,
         )
 
@@ -2029,15 +2175,12 @@ class ImageReviewPunishButton(
                     from .case_panel import OpenCaseButton
 
                     embed = discord.Embed.from_dict(log_message.embeds[0].to_dict())
-                    embed.title = f"[{get_case_label(case_record)}] Image Review Punished"
+                    embed.title = f"[{get_case_label(case_record)}] Scam Image Detected"
+                    embed.description = "> A scam image was detected and the moderation result is logged below."
+                    embed.color = EMBED_PALETTE["danger"]
                     upsert_embed_field(embed, "Result", summary, inline=True)
                     upsert_embed_field(embed, "DM", "Delivered" if dm_sent else "Failed or closed", inline=True)
-                    upsert_embed_field(
-                        embed,
-                        "Review",
-                        "Configured punishment applied after moderator review.",
-                        inline=False,
-                    )
+                    _remove_embed_fields(embed, "Review")
                     if cleanup_deleted:
                         upsert_embed_field(
                             embed,
@@ -2454,6 +2597,7 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
 
     matched_attachment = None
     matched_fingerprint = None
+    matched_image_data = b""
     matched = ImageMatch()
     quality_rank = {"exact": 0, "content": 1, "strong": 2, "fuzzy": 3, "legacy": 4, "none": 5}
     decoded_images = 0
@@ -2504,6 +2648,7 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
                 matched = candidate
                 matched_attachment = attachment
                 matched_fingerprint = fingerprints[0] if fingerprints else None
+                matched_image_data = inspection.image_data
 
         if not fingerprints:
             if matched.quality == "content" or decoded_images >= IMAGE_FILTER_MAX_ATTACHMENTS:
@@ -2515,6 +2660,7 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
                 matched = candidate
                 matched_attachment = attachment
                 matched_fingerprint = fingerprint
+                matched_image_data = inspection.image_data
             if matched.quality == "exact":
                 break
         if matched.quality in {"exact", "content"}:
@@ -2613,16 +2759,16 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
     if settings["log_detections"] or failure_requires_log:
         try:
             flagged_url = str(getattr(matched_attachment, "url", "") or "").strip()
-            reference_match = ImageMatch()
-            direct_reference_url = str(matched.entry.get("url") or "").strip()
-            if direct_reference_url.startswith(("http://", "https://")):
-                reference_match = matched
-            elif matched_fingerprint:
-                reference_match = find_closest_image_reference(matched_fingerprint, settings["entries"])
-            reference_entry = reference_match.entry or {}
-            reference_url = str(reference_entry.get("url") or "").strip()
-            reference_label = discord.utils.escape_markdown(str(reference_entry.get("label") or matched.entry["label"]))
-            reference_similarity = image_match_similarity(reference_match)
+            flagged_filename = (
+                _flagged_image_filename(message.id, matched_attachment)
+                if matched_image_data and matched_attachment is not None
+                else ""
+            )
+            saved_attachments = (
+                [(flagged_filename, matched_image_data)]
+                if flagged_filename
+                else None
+            )
 
             case_id = int(case_record.get("case_id", 0) or 0) if case_record else 0
             case_label = ""
@@ -2631,26 +2777,20 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
                 case_label = get_case_label(case_record)
             if case_label:
                 title = f"[{case_label}] Scam Image Detected"
-            elif review_required:
-                title = "Scam Image Match Needs Review"
             else:
                 title = "Scam Image Detected"
             system_user = getattr(bot, "user", None)
             actor = format_user_ref(system_user) if getattr(system_user, "mention", None) else "Scam Image Filter"
             embed = make_action_log_embed(
                 title,
-                (
-                    "A lower-confidence scam image match needs a moderator decision. No automatic punishment was applied."
-                    if review_required
-                    else "An automated image moderation action has been applied and logged."
-                ),
+                "A scam image was detected and the moderation result is logged below.",
                 guild=message.guild,
                 kind="danger" if case_record else "warning",
                 scope=SCOPE_MODERATION,
                 actor=actor,
                 target=format_user_ref(message.author),
                 reason=case_record.get("reason") if case_record else IMAGE_FILTER_REASON,
-                thumbnail=reference_url if reference_url.startswith(("http://", "https://")) else None,
+                thumbnail=str(message.author.display_avatar.url),
             )
             if case_record:
                 add_punishment_record_log_fields(embed, case_record)
@@ -2672,13 +2812,6 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
                     for term in matched_terms
                 )
                 embed.add_field(name="Matched Words", value=truncate_text(term_value, 1000), inline=False)
-            if reference_url.startswith(("http://", "https://")):
-                reference_value = f"[{reference_label}]({reference_url}) • {reference_similarity}% visual similarity"
-            else:
-                reference_value = "No stored reference image • matched by the local content model"
-            embed.add_field(name="Matched Reference", value=reference_value, inline=False)
-            if flagged_url.startswith(("http://", "https://")):
-                embed.add_field(name="Submitted Image", value=f"[Open image]({flagged_url})", inline=True)
             embed.add_field(name="Result", value=action_summary, inline=True)
             dm_status = "Not sent — awaiting review" if review_required else ("Delivered" if dm_sent else "Failed or closed")
             embed.add_field(name="DM", value=dm_status, inline=True)
@@ -2691,7 +2824,9 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
             jump_url = str(getattr(message, "jump_url", "") or "")
             message_value = f"[{message.id}]({jump_url})" if jump_url.startswith(("http://", "https://")) else f"`{message.id}`"
             embed.add_field(name="Message ID", value=message_value, inline=True)
-            if flagged_url.startswith(("http://", "https://")):
+            if flagged_filename:
+                embed.set_image(url=f"attachment://{flagged_filename}")
+            elif flagged_url.startswith(("http://", "https://")):
                 embed.set_image(url=flagged_url)
             review_target = None
             if review_required:
@@ -2702,8 +2837,14 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
                 review_target=review_target,
             )
             review_ping = get_image_filter_review_ping(message.guild) if review_required else None
-            content = f"{review_ping} Lower-confidence scam image match needs review." if review_ping else None
-            await send_automod_log(message.guild, embed, content=content, view=view)
+            content = f"{review_ping} Scam image detection needs a moderator decision." if review_ping else None
+            await send_automod_log(
+                message.guild,
+                embed,
+                content=content,
+                view=view,
+                attachments=saved_attachments,
+            )
         except Exception as exc:
             logger.warning("Image filter could not send the detection log for message %s: %s", message.id, exc)
     return result
@@ -3460,16 +3601,38 @@ class ImageFilterRemoveSelect(discord.ui.Select):
     def __init__(self, *, page: int = 0):
         self.page = page
         settings = get_image_filter_settings()
-        start = page * 25
-        page_entries = settings["entries"][start:start + 25]
-        options = [
-            discord.SelectOption(label=entry["label"], value=entry["id"])
-            for entry in page_entries
+        removable_entries = [
+            ("dataset", entry)
+            for entry in settings["entries"]
         ]
+        removable_entries.extend(
+            ("false_positive", entry)
+            for entry in reversed(settings["false_positives"])
+        )
+        start = page * 25
+        page_entries = removable_entries[start:start + 25]
+        options = []
+        for entry_type, entry in page_entries:
+            if entry_type == "dataset":
+                label = entry["label"]
+                description = "Remove from the scam-image dataset."
+            else:
+                added_at = str(entry.get("added_at") or "").replace("T", " ")[:16] or "unknown date"
+                label = f"Undo false positive • {added_at}"
+                description = f"Added by user {entry.get('added_by') or 'unknown'}."
+            options.append(discord.SelectOption(
+                label=truncate_text(label, 100),
+                description=truncate_text(description, 100),
+                value=f"{entry_type}:{entry['id']}",
+            ))
         if not options:
-            options = [discord.SelectOption(label="Dataset is empty", value="none")]
-        end = min(start + 25, len(settings["entries"]))
-        placeholder = f"Remove from dataset ({start + 1}-{end} of {len(settings['entries'])})..." if page_entries else "Remove from dataset..."
+            options = [discord.SelectOption(label="Nothing to remove", value="none")]
+        end = min(start + 25, len(removable_entries))
+        placeholder = (
+            f"Remove scam entry or undo false positive ({start + 1}-{end} of {len(removable_entries)})..."
+            if page_entries
+            else "Remove scam entry or undo false positive..."
+        )
         super().__init__(placeholder=placeholder, min_values=1, max_values=1, options=options, row=1, disabled=not page_entries)
 
     async def callback(self, interaction: discord.Interaction) -> None:
@@ -3477,10 +3640,16 @@ class ImageFilterRemoveSelect(discord.ui.Select):
             await interaction.response.defer()
             return
         settings = get_image_filter_settings()
-        settings["entries"] = [entry for entry in settings["entries"] if entry["id"] != self.values[0]]
+        entry_type, entry_id = self.values[0].split(":", 1)
+        settings_key = "false_positives" if entry_type == "false_positive" else "entries"
+        settings[settings_key] = [
+            entry for entry in settings[settings_key]
+            if entry["id"] != entry_id
+        ]
         store_image_filter_settings(settings)
         await bot.data_manager.save_config()
-        max_page = max(0, (len(settings["entries"]) - 1) // 25)
+        remaining_count = len(settings["entries"]) + len(settings["false_positives"])
+        max_page = max(0, (remaining_count - 1) // 25)
         await interaction.response.edit_message(
             embed=build_image_filters_embed(interaction.guild),
             view=ImageFiltersView(page=min(self.page, max_page)),
@@ -3511,7 +3680,8 @@ class ImageFiltersView(discord.ui.View):
     def __init__(self, *, page: int = 0):
         super().__init__(timeout=180)
         settings = get_image_filter_settings()
-        max_page = max(0, (len(settings["entries"]) - 1) // 25)
+        removable_count = len(settings["entries"]) + len(settings["false_positives"])
+        max_page = max(0, (removable_count - 1) // 25)
         self.page = max(0, min(page, max_page))
         self.add_item(ImageFilterPunishmentSelect(page=self.page))
         self.add_item(ImageFilterRemoveSelect(page=self.page))

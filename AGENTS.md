@@ -113,7 +113,7 @@ core/      framework, no Discord UI code
   services.py   config validation, escalation matrix, normalization
   constants.py  IDs, brand strings, colours, scope labels, TOKEN_ENV_VARS
   context.py    proxy singletons: bot, tree, abuse_system
-  models.py     dataclasses: CaseMetadata, EscalationStep, ValidationFinding, CaseNote
+  models.py     dataclasses shared across services (currently ValidationFinding)
   utils.py      stateless helpers: parse_duration_str, format_duration, truncate_text
   project_stats.py  cross-instance fleet snapshots powering /about (shared folder)
 cogs/      one discord.py extension per domain

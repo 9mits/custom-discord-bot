@@ -8,6 +8,7 @@ import cogs.moderation as moderation
 import cogs.roles as roles
 from cogs.cases import build_punishment_execution_log_embed
 from cogs.moderation import (
+    CustomPunishDetailsModal,
     PunishDetailsModal,
     capture_message_evidence,
     delete_evidence_message,
@@ -36,6 +37,20 @@ class ModerationLogFormatTests(unittest.TestCase):
         self.assertTrue(normalize_case_record(record))
         self.assertNotIn("status", record)
         self.assertNotIn("resolution_state", record)
+
+    def test_legacy_case_metadata_is_preserved_without_being_required(self):
+        legacy_metadata = {
+            "evidence_links": ["https://example.com/old-evidence"],
+            "tags": ["old-tag"],
+            "linked_cases": [3],
+            "internal_notes": [{"author_id": 42, "note": "Old note"}],
+        }
+        record = {"case_id": 12, "type": "warn", **legacy_metadata}
+
+        normalize_case_record(record)
+
+        for key, value in legacy_metadata.items():
+            self.assertEqual(record[key], value)
 
     def test_punishment_log_has_message_evidence_without_status(self):
         record = {
@@ -76,6 +91,26 @@ class ModerationLogFormatTests(unittest.TestCase):
 
 
 class MessagePunishmentTests(unittest.IsolatedAsyncioTestCase):
+    async def test_staff_notes_are_optional_in_punishment_modals(self):
+        target = SimpleNamespace(id=2, display_name="target")
+        moderator = SimpleNamespace(id=1)
+
+        standard = PunishDetailsModal(
+            target,
+            moderator,
+            "Spamming",
+            {"base": 0, "escalated": 60},
+        )
+        custom = CustomPunishDetailsModal(
+            target,
+            moderator,
+            "warn",
+            None,
+        )
+
+        self.assertFalse(standard.mod_note.required)
+        self.assertFalse(custom.mod_note.required)
+
     async def test_capture_and_delete_message_evidence(self):
         attachment = SimpleNamespace(
             filename="proof.png",

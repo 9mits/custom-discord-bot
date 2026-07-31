@@ -6,7 +6,7 @@ from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Sequence, Tu
 
 import discord
 
-from .models import CaseMetadata, ValidationFinding
+from .models import ValidationFinding
 from .utils import iso_to_dt
 
 
@@ -112,28 +112,6 @@ def sanitize_tags(values: Sequence[Any], *, limit: int = 8) -> List[str]:
             continue
         tags.append(tag[:30])
     return _unique_preserve_order(tags)[:limit]
-
-
-def sanitize_evidence_links(values: Sequence[Any], *, limit: int = 8) -> List[str]:
-    links = []
-    for value in values:
-        url = str(value).strip()
-        if url.startswith(("http://", "https://")):
-            links.append(url[:300])
-    return _unique_preserve_order(links)[:limit]
-
-
-def sanitize_linked_cases(values: Sequence[Any], *, current_case_id: Optional[int] = None) -> List[int]:
-    linked = []
-    for value in values:
-        case_id = None
-        if isinstance(value, int):
-            case_id = value
-        elif str(value).isdigit():
-            case_id = int(str(value))
-        if case_id and case_id > 0 and case_id != current_case_id:
-            linked.append(case_id)
-    return _unique_preserve_order(linked)[:12]
 
 
 def build_action_id(case_id: Optional[int]) -> Optional[str]:
@@ -390,34 +368,17 @@ def calculate_offense_punishment(
 
 def normalize_case_record(record: Dict[str, Any]) -> bool:
     changed = False
-    metadata = CaseMetadata.from_record(record)
 
     for legacy_key in ("status", "resolution_state"):
         if legacy_key in record:
             record.pop(legacy_key)
             changed = True
 
-    case_id = record.get("case_id")
-    if metadata.action_id != build_action_id(case_id):
-        metadata.action_id = build_action_id(case_id)
+    action_id = build_action_id(record.get("case_id"))
+    if action_id and record.get("action_id") != action_id:
+        record["action_id"] = action_id
         changed = True
 
-    normalized_tags = sanitize_tags(metadata.tags)
-    if normalized_tags != metadata.tags:
-        metadata.tags = normalized_tags
-        changed = True
-
-    normalized_links = sanitize_evidence_links(metadata.evidence_links)
-    if normalized_links != metadata.evidence_links:
-        metadata.evidence_links = normalized_links
-        changed = True
-
-    normalized_cases = sanitize_linked_cases(metadata.linked_cases, current_case_id=case_id)
-    if normalized_cases != metadata.linked_cases:
-        metadata.linked_cases = normalized_cases
-        changed = True
-
-    metadata.apply_to_record(record)
     return changed
 
 
@@ -503,12 +464,6 @@ def find_case_record(punishments: Dict[str, Any], case_id: int) -> Tuple[Optiona
             if isinstance(record, dict) and record.get("case_id") == case_id:
                 return user_id, record
     return None, None
-
-
-def export_case_payload(user_id: str, record: Dict[str, Any]) -> Dict[str, Any]:
-    payload = copy.deepcopy(record)
-    payload["target_user_id"] = user_id
-    return payload
 
 
 def export_config_payload(config: Dict[str, Any]) -> Dict[str, Any]:

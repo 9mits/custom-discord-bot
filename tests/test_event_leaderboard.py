@@ -285,12 +285,19 @@ class EventControlTests(unittest.IsolatedAsyncioTestCase):
         cog._goal_hours = 2000
         cog._title = event_title(2000)
         cog._history = [archive]
+        icon_url = "https://cdn.discordapp.com/icons/123/event-server.png"
+        guild = SimpleNamespace(icon=SimpleNamespace(url=icon_url))
 
         with patch.object(event_module, "get_theme_color", return_value=discord.Color.orange()):
-            view = cog._build_view(SimpleNamespace())
+            view = cog._build_view(guild)
 
         container = view.to_components()[0]
-        self.assertEqual(container["components"][0]["content"], "## 2,000 Hour Voice Chat Event Leaderboard")
+        header = container["components"][0]
+        self.assertEqual(
+            header["components"][0]["content"],
+            "## 2,000 Hour Voice Chat Event Leaderboard",
+        )
+        self.assertEqual(header["accessory"]["media"]["url"], icon_url)
         select_rows = [component for component in container["components"] if component["type"] == 1]
         self.assertEqual(len(select_rows), 1)
         select = select_rows[0]["components"][0]

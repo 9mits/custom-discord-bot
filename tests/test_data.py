@@ -16,8 +16,14 @@ class DummyBot:
 
 class MbxDataTests(unittest.TestCase):
     def setUp(self):
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
         self.manager = DataManager(DummyBot())
         self.manager.config = {"case_counter": 0}
+
+    def tearDown(self):
+        self.loop.close()
+        asyncio.set_event_loop(None)
 
     def test_allocate_case_id_increments_counter(self):
         self.assertEqual(self.manager.allocate_case_id(), 1)
@@ -28,6 +34,15 @@ class MbxDataTests(unittest.TestCase):
         self.assertIn("case_id", record)
         self.assertIn("timestamp", record)
         self.assertFalse(record["active"])
+        self.assertTrue(
+            {
+                "evidence_links",
+                "tags",
+                "linked_cases",
+                "assigned_moderator",
+                "internal_notes",
+            }.isdisjoint(record)
+        )
 
     def test_discard_pending_punishment_removes_case_and_index(self):
         record = asyncio.run(self.manager.add_punishment(

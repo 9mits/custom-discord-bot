@@ -765,8 +765,9 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         punish.assert_not_awaited()
         send_log.assert_not_awaited()
 
-    async def test_content_detection_logs_punishment_format_and_dual_images(self):
-        submitted_fingerprint = fingerprint_image_bytes(_png_bytes((30, 60, 90), stripe=(10, 200, 30)))
+    async def test_content_detection_saves_flagged_image_in_punishment_log(self):
+        submitted_data = _png_bytes((30, 60, 90), stripe=(10, 200, 30))
+        submitted_fingerprint = fingerprint_image_bytes(submitted_data)
         reference_fingerprint = fingerprint_image_bytes(_png_bytes((180, 40, 20), stripe=(220, 220, 20)))
         attachment = SimpleNamespace(
             filename="daily-scam.png",
@@ -809,6 +810,7 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
             ),
             fingerprints=(submitted_fingerprint,),
             is_image=True,
+            image_data=submitted_data,
         )
 
         with patch.object(
@@ -870,13 +872,16 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Local OCR", fields["Detection"])
         self.assertIn("Confidence: 96%", fields["Detection"])
         self.assertEqual(fields["Matched Words"], "`MrBeast`, `crypto`, `send`, `double`")
-        self.assertIn("[known scam reference](https://example.invalid/reference.png)", fields["Matched Reference"])
-        self.assertRegex(fields["Matched Reference"], r"• \d+% visual similarity$")
-        self.assertEqual(fields["Submitted Image"], "[Open image](https://example.invalid/daily-scam.png)")
+        self.assertNotIn("Matched Reference", fields)
+        self.assertNotIn("Submitted Image", fields)
         self.assertEqual(fields["DM"], "Delivered")
         self.assertEqual(fields["24-Hour Cleanup"], "6 earlier messages removed")
-        self.assertEqual(logged_embed.thumbnail.url, "https://example.invalid/reference.png")
-        self.assertEqual(logged_embed.image.url, "https://example.invalid/daily-scam.png")
+        self.assertEqual(logged_embed.thumbnail.url, "https://example.invalid/avatar.png")
+        self.assertEqual(logged_embed.image.url, "attachment://flagged-image-101.png")
+        self.assertEqual(
+            send_log.await_args.kwargs["attachments"],
+            [("flagged-image-101.png", submitted_data)],
+        )
         self.assertEqual(len(send_log.await_args.kwargs["view"].children), 2)
 
     async def test_fuzzy_match_is_log_only(self):
@@ -950,20 +955,27 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         send_log.assert_awaited_once()
         logged_embed = send_log.await_args.args[1]
         fields = {field.name: field.value for field in logged_embed.fields}
-        self.assertEqual(logged_embed.title, "Scam Image Match Needs Review")
-        self.assertIn("lower-confidence scam image match", logged_embed.description.lower())
+        self.assertEqual(logged_embed.title, "Scam Image Detected")
+        self.assertEqual(
+            logged_embed.description,
+            "A scam image was detected and the moderation result is logged below.",
+        )
         self.assertEqual(
             set(fields),
-            {"Actor", "Target", "Reason", "Detection", "Matched Reference", "Submitted Image", "Result", "DM", "Message ID"},
+            {"Actor", "Target", "Reason", "Detection", "Result", "DM", "Message ID"},
         )
-        self.assertIn("[flat image](https://example.invalid/original.png)", fields["Matched Reference"])
         self.assertRegex(fields["Detection"], r"Confidence: \d+%")
         self.assertIn("fuzzy match", fields["Result"].lower())
         self.assertEqual(fields["DM"], "Not sent — awaiting review")
         self.assertNotIn("Message Deleted", fields)
         self.assertNotIn("Inspection Complete", fields)
-        self.assertEqual(logged_embed.image.url, "https://example.invalid/flagged.png")
-        self.assertEqual(send_log.await_args.kwargs["content"], "<@&900> Lower-confidence scam image match needs review.")
+        self.assertEqual(logged_embed.thumbnail.url, "https://example.invalid/avatar.png")
+        self.assertEqual(logged_embed.image.url, "attachment://flagged-image-99.png")
+        self.assertEqual(send_log.await_args.kwargs["content"], "<@&900> Scam image detection needs a moderator decision.")
+        self.assertEqual(
+            send_log.await_args.kwargs["attachments"],
+            [("flagged-image-99.png", resized_data)],
+        )
         self.assertEqual(len(send_log.await_args.kwargs["view"].children), 2)
         self.assertIsInstance(send_log.await_args.kwargs["view"].children[0], ImageReviewPunishButton)
         self.assertIsInstance(send_log.await_args.kwargs["view"].children[1], ImageFalsePositiveButton)
@@ -1229,7 +1241,7 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ImageFilterUiTests(unittest.IsolatedAsyncioTestCase):
-    async def test_false_positive_button_persists_learned_exception(self):
+    async def test_false_positive_requires_confirmation_and_can_be_undone(self):
         fingerprint = fingerprint_image_bytes(_png_bytes((30, 60, 90)))
         button = ImageFalsePositiveButton(fingerprint)
         match = ImageFalsePositiveButton.__discord_ui_compiled_template__.fullmatch(button.item.custom_id)
@@ -1241,32 +1253,127 @@ class ImageFilterUiTests(unittest.IsolatedAsyncioTestCase):
             mark_config_dirty=Mock(),
             save_config=AsyncMock(),
         )
+        guild = SimpleNamespace(id=123, icon=None)
+        source_embed = discord.Embed(
+            title="Scam Image Detected",
+            description="A scam image was detected and the moderation result is logged below.",
+        )
+        source_embed.set_image(url="attachment://flagged-image-654.png")
+        source_embed.add_field(name="Result", value="Awaiting decision", inline=True)
+        source_embed.add_field(name="Review", value="Old review section", inline=False)
+        source_message = SimpleNamespace(
+            id=777,
+            embeds=[source_embed],
+            edit=AsyncMock(),
+        )
+        raw_view = discord.ui.View(timeout=None)
+        raw_view.add_item(discord.ui.Button(
+            label="Apply Configured Punishment",
+            style=discord.ButtonStyle.danger,
+            custom_id="imagefilter:punish:42:321:654",
+        ))
+        raw_view.add_item(discord.ui.Button(
+            label="Mark False Positive",
+            style=discord.ButtonStyle.secondary,
+            custom_id=button.item.custom_id,
+        ))
         interaction = SimpleNamespace(
-            guild=SimpleNamespace(icon=None),
+            guild=guild,
             user=SimpleNamespace(id=900),
-            message=None,
-            response=SimpleNamespace(defer=AsyncMock()),
+            message=source_message,
+            response=SimpleNamespace(send_message=AsyncMock()),
             followup=SimpleNamespace(send=AsyncMock()),
         )
+        automod_module._image_review_resolutions.clear()
         with patch.object(
             automod_module,
             "bot",
             SimpleNamespace(data_manager=data_manager),
         ), patch.object(automod_module, "is_staff", return_value=True), patch.object(
+            automod_module.discord.ui.View,
+            "from_message",
+            return_value=raw_view,
+        ), patch.object(
+            automod_module,
+            "make_embed",
+            side_effect=lambda title, description=None, **kwargs: discord.Embed(title=title, description=description),
+        ), patch.object(
             automod_module,
             "make_confirmation_embed",
             side_effect=lambda title, description=None, **kwargs: discord.Embed(title=title, description=description),
         ):
             await button.callback(interaction)
 
+            self.assertEqual(data_manager.config["image_filters"], {})
+            interaction.response.send_message.assert_awaited_once()
+            confirmation_embed = interaction.response.send_message.await_args.kwargs["embed"]
+            self.assertIn("are you sure", confirmation_embed.description.lower())
+            confirmation_view = interaction.response.send_message.await_args.kwargs["view"]
+            confirm_interaction = SimpleNamespace(
+                guild=guild,
+                user=SimpleNamespace(id=900),
+                response=SimpleNamespace(edit_message=AsyncMock()),
+                followup=SimpleNamespace(send=AsyncMock()),
+            )
+            await confirmation_view.children[0].callback(confirm_interaction)
+            confirm_interaction.response.edit_message.assert_awaited_once_with(view=None)
+
+            learned = data_manager.config["image_filters"]["false_positives"]
+            self.assertEqual(len(learned), 1)
+            self.assertEqual(learned[0]["sha256"], fingerprint["sha256"])
+            self.assertEqual(learned[0]["added_by"], 900)
+            marked_embed = source_message.edit.await_args.kwargs["embed"]
+            marked_fields = {field.name: field.value for field in marked_embed.fields}
+            self.assertNotIn("Review", marked_fields)
+            self.assertEqual(marked_fields["Result"], "Awaiting decision")
+            self.assertEqual(marked_embed.image.url, "attachment://flagged-image-654.png")
+            self.assertEqual(raw_view.children[0].label, "No Punishment")
+            self.assertTrue(raw_view.children[0].disabled)
+            self.assertEqual(raw_view.children[1].label, "Undo False Positive")
+            self.assertFalse(raw_view.children[1].disabled)
+
+            undo_interaction = SimpleNamespace(
+                guild=guild,
+                user=SimpleNamespace(id=900),
+                message=source_message,
+                response=SimpleNamespace(send_message=AsyncMock()),
+                followup=SimpleNamespace(send=AsyncMock()),
+            )
+            restart_match = ImageFalsePositiveButton.__discord_ui_compiled_template__.fullmatch(
+                button.item.custom_id
+            )
+            restored_after_restart = await ImageFalsePositiveButton.from_custom_id(
+                SimpleNamespace(),
+                button.item,
+                restart_match,
+            )
+            await restored_after_restart.callback(undo_interaction)
+            undo_confirmation_embed = undo_interaction.response.send_message.await_args.kwargs["embed"]
+            self.assertIn("undo this false positive", undo_confirmation_embed.description.lower())
+            undo_view = undo_interaction.response.send_message.await_args.kwargs["view"]
+            undo_confirm_interaction = SimpleNamespace(
+                guild=guild,
+                user=SimpleNamespace(id=900),
+                response=SimpleNamespace(edit_message=AsyncMock()),
+                followup=SimpleNamespace(send=AsyncMock()),
+            )
+            await undo_view.children[0].callback(undo_confirm_interaction)
+            undo_confirm_interaction.response.edit_message.assert_awaited_once_with(view=None)
+
+        self.assertEqual(data_manager.config["image_filters"]["false_positives"], [])
+        self.assertEqual(raw_view.children[0].label, "Apply Configured Punishment")
+        self.assertFalse(raw_view.children[0].disabled)
+        self.assertEqual(raw_view.children[1].label, "Mark False Positive")
+        self.assertFalse(raw_view.children[1].disabled)
+        undone_embed = source_message.edit.await_args.kwargs["embed"]
+        undone_fields = {field.name: field.value for field in undone_embed.fields}
+        self.assertEqual(undone_fields["Result"], "Awaiting decision")
+        self.assertEqual(undone_embed.image.url, "attachment://flagged-image-654.png")
         learned = data_manager.config["image_filters"]["false_positives"]
-        self.assertEqual(len(learned), 1)
-        self.assertEqual(learned[0]["sha256"], fingerprint["sha256"])
-        self.assertEqual(learned[0]["added_by"], 900)
+        self.assertEqual(learned, [])
         data_manager.mark_config_dirty.assert_called()
-        data_manager.save_config.assert_awaited_once()
-        interaction.response.defer.assert_awaited_once_with(ephemeral=True)
-        interaction.followup.send.assert_awaited_once()
+        self.assertEqual(data_manager.save_config.await_count, 2)
+        automod_module._image_review_resolutions.clear()
 
     async def test_review_punishment_button_applies_current_image_filter_policy(self):
         button = ImageReviewPunishButton(42, 321, 654)
@@ -1282,8 +1389,14 @@ class ImageFilterUiTests(unittest.IsolatedAsyncioTestCase):
             get_channel=Mock(return_value=source_channel),
         )
         member = SimpleNamespace(id=42)
-        log_embed = discord.Embed(title="Scam Image Match Needs Review")
+        log_embed = discord.Embed(
+            title="Scam Image Detected",
+            description="A scam image was detected and the moderation result is logged below.",
+        )
+        log_embed.set_thumbnail(url="https://example.invalid/scammer-avatar.png")
+        log_embed.set_image(url="attachment://flagged-image-654.png")
         log_embed.add_field(name="Result", value="Awaiting review", inline=True)
+        log_embed.add_field(name="Review", value="Old review section", inline=False)
         log_message = SimpleNamespace(
             id=777,
             embeds=[log_embed],
@@ -1377,7 +1490,14 @@ class ImageFilterUiTests(unittest.IsolatedAsyncioTestCase):
         log_message.edit.assert_awaited_once()
         edited_embed = log_message.edit.await_args.kwargs["embed"]
         edited_fields = {field.name: field.value for field in edited_embed.fields}
-        self.assertEqual(edited_embed.title, "[Case #55] Image Review Punished")
+        self.assertEqual(edited_embed.title, "[Case #55] Scam Image Detected")
+        self.assertEqual(
+            edited_embed.description,
+            "> A scam image was detected and the moderation result is logged below.",
+        )
+        self.assertEqual(edited_embed.thumbnail.url, "https://example.invalid/scammer-avatar.png")
+        self.assertEqual(edited_embed.image.url, "attachment://flagged-image-654.png")
+        self.assertNotIn("Review", edited_fields)
         self.assertEqual(edited_fields["Result"], "Applied Ban automatically")
         self.assertEqual(edited_fields["24-Hour Cleanup"], "5 earlier messages removed")
         self.assertEqual(edited_fields["Source Message"], "Deleted")
@@ -1633,6 +1753,50 @@ class ImageFilterUiTests(unittest.IsolatedAsyncioTestCase):
         remaining = data_manager.config["image_filters"]["entries"]
         self.assertEqual(len(remaining), 29)
         self.assertNotIn("Entry 30", {entry["label"] for entry in remaining})
+        data_manager.save_config.assert_awaited_once()
+        interaction.response.edit_message.assert_awaited_once()
+
+    async def test_filter_panel_can_undo_an_existing_false_positive(self):
+        fingerprint = fingerprint_image_bytes(_png_bytes((20, 40, 60)))
+        data_manager = SimpleNamespace(
+            config={"image_filters": {
+                "false_positives": [{
+                    **fingerprint,
+                    "label": "Staff-confirmed false positive",
+                    "added_by": 900,
+                    "added_at": "2026-07-29T10:00:00+00:00",
+                }],
+            }},
+            mark_config_dirty=Mock(),
+            save_config=AsyncMock(),
+        )
+        interaction = SimpleNamespace(
+            guild=SimpleNamespace(icon=None),
+            response=SimpleNamespace(edit_message=AsyncMock()),
+        )
+
+        with patch.object(
+            automod_module,
+            "bot",
+            SimpleNamespace(data_manager=data_manager),
+        ), patch.object(
+            automod_module,
+            "make_embed",
+            side_effect=lambda title, description=None, **kwargs: discord.Embed(
+                title=title,
+                description=description,
+            ),
+        ):
+            view = ImageFiltersView()
+            remove_select = next(
+                child for child in view.children
+                if isinstance(child, ImageFilterRemoveSelect)
+            )
+            self.assertEqual(remove_select.options[0].label, "Undo false positive • 2026-07-29 10:00")
+            remove_select._values = [remove_select.options[0].value]
+            await remove_select.callback(interaction)
+
+        self.assertEqual(data_manager.config["image_filters"]["false_positives"], [])
         data_manager.save_config.assert_awaited_once()
         interaction.response.edit_message.assert_awaited_once()
 

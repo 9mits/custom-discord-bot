@@ -457,10 +457,10 @@ class PunishDetailsModal(discord.ui.Modal):
         self.evidence_message = evidence_message
 
     mod_note = discord.ui.TextInput(
-        label="Moderator Note (Internal)",
+        label="Staff Note (Optional)",
         style=discord.TextStyle.paragraph,
-        placeholder="Visible only to staff. Required.",
-        required=True
+        placeholder="Add brief context only when it is useful.",
+        required=False,
     )
 
     mod_message = discord.ui.TextInput(
@@ -481,7 +481,7 @@ class PunishDetailsModal(discord.ui.Modal):
         
         reason = self.reason
         rules = self.rules
-        note = self.mod_note.value
+        note = self.mod_note.value.strip()
         user_msg = self.mod_message.value
         override = self.duration_override.value.strip().lower()
         
@@ -587,10 +587,10 @@ class CustomPunishDetailsModal(discord.ui.Modal):
             self.add_item(self.duration_str)
             
         self.mod_note = discord.ui.TextInput(
-            label="Moderator Note (Internal)",
+            label="Staff Note (Optional)",
             style=discord.TextStyle.paragraph,
-            placeholder="Visible only to staff.",
-            required=True
+            placeholder="Add brief context only when it is useful.",
+            required=False,
         )
         self.add_item(self.mod_note)
         
@@ -662,7 +662,7 @@ class CustomPunishDetailsModal(discord.ui.Modal):
                 "target_id": self.target.id,
                 "count": self.reaction_count,
                 "reason": self.custom_reason.value,
-                "note": self.mod_note.value,
+                "note": self.mod_note.value.strip(),
                 "user_msg": self.mod_message.value,
                 "moderator_id": self.moderator.id,
                 "duration": minutes,
@@ -677,7 +677,7 @@ class CustomPunishDetailsModal(discord.ui.Modal):
             self.moderator, 
             self.custom_reason.value, 
             minutes, 
-            self.mod_note.value, 
+            self.mod_note.value.strip(),
             self.mod_message.value, 
             False, # Custom punishments don't follow auto-escalation logic
             self.origin_message,
@@ -1167,7 +1167,7 @@ async def send_target_picker(
 @app_commands.describe(
     user="The member to punish.",
     userid="A user ID or mention. Use this if the member isn't selectable in the user picker.",
-    message_id="A message ID or link to save as evidence and delete after punishment.",
+    message_id="A message ID or link to punish its author and remove the message.",
 )
 @app_commands.check(_staff_check)
 async def punish(
