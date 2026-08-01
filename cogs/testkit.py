@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import platform
 import time
+from typing import Optional
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -20,7 +21,7 @@ from core.constants import (
 )
 from core.context import bot, tree
 from core.utils import format_duration, now_iso
-from .shared import make_embed
+from .shared import extract_snowflake_id, make_embed, resolve_member_input
 
 
 # ---------------------------------------------------------------------------
@@ -35,6 +36,30 @@ def _is_test_admin(interaction: discord.Interaction) -> bool:
     admin_id = cfg.get("role_admin", DEFAULT_ROLE_ADMIN)
     owner_id = cfg.get("role_owner", DEFAULT_ROLE_OWNER)
     return bool(role_ids & {admin_id, owner_id}) or interaction.user.guild_permissions.administrator
+
+
+async def _resolve_test_member(
+    interaction: discord.Interaction,
+    member: Optional[discord.Member],
+    userid: Optional[str],
+) -> Optional[discord.Member]:
+    if userid is None:
+        return member
+    if extract_snowflake_id(userid) is None:
+        await interaction.response.send_message("That isn't a valid user ID or mention.", ephemeral=True)
+        return None
+
+    resolved_member = await resolve_member_input(interaction.guild, userid)
+    if resolved_member is None:
+        await interaction.response.send_message("No member of this server was found with that ID.", ephemeral=True)
+        return None
+    if member is not None and member.id != resolved_member.id:
+        await interaction.response.send_message(
+            "The selected member and supplied user ID must refer to the same person.",
+            ephemeral=True,
+        )
+        return None
+    return resolved_member
 
 
 # ---------------------------------------------------------------------------
@@ -127,16 +152,24 @@ async def test_config_dump(interaction: discord.Interaction) -> None:
 )
 @app_commands.describe(
     member="Target member",
+    userid="A user ID or mention if the member isn't selectable in the picker.",
     rule="Rule name (e.g. Spamming, NSFW)",
 )
 async def test_simulate_punishment(
     interaction: discord.Interaction,
-    member: discord.Member,
     rule: str,
+    member: Optional[discord.Member] = None,
+    userid: Optional[str] = None,
 ) -> None:
     """Show what punishment would be issued without executing it."""
     if not _is_test_admin(interaction):
         await interaction.response.send_message("No permission.", ephemeral=True)
+        return
+
+    member = await _resolve_test_member(interaction, member, userid)
+    if member is None:
+        if userid is None:
+            await interaction.response.send_message("Choose a member or supply a user ID.", ephemeral=True)
         return
 
     from core.services import OFFENSE_LOOKBACK_DAYS, calculate_offense_punishment, count_recent_offenses
@@ -205,14 +238,24 @@ async def test_flush_cache(interaction: discord.Interaction) -> None:
     name="test-user-history",
     description="[TEST] Show raw punishment records for a user.",
 )
-@app_commands.describe(member="Target member")
+@app_commands.describe(
+    member="Target member",
+    userid="A user ID or mention if the member isn't selectable in the picker.",
+)
 async def test_user_history(
     interaction: discord.Interaction,
-    member: discord.Member,
+    member: Optional[discord.Member] = None,
+    userid: Optional[str] = None,
 ) -> None:
     """Dumps raw punishment records — useful for verifying case logic."""
     if not _is_test_admin(interaction):
         await interaction.response.send_message("No permission.", ephemeral=True)
+        return
+
+    member = await _resolve_test_member(interaction, member, userid)
+    if member is None:
+        if userid is None:
+            await interaction.response.send_message("Choose a member or supply a user ID.", ephemeral=True)
         return
 
     dm = bot.data_manager

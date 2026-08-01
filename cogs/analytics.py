@@ -29,6 +29,9 @@ from .shared import (
     make_embed,
     format_user_ref,
     check_admin,
+    extract_snowflake_id,
+    resolve_member_input,
+    respond_with_error,
 )
 from .cases import (
     get_case_label,
@@ -296,8 +299,16 @@ class StaffView(discord.ui.View):
         self.add_item(StaffSelect(staff_members))
 
 @tree.command(name="stats", description="View moderation analytics.")
+@app_commands.describe(
+    target="The staff member whose analytics to view.",
+    userid="A user ID or mention if the member isn't selectable in the picker.",
+)
 @app_commands.default_permissions(manage_guild=True)
-async def stats(interaction: discord.Interaction, target: Optional[discord.Member] = None):
+async def stats(
+    interaction: discord.Interaction,
+    target: Optional[discord.Member] = None,
+    userid: Optional[str] = None,
+):
     conf = bot.data_manager.config
     allowed = {
         conf.get("role_admin", DEFAULT_ROLE_ADMIN),
@@ -307,6 +318,23 @@ async def stats(interaction: discord.Interaction, target: Optional[discord.Membe
     if not interaction.user.guild_permissions.administrator and not any(r.id in allowed for r in interaction.user.roles):
         await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have the required Admin role.", kind="error", scope=SCOPE_ANALYTICS, guild=interaction.guild), ephemeral=True)
         return
+
+    if userid is not None:
+        if extract_snowflake_id(userid) is None:
+            await respond_with_error(interaction, "That isn't a valid user ID or mention.", scope=SCOPE_ANALYTICS)
+            return
+        resolved_target = await resolve_member_input(interaction.guild, userid)
+        if resolved_target is None:
+            await respond_with_error(interaction, "No member of this server was found with that ID.", scope=SCOPE_ANALYTICS)
+            return
+        if target is not None and target.id != resolved_target.id:
+            await respond_with_error(
+                interaction,
+                "The selected user and supplied user ID must refer to the same person.",
+                scope=SCOPE_ANALYTICS,
+            )
+            return
+        target = resolved_target
 
     if target:
         uid = str(target.id)

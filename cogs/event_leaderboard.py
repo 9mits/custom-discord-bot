@@ -33,7 +33,13 @@ from discord.ext import commands, tasks
 
 from core.constants import BRAND_NAME, SCOPE_SYSTEM
 from core.utils import create_progress_bar, iso_to_dt, now_iso
-from .shared import get_theme_color, has_permission_capability, make_embed
+from .shared import (
+    extract_snowflake_id,
+    get_theme_color,
+    has_permission_capability,
+    make_embed,
+    resolve_channel_input,
+)
 
 # How often the display instance edits the leaderboard message.
 # Editing one message every 60s is far below Discord's rate limits; lower it
@@ -309,17 +315,82 @@ def _control_embed(title: str, description: str, kind: str = "info", guild: Opti
     return make_embed(title, description, kind=kind, scope=SCOPE_SYSTEM, guild=guild)
 
 
+async def _resolve_event_channel_option(
+    interaction: discord.Interaction,
+    selected_channel,
+    raw_channel_id: Optional[str],
+    expected_type,
+    channel_label: str,
+):
+    if raw_channel_id is None:
+        return selected_channel
+    if extract_snowflake_id(raw_channel_id) is None:
+        await interaction.response.send_message(
+            embed=_control_embed("Invalid Channel", "> That isn't a valid channel ID or mention.", kind="error", guild=interaction.guild),
+            ephemeral=True,
+        )
+        return None
+
+    resolved_channel = await resolve_channel_input(interaction.guild, raw_channel_id)
+    if resolved_channel is None:
+        await interaction.response.send_message(
+            embed=_control_embed("Channel Not Found", "> No channel in this server was found with that ID.", kind="error", guild=interaction.guild),
+            ephemeral=True,
+        )
+        return None
+    if not isinstance(resolved_channel, expected_type):
+        await interaction.response.send_message(
+            embed=_control_embed("Invalid Channel Type", f"> Choose a {channel_label}.", kind="error", guild=interaction.guild),
+            ephemeral=True,
+        )
+        return None
+    if selected_channel is not None and selected_channel.id != resolved_channel.id:
+        await interaction.response.send_message(
+            embed=_control_embed(
+                "Channel Mismatch",
+                "> The selected channel and supplied channel ID must refer to the same channel.",
+                kind="error",
+                guild=interaction.guild,
+            ),
+            ephemeral=True,
+        )
+        return None
+    return resolved_channel
+
+
 @event_group.command(name="setup", description="Set the channel where the leaderboard message will live.")
-@app_commands.describe(channel="The channel the display bot will post/edit the leaderboard in.")
-async def event_setup(interaction: discord.Interaction, channel: discord.TextChannel) -> None:
+@app_commands.describe(
+    channel="The channel the display bot will post/edit the leaderboard in.",
+    channelid="A text channel ID or mention if the channel isn't selectable in the picker.",
+)
+async def event_setup(
+    interaction: discord.Interaction,
+    channel: Optional[discord.TextChannel] = None,
+    channelid: Optional[str] = None,
+) -> None:
+    selected_channel = await _resolve_event_channel_option(
+        interaction,
+        channel,
+        channelid,
+        discord.TextChannel,
+        "text channel",
+    )
+    if selected_channel is None:
+        if channelid is None:
+            await interaction.response.send_message(
+                embed=_control_embed("Channel Required", "> Choose a channel or supply its ID.", kind="error", guild=interaction.guild),
+                ephemeral=True,
+            )
+        return
+
     cfg = load_config()
     cfg["guild_id"] = interaction.guild_id
-    cfg["channel_id"] = channel.id
+    cfg["channel_id"] = selected_channel.id
     save_config(cfg)
     await interaction.response.send_message(
         embed=_control_embed(
             "Event Channel Set",
-            f"> Leaderboard will be posted in {channel.mention} by Mysterious Bot X.\n"
+            f"> Leaderboard will be posted in {selected_channel.mention} by Mysterious Bot X.\n"
             "> Run `/event start` to begin tracking.",
             kind="success",
             guild=interaction.guild,
@@ -440,12 +511,29 @@ async def event_next(interaction: discord.Interaction, hours: app_commands.Range
 
 
 @event_group.command(name="vc", description="Choose which voice channel to track (leave empty to track all).")
-@app_commands.describe(channel="The event voice channel. Omit to count any non-AFK voice channel.")
-async def event_vc(interaction: discord.Interaction, channel: Optional[discord.VoiceChannel] = None) -> None:
+@app_commands.describe(
+    channel="The event voice channel. Omit to count any non-AFK voice channel.",
+    channelid="A voice channel ID or mention if the channel isn't selectable in the picker.",
+)
+async def event_vc(
+    interaction: discord.Interaction,
+    channel: Optional[discord.VoiceChannel] = None,
+    channelid: Optional[str] = None,
+) -> None:
+    selected_channel = await _resolve_event_channel_option(
+        interaction,
+        channel,
+        channelid,
+        discord.VoiceChannel,
+        "voice channel",
+    )
+    if channelid is not None and selected_channel is None:
+        return
+
     cfg = load_config()
-    cfg["voice_channel_id"] = channel.id if channel else None
+    cfg["voice_channel_id"] = selected_channel.id if selected_channel else None
     save_config(cfg)
-    where = channel.mention if channel else "**any** non-AFK voice channel"
+    where = selected_channel.mention if selected_channel else "**any** non-AFK voice channel"
     await interaction.response.send_message(
         embed=_control_embed("Tracked Voice Channel Set", f"> Now tracking {where}.", kind="success", guild=interaction.guild),
         ephemeral=True,

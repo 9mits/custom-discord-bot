@@ -746,6 +746,59 @@ async def resolve_member(guild: discord.Guild, user_id: int) -> Optional[discord
     return None
 
 
+async def resolve_member_input(
+    guild: Optional[discord.Guild],
+    raw_value: Union[str, int, None],
+) -> Optional[discord.Member]:
+    """Resolve a raw user ID or mention to a member of ``guild``."""
+    user_id = extract_snowflake_id(str(raw_value or ""))
+    if guild is None or user_id is None:
+        return None
+    return await resolve_member(guild, user_id)
+
+
+async def resolve_user_input(
+    guild: Optional[discord.Guild],
+    raw_value: Union[str, int, None],
+) -> Optional[Union[discord.Member, discord.User]]:
+    """Resolve a raw user ID or mention, preferring a full guild member."""
+    user_id = extract_snowflake_id(str(raw_value or ""))
+    if user_id is None:
+        return None
+
+    if guild is not None:
+        member = await resolve_member(guild, user_id)
+        if member is not None:
+            return member
+
+    cached = bot.get_user(user_id)
+    if cached is not None:
+        return cached
+    try:
+        return await bot.fetch_user(user_id)
+    except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+        return None
+
+
+async def resolve_channel_input(
+    guild: Optional[discord.Guild],
+    raw_value: Union[str, int, None],
+):
+    """Resolve a raw channel ID or mention within ``guild``."""
+    channel_id = extract_snowflake_id(str(raw_value or ""))
+    if guild is None or channel_id is None:
+        return None
+
+    get_channel_or_thread = getattr(guild, "get_channel_or_thread", None)
+    channel = get_channel_or_thread(channel_id) if callable(get_channel_or_thread) else guild.get_channel(channel_id)
+    if channel is not None:
+        return channel
+    try:
+        return await guild.fetch_channel(channel_id)
+    except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+        return None
+
+
 # Kinds whose colour carries meaning (confirmed = green, declined/error = red).
 # These must stay fixed regardless of the configured branding theme so users can
 # always read a result at a glance. Everything else follows the theme accent.

@@ -20,9 +20,11 @@ from core.constants import SCOPE_MODERATION
 from core.context import bot, tree
 from core.utils import truncate_text
 from .shared import (
+    extract_snowflake_id,
     is_staff,
     make_embed,
     make_empty_state_embed,
+    resolve_channel_input,
     respond_with_error,
 )
 from .case_panel import generate_transcript_html
@@ -249,12 +251,19 @@ class ExportDownloadSelect(discord.ui.Select):
 
 
 class ExportMenuView(discord.ui.View):
-    def __init__(self, requester_id: int, guild: discord.Guild):
+    def __init__(
+        self,
+        requester_id: int,
+        guild: discord.Guild,
+        *,
+        user_ids: Optional[Set[int]] = None,
+        channel_ids: Optional[Set[int]] = None,
+    ):
         super().__init__(timeout=600)
         self.requester_id = requester_id
         self.guild = guild
-        self.selected_user_ids: Set[int] = set()
-        self.selected_channel_ids: Set[int] = set()
+        self.selected_user_ids: Set[int] = set(user_ids or ())
+        self.selected_channel_ids: Set[int] = set(channel_ids or ())
         self.exports: List[dict] = []
         self.download_select = ExportDownloadSelect()
         self.add_item(ExportMemberSelect())
@@ -305,9 +314,45 @@ class ExportMenuView(discord.ui.View):
 
 
 @tree.command(name="export", description="Export a member's or channel's messages to a downloadable HTML file.")
+@app_commands.describe(
+    userid="A user ID or mention to preselect as the member filter.",
+    channelid="A text channel ID or mention to preselect as the channel filter.",
+)
 @app_commands.check(_staff_check)
-async def export(interaction: discord.Interaction):
-    view = ExportMenuView(interaction.user.id, interaction.guild)
+async def export(
+    interaction: discord.Interaction,
+    userid: Optional[str] = None,
+    channelid: Optional[str] = None,
+):
+    user_ids: Set[int] = set()
+    channel_ids: Set[int] = set()
+
+    if userid is not None:
+        user_id = extract_snowflake_id(userid)
+        if user_id is None:
+            await respond_with_error(interaction, "That isn't a valid user ID or mention.", scope=SCOPE_MODERATION)
+            return
+        user_ids.add(user_id)
+
+    if channelid is not None:
+        if extract_snowflake_id(channelid) is None:
+            await respond_with_error(interaction, "That isn't a valid channel ID or mention.", scope=SCOPE_MODERATION)
+            return
+        channel = await resolve_channel_input(interaction.guild, channelid)
+        if channel is None:
+            await respond_with_error(interaction, "No channel in this server was found with that ID.", scope=SCOPE_MODERATION)
+            return
+        if not isinstance(channel, discord.TextChannel):
+            await respond_with_error(interaction, "Message exports require a text channel.", scope=SCOPE_MODERATION)
+            return
+        channel_ids.add(channel.id)
+
+    view = ExportMenuView(
+        interaction.user.id,
+        interaction.guild,
+        user_ids=user_ids,
+        channel_ids=channel_ids,
+    )
     await view.reload_exports()
     view.sync_download_options()
     await interaction.response.send_message(embed=view.build_embed(), view=view, ephemeral=True)
