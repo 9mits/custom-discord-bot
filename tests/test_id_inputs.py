@@ -78,8 +78,7 @@ class IdInputResolverTests(unittest.IsolatedAsyncioTestCase):
             display_name="Former Member",
             display_avatar=SimpleNamespace(url="https://example.com/avatar.png"),
         )
-        with patch("cogs.history.bot") as bot_mock:
-            bot_mock.data_manager.punishments = {}
+        with patch.object(HistoryView, "reload_history"):
             view = HistoryView(user, guild=None)
 
         fields = {field.name: field.value for field in view.build_embed().fields}
