@@ -31,7 +31,6 @@ from .shared import (
     is_staff,
     extract_snowflake_id,
     resolve_member,
-    resolve_member_input,
     resolve_user_input,
     get_valid_duration,
     handle_abuse,
@@ -956,7 +955,7 @@ async def show_punish_menu(interaction: discord.Interaction, user: discord.User,
 
 async def show_history_menu(
     interaction: discord.Interaction,
-    user: discord.Member,
+    user: Union[discord.Member, discord.User],
     *,
     mode: str = "history",
     selected_case_id: Optional[int] = None,
@@ -970,6 +969,7 @@ async def show_history_menu(
         return
     view = HistoryView(
         user,
+        guild=interaction.guild,
         mode=mode,
         selected_case_id=selected_case_id,
         initial_undo_reason=initial_undo_reason,
@@ -1010,35 +1010,14 @@ async def _resolve_user_id_input(
     return target
 
 
-async def _resolve_member_id_input(
-    interaction: discord.Interaction,
-    raw: str,
-) -> Optional[discord.Member]:
-    if extract_snowflake_id(raw) is None:
-        await respond_with_error(interaction, "That isn't a valid user ID or mention.", scope=SCOPE_MODERATION)
-        return None
-
-    member = await resolve_member_input(interaction.guild, raw)
-    if member is None:
-        await respond_with_error(interaction, "No member of this server was found with that ID.", scope=SCOPE_MODERATION)
-        return None
-    return member
-
-
 async def _resolve_user_options(
     interaction: discord.Interaction,
     selected_user: Optional[Union[discord.Member, discord.User]],
     raw_user_id: Optional[str],
-    *,
-    member_only: bool = False,
 ) -> Optional[Union[discord.Member, discord.User]]:
     target: Optional[Union[discord.Member, discord.User]] = selected_user
     if raw_user_id is not None:
-        raw_target = (
-            await _resolve_member_id_input(interaction, raw_user_id)
-            if member_only
-            else await _resolve_user_id_input(interaction, raw_user_id)
-        )
+        raw_target = await _resolve_user_id_input(interaction, raw_user_id)
         if raw_target is None:
             return None
         if target is not None and target.id != raw_target.id:
@@ -1054,9 +1033,6 @@ async def _resolve_user_options(
         member = await resolve_member(interaction.guild, target.id)
         if member is not None:
             target = member
-        elif member_only:
-            await respond_with_error(interaction, "That user is not a member of this server.", scope=SCOPE_MODERATION)
-            return None
     return target
 
 
@@ -1298,7 +1274,7 @@ async def history(
     user: Optional[discord.Member] = None,
     userid: Optional[str] = None,
 ):
-    target = await _resolve_user_options(interaction, user, userid, member_only=True)
+    target = await _resolve_user_options(interaction, user, userid)
     if user is None and userid is None:
         await send_target_picker(
             interaction,
@@ -1344,7 +1320,7 @@ async def undo(
     reason: Optional[str] = None,
     userid: Optional[str] = None,
 ):
-    target = await _resolve_user_options(interaction, user, userid, member_only=True)
+    target = await _resolve_user_options(interaction, user, userid)
     if user is None and userid is None:
         await send_target_picker(
             interaction,
@@ -1612,7 +1588,7 @@ async def case(
     user: Optional[discord.Member] = None,
     userid: Optional[str] = None,
 ):
-    target = await _resolve_user_options(interaction, user, userid, member_only=True)
+    target = await _resolve_user_options(interaction, user, userid)
     if caseid is None and user is None and userid is None:
         await send_target_picker(
             interaction,

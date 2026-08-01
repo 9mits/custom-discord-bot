@@ -273,7 +273,7 @@ async def show_case_panel(
     interaction: discord.Interaction,
     *,
     case_id: Optional[int] = None,
-    user: Optional[discord.Member] = None,
+    user: Optional[Union[discord.Member, discord.User]] = None,
 ):
     await interaction.response.defer(ephemeral=True)
 
@@ -302,14 +302,21 @@ async def show_case_panel(
         target_user_id = str(user.id)
         case_ids = [record.get("case_id") for record in bot.data_manager.get_user_cases(user.id) if record.get("case_id")]
         if not case_ids:
+            embed = make_empty_state_embed(
+                "No Cases Found",
+                f"> **{user.display_name}** has no recorded cases to manage.\n> Use `/punish` to open the first case for this user.",
+                scope=SCOPE_MODERATION,
+                guild=interaction.guild,
+                thumbnail=user.display_avatar.url,
+            )
+            embed.add_field(name="User", value=format_user_ref(user), inline=False)
+            embed.add_field(
+                name="Server Status",
+                value="Current member" if isinstance(user, discord.Member) else "Not currently in this server",
+                inline=False,
+            )
             await interaction.followup.send(
-                embed=make_empty_state_embed(
-                    "No Cases Found",
-                    f"> **{user.display_name}** has no recorded cases to manage.\n> Use `/punish` to open the first case for this member.",
-                    scope=SCOPE_MODERATION,
-                    guild=interaction.guild,
-                    thumbnail=user.display_avatar.url,
-                ),
+                embed=embed,
                 ephemeral=True,
             )
             return

@@ -314,9 +314,18 @@ class HistoryClearConfirmView(discord.ui.View):
         await interaction.response.edit_message(content="Clear history canceled.", embed=None, view=None)
 
 class HistoryView(discord.ui.View):
-    def __init__(self, user: discord.Member, *, mode: str = "history", selected_case_id: Optional[int] = None, initial_undo_reason: Optional[str] = None):
+    def __init__(
+        self,
+        user: Union[discord.Member, discord.User],
+        *,
+        guild: Optional[discord.Guild],
+        mode: str = "history",
+        selected_case_id: Optional[int] = None,
+        initial_undo_reason: Optional[str] = None,
+    ):
         super().__init__(timeout=300)
         self.user = user
+        self.guild = guild
         self.mode = mode if mode in {"history", "undo"} else "history"
         self.selected_case_id = selected_case_id
         self.custom_undo_reason = str(initial_undo_reason or "").strip() or None
@@ -393,16 +402,17 @@ class HistoryView(discord.ui.View):
 
     def build_embed(self) -> discord.Embed:
         if not self.sorted_history:
-            return build_no_history_embed(self.user, self.user.guild)
+            return build_no_history_embed(self.user, self.guild)
         if self.mode == "undo":
             return build_undo_panel_embed(
                 self.user,
                 self.history,
                 self.get_selected_record(),
+                guild=self.guild,
                 reason_mode=self.get_current_undo_reason_mode(),
                 undo_reason=self.get_current_undo_reason_text(),
             )
-        return build_history_overview_embed(self.user, self.history)
+        return build_history_overview_embed(self.user, self.history, self.guild)
 
     async def refresh_panel_message(self) -> None:
         self.reload_history()
@@ -412,7 +422,7 @@ class HistoryView(discord.ui.View):
         if not self.sorted_history:
             self.stop()
             if self.message:
-                await self.message.edit(embed=build_no_history_embed(self.user, self.user.guild), view=None)
+                await self.message.edit(embed=build_no_history_embed(self.user, self.guild), view=None)
             return
         self.update_components()
         if self.message:

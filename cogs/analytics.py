@@ -4,7 +4,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from datetime import timedelta
-from typing import Optional
+from typing import Optional, Union
 from collections import Counter
 
 from core.constants import (
@@ -30,7 +30,7 @@ from .shared import (
     format_user_ref,
     check_admin,
     extract_snowflake_id,
-    resolve_member_input,
+    resolve_user_input,
     respond_with_error,
 )
 from .cases import (
@@ -46,7 +46,13 @@ def get_mod_cases(mod_id: str) -> list:
                 cases.append((uid, r))
     return cases
 
-def get_staff_stats_embed(target: discord.Member, cases: list, reversals: int) -> discord.Embed:
+def get_staff_stats_embed(
+    target: Union[discord.Member, discord.User],
+    cases: list,
+    reversals: int,
+    *,
+    guild: Optional[discord.Guild] = None,
+) -> discord.Embed:
     total = len(cases)
     
     # Sort cases by timestamp (newest first) for calculations
@@ -74,20 +80,31 @@ def get_staff_stats_embed(target: discord.Member, cases: list, reversals: int) -
                 action_type = "timeout"
         action_counter[action_type] += 1
 
+    has_staff_history = bool(cases)
     embed = make_embed(
-        f"Staff Profile: {target.display_name}",
-        "> Moderation performance snapshot based on logged actions and reversals.",
+        f"{'Staff Profile' if has_staff_history or isinstance(target, discord.Member) else 'User Profile'}: {target.display_name}",
+        (
+            "> Moderation performance snapshot based on logged actions and reversals."
+            if has_staff_history or isinstance(target, discord.Member)
+            else "> Discord account details. No staff actions are recorded for this user."
+        ),
         kind="info",
         scope=SCOPE_ANALYTICS,
-        guild=target.guild,
+        guild=target.guild if isinstance(target, discord.Member) else guild,
         thumbnail=target.display_avatar.url,
     )
-    if target.color != discord.Color.default():
+    if isinstance(target, discord.Member) and target.color != discord.Color.default():
         embed.color = target.color
 
-    joined = discord.utils.format_dt(target.joined_at, "d") if target.joined_at else "Unknown"
-    roles_str = truncate_text(", ".join([r.mention for r in target.roles if not r.is_default()][-5:]) or "None", 1024)
-    embed.add_field(name="Member", value=format_user_ref(target), inline=True)
+    is_current_member = isinstance(target, discord.Member)
+    joined = discord.utils.format_dt(target.joined_at, "d") if is_current_member and target.joined_at else "Not currently in server"
+    roles_str = (
+        truncate_text(", ".join([r.mention for r in target.roles if not r.is_default()][-5:]) or "None", 1024)
+        if is_current_member
+        else "Not currently in server"
+    )
+    embed.add_field(name="User", value=format_user_ref(target), inline=True)
+    embed.add_field(name="Server Status", value="Current member" if is_current_member else "Not currently in this server", inline=True)
     embed.add_field(name="Joined Server", value=joined, inline=True)
     embed.add_field(name="Roles", value=roles_str, inline=False)
 
@@ -323,9 +340,9 @@ async def stats(
         if extract_snowflake_id(userid) is None:
             await respond_with_error(interaction, "That isn't a valid user ID or mention.", scope=SCOPE_ANALYTICS)
             return
-        resolved_target = await resolve_member_input(interaction.guild, userid)
+        resolved_target = await resolve_user_input(interaction.guild, userid)
         if resolved_target is None:
-            await respond_with_error(interaction, "No member of this server was found with that ID.", scope=SCOPE_ANALYTICS)
+            await respond_with_error(interaction, "No Discord user was found with that ID.", scope=SCOPE_ANALYTICS)
             return
         if target is not None and target.id != resolved_target.id:
             await respond_with_error(
@@ -342,22 +359,27 @@ async def stats(
         
         # Check if user is currently staff or has history
         is_target_staff = False
-        if target.guild_permissions.administrator:
-            is_target_staff = True
-        else:
+        if isinstance(target, discord.Member):
+            if target.guild_permissions.administrator:
+                is_target_staff = True
             mod_role_ids = bot.data_manager.config.get("mod_roles", [])
-            if mod_role_ids:
+            if not is_target_staff and mod_role_ids:
                 if any(r.id in mod_role_ids for r in target.roles):
                     is_target_staff = True
-            elif target.guild_permissions.moderate_members:
+            elif not is_target_staff and target.guild_permissions.moderate_members:
                 is_target_staff = True
         
         if not is_target_staff and not cases:
-            await interaction.response.send_message(embed=make_embed("No Data", f"> {target.mention} is not a staff member and has no recorded history.", kind="info", scope=SCOPE_ANALYTICS, guild=interaction.guild), ephemeral=True)
+            if isinstance(target, discord.Member):
+                await interaction.response.send_message(embed=make_embed("No Data", f"> {target.mention} is not a staff member and has no recorded history.", kind="info", scope=SCOPE_ANALYTICS, guild=interaction.guild), ephemeral=True)
+                return
+
+            embed = get_staff_stats_embed(target, cases, 0, guild=interaction.guild)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
             return
 
         reversals = bot.data_manager.mod_stats.get("reversals", {}).get(uid, 0)
-        embed = get_staff_stats_embed(target, cases, reversals)
+        embed = get_staff_stats_embed(target, cases, reversals, guild=interaction.guild)
         
         view = StaffProfileView(target, cases, [], None, embed, interaction.guild)
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)

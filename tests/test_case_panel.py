@@ -118,7 +118,7 @@ class CaseDetailEmbedTests(unittest.TestCase):
         field_names = {field.name for field in embed.fields}
         self.assertEqual(
             field_names,
-            {"Target", "Punishment", "Reason", "Issued", "Moderator"},
+            {"Target", "Server Status", "Punishment", "Reason", "Issued", "Moderator"},
         )
         self.assertTrue(
             {"Evidence", "Notes", "Tags", "Linked Cases", "Action ID"}.isdisjoint(field_names)
