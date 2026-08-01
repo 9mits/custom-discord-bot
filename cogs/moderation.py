@@ -29,7 +29,10 @@ from .shared import (
     send_punishment_log,
     respond_with_error,
     is_staff,
+    extract_snowflake_id,
     resolve_member,
+    resolve_member_input,
+    resolve_user_input,
     get_valid_duration,
     handle_abuse,
 )
@@ -995,23 +998,65 @@ async def _resolve_user_id_input(
     matching user exists. Used as a reliable fallback for the native user:
     picker, which can fail to select some real members client-side.
     """
-    digits = "".join(ch for ch in raw if ch.isdigit())
-    if not digits:
+    uid = extract_snowflake_id(raw)
+    if uid is None:
         await respond_with_error(interaction, "That isn't a valid user ID or mention.", scope=SCOPE_MODERATION)
         return None
 
-    uid = int(digits)
-    target: Optional[Union[discord.Member, discord.User]] = None
-    if interaction.guild is not None:
-        target = await resolve_member(interaction.guild, uid)
-    if target is None:
-        try:
-            target = await bot.fetch_user(uid)
-        except (discord.NotFound, discord.HTTPException):
-            target = None
+    target = await resolve_user_input(interaction.guild, raw)
     if target is None:
         await respond_with_error(interaction, "No user was found with that ID.", scope=SCOPE_MODERATION)
         return None
+    return target
+
+
+async def _resolve_member_id_input(
+    interaction: discord.Interaction,
+    raw: str,
+) -> Optional[discord.Member]:
+    if extract_snowflake_id(raw) is None:
+        await respond_with_error(interaction, "That isn't a valid user ID or mention.", scope=SCOPE_MODERATION)
+        return None
+
+    member = await resolve_member_input(interaction.guild, raw)
+    if member is None:
+        await respond_with_error(interaction, "No member of this server was found with that ID.", scope=SCOPE_MODERATION)
+        return None
+    return member
+
+
+async def _resolve_user_options(
+    interaction: discord.Interaction,
+    selected_user: Optional[Union[discord.Member, discord.User]],
+    raw_user_id: Optional[str],
+    *,
+    member_only: bool = False,
+) -> Optional[Union[discord.Member, discord.User]]:
+    target: Optional[Union[discord.Member, discord.User]] = selected_user
+    if raw_user_id is not None:
+        raw_target = (
+            await _resolve_member_id_input(interaction, raw_user_id)
+            if member_only
+            else await _resolve_user_id_input(interaction, raw_user_id)
+        )
+        if raw_target is None:
+            return None
+        if target is not None and target.id != raw_target.id:
+            await respond_with_error(
+                interaction,
+                "The selected user and supplied user ID must refer to the same person.",
+                scope=SCOPE_MODERATION,
+            )
+            return None
+        target = raw_target
+
+    if target is not None and not isinstance(target, discord.Member) and interaction.guild is not None:
+        member = await resolve_member(interaction.guild, target.id)
+        if member is not None:
+            target = member
+        elif member_only:
+            await respond_with_error(interaction, "That user is not a member of this server.", scope=SCOPE_MODERATION)
+            return None
     return target
 
 
@@ -1184,54 +1229,54 @@ async def punish(
         if evidence_message is None:
             return
         message_target = await _resolve_message_author(interaction, evidence_message)
-        if user is not None and user.id != message_target.id:
-            await respond_with_error(interaction, "The selected user is not the author of that message.", scope=SCOPE_MODERATION)
-            return
-        if userid:
-            requested_target = await _resolve_user_id_input(interaction, userid)
+        if user is not None or userid is not None:
+            requested_target = await _resolve_user_options(interaction, user, userid)
             if requested_target is None:
                 return
             if requested_target.id != message_target.id:
-                await respond_with_error(interaction, "The supplied user ID is not the author of that message.", scope=SCOPE_MODERATION)
+                await respond_with_error(interaction, "The supplied user is not the author of that message.", scope=SCOPE_MODERATION)
                 return
         await show_punish_menu(interaction, message_target, evidence_message=evidence_message)
         return
 
-    if user is None and userid:
-        target = await _resolve_user_id_input(interaction, userid)
+    target = await _resolve_user_options(interaction, user, userid)
+    if user is not None or userid is not None:
         if target is None:
             return
         await show_punish_menu(interaction, target)
         return
 
-    if user is None:
-        await send_target_picker(
-            interaction,
-            action="punish",
-            title="Choose a Target",
-            description="> Select a member to open the punishment panel.",
-        )
-        return
-    # The inline `user:` option can resolve to a bare discord.User (no guild
-    # member data) for some accounts, which later blocks muting/kicking even
-    # though the target is in the server. Upgrade to a full guild Member up
-    # front so this path matches the in-app member picker.
-    if not isinstance(user, discord.Member) and interaction.guild is not None:
-        member = await resolve_member(interaction.guild, user.id)
-        if member is not None:
-            user = member
-    await show_punish_menu(interaction, user)
+    await send_target_picker(
+        interaction,
+        action="punish",
+        title="Choose a Target",
+        description="> Select a member to open the punishment panel.",
+    )
 
 
 @tree.command(name="publicexecution", description="Put a member up for a community-vote punishment.")
-@app_commands.describe(user="The member to put up for the vote.")
+@app_commands.describe(
+    user="The member to put up for the vote.",
+    userid="A user ID or mention if the member isn't selectable in the picker.",
+)
 @app_commands.check(_staff_check)
-async def publicexecution(interaction: discord.Interaction, user: Optional[discord.User] = None):
+async def publicexecution(
+    interaction: discord.Interaction,
+    user: Optional[discord.User] = None,
+    userid: Optional[str] = None,
+):
     # Same target-selection flow as /punish, but the chosen punishment is held
     # until enough ✅ reactions land on a public embed (see PunishDetailsModal
     # / CustomPunishDetailsModal, counted in cogs/events.py:on_raw_reaction_add).
     # The vote threshold is adjusted on the panel itself (ExecutionVotesSelect).
-    if user is None:
+    target = await _resolve_user_options(interaction, user, userid)
+    if user is not None or userid is not None:
+        if target is None:
+            return
+        await show_punish_menu(interaction, target, reaction_count=5)
+        return
+
+    if target is None:
         await send_target_picker(
             interaction,
             action="punish",
@@ -1241,18 +1286,20 @@ async def publicexecution(interaction: discord.Interaction, user: Optional[disco
         )
         return
 
-    if not isinstance(user, discord.Member) and interaction.guild is not None:
-        member = await resolve_member(interaction.guild, user.id)
-        if member is not None:
-            user = member
-    await show_punish_menu(interaction, user, reaction_count=5)
-
 
 @tree.command(name="history", description="View a member's moderation history.")
-@app_commands.describe(user="The member whose history to view.")
+@app_commands.describe(
+    user="The member whose history to view.",
+    userid="A user ID or mention if the member isn't selectable in the picker.",
+)
 @app_commands.check(_staff_check)
-async def history(interaction: discord.Interaction, user: Optional[discord.Member] = None):
-    if user is None:
+async def history(
+    interaction: discord.Interaction,
+    user: Optional[discord.Member] = None,
+    userid: Optional[str] = None,
+):
+    target = await _resolve_user_options(interaction, user, userid, member_only=True)
+    if user is None and userid is None:
         await send_target_picker(
             interaction,
             action="history",
@@ -1260,7 +1307,8 @@ async def history(interaction: discord.Interaction, user: Optional[discord.Membe
             description="> Select a member to view their moderation history.",
         )
         return
-    await show_history_menu(interaction, user)
+    if target is not None:
+        await show_history_menu(interaction, target)
 
 
 @tree.command(name="cases", description="Browse every moderation case on the server in case order.")
@@ -1287,10 +1335,17 @@ async def cases(interaction: discord.Interaction):
 @app_commands.describe(
     user="The member whose action to reverse.",
     reason="Reason to prefill in the undo panel.",
+    userid="A user ID or mention if the member isn't selectable in the picker.",
 )
 @app_commands.check(_staff_check)
-async def undo(interaction: discord.Interaction, user: Optional[discord.Member] = None, reason: Optional[str] = None):
-    if user is None:
+async def undo(
+    interaction: discord.Interaction,
+    user: Optional[discord.Member] = None,
+    reason: Optional[str] = None,
+    userid: Optional[str] = None,
+):
+    target = await _resolve_user_options(interaction, user, userid, member_only=True)
+    if user is None and userid is None:
         await send_target_picker(
             interaction,
             action="undo",
@@ -1299,7 +1354,8 @@ async def undo(interaction: discord.Interaction, user: Optional[discord.Member] 
             initial_undo_reason=reason,
         )
         return
-    await show_history_menu(interaction, user, mode="undo", initial_undo_reason=reason)
+    if target is not None:
+        await show_history_menu(interaction, target, mode="undo", initial_undo_reason=reason)
 
 
 # Filtered purges scan at most this many recent messages. Old messages need
@@ -1547,10 +1603,17 @@ async def mod_help(interaction: discord.Interaction):
 @app_commands.describe(
     caseid="The case ID to open.",
     user="The member whose latest case to open.",
+    userid="A user ID or mention if the member isn't selectable in the picker.",
 )
 @app_commands.check(_staff_check)
-async def case(interaction: discord.Interaction, caseid: Optional[app_commands.Range[int, 1, 999999]] = None, user: Optional[discord.Member] = None):
-    if caseid is None and user is None:
+async def case(
+    interaction: discord.Interaction,
+    caseid: Optional[app_commands.Range[int, 1, 999999]] = None,
+    user: Optional[discord.Member] = None,
+    userid: Optional[str] = None,
+):
+    target = await _resolve_user_options(interaction, user, userid, member_only=True)
+    if caseid is None and user is None and userid is None:
         await send_target_picker(
             interaction,
             action="case",
@@ -1558,7 +1621,9 @@ async def case(interaction: discord.Interaction, caseid: Optional[app_commands.R
             description="> Select a member to open their latest case, or open a specific case by ID.",
         )
         return
-    await show_case_panel(interaction, case_id=caseid, user=user)
+    if (user is not None or userid is not None) and target is None:
+        return
+    await show_case_panel(interaction, case_id=caseid, user=target)
 
 
 @tree.context_menu(name="Punish")

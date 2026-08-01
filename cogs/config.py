@@ -30,6 +30,8 @@ from .shared import (
     build_offense_ladder_embed,
     build_setup_validation_embed,
     check_admin,
+    extract_snowflake_id,
+    resolve_channel_input,
     send_modmail_panel_message,
 )
 
@@ -481,11 +483,37 @@ async def config_cmd(interaction: discord.Interaction):
 
 
 @tree.command(name="modmail-panel", description="Post the public modmail support panel.")
-@app_commands.describe(channel="Channel to post in. Defaults to the configured panel channel or the current channel.")
+@app_commands.describe(
+    channel="Channel to post in. Defaults to the configured panel channel or the current channel.",
+    channelid="A text channel ID or mention if the channel isn't selectable in the picker.",
+)
 @app_commands.default_permissions(administrator=True)
 @app_commands.guild_only()
 @app_commands.check(check_admin)
-async def modmail_panel_cmd(interaction: discord.Interaction, channel: Optional[discord.TextChannel] = None):
+async def modmail_panel_cmd(
+    interaction: discord.Interaction,
+    channel: Optional[discord.TextChannel] = None,
+    channelid: Optional[str] = None,
+):
+    if channelid is not None:
+        if extract_snowflake_id(channelid) is None:
+            await respond_with_error(interaction, "That isn't a valid channel ID or mention.", scope=SCOPE_SYSTEM)
+            return
+        resolved_channel = await resolve_channel_input(interaction.guild, channelid)
+        if resolved_channel is None:
+            await respond_with_error(interaction, "No channel in this server was found with that ID.", scope=SCOPE_SYSTEM)
+            return
+        if not isinstance(resolved_channel, discord.TextChannel):
+            await respond_with_error(interaction, "The modmail panel must be posted in a text channel.", scope=SCOPE_SYSTEM)
+            return
+        if channel is not None and channel.id != resolved_channel.id:
+            await respond_with_error(
+                interaction,
+                "The selected channel and supplied channel ID must refer to the same channel.",
+                scope=SCOPE_SYSTEM,
+            )
+            return
+        channel = resolved_channel
     await send_configured_modmail_panel(interaction, channel)
 
 
