@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import platform
 import time
-from typing import Optional
+from typing import Optional, Union
 import discord
 from discord import app_commands
 from discord.ext import commands
@@ -21,7 +21,7 @@ from core.constants import (
 )
 from core.context import bot, tree
 from core.utils import format_duration, now_iso
-from .shared import extract_snowflake_id, make_embed, resolve_member_input
+from .shared import extract_snowflake_id, make_embed, resolve_user_input
 
 
 # ---------------------------------------------------------------------------
@@ -38,28 +38,28 @@ def _is_test_admin(interaction: discord.Interaction) -> bool:
     return bool(role_ids & {admin_id, owner_id}) or interaction.user.guild_permissions.administrator
 
 
-async def _resolve_test_member(
+async def _resolve_test_user(
     interaction: discord.Interaction,
     member: Optional[discord.Member],
     userid: Optional[str],
-) -> Optional[discord.Member]:
+) -> Optional[Union[discord.Member, discord.User]]:
     if userid is None:
         return member
     if extract_snowflake_id(userid) is None:
         await interaction.response.send_message("That isn't a valid user ID or mention.", ephemeral=True)
         return None
 
-    resolved_member = await resolve_member_input(interaction.guild, userid)
-    if resolved_member is None:
-        await interaction.response.send_message("No member of this server was found with that ID.", ephemeral=True)
+    resolved_user = await resolve_user_input(interaction.guild, userid)
+    if resolved_user is None:
+        await interaction.response.send_message("No Discord user was found with that ID.", ephemeral=True)
         return None
-    if member is not None and member.id != resolved_member.id:
+    if member is not None and member.id != resolved_user.id:
         await interaction.response.send_message(
             "The selected member and supplied user ID must refer to the same person.",
             ephemeral=True,
         )
         return None
-    return resolved_member
+    return resolved_user
 
 
 # ---------------------------------------------------------------------------
@@ -166,7 +166,7 @@ async def test_simulate_punishment(
         await interaction.response.send_message("No permission.", ephemeral=True)
         return
 
-    member = await _resolve_test_member(interaction, member, userid)
+    member = await _resolve_test_user(interaction, member, userid)
     if member is None:
         if userid is None:
             await interaction.response.send_message("Choose a member or supply a user ID.", ephemeral=True)
@@ -252,7 +252,7 @@ async def test_user_history(
         await interaction.response.send_message("No permission.", ephemeral=True)
         return
 
-    member = await _resolve_test_member(interaction, member, userid)
+    member = await _resolve_test_user(interaction, member, userid)
     if member is None:
         if userid is None:
             await interaction.response.send_message("Choose a member or supply a user ID.", ephemeral=True)

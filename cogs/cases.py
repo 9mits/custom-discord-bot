@@ -473,13 +473,17 @@ def get_active_records_for_user(user_id: int) -> List[dict]:
     return active
 
 
-def build_history_overview_embed(user: discord.Member, history: List[dict]) -> discord.Embed:
+def build_history_overview_embed(
+    user: Union[discord.Member, discord.User],
+    history: List[dict],
+    guild: Optional[discord.Guild],
+) -> discord.Embed:
     embed = make_embed(
         f"History: {user.display_name}",
         "> Select a case to open its control panel, or use the buttons to undo a case or wipe the full record.",
         kind="info",
         scope=SCOPE_MODERATION,
-        guild=user.guild,
+        guild=guild,
         thumbnail=user.display_avatar.url,
     )
 
@@ -489,6 +493,11 @@ def build_history_overview_embed(user: discord.Member, history: List[dict]) -> d
     risk_score, risk_label = calculate_member_risk(history)
 
     embed.add_field(name="User", value=format_user_ref(user), inline=False)
+    embed.add_field(
+        name="Server Status",
+        value="Current member" if isinstance(user, discord.Member) else "Not currently in this server",
+        inline=False,
+    )
     embed.add_field(name="Total Cases", value=str(len(history)), inline=True)
     embed.add_field(name="Active", value=str(active_count), inline=True)
     embed.add_field(name="Risk", value=f"{risk_label} ({risk_score})", inline=True)
@@ -498,22 +507,33 @@ def build_history_overview_embed(user: discord.Member, history: List[dict]) -> d
     return embed
 
 
-def build_no_history_embed(user: Union[discord.Member, discord.User], guild: discord.Guild) -> discord.Embed:
-    return make_embed(
+def build_no_history_embed(
+    user: Union[discord.Member, discord.User],
+    guild: Optional[discord.Guild],
+) -> discord.Embed:
+    embed = make_embed(
         "No Punishment History",
-        f"> **{user.display_name}** has a clean record.",
+        f"> **{user.display_name}** has no recorded punishment history.",
         kind="success",
         scope=SCOPE_MODERATION,
         guild=guild,
         thumbnail=user.display_avatar.url,
     )
+    embed.add_field(name="User", value=format_user_ref(user), inline=False)
+    embed.add_field(
+        name="Server Status",
+        value="Current member" if isinstance(user, discord.Member) else "Not currently in this server",
+        inline=False,
+    )
+    return embed
 
 
 def build_undo_panel_embed(
-    user: discord.Member,
+    user: Union[discord.Member, discord.User],
     history: List[dict],
     record: Optional[dict],
     *,
+    guild: Optional[discord.Guild],
     reason_mode: str,
     undo_reason: str,
 ) -> discord.Embed:
@@ -522,10 +542,15 @@ def build_undo_panel_embed(
         "> Select a case, choose an undo reason, then confirm the reversal.",
         kind="warning",
         scope=SCOPE_MODERATION,
-        guild=user.guild,
+        guild=guild,
         thumbnail=user.display_avatar.url,
     )
     embed.add_field(name="User", value=format_user_ref(user), inline=False)
+    embed.add_field(
+        name="Server Status",
+        value="Current member" if isinstance(user, discord.Member) else "Not currently in this server",
+        inline=False,
+    )
     embed.add_field(name="Total Cases", value=str(len(history)), inline=True)
     embed.add_field(name="Active Cases", value=str(len(get_active_records_for_user(user.id))), inline=True)
     embed.add_field(name="Reason Mode", value=reason_mode, inline=True)
@@ -610,7 +635,7 @@ def build_history_cleared_log_embed(
 
 
 def build_case_detail_embed(
-    guild: discord.Guild,
+    guild: Optional[discord.Guild],
     target_user_id: str,
     record: dict,
     *,
@@ -629,6 +654,12 @@ def build_case_detail_embed(
         thumbnail=target_user.display_avatar.url if target_user else None,
     )
     embed.add_field(name="Target", value=target_line, inline=True)
+    if target_user is not None:
+        embed.add_field(
+            name="Server Status",
+            value="Current member" if isinstance(target_user, discord.Member) else "Not currently in this server",
+            inline=True,
+        )
     embed.add_field(name="Punishment", value=describe_punishment_record(record), inline=True)
     embed.add_field(name="Reason", value=format_reason_value(record.get("reason", "Unknown"), limit=1024), inline=False)
     if issued_at:

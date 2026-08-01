@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
 from cogs import analytics, config, event_leaderboard, export, moderation, testkit
+from cogs.history import HistoryView
 from cogs.shared import resolve_channel_input, resolve_member_input, resolve_user_input
 
 
@@ -46,6 +47,43 @@ class IdInputResolverTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIs(result, user)
         bot_mock.fetch_user.assert_awaited_once_with(USER_ID)
+
+    async def test_user_id_falls_back_to_global_user_when_member_left(self):
+        user = object()
+        guild = object()
+        with patch("cogs.shared.resolve_member", new=AsyncMock(return_value=None)) as member_lookup, \
+                patch("cogs.shared.bot") as bot_mock:
+            bot_mock.get_user.return_value = None
+            bot_mock.fetch_user = AsyncMock(return_value=user)
+
+            result = await resolve_user_input(guild, str(USER_ID))
+
+        self.assertIs(result, user)
+        member_lookup.assert_awaited_once_with(guild, USER_ID)
+        bot_mock.fetch_user.assert_awaited_once_with(USER_ID)
+
+    async def test_moderation_options_keep_global_user_when_member_left(self):
+        user = SimpleNamespace(id=USER_ID)
+        interaction = SimpleNamespace(guild=object())
+        with patch.object(moderation, "_resolve_user_id_input", new=AsyncMock(return_value=user)), \
+                patch.object(moderation, "resolve_member", new=AsyncMock(return_value=None)):
+            result = await moderation._resolve_user_options(interaction, None, str(USER_ID))
+
+        self.assertIs(result, user)
+
+    async def test_history_view_labels_user_who_left_server(self):
+        user = SimpleNamespace(
+            id=USER_ID,
+            mention=f"<@{USER_ID}>",
+            display_name="Former Member",
+            display_avatar=SimpleNamespace(url="https://example.com/avatar.png"),
+        )
+        with patch.object(HistoryView, "reload_history"):
+            view = HistoryView(user, guild=None)
+
+        fields = {field.name: field.value for field in view.build_embed().fields}
+        self.assertIn(str(USER_ID), fields["User"])
+        self.assertEqual(fields["Server Status"], "Not currently in this server")
 
     async def test_channel_mention_prefers_guild_cache(self):
         channel = object()
@@ -118,6 +156,20 @@ class CommandIdOptionTests(unittest.TestCase):
         for command in commands:
             with self.subTest(command=command.name):
                 self.assert_has_option(command, "channelid")
+
+    def test_former_user_analytics_embed_keeps_account_info(self):
+        user = SimpleNamespace(
+            id=USER_ID,
+            mention=f"<@{USER_ID}>",
+            display_name="Former Staff",
+            display_avatar=SimpleNamespace(url="https://example.com/avatar.png"),
+        )
+
+        embed = analytics.get_staff_stats_embed(user, [], 0, guild=None)
+
+        fields = {field.name: field.value for field in embed.fields}
+        self.assertIn(str(USER_ID), fields["User"])
+        self.assertEqual(fields["Server Status"], "Not currently in this server")
 
 
 if __name__ == "__main__":
