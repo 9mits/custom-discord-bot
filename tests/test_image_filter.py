@@ -10,6 +10,7 @@ import discord
 
 import cogs.automod as automod_module
 import cogs.events as events_module
+from core.heavy_jobs import RecentMessageIndex
 from cogs.automod import (
     IMAGE_FILTER_MAX_BYTES,
     IMAGE_FILTER_DATASET_FORMAT,
@@ -19,6 +20,7 @@ from cogs.automod import (
     IMAGE_FILTER_MAX_FALSE_POSITIVES,
     IMAGE_FILTER_MAX_PIXELS,
     IMAGE_MESSAGE_CLEANUP_HOURS,
+    IMAGE_MESSAGE_CLEANUP_HISTORY_LIMIT,
     IMAGE_HASH_DISTANCE_THRESHOLD,
     IMAGE_OCR_MIN_LINE_CONFIDENCE,
     IMAGE_SCAM_CONFIDENCE_THRESHOLD,
@@ -480,6 +482,42 @@ class ImageFingerprintTests(unittest.TestCase):
 
 
 class ImageMessageCleanupTests(unittest.IsolatedAsyncioTestCase):
+    async def test_complete_recent_index_avoids_fallback_history_scan(self):
+        reference = datetime(2026, 7, 15, 12, 30, tzinfo=timezone.utc)
+        timestamp = int(reference.timestamp())
+        indexed_message = SimpleNamespace(delete=AsyncMock())
+        channel = SimpleNamespace(
+            get_partial_message=Mock(return_value=indexed_message),
+            history=Mock(),
+        )
+        guild = SimpleNamespace(
+            id=1,
+            me=SimpleNamespace(id=777),
+            get_channel_or_thread=Mock(return_value=channel),
+            text_channels=[],
+            threads=[],
+            forums=[],
+        )
+        index = RecentMessageIndex(started_at=timestamp - (25 * 60 * 60))
+        index.record(
+            guild_id=1,
+            user_id=42,
+            channel_id=100,
+            message_id=200,
+            timestamp=timestamp - 60,
+        )
+
+        deleted = await delete_flagged_user_messages_for_24_hours(
+            guild,
+            42,
+            reference=reference,
+            recent_index=index,
+        )
+
+        self.assertEqual(deleted, 1)
+        indexed_message.delete.assert_awaited_once()
+        channel.history.assert_not_called()
+
     async def test_cleanup_scans_preceding_24_hours_and_bulk_deletes_target_messages(self):
         reference = datetime(2026, 7, 15, 12, 30, tzinfo=timezone.utc)
         requested_after = []
@@ -491,7 +529,7 @@ class ImageMessageCleanupTests(unittest.IsolatedAsyncioTestCase):
 
         async def history(*, limit, after, oldest_first):
             requested_after.append(after)
-            self.assertIsNone(limit)
+            self.assertEqual(limit, IMAGE_MESSAGE_CLEANUP_HISTORY_LIMIT)
             self.assertFalse(oldest_first)
             for candidate in [*target_messages, other_message]:
                 yield candidate
@@ -610,9 +648,8 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         with patch.object(automod_module, "bot", SimpleNamespace(data_manager=data_manager)), patch.object(
             automod_module,
-            "delete_flagged_user_messages_for_24_hours",
-            AsyncMock(return_value=0),
-        ), patch.object(
+            "enqueue_image_cleanup",
+        ) as cleanup, patch.object(
             automod_module,
             "send_image_filter_user_dm",
             AsyncMock(return_value=True),
@@ -623,6 +660,7 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.message_deleted)
         self.assertFalse(result.block_downstream)
         attachments[-1].read.assert_awaited_once()
+        cleanup.assert_called_once_with(message.guild, 42, exclude_message_id=98, case_id=None)
 
     async def test_moderators_are_immune_before_image_inspection(self):
         member = self._member()
@@ -649,14 +687,13 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
             AsyncMock(),
         ) as inspect_attachment, patch.object(
             automod_module,
-            "delete_flagged_user_messages_for_24_hours",
-            AsyncMock(),
+            "enqueue_image_cleanup",
         ) as cleanup:
             result = await run_image_filter(message)
 
         self.assertFalse(result.matched)
         inspect_attachment.assert_not_awaited()
-        cleanup.assert_not_awaited()
+        cleanup.assert_not_called()
 
     async def test_trusted_detection_dms_user_when_auto_punish_is_off(self):
         fingerprint = fingerprint_image_bytes(_png_bytes((30, 60, 90)))
@@ -697,8 +734,7 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
             AsyncMock(return_value="https://discord.com/channels/1"),
         ), patch.object(
             automod_module,
-            "delete_flagged_user_messages_for_24_hours",
-            AsyncMock(return_value=4),
+            "enqueue_image_cleanup",
         ) as cleanup, patch.object(
             automod_module,
             "send_image_filter_user_dm",
@@ -708,9 +744,9 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(result.matched)
         self.assertTrue(result.message_deleted)
-        self.assertEqual(result.cleanup_deleted, 4)
+        self.assertEqual(result.cleanup_deleted, 0)
         message.delete.assert_awaited_once()
-        cleanup.assert_awaited_once_with(message.guild, 42, exclude_message_id=102)
+        cleanup.assert_called_once_with(message.guild, 42, exclude_message_id=102, case_id=None)
         send_dm.assert_awaited_once()
         self.assertEqual(send_dm.await_args.kwargs["action_label"], "Image Removed")
         self.assertEqual(send_dm.await_args.kwargs["entry_label"], "blocked image")
@@ -749,8 +785,7 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
             AsyncMock(return_value=inspection),
         ), patch.object(automod_module, "send_image_filter_user_dm", AsyncMock()) as send_dm, patch.object(
             automod_module,
-            "delete_flagged_user_messages_for_24_hours",
-            AsyncMock(),
+            "enqueue_image_cleanup",
         ) as cleanup, patch.object(
             automod_module,
             "apply_image_filter_punishment",
@@ -761,7 +796,7 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.matched)
         message.delete.assert_not_awaited()
         send_dm.assert_not_awaited()
-        cleanup.assert_not_awaited()
+        cleanup.assert_not_called()
         punish.assert_not_awaited()
         send_log.assert_not_awaited()
 
@@ -790,6 +825,7 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 }],
             },
         })
+        operation_order = []
         message = SimpleNamespace(
             id=101,
             jump_url="https://discord.com/channels/1/123/101",
@@ -797,7 +833,7 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
             author=self._member(),
             channel=SimpleNamespace(id=123, mention="<#123>"),
             attachments=[attachment],
-            delete=AsyncMock(),
+            delete=AsyncMock(side_effect=lambda: operation_order.append("delete")),
         )
         inspection = ImageInspection(
             content_match=ScamContentMatch(
@@ -823,8 +859,8 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
             AsyncMock(return_value=inspection),
         ) as inspect_attachment, patch.object(
             automod_module,
-            "delete_flagged_user_messages_for_24_hours",
-            AsyncMock(return_value=6),
+            "enqueue_image_cleanup",
+            side_effect=lambda *args, **kwargs: operation_order.append("enqueue"),
         ) as cleanup, patch.object(
             automod_module,
             "make_action_log_embed",
@@ -832,11 +868,12 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         ), patch.object(
             automod_module,
             "send_automod_log",
-            AsyncMock(),
+            AsyncMock(side_effect=lambda *args, **kwargs: operation_order.append("log")),
         ) as send_log, patch.object(
             automod_module,
             "apply_image_filter_punishment",
-            AsyncMock(return_value=(
+            AsyncMock(side_effect=lambda *args, **kwargs: (
+                operation_order.append("punish") or (
                 True,
                 "Applied Kick automatically",
                 {
@@ -850,6 +887,7 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
                     ),
                 },
                 True,
+                )
             )),
         ) as punish:
             result = await run_image_filter(message)
@@ -857,13 +895,14 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.matched)
         self.assertTrue(result.message_deleted)
         self.assertTrue(result.block_downstream)
-        self.assertEqual(result.cleanup_deleted, 6)
+        self.assertEqual(operation_order, ["delete", "punish", "log", "enqueue"])
+        self.assertEqual(result.cleanup_deleted, 0)
         inspect_attachment.assert_awaited_once_with(attachment, analyze_content=True)
-        cleanup.assert_awaited_once_with(message.guild, 42, exclude_message_id=101)
+        cleanup.assert_called_once_with(message.guild, 42, exclude_message_id=101, case_id=55)
         message.delete.assert_awaited_once()
         punish.assert_awaited_once()
         self.assertEqual(punish.await_args.kwargs["entry_label"], "MrBeast crypto scam")
-        self.assertEqual(punish.await_args.kwargs["cleanup_deleted"], 6)
+        self.assertEqual(punish.await_args.kwargs["cleanup_deleted"], 0)
         logged_embed = send_log.await_args.args[1]
         fields = {field.name: field.value for field in logged_embed.fields}
         self.assertEqual(logged_embed.title, "[Case #55] Scam Image Detected")
@@ -875,7 +914,7 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("Matched Reference", fields)
         self.assertNotIn("Submitted Image", fields)
         self.assertEqual(fields["DM"], "Delivered")
-        self.assertEqual(fields["24-Hour Cleanup"], "6 earlier messages removed")
+        self.assertEqual(fields["24-Hour Cleanup"], "Queued in the background")
         self.assertEqual(logged_embed.thumbnail.url, "https://example.invalid/avatar.png")
         self.assertEqual(logged_embed.image.url, "attachment://flagged-image-101.png")
         self.assertEqual(
@@ -933,8 +972,7 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
             side_effect=_action_log_embed,
         ), patch.object(
             automod_module,
-            "delete_flagged_user_messages_for_24_hours",
-            AsyncMock(),
+            "enqueue_image_cleanup",
         ) as cleanup, patch.object(
             automod_module,
             "send_automod_log",
@@ -950,7 +988,7 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result.message_deleted)
         self.assertFalse(result.block_downstream)
         message.delete.assert_not_awaited()
-        cleanup.assert_not_awaited()
+        cleanup.assert_not_called()
         punish.assert_not_awaited()
         send_log.assert_awaited_once()
         logged_embed = send_log.await_args.args[1]
@@ -1457,8 +1495,7 @@ class ImageFilterUiTests(unittest.IsolatedAsyncioTestCase):
             apply_punishment,
         ), patch.object(
             automod_module,
-            "delete_flagged_user_messages_for_24_hours",
-            AsyncMock(return_value=5),
+            "enqueue_image_cleanup",
         ) as cleanup, patch.object(
             automod_module.discord.ui.View,
             "from_message",
@@ -1484,7 +1521,7 @@ class ImageFilterUiTests(unittest.IsolatedAsyncioTestCase):
             punishment_type="ban",
             duration_minutes=60,
         )
-        cleanup.assert_awaited_once_with(guild, 42, exclude_message_id=654)
+        cleanup.assert_called_once_with(guild, 42, exclude_message_id=654, case_id=55)
         source_channel.fetch_message.assert_awaited_once_with(654)
         source_message.delete.assert_awaited_once()
         data_manager.save_punishments.assert_awaited_once()
@@ -1500,7 +1537,7 @@ class ImageFilterUiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(edited_embed.image.url, "attachment://flagged-image-654.png")
         self.assertNotIn("Review", edited_fields)
         self.assertEqual(edited_fields["Result"], "Applied Ban automatically")
-        self.assertEqual(edited_fields["24-Hour Cleanup"], "5 earlier messages removed")
+        self.assertEqual(edited_fields["24-Hour Cleanup"], "Queued in the background")
         self.assertEqual(edited_fields["Source Message"], "Deleted")
         self.assertEqual(case_record["image_review_source_message_id"], 654)
         self.assertEqual(case_record["image_review_source_channel_id"], 321)

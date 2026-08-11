@@ -32,6 +32,13 @@ from core.services import (
     get_native_automod_settings,
 )
 from core.context import bot, tree
+from core.heavy_jobs import (
+    HeavyJob,
+    HeavyJobKind,
+    HeavyJobOverloaded,
+    HeavyJobPriority,
+    HeavyJobStopped,
+)
 from core.utils import now_iso
 from .shared import (
     logger,
@@ -730,6 +737,8 @@ IMAGE_OCR_MIN_LINE_CONFIDENCE = 0.45
 IMAGE_CONTENT_CACHE_LIMIT = 256
 IMAGE_MESSAGE_CLEANUP_CONCURRENCY = 4
 IMAGE_MESSAGE_CLEANUP_HOURS = 24
+IMAGE_MESSAGE_CLEANUP_HISTORY_LIMIT = 1000
+IMAGE_MESSAGE_CLEANUP_ARCHIVED_THREAD_LIMIT = 100
 IMAGE_FILTER_REASON = (
     "We believe your account may have been compromised and used to spread "
     "malicious scam images or links."
@@ -969,7 +978,12 @@ def merge_image_filter_dataset(settings: dict, data: bytes) -> Tuple[dict, dict]
     }
 
 
-async def _collect_image_cleanup_channels(guild: discord.Guild, after: datetime) -> List:
+async def _collect_image_cleanup_channels(
+    guild: discord.Guild,
+    after: datetime,
+    *,
+    job_queue=None,
+) -> List:
     channels = []
     seen = set()
 
@@ -997,11 +1011,25 @@ async def _collect_image_cleanup_channels(guild: discord.Guild, after: datetime)
             variants = ({}, {"private": True, "joined": True})
         for kwargs in variants:
             try:
-                async for thread in parent.archived_threads(limit=None, **kwargs):
-                    archived_at = getattr(thread, "archive_timestamp", None)
-                    if archived_at and archived_at < after:
-                        break
-                    add_channel(thread)
+                if job_queue is None:
+                    async for thread in parent.archived_threads(
+                        limit=IMAGE_MESSAGE_CLEANUP_ARCHIVED_THREAD_LIMIT,
+                        **kwargs,
+                    ):
+                        archived_at = getattr(thread, "archive_timestamp", None)
+                        if archived_at and archived_at < after:
+                            break
+                        add_channel(thread)
+                else:
+                    async with job_queue.scan_slot():
+                        async for thread in parent.archived_threads(
+                            limit=IMAGE_MESSAGE_CLEANUP_ARCHIVED_THREAD_LIMIT,
+                            **kwargs,
+                        ):
+                            archived_at = getattr(thread, "archive_timestamp", None)
+                            if archived_at and archived_at < after:
+                                break
+                            add_channel(thread)
             except (discord.Forbidden, discord.HTTPException, AttributeError):
                 continue
     return channels
@@ -1023,7 +1051,11 @@ async def _delete_recent_user_messages_in_channel(
 
     messages = []
     try:
-        async for candidate in channel.history(limit=None, after=after, oldest_first=False):
+        async for candidate in channel.history(
+            limit=IMAGE_MESSAGE_CLEANUP_HISTORY_LIMIT,
+            after=after,
+            oldest_first=False,
+        ):
             if candidate.author.id == user_id and candidate.id != exclude_message_id:
                 messages.append(candidate)
     except (discord.Forbidden, discord.HTTPException, AttributeError):
@@ -1051,29 +1083,157 @@ async def delete_flagged_user_messages_for_24_hours(
     *,
     reference: Optional[datetime] = None,
     exclude_message_id: Optional[int] = None,
+    job_queue=None,
+    recent_index=None,
 ) -> int:
     reference = reference or discord.utils.utcnow()
     if reference.tzinfo is None:
         reference = reference.replace(tzinfo=timezone.utc)
     after = reference.astimezone(timezone.utc) - timedelta(hours=IMAGE_MESSAGE_CLEANUP_HOURS)
-    channels = await _collect_image_cleanup_channels(guild, after)
     bot_member = getattr(guild, "me", None)
     if bot_member is None:
         return 0
-    semaphore = asyncio.Semaphore(IMAGE_MESSAGE_CLEANUP_CONCURRENCY)
+
+    deleted = 0
+    coverage_complete = False
+    if recent_index is not None:
+        references, coverage_complete = recent_index.get_user_references(
+            guild.id,
+            user_id,
+            since_timestamp=int(after.timestamp()),
+            now_timestamp=int(reference.timestamp()),
+        )
+
+        async def delete_reference(message_reference) -> int:
+            if message_reference.message_id == exclude_message_id:
+                return 0
+            get_channel_or_thread = getattr(guild, "get_channel_or_thread", None)
+            channel = (
+                get_channel_or_thread(message_reference.channel_id)
+                if callable(get_channel_or_thread)
+                else guild.get_channel(message_reference.channel_id)
+            )
+            if channel is None:
+                return 0
+            try:
+                get_partial_message = getattr(channel, "get_partial_message", None)
+                if callable(get_partial_message):
+                    candidate = get_partial_message(message_reference.message_id)
+                else:
+                    candidate = await channel.fetch_message(message_reference.message_id)
+                await candidate.delete(reason="24-hour cleanup after trusted image-filter detection")
+            except discord.NotFound:
+                recent_index.remove(message_reference.message_id)
+                return 0
+            except (discord.Forbidden, discord.HTTPException, AttributeError):
+                return 0
+            recent_index.remove(message_reference.message_id)
+            return 1
+
+        if job_queue is not None:
+            indexed_results = await job_queue.map_scans(references, delete_reference)
+        else:
+            indexed_results = await asyncio.gather(
+                *(delete_reference(item) for item in references),
+                return_exceptions=True,
+            )
+        deleted += sum(result for result in indexed_results if isinstance(result, int))
+
+    if coverage_complete:
+        return deleted
+
+    channels = await _collect_image_cleanup_channels(guild, after, job_queue=job_queue)
 
     async def guarded_cleanup(channel) -> int:
-        async with semaphore:
-            return await _delete_recent_user_messages_in_channel(
-                channel,
-                bot_member,
-                user_id,
-                after,
-                exclude_message_id,
-            )
+        return await _delete_recent_user_messages_in_channel(
+            channel,
+            bot_member,
+            user_id,
+            after,
+            exclude_message_id,
+        )
 
-    results = await asyncio.gather(*(guarded_cleanup(channel) for channel in channels), return_exceptions=True)
-    return sum(result for result in results if isinstance(result, int))
+    if job_queue is not None:
+        results = await job_queue.map_scans(channels, guarded_cleanup)
+    else:
+        semaphore = asyncio.Semaphore(IMAGE_MESSAGE_CLEANUP_CONCURRENCY)
+
+        async def local_guarded_cleanup(channel):
+            async with semaphore:
+                return await guarded_cleanup(channel)
+
+        results = await asyncio.gather(
+            *(local_guarded_cleanup(channel) for channel in channels),
+            return_exceptions=True,
+        )
+    return deleted + sum(result for result in results if isinstance(result, int))
+
+
+def enqueue_image_cleanup(
+    guild: discord.Guild,
+    user_id: int,
+    *,
+    exclude_message_id: Optional[int] = None,
+    case_id: Optional[int] = None,
+) -> Optional[str]:
+    guild_id = int(getattr(guild, "id", 0) or 0)
+    job_queue = getattr(bot, "heavy_jobs", None)
+    recent_index = getattr(bot, "recent_messages", None)
+    if job_queue is None:
+        logger.warning("Image cleanup queue is unavailable for guild %s user %s", guild_id, user_id)
+        return None
+
+    job = HeavyJob(
+        kind=HeavyJobKind.IMAGE_CLEANUP,
+        priority=HeavyJobPriority.SECURITY,
+        guild_id=guild_id,
+        deduplication_key=f"image-cleanup:{guild_id}:{int(user_id)}",
+        operation=lambda: delete_flagged_user_messages_for_24_hours(
+            guild,
+            user_id,
+            exclude_message_id=exclude_message_id,
+            job_queue=job_queue,
+            recent_index=recent_index,
+        ),
+    )
+    try:
+        future = job_queue.enqueue(job)
+    except (HeavyJobOverloaded, HeavyJobStopped) as exc:
+        logger.warning("Image cleanup was not admitted for guild %s user %s: %s", guild_id, user_id, exc)
+        return None
+    admitted_job = getattr(future, "_heavy_job", job)
+
+    async def finalize_cleanup() -> None:
+        try:
+            cleanup_deleted = await future
+        except asyncio.CancelledError:
+            return
+        except Exception as exc:
+            logger.warning("Image cleanup %s failed for user %s: %s", admitted_job.correlation_id, user_id, exc)
+            return
+        logger.info(
+            "Image cleanup %s removed %d message(s) for user %s",
+            admitted_job.correlation_id,
+            cleanup_deleted,
+            user_id,
+        )
+        if case_id:
+            _, case_record = bot.data_manager.get_case(case_id)
+            if case_record:
+                note_lines = [
+                    line
+                    for line in str(case_record.get("note") or "").splitlines()
+                    if not line.startswith("24-Hour Cleanup:")
+                ]
+                note_lines.append(f"24-Hour Cleanup: {cleanup_deleted} earlier message(s) removed")
+                case_record["note"] = truncate_text("\n".join(note_lines), 1000)
+                try:
+                    await bot.data_manager.save_punishments(case_ids=[case_id])
+                except Exception as exc:
+                    logger.warning("Could not persist cleanup result for case %s: %s", case_id, exc)
+
+    asyncio.create_task(finalize_cleanup(), name=f"image-cleanup-finalize-{admitted_job.correlation_id}")
+    return admitted_job.correlation_id
 
 
 def _difference_hash(image, *, vertical: bool = False) -> str:
@@ -2004,6 +2164,29 @@ class ImageReviewPunishButton(
                 return
 
             settings = get_image_filter_settings()
+            source_deleted = False
+            if settings["delete_message"]:
+                get_channel_or_thread = getattr(guild, "get_channel_or_thread", None)
+                source_channel = get_channel_or_thread(self.channel_id) if callable(get_channel_or_thread) else None
+                if source_channel is None:
+                    source_channel = guild.get_channel(self.channel_id)
+                fetch_message = getattr(source_channel, "fetch_message", None)
+                if callable(fetch_message):
+                    try:
+                        source_message = await fetch_message(self.message_id)
+                        await source_message.delete()
+                        source_deleted = True
+                        recent_messages = getattr(bot, "recent_messages", None)
+                        if recent_messages is not None:
+                            recent_messages.remove(self.message_id)
+                    except discord.NotFound:
+                        source_deleted = True
+                        recent_messages = getattr(bot, "recent_messages", None)
+                        if recent_messages is not None:
+                            recent_messages.remove(self.message_id)
+                    except Exception as exc:
+                        logger.warning("Image review could not delete source message %s: %s", self.message_id, exc)
+
             try:
                 applied, summary, case_record, dm_sent = await apply_image_filter_punishment(
                     guild,
@@ -2038,39 +2221,12 @@ class ImageReviewPunishButton(
                 )
                 return
 
-            cleanup_deleted = 0
-            try:
-                cleanup_deleted = await delete_flagged_user_messages_for_24_hours(
-                    guild,
-                    member.id,
-                    exclude_message_id=self.message_id,
-                )
-            except Exception as exc:
-                logger.warning("Image review could not complete cleanup for user %s: %s", member.id, exc)
-
-            source_deleted = False
-            if settings["delete_message"]:
-                get_channel_or_thread = getattr(guild, "get_channel_or_thread", None)
-                source_channel = get_channel_or_thread(self.channel_id) if callable(get_channel_or_thread) else None
-                if source_channel is None:
-                    source_channel = guild.get_channel(self.channel_id)
-                fetch_message = getattr(source_channel, "fetch_message", None)
-                if callable(fetch_message):
-                    try:
-                        source_message = await fetch_message(self.message_id)
-                        await source_message.delete()
-                        source_deleted = True
-                    except discord.NotFound:
-                        source_deleted = True
-                    except Exception as exc:
-                        logger.warning("Image review could not delete source message %s: %s", self.message_id, exc)
-
             note_lines = [
                 line
                 for line in str(case_record.get("note") or "").splitlines()
                 if not line.startswith("24-Hour Cleanup:")
             ]
-            note_lines.append(f"24-Hour Cleanup: {cleanup_deleted} earlier message(s) removed")
+            note_lines.append("24-Hour Cleanup: queued in background")
             case_record["note"] = truncate_text("\n".join(note_lines), 1000)
             case_record["image_review_source_message_id"] = self.message_id
             case_record["image_review_source_channel_id"] = self.channel_id
@@ -2092,13 +2248,12 @@ class ImageReviewPunishButton(
                     upsert_embed_field(embed, "Result", summary, inline=True)
                     upsert_embed_field(embed, "DM", "Delivered" if dm_sent else "Failed or closed", inline=True)
                     _remove_embed_fields(embed, "Review")
-                    if cleanup_deleted:
-                        upsert_embed_field(
-                            embed,
-                            "24-Hour Cleanup",
-                            f"{cleanup_deleted} earlier message{'s' if cleanup_deleted != 1 else ''} removed",
-                            inline=True,
-                        )
+                    upsert_embed_field(
+                        embed,
+                        "24-Hour Cleanup",
+                        "Queued in the background",
+                        inline=True,
+                    )
                     if settings["delete_message"]:
                         upsert_embed_field(
                             embed,
@@ -2123,6 +2278,12 @@ class ImageReviewPunishButton(
                 except Exception as exc:
                     logger.warning("Image review could not update log message %s: %s", log_message_id, exc)
 
+            enqueue_image_cleanup(
+                guild,
+                member.id,
+                exclude_message_id=self.message_id,
+                case_id=case_record["case_id"],
+            )
             await interaction.followup.send(
                 embed=make_confirmation_embed(
                     "Punishment Applied",
@@ -2600,19 +2761,13 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
         try:
             await message.delete()
             deleted = True
+            recent_messages = getattr(bot, "recent_messages", None)
+            if recent_messages is not None:
+                recent_messages.remove(message.id)
         except Exception as exc:
             logger.warning("Image filter could not delete matched message %s: %s", message.id, exc)
 
     cleanup_deleted = 0
-    if trusted_match:
-        try:
-            cleanup_deleted = await delete_flagged_user_messages_for_24_hours(
-                message.guild,
-                message.author.id,
-                exclude_message_id=message.id,
-            )
-        except Exception as exc:
-            logger.warning("Image filter could not complete the 24-hour cleanup for user %s: %s", message.author.id, exc)
 
     result = ImageFilterResult(
         matched=True,
@@ -2732,7 +2887,7 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
             if trusted_match:
                 embed.add_field(
                     name="24-Hour Cleanup",
-                    value=f"{cleanup_deleted} earlier message{'s' if cleanup_deleted != 1 else ''} removed",
+                    value="Queued in the background",
                     inline=True,
                 )
             jump_url = str(getattr(message, "jump_url", "") or "")
@@ -2761,6 +2916,13 @@ async def run_image_filter(message: discord.Message) -> ImageFilterResult:
             )
         except Exception as exc:
             logger.warning("Image filter could not send the detection log for message %s: %s", message.id, exc)
+    if trusted_match:
+        enqueue_image_cleanup(
+            message.guild,
+            message.author.id,
+            exclude_message_id=message.id,
+            case_id=int(case_record.get("case_id", 0) or 0) if case_record else None,
+        )
     return result
 
 

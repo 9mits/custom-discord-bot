@@ -952,6 +952,15 @@ async def on_message(message: discord.Message):
         await handle_native_automod_alert_message(message)
         return
     if message.author.bot: return
+    recent_messages = getattr(bot, "recent_messages", None)
+    if message.guild and recent_messages is not None:
+        recent_messages.record(
+            guild_id=message.guild.id,
+            user_id=message.author.id,
+            channel_id=message.channel.id,
+            message_id=message.id,
+            timestamp=int(message.created_at.timestamp()),
+        )
 
     image_filter_result = None
 
