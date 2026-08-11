@@ -29,7 +29,6 @@ from .shared import (
     build_status_view,
 )
 from core.responding import InteractionResponder
-from .case_panel import AccessView, RulesDashboardView
 
 class ArchiveConfirmView(discord.ui.View):
     def __init__(self, channel, target_cat, old_name, new_name, overwrites_save_data, final_overwrites):
@@ -265,10 +264,11 @@ class SafetyView(discord.ui.LayoutView):
         self.add_item(container)
 
 class AntiNukeResolveConfirm2(discord.ui.View):
-    def __init__(self, restore_data, origin_message):
+    def __init__(self, restore_data, origin_message, resolution_id=None):
         super().__init__(timeout=60)
         self.restore_data = restore_data
         self.origin_message = origin_message
+        self.resolution_id = resolution_id
 
     @discord.ui.button(label="YES, RESTORE PERMISSIONS/ROLES", style=discord.ButtonStyle.danger)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -337,37 +337,62 @@ class AntiNukeResolveConfirm2(discord.ui.View):
         embed.add_field(name="Actor", value=f"<@{actor_id}> (`{actor_id}`)", inline=True)
         embed.add_field(name="Resolution", value="Original permissions or roles restored", inline=True)
         await send_log(guild, embed)
+        if self.resolution_id:
+            pending = bot.data_manager.config.get("pending_antinuke_resolutions", {})
+            if isinstance(pending, dict) and pending.pop(self.resolution_id, None) is not None:
+                await bot.data_manager.save_config("pending_antinuke_resolutions")
 
 class AntiNukeResolveConfirm1(discord.ui.View):
-    def __init__(self, restore_data, origin_message):
+    def __init__(self, restore_data, origin_message, resolution_id=None):
         super().__init__(timeout=60)
         self.restore_data = restore_data
         self.origin_message = origin_message
+        self.resolution_id = resolution_id
 
     @discord.ui.button(label="Yes, I want to resolve", style=discord.ButtonStyle.danger)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await interaction.response.edit_message(
             content="**FINAL WARNING**\n> This will give back the dangerous permissions/roles to the user and restore the moderator's powers.\n> Are you absolutely sure?",
-            view=AntiNukeResolveConfirm2(self.restore_data, self.origin_message)
+            view=AntiNukeResolveConfirm2(self.restore_data, self.origin_message, self.resolution_id)
         )
 
-class AntiNukeResolveView(discord.ui.View):
-    def __init__(self, restore_data):
-        super().__init__(timeout=None)
-        self.restore_data = restore_data
+class AntiNukeResolveButton(
+    discord.ui.DynamicItem[discord.ui.Button],
+    template=r"antinuke:resolve:(?P<resolution_id>[A-Za-z0-9_-]{8,32})",
+):
+    def __init__(self, resolution_id: str, *, item=None):
+        self.resolution_id = resolution_id
+        super().__init__(item or discord.ui.Button(
+            label="Resolve",
+            style=discord.ButtonStyle.success,
+            custom_id=f"antinuke:resolve:{resolution_id}",
+        ))
 
-    @discord.ui.button(label="Resolve", style=discord.ButtonStyle.success)
-    async def resolve(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+    @classmethod
+    async def from_custom_id(cls, interaction, item, match):
+        return cls(match["resolution_id"], item=item)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
         owner_role = bot.data_manager.config.get("role_owner", DEFAULT_ROLE_OWNER)
-        if not any(r.id == owner_role for r in interaction.user.roles):
+        if not any(role.id == owner_role for role in interaction.user.roles):
             await interaction.response.send_message(embed=make_embed("Access Denied", "> Only the Owner can use this.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
             return
-        
+        pending = bot.data_manager.config.get("pending_antinuke_resolutions", {})
+        restore_data = pending.get(self.resolution_id) if isinstance(pending, dict) else None
+        if not isinstance(restore_data, dict):
+            await interaction.response.send_message(embed=make_embed("Resolution Unavailable", "> This anti-nuke action is no longer pending.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
+            return
         await interaction.response.send_message(
             "**Resolve Anti-Nuke Action?**\n> This will revert the bot's protection and allow the original action.",
-            view=AntiNukeResolveConfirm1(self.restore_data, interaction.message),
-            ephemeral=True
+            view=AntiNukeResolveConfirm1(restore_data, interaction.message, self.resolution_id),
+            ephemeral=True,
         )
+
+
+class AntiNukeResolveView(discord.ui.View):
+    def __init__(self, resolution_id: str):
+        super().__init__(timeout=None)
+        self.add_item(AntiNukeResolveButton(resolution_id))
 
 # ----------------- Modmail System -----------------
 
@@ -386,27 +411,8 @@ async def list_commands(interaction: discord.Interaction):
         await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this command.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         return
         
-    embed = make_embed(
-        "Command Registry",
-        "> Registered application commands, grouped by area.",
-        kind="info",
-        scope=SCOPE_SYSTEM,
-        guild=interaction.guild,
-    )
-    buckets = {}
-    for cmd in bot.tree.walk_commands():
-        if isinstance(cmd, app_commands.Group):
-            continue
-        area = (cmd.module or "other").rsplit(".", 1)[-1].replace("_", " ").title()
-        buckets.setdefault(area, []).append(f"`/{cmd.qualified_name}` — {cmd.description}")
-    for area in sorted(buckets):
-        value = "\n".join(buckets[area])
-        if len(value) > 1024:
-            value = value[:1000] + "\n…"
-        embed.add_field(name=area, value=value, inline=False)
-    if not buckets:
-        embed.description = "> No commands were found."
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    from .control_plane import send_help_catalog
+    await send_help_catalog(interaction)
 
 
 async def internals(interaction: discord.Interaction):
@@ -595,33 +601,23 @@ async def clone(interaction: discord.Interaction):
 @app_commands.default_permissions(administrator=True)
 @app_commands.check(check_admin)
 async def rules(interaction: discord.Interaction):
-    await interaction.response.send_message(view=RulesDashboardView(interaction.guild), ephemeral=True)
+    from .control_plane import send_settings_hub
+    await send_settings_hub(interaction, "moderation")
 
 @tree.command(name="security", description="Manage anti-nuke protections.")
 @app_commands.default_permissions(administrator=True)
 @app_commands.check(check_admin)
 async def safety_panel(interaction: discord.Interaction):
-    await interaction.response.send_message(view=SafetyView(interaction.guild), ephemeral=True)
+    from .control_plane import send_settings_hub
+    await send_settings_hub(interaction, "security")
 
 @tree.command(name="access", description="Manage moderation access roles.")
 @app_commands.default_permissions(administrator=True)
 @app_commands.check(check_owner)
 
 async def access(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
-    roles = bot.data_manager.config.get("mod_roles", [])
-    role_lines = "\n".join(f"- <@&{rid}>" for rid in roles) if roles else "None configured — members with the Admin or Mod role can moderate."
-    embed = make_embed(
-        "Moderator Access",
-        "> Roles listed here can use the bot's moderation commands and panels."
-        "\n> Picking a role below toggles it: new roles are added, listed roles are removed.",
-        kind="info",
-        scope=SCOPE_SYSTEM,
-        guild=interaction.guild,
-    )
-    embed.add_field(name="Current Access Roles", value=role_lines, inline=False)
-    view = AccessView()
-    await interaction.followup.send(embed=embed, view=view, ephemeral=True)
+    from .control_plane import send_settings_hub
+    await send_settings_hub(interaction, "security")
 
 @tree.command(name="lockdown", description="Hide server channels in an emergency.")
 @app_commands.default_permissions(administrator=True)
@@ -1146,13 +1142,15 @@ branding_group = app_commands.Group(name="branding", description="Manage bot pro
 @branding_group.command(name="global", description="Edit the bot's global profile.")
 @app_commands.check(check_owner)
 async def branding_global(interaction: discord.Interaction):
-    await interaction.response.send_message(embed=_build_global_branding_embed(), view=GlobalBrandingView(), ephemeral=True)
+    from .control_plane import send_settings_hub
+    await send_settings_hub(interaction, "branding")
 
 
 @branding_group.command(name="server", description="Edit this server's bot profile.")
 @app_commands.check(check_owner)
 async def branding_server(interaction: discord.Interaction):
-    await interaction.response.send_message(embed=_build_server_branding_embed(interaction.guild), view=ServerBrandingView(interaction.guild), ephemeral=True)
+    from .control_plane import send_settings_hub
+    await send_settings_hub(interaction, "branding")
 
 
 # ──────────────────────────────────────────────────────────────────

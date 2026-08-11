@@ -38,6 +38,7 @@ EXTENSIONS = (
     "cogs.config",
     "cogs.analytics",
     "cogs.admin",
+    "cogs.control_plane",
     "cogs.events",
     "cogs.event_leaderboard",
 )
@@ -58,7 +59,6 @@ DISABLED_APPLICATION_COMMANDS = frozenset({
     "undopunish",
     "unlockdown",
     "antinuke",
-    "help",
 })
 
 
@@ -141,6 +141,7 @@ class MGXBot(commands.Bot):
             logger.info("TEST_MODE active — testkit cog loaded")
 
         self._remove_disabled_application_commands()
+        self._validate_action_registry()
         await self._restore_persistent_views()
         self.heavy_jobs.start()
         self.metrics.start_event_loop_monitor()
@@ -153,10 +154,17 @@ class MGXBot(commands.Bot):
         self.project_stats_task.start()
 
     async def _restore_persistent_views(self) -> None:
-        from cogs.automod import ImageFalsePositiveButton, ImageReviewPunishButton
+        from cogs.automod import (
+            AutoModReportResponseSelect,
+            AutoModWarningReportButton,
+            ImageFalsePositiveButton,
+            ImageReviewPunishButton,
+        )
         from cogs.case_panel import OpenCaseButton
+        from cogs.admin import AntiNukeResolveButton
+        from cogs.event_leaderboard import EventHistorySelect
         from cogs.moderation import RevokeUndoButton
-        from cogs.modmail import ModmailControlView, ModmailPanelView
+        from cogs.modmail import ModmailActionButton, ModmailPanelView
         from cogs.roles import AppealButton, AppealDenyButton, AppealRevokeButton
 
         self.add_dynamic_items(
@@ -167,16 +175,13 @@ class MGXBot(commands.Bot):
             RevokeUndoButton,
             ImageFalsePositiveButton,
             ImageReviewPunishButton,
+            ModmailActionButton,
+            EventHistorySelect,
+            AutoModReportResponseSelect,
+            AutoModWarningReportButton,
+            AntiNukeResolveButton,
         )
         self.add_view(ModmailPanelView())
-        if not self.data_manager:
-            return
-
-        for uid, data in self.data_manager.modmail.items():
-            if data.get("status") == "open":
-                log_id = data.get("log_id")
-                if log_id:
-                    self.add_view(ModmailControlView(uid), message_id=log_id)
 
     def _remove_disabled_application_commands(self) -> None:
         for command_name in DISABLED_APPLICATION_COMMANDS:
@@ -186,6 +191,18 @@ class MGXBot(commands.Bot):
                 discord.AppCommandType.message,
             ):
                 self.tree.remove_command(command_name, type=command_type)
+
+    def _validate_action_registry(self) -> None:
+        from core.actions import validate_registered_actions
+
+        undocumented, unavailable = validate_registered_actions(self.tree.walk_commands())
+        if os.environ.get("TEST_MODE"):
+            undocumented = {name for name in undocumented if not name.startswith("test-")}
+        if undocumented or unavailable:
+            raise RuntimeError(
+                "Action registry mismatch: "
+                f"undocumented={sorted(undocumented)}, unavailable={sorted(unavailable)}"
+            )
 
     def _resolve_sync_targets(self) -> list:
         """Guild id(s) to register commands in, decided once the bot is ready.

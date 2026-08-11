@@ -52,6 +52,10 @@ async def log_modmail_action(guild, title, fields):
 
     embed = make_embed(title, "> A staff action was performed on a modmail ticket.", kind="support", scope=SCOPE_SUPPORT, guild=guild)
     for n, v in fields:
+        if str(n).casefold() == "moderator":
+            continue
+        if str(n).casefold() == "assigned" and str(v).startswith("<@"):
+            v = "Claimed"
         embed.add_field(name=n, value=v, inline=True)
     try: await channel.send(embed=embed)
     except Exception: pass
@@ -130,9 +134,10 @@ async def refresh_modmail_ticket_log(guild: discord.Guild, user_id: str):
 async def export_modmail_transcript(thread: discord.Thread, user_id: str) -> discord.File:
     messages = []
     async for message in thread.history(limit=None, oldest_first=True):
+        is_ticket_user = getattr(message.author, "id", None) == _parse_user_id(user_id)
         messages.append({
-            "author_name": message.author.display_name,
-            "author_avatar_url": message.author.display_avatar.url,
+            "author_name": message.author.display_name if is_ticket_user else "Staff Team",
+            "author_avatar_url": message.author.display_avatar.url if is_ticket_user else "",
             "created_at": message.created_at,
             "content": message.content,
             "attachments": [{"filename": attachment.filename, "url": attachment.url} for attachment in message.attachments],
@@ -330,12 +335,93 @@ class CannedReplyView(discord.ui.View):
         self.add_item(CannedReplySelect(panel))
 
 
+class ModmailActionButton(discord.ui.DynamicItem[discord.ui.Button], template=r"mm_(?P<action>close|open|claim|priority|tags|canned|export)(?::(?P<user_id>[0-9]+))?"):
+    _METHODS = {
+        "close": "close_ticket",
+        "open": "open_ticket",
+        "claim": "claim_ticket",
+        "priority": "priority",
+        "tags": "tags",
+        "canned": "canned_reply",
+        "export": "export_transcript",
+    }
+
+    def __init__(
+        self,
+        action: str,
+        user_id: Optional[str],
+        *,
+        label: str,
+        style: discord.ButtonStyle,
+        disabled: bool = False,
+        row: int = 0,
+        item: Optional[discord.ui.Button] = None,
+    ) -> None:
+        self.action = action
+        self.user_id = str(user_id) if user_id is not None else None
+        button = item or discord.ui.Button(
+            label=label,
+            style=style,
+            disabled=disabled,
+            row=row,
+            custom_id=f"mm_{action}:{self.user_id}",
+        )
+        super().__init__(button)
+
+    @classmethod
+    async def from_custom_id(cls, interaction, item, match):
+        return cls(
+            match["action"],
+            match["user_id"],
+            label=item.label or match["action"].title(),
+            style=item.style,
+            disabled=item.disabled,
+            row=item.row or 0,
+            item=item,
+        )
+
+    def _resolve_user_id(self, interaction: discord.Interaction) -> Optional[str]:
+        if self.user_id is not None:
+            return self.user_id
+        message_id = getattr(getattr(interaction, "message", None), "id", None)
+        for user_id, ticket in bot.data_manager.modmail.items():
+            if isinstance(ticket, dict) and ticket.get("log_id") == message_id:
+                return str(user_id)
+        return None
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        user_id = self._resolve_user_id(interaction)
+        if user_id is None:
+            await respond_with_error(interaction, "Ticket data could not be resolved for this control.", scope=SCOPE_SUPPORT)
+            return
+        panel = ModmailControlView(user_id)
+        panel.message = interaction.message
+        target = getattr(panel, self._METHODS[self.action])
+        await target.callback(interaction)
+
+
 class ModmailControlView(discord.ui.View):
     def __init__(self, user_id: str):
         super().__init__(timeout=None)
         self.user_id = user_id
         self.message: Optional[discord.Message] = None
-        self.sync_buttons(bot.data_manager.modmail.get(self.user_id, {}))
+        ticket = bot.data_manager.modmail.get(self.user_id, {})
+        self.sync_buttons(ticket)
+        for child in list(self.children):
+            self.remove_item(child)
+        status = ticket.get("status", "open")
+        assigned = ticket.get("assigned_moderator")
+        definitions = (
+            ("close", "Close Ticket", discord.ButtonStyle.danger, status == "closed", 0),
+            ("open", "Open Ticket", discord.ButtonStyle.success, status != "closed", 0),
+            ("claim", "Unclaim Ticket" if assigned else "Claim Ticket", discord.ButtonStyle.secondary if assigned else discord.ButtonStyle.success, False, 0),
+            ("priority", "Urgency", discord.ButtonStyle.primary, False, 1),
+            ("tags", "Tags", discord.ButtonStyle.primary, False, 1),
+            ("canned", "Quick Reply", discord.ButtonStyle.secondary, False, 1),
+            ("export", "Download Transcript", discord.ButtonStyle.secondary, False, 1),
+        )
+        for action, label, style, disabled, row in definitions:
+            self.add_item(ModmailActionButton(action, self.user_id, label=label, style=style, disabled=disabled, row=row))
 
     def sync_buttons(self, ticket: dict) -> None:
         status = ticket.get("status", "open")
@@ -344,6 +430,16 @@ class ModmailControlView(discord.ui.View):
         self.open_ticket.disabled = status != "closed"
         self.claim_ticket.label = "Unclaim Ticket" if assigned else "Claim Ticket"
         self.claim_ticket.style = discord.ButtonStyle.secondary if assigned else discord.ButtonStyle.success
+        for child in self.children:
+            if not isinstance(child, ModmailActionButton):
+                continue
+            if child.action == "close":
+                child.item.disabled = status == "closed"
+            elif child.action == "open":
+                child.item.disabled = status != "closed"
+            elif child.action == "claim":
+                child.item.label = "Unclaim Ticket" if assigned else "Claim Ticket"
+                child.item.style = discord.ButtonStyle.secondary if assigned else discord.ButtonStyle.success
 
     def _get_ticket(self) -> Optional[dict]:
         return bot.data_manager.modmail.get(self.user_id)

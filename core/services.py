@@ -71,7 +71,45 @@ PERMISSIONS_MATRIX = {
     "setup_panel": {"roles": ("role_admin", "role_owner", "role_community_manager"), "allow_admin": True},
     "config_panel": {"roles": ("role_admin", "role_owner", "role_community_manager"), "allow_admin": True},
     "owner_panel": {"roles": ("role_owner",), "allow_admin": False},
+    "cases.read": {"roles": ("role_mod", "role_admin", "role_owner", "role_community_manager"), "allow_admin": True, "include_mod_roles": True},
+    "punishments.issue": {"roles": ("role_mod", "role_admin", "role_owner", "role_community_manager"), "allow_admin": True, "include_mod_roles": True},
+    "punishments.undo": {"roles": ("role_mod", "role_admin", "role_owner", "role_community_manager"), "allow_admin": True, "include_mod_roles": True},
+    "messages.export": {"roles": ("role_mod", "role_admin", "role_owner", "role_community_manager"), "allow_admin": True, "include_mod_roles": True},
+    "messages.purge": {"roles": ("role_mod", "role_admin", "role_owner", "role_community_manager"), "allow_admin": True, "include_mod_roles": True},
+    "channels.lock": {"roles": ("role_mod", "role_admin", "role_owner", "role_community_manager"), "allow_admin": True, "include_mod_roles": True},
 }
+
+_RUNTIME_CONFIG_KEYS = {
+    "stats",
+    "case_counter",
+    "synced_command_fingerprint",
+    "native_automod_event_cache",
+    "pending_antinuke_resolutions",
+    "locked_channels",
+    "archived_channels",
+    "undone_cases",
+    "debug",
+}
+_SECRET_KEY_PARTS = ("token", "secret", "password", "credential", "webhook")
+_KNOWN_IMPORT_KEYS = {
+    "guild_id", "schema_version", "feature_flags", "mod_roles", "punishment_rules",
+    "min_boosts_for_role", "whitelist", "max_unread_pings_per_user",
+    "role_owner", "role_admin", "role_mod", "role_community_manager", "role_anchor",
+    "general_log_channel_id", "log_channel_id", "punishment_log_channel_id",
+    "appeal_channel_id", "automod_log_channel_id", "automod_report_channel_id",
+    "category_archive", "modmail_inbox_channel", "modmail_action_log_channel",
+    "modmail_panel_channel", "modmail_ping_roles", "modmail_discussion_threads",
+    "modmail_sla_minutes", "modmail_canned_replies", "native_automod",
+    "image_filters", "security", "immunity_list", "role_mention_spam_target",
+    "custom_branding", "global_branding", "server_branding", "theme_color",
+    "dm_modmail_panel_cooldown_minutes",
+    "cr_whitelist_users", "cr_whitelist_roles", "cr_blacklist_users",
+    "cr_blacklist_roles", "custom_role_settings", "role_cleanup",
+}
+
+
+class ConfigImportError(ValueError):
+    """Raised when an uploaded settings backup is unsafe or malformed."""
 
 
 def _unique_preserve_order(values: Iterable[Any]) -> List[Any]:
@@ -496,13 +534,63 @@ def find_case_record(punishments: Dict[str, Any], case_id: int) -> Tuple[Optiona
 
 
 def export_config_payload(config: Dict[str, Any]) -> Dict[str, Any]:
-    payload = copy.deepcopy(config)
-    payload.pop("bot_token", None)
-    payload.pop("escalation_matrix", None)
+    """Return persistent, portable settings without runtime state or secrets."""
+    payload = {}
+    for key, value in config.items():
+        normalized = str(key).casefold()
+        if any(part in normalized for part in _SECRET_KEY_PARTS):
+            continue
+        if key == "escalation_matrix" or key in _RUNTIME_CONFIG_KEYS:
+            continue
+        if normalized.startswith("synced_command_fingerprint_"):
+            continue
+        payload[key] = copy.deepcopy(value)
+    payload["schema_version"] = DEFAULT_SCHEMA_VERSION
     return payload
 
 
+def _compatible_import_type(expected: Any, value: Any) -> bool:
+    if expected is None:
+        return True
+    if isinstance(expected, bool):
+        return isinstance(value, bool)
+    if isinstance(expected, int):
+        return isinstance(value, int) and not isinstance(value, bool)
+    if isinstance(expected, float):
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return isinstance(value, type(expected))
+
+
+def validate_config_import_payload(current_config: Dict[str, Any], payload: Any) -> List[str]:
+    if not isinstance(payload, dict):
+        raise ConfigImportError("The attachment must contain one JSON object.")
+    if len(payload) > 250:
+        raise ConfigImportError("The backup contains too many settings keys.")
+
+    allowed = set(current_config) | _KNOWN_IMPORT_KEYS
+    errors = []
+    for raw_key, value in payload.items():
+        if not isinstance(raw_key, str) or not raw_key or len(raw_key) > 100:
+            errors.append("Every setting name must be a short string.")
+            continue
+        normalized = raw_key.casefold()
+        if any(part in normalized for part in _SECRET_KEY_PARTS):
+            errors.append(f"`{raw_key}` is secret-like and cannot be imported.")
+            continue
+        if raw_key == "escalation_matrix" or raw_key in _RUNTIME_CONFIG_KEYS or normalized.startswith("synced_command_fingerprint_"):
+            errors.append(f"`{raw_key}` is runtime-only and cannot be imported.")
+            continue
+        if raw_key not in allowed:
+            errors.append(f"`{raw_key}` is not a recognized setting.")
+            continue
+        if raw_key in current_config and not _compatible_import_type(current_config[raw_key], value):
+            errors.append(f"`{raw_key}` has the wrong value type.")
+    return errors
+
+
 def import_config_payload(current_config: Dict[str, Any], payload: Dict[str, Any]) -> Tuple[Dict[str, Any], List[str]]:
+    if not isinstance(payload, dict):
+        raise ConfigImportError("The import payload must be a JSON object.")
     merged = copy.deepcopy(current_config)
     warnings: List[str] = []
 
@@ -547,6 +635,10 @@ def has_capability(
         for role_key in rules.get("roles", ())
         if (role_id := _parse_int(config.get(role_key))) is not None
     }
+    if rules.get("include_mod_roles"):
+        for role_id in config.get("mod_roles", []):
+            if (normalized_role_id := _parse_int(role_id)) is not None:
+                allowed_roles.add(normalized_role_id)
     return any(role_id in allowed_roles for role_id in role_ids)
 
 
