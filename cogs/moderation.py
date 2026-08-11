@@ -37,6 +37,7 @@ from .shared import (
     send_punishment_log,
     respond_with_error,
     is_staff,
+    has_permission_capability,
     extract_snowflake_id,
     resolve_member,
     resolve_user_input,
@@ -1043,8 +1044,24 @@ async def show_history_menu(
     view.message = message
 
 
-def _staff_check(interaction: discord.Interaction) -> bool:
-    return is_staff(interaction)
+def _punishment_check(interaction: discord.Interaction) -> bool:
+    return has_permission_capability(interaction, "punishments.issue")
+
+
+def _case_read_check(interaction: discord.Interaction) -> bool:
+    return has_permission_capability(interaction, "cases.read")
+
+
+def _undo_check(interaction: discord.Interaction) -> bool:
+    return has_permission_capability(interaction, "punishments.undo")
+
+
+def _purge_check(interaction: discord.Interaction) -> bool:
+    return has_permission_capability(interaction, "messages.purge")
+
+
+def _channel_lock_check(interaction: discord.Interaction) -> bool:
+    return has_permission_capability(interaction, "channels.lock")
 
 
 async def _resolve_selected_member(interaction: discord.Interaction, selected_user: Union[discord.Member, discord.User]) -> Optional[discord.Member]:
@@ -1255,7 +1272,7 @@ async def send_target_picker(
     userid="A user ID or mention. Use this if the member isn't selectable in the user picker.",
     message_id="A message ID or link to punish its author and remove the message.",
 )
-@app_commands.check(_staff_check)
+@app_commands.check(_punishment_check)
 async def punish(
     interaction: discord.Interaction,
     user: Optional[discord.User] = None,
@@ -1300,7 +1317,7 @@ async def punish(
     user="The member to put up for the vote.",
     userid="A user ID or mention if the member isn't selectable in the picker.",
 )
-@app_commands.check(_staff_check)
+@app_commands.check(_punishment_check)
 async def publicexecution(
     interaction: discord.Interaction,
     user: Optional[discord.User] = None,
@@ -1333,7 +1350,7 @@ async def publicexecution(
     user="The member whose history to view.",
     userid="A user ID or mention if the member isn't selectable in the picker.",
 )
-@app_commands.check(_staff_check)
+@app_commands.check(_case_read_check)
 async def history(
     interaction: discord.Interaction,
     user: Optional[discord.Member] = None,
@@ -1353,7 +1370,7 @@ async def history(
 
 
 @tree.command(name="cases", description="Browse every moderation case on the server in case order.")
-@app_commands.check(_staff_check)
+@app_commands.check(_case_read_check)
 async def cases(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     view = AllCasesView(interaction.guild)
@@ -1379,7 +1396,7 @@ async def cases(interaction: discord.Interaction):
     reason="Reason to prefill in the undo panel.",
     userid="A user ID or mention if the member isn't selectable in the picker.",
 )
-@app_commands.check(_staff_check)
+@app_commands.check(_undo_check)
 async def undo(
     interaction: discord.Interaction,
     user: Optional[discord.Member] = None,
@@ -1547,7 +1564,7 @@ class PurgePanelView(discord.ui.View):
 
 @tree.command(name="purge", description="Bulk-delete recent messages; run without options to open the filter panel.")
 @app_commands.describe(amount="Delete this many recent messages right away. Omit to open the filter panel.")
-@app_commands.check(_staff_check)
+@app_commands.check(_purge_check)
 async def purge(interaction: discord.Interaction, amount: Optional[app_commands.Range[int, 1, 999]] = None):
     if amount is None:
         view = PurgePanelView()
@@ -1565,7 +1582,7 @@ async def purge(interaction: discord.Interaction, amount: Optional[app_commands.
 
 
 @tree.command(name="lock", description="Lock the current channel so members can't send messages.")
-@app_commands.check(_staff_check)
+@app_commands.check(_channel_lock_check)
 async def lock(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     channel = interaction.channel
@@ -1591,7 +1608,7 @@ async def lock(interaction: discord.Interaction):
 
 
 @tree.command(name="unlock", description="Unlock the current channel and restore messaging.")
-@app_commands.check(_staff_check)
+@app_commands.check(_channel_lock_check)
 async def unlock(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     channel = interaction.channel
@@ -1636,7 +1653,7 @@ class ModGuideView(discord.ui.View):
 
 
 @tree.command(name="mod-guide", description="View the moderation command guide.")
-@app_commands.check(_staff_check)
+@app_commands.check(_case_read_check)
 async def mod_help(interaction: discord.Interaction):
     await interaction.response.send_message(embed=build_mod_help_embed(interaction.guild), view=ModGuideView(), ephemeral=True)
 
@@ -1647,7 +1664,7 @@ async def mod_help(interaction: discord.Interaction):
     user="The member whose latest case to open.",
     userid="A user ID or mention if the member isn't selectable in the picker.",
 )
-@app_commands.check(_staff_check)
+@app_commands.check(_case_read_check)
 async def case(
     interaction: discord.Interaction,
     caseid: Optional[app_commands.Range[int, 1, 999999]] = None,

@@ -4063,9 +4063,16 @@ class AutoModCustomReportResponseModal(discord.ui.Modal, title="Custom AutoMod R
             await interaction.followup.send(embed=make_confirmation_embed("Response Sent", "> The response was sent to the user.", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
 
 
-class AutoModReportResponseSelect(discord.ui.Select):
-    def __init__(self, parent_view):
-        self.parent_view = parent_view
+class AutoModReportResponseSelect(
+    discord.ui.DynamicItem[discord.ui.Select],
+    template=r"amrr:(?P<guild_id>[0-9]+):(?P<reporter_id>[0-9]+):(?P<rule_id>[0-9]+):(?P<created_at>[0-9]+)",
+):
+    def __init__(self, guild_id: int, reporter_id: int, rule_id: int, created_at: int, *, item=None):
+        self.guild_id = int(guild_id)
+        self.reporter_id = int(reporter_id)
+        self.rule_id = int(rule_id)
+        self.created_at = int(created_at)
+        self.warning_id = f"AM-{self.rule_id}-{self.reporter_id}-{self.created_at}"
         options = [
             discord.SelectOption(
                 label=preset["label"],
@@ -4074,22 +4081,41 @@ class AutoModReportResponseSelect(discord.ui.Select):
             )
             for key, preset in AUTOMOD_REPORT_RESPONSE_PRESETS.items()
         ]
-        super().__init__(
+        super().__init__(item or discord.ui.Select(
             placeholder="Respond to this report...",
             min_values=1,
             max_values=1,
             options=options,
+            custom_id=f"amrr:{self.guild_id}:{self.reporter_id}:{self.rule_id}:{self.created_at}",
+        ))
+
+    @classmethod
+    async def from_custom_id(cls, interaction, item, match):
+        return cls(
+            int(match["guild_id"]),
+            int(match["reporter_id"]),
+            int(match["rule_id"]),
+            int(match["created_at"]),
+            item=item,
         )
 
+    def _rule_name(self, interaction: discord.Interaction) -> str:
+        for embed in getattr(interaction.message, "embeds", []):
+            for field in embed.fields:
+                if field.name in {"Target", "Reason", "Rule"} and field.value:
+                    return str(field.value).strip("`>")[:200]
+        return f"AutoMod rule {self.rule_id}"
+
     async def callback(self, interaction: discord.Interaction) -> None:
-        selected = self.values[0]
+        selected = self.item.values[0]
+        rule_name = self._rule_name(interaction)
         if selected == "custom":
             await interaction.response.send_modal(
                 AutoModCustomReportResponseModal(
-                    guild_id=self.parent_view.guild_id,
-                    reporter_id=self.parent_view.reporter_id,
-                    warning_id=self.parent_view.warning_id,
-                    rule_name=self.parent_view.rule_name,
+                    guild_id=self.guild_id,
+                    reporter_id=self.reporter_id,
+                    warning_id=self.warning_id,
+                    rule_name=rule_name,
                     source_message=interaction.message,
                 )
             )
@@ -4099,10 +4125,10 @@ class AutoModReportResponseSelect(discord.ui.Select):
         await interaction.response.defer(ephemeral=True)
         success = await apply_automod_report_response(
             interaction,
-            guild_id=self.parent_view.guild_id,
-            reporter_id=self.parent_view.reporter_id,
-            warning_id=self.parent_view.warning_id,
-            rule_name=self.parent_view.rule_name,
+            guild_id=self.guild_id,
+            reporter_id=self.reporter_id,
+            warning_id=self.warning_id,
+            rule_name=rule_name,
             response_key=selected,
             response_text=preset["message"],
             source_message=interaction.message,
@@ -4121,12 +4147,15 @@ class AutoModReportResponseSelect(discord.ui.Select):
 
 class AutoModReportResponseView(discord.ui.View):
     def __init__(self, *, guild_id: int, reporter_id: int, warning_id: str, rule_name: str):
-        super().__init__(timeout=604800)
+        super().__init__(timeout=None)
         self.guild_id = guild_id
         self.reporter_id = reporter_id
         self.warning_id = warning_id
         self.rule_name = rule_name
-        self.add_item(AutoModReportResponseSelect(self))
+        parts = warning_id.rsplit("-", 3)
+        rule_id = int(parts[1])
+        created_at = int(parts[3])
+        self.add_item(AutoModReportResponseSelect(guild_id, reporter_id, rule_id, created_at))
 
 
 class AutoModReportModal(discord.ui.Modal, title="Report AutoMod Warning"):
@@ -4225,29 +4254,58 @@ class AutoModReportModal(discord.ui.Modal, title="Report AutoMod Warning"):
         )
 
 
+class AutoModWarningReportButton(
+    discord.ui.DynamicItem[discord.ui.Button],
+    template=r"amwarn:(?P<guild_id>[0-9]+):(?P<rule_id>[0-9]+):(?P<created_at>[0-9]+)",
+):
+    def __init__(self, guild_id: int, rule_id: int, created_at: int, *, item=None):
+        self.guild_id = int(guild_id)
+        self.rule_id = int(rule_id)
+        self.created_at = int(created_at)
+        super().__init__(item or discord.ui.Button(
+            label="Report to Moderator",
+            style=discord.ButtonStyle.secondary,
+            custom_id=f"amwarn:{self.guild_id}:{self.rule_id}:{self.created_at}",
+        ))
+
+    @classmethod
+    async def from_custom_id(cls, interaction, item, match):
+        return cls(int(match["guild_id"]), int(match["rule_id"]), int(match["created_at"]), item=item)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        rule_name = f"AutoMod rule {self.rule_id}"
+        content = ""
+        for embed in getattr(interaction.message, "embeds", []):
+            for field in embed.fields:
+                if field.name == "Reason":
+                    rule_name = str(field.value).strip("`>")[:200]
+                elif field.name in {"Blocked Message", "Flagged Message"}:
+                    content = str(field.value).strip("`>")[:1000]
+        warning_id = f"AM-{self.rule_id}-{interaction.user.id}-{self.created_at}"
+        await interaction.response.send_modal(
+            AutoModReportModal(
+                guild_id=self.guild_id,
+                warning_id=warning_id,
+                rule_id=self.rule_id,
+                rule_name=rule_name,
+                content=content,
+                matched_keyword=None,
+                source_message=interaction.message,
+            )
+        )
+
+
 class AutoModWarningView(discord.ui.View):
     def __init__(self, *, guild_id: int, warning_id: str, rule_id: int, rule_name: str, content: str, matched_keyword: Optional[str]):
-        super().__init__(timeout=86400)
+        super().__init__(timeout=None)
         self.guild_id = guild_id
         self.warning_id = warning_id
         self.rule_id = rule_id
         self.rule_name = rule_name
         self.content = truncate_text(content or "", 1000)
         self.matched_keyword = matched_keyword
-
-    @discord.ui.button(label="Report to Moderator", style=discord.ButtonStyle.secondary)
-    async def report(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await interaction.response.send_modal(
-            AutoModReportModal(
-                guild_id=self.guild_id,
-                warning_id=self.warning_id,
-                rule_id=self.rule_id,
-                rule_name=self.rule_name,
-                content=self.content,
-                matched_keyword=self.matched_keyword,
-                source_message=interaction.message,
-            )
-        )
+        created_at = int(warning_id.rsplit("-", 1)[-1])
+        self.add_item(AutoModWarningReportButton(guild_id, rule_id, created_at))
 
 
 @tree.command(name="automod", description="Manage AutoMod follow-up rules.")
@@ -4257,7 +4315,8 @@ async def automod_cmd(interaction: discord.Interaction):
     if not get_feature_flag(bot.data_manager.config, "automod_panel", True):
         await respond_with_error(interaction, "The AutoMod panel is currently turned off in feature settings.", scope=SCOPE_MODERATION)
         return
-    await interaction.response.send_message(embed=build_automod_dashboard_embed(interaction.guild), view=AutoModDashboardView(), ephemeral=True)
+    from .control_plane import send_settings_hub
+    await send_settings_hub(interaction, "automod")
 
 
 @tree.context_menu(name="Add to Scam Image Dataset")

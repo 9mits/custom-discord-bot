@@ -29,7 +29,7 @@ from core.heavy_jobs import (
 from core.utils import truncate_text
 from .shared import (
     extract_snowflake_id,
-    is_staff,
+    has_permission_capability,
     make_embed,
     make_empty_state_embed,
     resolve_channel_input,
@@ -46,7 +46,7 @@ SCAN_CONCURRENCY = 6
 
 
 def _staff_check(interaction: discord.Interaction) -> bool:
-    return is_staff(interaction)
+    return has_permission_capability(interaction, "messages.export")
 
 
 # ----------------- Collection + rendering -----------------

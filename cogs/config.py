@@ -15,12 +15,7 @@ from core.constants import (
     DEFAULT_ROLE_OWNER,
     SCOPE_SYSTEM,
 )
-from core.services import (
-    export_config_payload,
-    get_feature_flag,
-    import_config_payload,
-    validate_guild_configuration,
-)
+from core.services import export_config_payload, get_feature_flag, validate_guild_configuration
 from core.context import bot, tree
 from core.responding import InteractionResponder
 from .shared import (
@@ -124,48 +119,11 @@ class ConfigTypeSelect(discord.ui.Select):
         view.add_item(container)
         await interaction.response.send_message(view=view, ephemeral=True)
 
-class ConfigImportModal(discord.ui.Modal, title="Paste Settings Backup"):
-    config_json = discord.ui.TextInput(
-        label="Settings JSON",
-        style=discord.TextStyle.paragraph,
-        placeholder='{"role_mod": 1234567890, "punishment_log_channel_id": 1234567890}',
-        required=True,
-        max_length=4000,
-    )
-
-    async def on_submit(self, interaction: discord.Interaction) -> None:
-        try:
-            payload = json.loads(self.config_json.value)
-            if not isinstance(payload, dict):
-                raise ValueError("Config import payload must be a JSON object.")
-        except Exception as exc:
-            await respond_with_error(interaction, f"Invalid config JSON: {exc}", scope=SCOPE_SYSTEM)
-            return
-
-        previous = bot.data_manager.config
-        merged, warnings = import_config_payload(previous, payload)
-        changed_keys = {
-            key
-            for key in set(previous) | set(merged)
-            if previous.get(key) != merged.get(key)
-        }
-        bot.data_manager.config = merged
-        if changed_keys:
-            await bot.data_manager.save_config(*changed_keys)
-        description = "> Settings were imported successfully."
-        if warnings:
-            description += "\n> " + "\n> ".join(warnings)
-        await interaction.response.send_message(
-            embed=make_confirmation_embed("Settings Imported", description, scope=SCOPE_SYSTEM, guild=interaction.guild),
-            ephemeral=True,
-        )
-
-
 class ConfigDashboardActionSelect(discord.ui.Select):
     def __init__(self):
         options = [
             discord.SelectOption(label="Download Settings", value="export", description="Export a safe JSON backup of the current settings."),
-            discord.SelectOption(label="Paste Settings", value="import", description="Import a settings backup from raw JSON."),
+            discord.SelectOption(label="Upload Settings", value="import", description="Import a validated JSON attachment with /settings."),
             discord.SelectOption(label="Escalation Ladder", value="ladder", description="View the automatic repeat-offense ladder."),
         ]
         super().__init__(
@@ -193,7 +151,16 @@ class ConfigDashboardActionSelect(discord.ui.Select):
             )
             return
         if action == "import":
-            await interaction.response.send_modal(ConfigImportModal())
+            await interaction.response.send_message(
+                embed=make_embed(
+                    "Upload Settings Backup",
+                    "> Run `/settings import_file:<attachment>` with the exported JSON file. You will receive a redacted preview before anything changes.",
+                    kind="info",
+                    scope=SCOPE_SYSTEM,
+                    guild=interaction.guild,
+                ),
+                ephemeral=True,
+            )
             return
         if action == "ladder":
             await interaction.response.send_message(embed=build_offense_ladder_embed(interaction.guild), ephemeral=True)
@@ -483,7 +450,8 @@ class SetupLandingView(discord.ui.LayoutView):
 @app_commands.default_permissions(administrator=True)
 @app_commands.check(check_admin)
 async def setup_slash(interaction: discord.Interaction):
-    await interaction.response.send_message(view=SetupLandingView(interaction.guild), ephemeral=True)
+    from .control_plane import send_settings_hub
+    await send_settings_hub(interaction, "overview")
 
 @tree.command(name="config", description="Manage bot settings and backups.")
 @app_commands.default_permissions(administrator=True)
@@ -492,7 +460,8 @@ async def config_cmd(interaction: discord.Interaction):
     if not get_feature_flag(bot.data_manager.config, "config_panel", True):
         await respond_with_error(interaction, "The bot settings panel is currently turned off in the feature settings.", scope=SCOPE_SYSTEM)
         return
-    await interaction.response.send_message(view=ConfigDashboardView(interaction.guild), ephemeral=True)
+    from .control_plane import send_settings_hub
+    await send_settings_hub(interaction, "overview")
 
 
 @tree.command(name="modmail-panel", description="Post the public modmail support panel.")

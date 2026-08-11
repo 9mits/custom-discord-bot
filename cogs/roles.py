@@ -1407,8 +1407,8 @@ async def role_manage(interaction: discord.Interaction, action: str, target: Opt
 @app_commands.default_permissions(administrator=True)
 @app_commands.check(check_admin)
 async def role_settings(interaction: discord.Interaction):
-    embed = build_role_settings_embed(interaction.guild)
-    await interaction.response.send_message(embed=embed, view=RoleSettingsView(), ephemeral=True)
+    from .control_plane import send_settings_hub
+    await send_settings_hub(interaction, "custom_roles")
 
 class RolesCog(commands.Cog):
     def __init__(self, bot):

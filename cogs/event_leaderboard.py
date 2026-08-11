@@ -652,8 +652,8 @@ def event_archive_description(archive: Dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-class EventHistorySelect(discord.ui.Select):
-    def __init__(self, history: list[Dict[str, Any]]) -> None:
+class EventHistorySelect(discord.ui.DynamicItem[discord.ui.Select], template=r"event_history_select"):
+    def __init__(self, history: list[Dict[str, Any]], *, item: Optional[discord.ui.Select] = None) -> None:
         archives = list(reversed(normalize_event_history(history)))[:EVENT_HISTORY_LIMIT]
         self.archives = {archive["id"]: archive for archive in archives}
         options = []
@@ -664,16 +664,21 @@ class EventHistorySelect(discord.ui.Select):
                 value=archive["id"],
                 description=f"Ended {ended_label} • {len(archive['top_10'])} ranked",
             ))
-        super().__init__(
+        super().__init__(item or discord.ui.Select(
             custom_id="event_history_select",
             placeholder="View previous top 10 winners...",
             min_values=1,
             max_values=1,
             options=options,
-        )
+        ))
+
+    @classmethod
+    async def from_custom_id(cls, interaction, item, match):
+        return cls(load_config().get("history", []), item=item)
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        archive = self.archives.get(self.values[0])
+        values = getattr(self, "_values", None) or self.item.values
+        archive = self.archives.get(values[0])
         if archive is None:
             await interaction.response.send_message(
                 embed=_control_embed(

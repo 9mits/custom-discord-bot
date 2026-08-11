@@ -7,6 +7,7 @@ import ipaddress
 import json
 import os
 import socket
+import secrets
 import time
 from datetime import datetime, timedelta
 from typing import Optional, List, Union, Tuple, Any
@@ -46,7 +47,7 @@ from core.services import (
 )
 from core.context import bot
 from core.responding import InteractionResponder
-from core.utils import truncate_text, format_duration
+from core.utils import truncate_text, format_duration, now_iso
 
 # Setup Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s')
@@ -1607,8 +1608,17 @@ async def punish_rogue_mod(guild: discord.Guild, member: discord.User, reason: s
     if restore_data:
         restore_data["stripped_roles"] = stripped_ids
         restore_data["actor_id"] = member.id
+        pending = bot.data_manager.config.setdefault("pending_antinuke_resolutions", {})
+        if not isinstance(pending, dict):
+            pending = {}
+            bot.data_manager.config["pending_antinuke_resolutions"] = pending
+        while len(pending) >= 100:
+            pending.pop(next(iter(pending)))
+        resolution_id = secrets.token_urlsafe(8)
+        pending[resolution_id] = {**restore_data, "created_at": now_iso()}
+        await bot.data_manager.save_config("pending_antinuke_resolutions")
         from .admin import AntiNukeResolveView  # noqa: PLC0415 — shared↔admin mutual dependency
-        view = AntiNukeResolveView(restore_data)
+        view = AntiNukeResolveView(resolution_id)
         
     # Dynamic pings
     r_admin = bot.data_manager.config.get("role_admin", DEFAULT_ROLE_ADMIN)

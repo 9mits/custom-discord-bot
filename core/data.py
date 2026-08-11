@@ -943,6 +943,51 @@ class DataManager:
             if not keys or "native_automod" in keys:
                 invalidate_native_automod_settings(self.config)
 
+    def _config_backup_dir(self) -> Path:
+        return Path(DB_FILE).parent / "config_backups"
+
+    async def create_config_backup(self, *, retain: int = 10) -> Path:
+        """Write an atomic, versioned settings backup beside the instance DB."""
+        backup_dir = self._config_backup_dir()
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        schema_version = int(self.config.get("schema_version", DEFAULT_SCHEMA_VERSION) or DEFAULT_SCHEMA_VERSION)
+        path = backup_dir / f"config-v{schema_version}-{stamp}.json"
+        snapshot = copy.deepcopy(self.config)
+        await self._save_json(path, snapshot)
+        backups = sorted(backup_dir.glob("config-v*.json"), reverse=True)
+        for stale in backups[max(1, int(retain)):]:
+            try:
+                stale.unlink()
+            except OSError:
+                logger.warning("Could not remove stale config backup %s", stale)
+        return path
+
+    def list_config_backups(self) -> List[Path]:
+        return sorted(self._config_backup_dir().glob("config-v*.json"), reverse=True)
+
+    async def rollback_config_backup(self, path: Optional[Path] = None) -> Path:
+        """Restore a local settings backup transactionally through the config table."""
+        backup_dir = self._config_backup_dir().resolve()
+        selected = Path(path) if path is not None else next(iter(self.list_config_backups()), None)
+        if selected is None:
+            raise FileNotFoundError("No configuration backup is available.")
+        selected = selected.resolve()
+        if selected.parent != backup_dir or not selected.name.startswith("config-v"):
+            raise ValueError("Backup path is outside the instance backup directory.")
+        restored = await asyncio.to_thread(read_json_file, selected, None)
+        if not isinstance(restored, dict):
+            raise ValueError("The selected configuration backup is invalid.")
+
+        previous = self.config
+        previous_keys = set(previous)
+        self.config = copy.deepcopy(restored)
+        try:
+            await self.save_config(*(previous_keys | set(self.config)))
+        except Exception:
+            self.config = previous
+            raise
+        return selected
+
     async def save_roles(self, user_ids: Optional[Iterable[Any]] = None, *, replace: bool = False):
         generation = self._mark_section_dirty("roles")
         async with self._save_lock:
