@@ -248,18 +248,7 @@ async def record_case_reversal_stats(records: List[dict]):
         changed = True
 
     if changed:
-        await bot.data_manager.save_mod_stats()
-
-
-def pop_case_record(user_id: str, case_id: int) -> Optional[dict]:
-    records = bot.data_manager.punishments.get(user_id, [])
-    for index, record in enumerate(records):
-        if get_case_id(record) == case_id:
-            removed_record = records.pop(index)
-            if not records:
-                bot.data_manager.punishments.pop(user_id, None)
-            return removed_record
-    return None
+        await bot.data_manager.save_mod_stats(keys=["reversals"])
 
 
 async def reverse_punishment_effect(
@@ -322,12 +311,15 @@ async def undo_case_record(
     if not record or target_user_id != str(target.id):
         return False, None, "The selected case could not be found."
 
-    removed_record = pop_case_record(target_user_id, case_id)
+    removed_record = await bot.data_manager.discard_pending_punishment(
+        target_user_id,
+        case_id,
+        persist=True,
+    )
     if not removed_record:
         return False, None, "The selected case could not be removed from history."
 
     await record_case_reversal_stats([removed_record])
-    await bot.data_manager.save_punishments()
 
     action_result = await reverse_punishment_effect(
         guild,
@@ -348,10 +340,13 @@ async def clear_user_history_records(target: Union[discord.Member, discord.User]
     removed_records = [copy.deepcopy(record) for record in history if isinstance(record, dict)]
     await record_case_reversal_stats(removed_records)
 
+    case_ids = [record.get("case_id") for record in removed_records if isinstance(record.get("case_id"), int)]
+    await bot.data_manager.delete_punishments(case_ids)
     bot.data_manager.punishments.pop(user_id, None)
+    for case_id in case_ids:
+        bot.data_manager.case_index.pop(case_id, None)
     bot.data_manager.config.setdefault("stats", {})["cases_cleared"] = bot.data_manager.config.get("stats", {}).get("cases_cleared", 0) + len(removed_records)
-    await bot.data_manager.save_config()
-    await bot.data_manager.save_punishments()
+    await bot.data_manager.save_config("stats")
     return removed_records
 
 

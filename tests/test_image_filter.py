@@ -1106,6 +1106,7 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         data_manager = SimpleNamespace(
             config={"stats": {}},
             add_punishment=AsyncMock(side_effect=add_pending_case),
+            persist_punishment=AsyncMock(),
             save_config=AsyncMock(),
         )
         return_view = object()

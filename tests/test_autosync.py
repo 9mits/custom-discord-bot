@@ -170,8 +170,7 @@ class ScopedSyncTargetsTests(unittest.IsolatedAsyncioTestCase):
         )
         data_manager = SimpleNamespace(
             config={},
-            mark_config_dirty=Mock(),
-            save_all=AsyncMock(),
+            save_config=AsyncMock(),
         )
         fake = SimpleNamespace(
             tree=tree,
@@ -188,7 +187,7 @@ class ScopedSyncTargetsTests(unittest.IsolatedAsyncioTestCase):
             {sync_call.kwargs["guild"].id for sync_call in tree.sync.await_args_list},
             {111, 222},
         )
-        data_manager.save_all.assert_awaited_once()
+        data_manager.save_config.assert_awaited_once()
 
 
 if __name__ == "__main__":

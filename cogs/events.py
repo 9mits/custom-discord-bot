@@ -603,7 +603,7 @@ async def run_native_automod_bridge(
     ):
         return
 
-    record_native_automod_event(
+    await record_native_automod_event(
         user_id=member.id,
         rule_id=rule_id,
         rule_name=rule_name,
@@ -612,7 +612,7 @@ async def run_native_automod_bridge(
     )
 
     policy = resolve_native_automod_policy(bot.data_manager.config, rule_id=rule_id, rule_name=rule_name)
-    triggered_step, warning_count = get_triggered_native_automod_step(
+    triggered_step, warning_count = await get_triggered_native_automod_step(
         user_id=member.id,
         rule_id=rule_id,
         rule_name=rule_name,
@@ -636,14 +636,12 @@ async def run_native_automod_bridge(
             step=triggered_step,
         )
         if escalation_applied:
-            record_native_automod_step_application(
+            await record_native_automod_step_application(
                 user_id=member.id,
                 rule_id=rule_id,
                 rule_name=rule_name,
                 step=triggered_step,
             )
-    await bot.data_manager.save_mod_stats()
-
     action_word = "blocked" if treated_as_blocked else "flagged"
     if settings.get("warning_dm_enabled", True) and not escalation_applied:
         try:
@@ -1051,7 +1049,7 @@ async def on_message(message: discord.Message):
                     await thread.send(**relay_kwargs)
                     ticket["last_user_message_at"] = now_iso()
                     ticket["last_sla_alert_at"] = None
-                    await bot.data_manager.save_modmail()
+                    await bot.data_manager.save_modmail([str(message.author.id)])
                     if guild:
                         await refresh_modmail_ticket_log(guild, str(message.author.id))
                     if attachment_notice:
@@ -1108,7 +1106,7 @@ async def on_message(message: discord.Message):
                         relay_kwargs["files"] = files
                     await user.send(**relay_kwargs)
                     ticket["last_staff_message_at"] = now_iso()
-                    await bot.data_manager.save_modmail()
+                    await bot.data_manager.save_modmail([target_uid])
                     await refresh_modmail_ticket_log(message.guild, target_uid)
                     if attachment_notice:
                         await message.channel.send(attachment_notice)

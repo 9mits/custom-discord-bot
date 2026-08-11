@@ -241,7 +241,7 @@ class CreateRoleModal(discord.ui.Modal, title="Create your custom role"):
             "created_at": now_iso(),
         })
         bot.data_manager.roles[str(member.id)] = records
-        await bot.data_manager.save_roles()
+        await bot.data_manager.save_roles([str(member.id)])
 
         embed = make_embed(
             "Custom Role Created",
@@ -275,7 +275,7 @@ class EditNameModal(discord.ui.Modal, title="Edit role name"):
         rec = find_role_rec(self.member.id, self.role.id)
         if rec:
             rec["name"] = name
-            await bot.data_manager.save_roles()
+            await bot.data_manager.save_roles([str(self.member.id)])
         embed = make_embed(
             "Role Renamed",
             f"> The custom role has been renamed to `{name}`.",
@@ -306,7 +306,7 @@ class EditColorModal(discord.ui.Modal, title="Edit role color"):
         rec = find_role_rec(self.member.id, self.role.id)
         if rec:
             rec["color"] = c
-            await bot.data_manager.save_roles()
+            await bot.data_manager.save_roles([str(self.member.id)])
         embed = make_embed(
             "Role Color Updated",
             f"> The role color has been changed to `{c}`.",
@@ -630,7 +630,7 @@ class GradientModal(discord.ui.Modal, title="Set Gradient Style"):
                 rec['color'] = f"#{prim_int:06X}"
                 rec['secondary_color'] = sec_val
                 rec['tertiary_color'] = None
-                await bot.data_manager.save_roles()
+                await bot.data_manager.save_roles([str(self.member.id)])
 
             await interaction.response.send_message(
                 embed=make_confirmation_embed(
@@ -668,7 +668,7 @@ class RoleStyleView(discord.ui.View):
             if rec:
                 rec['secondary_color'] = None
                 rec['tertiary_color'] = None
-                await bot.data_manager.save_roles()
+                await bot.data_manager.save_roles([str(self.member.id)])
             await interaction.response.send_message(embed=make_embed("Style Reset", "> Role style has been reset to static.", kind="success", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
         except discord.HTTPException as e:
             await interaction.response.send_message(embed=make_embed("Failed", f"> Failed: {e.status} {e.text}", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
@@ -696,7 +696,7 @@ class RoleStyleView(discord.ui.View):
                 rec['color'] = f"#{HOLO_PRIMARY:06X}"
                 rec['secondary_color'] = f"#{HOLO_SECONDARY:06X}"
                 rec['tertiary_color'] = f"#{HOLO_TERTIARY:06X}"
-                await bot.data_manager.save_roles()
+                await bot.data_manager.save_roles([str(self.member.id)])
 
             await interaction.response.send_message(
                 embed=make_confirmation_embed(
@@ -734,7 +734,7 @@ class IconURLModal(discord.ui.Modal, title="Set Icon via URL"):
             rec = find_role_rec(self.member.id, self.role.id)
             if rec:
                 rec["icon"] = val
-                await bot.data_manager.save_roles()
+                await bot.data_manager.save_roles([str(self.member.id)])
             await interaction.followup.send(embed=make_embed("Icon Updated", "> Icon updated successfully!", kind="success", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
         except Exception as e:
             await interaction.followup.send(embed=make_embed("Failed", f"> Failed to update icon: {e}", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
@@ -770,7 +770,7 @@ class UploadIconView(discord.ui.View):
             rec = find_role_rec(self.member.id, self.role.id)
             if rec:
                 rec["icon"] = attachment.url
-                await bot.data_manager.save_roles()
+                await bot.data_manager.save_roles([str(self.member.id)])
             
             try: await msg.delete()
             except Exception: pass
@@ -862,7 +862,7 @@ class ConfirmDelete(discord.ui.View):
             bot.data_manager.roles[uid] = records
         else:
             bot.data_manager.roles.pop(uid, None)
-        await bot.data_manager.save_roles()
+        await bot.data_manager.save_roles([uid])
         await interaction.response.edit_message(embed=make_embed("Role Deleted", "> Your custom role has been deleted.", kind="success", scope=SCOPE_ROLES, guild=interaction.guild), view=None)
         self.stop()
 
@@ -1264,7 +1264,7 @@ async def role_cmd(interaction: discord.Interaction):
             bot.data_manager.roles[uid] = records
         else:
             bot.data_manager.roles.pop(uid, None)
-        await bot.data_manager.save_roles()
+        await bot.data_manager.save_roles([uid])
 
     n = len(valid_roles)
     at_limit = n >= limit
@@ -1390,7 +1390,12 @@ async def role_manage(interaction: discord.Interaction, action: str, target: Opt
         else:
             msg = f"{target.mention} was not in any list."
 
-    await bot.data_manager.save_config()
+    access_keys = (
+        ("cr_whitelist_users", "cr_blacklist_users")
+        if isinstance(target, discord.Member)
+        else ("cr_whitelist_roles", "cr_blacklist_roles")
+    )
+    await bot.data_manager.save_config(*access_keys)
     await interaction.followup.send(embed=make_embed("Access Updated", f"> {msg}", kind="success", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
 
 @tree.command(name="role-settings", description="Configure custom role access.")

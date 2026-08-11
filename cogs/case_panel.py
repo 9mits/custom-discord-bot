@@ -300,7 +300,7 @@ async def show_case_panel(
 
     elif user:
         target_user_id = str(user.id)
-        case_ids = [record.get("case_id") for record in bot.data_manager.get_user_cases(user.id) if record.get("case_id")]
+        case_ids = await bot.data_manager.list_user_case_ids(user.id, limit=25)
         if not case_ids:
             embed = make_empty_state_embed(
                 "No Cases Found",
@@ -373,7 +373,7 @@ class RuleEditModal(discord.ui.Modal, title="Add/Edit Punishment Rule"):
         rules = bot.data_manager.config.get("punishment_rules", DEFAULT_RULES)
         rules[name] = {"base": base, "escalated": esc}
         bot.data_manager.config["punishment_rules"] = rules
-        await bot.data_manager.save_config()
+        await bot.data_manager.save_config("punishment_rules")
         
         # Log
         log_embed = make_embed(
@@ -423,7 +423,7 @@ class AllCasesNavButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction) -> None:
         view: "AllCasesView" = self.view
         view.page = max(0, min(view.page + self.delta, view.max_pages - 1))
-        view.update_components()
+        await view.reload()
         await interaction.response.edit_message(embed=view.build_embed(), view=view)
 
 
@@ -436,22 +436,21 @@ class AllCasesView(discord.ui.View):
         self.message: Optional[discord.Message] = None
         self.cases: List = []
         self.counts: dict = {}
+        self.total = 0
         self.max_pages = 1
-        self.reload()
 
-    def reload(self) -> None:
-        self.cases = bot.data_manager.get_all_cases()
-        self.counts = {}
-        for _, record in self.cases:
-            t = record.get("type", "unknown")
-            self.counts[t] = self.counts.get(t, 0) + 1
-        self.max_pages = max(1, (len(self.cases) + self.items_per_page - 1) // self.items_per_page)
+    async def reload(self) -> None:
+        self.total, self.counts = await bot.data_manager.get_case_totals()
+        self.max_pages = max(1, (self.total + self.items_per_page - 1) // self.items_per_page)
         self.page = max(0, min(self.page, self.max_pages - 1))
+        self.cases = await bot.data_manager.list_cases_page(
+            page=self.page,
+            page_size=self.items_per_page,
+        )
         self.update_components()
 
     def get_page_items(self) -> List:
-        start = self.page * self.items_per_page
-        return self.cases[start:start + self.items_per_page]
+        return self.cases
 
     def build_embed(self) -> discord.Embed:
         return build_all_cases_embed(
@@ -459,7 +458,7 @@ class AllCasesView(discord.ui.View):
             self.get_page_items(),
             page=self.page,
             max_pages=self.max_pages,
-            total=len(self.cases),
+            total=self.total,
             counts=self.counts,
         )
 
@@ -491,7 +490,7 @@ class AccessView(discord.ui.View):
             action = "added to"
             
         bot.data_manager.config["mod_roles"] = mod_roles
-        await bot.data_manager.save_config()
+        await bot.data_manager.save_config("mod_roles")
         
         # Log
         log_embed = make_embed(
@@ -534,7 +533,7 @@ class RuleDeleteSelect(discord.ui.Select):
         if name in rules:
             del rules[name]
             bot.data_manager.config["punishment_rules"] = rules
-            await bot.data_manager.save_config()
+            await bot.data_manager.save_config("punishment_rules")
 
             # Log
             log_embed = make_embed(
