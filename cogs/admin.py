@@ -25,8 +25,9 @@ from .shared import (
     format_user_ref,
     send_log,
     has_permission_capability,
-    is_staff,
     build_status_view,
+    fetch_image_bytes,
+    respond_with_operation_failure,
 )
 from core.responding import InteractionResponder
 
@@ -45,15 +46,6 @@ class ArchiveConfirmView(discord.ui.View):
         # Disable view immediately to prevent double-clicks
         await interaction.response.edit_message(embed=make_embed("Processing", "> Processing the archive request...", kind="muted", scope=SCOPE_SYSTEM, guild=interaction.guild), view=None)
         
-        # Save Config
-        if "archived_channels" not in bot.data_manager.config: bot.data_manager.config["archived_channels"] = {}
-        bot.data_manager.config["archived_channels"][str(self.channel.id)] = {
-            "original_name": self.old_name,
-            "category_id": self.channel.category_id,
-            "overwrites": self.overwrites_save_data
-        }
-        await bot.data_manager.save_config("archived_channels")
-
         try:
             # Combine operations to reduce API calls and avoid rate limits (1 call vs 2)
             await self.channel.edit(
@@ -64,8 +56,19 @@ class ArchiveConfirmView(discord.ui.View):
             )
 
         except Exception as e:
-            await interaction.edit_original_response(embed=make_embed("Archive Failed", f"> Failed to archive channel: {e}", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild))
+            await respond_with_operation_failure(interaction, e, operation="archive channel", scope=SCOPE_SYSTEM)
             return
+
+        archive_record = {
+            "original_name": self.old_name,
+            "category_id": self.channel.category_id,
+            "overwrites": self.overwrites_save_data,
+        }
+        await bot.data_manager.mutate_config(
+            lambda config: config.setdefault("archived_channels", {}).__setitem__(
+                str(self.channel.id), archive_record
+            )
+        )
 
         await interaction.edit_original_response(embed=make_embed("Channel Archived", f"> Channel archived successfully to **{self.target_cat.name}**.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild))
 
@@ -108,17 +111,8 @@ class CloneConfirmView(discord.ui.View):
             new_channel = await self.channel.clone(reason=f"Cloned by {interaction.user}")
             await new_channel.edit(position=self.channel.position)
         except Exception as e:
-            await interaction.edit_original_response(embed=make_embed("Clone Failed", f"> Failed to clone channel: {e}", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild))
+            await respond_with_operation_failure(interaction, e, operation="clone channel", scope=SCOPE_SYSTEM)
             return
-
-        # 2. Archive the old channel
-        if "archived_channels" not in bot.data_manager.config: bot.data_manager.config["archived_channels"] = {}
-        bot.data_manager.config["archived_channels"][str(self.channel.id)] = {
-            "original_name": self.old_name,
-            "category_id": self.channel.category_id,
-            "overwrites": self.overwrites_save_data
-        }
-        await bot.data_manager.save_config("archived_channels")
 
         try:
             await self.channel.edit(
@@ -128,8 +122,19 @@ class CloneConfirmView(discord.ui.View):
                 reason=f"Archived (Cloned) by {interaction.user}"
             )
         except Exception as e:
-            await interaction.edit_original_response(embed=make_embed("Partially Complete", f"> Channel cloned to {new_channel.mention}, but failed to archive the old channel: {e}", kind="warning", scope=SCOPE_SYSTEM, guild=interaction.guild))
+            await respond_with_operation_failure(interaction, e, operation="archive source after channel clone", scope=SCOPE_SYSTEM)
             return
+
+        archive_record = {
+            "original_name": self.old_name,
+            "category_id": self.channel.category_id,
+            "overwrites": self.overwrites_save_data,
+        }
+        await bot.data_manager.mutate_config(
+            lambda config: config.setdefault("archived_channels", {}).__setitem__(
+                str(self.channel.id), archive_record
+            )
+        )
 
         await interaction.edit_original_response(embed=make_embed("Clone Complete", f"> Channel cloned to {new_channel.mention} and the original archived.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild))
         
@@ -189,22 +194,22 @@ class TestEnvView(discord.ui.View):
     @discord.ui.button(label="Toggle Boost Bypass", style=discord.ButtonStyle.primary)
     async def toggle_boost(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await InteractionResponder(interaction).defer(ephemeral=True)
-        if "debug" not in bot.data_manager.config:
-            bot.data_manager.config["debug"] = {}
-        current = bot.data_manager.config["debug"].get("bypass_boost", False)
-        bot.data_manager.config["debug"]["bypass_boost"] = not current
-        await bot.data_manager.save_config("debug")
+        def toggle(config):
+            debug = config.setdefault("debug", {})
+            debug["bypass_boost"] = not debug.get("bypass_boost", False)
+
+        await bot.data_manager.mutate_config(toggle)
         embed = build_test_env_embed()
         await interaction.edit_original_response(embed=embed, view=self)
 
     @discord.ui.button(label="Toggle Cooldown Bypass", style=discord.ButtonStyle.primary)
     async def toggle_cooldown(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await InteractionResponder(interaction).defer(ephemeral=True)
-        if "debug" not in bot.data_manager.config:
-            bot.data_manager.config["debug"] = {}
-        current = bot.data_manager.config["debug"].get("bypass_cooldown", False)
-        bot.data_manager.config["debug"]["bypass_cooldown"] = not current
-        await bot.data_manager.save_config("debug")
+        def toggle(config):
+            debug = config.setdefault("debug", {})
+            debug["bypass_cooldown"] = not debug.get("bypass_cooldown", False)
+
+        await bot.data_manager.mutate_config(toggle)
         embed = build_test_env_embed()
         await interaction.edit_original_response(embed=embed, view=self)
 
@@ -217,15 +222,19 @@ class ImmunityToggleSelect(discord.ui.UserSelect):
         await InteractionResponder(interaction).defer(ephemeral=True)
         user = self.values[0]
         uid = str(user.id)
-        lst = bot.data_manager.config.get("immunity_list", [])
-        if uid in lst:
-            lst.remove(uid)
-            action = "removed from"
-        else:
-            lst.append(uid)
-            action = "added to"
-        bot.data_manager.config["immunity_list"] = lst
-        await bot.data_manager.save_config("immunity_list")
+        result = {}
+
+        def toggle(config):
+            immunity = config.setdefault("immunity_list", [])
+            if uid in immunity:
+                immunity.remove(uid)
+                result["action"] = "removed from"
+            else:
+                immunity.append(uid)
+                result["action"] = "added to"
+
+        await bot.data_manager.mutate_config(toggle)
+        action = result["action"]
 
         log_embed = make_embed(
             "Anti-Nuke Immunity Updated",
@@ -338,9 +347,11 @@ class AntiNukeResolveConfirm2(discord.ui.View):
         embed.add_field(name="Resolution", value="Original permissions or roles restored", inline=True)
         await send_log(guild, embed)
         if self.resolution_id:
-            pending = bot.data_manager.config.get("pending_antinuke_resolutions", {})
-            if isinstance(pending, dict) and pending.pop(self.resolution_id, None) is not None:
-                await bot.data_manager.save_config("pending_antinuke_resolutions")
+            await bot.data_manager.mutate_config(
+                lambda config: config.setdefault("pending_antinuke_resolutions", {}).pop(
+                    self.resolution_id, None
+                )
+            )
 
 class AntiNukeResolveConfirm1(discord.ui.View):
     def __init__(self, restore_data, origin_message, resolution_id=None):
@@ -403,14 +414,7 @@ def check_owner(interaction: discord.Interaction) -> bool:
     return has_permission_capability(interaction, "owner_panel")
 
 @tree.command(name="commands", description="View registered slash commands.")
-@app_commands.default_permissions(administrator=True)
 async def list_commands(interaction: discord.Interaction):
-    # Owner/Admin only
-    conf = bot.data_manager.config
-    if not any(r.id in {conf.get("role_admin", DEFAULT_ROLE_ADMIN), conf.get("role_owner", DEFAULT_ROLE_OWNER)} for r in interaction.user.roles):
-        await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this command.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
-        return
-        
     from .control_plane import send_help_catalog
     await send_help_catalog(interaction)
 
@@ -455,8 +459,6 @@ async def internals(interaction: discord.Interaction):
     await interaction.followup.send(embed=embed, ephemeral=True)
 
 @tree.command(name="archive", description="Archive the current channel.")
-@app_commands.default_permissions(administrator=True)
-@app_commands.check(check_admin)
 async def archive(interaction: discord.Interaction):
     # Do not defer immediately, we need to send the confirmation view first
     channel = interaction.channel
@@ -492,10 +494,8 @@ async def archive(interaction: discord.Interaction):
     await interaction.response.send_message(embed=make_embed("Confirm Archive", f"> Are you sure you want to archive **{channel.name}**?", kind="warning", scope=SCOPE_SYSTEM, guild=interaction.guild), view=view, ephemeral=True)
 
 @tree.command(name="unarchive", description="Restore an archived channel.")
-@app_commands.default_permissions(administrator=True)
-@app_commands.check(check_admin)
 async def unarchive(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
+    await InteractionResponder(interaction).defer(ephemeral=True)
     channel = interaction.channel
     cid = str(channel.id)
     archives = bot.data_manager.config.get("archived_channels", {})
@@ -512,10 +512,15 @@ async def unarchive(interaction: discord.Interaction):
                 break
         
         if found_old_id:
-            data = archives.pop(found_old_id)
-            archives[cid] = data
-            bot.data_manager.config["archived_channels"] = archives
-            await bot.data_manager.save_config("archived_channels")
+            data = archives[found_old_id]
+
+            def migrate_archive(config):
+                registry = config.setdefault("archived_channels", {})
+                registry.pop(found_old_id, None)
+                registry[cid] = data
+
+            await bot.data_manager.mutate_config(migrate_archive)
+            archives = bot.data_manager.config.get("archived_channels", {})
             migration_note = f"\n> Channel ID mismatch detected (server transfer?). Archive data was migrated from `{found_old_id}` to `{cid}`."
         else:
             await interaction.followup.send(embed=make_embed("Not Archived", "> This channel is not in the archive registry.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
@@ -541,12 +546,13 @@ async def unarchive(interaction: discord.Interaction):
     try:
         await channel.edit(name=new_name, category=category, overwrites=new_overwrites, reason=f"Unarchived by {interaction.user}")
     except Exception as e:
-        await interaction.followup.send(embed=make_embed("Failed", f"> Failed to unarchive channel: {e}", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
+        await respond_with_operation_failure(interaction, e, operation="unarchive channel", scope=SCOPE_SYSTEM)
         return
 
     # Cleanup
-    del bot.data_manager.config["archived_channels"][cid]
-    await bot.data_manager.save_config("archived_channels")
+    await bot.data_manager.mutate_config(
+        lambda config: config.setdefault("archived_channels", {}).pop(cid, None)
+    )
 
     await interaction.followup.send(embed=make_embed("Channel Unarchived", "> Channel unarchived and restored." + migration_note, kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
     
@@ -564,8 +570,6 @@ async def unarchive(interaction: discord.Interaction):
     await send_log(interaction.guild, log_embed)
 
 @tree.command(name="clone", description="Archive this channel and create a replacement.")
-@app_commands.default_permissions(administrator=True)
-@app_commands.check(check_admin)
 async def clone(interaction: discord.Interaction):
     channel = interaction.channel
     guild = interaction.guild
@@ -598,32 +602,23 @@ async def clone(interaction: discord.Interaction):
     await interaction.response.send_message(embed=make_embed("Confirm Clone & Archive", f"> **WARNING:** This will archive **{channel.name}** and create a fresh clone. Are you sure?", kind="warning", scope=SCOPE_SYSTEM, guild=interaction.guild), view=view, ephemeral=True)
 
 @tree.command(name="rules", description="Configure per-reason punishment durations.")
-@app_commands.default_permissions(administrator=True)
-@app_commands.check(check_admin)
 async def rules(interaction: discord.Interaction):
     from .control_plane import send_settings_hub
     await send_settings_hub(interaction, "moderation")
 
 @tree.command(name="security", description="Manage anti-nuke protections.")
-@app_commands.default_permissions(administrator=True)
-@app_commands.check(check_admin)
 async def safety_panel(interaction: discord.Interaction):
     from .control_plane import send_settings_hub
     await send_settings_hub(interaction, "security")
 
 @tree.command(name="access", description="Manage moderation access roles.")
-@app_commands.default_permissions(administrator=True)
-@app_commands.check(check_owner)
-
 async def access(interaction: discord.Interaction):
     from .control_plane import send_settings_hub
     await send_settings_hub(interaction, "security")
 
 @tree.command(name="lockdown", description="Hide server channels in an emergency.")
-@app_commands.default_permissions(administrator=True)
-@app_commands.check(check_owner)
 async def lockdown(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
+    await InteractionResponder(interaction).defer(ephemeral=True)
     guild = interaction.guild
     
     # Save current state
@@ -647,16 +642,13 @@ async def lockdown(interaction: discord.Interaction):
         except Exception:
             pass
     
-    bot.data_manager.lockdown = lockdown_data
-    await bot.data_manager.save_lockdown(replace=True)
+    await bot.data_manager.replace_lockdown_records(lockdown_data)
         
     await interaction.followup.send(embed=make_embed("Server Lockdown Active", f"> Hidden {channels_affected} channels from @everyone.", kind="danger", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 @tree.command(name="lift-lockdown", description="Restore channel visibility after lockdown.")
-@app_commands.default_permissions(administrator=True)
-@app_commands.check(check_owner)
 async def lift_lockdown(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
+    await InteractionResponder(interaction).defer(ephemeral=True)
     guild = interaction.guild
     lockdown_data = bot.data_manager.lockdown
     
@@ -675,8 +667,7 @@ async def lift_lockdown(interaction: discord.Interaction):
                 restored_count += 1
             except Exception: pass
 
-    bot.data_manager.lockdown = {}
-    await bot.data_manager.save_lockdown(replace=True)
+    await bot.data_manager.replace_lockdown_records({})
     
     await interaction.followup.send(embed=make_embed("Lockdown Lifted", f"> Restored visibility for {restored_count} channels.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
@@ -749,18 +740,12 @@ async def delete_remote_commands(*, guild: Optional[discord.Guild]) -> List[str]
 
 @tree.command(name="status", description="View bot latency and uptime.")
 async def status_cmd(interaction: discord.Interaction):
-    if not is_staff(interaction):
-        await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this command.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
-        return
-
     await InteractionResponder(interaction).send(
         view=build_status_view(interaction.guild),
         ephemeral=True,
     )
 
 @tree.command(name="serverinfo", description="View detailed information about this server.")
-@app_commands.default_permissions(administrator=True)
-@app_commands.check(check_admin)
 async def serverinfo_cmd(interaction: discord.Interaction):
     g = interaction.guild
     await InteractionResponder(interaction).defer(ephemeral=True)
@@ -831,10 +816,10 @@ async def serverinfo_cmd(interaction: discord.Interaction):
 
 
 async def _fetch_image(url: str) -> bytes:
-    async with bot.session.get(url) as resp:
-        if resp.status != 200:
-            raise ValueError(f"HTTP {resp.status}")
-        return await resp.read()
+    data, error = await fetch_image_bytes(url)
+    if data is None:
+        raise ValueError(error or "The image could not be downloaded.")
+    return data
 
 
 class GlobalUsernameModal(discord.ui.Modal, title="Change Bot Username"):
@@ -846,7 +831,7 @@ class GlobalUsernameModal(discord.ui.Modal, title="Change Bot Username"):
             await bot.user.edit(username=self.username.value.strip())
             await interaction.followup.send(embed=make_embed("Username Updated", f"> Global username updated to **{self.username.value.strip()}**.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         except discord.HTTPException as e:
-            await interaction.followup.send(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
+            await respond_with_operation_failure(interaction, e, operation="update global username", scope=SCOPE_SYSTEM)
 
 
 class GlobalAvatarModal(discord.ui.Modal, title="Change Global Avatar"):
@@ -859,7 +844,7 @@ class GlobalAvatarModal(discord.ui.Modal, title="Change Global Avatar"):
             await bot.user.edit(avatar=data)
             await interaction.followup.send(embed=make_embed("Avatar Updated", "> Global avatar updated.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         except Exception as e:
-            await interaction.followup.send(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
+            await respond_with_operation_failure(interaction, e, operation="update global avatar", scope=SCOPE_SYSTEM)
 
 
 class GlobalBannerModal(discord.ui.Modal, title="Change Global Banner"):
@@ -872,7 +857,7 @@ class GlobalBannerModal(discord.ui.Modal, title="Change Global Banner"):
             await bot.user.edit(banner=data)
             await interaction.followup.send(embed=make_embed("Banner Updated", "> Global banner updated.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         except Exception as e:
-            await interaction.followup.send(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
+            await respond_with_operation_failure(interaction, e, operation="update global banner", scope=SCOPE_SYSTEM)
 
 
 # ── Server branding modals ──
@@ -888,7 +873,7 @@ class ServerNicknameModal(discord.ui.Modal, title="Change Server Nickname"):
             msg = f"Server nickname set to **{nick}**." if nick else "Server nickname cleared."
             await interaction.followup.send(embed=make_embed("Nickname Updated", f"> {msg}", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         except discord.HTTPException as e:
-            await interaction.followup.send(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
+            await respond_with_operation_failure(interaction, e, operation="update server nickname", scope=SCOPE_SYSTEM)
 
 
 class ServerAvatarModal(discord.ui.Modal, title="Change Server Avatar"):
@@ -901,7 +886,7 @@ class ServerAvatarModal(discord.ui.Modal, title="Change Server Avatar"):
             await interaction.guild.me.edit(avatar=data)
             await interaction.followup.send(embed=make_embed("Avatar Updated", "> Server avatar updated.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         except Exception as e:
-            await interaction.followup.send(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
+            await respond_with_operation_failure(interaction, e, operation="update server avatar", scope=SCOPE_SYSTEM)
 
 
 class ServerBannerModal(discord.ui.Modal, title="Change Server Banner"):
@@ -914,7 +899,7 @@ class ServerBannerModal(discord.ui.Modal, title="Change Server Banner"):
             await interaction.guild.me.edit(banner=data)
             await interaction.followup.send(embed=make_embed("Banner Updated", "> Server banner updated.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         except Exception as e:
-            await interaction.followup.send(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
+            await respond_with_operation_failure(interaction, e, operation="update server banner", scope=SCOPE_SYSTEM)
 
 
 class ServerBioModal(discord.ui.Modal, title="Change Server Bio"):
@@ -934,7 +919,7 @@ class ServerBioModal(discord.ui.Modal, title="Change Server Bio"):
             msg = "Server bio updated." if bio_value else "Server bio cleared."
             await interaction.followup.send(embed=make_embed("Bio Updated", f"> {msg}", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         except Exception as e:
-            await interaction.followup.send(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
+            await respond_with_operation_failure(interaction, e, operation="update server bio", scope=SCOPE_SYSTEM)
 
 
 class ThemeColorModal(discord.ui.Modal, title="Change Theme Color"):
@@ -950,8 +935,7 @@ class ThemeColorModal(discord.ui.Modal, title="Change Theme Color"):
         await interaction.response.defer(ephemeral=True)
         raw = self.color.value.strip().lstrip("#")
         if not raw:
-            bot.data_manager.config.pop("theme_color", None)
-            await bot.data_manager.save_config("theme_color")
+            await bot.data_manager.mutate_config(lambda config: config.pop("theme_color", None))
             await interaction.followup.send(embed=make_embed("Theme Color Reset", "> Embed accent reset to the default brand color.", kind="info", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
             return
         try:
@@ -961,8 +945,7 @@ class ThemeColorModal(discord.ui.Modal, title="Change Theme Color"):
         except ValueError:
             await interaction.followup.send(embed=make_embed("Invalid Color", "> Enter a 6-digit hex color like `#FF9900`.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
             return
-        bot.data_manager.config["theme_color"] = value
-        await bot.data_manager.save_config("theme_color")
+        await bot.data_manager.set_config_values(theme_color=value)
         # kind="info" follows the theme, so the confirmation previews the new color.
         embed = make_embed(
             "Theme Color Updated",
@@ -1027,9 +1010,9 @@ class GlobalBrandingActionSelect(discord.ui.Select):
             discord.SelectOption(label="Change Avatar", value="avatar", description="Upload a global avatar from an image URL."),
             discord.SelectOption(label="Change Banner", value="banner", description="Upload a global banner from an image URL."),
         ]
-        if user.avatar:
+        if user and user.avatar:
             options.append(discord.SelectOption(label="╌ Remove Avatar", value="remove_avatar", description="Reset back to the default avatar."))
-        if user.banner:
+        if user and user.banner:
             options.append(discord.SelectOption(label="╌ Remove Banner", value="remove_banner", description="Clear the global banner."))
         super().__init__(placeholder="Choose a global branding action...", min_values=1, max_values=1, options=options)
 
@@ -1054,7 +1037,7 @@ class GlobalBrandingActionSelect(discord.ui.Select):
                 await bot.user.edit(banner=None)
                 await interaction.followup.send(embed=make_embed("Banner Removed", "> Global banner removed.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         except discord.HTTPException as e:
-            await interaction.followup.send(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
+            await respond_with_operation_failure(interaction, e, operation="remove global branding image", scope=SCOPE_SYSTEM)
 
 
 class GlobalBrandingView(discord.ui.View):
@@ -1118,7 +1101,7 @@ class ServerBrandingActionSelect(discord.ui.Select):
                 await interaction.guild.me.edit(banner=None)
                 await interaction.followup.send(embed=make_embed("Banner Removed", "> Server banner removed.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         except discord.HTTPException as e:
-            await interaction.followup.send(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
+            await respond_with_operation_failure(interaction, e, operation="remove server branding override", scope=SCOPE_SYSTEM)
 
 
 class ServerBrandingView(discord.ui.View):
@@ -1136,18 +1119,16 @@ class ServerBrandingView(discord.ui.View):
 
 # ── Commands ──
 
-branding_group = app_commands.Group(name="branding", description="Manage bot profile and server appearance.", default_permissions=discord.Permissions(administrator=True))
+branding_group = app_commands.Group(name="branding", description="Manage bot profile and server appearance.")
 
 
 @branding_group.command(name="global", description="Edit the bot's global profile.")
-@app_commands.check(check_owner)
 async def branding_global(interaction: discord.Interaction):
     from .control_plane import send_settings_hub
     await send_settings_hub(interaction, "branding")
 
 
 @branding_group.command(name="server", description="Edit this server's bot profile.")
-@app_commands.check(check_owner)
 async def branding_server(interaction: discord.Interaction):
     from .control_plane import send_settings_hub
     await send_settings_hub(interaction, "branding")

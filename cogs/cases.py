@@ -28,6 +28,7 @@ from .shared import (
     format_user_ref,
     format_user_id_ref,
     resolve_member,
+    format_operation_failure,
 )
 
 def get_case_id(record: dict) -> Optional[int]:
@@ -238,17 +239,21 @@ def build_history_archive_attachment(
 
 
 async def record_case_reversal_stats(records: List[dict]):
-    reversals = bot.data_manager.mod_stats.setdefault("reversals", {})
-    changed = False
+    increments = {}
     for record in records:
         moderator_id = str(record.get("moderator") or "").strip()
         if not moderator_id.isdigit():
             continue
-        reversals[moderator_id] = reversals.get(moderator_id, 0) + 1
-        changed = True
+        increments[moderator_id] = increments.get(moderator_id, 0) + 1
 
-    if changed:
-        await bot.data_manager.save_mod_stats(keys=["reversals"])
+    if increments:
+        def update(reversals):
+            reversals = reversals if isinstance(reversals, dict) else {}
+            for moderator_id, amount in increments.items():
+                reversals[moderator_id] = reversals.get(moderator_id, 0) + amount
+            return reversals
+
+        await bot.data_manager.mutate_stat_bucket("reversals", update, default={})
 
 
 async def reverse_punishment_effect(
@@ -275,7 +280,7 @@ async def reverse_punishment_effect(
         except discord.Forbidden:
             return "Removed the case, but the bot could not unban the user."
         except Exception as exc:
-            return f"Removed the case, but unbanning failed: {exc}"
+            return f"Removed the case. {format_operation_failure(exc, 'undo case unban')}"
 
     if punishment_type == "timeout":
         member = await resolve_member(guild, user_id)
@@ -291,7 +296,7 @@ async def reverse_punishment_effect(
         except discord.Forbidden:
             return "Removed the case, but the bot could not clear the timeout."
         except Exception as exc:
-            return f"Removed the case, but clearing the timeout failed: {exc}"
+            return f"Removed the case. {format_operation_failure(exc, 'undo case timeout')}"
 
     if punishment_type == "kick":
         return "Removed the kick record from history."
@@ -342,11 +347,11 @@ async def clear_user_history_records(target: Union[discord.Member, discord.User]
 
     case_ids = [record.get("case_id") for record in removed_records if isinstance(record.get("case_id"), int)]
     await bot.data_manager.delete_punishments(case_ids)
-    bot.data_manager.punishments.pop(user_id, None)
-    for case_id in case_ids:
-        bot.data_manager.case_index.pop(case_id, None)
-    bot.data_manager.config.setdefault("stats", {})["cases_cleared"] = bot.data_manager.config.get("stats", {}).get("cases_cleared", 0) + len(removed_records)
-    await bot.data_manager.save_config("stats")
+    def update_stats(config):
+        stats = config.setdefault("stats", {})
+        stats["cases_cleared"] = stats.get("cases_cleared", 0) + len(removed_records)
+
+    await bot.data_manager.mutate_config(update_stats)
     return removed_records
 
 

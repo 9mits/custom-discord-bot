@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import html
+import copy
 import re
 from typing import List, Optional, Union
 
@@ -276,7 +277,7 @@ async def show_case_panel(
     case_id: Optional[int] = None,
     user: Optional[Union[discord.Member, discord.User]] = None,
 ):
-    await interaction.response.defer(ephemeral=True)
+    await InteractionResponder(interaction).defer(ephemeral=True)
 
     target_user_id: Optional[str] = None
     target_user: Optional[Union[discord.Member, discord.User]] = user
@@ -370,11 +371,14 @@ class RuleEditModal(discord.ui.Modal, title="Add/Edit Punishment Rule"):
         # Use parse_duration_str to allow "ban", "1d", "30m" etc.
         base = parse_duration_str(self.base_dur.value.strip())
         esc = parse_duration_str(self.esc_dur.value.strip())
+        responder = InteractionResponder(interaction)
+        await responder.defer(ephemeral=True)
             
-        rules = bot.data_manager.config.get("punishment_rules", DEFAULT_RULES)
-        rules[name] = {"base": base, "escalated": esc}
-        bot.data_manager.config["punishment_rules"] = rules
-        await bot.data_manager.save_config("punishment_rules")
+        def update_rules(config):
+            rules = config.setdefault("punishment_rules", copy.deepcopy(DEFAULT_RULES))
+            rules[name] = {"base": base, "escalated": esc}
+
+        await bot.data_manager.mutate_config(update_rules)
         
         # Log
         log_embed = make_embed(
@@ -389,7 +393,7 @@ class RuleEditModal(discord.ui.Modal, title="Add/Edit Punishment Rule"):
         log_embed.add_field(name="Values", value=f"> Base: {base}m\n> Escalated: {esc}m", inline=True)
         await send_log(interaction.guild, log_embed)
         
-        await interaction.response.send_message(embed=make_embed("Rule Saved", f"> Rule **{name}** saved successfully.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
+        await responder.send(embed=make_embed("Rule Saved", f"> Rule **{name}** saved successfully.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 class AllCasesSelect(discord.ui.Select):
     def __init__(self, page_items):
@@ -423,9 +427,10 @@ class AllCasesNavButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction) -> None:
         view: "AllCasesView" = self.view
+        await InteractionResponder(interaction).defer(ephemeral=True)
         view.page = max(0, min(view.page + self.delta, view.max_pages - 1))
         await view.reload()
-        await interaction.response.edit_message(embed=view.build_embed(), view=view)
+        await interaction.edit_original_response(embed=view.build_embed(), view=view)
 
 
 class AllCasesView(discord.ui.View):
@@ -482,17 +487,20 @@ class AccessView(discord.ui.View):
         await InteractionResponder(interaction).defer(ephemeral=True)
         role = select.values[0]
         rid = role.id
+        result = {}
+
+        def update_roles(config):
+            mod_roles = config.setdefault("mod_roles", [])
+            if rid in mod_roles:
+                mod_roles.remove(rid)
+                result["action"] = "removed from"
+            else:
+                mod_roles.append(rid)
+                result["action"] = "added to"
+
+        await bot.data_manager.mutate_config(update_roles)
         mod_roles = bot.data_manager.config.get("mod_roles", [])
-        
-        if rid in mod_roles:
-            mod_roles.remove(rid)
-            action = "removed from"
-        else:
-            mod_roles.append(rid)
-            action = "added to"
-            
-        bot.data_manager.config["mod_roles"] = mod_roles
-        await bot.data_manager.save_config("mod_roles")
+        action = result["action"]
         
         # Log
         log_embed = make_embed(
@@ -531,11 +539,15 @@ class RuleDeleteSelect(discord.ui.Select):
             return
 
         name = self.values[0]
+        responder = InteractionResponder(interaction)
+        await responder.defer(ephemeral=True)
         rules = bot.data_manager.config.get("punishment_rules", DEFAULT_RULES)
         if name in rules:
-            del rules[name]
-            bot.data_manager.config["punishment_rules"] = rules
-            await bot.data_manager.save_config("punishment_rules")
+            def delete_rule(config):
+                stored_rules = config.setdefault("punishment_rules", copy.deepcopy(DEFAULT_RULES))
+                stored_rules.pop(name, None)
+
+            await bot.data_manager.mutate_config(delete_rule)
 
             # Log
             log_embed = make_embed(
@@ -549,9 +561,9 @@ class RuleDeleteSelect(discord.ui.Select):
             log_embed.add_field(name="Rule", value=name, inline=True)
             await send_log(interaction.guild, log_embed)
 
-            await interaction.response.send_message(embed=make_embed("Rule Deleted", f"> Rule **{name}** deleted.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
+            await responder.send(embed=make_embed("Rule Deleted", f"> Rule **{name}** deleted.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         else:
-            await interaction.response.send_message(embed=make_embed("Not Found", "> Rule not found.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
+            await responder.send(embed=make_embed("Not Found", "> Rule not found.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 class RuleDeleteView(discord.ui.View):
     def __init__(self):

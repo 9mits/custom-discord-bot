@@ -4,13 +4,13 @@ import unittest
 from unittest.mock import AsyncMock, Mock, call, patch
 
 import discord
+from discord import app_commands
 
 import cogs.event_leaderboard as event_module
 from cogs.event_leaderboard import (
     EVENT_CONTROL_BRAND_NAME,
     EVENT_GUILD_ID,
     EVENT_HISTORY_LIMIT,
-    EventControlGroup,
     EventHistorySelect,
     EventLeaderboardCog,
     build_event_archive,
@@ -23,7 +23,6 @@ from cogs.event_leaderboard import (
     event_progress_seconds,
     event_title,
     event_top_10,
-    is_event_owner,
     normalize_event_history,
 )
 
@@ -111,23 +110,12 @@ class EventProgressTests(unittest.TestCase):
 
 
 class EventControlTests(unittest.IsolatedAsyncioTestCase):
-    async def test_owner_check_requires_event_guild_and_owner_capability(self):
-        interaction = SimpleNamespace(guild_id=EVENT_GUILD_ID)
-        with patch.object(event_module, "has_permission_capability", return_value=True) as capability:
-            self.assertTrue(is_event_owner(interaction))
-            capability.assert_called_once_with(interaction, "owner_panel")
-
-        interaction.guild_id = EVENT_GUILD_ID + 1
-        with patch.object(event_module, "has_permission_capability") as capability:
-            self.assertFalse(is_event_owner(interaction))
-            capability.assert_not_called()
-
-    async def test_event_commands_are_guild_scoped_and_admin_hidden_by_default(self):
-        self.assertIsInstance(event_group, EventControlGroup)
+    async def test_event_commands_are_guild_scoped_and_registry_authorized(self):
+        self.assertIsInstance(event_group, app_commands.Group)
         self.assertEqual(event_group._guild_ids, [EVENT_GUILD_ID])
         self.assertEqual(endtimestamp_command._guild_ids, [EVENT_GUILD_ID])
-        self.assertTrue(event_group.default_permissions.administrator)
-        self.assertTrue(endtimestamp_command.default_permissions.administrator)
+        self.assertIsNone(event_group.default_permissions)
+        self.assertIsNone(endtimestamp_command.default_permissions)
 
     async def test_test_mode_no_longer_registers_event_controls(self):
         fake_bot = SimpleNamespace(
@@ -182,7 +170,7 @@ class EventControlTests(unittest.IsolatedAsyncioTestCase):
         interaction = SimpleNamespace(
             guild=SimpleNamespace(icon=None),
             client=SimpleNamespace(get_cog=Mock(return_value=None)),
-            response=SimpleNamespace(send_message=AsyncMock()),
+            response=SimpleNamespace(is_done=Mock(return_value=False), send_message=AsyncMock()),
         )
         cfg = {
             "active": True,
@@ -234,7 +222,7 @@ class EventControlTests(unittest.IsolatedAsyncioTestCase):
             guild_id=EVENT_GUILD_ID,
             guild=SimpleNamespace(icon=None),
             client=SimpleNamespace(get_cog=Mock(return_value=None)),
-            response=SimpleNamespace(send_message=AsyncMock()),
+            response=SimpleNamespace(is_done=Mock(return_value=False), send_message=AsyncMock()),
         )
         saved = []
         with patch.object(event_module, "load_config", return_value=cfg), patch.object(
@@ -317,7 +305,7 @@ class EventControlTests(unittest.IsolatedAsyncioTestCase):
         select._values = ["event-one"]
         interaction = SimpleNamespace(
             guild=SimpleNamespace(icon=None),
-            response=SimpleNamespace(send_message=AsyncMock()),
+            response=SimpleNamespace(is_done=Mock(return_value=False), send_message=AsyncMock()),
         )
         with patch.object(
             event_module,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 import time
 from collections import deque
@@ -11,6 +12,13 @@ from typing import Any, Awaitable, Callable, Deque, Dict, Mapping, Optional
 
 import discord
 from discord import InteractionType, app_commands
+
+from .actions import AcknowledgementPolicy, authorize_interaction
+from .errors import BotOperationError, classify_operation_error, respond_operation_error
+from .responding import InteractionResponder
+
+
+logger = logging.getLogger(__name__)
 
 
 def _percentile(values: Deque[float], percentile: float) -> float:
@@ -258,14 +266,33 @@ class OperationMetrics:
 class MetricsCommandTree(app_commands.CommandTree):
     async def _call(self, interaction) -> None:
         metrics = getattr(self.client, "metrics", None)
-        if metrics is None:
-            await super()._call(interaction)
-            return
 
         async def operation() -> None:
+            try:
+                data_manager = getattr(self.client, "data_manager", None)
+                config = getattr(data_manager, "config", {})
+                spec = authorize_interaction(interaction, config)
+                if spec is not None and spec.acknowledgement_policy is AcknowledgementPolicy.DEFER:
+                    await InteractionResponder(interaction, metrics=metrics).defer(ephemeral=True)
+            except BotOperationError as error:
+                interaction.command_failed = True
+                await respond_operation_error(interaction, error)
+                return
+            except Exception as error:
+                operation_error = classify_operation_error(error)
+                interaction.command_failed = True
+                logger.exception(
+                    "Interaction policy failed correlation_id=%s",
+                    operation_error.correlation_id,
+                )
+                await respond_operation_error(interaction, operation_error)
+                return
             await super(MetricsCommandTree, self)._call(interaction)
 
-        await metrics.measure_interaction(interaction, operation)
+        if metrics is None:
+            await operation()
+        else:
+            await metrics.measure_interaction(interaction, operation)
 
 
 def install_component_metrics() -> None:
@@ -301,3 +328,44 @@ def install_component_metrics() -> None:
 
         discord.ui.Modal._scheduled_task = measured_modal_task
         discord.ui.Modal._mgx_metrics_wrapped = True
+
+    if not getattr(discord.ui.View, "_mgx_errors_wrapped", False):
+        original_view_error = discord.ui.View.on_error
+
+        async def safe_view_error(view, interaction, error, item):
+            operation_error = classify_operation_error(error)
+            logger.error(
+                "Component failed correlation_id=%s view=%s item=%s",
+                operation_error.correlation_id,
+                type(view).__name__,
+                type(item).__name__,
+                exc_info=(type(error), error, error.__traceback__),
+            )
+            try:
+                await respond_operation_error(interaction, operation_error)
+            except Exception:
+                pass
+            await original_view_error(view, interaction, error, item)
+
+        discord.ui.View.on_error = safe_view_error
+        discord.ui.View._mgx_errors_wrapped = True
+
+    if not getattr(discord.ui.Modal, "_mgx_errors_wrapped", False):
+        original_modal_error = discord.ui.Modal.on_error
+
+        async def safe_modal_error(modal, interaction, error):
+            operation_error = classify_operation_error(error)
+            logger.error(
+                "Modal failed correlation_id=%s modal=%s",
+                operation_error.correlation_id,
+                type(modal).__name__,
+                exc_info=(type(error), error, error.__traceback__),
+            )
+            try:
+                await respond_operation_error(interaction, operation_error)
+            except Exception:
+                pass
+            await original_modal_error(modal, interaction, error)
+
+        discord.ui.Modal.on_error = safe_modal_error
+        discord.ui.Modal._mgx_errors_wrapped = True

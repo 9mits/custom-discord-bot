@@ -14,6 +14,7 @@ from discord.ext import commands
 from core.actions import ActionSpec, get_action_spec, search_actions
 from core.constants import SCOPE_SYSTEM
 from core.context import bot, tree
+from core.responding import InteractionResponder
 from core.services import (
     ConfigImportError,
     export_config_payload,
@@ -24,7 +25,14 @@ from core.services import (
     validate_guild_configuration,
 )
 from core.utils import truncate_text
-from .shared import make_confirmation_embed, make_embed, panel_container, respond_with_error
+from .shared import (
+    format_user_ref,
+    make_confirmation_embed,
+    make_embed,
+    panel_container,
+    respond_with_error,
+    send_log,
+)
 
 
 SETTINGS_SECTIONS = (
@@ -180,46 +188,346 @@ class SettingsEditorButton(discord.ui.Button):
         self.hub = hub
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        section = self.hub.section
-        if section == "roles":
-            from .config import SetupRolesView
-            view = SetupRolesView(interaction.guild)
-            await interaction.response.send_message(view=view, ephemeral=True)
-        elif section in {"channels", "modmail"}:
-            from .config import SetupChannelsView
-            view = SetupChannelsView(interaction.guild)
-            await interaction.response.send_message(view=view, ephemeral=True)
-        elif section == "moderation":
-            from .case_panel import RulesDashboardView
-            await interaction.response.send_message(view=RulesDashboardView(interaction.guild), ephemeral=True)
-        elif section == "automod":
-            from .automod import AutoModDashboardView, build_automod_dashboard_embed
-            await interaction.response.send_message(
-                embed=build_automod_dashboard_embed(interaction.guild),
-                view=AutoModDashboardView(),
-                ephemeral=True,
+        if self.hub.section == "branding" and not _can_use_spec(interaction, get_action_spec("branding server")):
+            await respond_with_error(interaction, "Only the configured owner role can edit bot branding.", scope=SCOPE_SYSTEM)
+            return
+        await interaction.response.edit_message(
+            view=SettingsEditorView(
+                interaction.guild,
+                requester_id=self.hub.requester_id,
+                section=self.hub.section,
+                history=self.hub.history,
             )
-        elif section == "custom_roles":
-            from .roles import RoleSettingsView, build_role_settings_embed
-            await interaction.response.send_message(
-                embed=build_role_settings_embed(interaction.guild), view=RoleSettingsView(), ephemeral=True
+        )
+
+
+_ROLE_FIELDS = (
+    ("role_owner", "Owner Role"),
+    ("role_admin", "Admin Role"),
+    ("role_mod", "Mod Role"),
+    ("role_community_manager", "Community Manager"),
+    ("role_anchor", "Custom Role Anchor"),
+)
+_CHANNEL_FIELDS = (
+    ("general_log_channel_id", "General Bot Log"),
+    ("punishment_log_channel_id", "Punishment Log"),
+    ("appeal_channel_id", "Appeal Log"),
+    ("automod_log_channel_id", "AutoMod Log"),
+    ("automod_report_channel_id", "AutoMod Reports"),
+    ("category_archive", "Archive Category"),
+    ("modmail_inbox_channel", "Modmail Inbox"),
+    ("modmail_action_log_channel", "Modmail Action Log"),
+    ("modmail_panel_channel", "Modmail Panel"),
+)
+
+
+class SettingsEditorReturnButton(discord.ui.Button):
+    def __init__(self, editor: "SettingsEditorView", *, home: bool = False) -> None:
+        super().__init__(label="Home" if home else "Back", style=discord.ButtonStyle.secondary)
+        self.editor = editor
+        self.home = home
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        section = "overview" if self.home else self.editor.section
+        await interaction.response.edit_message(
+            view=SettingsHubView(
+                interaction.guild,
+                requester_id=self.editor.requester_id,
+                section=section,
+                history=self.editor.history,
             )
-        elif section == "security":
-            from .admin import SafetyView
-            await interaction.response.send_message(view=SafetyView(interaction.guild), ephemeral=True)
-        elif section == "branding":
-            if not _can_use_spec(interaction, get_action_spec("branding server")):
-                await respond_with_error(interaction, "Only the configured owner role can edit bot branding.", scope=SCOPE_SYSTEM)
-                return
-            from .admin import ServerBrandingView, _build_server_branding_embed
-            await interaction.response.send_message(
-                embed=_build_server_branding_embed(interaction.guild),
-                view=ServerBrandingView(interaction.guild),
-                ephemeral=True,
+        )
+
+
+class SettingsFieldSelect(discord.ui.Select):
+    def __init__(self, editor: "SettingsEditorView", category: str) -> None:
+        self.editor = editor
+        self.category = category
+        fields = _ROLE_FIELDS if category == "roles" else _CHANNEL_FIELDS
+        super().__init__(
+            placeholder=f"Choose a {category[:-1]} setting...",
+            options=[discord.SelectOption(label=label, value=key) for key, label in fields],
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        key = self.values[0]
+        fields = dict(_ROLE_FIELDS if self.category == "roles" else _CHANNEL_FIELDS)
+        await interaction.response.edit_message(
+            view=SettingsValueEditorView(
+                interaction.guild,
+                requester_id=self.editor.requester_id,
+                section=self.editor.section,
+                history=self.editor.history,
+                field_key=key,
+                field_label=fields[key],
+                role_field=self.category == "roles",
             )
+        )
+
+
+class SettingsRoleValueSelect(discord.ui.RoleSelect):
+    def __init__(self, editor: "SettingsValueEditorView") -> None:
+        super().__init__(placeholder=f"Select {editor.field_label}...", min_values=1, max_values=1)
+        self.editor = editor
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await InteractionResponder(interaction).defer(ephemeral=True)
+        await bot.data_manager.set_config_values(**{self.editor.field_key: self.values[0].id})
+        await interaction.edit_original_response(
+            view=SettingsEditorView(
+                interaction.guild,
+                requester_id=self.editor.requester_id,
+                section=self.editor.section,
+                history=self.editor.history,
+            )
+        )
+
+
+class SettingsChannelValueSelect(discord.ui.ChannelSelect):
+    def __init__(self, editor: "SettingsValueEditorView") -> None:
+        channel_types = [discord.ChannelType.category] if "category" in editor.field_key else [discord.ChannelType.text]
+        super().__init__(
+            placeholder=f"Select {editor.field_label}...",
+            min_values=1,
+            max_values=1,
+            channel_types=channel_types,
+        )
+        self.editor = editor
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await InteractionResponder(interaction).defer(ephemeral=True)
+        selected = self.values[0]
+        channel = interaction.guild.get_channel(selected.id) or await interaction.guild.fetch_channel(selected.id)
+        values = {self.editor.field_key: channel.id}
+        if self.editor.field_key == "general_log_channel_id":
+            values["log_channel_id"] = channel.id
+        await bot.data_manager.set_config_values(**values)
+        await interaction.edit_original_response(
+            view=SettingsEditorView(
+                interaction.guild,
+                requester_id=self.editor.requester_id,
+                section=self.editor.section,
+                history=self.editor.history,
+            )
+        )
+
+
+class SettingsAutoModSelect(discord.ui.Select):
+    def __init__(self, editor: "SettingsEditorView") -> None:
+        self.editor = editor
+        options = [
+            discord.SelectOption(label="Toggle Bot Responses", value="native:enabled"),
+            discord.SelectOption(label="Toggle Warning DMs", value="native:warning_dm_enabled"),
+            discord.SelectOption(label="Toggle Report Button", value="native:report_button_enabled"),
+            discord.SelectOption(label="Toggle Scam Filter", value="image:enabled"),
+            discord.SelectOption(label="Toggle Scam Deletion", value="image:delete_message"),
+            discord.SelectOption(label="Toggle Scam Logs", value="image:log_detections"),
+            discord.SelectOption(label="Toggle Scam Punishment", value="image:punish"),
+        ]
+        super().__init__(placeholder="Choose an AutoMod setting to toggle...", options=options)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        from .automod import get_image_filter_settings, store_image_filter_settings, store_native_automod_settings
+        from core.services import get_native_automod_settings
+
+        await InteractionResponder(interaction).defer(ephemeral=True)
+        family, key = self.values[0].split(":", 1)
+        if family == "native":
+            settings = get_native_automod_settings(bot.data_manager.config)
+            settings[key] = not bool(settings.get(key, True))
+            await store_native_automod_settings(settings)
         else:
-            from .config import SetupLandingView
-            await interaction.response.send_message(view=SetupLandingView(interaction.guild), ephemeral=True)
+            settings = get_image_filter_settings()
+            settings[key] = not bool(settings.get(key, False))
+            await store_image_filter_settings(settings)
+        await interaction.edit_original_response(
+            view=SettingsEditorView(
+                interaction.guild,
+                requester_id=self.editor.requester_id,
+                section="automod",
+                history=self.editor.history,
+            )
+        )
+
+
+class SettingsSecurityUserSelect(discord.ui.UserSelect):
+    def __init__(self, editor: "SettingsEditorView") -> None:
+        super().__init__(placeholder="Toggle anti-nuke immunity for a member...", min_values=1, max_values=1)
+        self.editor = editor
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await InteractionResponder(interaction).defer(ephemeral=True)
+        user_id = str(self.values[0].id)
+
+        def toggle(config):
+            immunity = config.setdefault("immunity_list", [])
+            if user_id in immunity:
+                immunity.remove(user_id)
+            else:
+                immunity.append(user_id)
+
+        await bot.data_manager.mutate_config(toggle)
+        await interaction.edit_original_response(
+            view=SettingsEditorView(
+                interaction.guild,
+                requester_id=self.editor.requester_id,
+                section="security",
+                history=self.editor.history,
+            )
+        )
+
+
+class SettingsAccessRoleSelect(discord.ui.RoleSelect):
+    def __init__(self, editor: "SettingsEditorView") -> None:
+        super().__init__(placeholder="Toggle a moderation access role...", min_values=1, max_values=1)
+        self.editor = editor
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if not _can_use_spec(interaction, get_action_spec("access")):
+            await respond_with_error(
+                interaction,
+                "Only the configured owner role can change moderation access.",
+                scope=SCOPE_SYSTEM,
+            )
+            return
+        await InteractionResponder(interaction).defer(ephemeral=True)
+        role_id = self.values[0].id
+
+        def toggle(config):
+            roles = config.setdefault("mod_roles", [])
+            if role_id in roles:
+                roles.remove(role_id)
+                action["value"] = "Removed from"
+            else:
+                roles.append(role_id)
+                action["value"] = "Added to"
+
+        action = {}
+        await bot.data_manager.mutate_config(toggle)
+        log_embed = make_embed(
+            "Moderator Access Updated",
+            "> The list of roles with moderation access was changed.",
+            kind="info",
+            scope=SCOPE_SYSTEM,
+            guild=interaction.guild,
+        )
+        log_embed.add_field(name="Actor", value=format_user_ref(interaction.user), inline=True)
+        log_embed.add_field(name="Role", value=f"<@&{role_id}> (`{role_id}`)", inline=True)
+        log_embed.add_field(name="Action", value=action["value"], inline=True)
+        await send_log(interaction.guild, log_embed)
+        await interaction.edit_original_response(
+            view=SettingsEditorView(
+                interaction.guild,
+                requester_id=self.editor.requester_id,
+                section="security",
+                history=self.editor.history,
+            )
+        )
+
+
+class SettingsValueEditorView(discord.ui.LayoutView):
+    def __init__(
+        self,
+        guild: Optional[discord.Guild],
+        *,
+        requester_id: int,
+        section: str,
+        history: list[str],
+        field_key: str,
+        field_label: str,
+        role_field: bool,
+    ) -> None:
+        super().__init__(timeout=900)
+        self.requester_id = requester_id
+        self.section = section
+        self.history = list(history)
+        self.field_key = field_key
+        self.field_label = field_label
+        container = panel_container(f"Configure {field_label}", f"> Choose the new **{field_label}** below.", guild=guild)
+        row = discord.ui.ActionRow()
+        row.add_item(SettingsRoleValueSelect(self) if role_field else SettingsChannelValueSelect(self))
+        container.add_item(row)
+        nav = discord.ui.ActionRow()
+        nav.add_item(SettingsEditorReturnButton(self))
+        nav.add_item(SettingsEditorReturnButton(self, home=True))
+        container.add_item(nav)
+        self.add_item(container)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id == self.requester_id:
+            return True
+        await interaction.response.send_message(
+            "This private settings session belongs to another user.",
+            ephemeral=True,
+        )
+        return False
+
+
+class SettingsEditorView(discord.ui.LayoutView):
+    def __init__(self, guild: Optional[discord.Guild], *, requester_id: int, section: str, history: list[str]) -> None:
+        super().__init__(timeout=900)
+        self.requester_id = requester_id
+        self.section = section
+        self.history = list(history)
+        title = f"{_SECTION_LABELS.get(section, 'Settings')} Editor"
+        container = panel_container(title, "> Changes save immediately and this panel stays in one message.", guild=guild)
+
+        if section in {"roles", "channels", "modmail"}:
+            row = discord.ui.ActionRow()
+            row.add_item(SettingsFieldSelect(self, "roles" if section == "roles" else "channels"))
+            container.add_item(row)
+        elif section == "moderation":
+            from .case_panel import RulesDashboardButtons
+            container.add_item(discord.ui.TextDisplay(f"**Configured rules** · {len(bot.data_manager.config.get('punishment_rules', {}))}"))
+            container.add_item(RulesDashboardButtons())
+        elif section == "automod":
+            from .automod import get_image_filter_settings
+            from core.services import get_native_automod_settings
+            native = get_native_automod_settings(bot.data_manager.config)
+            images = get_image_filter_settings()
+            container.add_item(discord.ui.TextDisplay(
+                f"**Responses:** {'On' if native.get('enabled') else 'Off'} · "
+                f"**Warning DMs:** {'On' if native.get('warning_dm_enabled') else 'Off'} · "
+                f"**Scam filter:** {'On' if images.get('enabled') else 'Off'}"
+            ))
+            row = discord.ui.ActionRow()
+            row.add_item(SettingsAutoModSelect(self))
+            container.add_item(row)
+        elif section == "custom_roles":
+            from .roles import RoleSettingsActionSelect
+            row = discord.ui.ActionRow()
+            row.add_item(RoleSettingsActionSelect())
+            container.add_item(row)
+        elif section == "security":
+            row = discord.ui.ActionRow()
+            row.add_item(SettingsSecurityUserSelect(self))
+            container.add_item(row)
+            access_row = discord.ui.ActionRow()
+            access_row.add_item(SettingsAccessRoleSelect(self))
+            container.add_item(access_row)
+        elif section == "branding":
+            from .admin import GlobalBrandingActionSelect, ServerBrandingActionSelect
+            global_row = discord.ui.ActionRow()
+            global_row.add_item(GlobalBrandingActionSelect())
+            container.add_item(global_row)
+            server_row = discord.ui.ActionRow()
+            server_row.add_item(ServerBrandingActionSelect(guild))
+            container.add_item(server_row)
+        else:
+            container.add_item(discord.ui.TextDisplay("Use the section selector to choose a focused editor."))
+
+        container.add_item(discord.ui.Separator())
+        nav = discord.ui.ActionRow()
+        nav.add_item(SettingsEditorReturnButton(self))
+        nav.add_item(SettingsEditorReturnButton(self, home=True))
+        container.add_item(nav)
+        self.add_item(container)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id == self.requester_id:
+            return True
+        await interaction.response.send_message("This private settings session belongs to another user.", ephemeral=True)
+        return False
 
 
 class SettingsDataActions(discord.ui.ActionRow):
@@ -232,48 +540,8 @@ class SettingsDataActions(discord.ui.ActionRow):
 class SettingsSectionActions(discord.ui.ActionRow):
     def __init__(self, section: str) -> None:
         super().__init__()
-        if section == "security":
-            self.add_item(SettingsAccessButton())
-        elif section == "branding":
-            self.add_item(SettingsGlobalBrandingButton())
-        elif section == "modmail":
+        if section == "modmail":
             self.add_item(SettingsModmailPanelButton())
-
-
-class SettingsAccessButton(discord.ui.Button):
-    def __init__(self) -> None:
-        super().__init__(label="Access Roles", style=discord.ButtonStyle.secondary)
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        if not _can_use_spec(interaction, get_action_spec("access")):
-            await respond_with_error(interaction, "Only the configured owner role can change moderation access.", scope=SCOPE_SYSTEM)
-            return
-        from .case_panel import AccessView
-        roles = bot.data_manager.config.get("mod_roles", [])
-        role_lines = "\n".join(f"- <@&{role_id}>" for role_id in roles) if roles else "None configured."
-        embed = make_embed(
-            "Moderator Access",
-            "> Select a role to add or remove its existing moderation capabilities.",
-            kind="info",
-            scope=SCOPE_SYSTEM,
-            guild=interaction.guild,
-        )
-        embed.add_field(name="Current Access Roles", value=role_lines, inline=False)
-        await interaction.response.send_message(embed=embed, view=AccessView(), ephemeral=True)
-
-
-class SettingsGlobalBrandingButton(discord.ui.Button):
-    def __init__(self) -> None:
-        super().__init__(label="Global Branding", style=discord.ButtonStyle.secondary)
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        if not _can_use_spec(interaction, get_action_spec("branding global")):
-            await respond_with_error(interaction, "Only the configured owner role can edit global branding.", scope=SCOPE_SYSTEM)
-            return
-        from .admin import GlobalBrandingView, _build_global_branding_embed
-        await interaction.response.send_message(
-            embed=_build_global_branding_embed(), view=GlobalBrandingView(), ephemeral=True
-        )
 
 
 class SettingsModmailPanelButton(discord.ui.Button):
@@ -358,7 +626,7 @@ class SettingsHubView(discord.ui.LayoutView):
         container.add_item(SettingsNavigation(self))
         if self.section == "overview":
             container.add_item(SettingsDataActions(self))
-        elif self.section in {"security", "branding", "modmail"}:
+        elif self.section == "modmail":
             container.add_item(SettingsSectionActions(self.section))
         self.add_item(container)
 
@@ -405,14 +673,8 @@ class ConfigImportConfirmView(discord.ui.View):
     @discord.ui.button(label="Import Settings", style=discord.ButtonStyle.danger)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
         await interaction.response.defer(ephemeral=True, thinking=True)
-        previous = bot.data_manager.config
         await bot.data_manager.create_config_backup()
-        bot.data_manager.config = copy.deepcopy(self.merged)
-        try:
-            await bot.data_manager.save_config(*self.changed_keys)
-        except Exception:
-            bot.data_manager.config = previous
-            raise
+        await bot.data_manager.replace_config(self.merged)
         self.stop()
         await interaction.edit_original_response(
             embed=make_confirmation_embed("Settings Imported", f"> Imported **{len(self.changed_keys)}** changed setting(s). A rollback backup was retained.", scope=SCOPE_SYSTEM, guild=interaction.guild),
@@ -539,7 +801,7 @@ def build_action_detail(spec: ActionSpec, guild: Optional[discord.Guild]) -> dis
 
 
 async def send_settings_hub(interaction: discord.Interaction, section: str = "overview") -> None:
-    await interaction.response.send_message(
+    await InteractionResponder(interaction).send(
         view=SettingsHubView(interaction.guild, requester_id=interaction.user.id, section=section),
         ephemeral=True,
     )
@@ -569,8 +831,6 @@ async def _help_autocomplete(interaction: discord.Interaction, current: str):
 
 @tree.command(name="settings", description="Open the unified server settings hub.")
 @app_commands.describe(import_file="Optional JSON settings backup to validate and preview.")
-@app_commands.default_permissions(administrator=True)
-@app_commands.check(lambda interaction: _can_use_spec(interaction, get_action_spec("settings")))
 async def settings_cmd(interaction: discord.Interaction, import_file: Optional[discord.Attachment] = None):
     if not get_feature_flag(bot.data_manager.config, "config_panel", True):
         await respond_with_error(interaction, "The bot settings panel is currently turned off.", scope=SCOPE_SYSTEM)
@@ -584,7 +844,7 @@ async def settings_cmd(interaction: discord.Interaction, import_file: Optional[d
     if not import_file.filename.casefold().endswith(".json"):
         await respond_with_error(interaction, "Attach a `.json` settings backup.", scope=SCOPE_SYSTEM)
         return
-    await interaction.response.defer(ephemeral=True, thinking=True)
+    await InteractionResponder(interaction).defer(ephemeral=True, thinking=True)
     try:
         raw = await import_file.read()
         payload = json.loads(raw.decode("utf-8"))

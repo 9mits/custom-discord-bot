@@ -25,10 +25,10 @@ from .shared import (
     respond_with_error,
     build_offense_ladder_embed,
     build_setup_validation_embed,
-    check_admin,
     extract_snowflake_id,
     resolve_channel_input,
     send_modmail_panel_message,
+    respond_with_operation_failure,
 )
 
 
@@ -42,8 +42,9 @@ class ConfigRoleSelect(discord.ui.RoleSelect):
         responder = InteractionResponder(interaction)
         await responder.defer(ephemeral=True)
         role = self.values[0]
-        bot.data_manager.config[self.config_key] = role.id
-        await bot.data_manager.save_config(self.config_key)
+        await bot.data_manager.mutate_config(
+            lambda config: config.__setitem__(self.config_key, role.id)
+        )
         await interaction.followup.send(embed=make_embed("Setting Updated", f"> **{self.config_name}** updated to {role.mention}.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 class ConfigChannelSelect(discord.ui.ChannelSelect):
@@ -57,12 +58,12 @@ class ConfigChannelSelect(discord.ui.ChannelSelect):
         await responder.defer(ephemeral=True)
         selected = self.values[0]
         channel = interaction.guild.get_channel(selected.id) or await interaction.guild.fetch_channel(selected.id)
-        bot.data_manager.config[self.config_key] = channel.id
-        changed_keys = [self.config_key]
-        if self.config_key == "general_log_channel_id":
-            bot.data_manager.config["log_channel_id"] = channel.id
-            changed_keys.append("log_channel_id")
-        await bot.data_manager.save_config(*changed_keys)
+        def update_channel(config):
+            config[self.config_key] = channel.id
+            if self.config_key == "general_log_channel_id":
+                config["log_channel_id"] = channel.id
+
+        await bot.data_manager.mutate_config(update_channel)
 
         if self.config_key == "modmail_panel_channel":
             await send_configured_modmail_panel(interaction, channel)
@@ -193,9 +194,10 @@ class GuildIdModal(discord.ui.Modal, title="Set Guild ID"):
         if not self.guild_id.value.isdigit():
             await interaction.response.send_message(embed=make_embed("Invalid ID", "> Invalid guild ID.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
             return
-        bot.data_manager.config["guild_id"] = int(self.guild_id.value)
-        await bot.data_manager.save_config("guild_id")
-        await interaction.response.send_message(embed=make_embed("Guild ID Updated", f"> Guild ID set to `{self.guild_id.value}`.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
+        responder = InteractionResponder(interaction)
+        await responder.defer(ephemeral=True)
+        await bot.data_manager.set_config_values(guild_id=int(self.guild_id.value))
+        await responder.send(embed=make_embed("Guild ID Updated", f"> Guild ID set to `{self.guild_id.value}`.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 
 async def _fetch_configured_modmail_panel_channel(interaction: discord.Interaction, channel_id: int):
@@ -267,6 +269,7 @@ async def send_configured_modmail_panel(
     interaction: discord.Interaction,
     channel: Optional[discord.TextChannel] = None,
 ) -> None:
+    await InteractionResponder(interaction).defer(ephemeral=True, thinking=True)
     target_channel, error, used_current_channel = await _resolve_modmail_panel_channel(interaction, channel)
     if error:
         await respond_with_error(interaction, error, scope=SCOPE_SYSTEM)
@@ -283,9 +286,6 @@ async def send_configured_modmail_panel(
         )
         return
 
-    if not interaction.response.is_done():
-        await interaction.response.defer(ephemeral=True, thinking=True)
-
     try:
         message = await send_modmail_panel_message(
             target_channel,
@@ -300,12 +300,11 @@ async def send_configured_modmail_panel(
         )
         return
     except discord.HTTPException as exc:
-        await respond_with_error(interaction, f"Discord rejected the modmail panel message: HTTP {exc.status}.", scope=SCOPE_SYSTEM)
+        await respond_with_operation_failure(interaction, exc, operation="post modmail panel", scope=SCOPE_SYSTEM)
         return
 
     if used_current_channel:
-        bot.data_manager.config["modmail_panel_channel"] = target_channel.id
-        await bot.data_manager.save_config("modmail_panel_channel")
+        await bot.data_manager.set_config_values(modmail_panel_channel=target_channel.id)
 
     channel_mention = getattr(target_channel, "mention", f"`{target_channel.id}`")
     await interaction.followup.send(
@@ -447,15 +446,11 @@ class SetupLandingView(discord.ui.LayoutView):
 
 
 @tree.command(name="setup", description="Configure server roles and channels.")
-@app_commands.default_permissions(administrator=True)
-@app_commands.check(check_admin)
 async def setup_slash(interaction: discord.Interaction):
     from .control_plane import send_settings_hub
     await send_settings_hub(interaction, "overview")
 
 @tree.command(name="config", description="Manage bot settings and backups.")
-@app_commands.default_permissions(administrator=True)
-@app_commands.check(check_admin)
 async def config_cmd(interaction: discord.Interaction):
     if not get_feature_flag(bot.data_manager.config, "config_panel", True):
         await respond_with_error(interaction, "The bot settings panel is currently turned off in the feature settings.", scope=SCOPE_SYSTEM)
@@ -469,9 +464,7 @@ async def config_cmd(interaction: discord.Interaction):
     channel="Channel to post in. Defaults to the configured panel channel or the current channel.",
     channelid="A text channel ID or mention if the channel isn't selectable in the picker.",
 )
-@app_commands.default_permissions(administrator=True)
 @app_commands.guild_only()
-@app_commands.check(check_admin)
 async def modmail_panel_cmd(
     interaction: discord.Interaction,
     channel: Optional[discord.TextChannel] = None,

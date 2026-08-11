@@ -4,8 +4,13 @@ from __future__ import annotations
 
 import uuid
 
+import discord
+from discord import app_commands
 
-class BotOperationError(RuntimeError):
+from .constants import BRAND_NAME, EMBED_PALETTE
+
+
+class BotOperationError(app_commands.AppCommandError):
     title = "Action Failed"
     public_message = "The action could not be completed."
 
@@ -53,3 +58,31 @@ class InternalFailure(BotOperationError):
     title = "Internal Error"
     public_message = "The bot hit an unexpected error while processing this action."
 
+
+def classify_operation_error(error: BaseException) -> BotOperationError:
+    original = error.original if isinstance(error, app_commands.CommandInvokeError) else error
+    if isinstance(original, BotOperationError):
+        return original
+    if isinstance(error, app_commands.CheckFailure):
+        return CallerPermissionError(str(error))
+    if isinstance(original, discord.Forbidden):
+        return BotPermissionError(str(original))
+    if isinstance(original, discord.HTTPException) and original.status == 429:
+        return RateLimitError(str(original))
+    return InternalFailure(str(original))
+
+
+async def respond_operation_error(interaction: discord.Interaction, error: BotOperationError) -> None:
+    message = error.public_message
+    if isinstance(error, InternalFailure):
+        message += f" Reference: `{error.correlation_id}`."
+    embed = discord.Embed(
+        title=error.title,
+        description=f"> {message}",
+        color=EMBED_PALETTE["danger"],
+    )
+    embed.set_footer(text=BRAND_NAME)
+    if interaction.response.is_done():
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    else:
+        await interaction.response.send_message(embed=embed, ephemeral=True)

@@ -26,6 +26,7 @@ from core.heavy_jobs import (
     HeavyJobStopped,
     HeavyJobTimedOut,
 )
+from core.responding import InteractionResponder
 from core.utils import truncate_text
 from .shared import (
     extract_snowflake_id,
@@ -406,12 +407,13 @@ class ExportMenuView(discord.ui.View):
     userid="A user ID or mention to preselect as the member filter.",
     channelid="A text channel ID or mention to preselect as the channel filter.",
 )
-@app_commands.check(_staff_check)
 async def export(
     interaction: discord.Interaction,
     userid: Optional[str] = None,
     channelid: Optional[str] = None,
 ):
+    responder = InteractionResponder(interaction)
+    await responder.defer(ephemeral=True)
     user_ids: Set[int] = set()
     channel_ids: Set[int] = set()
 
@@ -443,7 +445,7 @@ async def export(
     )
     await view.reload_exports()
     view.sync_download_options()
-    await interaction.response.send_message(embed=view.build_embed(), view=view, ephemeral=True)
+    await responder.send(embed=view.build_embed(), view=view, ephemeral=True)
 
 
 class ExportCog(commands.Cog):

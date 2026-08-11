@@ -24,6 +24,7 @@ from core.heavy_jobs import (
     HeavyJobStopped,
     HeavyJobTimedOut,
 )
+from core.responding import InteractionResponder
 from core.utils import now_iso, parse_duration_str
 from .shared import (
     format_duration,
@@ -36,6 +37,8 @@ from .shared import (
     format_user_ref,
     send_punishment_log,
     respond_with_error,
+    respond_with_operation_failure,
+    format_operation_failure,
     is_staff,
     has_permission_capability,
     extract_snowflake_id,
@@ -320,7 +323,7 @@ async def execute_punishment(
         await interaction.followup.send(embed=make_embed("Permission Error", "> I cannot action this user. My role must be **above** theirs in the role list, and I need the matching permission (Moderate Members for timeouts, Ban Members for bans, Kick Members for kicks).", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
         return
     except Exception as e:
-        await interaction.followup.send(embed=make_embed("Error", f"> Error: {e}", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
+        await respond_with_operation_failure(interaction, e, operation="apply punishment", scope=SCOPE_MODERATION)
         return
 
     timestamp_iso = now_iso()
@@ -344,7 +347,11 @@ async def execute_punishment(
     }
     if source_message is not None:
         record["source_message"] = source_message
-    record = await bot.data_manager.add_punishment(uid, record, persist=False)
+    record = await bot.data_manager.add_punishment(
+        uid,
+        record,
+        increment_total_issued=True,
+    )
     case_label = get_case_label(record, len(history) + 1)
 
     # DM User
@@ -384,13 +391,6 @@ async def execute_punishment(
     except discord.Forbidden:
         pass
     
-    # Update Stats
-    bot.data_manager.config["stats"]["total_issued"] = bot.data_manager.config["stats"].get("total_issued", 0) + 1
-    await bot.data_manager.persist_punishment(
-        record["case_id"],
-        config_keys=("case_counter", "stats"),
-    )
-
     if is_kick:
         status = "Kicked"
     elif is_softban:
@@ -928,15 +928,18 @@ class PunishView(discord.ui.View):
 UNDONE_CASE_CACHE_LIMIT = 50
 
 
-def stash_undone_case(target_id: int, record: dict) -> None:
+async def stash_undone_case(target_id: int, record: dict) -> None:
     case_id = record.get("case_id")
     if not isinstance(case_id, int):
         return
-    store = bot.data_manager.config.setdefault("undone_cases", {})
-    store[str(case_id)] = {"target_id": target_id, "record": record}
-    while len(store) > UNDONE_CASE_CACHE_LIMIT:
-        del store[min(store, key=int)]
-    bot.data_manager.mark_config_dirty()
+
+    def update(config):
+        store = config.setdefault("undone_cases", {})
+        store[str(case_id)] = {"target_id": target_id, "record": record}
+        while len(store) > UNDONE_CASE_CACHE_LIMIT:
+            del store[min(store, key=int)]
+
+    await bot.data_manager.mutate_config(update)
 
 
 class RevokeUndoButton(
@@ -964,19 +967,22 @@ class RevokeUndoButton(
             await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
             return
 
-        store = bot.data_manager.config.get("undone_cases", {})
-        entry = store.pop(str(self.case_id), None)
+        entry_holder = {}
+
+        def remove_entry(config):
+            store = config.setdefault("undone_cases", {})
+            entry_holder["entry"] = store.pop(str(self.case_id), None)
+
+        await bot.data_manager.mutate_config(remove_entry)
+        entry = entry_holder.get("entry")
         if not entry:
             await interaction.response.send_message(embed=make_embed("Not Available", "> This undo can no longer be revoked — it was already restored or has expired.", kind="muted", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
             return
-        bot.data_manager.mark_config_dirty()
-
         await interaction.response.defer()
 
         record = entry.get("record") or {}
         target_id = int(entry.get("target_id") or 0)
         await bot.data_manager.add_punishment(str(target_id), record)
-        await bot.data_manager.save_config("undone_cases")
 
         # Re-apply physical punishment
         guild = interaction.guild
@@ -999,12 +1005,12 @@ class RevokeUndoButton(
                 if dur > 0:
                     await target.timeout(get_valid_duration(dur), reason="Undo Revoked: Restoring Punishment")
                     action_taken += " & User Timed Out"
-        except Exception as e:
-            action_taken += f" (Physical action failed: {e})"
+        except Exception as exc:
+            action_taken += f" ({format_operation_failure(exc, 'restore revoked punishment')})"
 
         embed = interaction.message.embeds[0]
         embed.color = discord.Color.orange()
-        embed.add_field(name="Update", value=f"> **Undo Revoked** by {interaction.user.mention}\n> {action_taken}", inline=False)
+        embed.add_field(name="Update", value=f"> **Undo Revoked**\n> {action_taken}", inline=False)
         await interaction.edit_original_response(embed=embed, view=None)
 
 
@@ -1014,7 +1020,7 @@ def build_revoke_undo_view(case_id: int) -> discord.ui.View:
     return view
 
 async def show_punish_menu(interaction: discord.Interaction, user: discord.User, reaction_count=None, evidence_message=None):
-    await interaction.response.defer(ephemeral=True)
+    await InteractionResponder(interaction).defer(ephemeral=True)
     embed = build_punish_embed(user, evidence_message=evidence_message)
     view = PunishView(user, interaction.user, reaction_count=reaction_count, evidence_message=evidence_message)
     await interaction.followup.send(embed=embed, view=view, ephemeral=True)
@@ -1027,7 +1033,7 @@ async def show_history_menu(
     selected_case_id: Optional[int] = None,
     initial_undo_reason: Optional[str] = None,
 ):
-    await interaction.response.defer(ephemeral=True)
+    await InteractionResponder(interaction).defer(ephemeral=True)
     uid = str(user.id)
     history_data = bot.data_manager.punishments.get(uid, [])
     if not history_data:
@@ -1215,6 +1221,7 @@ class ModerationTargetPickerView(discord.ui.View):
             await show_punish_menu(interaction, selected_user, reaction_count=self.reaction_count)
             return
 
+        await InteractionResponder(interaction).defer(ephemeral=True)
         member = await _resolve_selected_member(interaction, selected_user)
         if member is None:
             await respond_with_error(interaction, "That user is not currently in this server.", scope=SCOPE_MODERATION)
@@ -1254,7 +1261,7 @@ async def send_target_picker(
         scope=SCOPE_MODERATION,
         guild=interaction.guild,
     )
-    await interaction.response.send_message(
+    await InteractionResponder(interaction).send(
         embed=embed,
         view=ModerationTargetPickerView(
             requester_id=interaction.user.id,
@@ -1272,7 +1279,6 @@ async def send_target_picker(
     userid="A user ID or mention. Use this if the member isn't selectable in the user picker.",
     message_id="A message ID or link to punish its author and remove the message.",
 )
-@app_commands.check(_punishment_check)
 async def punish(
     interaction: discord.Interaction,
     user: Optional[discord.User] = None,
@@ -1317,7 +1323,6 @@ async def punish(
     user="The member to put up for the vote.",
     userid="A user ID or mention if the member isn't selectable in the picker.",
 )
-@app_commands.check(_punishment_check)
 async def publicexecution(
     interaction: discord.Interaction,
     user: Optional[discord.User] = None,
@@ -1350,7 +1355,6 @@ async def publicexecution(
     user="The member whose history to view.",
     userid="A user ID or mention if the member isn't selectable in the picker.",
 )
-@app_commands.check(_case_read_check)
 async def history(
     interaction: discord.Interaction,
     user: Optional[discord.Member] = None,
@@ -1370,9 +1374,8 @@ async def history(
 
 
 @tree.command(name="cases", description="Browse every moderation case on the server in case order.")
-@app_commands.check(_case_read_check)
 async def cases(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
+    await InteractionResponder(interaction).defer(ephemeral=True)
     view = AllCasesView(interaction.guild)
     await view.reload()
     if not view.total:
@@ -1396,7 +1399,6 @@ async def cases(interaction: discord.Interaction):
     reason="Reason to prefill in the undo panel.",
     userid="A user ID or mention if the member isn't selectable in the picker.",
 )
-@app_commands.check(_undo_check)
 async def undo(
     interaction: discord.Interaction,
     user: Optional[discord.Member] = None,
@@ -1551,7 +1553,7 @@ class PurgePanelView(discord.ui.View):
         try:
             deleted = await execute_purge(interaction.channel, self.amount, self.target_id, self.keyword)
         except discord.HTTPException as e:
-            await interaction.edit_original_response(embed=make_embed("Failed to Purge", f"> Failed to purge: {e}", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild))
+            await respond_with_operation_failure(interaction, e, operation="purge messages", scope=SCOPE_MODERATION)
             return
         await send_purge_log(interaction, deleted, self.target_id, self.keyword)
         if deleted == 0:
@@ -1564,7 +1566,6 @@ class PurgePanelView(discord.ui.View):
 
 @tree.command(name="purge", description="Bulk-delete recent messages; run without options to open the filter panel.")
 @app_commands.describe(amount="Delete this many recent messages right away. Omit to open the filter panel.")
-@app_commands.check(_purge_check)
 async def purge(interaction: discord.Interaction, amount: Optional[app_commands.Range[int, 1, 999]] = None):
     if amount is None:
         view = PurgePanelView()
@@ -1575,16 +1576,15 @@ async def purge(interaction: discord.Interaction, amount: Optional[app_commands.
     try:
         deleted = await execute_purge(interaction.channel, amount, None, None)
     except discord.HTTPException as e:
-        await interaction.followup.send(embed=make_embed("Failed to Purge", f"> Failed to purge: {e}", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
+        await respond_with_operation_failure(interaction, e, operation="purge messages", scope=SCOPE_MODERATION)
         return
     await send_purge_log(interaction, deleted, None, None)
     await interaction.followup.send(embed=make_embed("Messages Cleared", f"> Cleared **{deleted}** messages.", kind="success", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
 
 
 @tree.command(name="lock", description="Lock the current channel so members can't send messages.")
-@app_commands.check(_channel_lock_check)
 async def lock(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
+    await InteractionResponder(interaction).defer(ephemeral=True)
     channel = interaction.channel
     default_role = interaction.guild.default_role
     overwrite = channel.overwrites_for(default_role)
@@ -1599,18 +1599,17 @@ async def lock(interaction: discord.Interaction):
             guild=interaction.guild,
         )
         msg = await channel.send(embed=public_embed)
-        if "locked_channels" not in bot.data_manager.config: bot.data_manager.config["locked_channels"] = {}
-        bot.data_manager.config["locked_channels"][str(channel.id)] = msg.id
-        await bot.data_manager.save_config("locked_channels")
+        await bot.data_manager.mutate_config(
+            lambda config: config.setdefault("locked_channels", {}).__setitem__(str(channel.id), msg.id)
+        )
         await interaction.followup.send(embed=make_embed("Channel Locked", "> Channel has been locked successfully.", kind="success", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
     except Exception as e:
-        await interaction.followup.send(embed=make_embed("Error", f"> Error: {e}", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
+        await respond_with_operation_failure(interaction, e, operation="lock channel", scope=SCOPE_MODERATION)
 
 
 @tree.command(name="unlock", description="Unlock the current channel and restore messaging.")
-@app_commands.check(_channel_lock_check)
 async def unlock(interaction: discord.Interaction):
-    await interaction.response.defer(ephemeral=True)
+    await InteractionResponder(interaction).defer(ephemeral=True)
     channel = interaction.channel
     default_role = interaction.guild.default_role
     overwrite = channel.overwrites_for(default_role)
@@ -1624,11 +1623,12 @@ async def unlock(interaction: discord.Interaction):
                     msg = await channel.fetch_message(bot.data_manager.config["locked_channels"][cid])
                     await msg.delete()
                 except Exception: pass
-                del bot.data_manager.config["locked_channels"][cid]
-                await bot.data_manager.save_config("locked_channels")
+                await bot.data_manager.mutate_config(
+                    lambda config: config.setdefault("locked_channels", {}).pop(cid, None)
+                )
         await interaction.followup.send(embed=make_embed("Channel Unlocked", "> Channel has been unlocked successfully.", kind="success", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
     except Exception as e:
-        await interaction.followup.send(embed=make_embed("Error", f"> Error: {e}", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
+        await respond_with_operation_failure(interaction, e, operation="unlock channel", scope=SCOPE_MODERATION)
 
 
 class ModGuideSelect(discord.ui.Select):
@@ -1653,7 +1653,6 @@ class ModGuideView(discord.ui.View):
 
 
 @tree.command(name="mod-guide", description="View the moderation command guide.")
-@app_commands.check(_case_read_check)
 async def mod_help(interaction: discord.Interaction):
     await interaction.response.send_message(embed=build_mod_help_embed(interaction.guild), view=ModGuideView(), ephemeral=True)
 
@@ -1664,7 +1663,6 @@ async def mod_help(interaction: discord.Interaction):
     user="The member whose latest case to open.",
     userid="A user ID or mention if the member isn't selectable in the picker.",
 )
-@app_commands.check(_case_read_check)
 async def case(
     interaction: discord.Interaction,
     caseid: Optional[app_commands.Range[int, 1, 999999]] = None,
@@ -1687,17 +1685,11 @@ async def case(
 
 @tree.context_menu(name="Punish")
 async def punish_context(interaction: discord.Interaction, user: discord.User):
-    if not is_staff(interaction):
-        await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this command.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
-        return
     await show_punish_menu(interaction, user)
 
 
 @tree.context_menu(name="Punish Message")
 async def punish_message_context(interaction: discord.Interaction, message: discord.Message):
-    if not is_staff(interaction):
-        await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this command.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
-        return
     if message.author.bot:
         await respond_with_error(interaction, "Bot messages cannot be punished.", scope=SCOPE_MODERATION)
         return
@@ -1707,9 +1699,6 @@ async def punish_message_context(interaction: discord.Interaction, message: disc
 
 @tree.context_menu(name="Moderation History")
 async def history_context(interaction: discord.Interaction, user: discord.Member):
-    if not is_staff(interaction):
-        await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this command.", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
-        return
     await show_history_menu(interaction, user)
 
 

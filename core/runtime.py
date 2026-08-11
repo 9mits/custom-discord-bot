@@ -2,10 +2,32 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from collections import OrderedDict
 from collections.abc import MutableMapping, MutableSet
-from typing import Any, Iterator, Optional
+from typing import Any, Awaitable, Callable, Iterator, Optional, Sequence, TypeVar
+
+
+T = TypeVar("T")
+
+
+async def retry_with_backoff(
+    operation: Callable[[], Awaitable[T]],
+    *,
+    delays: Sequence[float] = (1.0, 2.0),
+) -> T:
+    """Retry a background operation with bounded exponential-style delays."""
+    for delay in (*delays, None):
+        try:
+            return await operation()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            if delay is None:
+                raise
+            await asyncio.sleep(max(0.0, float(delay)))
+    raise RuntimeError("retry loop ended without a result")
 
 
 class TTLMap(MutableMapping):
@@ -119,4 +141,3 @@ class AsyncTTLCache:
             self._values.clear()
             return
         self._values.pop(key, None)
-

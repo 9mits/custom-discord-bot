@@ -53,8 +53,10 @@ class GranularPersistenceTests(unittest.IsolatedAsyncioTestCase):
 
         statements = []
         await self.manager._db.set_trace_callback(statements.append)
-        first["note"] = "Updated"
-        await self.manager.save_punishments(case_ids=[first["case_id"]])
+        await self.manager.mutate_punishment(
+            first["case_id"],
+            lambda record: record.update(note="Updated"),
+        )
         await self.manager._db.set_trace_callback(None)
 
         rows = await self.manager._db.execute_fetchall(
@@ -72,7 +74,7 @@ class GranularPersistenceTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_failed_commit_rolls_back_and_can_be_retried(self):
-        self.manager.roles["42"] = [{"role_id": 99, "name": "Test"}]
+        records = [{"role_id": 99, "name": "Test"}]
         original_commit = self.manager._db.commit
         with patch.object(
             self.manager._db,
@@ -80,23 +82,21 @@ class GranularPersistenceTests(unittest.IsolatedAsyncioTestCase):
             AsyncMock(side_effect=RuntimeError("commit failed")),
         ):
             with self.assertRaisesRegex(RuntimeError, "commit failed"):
-                await self.manager.save_roles(["42"])
+                await self.manager.set_role_records("42", records)
 
         rows = await self.manager._db.execute_fetchall("SELECT user_id FROM roles")
         self.assertEqual(rows, [])
-        self.assertTrue(self.manager._dirty_roles)
+        self.assertNotIn("42", self.manager.roles)
 
         await original_commit()
-        await self.manager.save_roles(["42"])
+        await self.manager.set_role_records("42", records)
         rows = await self.manager._db.execute_fetchall("SELECT user_id FROM roles")
         self.assertEqual([row["user_id"] for row in rows], ["42"])
 
     async def test_concurrent_entity_writes_are_serialized_without_loss(self):
-        self.manager.modmail["1"] = {"status": "open", "thread_id": 101}
-        self.manager.modmail["2"] = {"status": "open", "thread_id": 202}
         await asyncio.gather(
-            self.manager.save_modmail(["1"]),
-            self.manager.save_modmail(["2"]),
+            self.manager.mutate_modmail_ticket("1", lambda _ticket: {"status": "open", "thread_id": 101}),
+            self.manager.mutate_modmail_ticket("2", lambda _ticket: {"status": "open", "thread_id": 202}),
         )
 
         rows = await self.manager._db.execute_fetchall(
@@ -122,24 +122,52 @@ class GranularPersistenceTests(unittest.IsolatedAsyncioTestCase):
                 return
             raise RuntimeError("later commit failed")
 
-        self.manager.roles["1"] = [{"role_id": 101}]
         with patch.object(self.manager._db, "commit", side_effect=controlled_commit):
-            first_write = asyncio.create_task(self.manager.save_roles(["1"]))
+            first_write = asyncio.create_task(self.manager.set_role_records("1", [{"role_id": 101}]))
             await first_commit_started.wait()
-            self.manager.roles["2"] = [{"role_id": 202}]
-            second_write = asyncio.create_task(self.manager.save_roles(["2"]))
+            second_write = asyncio.create_task(self.manager.set_role_records("2", [{"role_id": 202}]))
             await asyncio.sleep(0)
             release_first_commit.set()
             await first_write
             with self.assertRaisesRegex(RuntimeError, "later commit failed"):
                 await second_write
 
-        self.assertTrue(self.manager._dirty_roles)
-        await self.manager.save_roles(["2"])
+        self.assertEqual(self.manager.roles, {"1": [{"role_id": 101}]})
+        await self.manager.set_role_records("2", [{"role_id": 202}])
         rows = await self.manager._db.execute_fetchall(
             "SELECT user_id FROM roles ORDER BY user_id"
         )
         self.assertEqual([row["user_id"] for row in rows], ["1", "2"])
+
+    async def test_failed_config_commit_never_publishes_candidate_state(self):
+        before = copy.deepcopy(self.manager.config)
+        with patch.object(
+            self.manager._db,
+            "commit",
+            AsyncMock(side_effect=RuntimeError("commit failed")),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "commit failed"):
+                await self.manager.set_config_values(theme_color=0x123456)
+
+        self.assertEqual(self.manager.config, before)
+        rows = await self.manager._db.execute_fetchall(
+            "SELECT value FROM config WHERE key = 'theme_color'"
+        )
+        self.assertEqual(rows, [])
+
+    async def test_single_punishment_write_commits_counter_stats_and_case_together(self):
+        record = await self.manager.add_punishment(
+            "42",
+            {"type": "warn", "reason": "Atomic"},
+            increment_total_issued=True,
+        )
+        rows = await self.manager._db.execute_fetchall(
+            "SELECT key, value FROM config WHERE key IN ('case_counter', 'stats')"
+        )
+        stored = {row["key"]: json.loads(row["value"]) for row in rows}
+        self.assertEqual(stored["case_counter"], record["case_id"])
+        self.assertEqual(stored["stats"]["total_issued"], 1)
+        self.assertEqual(self.manager.config["stats"]["total_issued"], 1)
 
     async def test_case_pagination_and_aggregates_use_database_queries(self):
         for index in range(45):

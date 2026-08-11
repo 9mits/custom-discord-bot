@@ -83,13 +83,33 @@ class OperationMetricsTests(unittest.IsolatedAsyncioTestCase):
         async def succeeding():
             return None
 
-        with patch("core.bot.logger.exception"):
+        with patch("core.bot.logger.exception"), patch("core.runtime.asyncio.sleep", new=AsyncMock()):
             await MGXBot._run_background_loop(runtime, "test loop", failing)
         await MGXBot._run_background_loop(runtime, "test loop", succeeding)
         snapshot = metrics.snapshot(loop_running={"test loop": True})
 
         self.assertEqual(snapshot.loops["test loop"].status, "Healthy")
         self.assertEqual(snapshot.loops["test loop"].failures, 1)
+
+    async def test_background_loop_retries_with_bounded_backoff(self):
+        metrics = OperationMetrics()
+        metrics.register_loop("retry loop", expected_interval_seconds=60)
+        runtime = SimpleNamespace(metrics=metrics)
+        attempts = 0
+
+        async def transient_failure():
+            nonlocal attempts
+            attempts += 1
+            if attempts < 3:
+                raise RuntimeError("temporary")
+
+        with patch("core.runtime.asyncio.sleep", new=AsyncMock()) as sleep:
+            await MGXBot._run_background_loop(runtime, "retry loop", transient_failure)
+
+        self.assertEqual(attempts, 3)
+        self.assertEqual([entry.args[0] for entry in sleep.await_args_list], [1.0, 2.0])
+        snapshot = metrics.snapshot(loop_running={"retry loop": True})
+        self.assertEqual(snapshot.loops["retry loop"].status, "Healthy")
 
 
 class MetricSnapshotTests(unittest.TestCase):

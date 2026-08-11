@@ -160,7 +160,12 @@ class MbxSetupModmailPanelTests(unittest.IsolatedAsyncioTestCase):
             client=SimpleNamespace(metrics=None),
             response=SimpleNamespace(is_done=Mock(return_value=False), defer=AsyncMock()),
         )
-        data_manager = SimpleNamespace(config={}, save_config=AsyncMock())
+        data_manager = SimpleNamespace(config={})
+
+        async def mutate_config(mutation):
+            return mutation(data_manager.config)
+
+        data_manager.mutate_config = AsyncMock(side_effect=mutate_config)
 
         select = ConfigChannelSelect("modmail_panel_channel", "Modmail Panel Channel")
         select._values = [selected]
@@ -173,7 +178,7 @@ class MbxSetupModmailPanelTests(unittest.IsolatedAsyncioTestCase):
             await select.callback(interaction)
 
         self.assertEqual(data_manager.config["modmail_panel_channel"], 123)
-        data_manager.save_config.assert_awaited_once()
+        data_manager.mutate_config.assert_awaited_once()
         send_panel.assert_awaited_once_with(interaction, channel)
 
 

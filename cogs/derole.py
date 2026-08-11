@@ -8,7 +8,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from core.constants import SCOPE_ROLES
-from .shared import is_staff, make_embed
+from .shared import make_embed
 
 
 MAX_ROLE_SELECT = 25
@@ -177,9 +177,7 @@ class Derole(commands.Cog):
         name="derole",
         description="Remove selected role(s) from every member who has them.",
     )
-    @app_commands.default_permissions(manage_roles=True)
     @app_commands.guild_only()
-    @app_commands.checks.bot_has_permissions(manage_roles=True)
     async def derole(self, interaction: discord.Interaction) -> None:
         if interaction.guild is None or not isinstance(
             interaction.user,
@@ -187,13 +185,6 @@ class Derole(commands.Cog):
         ):
             await interaction.response.send_message(
                 "`/derole` can only be used in a server.",
-                ephemeral=True,
-            )
-            return
-
-        if not is_staff(interaction) and not interaction.user.guild_permissions.administrator:
-            await interaction.response.send_message(
-                "You do not have permission to use `/derole`.",
                 ephemeral=True,
             )
             return
