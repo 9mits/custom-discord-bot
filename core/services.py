@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+import time
+from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Sequence, Tuple
 
@@ -58,6 +60,10 @@ DEFAULT_NATIVE_AUTOMOD_SETTINGS = {
     "immunity_users": [],
     "immunity_channels": [],
 }
+
+_NATIVE_AUTOMOD_SETTINGS_CACHE = OrderedDict()
+_NATIVE_AUTOMOD_SETTINGS_CACHE_LIMIT = 64
+_NATIVE_AUTOMOD_SETTINGS_CACHE_TTL = 300.0
 NATIVE_AUTOMOD_PUNISHMENT_TYPES = {"warn", "timeout", "kick", "ban"}
 PERMISSIONS_MATRIX = {
     "case_panel": {"roles": ("role_mod", "role_admin", "role_owner", "role_community_manager"), "allow_admin": True},
@@ -280,11 +286,34 @@ def ensure_native_automod_settings(config: Dict[str, Any]) -> bool:
     return changed
 
 
+def invalidate_native_automod_settings(config: Dict[str, Any]) -> None:
+    _NATIVE_AUTOMOD_SETTINGS_CACHE.pop(id(config), None)
+
+
 def get_native_automod_settings(config: Dict[str, Any]) -> Dict[str, Any]:
+    cache_key = id(config)
+    now = time.monotonic()
+    cached = _NATIVE_AUTOMOD_SETTINGS_CACHE.get(cache_key)
+    if cached is not None:
+        cached_config, expires_at, normalized = cached
+        if cached_config is config and expires_at > now:
+            _NATIVE_AUTOMOD_SETTINGS_CACHE.move_to_end(cache_key)
+            return copy.deepcopy(normalized)
+        _NATIVE_AUTOMOD_SETTINGS_CACHE.pop(cache_key, None)
+
     payload = copy.deepcopy(config.get("native_automod", DEFAULT_NATIVE_AUTOMOD_SETTINGS))
     shadow = {"native_automod": payload}
     ensure_native_automod_settings(shadow)
-    return shadow["native_automod"]
+    normalized = shadow["native_automod"]
+    _NATIVE_AUTOMOD_SETTINGS_CACHE[cache_key] = (
+        config,
+        now + _NATIVE_AUTOMOD_SETTINGS_CACHE_TTL,
+        copy.deepcopy(normalized),
+    )
+    _NATIVE_AUTOMOD_SETTINGS_CACHE.move_to_end(cache_key)
+    while len(_NATIVE_AUTOMOD_SETTINGS_CACHE) > _NATIVE_AUTOMOD_SETTINGS_CACHE_LIMIT:
+        _NATIVE_AUTOMOD_SETTINGS_CACHE.popitem(last=False)
+    return normalized
 
 
 def resolve_native_automod_policy(config: Dict[str, Any], *, rule_id: Optional[int] = None, rule_name: Optional[str] = None) -> Dict[str, Any]:

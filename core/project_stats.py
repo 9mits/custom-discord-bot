@@ -30,8 +30,8 @@ logger = logging.getLogger("MGXBot")
 BASE_DIR = Path(__file__).resolve().parent.parent
 PROJECT_STATS_DIR = Path(os.environ.get("PROJECT_STATS_DIR", str(BASE_DIR / "project_stats")))
 
-# A snapshot older than this is treated as a possibly-offline instance: still
-# counted in totals (last-known numbers), but flagged in the per-server list.
+# Retired processes must disappear from fleet totals instead of being counted
+# forever from their last-known file.
 STALE_AFTER_SECONDS = 15 * 60
 
 
@@ -119,7 +119,7 @@ async def write_snapshot(bot) -> None:
 
 
 def read_all_snapshots() -> List[dict]:
-    """Read every snapshot in the shared folder, skipping missing/corrupt ones."""
+    """Read fresh snapshots and remove stale files left by retired instances."""
     if not PROJECT_STATS_DIR.exists():
         return []
     snapshots = []
@@ -127,8 +127,15 @@ def read_all_snapshots() -> List[dict]:
         try:
             with path.open("r", encoding="utf-8") as file:
                 data = json.load(file)
-            if isinstance(data, dict) and "stats" in data:
-                snapshots.append(data)
+            if not isinstance(data, dict) or "stats" not in data:
+                continue
+            if is_stale(data):
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+                continue
+            snapshots.append(data)
         except Exception:
             continue
     return snapshots
@@ -150,7 +157,7 @@ def _snapshot_age_seconds(snapshot: dict, now: Optional[datetime] = None) -> Opt
 
 def is_stale(snapshot: dict, now: Optional[datetime] = None) -> bool:
     age = _snapshot_age_seconds(snapshot, now)
-    return age is not None and age > STALE_AFTER_SECONDS
+    return age is None or age > STALE_AFTER_SECONDS
 
 
 def aggregate_snapshots(snapshots: List[dict]) -> Dict[str, Any]:

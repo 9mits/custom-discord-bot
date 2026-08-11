@@ -45,6 +45,7 @@ from core.services import (
     has_capability,
 )
 from core.context import bot
+from core.responding import InteractionResponder
 from core.utils import truncate_text, format_duration
 
 # Setup Logging
@@ -691,12 +692,15 @@ def has_permission_capability(interaction: discord.Interaction, capability: str)
     )
 
 
-async def respond_with_error(interaction: discord.Interaction, message: str, *, scope: str = SCOPE_SYSTEM):
-    embed = make_error_embed("Request Failed", f"> {message}", scope=scope, guild=interaction.guild)
-    if not interaction.response.is_done():
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-    else:
-        await interaction.followup.send(embed=embed, ephemeral=True)
+async def respond_with_error(
+    interaction: discord.Interaction,
+    message: str,
+    *,
+    title: str = "Request Failed",
+    scope: str = SCOPE_SYSTEM,
+):
+    embed = make_error_embed(title, f"> {message}", scope=scope, guild=interaction.guild)
+    await InteractionResponder(interaction).send(embed=embed, ephemeral=True)
 
 
 def is_staff_member(member: discord.Member, config: Optional[dict] = None) -> bool:
@@ -1447,6 +1451,79 @@ def build_status_embed(guild: discord.Guild) -> discord.Embed:
     embed.add_field(name="Open Tickets", value=str(open_tickets), inline=True)
     embed.add_field(name="Punishment Records", value=str(total_records), inline=True)
     return embed
+
+
+def _runtime_loop_states() -> dict:
+    loop_states = {
+        "tempban expiry": bot.check_tempbans.is_running(),
+        "storage maintenance": bot.storage_maintenance_task.is_running(),
+        "presence": bot.status_task.is_running(),
+        "fleet snapshot": bot.project_stats_task.is_running(),
+        "modmail SLA": bot.modmail_sla_task.is_running(),
+        "role cleanup": bot.role_cleanup_task.is_running(),
+    }
+    leaderboard = bot.get_cog("EventLeaderboardCog")
+    if leaderboard is not None:
+        loop_states["event leaderboard"] = leaderboard.refresh_loop.is_running()
+    return loop_states
+
+
+def build_status_view(guild: discord.Guild) -> "discord.ui.LayoutView":
+    uptime_seconds = int(time.time() - bot.start_time)
+    snapshot = bot.metrics.snapshot(
+        queue=getattr(bot, "heavy_jobs", None),
+        uptime_seconds=uptime_seconds,
+        loop_running=_runtime_loop_states(),
+    )
+    days, remainder = divmod(snapshot.uptime_seconds, 86400)
+    hours, remainder = divmod(remainder, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    uptime = f"{days}d {hours}h {minutes}m {seconds}s"
+    degraded = [loop_state for loop_state in snapshot.loops.values() if loop_state.status in {"Degraded", "Stopped"}]
+    overall = "Degraded" if degraded else "Operational"
+
+    view = discord.ui.LayoutView(timeout=180)
+    container = panel_container(
+        "Runtime Health",
+        f"> **{overall}** · Uptime `{uptime}` · Gateway `{round(bot.latency * 1000)}ms`",
+        guild=guild,
+    )
+    container.add_item(discord.ui.Separator())
+    container.add_item(discord.ui.TextDisplay(
+        "**Interaction Latency**\n"
+        f"Acknowledgement: `{snapshot.acknowledgement_p50_ms:.1f}ms` p50 · `{snapshot.acknowledgement_p95_ms:.1f}ms` p95\n"
+        f"Completion: `{snapshot.completion_p50_ms:.1f}ms` p50 · `{snapshot.completion_p95_ms:.1f}ms` p95"
+    ))
+    container.add_item(discord.ui.TextDisplay(
+        "**Runtime Latency**\n"
+        f"Database writes: `{snapshot.database_p50_ms:.1f}ms` p50 · `{snapshot.database_p95_ms:.1f}ms` p95\n"
+        f"Event-loop lag: `{snapshot.event_loop_lag_p50_ms:.1f}ms` p50 · `{snapshot.event_loop_lag_p95_ms:.1f}ms` p95"
+    ))
+    container.add_item(discord.ui.TextDisplay(
+        "**Heavy Work Queue**\n"
+        f"Queued: `{snapshot.queue_depth}` · Active: `{snapshot.queue_active}` · Depth p95: `{snapshot.queue_depth_p95:.0f}`"
+    ))
+    if snapshot.loops:
+        loop_lines = []
+        for loop_state in snapshot.loops.values():
+            last_success = (
+                f"<t:{int(loop_state.last_success_at)}:R>"
+                if loop_state.last_success_at
+                else "not yet"
+            )
+            detail = f" · last error `{loop_state.last_error}`" if loop_state.last_error else ""
+            loop_lines.append(
+                f"{loop_state.name.title()}: **{loop_state.status}** · success {last_success}{detail}"
+            )
+        container.add_item(discord.ui.Separator())
+        container.add_item(discord.ui.TextDisplay(
+            "**Background Tasks**\n" + "\n".join(loop_lines)
+        ))
+    container.add_item(discord.ui.TextDisplay(
+        f"-# Bounded samples · {snapshot.failures} recorded runtime failure(s)"
+    ))
+    view.add_item(container)
+    return view
 
 async def handle_abuse(interaction: discord.Interaction, moderator: discord.Member):
     # Security Protocol: Strip Roles

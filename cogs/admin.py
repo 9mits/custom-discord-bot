@@ -26,8 +26,9 @@ from .shared import (
     send_log,
     has_permission_capability,
     is_staff,
-    build_status_embed,
+    build_status_view,
 )
+from core.responding import InteractionResponder
 from .case_panel import AccessView, RulesDashboardView
 
 class ArchiveConfirmView(discord.ui.View):
@@ -188,23 +189,25 @@ class TestEnvView(discord.ui.View):
 
     @discord.ui.button(label="Toggle Boost Bypass", style=discord.ButtonStyle.primary)
     async def toggle_boost(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await InteractionResponder(interaction).defer(ephemeral=True)
         if "debug" not in bot.data_manager.config:
             bot.data_manager.config["debug"] = {}
         current = bot.data_manager.config["debug"].get("bypass_boost", False)
         bot.data_manager.config["debug"]["bypass_boost"] = not current
         await bot.data_manager.save_config("debug")
         embed = build_test_env_embed()
-        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.edit_original_response(embed=embed, view=self)
 
     @discord.ui.button(label="Toggle Cooldown Bypass", style=discord.ButtonStyle.primary)
     async def toggle_cooldown(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await InteractionResponder(interaction).defer(ephemeral=True)
         if "debug" not in bot.data_manager.config:
             bot.data_manager.config["debug"] = {}
         current = bot.data_manager.config["debug"].get("bypass_cooldown", False)
         bot.data_manager.config["debug"]["bypass_cooldown"] = not current
         await bot.data_manager.save_config("debug")
         embed = build_test_env_embed()
-        await interaction.response.edit_message(embed=embed, view=self)
+        await interaction.edit_original_response(embed=embed, view=self)
 
 
 class ImmunityToggleSelect(discord.ui.UserSelect):
@@ -212,6 +215,7 @@ class ImmunityToggleSelect(discord.ui.UserSelect):
         super().__init__(placeholder="Toggle anti-nuke immunity for a member...", min_values=1, max_values=1)
 
     async def callback(self, interaction: discord.Interaction) -> None:
+        await InteractionResponder(interaction).defer(ephemeral=True)
         user = self.values[0]
         uid = str(user.id)
         lst = bot.data_manager.config.get("immunity_list", [])
@@ -236,7 +240,7 @@ class ImmunityToggleSelect(discord.ui.UserSelect):
         log_embed.add_field(name="Action", value=action.capitalize(), inline=True)
         await send_log(interaction.guild, log_embed)
 
-        await interaction.response.edit_message(view=SafetyView(interaction.guild))
+        await interaction.edit_original_response(view=SafetyView(interaction.guild))
 
 
 class SafetyView(discord.ui.LayoutView):
@@ -268,6 +272,7 @@ class AntiNukeResolveConfirm2(discord.ui.View):
 
     @discord.ui.button(label="YES, RESTORE PERMISSIONS/ROLES", style=discord.ButtonStyle.danger)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await InteractionResponder(interaction).defer(ephemeral=True)
         # Execute Restore
         guild = interaction.guild
         actor_id = self.restore_data.get("actor_id")
@@ -320,7 +325,7 @@ class AntiNukeResolveConfirm2(discord.ui.View):
             except Exception:
                 pass
 
-        await interaction.response.edit_message(embed=make_embed("Action Resolved", "> Original permissions and roles have been restored.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), view=None)
+        await interaction.edit_original_response(embed=make_embed("Action Resolved", "> Original permissions and roles have been restored.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), view=None)
 
         embed = make_embed(
             "Security Alert: Anti-Nuke Resolved",
@@ -752,14 +757,17 @@ async def status_cmd(interaction: discord.Interaction):
         await interaction.response.send_message(embed=make_embed("Access Denied", "> You do not have permission to use this command.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
         return
 
-    embed = build_status_embed(interaction.guild)
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    await InteractionResponder(interaction).send(
+        view=build_status_view(interaction.guild),
+        ephemeral=True,
+    )
 
 @tree.command(name="serverinfo", description="View detailed information about this server.")
 @app_commands.default_permissions(administrator=True)
 @app_commands.check(check_admin)
 async def serverinfo_cmd(interaction: discord.Interaction):
     g = interaction.guild
+    await InteractionResponder(interaction).defer(ephemeral=True)
     await g.fetch_channels()
 
     # Counts
@@ -822,7 +830,7 @@ async def serverinfo_cmd(interaction: discord.Interaction):
     )
     embed.add_field(name="​", value="​", inline=True)
 
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    await interaction.edit_original_response(embed=embed)
 
 
 

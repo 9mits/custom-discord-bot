@@ -16,6 +16,7 @@ from core.constants import (
     SCOPE_ROLES,
 )
 from core.context import bot, tree
+from core.responding import InteractionResponder
 from core.utils import iso_to_dt, now_iso
 from .shared import (
     logger,
@@ -267,10 +268,11 @@ class EditNameModal(discord.ui.Modal, title="Edit role name"):
         self.role = role
     async def on_submit(self, interaction) -> None:
         name = self.new_name.value.strip()[:100]
+        await InteractionResponder(interaction).defer(ephemeral=True)
         try:
             await self.role.edit(name=name, reason=f"Renamed by {interaction.user}")
         except Exception as e:
-            await interaction.response.send_message(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
             return
         rec = find_role_rec(self.member.id, self.role.id)
         if rec:
@@ -284,7 +286,7 @@ class EditNameModal(discord.ui.Modal, title="Edit role name"):
             guild=interaction.guild,
         )
         embed.color = self.role.color
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.followup.send(embed=embed, ephemeral=True)
 
 class EditColorModal(discord.ui.Modal, title="Edit role color"):
     new_color = discord.ui.TextInput(label="Hex color", placeholder="#FF66CC", max_length=7)
@@ -654,6 +656,7 @@ class RoleStyleView(discord.ui.View):
 
     @discord.ui.button(label="Static (Reset)", style=discord.ButtonStyle.secondary)
     async def static_style(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await InteractionResponder(interaction).defer(ephemeral=True)
         try:
             edited_role = await self.role.edit(
                 color=self.role.color.value,
@@ -669,11 +672,11 @@ class RoleStyleView(discord.ui.View):
                 rec['secondary_color'] = None
                 rec['tertiary_color'] = None
                 await bot.data_manager.save_roles([str(self.member.id)])
-            await interaction.response.send_message(embed=make_embed("Style Reset", "> Role style has been reset to static.", kind="success", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Style Reset", "> Role style has been reset to static.", kind="success", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
         except discord.HTTPException as e:
-            await interaction.response.send_message(embed=make_embed("Failed", f"> Failed: {e.status} {e.text}", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Failed", f"> Failed: {e.status} {e.text}", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
         except Exception as e:
-            await interaction.response.send_message(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
 
     @discord.ui.button(label="Gradient", style=discord.ButtonStyle.primary)
     async def gradient_style(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -681,6 +684,7 @@ class RoleStyleView(discord.ui.View):
 
     @discord.ui.button(label="Holographic", style=discord.ButtonStyle.success)
     async def holographic_style(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await InteractionResponder(interaction).defer(ephemeral=True)
         try:
             edited_role = await self.role.edit(
                 color=HOLO_PRIMARY,
@@ -698,7 +702,7 @@ class RoleStyleView(discord.ui.View):
                 rec['tertiary_color'] = f"#{HOLO_TERTIARY:06X}"
                 await bot.data_manager.save_roles([str(self.member.id)])
 
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=make_confirmation_embed(
                     "Holographic Style Applied",
                     "> The role now uses Discord's holographic enhanced role style preset.",
@@ -708,9 +712,9 @@ class RoleStyleView(discord.ui.View):
                 ephemeral=True,
             )
         except discord.HTTPException as e:
-            await interaction.response.send_message(embed=make_embed("Failed", f"> Failed: {e.status} {e.text}", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Failed", f"> Failed: {e.status} {e.text}", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
         except Exception as e:
-            await interaction.response.send_message(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
+            await interaction.followup.send(embed=make_embed("Failed", f"> Failed: {e}", kind="error", scope=SCOPE_ROLES, guild=interaction.guild), ephemeral=True)
 
 class IconURLModal(discord.ui.Modal, title="Set Icon via URL"):
     url = discord.ui.TextInput(label="Image URL", placeholder="https://...", required=True)
@@ -851,6 +855,7 @@ class ConfirmDelete(discord.ui.View):
 
     @discord.ui.button(label="Confirm", style=discord.ButtonStyle.danger)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await InteractionResponder(interaction).defer(ephemeral=True)
         try:
             await self.role.delete(reason=f"Deleted by {interaction.user} (via Menu)")
         except Exception:
@@ -863,7 +868,7 @@ class ConfirmDelete(discord.ui.View):
         else:
             bot.data_manager.roles.pop(uid, None)
         await bot.data_manager.save_roles([uid])
-        await interaction.response.edit_message(embed=make_embed("Role Deleted", "> Your custom role has been deleted.", kind="success", scope=SCOPE_ROLES, guild=interaction.guild), view=None)
+        await interaction.edit_original_response(embed=make_embed("Role Deleted", "> Your custom role has been deleted.", kind="success", scope=SCOPE_ROLES, guild=interaction.guild), view=None)
         self.stop()
 
     @discord.ui.button(label="Cancel", style=discord.ButtonStyle.secondary)

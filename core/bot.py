@@ -1,12 +1,13 @@
 """MGXBot class, background tasks, extension loading, and bot lifecycle."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
 import os
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional
 
 import aiohttp
 import discord
@@ -18,6 +19,8 @@ from core.constants import DEFAULT_GUILD_ID, SCOPE_ROLES, SCOPE_SUPPORT, TEST_GU
 from core.context import set_bot
 from core.data import DataManager, resolve_bot_token
 from core.heavy_jobs import HeavyJobQueue, RecentMessageIndex
+from core.metrics import MetricsCommandTree, OperationMetrics, install_component_metrics
+from core.runtime import AsyncTTLCache, TTLMap
 from core.services import get_feature_flag, ticket_needs_sla_alert
 from core.utils import now_iso
 
@@ -101,13 +104,24 @@ class MGXBot(commands.Bot):
         self.session: Optional[aiohttp.ClientSession] = None
         self.data_manager: Optional[DataManager] = None
         self.start_time = time.time()
-        self.active_executions = {}
-        self.dm_modmail_prompt_cooldowns: Dict[int, float] = {}
-        self.native_automod_event_cache: Dict[Tuple[int, int, int, str, str], float] = {}
+        self.metrics = OperationMetrics()
+        self.active_executions = TTLMap(max_size=2000, ttl_seconds=3600)
+        self.dm_modmail_prompt_cooldowns = TTLMap(max_size=10_000, ttl_seconds=86400)
+        self.native_automod_event_cache = TTLMap(max_size=20_000, ttl_seconds=300)
+        self.native_automod_rule_cache = AsyncTTLCache(max_size=1000, ttl_seconds=300)
         self.heavy_jobs: Optional[HeavyJobQueue] = None
         self.recent_messages = RecentMessageIndex()
         self.abuse_system = None
         self._commands_synced = False
+        for loop_name, interval in (
+            ("tempban expiry", 60),
+            ("storage maintenance", 3600),
+            ("presence", 1800),
+            ("fleet snapshot", 300),
+            ("modmail SLA", 600),
+            ("role cleanup", 21600),
+        ):
+            self.metrics.register_loop(loop_name, expected_interval_seconds=interval)
 
     async def setup_hook(self) -> None:
         from core.data import AntiAbuseSystem
@@ -115,7 +129,8 @@ class MGXBot(commands.Bot):
         self.session = aiohttp.ClientSession()
         self.data_manager = DataManager(self)
         self.abuse_system = AntiAbuseSystem()
-        self.heavy_jobs = HeavyJobQueue()
+        self.heavy_jobs = HeavyJobQueue(metrics=self.metrics)
+        install_component_metrics()
         await self.data_manager.load_all()
 
         for extension in EXTENSIONS:
@@ -128,6 +143,7 @@ class MGXBot(commands.Bot):
         self._remove_disabled_application_commands()
         await self._restore_persistent_views()
         self.heavy_jobs.start()
+        self.metrics.start_event_loop_monitor()
 
         self.check_tempbans.start()
         self.storage_maintenance_task.start()
@@ -259,14 +275,36 @@ class MGXBot(commands.Bot):
 
         if self.heavy_jobs:
             await self.heavy_jobs.shutdown(timeout=10.0)
+        await self.metrics.stop_event_loop_monitor()
         if self.data_manager:
             await self.data_manager.close()
         if self.session:
             await self.session.close()
         await super().close()
 
+    async def _run_background_loop(self, name: str, operation) -> None:
+        metrics = getattr(self, "metrics", None)
+        try:
+            await operation()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            if metrics is not None:
+                metrics.record_loop_failure(name, exc)
+            logger.exception("Background loop %s failed; it will retry on the next interval", name)
+        else:
+            if metrics is not None:
+                metrics.record_loop_success(name)
+
     @tasks.loop(minutes=1)
     async def check_tempbans(self) -> None:
+        await MGXBot._run_background_loop(
+            self,
+            "tempban expiry",
+            lambda: MGXBot._check_tempbans_once(self),
+        )
+
+    async def _check_tempbans_once(self) -> None:
         if not self.data_manager:
             return
         guild = self.get_guild(self.data_manager.config.get("guild_id", DEFAULT_GUILD_ID))
@@ -291,11 +329,21 @@ class MGXBot(commands.Bot):
 
     @tasks.loop(hours=1)
     async def storage_maintenance_task(self) -> None:
+        await MGXBot._run_background_loop(
+            self,
+            "storage maintenance",
+            lambda: MGXBot._storage_maintenance_once(self),
+        )
+
+    async def _storage_maintenance_once(self) -> None:
         if self.data_manager:
             await self.data_manager.prune_native_automod_history()
 
     @tasks.loop(minutes=30)
     async def status_task(self) -> None:
+        await MGXBot._run_background_loop(self, "presence", lambda: MGXBot._status_once(self))
+
+    async def _status_once(self) -> None:
         # "Listening to DMs for support" — reads cleanly and reflects modmail
         await self.change_presence(
             activity=discord.Activity(type=discord.ActivityType.listening, name="DMs for support")
@@ -303,6 +351,13 @@ class MGXBot(commands.Bot):
 
     @tasks.loop(minutes=5)
     async def project_stats_task(self) -> None:
+        await MGXBot._run_background_loop(
+            self,
+            "fleet snapshot",
+            lambda: MGXBot._project_stats_once(self),
+        )
+
+    async def _project_stats_once(self) -> None:
         # Publish this instance's stats so /about can aggregate the whole fleet.
         from core.project_stats import write_snapshot
 
@@ -310,6 +365,13 @@ class MGXBot(commands.Bot):
 
     @tasks.loop(minutes=10)
     async def modmail_sla_task(self) -> None:
+        await MGXBot._run_background_loop(
+            self,
+            "modmail SLA",
+            lambda: MGXBot._modmail_sla_once(self),
+        )
+
+    async def _modmail_sla_once(self) -> None:
         from cogs.shared import make_embed
 
         if not self.data_manager or not get_feature_flag(self.data_manager.config, "advanced_modmail", True):
@@ -361,6 +423,13 @@ class MGXBot(commands.Bot):
 
     @tasks.loop(hours=6)
     async def role_cleanup_task(self) -> None:
+        await MGXBot._run_background_loop(
+            self,
+            "role cleanup",
+            lambda: MGXBot._role_cleanup_once(self),
+        )
+
+    async def _role_cleanup_once(self) -> None:
         from cogs.shared import send_log
         from cogs.shared import get_custom_role_limit
         from cogs.shared import format_reason_value, make_embed
@@ -455,6 +524,14 @@ class MGXBot(commands.Bot):
     async def before_status_task(self) -> None:
         await self.wait_until_ready()
 
+    @check_tempbans.before_loop
+    async def before_check_tempbans(self) -> None:
+        await self.wait_until_ready()
+
+    @storage_maintenance_task.before_loop
+    async def before_storage_maintenance_task(self) -> None:
+        await self.wait_until_ready()
+
     @project_stats_task.before_loop
     async def before_project_stats_task(self) -> None:
         await self.wait_until_ready()
@@ -467,9 +544,41 @@ class MGXBot(commands.Bot):
     async def before_role_cleanup_task(self) -> None:
         await self.wait_until_ready()
 
+    async def _background_loop_error(self, name: str, error: BaseException) -> None:
+        self.metrics.record_loop_failure(name, error)
+        logger.error(
+            "Background loop %s stopped unexpectedly",
+            name,
+            exc_info=(type(error), error, error.__traceback__),
+        )
+
+    @check_tempbans.error
+    async def check_tempbans_error(self, error: BaseException) -> None:
+        await self._background_loop_error("tempban expiry", error)
+
+    @storage_maintenance_task.error
+    async def storage_maintenance_error(self, error: BaseException) -> None:
+        await self._background_loop_error("storage maintenance", error)
+
+    @status_task.error
+    async def status_task_error(self, error: BaseException) -> None:
+        await self._background_loop_error("presence", error)
+
+    @project_stats_task.error
+    async def project_stats_error(self, error: BaseException) -> None:
+        await self._background_loop_error("fleet snapshot", error)
+
+    @modmail_sla_task.error
+    async def modmail_sla_error(self, error: BaseException) -> None:
+        await self._background_loop_error("modmail SLA", error)
+
+    @role_cleanup_task.error
+    async def role_cleanup_error(self, error: BaseException) -> None:
+        await self._background_loop_error("role cleanup", error)
+
 
 def create_bot() -> MGXBot:
-    bot = MGXBot(command_prefix="!", intents=_build_intents())
+    bot = MGXBot(command_prefix="!", intents=_build_intents(), tree_cls=MetricsCommandTree)
     set_bot(bot)
     return bot
 
