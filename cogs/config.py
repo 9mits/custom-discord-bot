@@ -22,6 +22,7 @@ from core.services import (
     validate_guild_configuration,
 )
 from core.context import bot, tree
+from core.responding import InteractionResponder
 from .shared import (
     make_embed,
     make_confirmation_embed,
@@ -43,10 +44,12 @@ class ConfigRoleSelect(discord.ui.RoleSelect):
         self.config_name = config_name
 
     async def callback(self, interaction: discord.Interaction) -> None:
+        responder = InteractionResponder(interaction)
+        await responder.defer(ephemeral=True)
         role = self.values[0]
         bot.data_manager.config[self.config_key] = role.id
         await bot.data_manager.save_config(self.config_key)
-        await interaction.response.send_message(embed=make_embed("Setting Updated", f"> **{self.config_name}** updated to {role.mention}.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
+        await interaction.followup.send(embed=make_embed("Setting Updated", f"> **{self.config_name}** updated to {role.mention}.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 class ConfigChannelSelect(discord.ui.ChannelSelect):
     def __init__(self, config_key: str, config_name: str, channel_types=None):
@@ -55,6 +58,8 @@ class ConfigChannelSelect(discord.ui.ChannelSelect):
         self.config_name = config_name
 
     async def callback(self, interaction: discord.Interaction) -> None:
+        responder = InteractionResponder(interaction)
+        await responder.defer(ephemeral=True)
         selected = self.values[0]
         channel = interaction.guild.get_channel(selected.id) or await interaction.guild.fetch_channel(selected.id)
         bot.data_manager.config[self.config_key] = channel.id
@@ -68,7 +73,7 @@ class ConfigChannelSelect(discord.ui.ChannelSelect):
             await send_configured_modmail_panel(interaction, channel)
             return
 
-        await interaction.response.send_message(embed=make_embed("Setting Updated", f"> **{self.config_name}** updated to {channel.mention}.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
+        await interaction.followup.send(embed=make_embed("Setting Updated", f"> **{self.config_name}** updated to {channel.mention}.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 class ConfigTypeSelect(discord.ui.Select):
     def __init__(self, category: str, *, row: Optional[int] = None):

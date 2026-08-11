@@ -83,6 +83,19 @@ class SnapshotIOTests(unittest.TestCase):
             with patch.object(project_stats, "PROJECT_STATS_DIR", missing):
                 self.assertEqual(project_stats.read_all_snapshots(), [])
 
+    def test_read_ignores_and_removes_stale_snapshots(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            stats_dir = Path(temp_dir)
+            stale = make_snapshot(1, "Retired", 100)
+            stale["updated_at"] = (
+                datetime.now(timezone.utc)
+                - timedelta(seconds=project_stats.STALE_AFTER_SECONDS + 60)
+            ).isoformat()
+            with patch.object(project_stats, "PROJECT_STATS_DIR", stats_dir):
+                project_stats._write_snapshot_sync(stale)
+                self.assertEqual(project_stats.read_all_snapshots(), [])
+                self.assertFalse((stats_dir / "1.json").exists())
+
     def test_write_snapshot_async_persists(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             stats_dir = Path(temp_dir)

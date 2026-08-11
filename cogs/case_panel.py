@@ -13,6 +13,7 @@ from core.constants import (
     SCOPE_SYSTEM,
 )
 from core.context import bot
+from core.responding import InteractionResponder
 from core.utils import parse_duration_str
 from .shared import (
     format_duration,
@@ -478,6 +479,7 @@ class AccessView(discord.ui.View):
 
     @discord.ui.select(cls=discord.ui.RoleSelect, placeholder="Select a role to toggle access...", min_values=1, max_values=1)
     async def select_role(self, interaction: discord.Interaction, select: discord.ui.RoleSelect) -> None:
+        await InteractionResponder(interaction).defer(ephemeral=True)
         role = select.values[0]
         rid = role.id
         mod_roles = bot.data_manager.config.get("mod_roles", [])
@@ -511,9 +513,9 @@ class AccessView(discord.ui.View):
             embed = interaction.message.embeds[0]
             embed.clear_fields()
             embed.add_field(name="Current Access Roles", value=role_lines, inline=False)
-            await interaction.response.edit_message(embed=embed, view=self)
+            await interaction.edit_original_response(embed=embed, view=self)
         else:
-            await interaction.response.edit_message(view=self)
+            await interaction.edit_original_response(view=self)
 
 class RuleDeleteSelect(discord.ui.Select):
     def __init__(self):

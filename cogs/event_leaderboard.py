@@ -21,6 +21,7 @@ of BOT_DATA_DIR.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 import time
@@ -45,6 +46,7 @@ from .shared import (
 # Editing one message every 60s is far below Discord's rate limits; lower it
 # if you want snappier updates (do not go below ~10s).
 EVENT_REFRESH_SECONDS = 60
+logger = logging.getLogger("MGXBot")
 
 EVENT_GUILD_ID = 1476839721731620938
 EVENT_CONTROL_BRAND_NAME = "Mysterious Bot X"
@@ -718,6 +720,9 @@ class EventLeaderboardCog(commands.Cog):
         self._vc_active_seconds = 0           # accumulated VC uptime (this run + persisted)
         self._vc_active_since: Optional[float] = None  # epoch when VC became active
         self._loaded = False
+        metrics = getattr(self.bot, "metrics", None)
+        if metrics is not None:
+            metrics.register_loop("event leaderboard", expected_interval_seconds=EVENT_REFRESH_SECONDS)
 
     # -- helpers ----------------------------------------------------------
     def _ensure_loaded(self) -> None:
@@ -894,6 +899,18 @@ class EventLeaderboardCog(commands.Cog):
     # -- refresh loop -----------------------------------------------------
     @tasks.loop(seconds=EVENT_REFRESH_SECONDS)
     async def refresh_loop(self) -> None:
+        metrics = getattr(self.bot, "metrics", None)
+        try:
+            await self._refresh_once()
+        except Exception as exc:
+            if metrics is not None:
+                metrics.record_loop_failure("event leaderboard", exc)
+            logger.exception("Event leaderboard refresh failed; retrying on the next interval")
+        else:
+            if metrics is not None:
+                metrics.record_loop_success("event leaderboard")
+
+    async def _refresh_once(self) -> None:
         self._ensure_loaded()
         cfg = load_config()
         self._active = bool(cfg.get("active"))
@@ -939,6 +956,16 @@ class EventLeaderboardCog(commands.Cog):
     @refresh_loop.before_loop
     async def _before_refresh(self) -> None:
         await self.bot.wait_until_ready()
+
+    @refresh_loop.error
+    async def _refresh_error(self, error: BaseException) -> None:
+        metrics = getattr(self.bot, "metrics", None)
+        if metrics is not None:
+            metrics.record_loop_failure("event leaderboard", error)
+        logger.error(
+            "Event leaderboard loop stopped unexpectedly",
+            exc_info=(type(error), error, error.__traceback__),
+        )
 
     async def cog_unload(self) -> None:
         self.refresh_loop.cancel()

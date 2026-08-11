@@ -6,6 +6,7 @@ from discord.ext import commands
 import asyncio
 import json
 import time
+from collections import deque
 from datetime import timedelta
 from typing import Optional, Dict, List, Any
 import re
@@ -22,6 +23,13 @@ from core.services import (
     resolve_native_automod_policy,
 )
 from core.context import abuse_system, bot
+from core.errors import (
+    BotOperationError,
+    BotPermissionError,
+    CallerPermissionError,
+    InternalFailure,
+    RateLimitError,
+)
 from core.utils import now_iso
 from .shared import (
     logger,
@@ -33,7 +41,6 @@ from .shared import (
     format_reason_value,
     make_action_log_embed,
     make_embed,
-    make_error_embed,
     get_user_display_name,
     format_user_ref,
     format_user_id_ref,
@@ -73,23 +80,47 @@ from .case_panel import build_case_link_view
 
 
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
-    if isinstance(error, app_commands.CheckFailure):
-        if not interaction.response.is_done():
-            await interaction.response.send_message(embed=make_error_embed("Access Denied", "> You do not have permission to use this command.", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
+    original = error.original if isinstance(error, app_commands.CommandInvokeError) else error
+    if isinstance(original, discord.NotFound) and original.code == 10062:
+        logger.warning("Interaction timed out (10062).")
         return
 
-    if isinstance(error, app_commands.CommandInvokeError):
-        if isinstance(error.original, discord.NotFound) and error.original.code == 10062:
-            logger.warning("Interaction timed out (10062).")
-            return
-        logger.exception("Command invoke failure [%s]: %s", interaction.command.qualified_name if interaction.command else "unknown", error.original)
+    if isinstance(error, app_commands.CheckFailure):
+        operation_error = CallerPermissionError()
+    elif isinstance(original, BotOperationError):
+        operation_error = original
+    elif isinstance(original, discord.Forbidden):
+        operation_error = BotPermissionError(str(original))
+    elif isinstance(original, discord.HTTPException) and original.status == 429:
+        operation_error = RateLimitError(str(original))
     else:
-        logger.exception("Command failed [%s]: %s", interaction.command.qualified_name if interaction.command else "unknown", error)
-    
+        operation_error = InternalFailure(str(original))
+
+    if isinstance(operation_error, InternalFailure):
+        command_name = interaction.command.qualified_name if interaction.command else "unknown"
+        logger.error(
+            "Command failed [%s] correlation_id=%s",
+            command_name,
+            operation_error.correlation_id,
+            exc_info=(type(original), original, original.__traceback__),
+            extra={"correlation_id": operation_error.correlation_id, "command": command_name},
+        )
+    elif not isinstance(operation_error, CallerPermissionError):
+        logger.warning(
+            "Command operation failed [%s] correlation_id=%s error=%s",
+            interaction.command.qualified_name if interaction.command else "unknown",
+            operation_error.correlation_id,
+            type(operation_error).__name__,
+        )
+
+    public_message = operation_error.public_message
+    if isinstance(operation_error, InternalFailure):
+        public_message += f" Reference: `{operation_error.correlation_id}`."
     try:
         await respond_with_error(
             interaction,
-            "The bot hit an unexpected error while processing this action. No further changes were applied.",
+            public_message,
+            title=operation_error.title,
             scope=SCOPE_SYSTEM,
         )
     except Exception:
@@ -367,10 +398,6 @@ def claim_native_automod_bridge_event(
 ) -> bool:
     now_ts = time.time()
     cache = bot.native_automod_event_cache
-    for cache_key, seen_at in list(cache.items()):
-        if now_ts - seen_at > ttl_seconds:
-            cache.pop(cache_key, None)
-
     normalized_rule = str(rule_id or 0) if rule_id else str(rule_name or "unknown-rule").strip().lower()
     dedupe_key = (
         int(guild_id or 0),
@@ -390,10 +417,6 @@ def claim_native_automod_bridge_event(
 def claim_native_automod_alert_message(message: discord.Message, *, ttl_seconds: int = 300) -> bool:
     now_ts = time.time()
     cache = bot.native_automod_event_cache
-    for cache_key, seen_at in list(cache.items()):
-        if now_ts - seen_at > ttl_seconds:
-            cache.pop(cache_key, None)
-
     dedupe_key = (
         int(message.guild.id if message.guild else 0),
         0,
@@ -811,7 +834,14 @@ async def handle_native_automod_execution(execution: discord.AutoModAction, *, s
 
     rule = None
     try:
-        rule = await execution.fetch_rule()
+        rule_cache = getattr(bot, "native_automod_rule_cache", None)
+        if rule_cache is None:
+            rule = await execution.fetch_rule()
+        else:
+            rule = await rule_cache.get_or_create(
+                ("rule", int(execution.guild_id or 0), int(execution.rule_id or 0)),
+                execution.fetch_rule,
+            )
     except discord.Forbidden:
         logger.warning(
             "Native AutoMod bridge could not fetch rule %s in guild %s. Grant Manage Guild to allow detailed rule lookups.",
@@ -915,6 +945,30 @@ async def on_automod_action(execution: discord.AutoModAction):
     await handle_native_automod_execution(execution, source="gateway event")
 
 
+def invalidate_native_automod_rule_cache(rule: discord.AutoModRule) -> None:
+    cache = getattr(bot, "native_automod_rule_cache", None)
+    if cache is None:
+        return
+    guild_id = int(getattr(rule, "guild_id", 0) or getattr(getattr(rule, "guild", None), "id", 0) or 0)
+    cache.invalidate(("rule", guild_id, int(rule.id)))
+    cache.invalidate(("guild-rules", guild_id))
+
+
+@bot.event
+async def on_automod_rule_create(rule: discord.AutoModRule):
+    invalidate_native_automod_rule_cache(rule)
+
+
+@bot.event
+async def on_automod_rule_update(rule: discord.AutoModRule):
+    invalidate_native_automod_rule_cache(rule)
+
+
+@bot.event
+async def on_automod_rule_delete(rule: discord.AutoModRule):
+    invalidate_native_automod_rule_cache(rule)
+
+
 @bot.event
 async def on_socket_raw_receive(message):
     if isinstance(message, bytes):
@@ -986,7 +1040,10 @@ async def on_message(message: discord.Message):
             
         if is_author_staff:
             now = time.time()
-            q = abuse_system.mention_spam_tracker[message.author.id]
+            q = abuse_system.mention_spam_tracker.get(message.author.id)
+            if q is None:
+                q = deque(maxlen=10)
+                abuse_system.mention_spam_tracker[message.author.id] = q
             q.append(now)
             
             # Clean old timestamps (> 60s)
@@ -1162,6 +1219,18 @@ class EventsCog(commands.Cog):
     @commands.Cog.listener()
     async def on_automod_action(self, execution: discord.AutoModAction) -> None:
         await on_automod_action(execution)
+
+    @commands.Cog.listener()
+    async def on_automod_rule_create(self, rule: discord.AutoModRule) -> None:
+        invalidate_native_automod_rule_cache(rule)
+
+    @commands.Cog.listener()
+    async def on_automod_rule_update(self, rule: discord.AutoModRule) -> None:
+        invalidate_native_automod_rule_cache(rule)
+
+    @commands.Cog.listener()
+    async def on_automod_rule_delete(self, rule: discord.AutoModRule) -> None:
+        invalidate_native_automod_rule_cache(rule)
 
     @commands.Cog.listener()
     async def on_socket_raw_receive(self, message) -> None:

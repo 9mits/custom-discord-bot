@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from enum import Enum, IntEnum
 from typing import Any, Awaitable, Callable, Deque, Dict, Iterable, List, Optional, Tuple
 
+from core.errors import BotOperationError
+
 
 logger = logging.getLogger("MGXBot")
 
@@ -36,20 +38,23 @@ DEFAULT_JOB_TIMEOUTS = {
 }
 
 
-class HeavyJobError(RuntimeError):
+class HeavyJobError(BotOperationError):
     pass
 
 
 class HeavyJobOverloaded(HeavyJobError):
-    pass
+    title = "System Busy"
+    public_message = "The bot is handling other heavy work. Try again shortly."
 
 
 class HeavyJobStopped(HeavyJobError):
-    pass
+    title = "System Unavailable"
+    public_message = "The background work queue is not available yet."
 
 
 class HeavyJobTimedOut(HeavyJobError):
-    pass
+    title = "Operation Timed Out"
+    public_message = "The operation exceeded its safe time limit and was stopped."
 
 
 @dataclass
@@ -193,11 +198,13 @@ class HeavyJobQueue:
         capacity: int = 20,
         security_reserve: int = 5,
         scan_concurrency: int = 4,
+        metrics=None,
     ) -> None:
         self.worker_count = max(1, int(workers))
         self.capacity = max(self.worker_count, int(capacity))
         self.security_reserve = max(0, min(int(security_reserve), self.capacity))
         self.scan_concurrency = max(1, int(scan_concurrency))
+        self.metrics = metrics
         self._pending: List[Tuple[int, int, HeavyJob]] = []
         self._state_changed = asyncio.Event()
         self._all_done = asyncio.Event()
@@ -262,6 +269,8 @@ class HeavyJobQueue:
         if job.deduplication_key:
             self._deduplicated_jobs[job.deduplication_key] = job
         heapq.heappush(self._pending, (int(job.priority), self._sequence, job))
+        if self.metrics is not None:
+            self.metrics.record_queue_depth(self.depth)
         self._state_changed.set()
         return job.future
 
@@ -275,6 +284,8 @@ class HeavyJobQueue:
             self._non_security_admitted = max(0, self._non_security_admitted - 1)
         if self._admitted == 0:
             self._all_done.set()
+        if self.metrics is not None:
+            self.metrics.record_queue_depth(self.depth)
         self._state_changed.set()
 
     async def _next_runnable_job(self) -> HeavyJob:
@@ -306,6 +317,8 @@ class HeavyJobQueue:
                 if job.future is not None and not job.future.done():
                     job.future.set_exception(error)
                 logger.warning("Heavy job timed out: %s (%s)", job.correlation_id, job.kind.value)
+                if self.metrics is not None:
+                    self.metrics.record_failure()
             except asyncio.CancelledError:
                 if job.future is not None and not job.future.done():
                     job.future.cancel()
@@ -314,6 +327,8 @@ class HeavyJobQueue:
                 if job.future is not None and not job.future.done():
                     job.future.set_exception(exc)
                 logger.exception("Heavy job failed: %s (%s)", job.correlation_id, job.kind.value)
+                if self.metrics is not None:
+                    self.metrics.record_failure()
             else:
                 if job.future is not None and not job.future.done():
                     job.future.set_result(result)

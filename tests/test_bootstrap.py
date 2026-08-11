@@ -154,7 +154,12 @@ class MbxSetupModmailPanelTests(unittest.IsolatedAsyncioTestCase):
             get_channel=Mock(return_value=channel),
             fetch_channel=AsyncMock(),
         )
-        interaction = SimpleNamespace(guild=guild)
+        interaction = SimpleNamespace(
+            id=1,
+            guild=guild,
+            client=SimpleNamespace(metrics=None),
+            response=SimpleNamespace(is_done=Mock(return_value=False), defer=AsyncMock()),
+        )
         data_manager = SimpleNamespace(config={}, save_config=AsyncMock())
 
         select = ConfigChannelSelect("modmail_panel_channel", "Modmail Panel Channel")

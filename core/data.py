@@ -10,7 +10,7 @@ import logging
 import os
 import tempfile
 import time
-from collections import defaultdict, deque
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -35,8 +35,10 @@ from core.services import (
     DEFAULT_NATIVE_AUTOMOD_SETTINGS,
     DEFAULT_SCHEMA_VERSION,
     normalize_case_record,
+    invalidate_native_automod_settings,
     run_schema_migrations,
 )
+from core.runtime import TTLMap
 
 logger = logging.getLogger("MGXBot")
 
@@ -234,6 +236,15 @@ class DataManager:
         if self._dirty_generations[section] == generation:
             setattr(self, f"_dirty_{section}", False)
 
+    async def _commit(self, db: aiosqlite.Connection) -> None:
+        started = time.perf_counter()
+        try:
+            await db.commit()
+        finally:
+            metrics = getattr(self.bot, "metrics", None)
+            if metrics is not None:
+                metrics.record_database_write(time.perf_counter() - started)
+
     # ------------------------------------------------------------------
     # Internal: legacy JSON helpers (kept for migration and resolve_bot_token)
     # ------------------------------------------------------------------
@@ -291,7 +302,7 @@ class DataManager:
             await db.executescript(_CREATE_TABLES_SQL)
             await self._migrate_schema_columns(db)
             await db.execute(f"PRAGMA user_version = {_STORAGE_SCHEMA_VERSION}")
-            await db.commit()
+            await self._commit(db)
         except Exception:
             await db.rollback()
             await db.close()
@@ -525,7 +536,7 @@ class DataManager:
             except Exception as exc:
                 logger.warning("Migration: failed to import lockdown.json: %s", exc)
 
-        await db.commit()
+        await self._commit(db)
 
     # ------------------------------------------------------------------
     # Internal: in-memory helpers (unchanged from original)
@@ -899,13 +910,15 @@ class DataManager:
                     await self._sync_mapping_rows(
                         db, table="lockdown", key_column="channel_id", values=self.lockdown, replace=True
                     )
-                await db.commit()
+                await self._commit(db)
             except Exception:
                 await db.rollback()
                 raise
             for section, selected in sections.items():
                 if selected:
                     self._clear_section_if_current(section, generations[section])
+            if sections["config"]:
+                invalidate_native_automod_settings(self.config)
 
     def mark_config_dirty(self):
         return self._mark_section_dirty("config")
@@ -922,11 +935,13 @@ class DataManager:
                     values=self.config,
                     keys=keys or None,
                 )
-                await db.commit()
+                await self._commit(db)
             except Exception:
                 await db.rollback()
                 raise
             self._clear_section_if_current("config", generation)
+            if not keys or "native_automod" in keys:
+                invalidate_native_automod_settings(self.config)
 
     async def save_roles(self, user_ids: Optional[Iterable[Any]] = None, *, replace: bool = False):
         generation = self._mark_section_dirty("roles")
@@ -941,7 +956,7 @@ class DataManager:
                     keys=user_ids,
                     replace=replace,
                 )
-                await db.commit()
+                await self._commit(db)
             except Exception:
                 await db.rollback()
                 raise
@@ -968,7 +983,7 @@ class DataManager:
                     )
                 if replace:
                     await self._replace_punishments_from_memory(db)
-                await db.commit()
+                await self._commit(db)
             except Exception:
                 await db.rollback()
                 raise
@@ -993,7 +1008,7 @@ class DataManager:
                     values=self.config,
                     keys=config_keys,
                 )
-                await db.commit()
+                await self._commit(db)
             except Exception:
                 await db.rollback()
                 raise
@@ -1011,7 +1026,7 @@ class DataManager:
                     "DELETE FROM punishments WHERE case_id = ?",
                     [(case_id,) for case_id in normalized],
                 )
-                await db.commit()
+                await self._commit(db)
             except Exception:
                 await db.rollback()
                 raise
@@ -1028,7 +1043,7 @@ class DataManager:
                     values=self.mod_stats,
                     keys=keys,
                 )
-                await db.commit()
+                await self._commit(db)
             except Exception:
                 await db.rollback()
                 raise
@@ -1046,7 +1061,7 @@ class DataManager:
                     values=self.pings,
                     keys=user_ids,
                 )
-                await db.commit()
+                await self._commit(db)
             except Exception:
                 await db.rollback()
                 raise
@@ -1065,7 +1080,7 @@ class DataManager:
                     keys=channel_ids,
                     replace=replace,
                 )
-                await db.commit()
+                await self._commit(db)
             except Exception:
                 await db.rollback()
                 raise
@@ -1124,7 +1139,7 @@ class DataManager:
                     keys=normalized_user_ids,
                     replace=replace,
                 )
-                await db.commit()
+                await self._commit(db)
             except Exception:
                 await db.rollback()
                 raise
@@ -1236,7 +1251,7 @@ class DataManager:
                     "UPDATE punishments SET data = ?, action_type = ?, active = ?, expires_at = ? WHERE case_id = ?",
                     (json.dumps(updated), action_type, active, expires_at, int(case_id)),
                 )
-                await db.commit()
+                await self._commit(db)
             except Exception:
                 await db.rollback()
                 raise
@@ -1317,7 +1332,7 @@ class DataManager:
                     "INSERT INTO storage_meta(key, value) VALUES ('native_automod_rows_migrated', '1') "
                     "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
                 )
-                await db.commit()
+                await self._commit(db)
             except Exception:
                 await db.rollback()
                 raise
@@ -1361,7 +1376,7 @@ class DataManager:
                     "ORDER BY occurred_at DESC, event_id DESC LIMIT ?)",
                     (str(user_id), str(user_id), _NATIVE_AUTOMOD_PER_USER_LIMIT),
                 )
-                await db.commit()
+                await self._commit(db)
             except Exception:
                 await db.rollback()
                 raise
@@ -1447,7 +1462,7 @@ class DataManager:
                     "ORDER BY occurred_at DESC, step_id DESC LIMIT ?)",
                     (str(user_id), str(user_id), _NATIVE_AUTOMOD_PER_USER_LIMIT),
                 )
-                await db.commit()
+                await self._commit(db)
             except Exception:
                 await db.rollback()
                 raise
@@ -1470,7 +1485,7 @@ class DataManager:
                         (cutoff, limit),
                     )
                     deleted += max(0, int(cursor.rowcount))
-                await db.commit()
+                await self._commit(db)
             except Exception:
                 await db.rollback()
                 raise
@@ -1498,7 +1513,7 @@ class DataManager:
                     "DELETE FROM exports WHERE export_id NOT IN (SELECT export_id FROM exports ORDER BY export_id DESC LIMIT ?)",
                     (self._EXPORT_RETENTION,),
                 )
-                await db.commit()
+                await self._commit(db)
             except Exception:
                 await db.rollback()
                 raise
@@ -1618,14 +1633,19 @@ class DataManager:
 # ----------------- Security -----------------
 class AntiAbuseSystem:
     def __init__(self):
-        self._tracker = defaultdict(lambda: deque(maxlen=15))
-        self.cooldowns: Dict[str, float] = {}
-        self.mention_spam_tracker = defaultdict(lambda: deque(maxlen=10))
+        self._tracker = TTLMap(max_size=10_000, ttl_seconds=3600)
+        self.cooldowns = TTLMap(max_size=10_000, ttl_seconds=3600)
+        self.mention_spam_tracker = TTLMap(max_size=10_000, ttl_seconds=3600)
 
     def check_rate_limit(self, user_id: int, config: dict) -> bool:
         now = time.time()
         limit = config.get("security", {}).get("max_actions_per_min", 10)
-        while self._tracker[user_id] and now - self._tracker[user_id][0] > 60:
-            self._tracker[user_id].popleft()
-        self._tracker[user_id].append(now)
-        return len(self._tracker[user_id]) > limit
+        tracker = self._tracker.get(user_id)
+        if tracker is None:
+            tracker = deque(maxlen=15)
+            self._tracker[user_id] = tracker
+        while tracker and now - tracker[0] > 60:
+            tracker.popleft()
+        tracker.append(now)
+        self._tracker[user_id] = tracker
+        return len(tracker) > limit

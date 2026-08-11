@@ -39,6 +39,8 @@ from core.heavy_jobs import (
     HeavyJobPriority,
     HeavyJobStopped,
 )
+from core.runtime import TTLSet
+from core.responding import InteractionResponder
 from core.utils import now_iso
 from .shared import (
     logger,
@@ -542,7 +544,13 @@ def build_automod_actions_from_payload(payload: dict, guild: discord.Guild) -> L
 
 
 async def fetch_native_automod_rules(guild: discord.Guild) -> List[discord.AutoModRule]:
-    return await guild.fetch_automod_rules()
+    cache = getattr(bot, "native_automod_rule_cache", None)
+    if cache is None:
+        return await guild.fetch_automod_rules()
+    return await cache.get_or_create(
+        ("guild-rules", int(guild.id)),
+        guild.fetch_automod_rules,
+    )
 
 
 def build_native_automod_rules_embed(guild: discord.Guild, rules: List[discord.AutoModRule]) -> discord.Embed:
@@ -662,10 +670,6 @@ def build_native_automod_dedupe_key(execution: discord.AutoModAction) -> Tuple[i
 def claim_native_automod_execution(execution: discord.AutoModAction, *, ttl_seconds: int = 15) -> bool:
     now_ts = time.time()
     cache = bot.native_automod_event_cache
-    for cache_key, seen_at in list(cache.items()):
-        if now_ts - seen_at > ttl_seconds:
-            cache.pop(cache_key, None)
-
     dedupe_key = build_native_automod_dedupe_key(execution)
     previous = cache.get(dedupe_key)
     if previous and now_ts - previous <= ttl_seconds:
@@ -745,7 +749,7 @@ IMAGE_FILTER_REASON = (
 )
 _image_filter_work_semaphore = asyncio.Semaphore(2)
 _image_review_action_lock = asyncio.Lock()
-_image_review_resolutions = set()
+_image_review_resolutions = TTLSet(max_size=20_000, ttl_seconds=30 * 86400)
 _image_ocr_lock = threading.Lock()
 _image_ocr_engine = None
 _image_ocr_unavailable = False
@@ -3255,10 +3259,11 @@ class AutoModBridgeSettingsView(discord.ui.View):
         self.toggle_report.style = discord.ButtonStyle.success if settings.get("report_button_enabled", True) else discord.ButtonStyle.secondary
 
     async def _save_and_refresh(self, interaction: discord.Interaction, settings: dict) -> None:
+        await InteractionResponder(interaction).defer(ephemeral=True)
         store_native_automod_settings(settings)
         await bot.data_manager.save_config("native_automod")
         self.sync_buttons()
-        await interaction.response.edit_message(embed=build_automod_bridge_embed(interaction.guild), view=self)
+        await interaction.edit_original_response(embed=build_automod_bridge_embed(interaction.guild), view=self)
 
     @discord.ui.button(label="Bot Response", style=discord.ButtonStyle.secondary, row=0)
     async def toggle_bridge(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
@@ -3468,12 +3473,13 @@ class AutoModChannelSelect(discord.ui.ChannelSelect):
         self.label = label
 
     async def callback(self, interaction: discord.Interaction) -> None:
+        await InteractionResponder(interaction).defer(ephemeral=True)
         selected = self.values[0]
         channel = interaction.guild.get_channel(selected.id) or await interaction.guild.fetch_channel(selected.id)
         bot.data_manager.config[self.config_key] = channel.id
         await bot.data_manager.save_config(self.config_key)
         view = AutoModChannelSettingsView()
-        await interaction.response.edit_message(embed=build_automod_routing_embed(interaction.guild), view=view)
+        await interaction.edit_original_response(embed=build_automod_routing_embed(interaction.guild), view=view)
 
 
 class AutoModChannelSettingsView(discord.ui.View):
@@ -3500,16 +3506,17 @@ class AutoModChannelActionSelect(discord.ui.Select):
         )
 
     async def callback(self, interaction: discord.Interaction) -> None:
+        await InteractionResponder(interaction).defer(ephemeral=True)
         action = self.values[0]
         if action == "clear_log":
             bot.data_manager.config["automod_log_channel_id"] = 0
             await bot.data_manager.save_config("automod_log_channel_id")
-            await interaction.response.edit_message(embed=build_automod_routing_embed(interaction.guild), view=AutoModChannelSettingsView())
+            await interaction.edit_original_response(embed=build_automod_routing_embed(interaction.guild), view=AutoModChannelSettingsView())
             return
         if action == "clear_report":
             bot.data_manager.config["automod_report_channel_id"] = 0
             await bot.data_manager.save_config("automod_report_channel_id")
-            await interaction.response.edit_message(embed=build_automod_routing_embed(interaction.guild), view=AutoModChannelSettingsView())
+            await interaction.edit_original_response(embed=build_automod_routing_embed(interaction.guild), view=AutoModChannelSettingsView())
 
 
 class AutoModStoredValueRemoveSelect(discord.ui.Select):
@@ -3523,12 +3530,13 @@ class AutoModStoredValueRemoveSelect(discord.ui.Select):
         )
 
     async def callback(self, interaction: discord.Interaction) -> None:
+        await InteractionResponder(interaction).defer(ephemeral=True)
         selected_ids = {int(value) for value in self.values}
         settings = get_native_automod_settings(bot.data_manager.config)
         settings[self.config_key] = [value for value in settings.get(self.config_key, []) if int(value) not in selected_ids]
         store_native_automod_settings(settings)
         await bot.data_manager.save_config("native_automod")
-        await interaction.response.edit_message(embed=make_embed("Entries Removed", "> The selected entries have been removed.", kind="success", scope=SCOPE_MODERATION, guild=interaction.guild), view=None)
+        await interaction.edit_original_response(embed=make_embed("Entries Removed", "> The selected entries have been removed.", kind="success", scope=SCOPE_MODERATION, guild=interaction.guild), view=None)
 
 
 class AutoModStoredValueRemoveView(discord.ui.View):
@@ -3542,13 +3550,14 @@ class AutoModImmunityUserSelect(discord.ui.UserSelect):
         super().__init__(placeholder="Add immune users...", min_values=1, max_values=10, row=0)
 
     async def callback(self, interaction: discord.Interaction) -> None:
+        await InteractionResponder(interaction).defer(ephemeral=True)
         settings = get_native_automod_settings(bot.data_manager.config)
         current = {int(value) for value in settings.get("immunity_users", [])}
         current.update(int(user.id) for user in self.values)
         settings["immunity_users"] = sorted(current)
         store_native_automod_settings(settings)
         await bot.data_manager.save_config("native_automod")
-        await interaction.response.edit_message(embed=build_automod_immunity_embed(interaction.guild), view=AutoModImmunityView())
+        await interaction.edit_original_response(embed=build_automod_immunity_embed(interaction.guild), view=AutoModImmunityView())
 
 
 class AutoModImmunityRoleSelect(discord.ui.RoleSelect):
@@ -3556,13 +3565,14 @@ class AutoModImmunityRoleSelect(discord.ui.RoleSelect):
         super().__init__(placeholder="Add immune roles...", min_values=1, max_values=10, row=1)
 
     async def callback(self, interaction: discord.Interaction) -> None:
+        await InteractionResponder(interaction).defer(ephemeral=True)
         settings = get_native_automod_settings(bot.data_manager.config)
         current = {int(value) for value in settings.get("immunity_roles", [])}
         current.update(int(role.id) for role in self.values)
         settings["immunity_roles"] = sorted(current)
         store_native_automod_settings(settings)
         await bot.data_manager.save_config("native_automod")
-        await interaction.response.edit_message(embed=build_automod_immunity_embed(interaction.guild), view=AutoModImmunityView())
+        await interaction.edit_original_response(embed=build_automod_immunity_embed(interaction.guild), view=AutoModImmunityView())
 
 
 class AutoModImmunityChannelSelect(discord.ui.ChannelSelect):
@@ -3570,13 +3580,14 @@ class AutoModImmunityChannelSelect(discord.ui.ChannelSelect):
         super().__init__(placeholder="Add immune channels...", min_values=1, max_values=10, channel_types=[discord.ChannelType.text], row=2)
 
     async def callback(self, interaction: discord.Interaction) -> None:
+        await InteractionResponder(interaction).defer(ephemeral=True)
         settings = get_native_automod_settings(bot.data_manager.config)
         current = {int(value) for value in settings.get("immunity_channels", [])}
         current.update(int(channel.id) for channel in self.values)
         settings["immunity_channels"] = sorted(current)
         store_native_automod_settings(settings)
         await bot.data_manager.save_config("native_automod")
-        await interaction.response.edit_message(embed=build_automod_immunity_embed(interaction.guild), view=AutoModImmunityView())
+        await interaction.edit_original_response(embed=build_automod_immunity_embed(interaction.guild), view=AutoModImmunityView())
 
 
 class AutoModImmunityView(discord.ui.View):
@@ -3668,11 +3679,12 @@ class ImageFilterPunishmentSelect(discord.ui.Select):
         super().__init__(placeholder="Auto-punishment type (when Auto Punish is on)...", min_values=1, max_values=1, options=options, row=0)
 
     async def callback(self, interaction: discord.Interaction) -> None:
+        await InteractionResponder(interaction).defer(ephemeral=True)
         settings = get_image_filter_settings()
         settings["punishment_type"] = self.values[0]
         store_image_filter_settings(settings)
         await bot.data_manager.save_config("image_filters")
-        await interaction.response.edit_message(embed=build_image_filters_embed(interaction.guild), view=ImageFiltersView(page=self.page))
+        await interaction.edit_original_response(embed=build_image_filters_embed(interaction.guild), view=ImageFiltersView(page=self.page))
 
 
 class ImageFilterRemoveSelect(discord.ui.Select):
@@ -3779,11 +3791,12 @@ class ImageFiltersView(discord.ui.View):
         self.add_item(AutoModSectionSelect("images"))
 
     async def _toggle(self, interaction: discord.Interaction, key: str) -> None:
+        await InteractionResponder(interaction).defer(ephemeral=True)
         settings = get_image_filter_settings()
         settings[key] = not settings[key]
         store_image_filter_settings(settings)
         await bot.data_manager.save_config("image_filters")
-        await interaction.response.edit_message(embed=build_image_filters_embed(interaction.guild), view=ImageFiltersView(page=self.page))
+        await interaction.edit_original_response(embed=build_image_filters_embed(interaction.guild), view=ImageFiltersView(page=self.page))
 
     @discord.ui.button(label="Scam Filter", style=discord.ButtonStyle.secondary, row=2)
     async def toggle_enabled(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
