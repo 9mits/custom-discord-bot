@@ -18,6 +18,14 @@ from discord.ext import commands
 
 from core.constants import SCOPE_MODERATION
 from core.context import bot, tree
+from core.heavy_jobs import (
+    HeavyJob,
+    HeavyJobKind,
+    HeavyJobOverloaded,
+    HeavyJobPriority,
+    HeavyJobStopped,
+    HeavyJobTimedOut,
+)
 from core.utils import truncate_text
 from .shared import (
     extract_snowflake_id,
@@ -59,7 +67,14 @@ async def _scan_channel(channel, me, user_ids: Set[int], per_channel_limit: int,
     return found
 
 
-async def collect_export_messages(guild, user_ids: Set[int], channel_ids: Set[int], progress: Optional[dict] = None) -> List[discord.Message]:
+async def collect_export_messages(
+    guild,
+    user_ids: Set[int],
+    channel_ids: Set[int],
+    progress: Optional[dict] = None,
+    *,
+    job_queue=None,
+) -> List[discord.Message]:
     """Gather messages matching the selected members and/or channels, newest
     first, capped at EXPORT_MESSAGE_CAP. Channels are scanned concurrently. When a
     `progress` dict is passed, it is updated live with counts for the loading bar."""
@@ -74,19 +89,28 @@ async def collect_export_messages(guild, user_ids: Set[int], channel_ids: Set[in
     if progress is not None:
         progress["total"] = len(channels)
 
-    semaphore = asyncio.Semaphore(SCAN_CONCURRENCY)
-
     async def _guarded(channel):
-        async with semaphore:
-            found = await _scan_channel(channel, guild.me, user_ids, per_channel_limit, progress)
+        found = await _scan_channel(channel, guild.me, user_ids, per_channel_limit, progress)
         if progress is not None:
             progress["done"] += 1
         return found
 
-    tasks = [asyncio.ensure_future(_guarded(c)) for c in channels]
+    if job_queue is not None:
+        results = await job_queue.map_scans(channels, _guarded)
+    else:
+        semaphore = asyncio.Semaphore(SCAN_CONCURRENCY)
+
+        async def _local_guarded(channel):
+            async with semaphore:
+                return await _guarded(channel)
+
+        results = await asyncio.gather(
+            *(_local_guarded(channel) for channel in channels),
+            return_exceptions=True,
+        )
+
     messages: List[discord.Message] = []
-    for future in asyncio.as_completed(tasks):
-        result = await future
+    for result in results:
         if isinstance(result, list):
             messages.extend(result)
     messages.sort(key=lambda m: m.created_at, reverse=True)
@@ -173,6 +197,20 @@ class ExportRunButton(discord.ui.Button):
 
         await interaction.response.defer()
 
+        job_queue = getattr(bot, "heavy_jobs", None)
+        if job_queue is None:
+            await interaction.edit_original_response(
+                embed=make_embed(
+                    "Export Unavailable",
+                    "> The background work queue is not ready yet. Try again shortly.",
+                    kind="warning",
+                    scope=SCOPE_MODERATION,
+                    guild=interaction.guild,
+                ),
+                view=view,
+            )
+            return
+
         # Drive a live loading bar while channels are scanned: the collector
         # updates `progress` in place and a ticker re-renders it every 2s.
         progress = {"messages": 0, "done": 0, "total": 0}
@@ -189,12 +227,62 @@ class ExportRunButton(discord.ui.Button):
                 except asyncio.TimeoutError:
                     pass
 
-        ticker_task = asyncio.create_task(ticker())
+        job = HeavyJob(
+            kind=HeavyJobKind.EXPORT,
+            priority=HeavyJobPriority.EXPORT,
+            guild_id=interaction.guild.id,
+            operation=lambda: collect_export_messages(
+                interaction.guild,
+                view.selected_user_ids,
+                view.selected_channel_ids,
+                progress,
+                job_queue=job_queue,
+            ),
+        )
         try:
-            messages = await collect_export_messages(interaction.guild, view.selected_user_ids, view.selected_channel_ids, progress)
+            job_future = job_queue.enqueue(job)
+        except (HeavyJobOverloaded, HeavyJobStopped):
+            await interaction.edit_original_response(
+                embed=make_embed(
+                    "System Busy",
+                    "> This server already has a history-heavy task running, or the queue is full. Try again shortly.",
+                    kind="warning",
+                    scope=SCOPE_MODERATION,
+                    guild=interaction.guild,
+                ),
+                view=view,
+            )
+            return
+
+        ticker_task = asyncio.create_task(ticker())
+        failure_embed = None
+        try:
+            messages = await job_future
+        except HeavyJobTimedOut:
+            messages = None
+            failure_embed = make_embed(
+                "Export Timed Out",
+                "> The export exceeded three minutes and was stopped. Narrow the member or channel selection and try again.",
+                kind="warning",
+                scope=SCOPE_MODERATION,
+                guild=interaction.guild,
+            )
+        except Exception:
+            messages = None
+            failure_embed = make_embed(
+                "Export Failed",
+                "> The export could not be completed. Try again shortly.",
+                kind="error",
+                scope=SCOPE_MODERATION,
+                guild=interaction.guild,
+            )
         finally:
             stop.set()
             await ticker_task
+
+        if failure_embed is not None:
+            await interaction.edit_original_response(embed=failure_embed, view=view)
+            return
 
         if not messages:
             await interaction.edit_original_response(embed=view.build_embed(), view=view)

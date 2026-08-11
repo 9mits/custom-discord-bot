@@ -17,6 +17,7 @@ logger = logging.getLogger("MGXBot")
 from core.constants import DEFAULT_GUILD_ID, SCOPE_ROLES, SCOPE_SUPPORT, TEST_GUILD_ID
 from core.context import set_bot
 from core.data import DataManager, resolve_bot_token
+from core.heavy_jobs import HeavyJobQueue, RecentMessageIndex
 from core.services import get_feature_flag, ticket_needs_sla_alert
 from core.utils import now_iso
 
@@ -103,6 +104,8 @@ class MGXBot(commands.Bot):
         self.active_executions = {}
         self.dm_modmail_prompt_cooldowns: Dict[int, float] = {}
         self.native_automod_event_cache: Dict[Tuple[int, int, int, str, str], float] = {}
+        self.heavy_jobs: Optional[HeavyJobQueue] = None
+        self.recent_messages = RecentMessageIndex()
         self.abuse_system = None
         self._commands_synced = False
 
@@ -112,6 +115,7 @@ class MGXBot(commands.Bot):
         self.session = aiohttp.ClientSession()
         self.data_manager = DataManager(self)
         self.abuse_system = AntiAbuseSystem()
+        self.heavy_jobs = HeavyJobQueue()
         await self.data_manager.load_all()
 
         for extension in EXTENSIONS:
@@ -123,6 +127,7 @@ class MGXBot(commands.Bot):
 
         self._remove_disabled_application_commands()
         await self._restore_persistent_views()
+        self.heavy_jobs.start()
 
         self.check_tempbans.start()
         self.storage_maintenance_task.start()
@@ -252,6 +257,8 @@ class MGXBot(commands.Bot):
         ):
             task_loop.cancel()
 
+        if self.heavy_jobs:
+            await self.heavy_jobs.shutdown(timeout=10.0)
         if self.data_manager:
             await self.data_manager.close()
         if self.session:

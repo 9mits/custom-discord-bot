@@ -16,6 +16,14 @@ from core.services import (
     calculate_offense_punishment,
 )
 from core.context import abuse_system, bot, tree
+from core.heavy_jobs import (
+    HeavyJob,
+    HeavyJobKind,
+    HeavyJobOverloaded,
+    HeavyJobPriority,
+    HeavyJobStopped,
+    HeavyJobTimedOut,
+)
 from core.utils import now_iso, parse_duration_str
 from .shared import (
     format_duration,
@@ -68,19 +76,28 @@ async def _scan_channel_for_user(channel, me, user_id, per_channel_limit):
     return found
 
 
-async def collect_user_messages(guild, user_id, limit):
+async def collect_user_messages(guild, user_id, limit, *, job_queue=None):
     """Best-effort: gather up to `limit` of a user's most recent messages across
     every readable text channel, newest-first. Channels are scanned concurrently
     (different rate-limit buckets) with a per-channel depth cap so the sweep stays
     bounded on large servers."""
     per_channel_limit = max(_PER_CHANNEL_SCAN_FLOOR, min(_PER_CHANNEL_SCAN_CEIL, limit * 4))
-    semaphore = asyncio.Semaphore(_CHANNEL_SCAN_CONCURRENCY)
-
     async def _guarded(channel):
-        async with semaphore:
-            return await _scan_channel_for_user(channel, guild.me, user_id, per_channel_limit)
+        return await _scan_channel_for_user(channel, guild.me, user_id, per_channel_limit)
 
-    results = await asyncio.gather(*[_guarded(c) for c in guild.text_channels], return_exceptions=True)
+    if job_queue is not None:
+        results = await job_queue.map_scans(guild.text_channels, _guarded)
+    else:
+        semaphore = asyncio.Semaphore(_CHANNEL_SCAN_CONCURRENCY)
+
+        async def _local_guarded(channel):
+            async with semaphore:
+                return await _guarded(channel)
+
+        results = await asyncio.gather(
+            *(_local_guarded(channel) for channel in guild.text_channels),
+            return_exceptions=True,
+        )
     messages = []
     for result in results:
         if isinstance(result, list):
@@ -136,6 +153,66 @@ async def delete_messages_efficiently(messages) -> int:
             except (discord.Forbidden, discord.HTTPException):
                 pass
     return deleted
+
+
+async def process_punishment_message_actions(
+    guild,
+    target,
+    case_label: str,
+    *,
+    purge_count: int,
+    save_count: int,
+    job_queue,
+):
+    needed = max(purge_count, save_count)
+    recent_messages = await collect_user_messages(
+        guild,
+        target.id,
+        needed,
+        job_queue=job_queue,
+    )
+    purge_deleted = 0
+    saved_count = 0
+
+    if save_count and recent_messages:
+        captured = recent_messages[:save_count]
+        data = build_user_transcript(captured, target)
+        capture_embed = make_embed(
+            "Chat Log Captured",
+            f"> Saved **{len(captured)}** recent message(s) from {format_user_ref(target)} (no deletion).",
+            kind="info",
+            scope=SCOPE_MODERATION,
+            guild=guild,
+            thumbnail=target.display_avatar.url,
+        )
+        capture_embed.add_field(name="Case", value=case_label, inline=True)
+        await send_punishment_log(
+            guild,
+            capture_embed,
+            attachments=[(f"chatlog_{target.id}.html", data)],
+        )
+        saved_count = len(captured)
+
+    if purge_count and recent_messages:
+        to_purge = recent_messages[:purge_count]
+        data = build_user_transcript(to_purge, target)
+        evidence_embed = make_embed(
+            "Purge Evidence",
+            f"> Saved **{len(to_purge)}** message(s) from {format_user_ref(target)} before purging.",
+            kind="warning",
+            scope=SCOPE_MODERATION,
+            guild=guild,
+            thumbnail=target.display_avatar.url,
+        )
+        evidence_embed.add_field(name="Case", value=case_label, inline=True)
+        await send_punishment_log(
+            guild,
+            evidence_embed,
+            attachments=[(f"purged_{target.id}.html", data)],
+        )
+        purge_deleted = await delete_messages_efficiently(to_purge)
+
+    return purge_deleted, saved_count
 
 
 def capture_message_evidence(message: discord.Message) -> dict:
@@ -340,48 +417,32 @@ async def execute_punishment(
     # transcript to the mod log before deleting.
     purge_deleted = 0
     saved_count = 0
+    message_action_note = ""
     if purge_count or save_count:
-        needed = max(purge_count, save_count)
+        job_queue = getattr(bot, "heavy_jobs", None)
+        job = HeavyJob(
+            kind=HeavyJobKind.MODERATION_EVIDENCE,
+            priority=HeavyJobPriority.MODERATION,
+            guild_id=guild.id,
+            operation=lambda: process_punishment_message_actions(
+                guild,
+                target,
+                case_label,
+                purge_count=purge_count,
+                save_count=save_count,
+                job_queue=job_queue,
+            ),
+        )
         try:
-            recent_messages = await collect_user_messages(guild, target.id, needed)
+            if job_queue is None:
+                raise HeavyJobStopped("The background work queue is not ready.")
+            purge_deleted, saved_count = await job_queue.enqueue(job)
+        except (HeavyJobOverloaded, HeavyJobStopped):
+            message_action_note = "Evidence collection was skipped because this server already has a history-heavy task running."
+        except HeavyJobTimedOut:
+            message_action_note = "Evidence collection exceeded one minute and was stopped."
         except Exception:
-            recent_messages = []
-
-        if save_count and recent_messages:
-            captured = recent_messages[:save_count]
-            try:
-                data = build_user_transcript(captured, target)
-                capture_embed = make_embed(
-                    "Chat Log Captured",
-                    f"> Saved **{len(captured)}** recent message(s) from {format_user_ref(target)} (no deletion).",
-                    kind="info",
-                    scope=SCOPE_MODERATION,
-                    guild=guild,
-                    thumbnail=target.display_avatar.url,
-                )
-                capture_embed.add_field(name="Case", value=case_label, inline=True)
-                await send_punishment_log(guild, capture_embed, attachments=[(f"chatlog_{target.id}.html", data)])
-                saved_count = len(captured)
-            except Exception:
-                pass
-
-        if purge_count and recent_messages:
-            to_purge = recent_messages[:purge_count]
-            try:
-                data = build_user_transcript(to_purge, target)
-                evidence_embed = make_embed(
-                    "Purge Evidence",
-                    f"> Saved **{len(to_purge)}** message(s) from {format_user_ref(target)} before purging.",
-                    kind="warning",
-                    scope=SCOPE_MODERATION,
-                    guild=guild,
-                    thumbnail=target.display_avatar.url,
-                )
-                evidence_embed.add_field(name="Case", value=case_label, inline=True)
-                await send_punishment_log(guild, evidence_embed, attachments=[(f"purged_{target.id}.html", data)])
-            except Exception:
-                pass
-            purge_deleted = await delete_messages_efficiently(to_purge)
+            message_action_note = "Evidence collection failed; the punishment itself was still saved."
 
     # Response Embed (Private)
     response_embed = make_embed(
@@ -403,6 +464,8 @@ async def execute_punishment(
             parts.append(f"Saved {saved_count} message(s) to the log")
         if purge_count:
             parts.append(f"Purged {purge_deleted} message(s)")
+        if message_action_note:
+            parts.append(message_action_note)
         if parts:
             response_embed.add_field(name="Message Actions", value="> " + "; ".join(parts), inline=False)
     
