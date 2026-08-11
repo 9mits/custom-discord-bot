@@ -13,7 +13,7 @@ import time
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 import aiosqlite
 
@@ -943,6 +943,167 @@ class DataManager:
             if not keys or "native_automod" in keys:
                 invalidate_native_automod_settings(self.config)
 
+    async def mutate_config(self, mutation: Callable[[dict], Any]) -> Any:
+        """Commit a configuration mutation before publishing it to readers.
+
+        ``mutation`` receives an isolated deep copy. It must be synchronous and
+        may return any result needed by the caller. Only changed keys are written.
+        A failed commit leaves the shared configuration untouched.
+        """
+        async with self._save_lock:
+            candidate = copy.deepcopy(self.config)
+            result = mutation(candidate)
+            changed_keys = {
+                key for key in set(self.config) | set(candidate)
+                if self.config.get(key) != candidate.get(key) or (key in self.config) != (key in candidate)
+            }
+            if not changed_keys:
+                return result
+            db = await self._db_conn()
+            try:
+                await self._sync_mapping_rows(
+                    db,
+                    table="config",
+                    key_column="key",
+                    values=candidate,
+                    keys=changed_keys,
+                )
+                await self._commit(db)
+            except Exception:
+                await db.rollback()
+                raise
+            self.config.clear()
+            self.config.update(candidate)
+            self._dirty_config = False
+            if "native_automod" in changed_keys:
+                invalidate_native_automod_settings(self.config)
+            return result
+
+    async def set_config_values(self, **values: Any) -> None:
+        await self.mutate_config(lambda candidate: candidate.update(copy.deepcopy(values)))
+
+    async def replace_config(self, values: Dict[str, Any]) -> None:
+        replacement = copy.deepcopy(values)
+
+        def apply(candidate: dict) -> None:
+            candidate.clear()
+            candidate.update(replacement)
+
+        await self.mutate_config(apply)
+
+    async def _mutate_mapping_entry(
+        self,
+        *,
+        attribute: str,
+        table: str,
+        key_column: str,
+        key: Any,
+        mutation: Callable[[Any], Any],
+        default: Any,
+    ) -> Any:
+        normalized_key = str(key)
+        async with self._save_lock:
+            mapping = getattr(self, attribute)
+            current = copy.deepcopy(mapping.get(normalized_key, default))
+            candidate = mutation(current)
+            db = await self._db_conn()
+            try:
+                if candidate is None:
+                    await db.execute(
+                        f"DELETE FROM {table} WHERE {key_column} = ?",
+                        (normalized_key,),
+                    )
+                else:
+                    value_column = "value" if table == "config" else "data"
+                    await db.execute(
+                        f"INSERT INTO {table}({key_column}, {value_column}) VALUES (?, ?) "
+                        f"ON CONFLICT({key_column}) DO UPDATE SET {value_column} = excluded.{value_column}",
+                        (normalized_key, json.dumps(candidate)),
+                    )
+                await self._commit(db)
+            except Exception:
+                await db.rollback()
+                raise
+            if candidate is None:
+                mapping.pop(normalized_key, None)
+            else:
+                mapping[normalized_key] = candidate
+            if attribute == "modmail":
+                self._update_modmail_index([normalized_key])
+            return copy.deepcopy(candidate)
+
+    async def set_role_records(self, user_id: Any, records: Optional[Sequence[dict]]) -> Optional[list]:
+        payload = None if records is None else copy.deepcopy(list(records))
+        return await self._mutate_mapping_entry(
+            attribute="roles",
+            table="roles",
+            key_column="user_id",
+            key=user_id,
+            mutation=lambda _current: payload,
+            default=[],
+        )
+
+    async def mutate_role_records(self, user_id: Any, mutation: Callable[[list], Optional[list]]) -> Optional[list]:
+        return await self._mutate_mapping_entry(
+            attribute="roles",
+            table="roles",
+            key_column="user_id",
+            key=user_id,
+            mutation=mutation,
+            default=[],
+        )
+
+    async def mutate_modmail_ticket(self, user_id: Any, mutation: Callable[[dict], Optional[dict]]) -> Optional[dict]:
+        return await self._mutate_mapping_entry(
+            attribute="modmail",
+            table="modmail",
+            key_column="user_id",
+            key=user_id,
+            mutation=mutation,
+            default={},
+        )
+
+    async def mutate_stat_bucket(self, key: Any, mutation: Callable[[Any], Any], *, default: Any = None) -> Any:
+        return await self._mutate_mapping_entry(
+            attribute="mod_stats",
+            table="mod_stats",
+            key_column="user_id",
+            key=key,
+            mutation=mutation,
+            default=default,
+        )
+
+    async def mutate_ping_bucket(self, user_id: Any, mutation: Callable[[Any], Any], *, default: Any = None) -> Any:
+        return await self._mutate_mapping_entry(
+            attribute="pings",
+            table="pings",
+            key_column="user_id",
+            key=user_id,
+            mutation=mutation,
+            default=default,
+        )
+
+    async def replace_lockdown_records(self, records: Dict[Any, Any]) -> None:
+        candidate = {str(key): copy.deepcopy(value) for key, value in records.items()}
+        async with self._save_lock:
+            db = await self._db_conn()
+            changed = set(self.lockdown) | set(candidate)
+            try:
+                await self._sync_mapping_rows(
+                    db,
+                    table="lockdown",
+                    key_column="channel_id",
+                    values=candidate,
+                    keys=changed,
+                )
+                await self._commit(db)
+            except Exception:
+                await db.rollback()
+                raise
+            self.lockdown.clear()
+            self.lockdown.update(candidate)
+            self._dirty_lockdown = False
+
     def _config_backup_dir(self) -> Path:
         return Path(DB_FILE).parent / "config_backups"
 
@@ -978,14 +1139,7 @@ class DataManager:
         if not isinstance(restored, dict):
             raise ValueError("The selected configuration backup is invalid.")
 
-        previous = self.config
-        previous_keys = set(previous)
-        self.config = copy.deepcopy(restored)
-        try:
-            await self.save_config(*(previous_keys | set(self.config)))
-        except Exception:
-            self.config = previous
-            raise
+        await self.replace_config(restored)
         return selected
 
     async def save_roles(self, user_ids: Optional[Iterable[Any]] = None, *, replace: bool = False):
@@ -1064,6 +1218,7 @@ class DataManager:
         normalized = sorted({int(case_id) for case_id in case_ids})
         if not normalized:
             return
+        selected = set(normalized)
         async with self._save_lock:
             db = await self._db_conn()
             try:
@@ -1075,6 +1230,17 @@ class DataManager:
             except Exception:
                 await db.rollback()
                 raise
+            for user_id, records in list(self.punishments.items()):
+                retained = [
+                    record for record in records
+                    if not isinstance(record, dict) or record.get("case_id") not in selected
+                ]
+                if retained:
+                    self.punishments[user_id] = retained
+                else:
+                    self.punishments.pop(user_id, None)
+            for case_id in selected:
+                self.case_index.pop(case_id, None)
 
     async def save_mod_stats(self, keys: Optional[Iterable[Any]] = None):
         generation = self._mark_section_dirty("stats")
@@ -1131,23 +1297,70 @@ class DataManager:
                 raise
             self._clear_section_if_current("lockdown", generation)
 
-    async def add_punishment(self, uid, record, *, persist: bool = True):
+    async def add_punishment(
+        self,
+        uid,
+        record,
+        *,
+        persist: bool = True,
+        increment_total_issued: bool = False,
+    ):
         uid = str(uid)
-        if uid not in self.punishments:
-            self.punishments[uid] = []
-        prepared = self.prepare_punishment_record(record)
-        self.punishments[uid].append(prepared)
-        self._index_case_record(uid, prepared)
-        self._mark_section_dirty("punishments")
-        if persist:
+        prepared = dict(record)
+        if "timestamp" not in prepared:
+            from core.utils import now_iso
+            prepared["timestamp"] = now_iso()
+        if "active" not in prepared:
+            prepared["active"] = True
+
+        if not persist:
+            prepared = self.prepare_punishment_record(prepared)
+            self.punishments.setdefault(uid, []).append(prepared)
+            self._index_case_record(uid, prepared)
+            self._mark_section_dirty("punishments")
+            return prepared
+
+        async with self._save_lock:
+            candidate_counter = self._normalize_positive_int(
+                self.config.get("case_counter", 0), 0, minimum=0
+            )
+            case_id = prepared.get("case_id")
+            if not isinstance(case_id, int) or case_id <= 0:
+                case_id = candidate_counter + 1
+                prepared["case_id"] = case_id
+            candidate_counter = max(candidate_counter, case_id)
+            candidate_stats = copy.deepcopy(self.config.get("stats", {}))
+            if increment_total_issued:
+                candidate_stats["total_issued"] = int(candidate_stats.get("total_issued", 0) or 0) + 1
+            action_type, active, expires_at = self._punishment_storage_fields(prepared)
+            db = await self._db_conn()
             try:
-                await self.persist_punishment(prepared["case_id"])
+                await self._upsert_punishment_rows(
+                    db,
+                    [(case_id, uid, json.dumps(prepared), action_type, active, expires_at)],
+                )
+                await db.execute(
+                    "INSERT INTO config(key, value) VALUES ('case_counter', ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    (json.dumps(candidate_counter),),
+                )
+                if increment_total_issued:
+                    await db.execute(
+                        "INSERT INTO config(key, value) VALUES ('stats', ?) "
+                        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                        (json.dumps(candidate_stats),),
+                    )
+                await self._commit(db)
             except Exception:
-                self.punishments[uid].remove(prepared)
-                if not self.punishments[uid]:
-                    self.punishments.pop(uid, None)
-                self.case_index.pop(prepared["case_id"], None)
+                await db.rollback()
                 raise
+            self.config["case_counter"] = candidate_counter
+            if increment_total_issued:
+                self.config["stats"] = candidate_stats
+            self.punishments.setdefault(uid, []).append(prepared)
+            self._index_case_record(uid, prepared)
+            self._dirty_punishments = False
+            self._dirty_config = False
         return prepared
 
     async def discard_pending_punishment(self, uid, case_id: int, *, persist: bool = True):
@@ -1164,10 +1377,11 @@ class DataManager:
             return None
         if persist:
             await self.delete_punishments([case_id])
-        records.pop(removed_index)
-        if not records:
-            self.punishments.pop(normalized_uid, None)
-        self.case_index.pop(case_id, None)
+        else:
+            records.pop(removed_index)
+            if not records:
+                self.punishments.pop(normalized_uid, None)
+            self.case_index.pop(case_id, None)
         return removed
 
     async def save_modmail(self, user_ids: Optional[Iterable[Any]] = None, *, replace: bool = False):
@@ -1283,13 +1497,16 @@ class DataManager:
         return due
 
     async def mark_punishment_inactive(self, case_id: int) -> bool:
-        user_id, current = self.get_case(case_id)
-        if not user_id or not current:
-            return False
-        updated = copy.deepcopy(current)
-        updated["active"] = False
-        action_type, active, expires_at = self._punishment_storage_fields(updated)
+        return await self.mutate_punishment(case_id, lambda record: record.update(active=False))
+
+    async def mutate_punishment(self, case_id: int, mutation: Callable[[dict], Any]) -> bool:
         async with self._save_lock:
+            user_id, current = self.get_case(case_id)
+            if not user_id or not current:
+                return False
+            updated = copy.deepcopy(current)
+            mutation(updated)
+            action_type, active, expires_at = self._punishment_storage_fields(updated)
             db = await self._db_conn()
             try:
                 cursor = await db.execute(
@@ -1300,11 +1517,11 @@ class DataManager:
             except Exception:
                 await db.rollback()
                 raise
-        if cursor.rowcount <= 0:
-            return False
-        current.clear()
-        current.update(updated)
-        return True
+            if cursor.rowcount <= 0:
+                return False
+            current.clear()
+            current.update(updated)
+            return True
 
     async def _migrate_legacy_native_automod_history(self) -> None:
         store = self.mod_stats.get("native_automod")
@@ -1584,20 +1801,18 @@ class DataManager:
         return dict(row) if row else None
 
     async def close(self) -> None:
-        if self._dirty_config:
-            await self.save_config()
-        if self._dirty_roles:
-            await self.save_roles()
-        if self._dirty_punishments:
-            await self.save_punishments()
-        if self._dirty_stats:
-            await self.save_mod_stats()
-        if self._dirty_pings:
-            await self.save_pings()
-        if self._dirty_modmail:
-            await self.save_modmail()
-        if self._dirty_lockdown:
-            await self.save_lockdown(replace=True)
+        if any((
+            self._dirty_config,
+            self._dirty_roles,
+            self._dirty_punishments,
+            self._dirty_stats,
+            self._dirty_pings,
+            self._dirty_modmail,
+            self._dirty_lockdown,
+        )):
+            logger.error(
+                "Uncommitted legacy dirty state found during close; runtime callers must use transactional mutations"
+            )
         if self._db is not None:
             await self._db.close()
             self._db = None

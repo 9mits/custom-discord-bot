@@ -5,6 +5,7 @@ from discord.ext import commands
 from typing import Optional, Union
 
 import io
+import re
 from types import SimpleNamespace
 
 from core.constants import (
@@ -21,6 +22,7 @@ from core.services import (
     sanitize_tags,
 )
 from core.context import bot
+from core.responding import InteractionResponder
 from core.utils import iso_to_dt, now_iso
 from .shared import (
     logger,
@@ -31,6 +33,7 @@ from .shared import (
     join_lines,
     get_context_guild,
     respond_with_error,
+    respond_with_operation_failure,
     is_staff,
     send_modmail_thread_intro,
     upsert_embed_field,
@@ -133,13 +136,21 @@ async def refresh_modmail_ticket_log(guild: discord.Guild, user_id: str):
 
 async def export_modmail_transcript(thread: discord.Thread, user_id: str) -> discord.File:
     messages = []
+    ticket_user_id = _parse_user_id(user_id)
     async for message in thread.history(limit=None, oldest_first=True):
-        is_ticket_user = getattr(message.author, "id", None) == _parse_user_id(user_id)
+        is_ticket_user = getattr(message.author, "id", None) == ticket_user_id
+        content = str(message.content or "")
+        if not is_ticket_user:
+            content = re.sub(
+                r"<@!?(\d{15,22})>",
+                lambda match: match.group(0) if int(match.group(1)) == ticket_user_id else "@Staff Team",
+                content,
+            )
         messages.append({
             "author_name": message.author.display_name if is_ticket_user else "Staff Team",
             "author_avatar_url": message.author.display_avatar.url if is_ticket_user else "",
             "created_at": message.created_at,
-            "content": message.content,
+            "content": content,
             "attachments": [{"filename": attachment.filename, "url": attachment.url} for attachment in message.attachments],
             "channel_id": thread.id,
             "deleted": False,
@@ -207,15 +218,19 @@ class ModmailPrioritySelect(discord.ui.Select):
         if not ticket:
             await respond_with_error(interaction, "Ticket data not found.", scope=SCOPE_SUPPORT)
             return
-        ticket["priority"] = self.values[0]
-        await bot.data_manager.save_modmail([self.panel.user_id])
+        responder = InteractionResponder(interaction)
+        await responder.defer(ephemeral=True)
+        ticket = await bot.data_manager.mutate_modmail_ticket(
+            self.panel.user_id,
+            lambda candidate: {**candidate, "priority": self.values[0]},
+        )
         await refresh_modmail_message(self.panel.message or interaction.message, interaction.guild, self.panel.user_id, self.panel)
         await log_modmail_action(interaction.guild, "Ticket Priority Updated", [
             ("User", f"<@{self.panel.user_id}>"),
             ("Moderator", interaction.user.mention),
             ("Priority", self.values[0].title()),
         ])
-        await interaction.response.edit_message(
+        await responder.edit(
             embed=make_confirmation_embed(
                 "Ticket Priority Updated",
                 f"> Priority set to **{self.values[0].title()}**.",
@@ -254,15 +269,20 @@ class ModmailTagsModal(discord.ui.Modal, title="Update Ticket Tags"):
         if not ticket:
             await respond_with_error(interaction, "Ticket data not found.", scope=SCOPE_SUPPORT)
             return
-        ticket["tags"] = sanitize_tags(_split_tag_input(self.tags.value), limit=10)
-        await bot.data_manager.save_modmail([self.panel.user_id])
+        responder = InteractionResponder(interaction)
+        await responder.defer(ephemeral=True)
+        new_tags = sanitize_tags(_split_tag_input(self.tags.value), limit=10)
+        ticket = await bot.data_manager.mutate_modmail_ticket(
+            self.panel.user_id,
+            lambda candidate: {**candidate, "tags": new_tags},
+        )
         await refresh_modmail_message(self.panel.message, interaction.guild, self.panel.user_id, self.panel)
         await log_modmail_action(interaction.guild, "Ticket Tags Updated", [
             ("User", f"<@{self.panel.user_id}>"),
             ("Moderator", interaction.user.mention),
             ("Tags", ", ".join(ticket["tags"]) or "None"),
         ])
-        await interaction.response.send_message(
+        await responder.send(
             embed=make_confirmation_embed("Ticket Tags Updated", "> Ticket tags were updated.", scope=SCOPE_SUPPORT, guild=interaction.guild),
             ephemeral=True,
         )
@@ -291,6 +311,8 @@ class CannedReplySelect(discord.ui.Select):
         if not ticket:
             await respond_with_error(interaction, "Ticket data not found.", scope=SCOPE_SUPPORT)
             return
+        responder = InteractionResponder(interaction)
+        await responder.defer(ephemeral=True)
         reply_key = self.values[0]
         reply_body = bot.data_manager.config.get("modmail_canned_replies", {}).get(reply_key, "")
         user = await resolve_modmail_user(self.panel.user_id)
@@ -310,11 +332,13 @@ class CannedReplySelect(discord.ui.Select):
             await respond_with_error(interaction, "Unable to DM the user with the saved reply.", scope=SCOPE_SUPPORT)
             return
         except discord.HTTPException as exc:
-            await respond_with_error(interaction, f"Failed to send the saved reply: {exc}", scope=SCOPE_SUPPORT)
+            await respond_with_operation_failure(interaction, exc, operation="send saved modmail reply", scope=SCOPE_SUPPORT)
             return
 
-        ticket["last_staff_message_at"] = now_iso()
-        await bot.data_manager.save_modmail([self.panel.user_id])
+        ticket = await bot.data_manager.mutate_modmail_ticket(
+            self.panel.user_id,
+            lambda candidate: {**candidate, "last_staff_message_at": now_iso()},
+        )
         if isinstance(interaction.channel, discord.Thread):
             await interaction.channel.send(f"Sent quick reply `{reply_key}` to <@{self.panel.user_id}>.")
         await refresh_modmail_message(self.panel.message or interaction.message, interaction.guild, self.panel.user_id, self.panel)
@@ -323,7 +347,7 @@ class CannedReplySelect(discord.ui.Select):
             ("Moderator", interaction.user.mention),
             ("Template", reply_key),
         ])
-        await interaction.response.edit_message(
+        await responder.edit(
             embed=make_confirmation_embed("Quick Reply Sent", "> The saved reply was sent to the user.", scope=SCOPE_SUPPORT, guild=interaction.guild),
             view=None,
         )
@@ -458,9 +482,14 @@ class ModmailControlView(discord.ui.View):
 
         await interaction.response.defer(ephemeral=True, thinking=True)
 
-        ticket["status"] = "closed"
-        ticket["last_staff_message_at"] = now_iso()
-        await bot.data_manager.save_modmail([self.user_id])
+        ticket = await bot.data_manager.mutate_modmail_ticket(
+            self.user_id,
+            lambda candidate: {
+                **candidate,
+                "status": "closed",
+                "last_staff_message_at": now_iso(),
+            },
+        )
 
         thread = await resolve_modmail_thread(interaction.guild, ticket)
 
@@ -475,7 +504,7 @@ class ModmailControlView(discord.ui.View):
 
         if isinstance(thread, discord.Thread):
             try:
-                await thread.send(f"**Ticket Closed** by {interaction.user.mention}.")
+                await thread.send("**Ticket Closed** by the staff team.")
                 await thread.edit(locked=True, archived=True)
             except discord.HTTPException as exc:
                 logger.warning("Failed to finalize closed thread for %s: %s", self.user_id, exc)
@@ -527,9 +556,14 @@ class ModmailControlView(discord.ui.View):
 
         await interaction.response.defer(ephemeral=True, thinking=True)
 
-        ticket["status"] = "open"
-        ticket["last_staff_message_at"] = now_iso()
-        await bot.data_manager.save_modmail([self.user_id])
+        ticket = await bot.data_manager.mutate_modmail_ticket(
+            self.user_id,
+            lambda candidate: {
+                **candidate,
+                "status": "open",
+                "last_staff_message_at": now_iso(),
+            },
+        )
         await refresh_modmail_message(interaction.message, interaction.guild, self.user_id, self)
 
         thread = await resolve_modmail_thread(interaction.guild, ticket)
@@ -537,7 +571,7 @@ class ModmailControlView(discord.ui.View):
         if isinstance(thread, discord.Thread):
             try:
                 await thread.edit(locked=False, archived=False)
-                await thread.send(f"**Ticket Re-opened** by {interaction.user.mention}.")
+                await thread.send("**Ticket Re-opened** by the staff team.")
             except discord.HTTPException as exc:
                 logger.warning("Failed to reopen thread for %s: %s", self.user_id, exc)
 
@@ -580,9 +614,15 @@ class ModmailControlView(discord.ui.View):
         await interaction.response.defer(ephemeral=True, thinking=True)
 
         current = ticket.get("assigned_moderator")
-        ticket["assigned_moderator"] = None if current == interaction.user.id else interaction.user.id
-        ticket["claimed_at"] = now_iso() if ticket.get("assigned_moderator") else None
-        await bot.data_manager.save_modmail([self.user_id])
+        new_assignee = None if current == interaction.user.id else interaction.user.id
+        ticket = await bot.data_manager.mutate_modmail_ticket(
+            self.user_id,
+            lambda candidate: {
+                **candidate,
+                "assigned_moderator": new_assignee,
+                "claimed_at": now_iso() if new_assignee else None,
+            },
+        )
         await refresh_modmail_message(interaction.message, interaction.guild, self.user_id, self)
         await log_modmail_action(interaction.guild, "Ticket Assignment Updated", [
             ("User", f"<@{self.user_id}>"),
@@ -735,8 +775,10 @@ class ModmailModal(discord.ui.Modal):
             # Save Ticket Data
             ticket_payload["thread_id"] = thread.id
             ticket_payload["log_id"] = log_msg.id
-            bot.data_manager.modmail[str(interaction.user.id)] = ticket_payload
-            await bot.data_manager.save_modmail([str(interaction.user.id)])
+            await bot.data_manager.mutate_modmail_ticket(
+                interaction.user.id,
+                lambda _candidate: ticket_payload,
+            )
             
             # Initial Thread Msg
             await send_modmail_thread_intro(thread, interaction.user, self.category, fields_data)
@@ -761,7 +803,7 @@ class ModmailModal(discord.ui.Modal):
             await interaction.followup.send(embed=make_embed("Ticket Created", "> Ticket created successfully! Check your DMs.", kind="success", scope=SCOPE_SUPPORT, guild=interaction.guild), ephemeral=True)
 
         except Exception as e:
-            await interaction.followup.send(embed=make_embed("Failed", f"> Failed to create ticket: {e}", kind="error", scope=SCOPE_SUPPORT, guild=interaction.guild), ephemeral=True)
+            await respond_with_operation_failure(interaction, e, operation="create modmail ticket", scope=SCOPE_SUPPORT)
 
 class ModmailPanelSelect(discord.ui.Select):
     def __init__(self):

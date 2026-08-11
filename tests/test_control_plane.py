@@ -13,10 +13,12 @@ import core.data as data_module
 from core.actions import (
     AcknowledgementPolicy,
     RiskLevel,
+    authorize_interaction,
     get_action_spec,
     search_actions,
     validate_registered_actions,
 )
+from core.errors import BotPermissionError, CallerPermissionError, InvalidConfigurationError
 from core.bot import EXTENSIONS, create_bot
 from core.context import set_bot
 from core.data import DataManager
@@ -28,7 +30,14 @@ from core.services import (
 )
 from cogs.admin import AntiNukeResolveButton
 from cogs.automod import AutoModReportResponseSelect, AutoModWarningReportButton
-from cogs.control_plane import SettingsHubView, SettingsSectionSelect, config_change_preview, settings_section_states
+from cogs.control_plane import (
+    SettingsEditorButton,
+    SettingsEditorView,
+    SettingsHubView,
+    SettingsSectionSelect,
+    config_change_preview,
+    settings_section_states,
+)
 from cogs.event_leaderboard import EventHistorySelect
 from cogs.modmail import ModmailActionButton, ModmailControlView, export_modmail_transcript
 
@@ -55,6 +64,48 @@ class ActionRegistryTests(unittest.TestCase):
         self.assertEqual(spec.acknowledgement_policy, AcknowledgementPolicy.DEFER)
         self.assertEqual(spec.risk_level, RiskLevel.DESTRUCTIVE)
         self.assertIn(spec, search_actions("punishment"))
+
+    def test_registry_enforces_feature_caller_and_bot_permissions(self):
+        class FakeMember:
+            def __init__(self, role_ids, *, administrator=False, permissions=None):
+                self.id = 10
+                self.roles = [SimpleNamespace(id=role_id) for role_id in role_ids]
+                self.guild_permissions = permissions or SimpleNamespace(
+                    administrator=administrator,
+                    manage_channels=False,
+                )
+
+        guild = SimpleNamespace(
+            owner_id=99,
+            me=FakeMember([], permissions=SimpleNamespace(administrator=False, manage_channels=True)),
+            get_member=lambda _user_id: None,
+        )
+        interaction = SimpleNamespace(
+            command=SimpleNamespace(qualified_name="lock"),
+            data={"name": "lock"},
+            type=discord.InteractionType.application_command,
+            user=FakeMember([7]),
+            guild=guild,
+            client=SimpleNamespace(user=SimpleNamespace(id=500)),
+        )
+        config = {"role_mod": 7, "feature_flags": {}}
+        with patch("core.actions.discord.Member", FakeMember):
+            self.assertEqual(authorize_interaction(interaction, config).command_name, "lock")
+            interaction.user = FakeMember([8])
+            with self.assertRaises(CallerPermissionError):
+                authorize_interaction(interaction, config)
+            interaction.user = FakeMember([7])
+            guild.me.guild_permissions.manage_channels = False
+            with self.assertRaises(BotPermissionError):
+                authorize_interaction(interaction, config)
+
+            interaction.command = SimpleNamespace(qualified_name="settings")
+            interaction.data = {"name": "settings"}
+            with self.assertRaises(InvalidConfigurationError):
+                authorize_interaction(
+                    interaction,
+                    {"role_admin": 7, "feature_flags": {"config_panel": False}},
+                )
 
 
 class CapabilityMigrationTests(unittest.TestCase):
@@ -118,11 +169,14 @@ class ConfigurationImportTests(unittest.IsolatedAsyncioTestCase):
                 backup = await manager.create_config_backup()
                 self.assertTrue(backup.exists())
                 manager.config = {"schema_version": 3, "guild_id": 2}
-                manager.save_config = AsyncMock()
+                async def replace_config(values):
+                    manager.config = dict(values)
+
+                manager.replace_config = AsyncMock(side_effect=replace_config)
                 restored = await manager.rollback_config_backup(backup)
             self.assertEqual(restored, backup.resolve())
             self.assertEqual(manager.config["guild_id"], 1)
-            manager.save_config.assert_awaited_once()
+            manager.replace_config.assert_awaited_once()
 
     def test_legacy_import_helper_still_strips_secrets(self):
         merged, warnings = import_config_payload({}, {"bot_token": "x", "guild_id": 1})
@@ -181,6 +235,46 @@ class DiscordControlPlaneTests(unittest.TestCase):
 
         asyncio.run(runner())
 
+    def test_settings_editor_replaces_the_hub_message(self):
+        async def runner():
+            guild = SimpleNamespace(id=1, icon=None, me=None, get_member=lambda _user_id: None)
+            hub = SettingsHubView(guild, requester_id=9, section="roles")
+            button = next(
+                component
+                for item in hub.children[0].children
+                if isinstance(item, discord.ui.ActionRow)
+                for component in item.children
+                if isinstance(component, SettingsEditorButton)
+            )
+            interaction = SimpleNamespace(guild=guild, response=SimpleNamespace(edit_message=AsyncMock()))
+            await button.callback(interaction)
+            edited = interaction.response.edit_message.await_args.kwargs["view"]
+            self.assertIsInstance(edited, SettingsEditorView)
+            self.assertEqual(edited.section, "roles")
+            self.assertEqual(interaction.response.edit_message.await_count, 1)
+
+        asyncio.run(runner())
+
+    def test_every_settings_section_has_same_message_navigation(self):
+        async def runner():
+            guild_member = SimpleNamespace(nick=None, guild_avatar=None, guild_banner=None)
+            guild = SimpleNamespace(id=1, icon=None, me=guild_member, get_member=lambda _user_id: None)
+            for section in (
+                "overview", "roles", "channels", "moderation", "automod",
+                "modmail", "custom_roles", "security", "branding",
+            ):
+                editor = SettingsEditorView(
+                    guild,
+                    requester_id=9,
+                    section=section,
+                    history=["overview"],
+                )
+                rendered = json.dumps(editor.to_components())
+                self.assertIn("Back", rendered, section)
+                self.assertIn("Home", rendered, section)
+
+        asyncio.run(runner())
+
     def test_modmail_transcript_hides_staff_identity(self):
         class Thread:
             id = 123
@@ -195,9 +289,9 @@ class DiscordControlPlaneTests(unittest.TestCase):
                         edited_at=None,
                     )
                     yield SimpleNamespace(
-                        author=SimpleNamespace(id=99, display_name="Private Moderator", display_avatar=SimpleNamespace(url="staff.png")),
+                        author=SimpleNamespace(id=999999999999999, display_name="Private Moderator", display_avatar=SimpleNamespace(url="staff.png")),
                         created_at=datetime.now(timezone.utc),
-                        content="Staff response",
+                        content="Staff response from <@999999999999999>",
                         attachments=[],
                         edited_at=None,
                     )
@@ -211,6 +305,8 @@ class DiscordControlPlaneTests(unittest.TestCase):
             self.assertIn("Staff Team", rendered)
             self.assertNotIn("Private Moderator", rendered)
             self.assertNotIn("staff.png", rendered)
+            self.assertNotIn("<@999999999999999>", rendered)
+            self.assertIn("@Staff Team", rendered)
 
         asyncio.run(runner())
 

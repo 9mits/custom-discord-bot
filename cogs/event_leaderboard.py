@@ -20,6 +20,7 @@ of BOT_DATA_DIR.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -33,11 +34,12 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from core.constants import BRAND_NAME, SCOPE_SYSTEM
+from core.responding import InteractionResponder
+from core.runtime import retry_with_backoff
 from core.utils import create_progress_bar, iso_to_dt, now_iso
 from .shared import (
     extract_snowflake_id,
     get_theme_color,
-    has_permission_capability,
     make_embed,
     resolve_channel_input,
 )
@@ -282,13 +284,6 @@ def discord_timestamp_lines(unix_timestamp: int) -> list[str]:
     ]
 
 
-def is_event_owner(interaction: discord.Interaction) -> bool:
-    return (
-        interaction.guild_id == EVENT_GUILD_ID
-        and has_permission_capability(interaction, "owner_panel")
-    )
-
-
 def event_display_enabled() -> bool:
     return str(os.environ.get("EVENT_DISPLAY", "")).strip().lower() in {"1", "true", "yes", "on"}
 
@@ -300,16 +295,10 @@ def event_control_enabled() -> bool:
 # ---------------------------------------------------------------------------
 # CONTROL half — owner-only commands on Mysterious Bot X in the event server
 # ---------------------------------------------------------------------------
-class EventControlGroup(app_commands.Group):
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        return is_event_owner(interaction)
-
-
-event_group = EventControlGroup(
+event_group = app_commands.Group(
     name="event",
     description="Control the limited-time VC leaderboard event.",
     guild_ids=[EVENT_GUILD_ID],
-    default_permissions=discord.Permissions(administrator=True),
 )
 
 
@@ -327,7 +316,7 @@ async def _resolve_event_channel_option(
     if raw_channel_id is None:
         return selected_channel
     if extract_snowflake_id(raw_channel_id) is None:
-        await interaction.response.send_message(
+        await InteractionResponder(interaction).send(
             embed=_control_embed("Invalid Channel", "> That isn't a valid channel ID or mention.", kind="error", guild=interaction.guild),
             ephemeral=True,
         )
@@ -335,19 +324,19 @@ async def _resolve_event_channel_option(
 
     resolved_channel = await resolve_channel_input(interaction.guild, raw_channel_id)
     if resolved_channel is None:
-        await interaction.response.send_message(
+        await InteractionResponder(interaction).send(
             embed=_control_embed("Channel Not Found", "> No channel in this server was found with that ID.", kind="error", guild=interaction.guild),
             ephemeral=True,
         )
         return None
     if not isinstance(resolved_channel, expected_type):
-        await interaction.response.send_message(
+        await InteractionResponder(interaction).send(
             embed=_control_embed("Invalid Channel Type", f"> Choose a {channel_label}.", kind="error", guild=interaction.guild),
             ephemeral=True,
         )
         return None
     if selected_channel is not None and selected_channel.id != resolved_channel.id:
-        await interaction.response.send_message(
+        await InteractionResponder(interaction).send(
             embed=_control_embed(
                 "Channel Mismatch",
                 "> The selected channel and supplied channel ID must refer to the same channel.",
@@ -379,7 +368,7 @@ async def event_setup(
     )
     if selected_channel is None:
         if channelid is None:
-            await interaction.response.send_message(
+            await InteractionResponder(interaction).send(
                 embed=_control_embed("Channel Required", "> Choose a channel or supply its ID.", kind="error", guild=interaction.guild),
                 ephemeral=True,
             )
@@ -389,7 +378,7 @@ async def event_setup(
     cfg["guild_id"] = interaction.guild_id
     cfg["channel_id"] = selected_channel.id
     save_config(cfg)
-    await interaction.response.send_message(
+    await InteractionResponder(interaction).send(
         embed=_control_embed(
             "Event Channel Set",
             f"> Leaderboard will be posted in {selected_channel.mention} by Mysterious Bot X.\n"
@@ -405,7 +394,7 @@ async def event_setup(
 async def event_start(interaction: discord.Interaction) -> None:
     cfg = load_config()
     if not cfg.get("channel_id"):
-        await interaction.response.send_message(
+        await InteractionResponder(interaction).send(
             embed=_control_embed("No Channel", "> Run `/event setup` first to pick a channel.", kind="error", guild=interaction.guild),
             ephemeral=True,
         )
@@ -414,7 +403,7 @@ async def event_start(interaction: discord.Interaction) -> None:
     if not cfg.get("started_at"):
         cfg["started_at"] = now_iso()
     save_config(cfg)
-    await interaction.response.send_message(
+    await InteractionResponder(interaction).send(
         embed=_control_embed(
             "Event Started",
             f"> Now tracking voice time. The display instance refreshes the board every {EVENT_REFRESH_SECONDS}s.",
@@ -430,7 +419,7 @@ async def event_stop(interaction: discord.Interaction) -> None:
     cfg = load_config()
     cfg["active"] = False
     save_config(cfg)
-    await interaction.response.send_message(
+    await InteractionResponder(interaction).send(
         embed=_control_embed("Event Stopped", "> Tracking paused. The leaderboard message will stop updating.", kind="warning", guild=interaction.guild),
         ephemeral=True,
     )
@@ -442,7 +431,7 @@ async def event_reset(interaction: discord.Interaction) -> None:
     cfg["reset_token"] = int(cfg.get("reset_token", 0)) + 1
     cfg["started_at"] = now_iso() if cfg.get("active") else None
     save_config(cfg)
-    await interaction.response.send_message(
+    await InteractionResponder(interaction).send(
         embed=_control_embed("Event Reset", "> All tracked time will be wiped on the display instance's next refresh.", kind="danger", guild=interaction.guild),
         ephemeral=True,
     )
@@ -455,7 +444,7 @@ async def event_goal(interaction: discord.Interaction, hours: app_commands.Range
     cfg["goal_hours"] = int(hours)
     cfg["title"] = event_title(int(hours))
     save_config(cfg)
-    await interaction.response.send_message(
+    await InteractionResponder(interaction).send(
         embed=_control_embed("Goal Updated", f"> Event goal set to **{hours:,} hours**.", kind="success", guild=interaction.guild),
         ephemeral=True,
     )
@@ -466,7 +455,7 @@ async def event_goal(interaction: discord.Interaction, hours: app_commands.Range
 async def event_next(interaction: discord.Interaction, hours: app_commands.Range[int, 1, 1000000]) -> None:
     cfg = load_config()
     if not cfg.get("channel_id"):
-        await interaction.response.send_message(
+        await InteractionResponder(interaction).send(
             embed=_control_embed(
                 "No Leaderboard",
                 "> Run `/event setup` before starting the next leaderboard.",
@@ -496,7 +485,7 @@ async def event_next(interaction: discord.Interaction, hours: app_commands.Range
     save_config(cfg)
 
     winner_count = len(archive["top_10"])
-    await interaction.response.send_message(
+    await InteractionResponder(interaction).send(
         embed=_control_embed(
             "Next Leaderboard Started",
             (
@@ -536,7 +525,7 @@ async def event_vc(
     cfg["voice_channel_id"] = selected_channel.id if selected_channel else None
     save_config(cfg)
     where = selected_channel.mention if selected_channel else "**any** non-AFK voice channel"
-    await interaction.response.send_message(
+    await InteractionResponder(interaction).send(
         embed=_control_embed("Tracked Voice Channel Set", f"> Now tracking {where}.", kind="success", guild=interaction.guild),
         ephemeral=True,
     )
@@ -549,7 +538,7 @@ async def event_elapsed(interaction: discord.Interaction, hours: app_commands.Ra
     cfg["baseline_seconds"] = int(hours * 3600)
     cfg["baseline_token"] = int(cfg.get("baseline_token", 0)) + 1
     save_config(cfg)
-    await interaction.response.send_message(
+    await InteractionResponder(interaction).send(
         embed=_control_embed(
             "Progress Corrected",
             f"> Leaderboard progress will show **{hours:,.2f} hours** on the next refresh and count up from there.\n"
@@ -591,7 +580,7 @@ async def event_status(interaction: discord.Interaction) -> None:
     else:
         lines.append("> **Message:** not posted yet (waiting on display instance)")
 
-    await interaction.response.send_message(
+    await InteractionResponder(interaction).send(
         embed=_control_embed("Event Status", "\n".join(lines), kind="info", guild=interaction.guild),
         ephemeral=True,
     )
@@ -599,8 +588,6 @@ async def event_status(interaction: discord.Interaction) -> None:
 
 @app_commands.command(name="endtimestamp", description="Show every Discord timestamp format for the projected event end.")
 @app_commands.guilds(EVENT_GUILD_ID)
-@app_commands.default_permissions(administrator=True)
-@app_commands.check(is_event_owner)
 async def endtimestamp_command(interaction: discord.Interaction) -> None:
     cfg = load_config()
     rt = load_runtime()
@@ -624,7 +611,7 @@ async def endtimestamp_command(interaction: discord.Interaction) -> None:
     if not cfg.get("active"):
         lines.append("> Tracking is currently paused, so the projected time will move until the event resumes.")
 
-    await interaction.response.send_message(
+    await InteractionResponder(interaction).send(
         embed=_control_embed(
             "Projected Event End",
             "\n".join(lines),
@@ -680,7 +667,7 @@ class EventHistorySelect(discord.ui.DynamicItem[discord.ui.Select], template=r"e
         values = getattr(self, "_values", None) or self.item.values
         archive = self.archives.get(values[0])
         if archive is None:
-            await interaction.response.send_message(
+            await InteractionResponder(interaction).send(
                 embed=_control_embed(
                     "Event Not Found",
                     "> That archived leaderboard is no longer available.",
@@ -690,7 +677,7 @@ class EventHistorySelect(discord.ui.DynamicItem[discord.ui.Select], template=r"e
                 ephemeral=True,
             )
             return
-        await interaction.response.send_message(
+        await InteractionResponder(interaction).send(
             embed=_control_embed(
                 archive["title"],
                 event_archive_description(archive),
@@ -730,10 +717,10 @@ class EventLeaderboardCog(commands.Cog):
             metrics.register_loop("event leaderboard", expected_interval_seconds=EVENT_REFRESH_SECONDS)
 
     # -- helpers ----------------------------------------------------------
-    def _ensure_loaded(self) -> None:
+    async def _ensure_loaded(self) -> None:
         if self._loaded:
             return
-        rt = load_runtime()
+        rt = await asyncio.to_thread(load_runtime)
         self._totals = {str(k): int(v) for k, v in rt.get("totals", {}).items()}
         self._message_id = rt.get("message_id")
         self._applied_reset_token = int(rt.get("applied_reset_token", 0))
@@ -788,15 +775,16 @@ class EventLeaderboardCog(commands.Cog):
             if uid not in present:
                 del self._sessions[uid]
 
-    def _persist(self) -> None:
-        save_runtime({
+    async def _persist(self) -> None:
+        payload = {
             "message_id": self._message_id,
-            "totals": self._totals,
+            "totals": dict(self._totals),
             "vc_active_seconds": self._vc_active_seconds,
             "last_updated": now_iso(),
             "applied_reset_token": self._applied_reset_token,
             "applied_baseline_token": self._applied_baseline_token,
-        })
+        }
+        await asyncio.to_thread(save_runtime, payload)
 
     def _build_view(self, guild: discord.Guild) -> discord.ui.LayoutView:
         """Build the leaderboard as a Components V2 layout (container + dividers)."""
@@ -906,7 +894,7 @@ class EventLeaderboardCog(commands.Cog):
     async def refresh_loop(self) -> None:
         metrics = getattr(self.bot, "metrics", None)
         try:
-            await self._refresh_once()
+            await retry_with_backoff(self._refresh_once)
         except Exception as exc:
             if metrics is not None:
                 metrics.record_loop_failure("event leaderboard", exc)
@@ -916,8 +904,8 @@ class EventLeaderboardCog(commands.Cog):
                 metrics.record_loop_success("event leaderboard")
 
     async def _refresh_once(self) -> None:
-        self._ensure_loaded()
-        cfg = load_config()
+        await self._ensure_loaded()
+        cfg = await asyncio.to_thread(load_config)
         self._active = bool(cfg.get("active"))
         self._guild_id = cfg.get("guild_id")
         self._channel_id = cfg.get("channel_id")
@@ -956,7 +944,7 @@ class EventLeaderboardCog(commands.Cog):
             if isinstance(channel, discord.TextChannel):
                 await self._update_message(guild, channel)
 
-        self._persist()
+        await self._persist()
 
     @refresh_loop.before_loop
     async def _before_refresh(self) -> None:
@@ -975,7 +963,7 @@ class EventLeaderboardCog(commands.Cog):
     async def cog_unload(self) -> None:
         self.refresh_loop.cancel()
         self._flush_sessions()
-        self._persist()
+        await self._persist()
 
 
 async def setup(bot_instance: commands.Bot) -> None:

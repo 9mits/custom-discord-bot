@@ -23,13 +23,7 @@ from core.services import (
     resolve_native_automod_policy,
 )
 from core.context import abuse_system, bot
-from core.errors import (
-    BotOperationError,
-    BotPermissionError,
-    CallerPermissionError,
-    InternalFailure,
-    RateLimitError,
-)
+from core.errors import CallerPermissionError, InternalFailure
 from core.utils import now_iso
 from .shared import (
     logger,
@@ -54,6 +48,7 @@ from .shared import (
     maybe_send_dm_modmail_panel,
     punish_rogue_mod,
     extract_snowflake_id,
+    format_operation_failure,
 )
 from .cases import (
     get_case_label,
@@ -80,21 +75,14 @@ from .case_panel import build_case_link_view
 
 
 async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    from core.errors import classify_operation_error
+
     original = error.original if isinstance(error, app_commands.CommandInvokeError) else error
     if isinstance(original, discord.NotFound) and original.code == 10062:
         logger.warning("Interaction timed out (10062).")
         return
 
-    if isinstance(error, app_commands.CheckFailure):
-        operation_error = CallerPermissionError()
-    elif isinstance(original, BotOperationError):
-        operation_error = original
-    elif isinstance(original, discord.Forbidden):
-        operation_error = BotPermissionError(str(original))
-    elif isinstance(original, discord.HTTPException) and original.status == 429:
-        operation_error = RateLimitError(str(original))
-    else:
-        operation_error = InternalFailure(str(original))
+    operation_error = classify_operation_error(error)
 
     if isinstance(operation_error, InternalFailure):
         command_name = interaction.command.qualified_name if interaction.command else "unknown"
@@ -315,7 +303,7 @@ async def on_raw_reaction_add(payload):
                     await send_punishment_log(guild, log_embed, view=build_case_link_view(record["case_id"]))
                     
                 except Exception as e:
-                    await channel.send(f"Execution failed: {e}")
+                    await channel.send(format_operation_failure(e, "complete public execution"))
             else:
                 # Target not found (left server and fetch_user failed), clean up
                 pass
@@ -1113,16 +1101,21 @@ async def on_message(message: discord.Message):
                     if files:
                         relay_kwargs["files"] = files
                     await thread.send(**relay_kwargs)
-                    ticket["last_user_message_at"] = now_iso()
-                    ticket["last_sla_alert_at"] = None
-                    await bot.data_manager.save_modmail([str(message.author.id)])
+                    await bot.data_manager.mutate_modmail_ticket(
+                        message.author.id,
+                        lambda candidate: {
+                            **candidate,
+                            "last_user_message_at": now_iso(),
+                            "last_sla_alert_at": None,
+                        },
+                    )
                     if guild:
                         await refresh_modmail_ticket_log(guild, str(message.author.id))
                     if attachment_notice:
                         await message.channel.send(attachment_notice)
                     await message.add_reaction("✅")
                 except Exception as e:
-                    await message.channel.send(f"Error relaying message: {e}")
+                    await message.channel.send(format_operation_failure(e, "relay modmail user message"))
             else:
                 await message.channel.send("Your previous ticket thread could not be found, so please open a new ticket below.")
                 await maybe_send_dm_modmail_panel(
@@ -1171,8 +1164,10 @@ async def on_message(message: discord.Message):
                     if files:
                         relay_kwargs["files"] = files
                     await user.send(**relay_kwargs)
-                    ticket["last_staff_message_at"] = now_iso()
-                    await bot.data_manager.save_modmail([target_uid])
+                    await bot.data_manager.mutate_modmail_ticket(
+                        target_uid,
+                        lambda candidate: {**candidate, "last_staff_message_at": now_iso()},
+                    )
                     await refresh_modmail_ticket_log(message.guild, target_uid)
                     if attachment_notice:
                         await message.channel.send(attachment_notice)
@@ -1180,7 +1175,7 @@ async def on_message(message: discord.Message):
                 except discord.Forbidden:
                     await message.channel.send("Failed to send: User has blocked the bot or DMs are disabled.")
                 except Exception as e:
-                    await message.channel.send(f"Failed to send message: {e}")
+                    await message.channel.send(format_operation_failure(e, "relay modmail staff message"))
             return
 
 # ──────────────────────────── /branding ────────────────────────────

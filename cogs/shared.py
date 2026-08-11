@@ -47,6 +47,7 @@ from core.services import (
 )
 from core.context import bot
 from core.responding import InteractionResponder
+from core.errors import InternalFailure, classify_operation_error
 from core.utils import truncate_text, format_duration, now_iso
 
 # Setup Logging
@@ -702,6 +703,44 @@ async def respond_with_error(
 ):
     embed = make_error_embed(title, f"> {message}", scope=scope, guild=interaction.guild)
     await InteractionResponder(interaction).send(embed=embed, ephemeral=True)
+
+
+def log_operation_failure(error: BaseException, operation: str):
+    operation_error = classify_operation_error(error)
+    logger.error(
+        "%s failed correlation_id=%s",
+        operation,
+        operation_error.correlation_id,
+        exc_info=(type(error), error, error.__traceback__),
+    )
+    return operation_error
+
+
+def format_operation_failure(error: BaseException, operation: str) -> str:
+    operation_error = log_operation_failure(error, operation)
+    message = operation_error.public_message
+    if isinstance(operation_error, InternalFailure):
+        message += f" Reference: `{operation_error.correlation_id}`."
+    return message
+
+
+async def respond_with_operation_failure(
+    interaction: discord.Interaction,
+    error: BaseException,
+    *,
+    operation: str,
+    scope: str = SCOPE_SYSTEM,
+) -> None:
+    operation_error = log_operation_failure(error, operation)
+    message = operation_error.public_message
+    if isinstance(operation_error, InternalFailure):
+        message += f" Reference: `{operation_error.correlation_id}`."
+    await respond_with_error(
+        interaction,
+        message,
+        title=operation_error.title,
+        scope=scope,
+    )
 
 
 def is_staff_member(member: discord.Member, config: Optional[dict] = None) -> bool:
@@ -1585,7 +1624,7 @@ async def punish_rogue_mod(guild: discord.Guild, member: discord.User, reason: s
                 action_log = f"Stripped Staff Roles: {', '.join([r.name for r in to_remove])}"
                 stripped_ids = [r.id for r in to_remove]
             except Exception as e:
-                action_log = f"Failed to strip roles: {e}"
+                action_log = format_operation_failure(e, "strip dangerous roles")
     else:
         action_log = "User left guild or not found."
 
@@ -1608,15 +1647,18 @@ async def punish_rogue_mod(guild: discord.Guild, member: discord.User, reason: s
     if restore_data:
         restore_data["stripped_roles"] = stripped_ids
         restore_data["actor_id"] = member.id
-        pending = bot.data_manager.config.setdefault("pending_antinuke_resolutions", {})
-        if not isinstance(pending, dict):
-            pending = {}
-            bot.data_manager.config["pending_antinuke_resolutions"] = pending
-        while len(pending) >= 100:
-            pending.pop(next(iter(pending)))
         resolution_id = secrets.token_urlsafe(8)
-        pending[resolution_id] = {**restore_data, "created_at": now_iso()}
-        await bot.data_manager.save_config("pending_antinuke_resolutions")
+
+        def store_resolution(config):
+            pending = config.setdefault("pending_antinuke_resolutions", {})
+            if not isinstance(pending, dict):
+                pending = {}
+                config["pending_antinuke_resolutions"] = pending
+            while len(pending) >= 100:
+                pending.pop(next(iter(pending)))
+            pending[resolution_id] = {**restore_data, "created_at": now_iso()}
+
+        await bot.data_manager.mutate_config(store_resolution)
         from .admin import AntiNukeResolveView  # noqa: PLC0415 — shared↔admin mutual dependency
         view = AntiNukeResolveView(resolution_id)
         

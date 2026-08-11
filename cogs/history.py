@@ -7,6 +7,7 @@ import discord
 
 from core.constants import SCOPE_MODERATION
 from core.context import bot
+from core.responding import InteractionResponder
 from core.utils import iso_to_dt
 from .shared import (
     UNDO_REASON_PRESETS,
@@ -64,8 +65,7 @@ async def execute_undo_and_log(
     )
     log_embed = build_punishment_undo_log_embed(interaction.guild, interaction.user, target, removed_record, undo_reason, action_result)
     from .moderation import build_revoke_undo_view, stash_undone_case
-    stash_undone_case(target.id, removed_record)
-    await bot.data_manager.save_config("undone_cases")
+    await stash_undone_case(target.id, removed_record)
     view = build_revoke_undo_view(removed_record.get("case_id") or 0)
     await send_punishment_log(interaction.guild, log_embed, view=view, attachments=[attachment])
     return success, removed_record, action_result
@@ -79,6 +79,7 @@ class FinalConfirmClear(discord.ui.View):
 
     @discord.ui.button(label="YES, WIPE EVERYTHING", style=discord.ButtonStyle.danger)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
+        await InteractionResponder(interaction).defer(ephemeral=True)
         removed_records = await clear_user_history_records(self.target)
         if removed_records:
             attachment = build_history_archive_attachment(
@@ -90,7 +91,7 @@ class FinalConfirmClear(discord.ui.View):
             log_embed = build_history_cleared_log_embed(interaction.guild, self.moderator, self.target, removed_records)
             await send_punishment_log(interaction.guild, log_embed, attachments=[attachment])
 
-            await interaction.response.edit_message(embed=make_embed("History Cleared", "> The user's moderation history has been completely wiped.", kind="success", scope=SCOPE_MODERATION, guild=interaction.guild), view=None)
+            await interaction.edit_original_response(embed=make_embed("History Cleared", "> The user's moderation history has been completely wiped.", kind="success", scope=SCOPE_MODERATION, guild=interaction.guild), view=None)
 
             if self.origin_message:
                 try:
@@ -98,7 +99,7 @@ class FinalConfirmClear(discord.ui.View):
                 except Exception:
                     pass
         else:
-            await interaction.response.edit_message(embed=make_embed("Nothing to Clear", "> This user has no history to clear.", kind="muted", scope=SCOPE_MODERATION, guild=interaction.guild), view=None)
+            await interaction.edit_original_response(embed=make_embed("Nothing to Clear", "> This user has no history to clear.", kind="muted", scope=SCOPE_MODERATION, guild=interaction.guild), view=None)
 
     @discord.ui.button(label="No, Stop", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:

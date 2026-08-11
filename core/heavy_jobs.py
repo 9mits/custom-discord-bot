@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from enum import Enum, IntEnum
 from typing import Any, Awaitable, Callable, Deque, Dict, Iterable, List, Optional, Tuple
 
-from core.errors import BotOperationError
+from core.errors import BotOperationError, OverloadError
 
 
 logger = logging.getLogger("MGXBot")
@@ -42,7 +42,7 @@ class HeavyJobError(BotOperationError):
     pass
 
 
-class HeavyJobOverloaded(HeavyJobError):
+class HeavyJobOverloaded(OverloadError):
     title = "System Busy"
     public_message = "The bot is handling other heavy work. Try again shortly."
 

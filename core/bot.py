@@ -20,7 +20,7 @@ from core.context import set_bot
 from core.data import DataManager, resolve_bot_token
 from core.heavy_jobs import HeavyJobQueue, RecentMessageIndex
 from core.metrics import MetricsCommandTree, OperationMetrics, install_component_metrics
-from core.runtime import AsyncTTLCache, TTLMap
+from core.runtime import AsyncTTLCache, TTLMap, retry_with_backoff
 from core.services import get_feature_flag, ticket_needs_sla_alert
 from core.utils import now_iso
 
@@ -255,7 +255,7 @@ class MGXBot(commands.Bot):
         if not targets:
             return
 
-        changed_keys = []
+        synced_fingerprints = {}
         for target_id in targets:
             guild = discord.Object(id=int(target_id))
             if target_id in global_targets:
@@ -272,12 +272,11 @@ class MGXBot(commands.Bot):
                 logger.warning("Auto-sync to guild %s failed: %s", target_id, exc)
                 continue
 
-            self.data_manager.config[state_key] = fingerprint
-            changed_keys.append(state_key)
+            synced_fingerprints[state_key] = fingerprint
             logger.info("Auto-synced %d slash commands to guild %s", len(synced), target_id)
 
-        if changed_keys:
-            await self.data_manager.save_config(*changed_keys)
+        if synced_fingerprints:
+            await self.data_manager.set_config_values(**synced_fingerprints)
 
     async def close(self) -> None:
         for task_loop in (
@@ -302,7 +301,7 @@ class MGXBot(commands.Bot):
     async def _run_background_loop(self, name: str, operation) -> None:
         metrics = getattr(self, "metrics", None)
         try:
-            await operation()
+            await retry_with_backoff(operation)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -400,9 +399,7 @@ class MGXBot(commands.Bot):
 
         now = discord.utils.utcnow()
         sla_minutes = max(5, int(self.data_manager.config.get("modmail_sla_minutes", 60)))
-        changed_user_ids = set()
-
-        for user_id, ticket in self.data_manager.modmail.items():
+        for user_id, ticket in list(self.data_manager.modmail.items()):
             if not isinstance(ticket, dict):
                 continue
             if not ticket_needs_sla_alert(ticket, now, sla_minutes):
@@ -432,11 +429,10 @@ class MGXBot(commands.Bot):
                 except Exception:
                     pass
 
-            ticket["last_sla_alert_at"] = now_iso()
-            changed_user_ids.add(user_id)
-
-        if changed_user_ids:
-            await self.data_manager.save_modmail(changed_user_ids)
+            await self.data_manager.mutate_modmail_ticket(
+                user_id,
+                lambda candidate: {**candidate, "last_sla_alert_at": now_iso()},
+            )
 
     @tasks.loop(hours=6)
     async def role_cleanup_task(self) -> None:
@@ -458,7 +454,6 @@ class MGXBot(commands.Bot):
         if not guild:
             return
 
-        removed_user_ids = set()
         for user_id, records in list(self.data_manager.roles.items()):
             # Records are stored as a list of role dicts per user
             records = records if isinstance(records, list) else [records]
@@ -498,11 +493,7 @@ class MGXBot(commands.Bot):
                 else:
                     removed_count += 1
 
-            if remaining_records:
-                self.data_manager.roles[user_id] = remaining_records
-            else:
-                self.data_manager.roles.pop(user_id, None)
-            removed_user_ids.add(user_id)
+            await self.data_manager.set_role_records(user_id, remaining_records or None)
 
             if not removed_count:
                 continue
@@ -521,9 +512,6 @@ class MGXBot(commands.Bot):
                 inline=False,
             )
             await send_log(guild, embed)
-
-        if removed_user_ids:
-            await self.data_manager.save_roles(removed_user_ids)
 
     async def on_ready(self) -> None:
         logger.info("Logged in as %s (id=%s)", self.user, self.user.id)

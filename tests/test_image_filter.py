@@ -71,6 +71,20 @@ def _fingerprint_entry(fingerprint: dict, label: str = "test") -> dict:
     return {**fingerprint, "label": label, "added_by": 1, "added_at": ""}
 
 
+def _transactional_manager(config, **attributes):
+    manager = SimpleNamespace(config=config, **attributes)
+
+    async def set_values(**values):
+        manager.config.update(values)
+
+    async def mutate_config(mutation):
+        return mutation(manager.config)
+
+    manager.set_config_values = AsyncMock(side_effect=set_values)
+    manager.mutate_config = AsyncMock(side_effect=mutate_config)
+    return manager
+
+
 def _png_bytes(color, size=(64, 64), *, structured=True, stripe=None):
     from PIL import Image, ImageDraw
 
@@ -1118,7 +1132,7 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         async def record_kick(*args, **kwargs):
             delivery_order.append("kick")
 
-        async def add_pending_case(user_id, record, *, persist=True):
+        async def add_pending_case(user_id, record, **_kwargs):
             delivery_order.append("case")
             return {**record, "case_id": 55}
 
@@ -1141,11 +1155,9 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
             kick=AsyncMock(side_effect=record_kick),
             ban=AsyncMock(),
         )
-        data_manager = SimpleNamespace(
-            config={"stats": {}},
+        data_manager = _transactional_manager(
+            {"stats": {}},
             add_punishment=AsyncMock(side_effect=add_pending_case),
-            persist_punishment=AsyncMock(),
-            save_config=AsyncMock(),
         )
         return_view = object()
 
@@ -1187,7 +1199,7 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(case_record["case_id"], 55)
         self.assertTrue(dm_sent)
         self.assertEqual(delivery_order, ["case", "dm", "kick"])
-        self.assertFalse(data_manager.add_punishment.await_args.kwargs["persist"])
+        self.assertNotIn("persist", data_manager.add_punishment.await_args.kwargs)
         member.create_dm.assert_awaited_once()
         guild.kick.assert_awaited_once()
         dm_channel.send.assert_awaited_once()
@@ -1216,7 +1228,7 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
             delivery_order.append("kick")
             raise RuntimeError("kick failed")
 
-        async def add_pending_case(user_id, record, *, persist=True):
+        async def add_pending_case(user_id, record, **_kwargs):
             delivery_order.append("case")
             return {**record, "case_id": 55}
 
@@ -1240,8 +1252,8 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
             icon=None,
             kick=AsyncMock(side_effect=fail_kick),
         )
-        data_manager = SimpleNamespace(
-            config={"stats": {}},
+        data_manager = _transactional_manager(
+            {"stats": {}},
             add_punishment=AsyncMock(side_effect=add_pending_case),
             discard_pending_punishment=AsyncMock(side_effect=discard_pending_case),
         )
@@ -1268,7 +1280,7 @@ class ImageFilterRuntimeTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertFalse(applied)
-        self.assertIn("kick failed", summary)
+        self.assertIn("Reference:", summary)
         self.assertIsNone(case_record)
         self.assertTrue(dm_sent)
         self.assertEqual(
@@ -1287,11 +1299,7 @@ class ImageFilterUiTests(unittest.IsolatedAsyncioTestCase):
         restored = await ImageFalsePositiveButton.from_custom_id(SimpleNamespace(), button.item, match)
         self.assertEqual(restored.fingerprint, fingerprint)
 
-        data_manager = SimpleNamespace(
-            config={"image_filters": {}},
-            mark_config_dirty=Mock(),
-            save_config=AsyncMock(),
-        )
+        data_manager = _transactional_manager({"image_filters": {}})
         guild = SimpleNamespace(id=123, icon=None)
         source_embed = discord.Embed(
             title="Scam Image Detected",
@@ -1410,8 +1418,7 @@ class ImageFilterUiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(undone_embed.image.url, "attachment://flagged-image-654.png")
         learned = data_manager.config["image_filters"]["false_positives"]
         self.assertEqual(learned, [])
-        data_manager.mark_config_dirty.assert_called()
-        self.assertEqual(data_manager.save_config.await_count, 2)
+        self.assertEqual(data_manager.set_config_values.await_count, 2)
         automod_module._image_review_resolutions.clear()
 
     async def test_review_punishment_button_applies_current_image_filter_policy(self):
@@ -1448,8 +1455,8 @@ class ImageFilterUiTests(unittest.IsolatedAsyncioTestCase):
             response=SimpleNamespace(defer=AsyncMock()),
             followup=SimpleNamespace(send=AsyncMock()),
         )
-        data_manager = SimpleNamespace(
-            config={
+        data_manager = _transactional_manager(
+            {
                 "image_filters": {
                     "enabled": True,
                     "delete_message": True,
@@ -1457,7 +1464,9 @@ class ImageFilterUiTests(unittest.IsolatedAsyncioTestCase):
                     "duration_minutes": 60,
                 },
             },
-            save_punishments=AsyncMock(),
+            mutate_punishment=AsyncMock(
+                side_effect=lambda _case_id, mutation: (mutation(case_record), True)[1]
+            ),
         )
         case_record = {
             "case_id": 55,
@@ -1524,7 +1533,7 @@ class ImageFilterUiTests(unittest.IsolatedAsyncioTestCase):
         cleanup.assert_called_once_with(guild, 42, exclude_message_id=654, case_id=55)
         source_channel.fetch_message.assert_awaited_once_with(654)
         source_message.delete.assert_awaited_once()
-        data_manager.save_punishments.assert_awaited_once()
+        data_manager.mutate_punishment.assert_awaited_once()
         log_message.edit.assert_awaited_once()
         edited_embed = log_message.edit.await_args.kwargs["embed"]
         edited_fields = {field.name: field.value for field in edited_embed.fields}
@@ -1688,12 +1697,10 @@ class ImageFilterUiTests(unittest.IsolatedAsyncioTestCase):
             attachments=[attachment],
             delete=AsyncMock(),
         )
-        data_manager = SimpleNamespace(
-            config={"image_filters": {
+        data_manager = _transactional_manager(
+            {"image_filters": {
                 "entries": [{"hash": "0123456789abcdef", "label": "Existing scam"}],
             }},
-            mark_config_dirty=Mock(),
-            save_config=AsyncMock(),
         )
         fake_bot = SimpleNamespace(
             data_manager=data_manager,
@@ -1729,7 +1736,7 @@ class ImageFilterUiTests(unittest.IsolatedAsyncioTestCase):
         fake_bot.wait_for.assert_awaited_once()
         attachment.read.assert_awaited_once()
         upload.delete.assert_awaited_once()
-        data_manager.save_config.assert_awaited_once()
+        data_manager.set_config_values.assert_awaited_once()
         interaction.followup.send.assert_awaited_once()
         interaction.message.edit.assert_awaited_once()
 
@@ -1754,11 +1761,7 @@ class ImageFilterUiTests(unittest.IsolatedAsyncioTestCase):
             {"hash": f"{index:016x}", "label": f"Entry {index}"}
             for index in range(1, 31)
         ]
-        data_manager = SimpleNamespace(
-            config={"image_filters": {"entries": entries}},
-            mark_config_dirty=Mock(),
-            save_config=AsyncMock(),
-        )
+        data_manager = _transactional_manager({"image_filters": {"entries": entries}})
         fake_bot = SimpleNamespace(data_manager=data_manager)
 
         with patch.object(automod_module, "bot", fake_bot), patch.object(
@@ -1784,20 +1787,24 @@ class ImageFilterUiTests(unittest.IsolatedAsyncioTestCase):
             remove_select._values = [remove_select.options[-1].value]
             interaction = SimpleNamespace(
                 guild=SimpleNamespace(icon=None),
-                response=SimpleNamespace(edit_message=AsyncMock()),
+                response=SimpleNamespace(
+                    is_done=Mock(side_effect=[False, True]),
+                    defer=AsyncMock(),
+                ),
+                edit_original_response=AsyncMock(),
             )
             await remove_select.callback(interaction)
 
         remaining = data_manager.config["image_filters"]["entries"]
         self.assertEqual(len(remaining), 29)
         self.assertNotIn("Entry 30", {entry["label"] for entry in remaining})
-        data_manager.save_config.assert_awaited_once()
-        interaction.response.edit_message.assert_awaited_once()
+        data_manager.set_config_values.assert_awaited_once()
+        interaction.edit_original_response.assert_awaited_once()
 
     async def test_filter_panel_can_undo_an_existing_false_positive(self):
         fingerprint = fingerprint_image_bytes(_png_bytes((20, 40, 60)))
-        data_manager = SimpleNamespace(
-            config={"image_filters": {
+        data_manager = _transactional_manager(
+            {"image_filters": {
                 "false_positives": [{
                     **fingerprint,
                     "label": "Staff-confirmed false positive",
@@ -1805,12 +1812,14 @@ class ImageFilterUiTests(unittest.IsolatedAsyncioTestCase):
                     "added_at": "2026-07-29T10:00:00+00:00",
                 }],
             }},
-            mark_config_dirty=Mock(),
-            save_config=AsyncMock(),
         )
         interaction = SimpleNamespace(
             guild=SimpleNamespace(icon=None),
-            response=SimpleNamespace(edit_message=AsyncMock()),
+            response=SimpleNamespace(
+                is_done=Mock(side_effect=[False, True]),
+                defer=AsyncMock(),
+            ),
+            edit_original_response=AsyncMock(),
         )
 
         with patch.object(
@@ -1835,8 +1844,8 @@ class ImageFilterUiTests(unittest.IsolatedAsyncioTestCase):
             await remove_select.callback(interaction)
 
         self.assertEqual(data_manager.config["image_filters"]["false_positives"], [])
-        data_manager.save_config.assert_awaited_once()
-        interaction.response.edit_message.assert_awaited_once()
+        data_manager.set_config_values.assert_awaited_once()
+        interaction.edit_original_response.assert_awaited_once()
 
 
 class ImageFilterEventFlowTests(unittest.IsolatedAsyncioTestCase):
