@@ -203,7 +203,7 @@ class ModmailPrioritySelect(discord.ui.Select):
             await respond_with_error(interaction, "Ticket data not found.", scope=SCOPE_SUPPORT)
             return
         ticket["priority"] = self.values[0]
-        await bot.data_manager.save_modmail()
+        await bot.data_manager.save_modmail([self.panel.user_id])
         await refresh_modmail_message(self.panel.message or interaction.message, interaction.guild, self.panel.user_id, self.panel)
         await log_modmail_action(interaction.guild, "Ticket Priority Updated", [
             ("User", f"<@{self.panel.user_id}>"),
@@ -250,7 +250,7 @@ class ModmailTagsModal(discord.ui.Modal, title="Update Ticket Tags"):
             await respond_with_error(interaction, "Ticket data not found.", scope=SCOPE_SUPPORT)
             return
         ticket["tags"] = sanitize_tags(_split_tag_input(self.tags.value), limit=10)
-        await bot.data_manager.save_modmail()
+        await bot.data_manager.save_modmail([self.panel.user_id])
         await refresh_modmail_message(self.panel.message, interaction.guild, self.panel.user_id, self.panel)
         await log_modmail_action(interaction.guild, "Ticket Tags Updated", [
             ("User", f"<@{self.panel.user_id}>"),
@@ -309,7 +309,7 @@ class CannedReplySelect(discord.ui.Select):
             return
 
         ticket["last_staff_message_at"] = now_iso()
-        await bot.data_manager.save_modmail()
+        await bot.data_manager.save_modmail([self.panel.user_id])
         if isinstance(interaction.channel, discord.Thread):
             await interaction.channel.send(f"Sent quick reply `{reply_key}` to <@{self.panel.user_id}>.")
         await refresh_modmail_message(self.panel.message or interaction.message, interaction.guild, self.panel.user_id, self.panel)
@@ -364,7 +364,7 @@ class ModmailControlView(discord.ui.View):
 
         ticket["status"] = "closed"
         ticket["last_staff_message_at"] = now_iso()
-        await bot.data_manager.save_modmail()
+        await bot.data_manager.save_modmail([self.user_id])
 
         thread = await resolve_modmail_thread(interaction.guild, ticket)
 
@@ -433,7 +433,7 @@ class ModmailControlView(discord.ui.View):
 
         ticket["status"] = "open"
         ticket["last_staff_message_at"] = now_iso()
-        await bot.data_manager.save_modmail()
+        await bot.data_manager.save_modmail([self.user_id])
         await refresh_modmail_message(interaction.message, interaction.guild, self.user_id, self)
 
         thread = await resolve_modmail_thread(interaction.guild, ticket)
@@ -486,7 +486,7 @@ class ModmailControlView(discord.ui.View):
         current = ticket.get("assigned_moderator")
         ticket["assigned_moderator"] = None if current == interaction.user.id else interaction.user.id
         ticket["claimed_at"] = now_iso() if ticket.get("assigned_moderator") else None
-        await bot.data_manager.save_modmail()
+        await bot.data_manager.save_modmail([self.user_id])
         await refresh_modmail_message(interaction.message, interaction.guild, self.user_id, self)
         await log_modmail_action(interaction.guild, "Ticket Assignment Updated", [
             ("User", f"<@{self.user_id}>"),
@@ -640,7 +640,7 @@ class ModmailModal(discord.ui.Modal):
             ticket_payload["thread_id"] = thread.id
             ticket_payload["log_id"] = log_msg.id
             bot.data_manager.modmail[str(interaction.user.id)] = ticket_payload
-            await bot.data_manager.save_modmail()
+            await bot.data_manager.save_modmail([str(interaction.user.id)])
             
             # Initial Thread Msg
             await send_modmail_thread_intro(thread, interaction.user, self.category, fields_data)

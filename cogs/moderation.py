@@ -308,8 +308,10 @@ async def execute_punishment(
     
     # Update Stats
     bot.data_manager.config["stats"]["total_issued"] = bot.data_manager.config["stats"].get("total_issued", 0) + 1
-    bot.data_manager.mark_config_dirty()
-    await bot.data_manager.save_all()
+    await bot.data_manager.persist_punishment(
+        record["case_id"],
+        config_keys=("case_counter", "stats"),
+    )
 
     if is_kick:
         status = "Kicked"
@@ -910,7 +912,7 @@ class RevokeUndoButton(
         record = entry.get("record") or {}
         target_id = int(entry.get("target_id") or 0)
         await bot.data_manager.add_punishment(str(target_id), record)
-        await bot.data_manager.save_config()
+        await bot.data_manager.save_config("undone_cases")
 
         # Re-apply physical punishment
         guild = interaction.guild
@@ -1292,7 +1294,8 @@ async def history(
 async def cases(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
     view = AllCasesView(interaction.guild)
-    if not view.cases:
+    await view.reload()
+    if not view.total:
         await interaction.followup.send(
             embed=make_empty_state_embed(
                 "No Cases",
@@ -1518,7 +1521,7 @@ async def lock(interaction: discord.Interaction):
         msg = await channel.send(embed=public_embed)
         if "locked_channels" not in bot.data_manager.config: bot.data_manager.config["locked_channels"] = {}
         bot.data_manager.config["locked_channels"][str(channel.id)] = msg.id
-        await bot.data_manager.save_config()
+        await bot.data_manager.save_config("locked_channels")
         await interaction.followup.send(embed=make_embed("Channel Locked", "> Channel has been locked successfully.", kind="success", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
     except Exception as e:
         await interaction.followup.send(embed=make_embed("Error", f"> Error: {e}", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
@@ -1542,7 +1545,7 @@ async def unlock(interaction: discord.Interaction):
                     await msg.delete()
                 except Exception: pass
                 del bot.data_manager.config["locked_channels"][cid]
-                await bot.data_manager.save_config()
+                await bot.data_manager.save_config("locked_channels")
         await interaction.followup.send(embed=make_embed("Channel Unlocked", "> Channel has been unlocked successfully.", kind="success", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)
     except Exception as e:
         await interaction.followup.send(embed=make_embed("Error", f"> Error: {e}", kind="error", scope=SCOPE_MODERATION, guild=interaction.guild), ephemeral=True)

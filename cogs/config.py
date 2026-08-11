@@ -45,7 +45,7 @@ class ConfigRoleSelect(discord.ui.RoleSelect):
     async def callback(self, interaction: discord.Interaction) -> None:
         role = self.values[0]
         bot.data_manager.config[self.config_key] = role.id
-        await bot.data_manager.save_config()
+        await bot.data_manager.save_config(self.config_key)
         await interaction.response.send_message(embed=make_embed("Setting Updated", f"> **{self.config_name}** updated to {role.mention}.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 class ConfigChannelSelect(discord.ui.ChannelSelect):
@@ -58,9 +58,11 @@ class ConfigChannelSelect(discord.ui.ChannelSelect):
         selected = self.values[0]
         channel = interaction.guild.get_channel(selected.id) or await interaction.guild.fetch_channel(selected.id)
         bot.data_manager.config[self.config_key] = channel.id
+        changed_keys = [self.config_key]
         if self.config_key == "general_log_channel_id":
             bot.data_manager.config["log_channel_id"] = channel.id
-        await bot.data_manager.save_config()
+            changed_keys.append("log_channel_id")
+        await bot.data_manager.save_config(*changed_keys)
 
         if self.config_key == "modmail_panel_channel":
             await send_configured_modmail_panel(interaction, channel)
@@ -135,10 +137,16 @@ class ConfigImportModal(discord.ui.Modal, title="Paste Settings Backup"):
             await respond_with_error(interaction, f"Invalid config JSON: {exc}", scope=SCOPE_SYSTEM)
             return
 
-        merged, warnings = import_config_payload(bot.data_manager.config, payload)
+        previous = bot.data_manager.config
+        merged, warnings = import_config_payload(previous, payload)
+        changed_keys = {
+            key
+            for key in set(previous) | set(merged)
+            if previous.get(key) != merged.get(key)
+        }
         bot.data_manager.config = merged
-        bot.data_manager._configure_cache_limits()
-        await bot.data_manager.save_config()
+        if changed_keys:
+            await bot.data_manager.save_config(*changed_keys)
         description = "> Settings were imported successfully."
         if warnings:
             description += "\n> " + "\n> ".join(warnings)
@@ -214,7 +222,7 @@ class GuildIdModal(discord.ui.Modal, title="Set Guild ID"):
             await interaction.response.send_message(embed=make_embed("Invalid ID", "> Invalid guild ID.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
             return
         bot.data_manager.config["guild_id"] = int(self.guild_id.value)
-        await bot.data_manager.save_config()
+        await bot.data_manager.save_config("guild_id")
         await interaction.response.send_message(embed=make_embed("Guild ID Updated", f"> Guild ID set to `{self.guild_id.value}`.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
 
@@ -325,7 +333,7 @@ async def send_configured_modmail_panel(
 
     if used_current_channel:
         bot.data_manager.config["modmail_panel_channel"] = target_channel.id
-        await bot.data_manager.save_config()
+        await bot.data_manager.save_config("modmail_panel_channel")
 
     channel_mention = getattr(target_channel, "mention", f"`{target_channel.id}`")
     await interaction.followup.send(

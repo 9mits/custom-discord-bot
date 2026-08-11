@@ -22,6 +22,8 @@ class MbxDataTests(unittest.TestCase):
         self.manager.config = {"case_counter": 0}
 
     def tearDown(self):
+        if self.manager._db is not None:
+            self.loop.run_until_complete(self.manager.close())
         self.loop.close()
         asyncio.set_event_loop(None)
 
@@ -45,14 +47,14 @@ class MbxDataTests(unittest.TestCase):
         )
 
     def test_discard_pending_punishment_removes_case_and_index(self):
-        record = asyncio.run(self.manager.add_punishment(
+        record = self.loop.run_until_complete(self.manager.add_punishment(
             "42",
             {"type": "kick", "reason": "Pending"},
             persist=False,
         ))
         self.assertEqual(self.manager.get_case(record["case_id"]), ("42", record))
 
-        removed = asyncio.run(self.manager.discard_pending_punishment(
+        removed = self.loop.run_until_complete(self.manager.discard_pending_punishment(
             "42",
             record["case_id"],
             persist=False,
@@ -78,16 +80,18 @@ class MbxDataTests(unittest.TestCase):
             }.items():
                 (db_dir / name).write_text(payload, encoding="utf-8")
 
-            with patch.object(data, "CONFIG_FILE", db_dir / "config.json"), \
+            with patch.object(data, "DB_DIR", db_dir), \
+                patch.object(data, "DB_FILE", db_dir / "bot.db"), \
+                patch.object(data, "CONFIG_FILE", db_dir / "config.json"), \
                 patch.object(data, "ROLES_FILE", db_dir / "roles.json"), \
                 patch.object(data, "PUNISHMENTS_FILE", db_dir / "punishments.json"), \
                 patch.object(data, "MOD_STATS_FILE", db_dir / "mod_stats.json"), \
                 patch.object(data, "PINGS_FILE", db_dir / "pings.json"), \
                 patch.object(data, "MODMAIL_FILE", db_dir / "modmail.json"), \
                 patch.object(data, "LOCKDOWN_FILE", db_dir / "lockdown.json"):
-                asyncio.run(self.manager.load_all())
-
-        self.assertIn("feature_flags", self.manager.config)
+                self.loop.run_until_complete(self.manager.load_all())
+                self.assertIn("feature_flags", self.manager.config)
+                self.loop.run_until_complete(self.manager.close())
 
     def test_resolve_bot_token_prefers_environment_variable(self):
         with tempfile.TemporaryDirectory() as temp_dir:

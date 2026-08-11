@@ -12,9 +12,15 @@ import cogs.shared as shared_module
 
 class MbxBootstrapTests(unittest.TestCase):
     def test_create_bot_does_not_require_token(self):
-        bot = create_bot()
-        self.assertEqual(bot.command_prefix, "!")
-        self.assertIsNone(bot.data_manager)
+        async def runner():
+            bot = create_bot()
+            try:
+                self.assertEqual(bot.command_prefix, "!")
+                self.assertIsNone(bot.data_manager)
+            finally:
+                await bot.close()
+
+        asyncio.run(runner())
 
     def test_cogs_import_without_running_bot(self):
         for module_name in (
@@ -40,10 +46,13 @@ class MbxBootstrapTests(unittest.TestCase):
         # guards against import-time crashes and missing command registration.
         async def runner():
             bot = create_bot()
-            await bot.load_extension("cogs.testkit")
-            names = {command.name for command in bot.tree.get_commands()}
-            self.assertIn("test-ping", names)
-            self.assertIn("test-sysinfo", names)
+            try:
+                await bot.load_extension("cogs.testkit")
+                names = {command.name for command in bot.tree.get_commands()}
+                self.assertIn("test-ping", names)
+                self.assertIn("test-sysinfo", names)
+            finally:
+                await bot.close()
 
         asyncio.run(runner())
 
@@ -91,32 +100,35 @@ class MbxBootstrapTests(unittest.TestCase):
     def test_extensions_load_on_fresh_bot(self):
         async def runner():
             bot = create_bot()
-            for extension in EXTENSIONS:
-                await bot.load_extension(extension)
-            bot._remove_disabled_application_commands()
-            self.assertEqual(len(bot.extensions), len(EXTENSIONS))
-            command_names = {command.qualified_name for command in bot.tree.walk_commands()}
-            self.assertFalse(command_names & DISABLED_APPLICATION_COMMANDS)
-            self.assertTrue(
-                {
-                    "commands",
-                    "mod-guide",
-                    "role-settings",
-                    "derole",
-                    "modmail-panel",
-                    "security",
-                    "lift-lockdown",
-                    "undo",
-                }.issubset(command_names)
-            )
-            commands_by_name = {command.qualified_name: command for command in bot.tree.walk_commands()}
-            for command_name in ("punish", "history", "undo"):
-                command = commands_by_name[command_name]
-                user_param = next(param for param in command.parameters if param.name == "user")
-                self.assertFalse(user_param.required)
-            case_command = commands_by_name["case"]
-            self.assertFalse(next(param for param in case_command.parameters if param.name == "caseid").required)
-            self.assertFalse(next(param for param in case_command.parameters if param.name == "user").required)
+            try:
+                for extension in EXTENSIONS:
+                    await bot.load_extension(extension)
+                bot._remove_disabled_application_commands()
+                self.assertEqual(len(bot.extensions), len(EXTENSIONS))
+                command_names = {command.qualified_name for command in bot.tree.walk_commands()}
+                self.assertFalse(command_names & DISABLED_APPLICATION_COMMANDS)
+                self.assertTrue(
+                    {
+                        "commands",
+                        "mod-guide",
+                        "role-settings",
+                        "derole",
+                        "modmail-panel",
+                        "security",
+                        "lift-lockdown",
+                        "undo",
+                    }.issubset(command_names)
+                )
+                commands_by_name = {command.qualified_name: command for command in bot.tree.walk_commands()}
+                for command_name in ("punish", "history", "undo"):
+                    command = commands_by_name[command_name]
+                    user_param = next(param for param in command.parameters if param.name == "user")
+                    self.assertFalse(user_param.required)
+                case_command = commands_by_name["case"]
+                self.assertFalse(next(param for param in case_command.parameters if param.name == "caseid").required)
+                self.assertFalse(next(param for param in case_command.parameters if param.name == "user").required)
+            finally:
+                await bot.close()
 
         asyncio.run(runner())
 

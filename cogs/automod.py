@@ -32,7 +32,7 @@ from core.services import (
     get_native_automod_settings,
 )
 from core.context import bot, tree
-from core.utils import iso_to_dt, now_iso
+from core.utils import now_iso
 from .shared import (
     logger,
     truncate_text,
@@ -583,135 +583,46 @@ def build_native_automod_rule_detail_embed(guild: discord.Guild, rule: discord.A
     return embed
 
 
-def get_native_automod_stats_bucket(user_id: int) -> dict:
-    store = bot.data_manager.mod_stats.setdefault("native_automod", {})
-    if not isinstance(store, dict):
-        store = {}
-        bot.data_manager.mod_stats["native_automod"] = store
-    bucket = store.setdefault(str(user_id), {"events": [], "applied_steps": []})
-    if not isinstance(bucket, dict):
-        bucket = {"events": [], "applied_steps": []}
-        store[str(user_id)] = bucket
-    events = bucket.setdefault("events", [])
-    if not isinstance(events, list):
-        bucket["events"] = []
-    applied_steps = bucket.setdefault("applied_steps", [])
-    if not isinstance(applied_steps, list):
-        bucket["applied_steps"] = []
-    return bucket
-
-
-def prune_native_automod_bucket(bucket: dict, *, now_value: Optional[datetime] = None) -> None:
-    now_value = now_value or discord.utils.utcnow()
-
-    fresh_events = []
-    for event in bucket.get("events", []):
-        dt = iso_to_dt(event.get("timestamp")) if isinstance(event, dict) else None
-        if dt and now_value - dt <= timedelta(days=30):
-            fresh_events.append(event)
-    bucket["events"] = fresh_events[-100:]
-
-    fresh_steps = []
-    for record in bucket.get("applied_steps", []):
-        dt = iso_to_dt(record.get("timestamp")) if isinstance(record, dict) else None
-        if dt and now_value - dt <= timedelta(days=30):
-            fresh_steps.append(record)
-    bucket["applied_steps"] = fresh_steps[-100:]
-
-
-def record_native_automod_event(*, user_id: int, rule_id: int, rule_name: str, content: str, matched_keyword: Optional[str]) -> None:
-    bucket = get_native_automod_stats_bucket(user_id)
-    now_value = discord.utils.utcnow()
-    prune_native_automod_bucket(bucket, now_value=now_value)
-    events = list(bucket.get("events", []))
-    events.append({
-        "timestamp": now_iso(),
-        "rule_id": int(rule_id),
-        "rule_name": rule_name,
-        "content": truncate_text(content, 500),
-        "matched_keyword": matched_keyword,
-    })
-    bucket["events"] = events[-100:]
-
-
-def count_recent_native_automod_hits(*, user_id: int, rule_id: int, rule_name: str, window_minutes: int) -> int:
-    bucket = get_native_automod_stats_bucket(user_id)
-    prune_native_automod_bucket(bucket)
-    cutoff = discord.utils.utcnow() - timedelta(minutes=max(1, window_minutes))
-    count = 0
-    for event in bucket.get("events", []):
-        if not isinstance(event, dict):
-            continue
-        dt = iso_to_dt(event.get("timestamp"))
-        if not dt or dt < cutoff:
-            continue
-        event_rule_id = event.get("rule_id")
-        event_rule_name = str(event.get("rule_name", ""))
-        if str(event_rule_id) == str(rule_id) or event_rule_name == rule_name:
-            count += 1
-    return count
-
-
-def has_recent_native_automod_step_application(
+async def record_native_automod_event(
     *,
     user_id: int,
     rule_id: int,
     rule_name: str,
-    threshold: int,
-    window_minutes: int,
-) -> bool:
-    bucket = get_native_automod_stats_bucket(user_id)
-    prune_native_automod_bucket(bucket)
-    cutoff = discord.utils.utcnow() - timedelta(minutes=max(1, window_minutes))
-    for record in bucket.get("applied_steps", []):
-        if not isinstance(record, dict):
-            continue
-        dt = iso_to_dt(record.get("timestamp"))
-        if not dt or dt < cutoff:
-            continue
-        record_rule_id = record.get("rule_id")
-        record_rule_name = str(record.get("rule_name", ""))
-        if str(record_rule_id) != str(rule_id) and record_rule_name != rule_name:
-            continue
-        if int(record.get("threshold", 0) or 0) != int(threshold):
-            continue
-        if int(record.get("window_minutes", 0) or 0) != int(window_minutes):
-            continue
-        return True
-    return False
+    content: str,
+    matched_keyword: Optional[str],
+) -> None:
+    await bot.data_manager.record_native_automod_event(
+        user_id=user_id,
+        rule_id=rule_id,
+        rule_name=rule_name,
+        content=content,
+        matched_keyword=matched_keyword,
+    )
 
 
-def record_native_automod_step_application(
+async def record_native_automod_step_application(
     *,
     user_id: int,
     rule_id: int,
     rule_name: str,
     step: dict,
 ) -> None:
-    bucket = get_native_automod_stats_bucket(user_id)
-    now_value = discord.utils.utcnow()
-    prune_native_automod_bucket(bucket, now_value=now_value)
-    applied_steps = list(bucket.get("applied_steps", []))
-    applied_steps.append({
-        "timestamp": now_iso(),
-        "rule_id": int(rule_id),
-        "rule_name": str(rule_name),
-        "threshold": int(step.get("threshold", 1) or 1),
-        "window_minutes": int(step.get("window_minutes", 1440) or 1440),
-        "punishment_type": str(step.get("punishment_type", "warn") or "warn"),
-        "duration_minutes": int(step.get("duration_minutes", 0) or 0),
-    })
-    bucket["applied_steps"] = applied_steps[-100:]
+    await bot.data_manager.record_native_automod_step_application(
+        user_id=user_id,
+        rule_id=rule_id,
+        rule_name=rule_name,
+        step=step,
+    )
 
 
-def get_triggered_native_automod_step(*, user_id: int, rule_id: int, rule_name: str, policy: dict) -> Tuple[Optional[dict], int]:
+async def get_triggered_native_automod_step(*, user_id: int, rule_id: int, rule_name: str, policy: dict) -> Tuple[Optional[dict], int]:
     if not bool(policy.get("enabled", False)):
         return None, 0
 
     for step in get_native_automod_policy_steps(policy):
         threshold = int(step.get("threshold", 1) or 1)
         window_minutes = int(step.get("window_minutes", 1440) or 1440)
-        hit_count = count_recent_native_automod_hits(
+        hit_count = await bot.data_manager.count_recent_native_automod_hits(
             user_id=user_id,
             rule_id=rule_id,
             rule_name=rule_name,
@@ -719,7 +630,7 @@ def get_triggered_native_automod_step(*, user_id: int, rule_id: int, rule_name: 
         )
         if hit_count < threshold:
             continue
-        if has_recent_native_automod_step_application(
+        if await bot.data_manager.has_recent_native_automod_step_application(
             user_id=user_id,
             rule_id=rule_id,
             rule_name=rule_name,
@@ -1847,7 +1758,7 @@ async def apply_image_false_positive_decision(
 
         try:
             store_image_filter_settings(updated_settings)
-            await bot.data_manager.save_config()
+            await bot.data_manager.save_config("image_filters")
         except Exception as exc:
             store_image_filter_settings(original_settings)
             logger.error("Could not save image-filter false-positive feedback: %s", exc)
@@ -2164,7 +2075,7 @@ class ImageReviewPunishButton(
             case_record["image_review_source_message_id"] = self.message_id
             case_record["image_review_source_channel_id"] = self.channel_id
             try:
-                await bot.data_manager.save_punishments()
+                await bot.data_manager.save_punishments(case_ids=[case_record["case_id"]])
             except Exception as exc:
                 logger.warning("Image review could not update cleanup audit for case %s: %s", case_record.get("case_id"), exc)
 
@@ -2556,9 +2467,12 @@ async def apply_image_filter_punishment(
         return False, f"Failed to apply punishment: {exc}", None, dm_sent
 
     if not removal_action:
-        case_record = await bot.data_manager.add_punishment(str(member.id), record)
+        case_record = await bot.data_manager.add_punishment(str(member.id), record, persist=False)
     bot.data_manager.config.setdefault("stats", {})["total_issued"] = bot.data_manager.config.get("stats", {}).get("total_issued", 0) + 1
-    await bot.data_manager.save_config()
+    await bot.data_manager.persist_punishment(
+        case_record["case_id"],
+        config_keys=("case_counter", "stats"),
+    )
 
     if not dm_sent:
         dm_sent = await send_image_filter_user_dm(
@@ -2922,8 +2836,10 @@ async def apply_native_automod_escalation(
     }
     case_record = await bot.data_manager.add_punishment(str(member.id), record, persist=False)
     bot.data_manager.config.setdefault("stats", {})["total_issued"] = bot.data_manager.config.get("stats", {}).get("total_issued", 0) + 1
-    bot.data_manager.mark_config_dirty()
-    await bot.data_manager.save_all()
+    await bot.data_manager.persist_punishment(
+        case_record["case_id"],
+        config_keys=("case_counter", "stats"),
+    )
 
     try:
         dm_embed = make_embed(
@@ -2997,7 +2913,7 @@ class AutoModPolicyReasonModal(discord.ui.Modal, title="Edit AutoMod Reason Temp
         _, policy = ensure_native_rule_override_policy(settings, self.rule)
         policy["reason_template"] = self.reason_template.value.strip()[:200] or DEFAULT_NATIVE_AUTOMOD_SETTINGS["default_escalation"]["reason_template"]
         store_native_automod_settings(settings)
-        await bot.data_manager.save_config()
+        await bot.data_manager.save_config("native_automod")
 
         view = AutoModPolicyEditorView(rule=self.rule, rules=self.rules)
         await interaction.response.send_message(embed=view.build_embed(interaction.guild), view=view, ephemeral=True)
@@ -3178,7 +3094,7 @@ class AutoModBridgeSettingsView(discord.ui.View):
 
     async def _save_and_refresh(self, interaction: discord.Interaction, settings: dict) -> None:
         store_native_automod_settings(settings)
-        await bot.data_manager.save_config()
+        await bot.data_manager.save_config("native_automod")
         self.sync_buttons()
         await interaction.response.edit_message(embed=build_automod_bridge_embed(interaction.guild), view=self)
 
@@ -3295,7 +3211,7 @@ class AutoModPolicyEditorView(discord.ui.View):
             self.step_index = max(0, min(self.step_index, len(policy["steps"]) - 1))
         settings.setdefault("rule_overrides", {})[override_key] = policy
         store_native_automod_settings(settings)
-        await bot.data_manager.save_config()
+        await bot.data_manager.save_config("native_automod")
 
     async def save_policy(self, interaction: discord.Interaction, policy: dict) -> None:
         if self.rule is None:
@@ -3374,7 +3290,7 @@ class AutoModPolicyEditorView(discord.ui.View):
             settings.setdefault("rule_overrides", {}).pop(self.rule.name, None)
             settings.setdefault("rule_overrides", {}).pop(str(self.rule.id), None)
             store_native_automod_settings(settings)
-            await bot.data_manager.save_config()
+            await bot.data_manager.save_config("native_automod")
         view = AutoModPolicyEditorView(rule=self.rule, rules=self.rules, step_index=0)
         await interaction.response.edit_message(embed=view.build_embed(interaction.guild), view=view)
 
@@ -3393,7 +3309,7 @@ class AutoModChannelSelect(discord.ui.ChannelSelect):
         selected = self.values[0]
         channel = interaction.guild.get_channel(selected.id) or await interaction.guild.fetch_channel(selected.id)
         bot.data_manager.config[self.config_key] = channel.id
-        await bot.data_manager.save_config()
+        await bot.data_manager.save_config(self.config_key)
         view = AutoModChannelSettingsView()
         await interaction.response.edit_message(embed=build_automod_routing_embed(interaction.guild), view=view)
 
@@ -3425,12 +3341,12 @@ class AutoModChannelActionSelect(discord.ui.Select):
         action = self.values[0]
         if action == "clear_log":
             bot.data_manager.config["automod_log_channel_id"] = 0
-            await bot.data_manager.save_config()
+            await bot.data_manager.save_config("automod_log_channel_id")
             await interaction.response.edit_message(embed=build_automod_routing_embed(interaction.guild), view=AutoModChannelSettingsView())
             return
         if action == "clear_report":
             bot.data_manager.config["automod_report_channel_id"] = 0
-            await bot.data_manager.save_config()
+            await bot.data_manager.save_config("automod_report_channel_id")
             await interaction.response.edit_message(embed=build_automod_routing_embed(interaction.guild), view=AutoModChannelSettingsView())
 
 
@@ -3449,7 +3365,7 @@ class AutoModStoredValueRemoveSelect(discord.ui.Select):
         settings = get_native_automod_settings(bot.data_manager.config)
         settings[self.config_key] = [value for value in settings.get(self.config_key, []) if int(value) not in selected_ids]
         store_native_automod_settings(settings)
-        await bot.data_manager.save_config()
+        await bot.data_manager.save_config("native_automod")
         await interaction.response.edit_message(embed=make_embed("Entries Removed", "> The selected entries have been removed.", kind="success", scope=SCOPE_MODERATION, guild=interaction.guild), view=None)
 
 
@@ -3469,7 +3385,7 @@ class AutoModImmunityUserSelect(discord.ui.UserSelect):
         current.update(int(user.id) for user in self.values)
         settings["immunity_users"] = sorted(current)
         store_native_automod_settings(settings)
-        await bot.data_manager.save_config()
+        await bot.data_manager.save_config("native_automod")
         await interaction.response.edit_message(embed=build_automod_immunity_embed(interaction.guild), view=AutoModImmunityView())
 
 
@@ -3483,7 +3399,7 @@ class AutoModImmunityRoleSelect(discord.ui.RoleSelect):
         current.update(int(role.id) for role in self.values)
         settings["immunity_roles"] = sorted(current)
         store_native_automod_settings(settings)
-        await bot.data_manager.save_config()
+        await bot.data_manager.save_config("native_automod")
         await interaction.response.edit_message(embed=build_automod_immunity_embed(interaction.guild), view=AutoModImmunityView())
 
 
@@ -3497,7 +3413,7 @@ class AutoModImmunityChannelSelect(discord.ui.ChannelSelect):
         current.update(int(channel.id) for channel in self.values)
         settings["immunity_channels"] = sorted(current)
         store_native_automod_settings(settings)
-        await bot.data_manager.save_config()
+        await bot.data_manager.save_config("native_automod")
         await interaction.response.edit_message(embed=build_automod_immunity_embed(interaction.guild), view=AutoModImmunityView())
 
 
@@ -3593,7 +3509,7 @@ class ImageFilterPunishmentSelect(discord.ui.Select):
         settings = get_image_filter_settings()
         settings["punishment_type"] = self.values[0]
         store_image_filter_settings(settings)
-        await bot.data_manager.save_config()
+        await bot.data_manager.save_config("image_filters")
         await interaction.response.edit_message(embed=build_image_filters_embed(interaction.guild), view=ImageFiltersView(page=self.page))
 
 
@@ -3647,7 +3563,7 @@ class ImageFilterRemoveSelect(discord.ui.Select):
             if entry["id"] != entry_id
         ]
         store_image_filter_settings(settings)
-        await bot.data_manager.save_config()
+        await bot.data_manager.save_config("image_filters")
         remaining_count = len(settings["entries"]) + len(settings["false_positives"])
         max_page = max(0, (remaining_count - 1) // 25)
         await interaction.response.edit_message(
@@ -3672,7 +3588,7 @@ class ImageFilterDurationModal(discord.ui.Modal, title="Timeout Duration"):
         settings = get_image_filter_settings()
         settings["duration_minutes"] = max(1, min(40320, int(digits)))
         store_image_filter_settings(settings)
-        await bot.data_manager.save_config()
+        await bot.data_manager.save_config("image_filters")
         await interaction.response.edit_message(embed=build_image_filters_embed(interaction.guild), view=ImageFiltersView(page=self.page))
 
 
@@ -3704,7 +3620,7 @@ class ImageFiltersView(discord.ui.View):
         settings = get_image_filter_settings()
         settings[key] = not settings[key]
         store_image_filter_settings(settings)
-        await bot.data_manager.save_config()
+        await bot.data_manager.save_config("image_filters")
         await interaction.response.edit_message(embed=build_image_filters_embed(interaction.guild), view=ImageFiltersView(page=self.page))
 
     @discord.ui.button(label="Scam Filter", style=discord.ButtonStyle.secondary, row=2)
@@ -3821,7 +3737,7 @@ class ImageFiltersView(discord.ui.View):
                 pass
 
         store_image_filter_settings(merged)
-        await bot.data_manager.save_config()
+        await bot.data_manager.save_config("image_filters")
         skipped = stats["source"] - stats["added"]
         summary = f"> Added **{stats['added']}** image{'s' if stats['added'] != 1 else ''} to the dataset."
         if skipped:
@@ -4222,7 +4138,7 @@ async def ban_image_context(interaction: discord.Interaction, message: discord.M
         return
 
     store_image_filter_settings(settings)
-    await bot.data_manager.save_config()
+    await bot.data_manager.save_config("image_filters")
 
     lines = [f"- {name}" for name in added]
     if duplicates:

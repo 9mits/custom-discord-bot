@@ -52,7 +52,7 @@ class ArchiveConfirmView(discord.ui.View):
             "category_id": self.channel.category_id,
             "overwrites": self.overwrites_save_data
         }
-        await bot.data_manager.save_config()
+        await bot.data_manager.save_config("archived_channels")
 
         try:
             # Combine operations to reduce API calls and avoid rate limits (1 call vs 2)
@@ -118,7 +118,7 @@ class CloneConfirmView(discord.ui.View):
             "category_id": self.channel.category_id,
             "overwrites": self.overwrites_save_data
         }
-        await bot.data_manager.save_config()
+        await bot.data_manager.save_config("archived_channels")
 
         try:
             await self.channel.edit(
@@ -192,7 +192,7 @@ class TestEnvView(discord.ui.View):
             bot.data_manager.config["debug"] = {}
         current = bot.data_manager.config["debug"].get("bypass_boost", False)
         bot.data_manager.config["debug"]["bypass_boost"] = not current
-        await bot.data_manager.save_config()
+        await bot.data_manager.save_config("debug")
         embed = build_test_env_embed()
         await interaction.response.edit_message(embed=embed, view=self)
 
@@ -202,7 +202,7 @@ class TestEnvView(discord.ui.View):
             bot.data_manager.config["debug"] = {}
         current = bot.data_manager.config["debug"].get("bypass_cooldown", False)
         bot.data_manager.config["debug"]["bypass_cooldown"] = not current
-        await bot.data_manager.save_config()
+        await bot.data_manager.save_config("debug")
         embed = build_test_env_embed()
         await interaction.response.edit_message(embed=embed, view=self)
 
@@ -222,7 +222,7 @@ class ImmunityToggleSelect(discord.ui.UserSelect):
             lst.append(uid)
             action = "added to"
         bot.data_manager.config["immunity_list"] = lst
-        await bot.data_manager.save_config()
+        await bot.data_manager.save_config("immunity_list")
 
         log_embed = make_embed(
             "Anti-Nuke Immunity Updated",
@@ -504,7 +504,7 @@ async def unarchive(interaction: discord.Interaction):
             data = archives.pop(found_old_id)
             archives[cid] = data
             bot.data_manager.config["archived_channels"] = archives
-            await bot.data_manager.save_config()
+            await bot.data_manager.save_config("archived_channels")
             migration_note = f"\n> Channel ID mismatch detected (server transfer?). Archive data was migrated from `{found_old_id}` to `{cid}`."
         else:
             await interaction.followup.send(embed=make_embed("Not Archived", "> This channel is not in the archive registry.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
@@ -535,7 +535,7 @@ async def unarchive(interaction: discord.Interaction):
 
     # Cleanup
     del bot.data_manager.config["archived_channels"][cid]
-    await bot.data_manager.save_config()
+    await bot.data_manager.save_config("archived_channels")
 
     await interaction.followup.send(embed=make_embed("Channel Unarchived", "> Channel unarchived and restored." + migration_note, kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
     
@@ -647,7 +647,7 @@ async def lockdown(interaction: discord.Interaction):
             pass
     
     bot.data_manager.lockdown = lockdown_data
-    await bot.data_manager.save_lockdown()
+    await bot.data_manager.save_lockdown(replace=True)
         
     await interaction.followup.send(embed=make_embed("Server Lockdown Active", f"> Hidden {channels_affected} channels from @everyone.", kind="danger", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
@@ -675,7 +675,7 @@ async def lift_lockdown(interaction: discord.Interaction):
             except Exception: pass
 
     bot.data_manager.lockdown = {}
-    await bot.data_manager.save_lockdown()
+    await bot.data_manager.save_lockdown(replace=True)
     
     await interaction.followup.send(embed=make_embed("Lockdown Lifted", f"> Restored visibility for {restored_count} channels.", kind="success", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
 
@@ -947,7 +947,7 @@ class ThemeColorModal(discord.ui.Modal, title="Change Theme Color"):
         raw = self.color.value.strip().lstrip("#")
         if not raw:
             bot.data_manager.config.pop("theme_color", None)
-            await bot.data_manager.save_config()
+            await bot.data_manager.save_config("theme_color")
             await interaction.followup.send(embed=make_embed("Theme Color Reset", "> Embed accent reset to the default brand color.", kind="info", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
             return
         try:
@@ -958,7 +958,7 @@ class ThemeColorModal(discord.ui.Modal, title="Change Theme Color"):
             await interaction.followup.send(embed=make_embed("Invalid Color", "> Enter a 6-digit hex color like `#FF9900`.", kind="error", scope=SCOPE_SYSTEM, guild=interaction.guild), ephemeral=True)
             return
         bot.data_manager.config["theme_color"] = value
-        await bot.data_manager.save_config()
+        await bot.data_manager.save_config("theme_color")
         # kind="info" follows the theme, so the confirmation previews the new color.
         embed = make_embed(
             "Theme Color Updated",

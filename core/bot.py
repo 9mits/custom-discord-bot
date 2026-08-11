@@ -6,7 +6,6 @@ import json
 import logging
 import os
 import time
-from datetime import timedelta
 from typing import Dict, List, Optional, Tuple
 
 import aiohttp
@@ -19,7 +18,7 @@ from core.constants import DEFAULT_GUILD_ID, SCOPE_ROLES, SCOPE_SUPPORT, TEST_GU
 from core.context import set_bot
 from core.data import DataManager, resolve_bot_token
 from core.services import get_feature_flag, ticket_needs_sla_alert
-from core.utils import iso_to_dt, now_iso
+from core.utils import now_iso
 
 
 EXTENSIONS = (
@@ -126,7 +125,7 @@ class MGXBot(commands.Bot):
         await self._restore_persistent_views()
 
         self.check_tempbans.start()
-        self.background_save_task.start()
+        self.storage_maintenance_task.start()
         self.status_task.start()
         self.modmail_sla_task.start()
         self.role_cleanup_task.start()
@@ -218,7 +217,7 @@ class MGXBot(commands.Bot):
         if not targets:
             return
 
-        changed = False
+        changed_keys = []
         for target_id in targets:
             guild = discord.Object(id=int(target_id))
             if target_id in global_targets:
@@ -236,17 +235,16 @@ class MGXBot(commands.Bot):
                 continue
 
             self.data_manager.config[state_key] = fingerprint
-            changed = True
+            changed_keys.append(state_key)
             logger.info("Auto-synced %d slash commands to guild %s", len(synced), target_id)
 
-        if changed:
-            self.data_manager.mark_config_dirty()
-            await self.data_manager.save_all()
+        if changed_keys:
+            await self.data_manager.save_config(*changed_keys)
 
     async def close(self) -> None:
         for task_loop in (
             self.check_tempbans,
-            self.background_save_task,
+            self.storage_maintenance_task,
             self.status_task,
             self.modmail_sla_task,
             self.role_cleanup_task,
@@ -255,41 +253,39 @@ class MGXBot(commands.Bot):
             task_loop.cancel()
 
         if self.data_manager:
-            await self.data_manager.save_all(force=True)
+            await self.data_manager.close()
         if self.session:
             await self.session.close()
         await super().close()
 
     @tasks.loop(minutes=1)
     async def check_tempbans(self) -> None:
-        now = discord.utils.utcnow()
-        changed = False
         if not self.data_manager:
             return
+        guild = self.get_guild(self.data_manager.config.get("guild_id", DEFAULT_GUILD_ID))
+        if guild is None:
+            return
 
-        for uid, records in self.data_manager.punishments.items():
-            for record in records:
-                if record.get("type") == "ban" and record.get("active", False):
-                    minutes = record.get("duration_minutes", 0)
-                    if minutes > 0:
-                        issued_at = iso_to_dt(record.get("timestamp"))
-                        if issued_at and now >= issued_at + timedelta(minutes=minutes):
-                            guild = self.get_guild(self.data_manager.config.get("guild_id", DEFAULT_GUILD_ID))
-                            if guild:
-                                try:
-                                    await guild.unban(discord.Object(id=int(uid)), reason="Tempban Expired")
-                                except Exception:
-                                    pass
-                            record["active"] = False
-                            changed = True
+        for uid, record in await self.data_manager.get_due_tempbans(limit=100):
+            case_id = record.get("case_id")
+            if not isinstance(case_id, int):
+                continue
+            try:
+                await guild.unban(discord.Object(id=int(uid)), reason="Tempban Expired")
+            except discord.NotFound:
+                pass
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                logger.warning("Could not expire tempban case %s: %s", case_id, exc)
+                continue
+            except Exception as exc:
+                logger.exception("Unexpected tempban expiry failure for case %s: %s", case_id, exc)
+                continue
+            await self.data_manager.mark_punishment_inactive(case_id)
 
-        if changed:
-            await self.data_manager.save_punishments()
-
-    @tasks.loop(minutes=2)
-    async def background_save_task(self) -> None:
+    @tasks.loop(hours=1)
+    async def storage_maintenance_task(self) -> None:
         if self.data_manager:
-            await self.data_manager.save_all()
+            await self.data_manager.prune_native_automod_history()
 
     @tasks.loop(minutes=30)
     async def status_task(self) -> None:
@@ -318,9 +314,9 @@ class MGXBot(commands.Bot):
 
         now = discord.utils.utcnow()
         sla_minutes = max(5, int(self.data_manager.config.get("modmail_sla_minutes", 60)))
-        changed = False
+        changed_user_ids = set()
 
-        for ticket in self.data_manager.modmail.values():
+        for user_id, ticket in self.data_manager.modmail.items():
             if not isinstance(ticket, dict):
                 continue
             if not ticket_needs_sla_alert(ticket, now, sla_minutes):
@@ -351,10 +347,10 @@ class MGXBot(commands.Bot):
                     pass
 
             ticket["last_sla_alert_at"] = now_iso()
-            changed = True
+            changed_user_ids.add(user_id)
 
-        if changed:
-            await self.data_manager.save_modmail()
+        if changed_user_ids:
+            await self.data_manager.save_modmail(changed_user_ids)
 
     @tasks.loop(hours=6)
     async def role_cleanup_task(self) -> None:
@@ -369,7 +365,7 @@ class MGXBot(commands.Bot):
         if not guild:
             return
 
-        removed_any = False
+        removed_user_ids = set()
         for user_id, records in list(self.data_manager.roles.items()):
             # Records are stored as a list of role dicts per user
             records = records if isinstance(records, list) else [records]
@@ -386,6 +382,8 @@ class MGXBot(commands.Bot):
                 continue
 
             # No longer eligible — remove every custom role this user owns
+            remaining_records = []
+            removed_count = 0
             for record in records:
                 if not isinstance(record, dict):
                     continue
@@ -394,11 +392,27 @@ class MGXBot(commands.Bot):
                 if role:
                     try:
                         await role.delete(reason="Custom role eligibility cleanup")
-                    except Exception:
-                        pass
+                    except discord.NotFound:
+                        removed_count += 1
+                    except (discord.Forbidden, discord.HTTPException) as exc:
+                        logger.warning("Could not clean up custom role %s for user %s: %s", role_id, user_id, exc)
+                        remaining_records.append(record)
+                    except Exception as exc:
+                        logger.exception("Unexpected custom role cleanup failure for role %s: %s", role_id, exc)
+                        remaining_records.append(record)
+                    else:
+                        removed_count += 1
+                else:
+                    removed_count += 1
 
-            self.data_manager.roles.pop(user_id, None)
-            removed_any = True
+            if remaining_records:
+                self.data_manager.roles[user_id] = remaining_records
+            else:
+                self.data_manager.roles.pop(user_id, None)
+            removed_user_ids.add(user_id)
+
+            if not removed_count:
+                continue
 
             embed = make_embed(
                 "Custom Role Cleanup",
@@ -415,8 +429,8 @@ class MGXBot(commands.Bot):
             )
             await send_log(guild, embed)
 
-        if removed_any:
-            await self.data_manager.save_roles()
+        if removed_user_ids:
+            await self.data_manager.save_roles(removed_user_ids)
 
     async def on_ready(self) -> None:
         logger.info("Logged in as %s (id=%s)", self.user, self.user.id)
