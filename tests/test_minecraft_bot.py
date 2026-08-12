@@ -10,7 +10,7 @@ from minecraft_bot.config import MinecraftConfig
 from minecraft_bot.presentation import application_panel
 from minecraft_bot.settings import MinecraftSettings
 from minecraft_bot.setup import MinecraftSetupView
-from minecraft_bot.ui import MinecraftApplicationModal, ReviewView
+from minecraft_bot.ui import CancelPendingButton, MinecraftApplicationModal, ReviewView
 
 
 class MinecraftBotPolicyTests(unittest.TestCase):
@@ -62,6 +62,17 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         )
         self.assertEqual(modal.edition.options[0].value, "JAVA")
         self.assertEqual(modal.edition.options[1].value, "BEDROCK")
+        self.assertEqual(CancelPendingButton().custom_id, "minecraft:application:cancel")
+        panel_custom_ids = {
+            component["custom_id"]
+            for child in panel.to_components()[0]["components"]
+            for component in child.get("components", [])
+            if "custom_id" in component
+        }
+        self.assertEqual(
+            panel_custom_ids,
+            {"minecraft:application:apply", "minecraft:application:cancel"},
+        )
 
     def test_setup_dashboard_uses_components_v2(self):
         bot = SimpleNamespace(

@@ -70,6 +70,7 @@ class MinecraftAccessBot(commands.Bot):
         self.status_rate_limit = RateLimiter(10)
         self._application_interactions: dict[int, tuple[discord.Interaction, float]] = {}
         self._commands_synced = False
+        self._application_panel_refreshed = False
         self.tree.on_error = self.on_tree_error
         self._minecraft_group = self._build_command_group()
         self.tree.add_command(self._minecraft_group, guild=discord.Object(id=config.guild_id))
@@ -99,6 +100,13 @@ class MinecraftAccessBot(commands.Bot):
             else:
                 self._commands_synced = True
                 logger.info("Synced %d Minecraft commands", len(synced))
+        if self.settings.application_channel_id and not self._application_panel_refreshed:
+            try:
+                await self.post_application_panel()
+            except Exception:
+                logger.exception("Could not refresh the Minecraft application panel")
+            else:
+                self._application_panel_refreshed = True
         await self.change_presence(activity=discord.Game(name="Mysterious SMP X applications"))
         print(f"Minecraft access bot connected as {self.user} — successfully finished startup", flush=True)
 
@@ -165,6 +173,21 @@ class MinecraftAccessBot(commands.Bot):
             oldest = min(self._application_interactions, key=lambda key: self._application_interactions[key][1])
             self._application_interactions.pop(oldest, None)
         self._application_interactions[int(application_id)] = (interaction, now + 14 * 60)
+
+    async def cancel_pending_verification(
+        self,
+        *,
+        guild_id: int,
+        discord_user_id: int,
+    ) -> MinecraftApplication:
+        application = await self.data.cancel_pending_verification_for_user(
+            guild_id=guild_id,
+            discord_user_id=discord_user_id,
+        )
+        self._application_interactions.pop(application.id, None)
+        if self.bridge.connected:
+            await self.bridge.dispatch_outbox()
+        return application
 
     async def _configured_channel(self, channel_id: int):
         if not channel_id:
@@ -509,9 +532,32 @@ class MinecraftAccessBot(commands.Bot):
                 embed=info_embed("Retry Scheduled", f"Reset **{count}** failed bridge action(s).", success=bool(count))
             )
 
-        @group.command(name="cancel", description="Cancel an active Minecraft application.")
-        @app_commands.describe(application="Application ID")
-        async def cancel(interaction: discord.Interaction, application: app_commands.Range[int, 1]) -> None:
+        @group.command(name="cancel", description="Cancel your pending verification or a staff-managed application.")
+        @app_commands.describe(application="Staff only: application ID to cancel")
+        async def cancel(
+            interaction: discord.Interaction,
+            application: Optional[app_commands.Range[int, 1]] = None,
+        ) -> None:
+            if application is None:
+                await interaction.response.defer(ephemeral=True, thinking=True)
+                try:
+                    await self.cancel_pending_verification(
+                        guild_id=interaction.guild_id,
+                        discord_user_id=interaction.user.id,
+                    )
+                except InvalidTransition as exc:
+                    await interaction.edit_original_response(
+                        embed=info_embed("Nothing to Cancel", str(exc), error=True)
+                    )
+                    return
+                await interaction.edit_original_response(
+                    embed=info_embed(
+                        "Verification Cancelled",
+                        "Your pending verification was cancelled. You can apply again now with the correct username.",
+                        success=True,
+                    )
+                )
+                return
             if not await self.require_moderator(interaction):
                 return
             await interaction.response.defer(ephemeral=True, thinking=True)

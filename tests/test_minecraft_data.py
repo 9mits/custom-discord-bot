@@ -50,6 +50,56 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(DuplicateActiveApplication):
             await self.create_pending(username="OtherPlayer")
 
+    async def test_applicant_can_cancel_pending_verification_and_reapply(self):
+        pending = await self.create_pending()
+
+        cancelled = await self.data.cancel_pending_verification_for_user(
+            guild_id=10,
+            discord_user_id=42,
+            now=1010,
+        )
+        replacement = await self.create_pending(username="CorrectName", now=1020)
+
+        self.assertEqual(cancelled.status, ApplicationStatus.CANCELLED)
+        self.assertIsNone(cancelled.reviewed_by)
+        self.assertEqual(replacement.status, ApplicationStatus.PENDING_VERIFICATION)
+        outbox = await self.data.get_outbox_batch()
+        self.assertEqual(
+            [(record.application_id, record.action) for record in outbox],
+            [
+                (pending.id, BridgeAction.REMOVE_PENDING),
+                (replacement.id, BridgeAction.SYNC_PENDING),
+            ],
+        )
+        cancelled_sync = await self.data._connection().execute_fetchall(
+            "SELECT status FROM minecraft_bridge_outbox WHERE idempotency_key=?",
+            (f"application:{pending.id}:sync",),
+        )
+        self.assertEqual(cancelled_sync[0]["status"], "CANCELLED")
+        audit = await self.data.audit_rows(pending.id)
+        withdrawn = [row for row in audit if row["action"] == "APPLICATION_WITHDRAWN"]
+        self.assertEqual(len(withdrawn), 1)
+        self.assertEqual(withdrawn[0]["actor_discord_id"], "42")
+
+    async def test_applicant_cannot_cancel_after_verification(self):
+        application = await self.create_pending()
+        await self.data.record_verification(
+            application_id=application.id,
+            edition=Edition.JAVA,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            current_username="TestPlayer",
+            xuid=None,
+            event_idempotency_key="verified-before-cancel",
+            now=1010,
+        )
+
+        with self.assertRaisesRegex(InvalidTransition, "pending verification"):
+            await self.data.cancel_pending_verification_for_user(
+                guild_id=10,
+                discord_user_id=42,
+                now=1020,
+            )
+
     async def test_expired_verification_does_not_block_a_new_application(self):
         previous = await self.create_pending(now=1000)
         replacement = await self.create_pending(username="OtherPlayer", now=1600)
