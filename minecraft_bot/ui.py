@@ -23,7 +23,7 @@ class ApplyButton(discord.ui.Button):
             return
         panel_id = await bot.data.get_config("application_panel_message_id")
         if (
-            interaction.channel_id != bot.config.application_channel_id
+            interaction.channel_id != bot.settings.application_channel_id
             or panel_id
             and (interaction.message is None or str(interaction.message.id) != str(panel_id))
         ):
@@ -146,9 +146,9 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
         if bot.bridge.connected:
             await bot.bridge.dispatch_outbox()
         if application.edition is Edition.JAVA:
-            address = bot.config.java_address
+            address = bot.settings.java_address
         else:
-            address = f"{bot.config.bedrock_address}, port {bot.config.bedrock_port}"
+            address = f"{bot.settings.bedrock_address}, port {bot.settings.bedrock_port}"
         await interaction.edit_original_response(
             embed=info_embed(
                 "Verify Your Minecraft Account",
@@ -236,7 +236,7 @@ class ReviewView(discord.ui.View):
         if application is None:
             return
         bot = interaction.client
-        has_mod_role = any(role.id == bot.config.mod_role_id for role in interaction.user.roles)
+        has_mod_role = any(role.id == bot.settings.mod_role_id for role in interaction.user.roles)
         if int(application.discord_user_id) == interaction.user.id and not has_mod_role:
             await interaction.response.send_message(
                 "Administrators cannot approve their own application unless they also hold the configured moderator role.",

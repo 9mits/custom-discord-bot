@@ -1000,14 +1000,39 @@ class MinecraftDataManager:
         return {row["status"]: int(row["count"]) for row in rows}
 
     async def set_config(self, key: str, value: Any) -> None:
+        await self.set_configs({key: value})
+
+    async def set_configs(
+        self,
+        values: dict[str, Any],
+        *,
+        actor_id: Optional[int | str] = None,
+    ) -> None:
+        if not values:
+            return
         async with self._write_lock:
             db = self._connection()
-            await db.execute(
-                "INSERT INTO minecraft_config(key, value) VALUES (?, ?) "
-                "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                (key, json.dumps(value, separators=(",", ":"))),
-            )
-            await db.commit()
+            try:
+                await self._begin(db)
+                await db.executemany(
+                    "INSERT INTO minecraft_config(key, value) VALUES (?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    [
+                        (str(key), json.dumps(value, separators=(",", ":")))
+                        for key, value in values.items()
+                    ],
+                )
+                if actor_id is not None:
+                    await self._audit(
+                        db,
+                        "SETTINGS_UPDATED",
+                        actor_id=actor_id,
+                        payload={"keys": sorted(str(key) for key in values)},
+                    )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
 
     async def get_config(self, key: str, default: Any = None) -> Any:
         rows = await self._connection().execute_fetchall(
@@ -1020,6 +1045,23 @@ class MinecraftDataManager:
             return json.loads(rows[0]["value"])
         except (TypeError, json.JSONDecodeError):
             return default
+
+    async def get_configs(self, keys: tuple[str, ...] | list[str]) -> dict[str, Any]:
+        normalized = tuple(dict.fromkeys(str(key) for key in keys))
+        if not normalized:
+            return {}
+        placeholders = ",".join("?" for _ in normalized)
+        rows = await self._connection().execute_fetchall(
+            f"SELECT key, value FROM minecraft_config WHERE key IN ({placeholders})",
+            normalized,
+        )
+        values: dict[str, Any] = {}
+        for row in rows:
+            try:
+                values[str(row["key"])] = json.loads(row["value"])
+            except (TypeError, json.JSONDecodeError):
+                continue
+        return values
 
     async def claim_nonce(self, nonce: str, *, expires_at: int, now: Optional[int] = None) -> bool:
         current = _now() if now is None else int(now)

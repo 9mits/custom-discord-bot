@@ -1,15 +1,21 @@
+import asyncio
+import os
 import unittest
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 from minecraft_bot.bot import MinecraftAccessBot, RateLimiter
+from minecraft_bot.config import MinecraftConfig
 from minecraft_bot.presentation import application_panel
+from minecraft_bot.settings import MinecraftSettings
+from minecraft_bot.setup import MinecraftSetupView
 from minecraft_bot.ui import MinecraftApplicationModal, ReviewView
 
 
 class MinecraftBotPolicyTests(unittest.TestCase):
     def setUp(self):
         self.bot = object.__new__(MinecraftAccessBot)
-        self.bot.config = SimpleNamespace(mod_role_id=77)
+        self.bot.settings = SimpleNamespace(mod_role_id=77)
 
     def test_configured_moderator_and_administrator_are_authorized(self):
         moderator = SimpleNamespace(
@@ -55,6 +61,81 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         )
         self.assertEqual(modal.edition.options[0].value, "JAVA")
         self.assertEqual(modal.edition.options[1].value, "BEDROCK")
+
+    def test_setup_dashboard_uses_components_v2(self):
+        bot = SimpleNamespace(
+            settings=MinecraftSettings(),
+            bridge=SimpleNamespace(connected=False),
+            is_administrator=lambda _member: True,
+        )
+        view = MinecraftSetupView(bot, 123, None)
+        payload = view.to_components()
+
+        self.assertEqual(payload[0]["type"], 17)
+        custom_ids = {
+            component["custom_id"]
+            for child in payload[0]["components"]
+            for component in child.get("components", [])
+            if "custom_id" in component
+        }
+        self.assertIn("minecraft:setup:application_channel_id", custom_ids)
+        self.assertIn("minecraft:setup:member_role_id", custom_ids)
+        self.assertIn("minecraft:setup:action:post", custom_ids)
+
+
+class MinecraftConfigurationTests(unittest.IsolatedAsyncioTestCase):
+    def test_minimal_environment_is_enough_to_bootstrap(self):
+        environment = {
+            "MINECRAFT_DISCORD_BOT_TOKEN": "token",
+            "MINECRAFT_GUILD_ID": "123456789",
+            "MINECRAFT_BRIDGE_SECRET": "ab" * 32,
+        }
+        with patch.dict(os.environ, environment, clear=True):
+            config = MinecraftConfig.from_env()
+
+        self.assertEqual(config.application_channel_id, 0)
+        self.assertEqual(config.review_channel_id, 0)
+        self.assertEqual(config.mod_role_id, 0)
+        self.assertEqual(config.member_role_id, 0)
+
+    def test_database_settings_override_legacy_environment_defaults(self):
+        bootstrap = SimpleNamespace(
+            application_channel_id=10,
+            review_channel_id=20,
+            mod_role_id=30,
+            member_role_id=40,
+            java_address="legacy.example:25565",
+            bedrock_address="legacy.example",
+            bedrock_port=19132,
+        )
+        settings = MinecraftSettings.from_sources(
+            bootstrap,
+            {"application_channel_id": 99, "java_address": "saved.example:25570"},
+        )
+
+        self.assertEqual(settings.application_channel_id, 99)
+        self.assertEqual(settings.review_channel_id, 20)
+        self.assertEqual(settings.java_address, "saved.example:25570")
+
+    def test_invalid_or_overlapping_panel_settings_are_rejected(self):
+        settings = MinecraftSettings(application_channel_id=10, mod_role_id=20)
+        with self.assertRaisesRegex(ValueError, "channels must be different"):
+            settings.with_updates(review_channel_id=10)
+        with self.assertRaisesRegex(ValueError, "roles must be different"):
+            settings.with_updates(member_role_id=20)
+        with self.assertRaisesRegex(ValueError, "include a port"):
+            settings.with_updates(java_address="server.example")
+
+    async def test_runtime_settings_publish_only_after_database_commit(self):
+        bot = object.__new__(MinecraftAccessBot)
+        bot.settings = MinecraftSettings(application_channel_id=10)
+        bot._settings_lock = asyncio.Lock()
+        bot.data = SimpleNamespace(set_configs=AsyncMock(side_effect=RuntimeError("commit failed")))
+
+        with self.assertRaisesRegex(RuntimeError, "commit failed"):
+            await bot.update_settings(actor_id=123, application_channel_id=20)
+
+        self.assertEqual(bot.settings.application_channel_id, 10)
 
 
 if __name__ == "__main__":

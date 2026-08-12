@@ -23,28 +23,31 @@ Every bridge message carries an HMAC-SHA256 signature, timestamp, random nonce, 
 
 ## Discord bot configuration
 
-Copy [`.env.example`](../.env.example) to a git-ignored `.env.minecraft` and fill in:
+Copy [`.env.example`](../.env.example) to a git-ignored `.env.minecraft`. Only identity,
+secrets, and process-level bridge settings belong in this file:
 
 | Variable | Purpose |
 |---|---|
 | `MINECRAFT_DISCORD_BOT_TOKEN` | Token for the dedicated Discord application. Do not reuse either moderation bot token. |
 | `MINECRAFT_GUILD_ID` | Discord server that owns the application system. |
-| `MINECRAFT_APPLICATION_CHANNEL_ID` | Public channel where `/minecraft setup` posts the Apply panel. |
-| `MINECRAFT_REVIEW_CHANNEL_ID` | Private staff channel that receives verified applications. |
-| `MINECRAFT_MOD_ROLE_ID` | Role allowed to review and manage applications. Administrators are also allowed. |
-| `MINECRAFT_MEMBER_ROLE_ID` | Role added only after Paper confirms approval. |
 | `MINECRAFT_BRIDGE_SECRET` | Exactly 32 random bytes encoded as 64 hexadecimal characters. |
 | `MINECRAFT_SERVER_ID` | Must equal the plugin's `server-id`. |
-| `MINECRAFT_JAVA_ADDRESS` | Address shown to Java applicants. |
-| `MINECRAFT_BEDROCK_ADDRESS` | Host shown to Bedrock applicants. |
-| `MINECRAFT_BEDROCK_PORT` | Port shown to Bedrock applicants. |
 | `MINECRAFT_BRIDGE_PATH` | WebSocket route, normally `/minecraft-bridge`. |
 | `MINECRAFT_BRIDGE_HOST` | Local bind address, normally `0.0.0.0`. |
 | `MINECRAFT_BRIDGE_PORT` | Local HTTP port allocated to this process. |
 | `MINECRAFT_ALLOW_INSECURE_LOCALHOST` | Keep `0` in production. Set `1` only for a local `ws://localhost` test. |
 | `MINECRAFT_DATA_DIR` | Dedicated runtime directory; defaults to `runtime/minecraft`. |
 
-The Discord application needs the Server Members intent enabled in the Developer Portal so review records can show join dates and the bot can assign the approved-member role. Invite only this dedicated application to the configured guild. Its role must sit above `MINECRAFT_MEMBER_ROLE_ID` and it needs View Channels, Send Messages, Embed Links, Read Message History, and Manage Roles in the relevant channels/server.
+Application/review channels, moderator/approved-member roles, and the public Java and
+Bedrock addresses are configured inside Discord with `/minecraft setup`. They are saved
+to `minecraft.db` and take effect immediately. Older `.env.minecraft` files may still
+contain `MINECRAFT_APPLICATION_CHANNEL_ID`, `MINECRAFT_REVIEW_CHANNEL_ID`,
+`MINECRAFT_MOD_ROLE_ID`, `MINECRAFT_MEMBER_ROLE_ID`, `MINECRAFT_JAVA_ADDRESS`,
+`MINECRAFT_BEDROCK_ADDRESS`, and `MINECRAFT_BEDROCK_PORT`; those values are accepted as
+one-time bootstrap defaults when the database has no saved value, but can be removed
+after the first successful startup.
+
+The Discord application needs the Server Members intent enabled in the Developer Portal so review records can show join dates and the bot can assign the approved-member role. Invite only this dedicated application to the configured guild. Its role must sit above the approved-member role selected in the panel, and it needs View Channels, Send Messages, Embed Links, Read Message History, and Manage Roles in the relevant channels/server.
 
 ## Shared secret
 
@@ -98,20 +101,28 @@ The durable outbox makes approval and revocation safe across disconnects. `APPRO
 
 ## Posting the application panel
 
-After the dedicated bot is online, a configured moderator or Administrator runs:
+After the dedicated bot is online, a server Administrator runs:
 
 ```text
 /minecraft setup
 ```
 
-The command edits the saved panel message when it still exists or posts a replacement if it was deleted. Applicants click Apply, select Java or Bedrock in the modal, and submit their username and answers. No slash command is required from applicants.
+The command opens an ephemeral Components V2 dashboard in the same visual style as the
+main bot. Select the application channel, private review channel, moderator role, and
+approved-member role, then use **Edit Addresses** for the public Java and Bedrock
+addresses. The dashboard validates channel permissions and role hierarchy before
+**Post Application Panel** is available as a successful action.
+
+Posting edits the saved panel message when it still exists or posts a replacement if it
+was deleted. Applicants click Apply, select Java or Bedrock in the modal, and submit
+their username and answers. No slash command is required from applicants.
 
 ## Testing Java and Bedrock applications
 
 ### Java
 
 1. Apply with a valid Java username.
-2. Connect once to `104.254.131.178:50548` within ten minutes.
+2. Connect once to the Java address shown by the bot within ten minutes.
 3. Confirm the connection remains rejected with the account-verified message.
 4. Confirm the staff review record shows the authoritative UUID and current username.
 5. Approve and wait for the staff record to show `Approved` before reconnecting.
@@ -119,7 +130,7 @@ The command edits the saved panel message when it still exists or posts a replac
 ### Bedrock
 
 1. Apply with the real Xbox gamertag, including spaces exactly as Floodgate reports it.
-2. Connect to `104.254.131.178`, port `50549`, within ten minutes.
+2. Connect to the Bedrock address and port shown by the bot within ten minutes.
 3. Confirm the connection remains rejected and the review record contains the Floodgate UUID and XUID.
 4. Approve and verify Paper accepted `fwhitelist add <verified-uuid>` before reconnecting.
 
