@@ -1,13 +1,27 @@
 import asyncio
+import json
 import os
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+import discord
+
 from minecraft_bot.bot import MinecraftAccessBot, RateLimiter
 from minecraft_bot.config import MinecraftConfig
-from minecraft_bot.presentation import application_panel
+from minecraft_bot.models import ApplicationStatus, Edition, MinecraftApplication
+from minecraft_bot.presentation import (
+    BRAND_NAME,
+    LOGO_ATTACHMENT_URI,
+    LOGO_PATH,
+    THEME_COLOUR,
+    application_panel,
+    info_embed,
+    review_embed,
+    verification_embed,
+)
 from minecraft_bot.settings import MinecraftSettings
 from minecraft_bot.setup import MinecraftSetupView
 from minecraft_bot.ui import CancelPendingButton, MinecraftApplicationModal, ReviewView
@@ -73,6 +87,66 @@ class MinecraftBotPolicyTests(unittest.TestCase):
             panel_custom_ids,
             {"minecraft:application:apply", "minecraft:application:cancel"},
         )
+        self.assertIn(LOGO_ATTACHMENT_URI, json.dumps(panel.to_components()))
+
+    def test_minecraft_presentation_uses_orange_brand_system(self):
+        embed = info_embed("Status", "Operational", success=True)
+
+        self.assertEqual(THEME_COLOUR.value, discord.Colour.from_rgb(255, 153, 0).value)
+        self.assertEqual(embed.colour.value, THEME_COLOUR.value)
+        self.assertEqual(embed.footer.text, BRAND_NAME)
+        self.assertIsNotNone(embed.timestamp)
+        self.assertTrue(LOGO_PATH.is_file())
+
+    def test_verification_instructions_are_copyable_and_edition_specific(self):
+        application = MinecraftApplication(
+            id=42,
+            guild_id="1",
+            discord_user_id="123456789012345678",
+            edition=Edition.BEDROCK,
+            claimed_username="PlayerOne",
+            normalized_username="playerone",
+            answers={"why": "Build things", "about": "Helpful player"},
+            status=ApplicationStatus.PENDING_VERIFICATION,
+            verification_expires_at=2_000_000_000,
+            created_at=1_999_999_400,
+            updated_at=1_999_999_400,
+        )
+        settings = SimpleNamespace(
+            java_address="java.example:25565",
+            bedrock_address="bedrock.example",
+            bedrock_port=19132,
+        )
+
+        embed = verification_embed(application, settings)
+
+        self.assertIn("```text\nbedrock.example\n```", embed.description)
+        self.assertIn("```text\n19132\n```", embed.description)
+        self.assertNotIn("java.example", embed.description)
+        self.assertIn("/minecraft cancel", embed.description)
+
+    def test_review_embed_uses_attached_logo_and_claimed_identity(self):
+        application = MinecraftApplication(
+            id=7,
+            guild_id="1",
+            discord_user_id="123456789012345678",
+            edition=Edition.JAVA,
+            claimed_username="ClaimedName",
+            normalized_username="claimedname",
+            answers={"why": "I enjoy SMPs", "about": "I like building"},
+            status=ApplicationStatus.PENDING_REVIEW,
+            verification_expires_at=2_000_000_000,
+            created_at=int(datetime(2026, 1, 1, tzinfo=timezone.utc).timestamp()),
+            updated_at=1_999_999_400,
+            verified_username="VerifiedName",
+            minecraft_uuid="00000000-0000-0000-0000-000000000000",
+        )
+
+        embed = review_embed(application)
+
+        self.assertEqual(embed.thumbnail.url, LOGO_ATTACHMENT_URI)
+        self.assertEqual(embed.footer.icon_url, LOGO_ATTACHMENT_URI)
+        self.assertTrue(any(field.name == "Claimed Username" for field in embed.fields))
 
     def test_setup_dashboard_uses_components_v2(self):
         bot = SimpleNamespace(

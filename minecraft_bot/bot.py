@@ -16,7 +16,13 @@ from .bridge import MinecraftBridgeServer
 from .config import MinecraftConfig
 from .data import MinecraftDataManager
 from .models import ApplicationStatus, BridgeAction, InvalidTransition, MinecraftApplication, OutboxRecord
-from .presentation import application_panel, info_embed, review_embed
+from .presentation import (
+    application_panel,
+    approval_embed,
+    brand_logo_file,
+    info_embed,
+    review_embed,
+)
 from .settings import MinecraftSettings, SETTING_KEYS
 from .ui import ReviewView
 
@@ -217,9 +223,14 @@ class MinecraftAccessBot(commands.Bot):
             except (discord.NotFound, discord.Forbidden, discord.HTTPException, AttributeError):
                 message = None
             if message is not None:
-                await message.edit(content=None, embed=None, attachments=[], view=application_panel())
+                await message.edit(
+                    content=None,
+                    embed=None,
+                    attachments=[brand_logo_file()],
+                    view=application_panel(),
+                )
                 return message
-        message = await channel.send(view=application_panel())
+        message = await channel.send(file=brand_logo_file(), view=application_panel())
         await self.data.set_config("application_panel_message_id", str(message.id))
         return message
 
@@ -289,6 +300,7 @@ class MinecraftAccessBot(commands.Bot):
             with suppress(discord.NotFound, discord.HTTPException):
                 user = await self.fetch_user(int(application.discord_user_id))
         message = await channel.send(
+            file=brand_logo_file(),
             embed=review_embed(application, user=user, member=member),
             view=ReviewView(disabled=application.status is not ApplicationStatus.PENDING_REVIEW),
             allowed_mentions=discord.AllowedMentions.none(),
@@ -313,6 +325,7 @@ class MinecraftAccessBot(commands.Bot):
         member = guild.get_member(int(application.discord_user_id)) if guild else None
         user = member or self.get_user(int(application.discord_user_id))
         await message.edit(
+            attachments=[brand_logo_file()],
             embed=review_embed(application, user=user, member=member),
             view=ReviewView(disabled=application.status is not ApplicationStatus.PENDING_REVIEW),
             allowed_mentions=discord.AllowedMentions.none(),
@@ -387,13 +400,7 @@ class MinecraftAccessBot(commands.Bot):
         if user is not None:
             with suppress(discord.Forbidden, discord.HTTPException):
                 await user.send(
-                    embed=info_embed(
-                        "Minecraft Application Approved",
-                        "Your application was approved. You can now join the server.\n\n"
-                        f"**Java:** {self.settings.java_address}\n"
-                        f"**Bedrock:** {self.settings.bedrock_address}, port {self.settings.bedrock_port}",
-                        success=True,
-                    )
+                    embed=approval_embed(self.settings)
                 )
 
     async def _finish_revocation(self, application: MinecraftApplication) -> None:
@@ -462,19 +469,46 @@ class MinecraftAccessBot(commands.Bot):
                 if self.bridge.last_heartbeat_at is not None
                 else "Never"
             )
-            await interaction.edit_original_response(
-                embed=info_embed(
-                    "Minecraft Access Status",
+            embed = info_embed(
+                "Minecraft Access Status",
+                "Live health for the dedicated Discord application bot and Minecraft bridge.",
+            )
+            embed.add_field(
+                name="Runtime",
+                value=(
                     f"**Bridge:** {'Connected' if self.bridge.connected else 'Offline'}\n"
                     f"**Setup:** {'Ready' if not setup_findings else 'Needs attention'}\n"
-                    f"**Last heartbeat:** {heartbeat}\n"
+                    f"**Last heartbeat:** {heartbeat}"
+                ),
+                inline=False,
+            )
+            embed.add_field(
+                name="Applications",
+                value=(
+                    f"**Pending verification:** "
+                    f"{applications.get(ApplicationStatus.PENDING_VERIFICATION.value, 0)}\n"
+                    f"**Pending review:** {applications.get(ApplicationStatus.PENDING_REVIEW.value, 0)}"
+                ),
+                inline=True,
+            )
+            embed.add_field(
+                name="Bridge Queue",
+                value=(
                     f"**Queued:** {outbox.get('PENDING', 0)}\n"
                     f"**Awaiting confirmation:** {outbox.get('SENT', 0)}\n"
-                    f"**Failed:** {outbox.get('FAILED', 0)}\n"
-                    f"**Pending verification:** {applications.get(ApplicationStatus.PENDING_VERIFICATION.value, 0)}\n"
-                    f"**Pending review:** {applications.get(ApplicationStatus.PENDING_REVIEW.value, 0)}",
-                )
+                    f"**Failed:** {outbox.get('FAILED', 0)}"
+                ),
+                inline=True,
             )
+            if setup_findings:
+                embed.add_field(
+                    name="Setup Attention",
+                    value="\n".join(
+                        f"**{finding.setting}:** {finding.detail}" for finding in setup_findings[:4]
+                    ),
+                    inline=False,
+                )
+            await interaction.edit_original_response(embed=embed)
 
         @group.command(name="lookup", description="Show a member's linked accounts and application history.")
         @app_commands.describe(user="Discord member to look up")
