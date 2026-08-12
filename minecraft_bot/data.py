@@ -833,6 +833,75 @@ class MinecraftDataManager:
             raise RuntimeError("Cancelled application disappeared")
         return updated
 
+    async def cancel_pending_verification_for_user(
+        self,
+        *,
+        guild_id: int | str,
+        discord_user_id: int | str,
+        now: Optional[int] = None,
+    ) -> MinecraftApplication:
+        current = _now() if now is None else int(now)
+        db = self._connection()
+        application_id: Optional[int] = None
+        async with self._write_lock:
+            try:
+                await self._begin(db)
+                rows = await db.execute_fetchall(
+                    "SELECT * FROM minecraft_applications "
+                    "WHERE guild_id=? AND discord_user_id=? AND status=? "
+                    "ORDER BY id DESC LIMIT 1",
+                    (
+                        str(guild_id),
+                        str(discord_user_id),
+                        ApplicationStatus.PENDING_VERIFICATION.value,
+                    ),
+                )
+                if not rows:
+                    raise InvalidTransition("You do not have a pending verification to cancel")
+                application = self._application(rows[0])
+                application_id = application.id
+                cursor = await db.execute(
+                    "UPDATE minecraft_applications SET status=?, updated_at=? "
+                    "WHERE id=? AND status=?",
+                    (
+                        ApplicationStatus.CANCELLED.value,
+                        current,
+                        application.id,
+                        ApplicationStatus.PENDING_VERIFICATION.value,
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    raise InvalidTransition("The verification is no longer pending")
+                await db.execute(
+                    "UPDATE minecraft_bridge_outbox SET status='CANCELLED', processed_at=? "
+                    "WHERE application_id=? AND status IN ('PENDING', 'SENT', 'FAILED')",
+                    (current, application.id),
+                )
+                await self._queue(
+                    db,
+                    BridgeAction.REMOVE_PENDING,
+                    {"application_id": application.id},
+                    idempotency_key=f"application:{application.id}:withdraw",
+                    application_id=application.id,
+                    timestamp=current,
+                )
+                await self._audit(
+                    db,
+                    "APPLICATION_WITHDRAWN",
+                    application_id=application.id,
+                    actor_id=discord_user_id,
+                    target_id=discord_user_id,
+                    timestamp=current,
+                )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+        updated = await self.get_application(application_id)
+        if updated is None:
+            raise RuntimeError("Cancelled application disappeared")
+        return updated
+
     async def queue_revocations(self, discord_user_id: int, moderator_id: int, reason: str) -> list[MinecraftApplication]:
         current = _now()
         db = self._connection()

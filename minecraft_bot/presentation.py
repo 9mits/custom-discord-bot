@@ -20,7 +20,7 @@ def _safe(value: object, limit: int = 1000) -> str:
 
 
 def application_panel() -> discord.ui.LayoutView:
-    from .ui import ApplyButton
+    from .ui import ApplyButton, CancelPendingButton
 
     view = discord.ui.LayoutView(timeout=None)
     container = discord.ui.Container(accent_colour=THEME_COLOUR)
@@ -32,6 +32,7 @@ def application_panel() -> discord.ui.LayoutView:
     container.add_item(discord.ui.Separator())
     row = discord.ui.ActionRow()
     row.add_item(ApplyButton())
+    row.add_item(CancelPendingButton())
     container.add_item(row)
     container.add_item(discord.ui.Separator(visible=False))
     container.add_item(discord.ui.TextDisplay(f"-# {BRAND_NAME}"))

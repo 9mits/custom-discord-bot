@@ -48,6 +48,66 @@ class ApplyButton(discord.ui.Button):
             )
 
 
+class CancelPendingButton(discord.ui.Button):
+    def __init__(self) -> None:
+        super().__init__(
+            label="Cancel Pending Verification",
+            style=discord.ButtonStyle.secondary,
+            custom_id="minecraft:application:cancel",
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        bot = interaction.client
+        if interaction.guild_id != bot.config.guild_id:
+            await interaction.response.send_message("Applications are not available here.", ephemeral=True)
+            return
+        await interaction.response.send_message(
+            embed=info_embed(
+                "Cancel Pending Verification?",
+                "This withdraws only an application that is still waiting for Minecraft verification. "
+                "You can apply again immediately with the correct username.",
+            ),
+            view=CancelPendingConfirmationView(interaction.user.id),
+            ephemeral=True,
+        )
+
+
+class CancelPendingConfirmationView(discord.ui.View):
+    def __init__(self, requester_id: int) -> None:
+        super().__init__(timeout=60)
+        self.requester_id = int(requester_id)
+
+    @discord.ui.button(label="Cancel and Reapply", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        if interaction.user.id != self.requester_id:
+            await interaction.response.send_message(
+                "This confirmation belongs to another applicant.",
+                ephemeral=True,
+            )
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        bot = interaction.client
+        try:
+            await bot.cancel_pending_verification(
+                guild_id=interaction.guild_id,
+                discord_user_id=interaction.user.id,
+            )
+        except InvalidTransition as exc:
+            await interaction.edit_original_response(
+                embed=info_embed("Nothing to Cancel", str(exc), error=True),
+                view=None,
+            )
+            return
+        await interaction.edit_original_response(
+            embed=info_embed(
+                "Verification Cancelled",
+                "Your pending verification was cancelled. You can use **Apply** again now with the correct username.",
+                success=True,
+            ),
+            view=None,
+        )
+
+
 class EditionSelection(discord.ui.Select):
     def __init__(self, requester_id: int) -> None:
         self.requester_id = requester_id
