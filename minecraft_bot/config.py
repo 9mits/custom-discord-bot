@@ -15,8 +15,12 @@ def _required(name: str) -> str:
     return value
 
 
-def _snowflake(name: str) -> int:
-    value = _required(name)
+def _snowflake(name: str, *, required: bool = True) -> int:
+    value = os.environ.get(name, "").strip()
+    if not value and not required:
+        return 0
+    if not value:
+        raise RuntimeError(f"{name} is required for the Minecraft access bot")
     try:
         parsed = int(value)
     except ValueError as exc:
@@ -82,18 +86,18 @@ class MinecraftConfig:
         return cls(
             discord_token=_required("MINECRAFT_DISCORD_BOT_TOKEN"),
             guild_id=_snowflake("MINECRAFT_GUILD_ID"),
-            application_channel_id=_snowflake("MINECRAFT_APPLICATION_CHANNEL_ID"),
-            review_channel_id=_snowflake("MINECRAFT_REVIEW_CHANNEL_ID"),
-            mod_role_id=_snowflake("MINECRAFT_MOD_ROLE_ID"),
-            member_role_id=_snowflake("MINECRAFT_MEMBER_ROLE_ID"),
+            application_channel_id=_snowflake("MINECRAFT_APPLICATION_CHANNEL_ID", required=False),
+            review_channel_id=_snowflake("MINECRAFT_REVIEW_CHANNEL_ID", required=False),
+            mod_role_id=_snowflake("MINECRAFT_MOD_ROLE_ID", required=False),
+            member_role_id=_snowflake("MINECRAFT_MEMBER_ROLE_ID", required=False),
             bridge_secret=decode_bridge_secret(_required("MINECRAFT_BRIDGE_SECRET")),
             server_id=server_id,
             java_address=os.environ.get(
                 "MINECRAFT_JAVA_ADDRESS", "104.254.131.178:50548"
-            ).strip(),
+            ).strip() or "104.254.131.178:50548",
             bedrock_address=os.environ.get(
                 "MINECRAFT_BEDROCK_ADDRESS", "104.254.131.178"
-            ).strip(),
+            ).strip() or "104.254.131.178",
             bedrock_port=bedrock_port,
             bridge_path=bridge_path,
             bridge_host=os.environ.get("MINECRAFT_BRIDGE_HOST", "0.0.0.0").strip(),

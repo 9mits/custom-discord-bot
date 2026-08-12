@@ -17,6 +17,7 @@ from .config import MinecraftConfig
 from .data import MinecraftDataManager
 from .models import ApplicationStatus, BridgeAction, InvalidTransition, MinecraftApplication, OutboxRecord
 from .presentation import application_panel, info_embed, review_embed
+from .settings import MinecraftSettings, SETTING_KEYS
 from .ui import ReviewView
 
 
@@ -56,6 +57,8 @@ class MinecraftAccessBot(commands.Bot):
             allowed_mentions=discord.AllowedMentions.none(),
         )
         self.config = config
+        self.settings = MinecraftSettings.from_sources(config, {})
+        self._settings_lock = asyncio.Lock()
         self.data = MinecraftDataManager(config.database_path)
         self.bridge = MinecraftBridgeServer(
             config,
@@ -73,6 +76,9 @@ class MinecraftAccessBot(commands.Bot):
 
     async def setup_hook(self) -> None:
         await self.data.open()
+        stored_settings = await self.data.get_configs(SETTING_KEYS)
+        self.settings = MinecraftSettings.from_sources(self.config, stored_settings)
+        await self.data.set_configs(self.settings.persistent_values())
         self.add_view(ReviewView())
         self.add_view(application_panel())
         await self.bridge.start()
@@ -113,13 +119,42 @@ class MinecraftAccessBot(commands.Bot):
         permissions = getattr(member, "guild_permissions", None)
         if permissions is not None and permissions.administrator:
             return True
-        return any(role.id == self.config.mod_role_id for role in getattr(member, "roles", ()))
+        return any(role.id == self.settings.mod_role_id for role in getattr(member, "roles", ()))
+
+    @staticmethod
+    def is_administrator(member: discord.Member | discord.User) -> bool:
+        permissions = getattr(member, "guild_permissions", None)
+        return bool(permissions is not None and permissions.administrator)
 
     async def require_moderator(self, interaction: discord.Interaction) -> bool:
         if self.is_moderator(interaction.user):
             return True
         await interaction.response.send_message("You are not allowed to manage Minecraft access.", ephemeral=True)
         return False
+
+    async def require_administrator(self, interaction: discord.Interaction) -> bool:
+        if self.is_administrator(interaction.user):
+            return True
+        await interaction.response.send_message(
+            "Only server administrators can change Minecraft setup.",
+            ephemeral=True,
+        )
+        return False
+
+    async def update_settings(
+        self,
+        *,
+        actor_id: Optional[int | str] = None,
+        **updates,
+    ) -> MinecraftSettings:
+        async with self._settings_lock:
+            candidate = self.settings.with_updates(**updates)
+            await self.data.set_configs(
+                {key: getattr(candidate, key) for key in updates},
+                actor_id=actor_id,
+            )
+            self.settings = candidate
+            return candidate
 
     def remember_application_interaction(self, application_id: int, interaction: discord.Interaction) -> None:
         now = time.monotonic()
@@ -132,6 +167,8 @@ class MinecraftAccessBot(commands.Bot):
         self._application_interactions[int(application_id)] = (interaction, now + 14 * 60)
 
     async def _configured_channel(self, channel_id: int):
+        if not channel_id:
+            return None
         channel = self.get_channel(channel_id)
         if channel is not None:
             return channel
@@ -147,7 +184,7 @@ class MinecraftAccessBot(commands.Bot):
         return None
 
     async def post_application_panel(self) -> discord.Message:
-        channel = await self._configured_channel(self.config.application_channel_id)
+        channel = await self._configured_channel(self.settings.application_channel_id)
         if channel is None or not hasattr(channel, "send"):
             raise RuntimeError("The configured Minecraft application channel is unavailable")
         message_id = await self.data.get_config("application_panel_message_id")
@@ -218,7 +255,7 @@ class MinecraftAccessBot(commands.Bot):
         if application.review_message_id:
             await self.update_review_message(application)
             return
-        channel = await self._configured_channel(self.config.review_channel_id)
+        channel = await self._configured_channel(self.settings.review_channel_id)
         if channel is None or not hasattr(channel, "send"):
             logger.error("Review channel unavailable for Minecraft application %s", application.id)
             return
@@ -308,7 +345,7 @@ class MinecraftAccessBot(commands.Bot):
     async def _finish_approval(self, application: MinecraftApplication) -> None:
         guild = await self._configured_guild()
         member = guild.get_member(int(application.discord_user_id)) if guild else None
-        role = guild.get_role(self.config.member_role_id) if guild else None
+        role = guild.get_role(self.settings.member_role_id) if guild else None
         if member is not None and role is not None:
             try:
                 await member.add_roles(role, reason="Minecraft application approved")
@@ -330,8 +367,8 @@ class MinecraftAccessBot(commands.Bot):
                     embed=info_embed(
                         "Minecraft Application Approved",
                         "Your application was approved. You can now join the server.\n\n"
-                        f"**Java:** {self.config.java_address}\n"
-                        f"**Bedrock:** {self.config.bedrock_address}, port {self.config.bedrock_port}",
+                        f"**Java:** {self.settings.java_address}\n"
+                        f"**Bedrock:** {self.settings.bedrock_address}, port {self.settings.bedrock_port}",
                         success=True,
                     )
                 )
@@ -339,7 +376,7 @@ class MinecraftAccessBot(commands.Bot):
     async def _finish_revocation(self, application: MinecraftApplication) -> None:
         guild = await self._configured_guild()
         member = guild.get_member(int(application.discord_user_id)) if guild else None
-        role = guild.get_role(self.config.member_role_id) if guild else None
+        role = guild.get_role(self.settings.member_role_id) if guild else None
         remaining = [
             item
             for item in await self.data.list_applications_for_user(application.discord_user_id, limit=100)
@@ -372,14 +409,16 @@ class MinecraftAccessBot(commands.Bot):
     def _build_command_group(self) -> app_commands.Group:
         group = app_commands.Group(name="minecraft", description="Manage Minecraft applications and access.")
 
-        @group.command(name="setup", description="Post or replace the persistent Minecraft application panel.")
+        @group.command(name="setup", description="Open the Minecraft application setup dashboard.")
+        @app_commands.default_permissions(administrator=True)
         async def setup(interaction: discord.Interaction) -> None:
-            if not await self.require_moderator(interaction):
+            if not await self.require_administrator(interaction):
                 return
-            await interaction.response.defer(ephemeral=True, thinking=True)
-            message = await self.post_application_panel()
-            await interaction.edit_original_response(
-                embed=info_embed("Application Panel Ready", f"The application panel is available in {message.channel.mention}.", success=True)
+            from .setup import MinecraftSetupView
+
+            await interaction.response.send_message(
+                view=MinecraftSetupView(self, interaction.user.id, interaction.guild),
+                ephemeral=True,
             )
 
         @group.command(name="status", description="Show Minecraft bridge and queue health.")
@@ -392,6 +431,9 @@ class MinecraftAccessBot(commands.Bot):
             await interaction.response.defer(ephemeral=True)
             outbox = await self.data.outbox_counts()
             applications = await self.data.application_status_counts()
+            from .setup import configuration_findings
+
+            setup_findings = configuration_findings(self, interaction.guild)
             heartbeat = (
                 f"<t:{int(self.bridge.last_heartbeat_at)}:R>"
                 if self.bridge.last_heartbeat_at is not None
@@ -401,6 +443,7 @@ class MinecraftAccessBot(commands.Bot):
                 embed=info_embed(
                     "Minecraft Access Status",
                     f"**Bridge:** {'Connected' if self.bridge.connected else 'Offline'}\n"
+                    f"**Setup:** {'Ready' if not setup_findings else 'Needs attention'}\n"
                     f"**Last heartbeat:** {heartbeat}\n"
                     f"**Queued:** {outbox.get('PENDING', 0)}\n"
                     f"**Awaiting confirmation:** {outbox.get('SENT', 0)}\n"

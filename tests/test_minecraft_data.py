@@ -215,6 +215,23 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(sorted(claimed), [False, True])
 
+    async def test_configuration_values_are_written_together_and_audited(self):
+        await self.data.set_configs(
+            {"application_channel_id": 100, "member_role_id": 200},
+            actor_id=42,
+        )
+
+        values = await self.data.get_configs(
+            ("application_channel_id", "member_role_id", "missing")
+        )
+        self.assertEqual(values, {"application_channel_id": 100, "member_role_id": 200})
+        rows = await self.data._connection().execute_fetchall(
+            "SELECT actor_discord_id, payload FROM minecraft_audit_log WHERE action='SETTINGS_UPDATED'"
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["actor_discord_id"], "42")
+        self.assertIn("application_channel_id", rows[0]["payload"])
+
 
 class MinecraftMigrationBackupTests(unittest.IsolatedAsyncioTestCase):
     async def test_existing_unversioned_database_is_backed_up_before_schema_creation(self):
