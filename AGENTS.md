@@ -29,7 +29,7 @@ python start.py                # moderation bots plus optional .env.minecraft pr
 python minecraft_main.py       # dedicated Minecraft access bot
 python run_test.py             # staging: test bot on this machine, loads .env.test only
 
-# Test + lint (CI runs exactly these — run them before every commit)
+# Test + lint (run before every commit; Python tests and compilation also run in CI)
 python -m unittest discover -s tests       # no Discord connection needed
 python -m pyflakes core/ cogs/ minecraft_bot/ tests/
 python -m py_compile cogs/*.py minecraft_bot/*.py minecraft_main.py

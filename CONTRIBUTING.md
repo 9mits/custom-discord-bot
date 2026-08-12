@@ -23,7 +23,7 @@ branch  →  code + test locally  →  push  →  PR  →  CI green  →  merge 
    (cd minecraft-bridge && ./gradlew clean build)
    ```
 3. **Push** and open a PR against `main`. Both Python checks (`test (3.11)` and
-   `test (3.12)`) and the `minecraft-bridge` check must pass.
+   `test (3.12)`) must pass; the Paper bridge build is a required local check.
 4. **Merge** once CI is green and you've reviewed the diff.
 5. **Deploy**: `python panel.py restart` — the BisectHosting panel auto-pulls
    `main` on restart.
