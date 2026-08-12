@@ -14,6 +14,8 @@ from minecraft_bot.config import MinecraftConfig
 from minecraft_bot.models import ApplicationStatus, Edition, MinecraftApplication
 from minecraft_bot.presentation import (
     BRAND_NAME,
+    ICON_ATTACHMENT_URI,
+    ICON_PATH,
     LOGO_ATTACHMENT_URI,
     LOGO_PATH,
     THEME_COLOUR,
@@ -99,8 +101,11 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertEqual(THEME_COLOUR.value, discord.Colour.from_rgb(255, 153, 0).value)
         self.assertEqual(embed.colour.value, THEME_COLOUR.value)
         self.assertEqual(embed.footer.text, BRAND_NAME)
+        self.assertEqual(embed.footer.icon_url, ICON_ATTACHMENT_URI)
+        self.assertEqual(embed.thumbnail.url, ICON_ATTACHMENT_URI)
         self.assertIsNotNone(embed.timestamp)
         self.assertTrue(LOGO_PATH.is_file())
+        self.assertTrue(ICON_PATH.is_file())
 
     def test_verification_instructions_are_copyable_and_edition_specific(self):
         application = MinecraftApplication(
@@ -148,8 +153,8 @@ class MinecraftBotPolicyTests(unittest.TestCase):
 
         embed = review_embed(application)
 
-        self.assertEqual(embed.thumbnail.url, LOGO_ATTACHMENT_URI)
-        self.assertEqual(embed.footer.icon_url, LOGO_ATTACHMENT_URI)
+        self.assertEqual(embed.thumbnail.url, ICON_ATTACHMENT_URI)
+        self.assertEqual(embed.footer.icon_url, ICON_ATTACHMENT_URI)
         self.assertTrue(any(field.name == "Claimed Username" for field in embed.fields))
 
     def test_setup_dashboard_uses_components_v2(self):
@@ -222,6 +227,27 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         kwargs = response.send_message.await_args.kwargs
         self.assertTrue(kwargs["ephemeral"])
         self.assertIsInstance(kwargs["view"], CancelPendingConfirmationView)
+        kwargs["file"].close()
+
+    async def test_cancel_confirmation_edits_the_existing_ephemeral(self):
+        response = SimpleNamespace(defer=AsyncMock())
+        interaction = SimpleNamespace(
+            client=SimpleNamespace(cancel_pending_verification=AsyncMock()),
+            guild_id=10,
+            user=SimpleNamespace(id=99),
+            response=response,
+            edit_original_response=AsyncMock(),
+        )
+        view = CancelPendingConfirmationView(99)
+
+        await view.children[0].callback(interaction)
+
+        response.defer.assert_awaited_once_with()
+        interaction.edit_original_response.assert_awaited_once()
+        kwargs = interaction.edit_original_response.await_args.kwargs
+        self.assertIsNone(kwargs["view"])
+        self.assertIn("attachments", kwargs)
+        kwargs["attachments"][0].close()
 
 
 class MinecraftConfigurationTests(unittest.IsolatedAsyncioTestCase):

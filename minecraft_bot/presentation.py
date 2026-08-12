@@ -16,6 +16,9 @@ THEME_COLOUR = discord.Colour.from_rgb(255, 153, 0)
 LOGO_FILENAME = "mysterious_smp_x_logo.png"
 LOGO_PATH = Path(__file__).resolve().parent.parent / "assets" / "minecraft" / LOGO_FILENAME
 LOGO_ATTACHMENT_URI = f"attachment://{LOGO_FILENAME}"
+ICON_FILENAME = "mysterious_smp_x_icon.png"
+ICON_PATH = Path(__file__).resolve().parent.parent / "assets" / "minecraft" / ICON_FILENAME
+ICON_ATTACHMENT_URI = f"attachment://{ICON_FILENAME}"
 
 
 def _safe(value: object, limit: int = 1000) -> str:
@@ -29,6 +32,22 @@ def brand_logo_file() -> discord.File:
         filename=LOGO_FILENAME,
         description=f"{BRAND_NAME} logo",
     )
+
+
+def brand_icon_file() -> discord.File:
+    return discord.File(
+        ICON_PATH,
+        filename=ICON_FILENAME,
+        description=f"{BRAND_NAME} icon",
+    )
+
+
+def branded_send(embed: discord.Embed) -> dict[str, object]:
+    return {"embed": embed, "file": brand_icon_file()}
+
+
+def branded_edit(embed: discord.Embed) -> dict[str, object]:
+    return {"embed": embed, "attachments": [brand_icon_file()]}
 
 
 def _connection_blocks(settings) -> str:
@@ -95,7 +114,7 @@ def review_embed(
         colour=THEME_COLOUR,
         timestamp=datetime.fromtimestamp(application.created_at, timezone.utc),
     )
-    embed.set_thumbnail(url=LOGO_ATTACHMENT_URI)
+    embed.set_thumbnail(url=ICON_ATTACHMENT_URI)
     embed.add_field(name="Status", value=status_title, inline=True)
     embed.add_field(name="Edition", value=application.edition.value.title(), inline=True)
     embed.add_field(name="Claimed Username", value=f"`{_safe(application.claimed_username, 100)}`", inline=True)
@@ -134,7 +153,7 @@ def review_embed(
         )
     if application.status is ApplicationStatus.DENIED and application.applicant_reason:
         embed.add_field(name="Applicant-Facing Reason", value=_safe(application.applicant_reason), inline=False)
-    embed.set_footer(text=BRAND_NAME, icon_url=LOGO_ATTACHMENT_URI)
+    embed.set_footer(text=BRAND_NAME, icon_url=ICON_ATTACHMENT_URI)
     return embed
 
 
@@ -145,7 +164,8 @@ def info_embed(title: str, description: str, *, success: bool = False, error: bo
         colour=THEME_COLOUR,
         timestamp=discord.utils.utcnow(),
     )
-    embed.set_footer(text=BRAND_NAME)
+    embed.set_thumbnail(url=ICON_ATTACHMENT_URI)
+    embed.set_footer(text=BRAND_NAME, icon_url=ICON_ATTACHMENT_URI)
     return embed
 
 
@@ -165,7 +185,7 @@ def verification_embed(application: MinecraftApplication, settings) -> discord.E
         )
     return info_embed(
         "Verify Your Minecraft Account",
-        f"Application `#{application.id}` is waiting for ownership verification.\n\n"
+        f"> Application `#{application.id}` is ready for Minecraft ownership verification.\n\n"
         f"{connection}\n\n"
         f"**Complete before:** {discord.utils.format_dt(expires_at, 'R')}\n\n"
         "**What happens next**\n"
@@ -173,16 +193,48 @@ def verification_embed(application: MinecraftApplication, settings) -> discord.E
         f"2. Connect once with the account named `{_safe(application.claimed_username, 100)}`.\n"
         "3. The first connection is intentionally declined after the account is verified.\n"
         "4. Your application is then sent to staff automatically.\n\n"
-        "**Wrong username?** Use **Cancel Pending Verification** on the application panel or "
-        "run `/minecraft cancel`, then apply again.",
+        "**Wrong username?** Press **Apply** again on the application panel to reveal the private "
+        "**Cancel Pending Verification** option, or run `/minecraft cancel`, then apply again.",
+    )
+
+
+def verified_embed(application: MinecraftApplication) -> discord.Embed:
+    return info_embed(
+        "Minecraft Account Verified",
+        f"> Your **{application.edition.value.title()}** account "
+        f"`{_safe(application.verified_username, 100)}` was securely matched to your application.\n\n"
+        "**What happens now**\n"
+        "- Your application has been sent to the staff review queue.\n"
+        "- Staff aim to respond within **24 hours**.\n"
+        "- You will receive another DM when a decision is finalized.\n\n"
+        "You do not need to connect again. Minecraft access remains locked until approval.",
+        success=True,
+    )
+
+
+def denial_embed(application: MinecraftApplication) -> discord.Embed:
+    reason = _safe(
+        application.applicant_reason or "No public reason was provided.",
+        1000,
+    ).replace("\n", "\n> ")
+    return info_embed(
+        "Minecraft Application Denied",
+        f"> Staff completed the review for application `#{application.id}`.\n\n"
+        f"**Decision reason**\n> {reason}\n\n"
+        "If you need clarification, contact the server team through the normal support channel. "
+        "Do not submit repeated applications unless staff ask you to reapply.",
+        error=True,
     )
 
 
 def approval_embed(settings) -> discord.Embed:
     return info_embed(
         "Minecraft Application Approved",
-        "Your application was approved and your account now has access to the server.\n\n"
+        "> Your application was approved and Minecraft access is now active.\n\n"
         + _connection_blocks(settings)
-        + "\n\nUse the address for your edition. Keep this message for quick access later.",
+        + "\n\n**Before joining**\n"
+        "- Use the address for your Minecraft edition.\n"
+        "- Join with the same account you verified.\n"
+        "- Keep this message for quick access later.",
         success=True,
     )
