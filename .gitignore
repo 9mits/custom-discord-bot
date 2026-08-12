@@ -7,7 +7,10 @@ venv/
 .env
 .env.bot1
 .env.bot2
+.env.minecraft
 .env.test
+.env.*
+!.env.example
 .panel.env
 config.json
 
@@ -20,7 +23,13 @@ event_data/
 database/
 database-bot1/
 database-bot2/
+database-minecraft/
 project_stats/
+
+# Java build and local plugin runtime output.
+minecraft-bridge/.gradle/
+minecraft-bridge/build/
+minecraft-bridge/run/
 
 # AI agent local overrides (personal, not shared)
 CLAUDE.local.md

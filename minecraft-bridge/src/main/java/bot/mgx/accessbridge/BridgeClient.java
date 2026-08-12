@@ -1,0 +1,429 @@
+package bot.mgx.accessbridge;
+
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import org.bukkit.Bukkit;
+import org.bukkit.OfflinePlayer;
+import org.bukkit.entity.Player;
+
+import java.net.http.HttpClient;
+import java.net.http.WebSocket;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+final class BridgeClient implements WebSocket.Listener, AutoCloseable {
+    private final MGXAccessBridge plugin;
+    private final BridgeConfig config;
+    private final PendingVerificationCache pending;
+    private final SignedProtocol protocol;
+    private final ProcessedActionStore processedActions;
+    private final ScheduledExecutorService networkExecutor;
+    private final HttpClient httpClient;
+    private final ConcurrentHashMap<String, JsonObject> verificationOutbox = new ConcurrentHashMap<>();
+    private final StringBuilder inbound = new StringBuilder();
+    private final AtomicBoolean connecting = new AtomicBoolean(false);
+
+    private volatile WebSocket socket;
+    private volatile boolean authenticated;
+    private volatile boolean stopping;
+    private volatile int reconnectAttempts;
+
+    BridgeClient(
+            MGXAccessBridge plugin,
+            BridgeConfig config,
+            PendingVerificationCache pending,
+            ProcessedActionStore processedActions,
+            ScheduledExecutorService networkExecutor
+    ) {
+        this.plugin = plugin;
+        this.config = config;
+        this.pending = pending;
+        this.processedActions = processedActions;
+        this.networkExecutor = networkExecutor;
+        this.protocol = new SignedProtocol(config.secret());
+        this.httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(15))
+                .executor(networkExecutor)
+                .build();
+    }
+
+    void start() {
+        connect();
+        networkExecutor.scheduleAtFixedRate(this::heartbeat, 15, 15, TimeUnit.SECONDS);
+    }
+
+    boolean isConnected() {
+        return authenticated && socket != null && !socket.isOutputClosed();
+    }
+
+    private void connect() {
+        WebSocket current = socket;
+        if (stopping || (current != null && !current.isOutputClosed()) || !connecting.compareAndSet(false, true)) {
+            return;
+        }
+        httpClient.newWebSocketBuilder()
+                .connectTimeout(Duration.ofSeconds(15))
+                .buildAsync(config.bridgeUri(), this)
+                .whenComplete((connected, error) -> {
+                    connecting.set(false);
+                    if (error != null) {
+                        plugin.getLogger().warning("Minecraft bridge connection failed: " + safeError(error));
+                        scheduleReconnect();
+                    } else {
+                        socket = connected;
+                    }
+                });
+    }
+
+    @Override
+    public void onOpen(WebSocket webSocket) {
+        this.socket = webSocket;
+        this.authenticated = false;
+        JsonObject hello = new JsonObject();
+        hello.addProperty("server_id", config.serverId());
+        hello.addProperty("protocol_version", 1);
+        sendRaw(protocol.create("HELLO", UUID.randomUUID().toString(), hello));
+        webSocket.request(1);
+    }
+
+    @Override
+    public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
+        synchronized (inbound) {
+            inbound.append(data);
+            if (inbound.length() > 1024 * 1024) {
+                inbound.setLength(0);
+                webSocket.sendClose(1009, "Message too large");
+                return null;
+            }
+            if (!last) {
+                webSocket.request(1);
+                return null;
+            }
+            String message = inbound.toString();
+            inbound.setLength(0);
+            networkExecutor.execute(() -> handleMessage(message));
+        }
+        webSocket.request(1);
+        return null;
+    }
+
+    private void handleMessage(String text) {
+        JsonObject envelope;
+        try {
+            envelope = protocol.verify(text);
+        } catch (SecurityException exception) {
+            plugin.getLogger().warning("Rejected an invalid signed bridge message: " + exception.getMessage());
+            WebSocket current = socket;
+            if (current != null) {
+                current.sendClose(1008, "Invalid signed message");
+            }
+            return;
+        }
+        String type = envelope.get("type").getAsString();
+        JsonObject payload = envelope.getAsJsonObject("payload");
+        switch (type) {
+            case "HELLO_ACK" -> {
+                if (!config.serverId().equals(payload.get("server_id").getAsString())) {
+                    closeSocket(1008, "Server ID mismatch");
+                    return;
+                }
+                authenticated = true;
+                reconnectAttempts = 0;
+                plugin.getLogger().info("Connected to the signed Minecraft application bridge.");
+                flushVerificationOutbox();
+            }
+            case "HEARTBEAT_ACK" -> {
+                // The signed response is sufficient proof of liveness.
+            }
+            case "VERIFICATION_ACK" -> {
+                String key = envelope.get("idempotency_key").getAsString();
+                JsonObject verification = verificationOutbox.remove(key);
+                if (verification != null) {
+                    pending.remove(verification.get("application_id").getAsLong());
+                }
+            }
+            case "ACTION" -> processAction(envelope.get("idempotency_key").getAsString(), payload);
+            default -> {
+                plugin.getLogger().warning("Rejected unsupported bridge message type: " + type);
+                closeSocket(1008, "Unsupported message type");
+            }
+        }
+    }
+
+    private void processAction(String idempotencyKey, JsonObject payload) {
+        Optional<ProcessedActionStore.Result> existing = processedActions.get(idempotencyKey);
+        if (existing.isPresent()) {
+            sendActionResult(idempotencyKey, existing.get());
+            return;
+        }
+        String action;
+        try {
+            action = payload.get("action").getAsString();
+        } catch (RuntimeException exception) {
+            recordAndSend(idempotencyKey, new ProcessedActionStore.Result(false, "Action is missing"));
+            return;
+        }
+        switch (action) {
+            case "SYNC_PENDING" -> {
+                try {
+                    applyPendingSync(payload);
+                    recordAndSend(idempotencyKey, new ProcessedActionStore.Result(true, ""));
+                } catch (RuntimeException exception) {
+                    recordAndSend(idempotencyKey, new ProcessedActionStore.Result(false, safeError(exception)));
+                }
+            }
+            case "REMOVE_PENDING" -> {
+                pending.remove(payload.get("application_id").getAsLong());
+                recordAndSend(idempotencyKey, new ProcessedActionStore.Result(true, ""));
+            }
+            case "APPROVE", "REVOKE", "KICK", "STATUS" -> Bukkit.getScheduler().runTask(
+                    plugin,
+                    () -> executeMainThreadAction(idempotencyKey, action, payload)
+            );
+            default -> recordAndSend(
+                    idempotencyKey,
+                    new ProcessedActionStore.Result(false, "Action is not allowlisted")
+            );
+        }
+    }
+
+    private void applyPendingSync(JsonObject payload) {
+        if (payload.has("full") && payload.get("full").getAsBoolean()) {
+            JsonArray applications = payload.getAsJsonArray("applications");
+            ArrayList<PendingVerification> replacements = new ArrayList<>();
+            for (JsonElement element : applications) {
+                replacements.add(parsePending(element.getAsJsonObject()));
+            }
+            pending.replace(replacements);
+        } else {
+            pending.put(parsePending(payload));
+        }
+    }
+
+    private PendingVerification parsePending(JsonObject payload) {
+        long maximumExpiry = java.time.Instant.now().getEpochSecond() + config.verificationExpirySeconds();
+        return new PendingVerification(
+                payload.get("application_id").getAsLong(),
+                MinecraftEdition.valueOf(payload.get("edition").getAsString()),
+                payload.get("claimed_username").getAsString(),
+                payload.get("normalized_username").getAsString(),
+                Math.min(payload.get("expires_at").getAsLong(), maximumExpiry)
+        );
+    }
+
+    private void executeMainThreadAction(String key, String action, JsonObject payload) {
+        if (!Bukkit.isPrimaryThread()) {
+            recordAndSend(key, new ProcessedActionStore.Result(false, "Bukkit action was not on the main thread"));
+            return;
+        }
+        try {
+            UUID minecraftUuid = payload.has("minecraft_uuid")
+                    ? UUID.fromString(payload.get("minecraft_uuid").getAsString())
+                    : null;
+            switch (action) {
+                case "APPROVE" -> {
+                    MinecraftEdition edition = MinecraftEdition.valueOf(payload.get("edition").getAsString());
+                    if (minecraftUuid == null) {
+                        throw new IllegalArgumentException("APPROVE requires a UUID");
+                    }
+                    if (edition == MinecraftEdition.JAVA) {
+                        OfflinePlayer player = Bukkit.getOfflinePlayer(minecraftUuid);
+                        player.setWhitelisted(true);
+                        if (!player.isWhitelisted()) {
+                            throw new IllegalStateException("Bukkit did not confirm the whitelist change");
+                        }
+                    } else {
+                        boolean accepted = Bukkit.dispatchCommand(
+                                Bukkit.getConsoleSender(),
+                                "fwhitelist add " + minecraftUuid
+                        );
+                        if (!accepted) {
+                            throw new IllegalStateException("Floodgate rejected the whitelist command");
+                        }
+                    }
+                }
+                case "REVOKE" -> {
+                    MinecraftEdition edition = MinecraftEdition.valueOf(payload.get("edition").getAsString());
+                    if (minecraftUuid == null) {
+                        throw new IllegalArgumentException("REVOKE requires a UUID");
+                    }
+                    if (edition == MinecraftEdition.JAVA) {
+                        Bukkit.getOfflinePlayer(minecraftUuid).setWhitelisted(false);
+                    } else {
+                        boolean accepted = Bukkit.dispatchCommand(
+                                Bukkit.getConsoleSender(),
+                                "fwhitelist remove " + minecraftUuid
+                        );
+                        if (!accepted) {
+                            throw new IllegalStateException("Floodgate rejected the whitelist command");
+                        }
+                    }
+                    Player online = Bukkit.getPlayer(minecraftUuid);
+                    if (online != null) {
+                        online.kick(net.kyori.adventure.text.Component.text("Your Minecraft access was revoked."));
+                    }
+                }
+                case "KICK" -> {
+                    if (minecraftUuid == null) {
+                        throw new IllegalArgumentException("KICK requires a UUID");
+                    }
+                    Player online = Bukkit.getPlayer(minecraftUuid);
+                    if (online != null) {
+                        online.kick(net.kyori.adventure.text.Component.text("Disconnected by the access system."));
+                    }
+                }
+                case "STATUS" -> {
+                    // Reaching the main thread successfully is the status result.
+                }
+                default -> throw new IllegalArgumentException("Action is not allowlisted");
+            }
+            recordAndSend(key, new ProcessedActionStore.Result(true, ""));
+        } catch (RuntimeException exception) {
+            plugin.getLogger().warning("Bridge action " + action + " failed: " + safeError(exception));
+            recordAndSend(key, new ProcessedActionStore.Result(false, safeError(exception)));
+        }
+    }
+
+    void queueVerification(
+            PendingVerification application,
+            MinecraftEdition edition,
+            UUID minecraftUuid,
+            String currentUsername,
+            String xuid
+    ) {
+        String key = "verification:" + application.applicationId() + ":" + minecraftUuid;
+        JsonObject payload = new JsonObject();
+        payload.addProperty("application_id", application.applicationId());
+        payload.addProperty("edition", edition.name());
+        payload.addProperty("minecraft_uuid", minecraftUuid.toString());
+        payload.addProperty("current_username", currentUsername);
+        if (xuid == null) {
+            payload.add("xuid", null);
+        } else {
+            payload.addProperty("xuid", xuid);
+        }
+        verificationOutbox.putIfAbsent(key, payload);
+        pending.remove(application.applicationId());
+        if (isConnected()) {
+            sendRaw(protocol.create("VERIFICATION", key, payload));
+        }
+    }
+
+    private void flushVerificationOutbox() {
+        for (Map.Entry<String, JsonObject> entry : verificationOutbox.entrySet()) {
+            sendRaw(protocol.create("VERIFICATION", entry.getKey(), entry.getValue()));
+        }
+    }
+
+    private void recordAndSend(String key, ProcessedActionStore.Result result) {
+        processedActions.put(key, result).whenComplete((ignored, error) -> {
+            if (error != null) {
+                plugin.getLogger().warning("Could not persist bridge idempotency result: " + safeError(error));
+                return;
+            }
+            sendActionResult(key, result);
+        });
+    }
+
+    private void sendActionResult(String actionKey, ProcessedActionStore.Result result) {
+        JsonObject payload = new JsonObject();
+        payload.addProperty("action_idempotency_key", actionKey);
+        payload.addProperty("success", result.success());
+        if (!result.success()) {
+            payload.addProperty("error", result.error());
+        }
+        sendRaw(protocol.create("ACTION_RESULT", UUID.randomUUID().toString(), payload));
+    }
+
+    private void heartbeat() {
+        if (!isConnected()) {
+            return;
+        }
+        JsonObject payload = new JsonObject();
+        payload.addProperty("server_id", config.serverId());
+        payload.addProperty("pending_count", pending.size());
+        sendRaw(protocol.create("HEARTBEAT", UUID.randomUUID().toString(), payload));
+    }
+
+    private void sendRaw(String message) {
+        WebSocket current = socket;
+        if (current == null || current.isOutputClosed()) {
+            return;
+        }
+        current.sendText(message, true).whenComplete((ignored, error) -> {
+            if (error != null && config.debug()) {
+                plugin.getLogger().warning("Bridge send failed: " + safeError(error));
+            }
+        });
+    }
+
+    @Override
+    public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
+        authenticated = false;
+        socket = null;
+        if (!stopping) {
+            plugin.getLogger().warning("Minecraft bridge disconnected; reconnecting automatically.");
+            scheduleReconnect();
+        }
+        return null;
+    }
+
+    @Override
+    public void onError(WebSocket webSocket, Throwable error) {
+        authenticated = false;
+        socket = null;
+        if (!stopping) {
+            plugin.getLogger().warning("Minecraft bridge error: " + safeError(error));
+            scheduleReconnect();
+        }
+    }
+
+    private void scheduleReconnect() {
+        if (stopping) {
+            return;
+        }
+        int attempt = Math.min(++reconnectAttempts, 20);
+        long base = Math.min(config.reconnectMaxSeconds(), 1L << Math.min(attempt - 1, 16));
+        long delayMillis = base * 1000L + ThreadLocalRandom.current().nextLong(250, 1250);
+        networkExecutor.schedule(this::connect, delayMillis, TimeUnit.MILLISECONDS);
+    }
+
+    private void closeSocket(int code, String reason) {
+        WebSocket current = socket;
+        if (current != null) {
+            current.sendClose(code, reason);
+        }
+    }
+
+    private static String safeError(Throwable error) {
+        Throwable candidate = error;
+        while (candidate.getCause() != null) {
+            candidate = candidate.getCause();
+        }
+        String name = candidate.getClass().getSimpleName();
+        String message = candidate.getMessage();
+        return message == null || message.isBlank() ? name : name + ": " + message.replace('\n', ' ');
+    }
+
+    @Override
+    public void close() {
+        stopping = true;
+        authenticated = false;
+        WebSocket current = socket;
+        socket = null;
+        if (current != null && !current.isOutputClosed()) {
+            current.sendClose(WebSocket.NORMAL_CLOSURE, "Plugin shutting down");
+        }
+    }
+}

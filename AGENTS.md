@@ -25,16 +25,17 @@ These three rules override everything else. The rest of this file is guidance.
 ```bash
 # Run
 python main.py                 # single bot (needs DISCORD_BOT_TOKEN in env or .env)
-python start.py                # all bots — one process per .env.bot* file
+python start.py                # moderation bots plus optional .env.minecraft process
+python minecraft_main.py       # dedicated Minecraft access bot
 python run_test.py             # staging: test bot on this machine, loads .env.test only
 
 # Test + lint (CI runs exactly these — run them before every commit)
-python -m unittest discover -s tests       # 38 tests, no Discord connection needed
-python -m pyflakes core/ cogs/ tests/
-python -m py_compile cogs/*.py
+python -m unittest discover -s tests       # no Discord connection needed
+python -m pyflakes core/ cogs/ minecraft_bot/ tests/
+python -m py_compile cogs/*.py minecraft_bot/*.py minecraft_main.py
 
 # Optional local quality pass (ruff config in pyproject.toml; not yet in CI)
-ruff check core/ cogs/ tests/
+ruff check core/ cogs/ minecraft_bot/ tests/
 
 # Deploy (BisectHosting panel auto-pulls main on restart)
 python panel.py restart
@@ -82,11 +83,11 @@ required, 0 approvals (so solo merge works), no force-push or deletion.
 |---|---|---|---|
 | local | `python -m unittest …` | none | dev machine |
 | staging | `python run_test.py` | `.env.test` only | dev machine |
-| production | `python panel.py restart` | `.env.bot1` + `.env.bot2` | BisectHosting panel |
+| production | `python panel.py restart` | `.env.bot1` + `.env.bot2` + optional `.env.minecraft` | BisectHosting panel |
 
 The staging bot runs locally, not on the panel. The panel runs `start.py`, which
-picks up only `.env.bot1` and `.env.bot2` (`.env.test` was removed from the panel
-so the test token never double-runs).
+picks up `.env.bot1`, `.env.bot2`, and `.env.minecraft` when present (`.env.test`
+is never loaded, so the test token cannot double-run).
 
 ## Hosting — BisectHosting (Pterodactyl)
 
@@ -106,6 +107,8 @@ API is the only remote control path.
 
 ```
 main.py / start.py / run_test.py / panel.py   entry points (see Commands)
+minecraft_main.py / minecraft_bot/             isolated Minecraft access bot
+minecraft-bridge/                               Java 21 Paper/Floodgate plugin
 pyproject.toml   project metadata + tool config (ruff); deps stay in requirements.txt
 core/      framework, no Discord UI code
   bot.py        MGXBot class, intents, background tasks, EXTENSIONS, lifecycle
