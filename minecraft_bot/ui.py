@@ -7,7 +7,14 @@ from contextlib import suppress
 import discord
 
 from .models import ApplicationStatus, DuplicateActiveApplication, Edition, InvalidTransition
-from .presentation import branded_edit, branded_send, info_embed, rules_embed, verification_embed
+from .presentation import (
+    branded_edit,
+    branded_send,
+    info_embed,
+    rules_agreement_send,
+    rules_embed,
+    verification_embed,
+)
 
 
 async def _validate_application_panel(interaction: discord.Interaction) -> bool:
@@ -92,7 +99,7 @@ class ApplyButton(discord.ui.Button):
             )
             return
         await interaction.response.send_message(
-            **branded_send(rules_embed(agreement=True)),
+            **rules_agreement_send(rules_embed(agreement=True)),
             view=RulesAgreementView(interaction.user.id),
             ephemeral=True,
         )

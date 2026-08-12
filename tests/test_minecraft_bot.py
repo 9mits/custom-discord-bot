@@ -16,6 +16,7 @@ from minecraft_bot.presentation import (
     ICON_ATTACHMENT_URI,
     ICON_PATH,
     FOOTER_ATTACHMENT_URI,
+    LOGO_ATTACHMENT_URI,
     FOOTER_PATH,
     LOGO_PATH,
     THEME_COLOUR,
@@ -190,10 +191,9 @@ class MinecraftBotPolicyTests(unittest.TestCase):
 
 
 class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
-    async def test_application_banner_is_sent_before_the_embed_panel(self):
-        banner = SimpleNamespace(id=100)
+    async def test_application_panel_has_no_public_banner_message(self):
         panel = SimpleNamespace(id=101)
-        channel = SimpleNamespace(send=AsyncMock(side_effect=[banner, panel]))
+        channel = SimpleNamespace(send=AsyncMock(return_value=panel))
         bot = object.__new__(MinecraftAccessBot)
         bot.settings = SimpleNamespace(application_channel_id=20)
         bot._configured_channel = AsyncMock(return_value=channel)
@@ -205,19 +205,17 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         result = await bot.post_application_panel()
 
         self.assertIs(result, panel)
-        self.assertEqual(channel.send.await_count, 2)
-        first_call, second_call = channel.send.await_args_list
-        self.assertIn("file", first_call.kwargs)
-        self.assertNotIn("embeds", first_call.kwargs)
-        self.assertEqual(len(second_call.kwargs["embeds"]), 2)
+        channel.send.assert_awaited_once()
+        call = channel.send.await_args
+        self.assertNotIn("file", call.kwargs)
+        self.assertEqual(len(call.kwargs["embeds"]), 2)
         bot.data.set_configs.assert_awaited_once_with(
             {
-                "application_banner_message_id": "100",
+                "application_banner_message_id": "",
                 "application_panel_message_id": "101",
             }
         )
-        first_call.kwargs["file"].close()
-        for file in second_call.kwargs["files"]:
+        for file in call.kwargs["files"]:
             file.close()
 
     async def test_apply_reveals_cancel_only_for_pending_verification(self):
@@ -319,8 +317,10 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(kwargs["view"], RulesAgreementView)
         self.assertEqual(kwargs["view"].children[0].style, discord.ButtonStyle.success)
         self.assertEqual(kwargs["view"].children[1].style, discord.ButtonStyle.secondary)
-        for file in kwargs["files"]:
-            file.close()
+        self.assertEqual(kwargs["embed"].image.url, LOGO_ATTACHMENT_URI)
+        self.assertIsNone(kwargs["embed"].footer.text)
+        self.assertNotIn("files", kwargs)
+        kwargs["file"].close()
 
     async def test_rules_agreement_opens_modal_and_disagreement_edits_message(self):
         view = RulesAgreementView(99)
