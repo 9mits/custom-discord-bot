@@ -18,10 +18,12 @@ branch  →  code + test locally  →  push  →  PR  →  CI green  →  merge 
 2. **Test + lint** before pushing:
    ```bash
    python -m unittest discover -s tests
-   python -m pyflakes core/ cogs/ tests/
+   python -m pyflakes core/ cogs/ minecraft_bot/ tests/
+   python -m py_compile cogs/*.py minecraft_bot/*.py minecraft_main.py
+   (cd minecraft-bridge && ./gradlew clean build)
    ```
-3. **Push** and open a PR against `main`. Both CI checks (`test (3.11)` and
-   `test (3.12)`) must pass.
+3. **Push** and open a PR against `main`. Both Python checks (`test (3.11)` and
+   `test (3.12)`) must pass; the Paper bridge build is a required local check.
 4. **Merge** once CI is green and you've reviewed the diff.
 5. **Deploy**: `python panel.py restart` — the BisectHosting panel auto-pulls
    `main` on restart.

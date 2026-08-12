@@ -1,0 +1,15 @@
+# Identifier expected by the dedicated Discord bot.
+server-id: "mysterious-smp-x"
+
+# Public WSS endpoint routed to the bot's MINECRAFT_BRIDGE_PORT and path.
+bridge-url: "wss://replace-with-bot-host/minecraft-bridge"
+
+# Generate with: openssl rand -hex 32
+bridge-secret: "REPLACE_ME"
+
+# Keep false in production. When true, ws:// is accepted only for localhost.
+allow-insecure-localhost: false
+
+verification-expiry-seconds: 600
+reconnect-max-seconds: 60
+debug: false

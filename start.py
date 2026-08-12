@@ -1,4 +1,4 @@
-"""Production supervisor for the two private bot instances."""
+"""Production supervisor for the private moderation and Minecraft bot instances."""
 
 from __future__ import annotations
 
@@ -12,7 +12,11 @@ from pathlib import Path
 from typing import Callable, Dict, Iterable, Optional
 
 
-PRODUCTION_ENV_FILES = (".env.bot1", ".env.bot2")
+PRODUCTION_INSTANCES = (
+    (".env.bot1", "main.py", "BOT_DATA_DIR"),
+    (".env.bot2", "main.py", "BOT_DATA_DIR"),
+    (".env.minecraft", "minecraft_main.py", "MINECRAFT_DATA_DIR"),
+)
 RESTART_BACKOFF_CAP_SECONDS = 30.0
 STABLE_RUNTIME_SECONDS = 300.0
 SHUTDOWN_GRACE_SECONDS = 10.0
@@ -41,6 +45,7 @@ class InstanceSpec:
     env_path: Path
     data_dir: Path
     env: Dict[str, str] = field(repr=False, compare=False)
+    entrypoint: str = "main.py"
 
 
 @dataclass
@@ -54,12 +59,13 @@ class InstanceState:
 
 def discover_instances(workdir: Path) -> list[InstanceSpec]:
     specs = []
-    for filename in PRODUCTION_ENV_FILES:
+    for filename, entrypoint, data_dir_variable in PRODUCTION_INSTANCES:
         env_path = workdir / filename
         if not env_path.is_file():
             continue
         env = load_env(env_path)
-        configured_dir = env.get("BOT_DATA_DIR", "database").strip() or "database"
+        default_dir = "runtime/minecraft" if data_dir_variable == "MINECRAFT_DATA_DIR" else "database"
+        configured_dir = env.get(data_dir_variable, default_dir).strip() or default_dir
         data_dir = Path(configured_dir)
         if not data_dir.is_absolute():
             data_dir = workdir / data_dir
@@ -68,6 +74,7 @@ def discover_instances(workdir: Path) -> list[InstanceSpec]:
             env_path=env_path.resolve(),
             data_dir=data_dir.resolve(),
             env=env,
+            entrypoint=entrypoint,
         ))
     return specs
 
@@ -78,7 +85,7 @@ def validate_unique_data_dirs(specs: Iterable[InstanceSpec]) -> None:
         owner = owners.get(spec.data_dir)
         if owner is not None:
             raise RuntimeError(
-                f"{owner} and {spec.name} resolve to the same BOT_DATA_DIR: {spec.data_dir}"
+                f"{owner} and {spec.name} resolve to the same data directory: {spec.data_dir}"
             )
         owners[spec.data_dir] = spec.name
 
@@ -105,7 +112,7 @@ class ProcessSupervisor:
 
     def _launch(self, state: InstanceState) -> None:
         state.process = self.process_factory(
-            [sys.executable, "main.py"],
+            [sys.executable, state.spec.entrypoint],
             env=state.spec.env,
             cwd=self.workdir,
         )
@@ -169,7 +176,7 @@ def main() -> int:
     workdir = Path(__file__).resolve().parent
     specs = discover_instances(workdir)
     if not specs:
-        print("No .env.bot1 or .env.bot2 files found — nothing to launch.")
+        print("No production environment files found — nothing to launch.")
         return 1
     try:
         validate_unique_data_dirs(specs)

@@ -63,13 +63,28 @@ class StartConfigurationTests(unittest.TestCase):
             self.assertEqual([spec.name for spec in specs], ["bot1", "bot2"])
             self.assertNotIn("database-test", {spec.data_dir.name for spec in specs})
 
+    def test_discovery_uses_isolated_minecraft_entrypoint_and_data_dir(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workdir = Path(temp_dir)
+            (workdir / ".env.minecraft").write_text(
+                "MINECRAFT_DATA_DIR=runtime/minecraft-access\n",
+                encoding="utf-8",
+            )
+
+            specs = discover_instances(workdir)
+
+            self.assertEqual(len(specs), 1)
+            self.assertEqual(specs[0].name, "minecraft")
+            self.assertEqual(specs[0].entrypoint, "minecraft_main.py")
+            self.assertEqual(specs[0].data_dir.name, "minecraft-access")
+
     def test_duplicate_resolved_data_directories_are_rejected(self):
         shared = Path("/tmp/shared-bot-data").resolve()
         specs = [
             InstanceSpec("bot1", Path(".env.bot1"), shared, {}),
             InstanceSpec("bot2", Path(".env.bot2"), shared, {}),
         ]
-        with self.assertRaisesRegex(RuntimeError, "same BOT_DATA_DIR"):
+        with self.assertRaisesRegex(RuntimeError, "same data directory"):
             validate_unique_data_dirs(specs)
 
 
@@ -110,6 +125,28 @@ class ProcessSupervisorTests(unittest.TestCase):
         self.assertEqual(len(self.created), 3)
         self.assertIs(self.supervisor.states["bot1"].process, self.created[2])
         self.assertIs(self.supervisor.states["bot2"].process, healthy)
+
+    def test_supervisor_launches_each_instance_entrypoint(self):
+        minecraft = InstanceSpec(
+            "minecraft",
+            Path(".env.minecraft"),
+            Path("/tmp/minecraft"),
+            {"A": "3"},
+            "minecraft_main.py",
+        )
+        self.supervisor = ProcessSupervisor(
+            [minecraft],
+            workdir=Path.cwd(),
+            process_factory=lambda command, *, env, cwd: self.created.append(
+                FakeProcess(command, env=env, cwd=cwd)
+            ) or self.created[-1],
+            clock=lambda: self.now,
+            sleeper=lambda delay: None,
+        )
+
+        self.supervisor.start_all()
+
+        self.assertEqual(self.created[0].command[-1], "minecraft_main.py")
 
     def test_restart_backoff_is_capped(self):
         self.supervisor.start_all()
