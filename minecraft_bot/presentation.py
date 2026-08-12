@@ -15,7 +15,6 @@ BRAND_NAME = "Mysterious SMP X"
 THEME_COLOUR = discord.Colour.from_rgb(255, 153, 0)
 LOGO_FILENAME = "mysterious_smp_x_logo.png"
 LOGO_PATH = Path(__file__).resolve().parent.parent / "assets" / "minecraft" / LOGO_FILENAME
-LOGO_ATTACHMENT_URI = f"attachment://{LOGO_FILENAME}"
 ICON_FILENAME = "mysterious_smp_x_icon.png"
 ICON_PATH = Path(__file__).resolve().parent.parent / "assets" / "minecraft" / ICON_FILENAME
 ICON_ATTACHMENT_URI = f"attachment://{ICON_FILENAME}"
@@ -62,7 +61,7 @@ def branded_edit(embed: discord.Embed) -> dict[str, object]:
 
 
 def application_panel_files() -> list[discord.File]:
-    return [brand_logo_file(), brand_footer_file()]
+    return [brand_footer_file()]
 
 
 def _connection_blocks(settings) -> str:
@@ -113,7 +112,6 @@ def application_embeds() -> list[discord.Embed]:
         "- Keep Discord DMs enabled so the bot can send status updates.\n"
         "- Entered the wrong username? Press **Apply** again for a private cancellation option.",
     )
-    apply.set_image(url=LOGO_ATTACHMENT_URI)
     return [welcome, rules, apply]
 
 

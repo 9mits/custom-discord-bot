@@ -17,7 +17,6 @@ from minecraft_bot.presentation import (
     ICON_PATH,
     FOOTER_ATTACHMENT_URI,
     FOOTER_PATH,
-    LOGO_ATTACHMENT_URI,
     LOGO_PATH,
     THEME_COLOUR,
     application_embeds,
@@ -99,7 +98,7 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertEqual(len(embeds), 3)
         self.assertEqual(embeds[0].title, "Welcome to Mysterious SMP X")
         self.assertEqual(embeds[1].title, "General Rules")
-        self.assertEqual(embeds[2].image.url, LOGO_ATTACHMENT_URI)
+        self.assertIsNone(embeds[2].image.url)
         self.assertTrue(all(embed.footer.icon_url == FOOTER_ATTACHMENT_URI for embed in embeds))
 
     def test_minecraft_presentation_uses_orange_brand_system(self):
@@ -190,6 +189,36 @@ class MinecraftBotPolicyTests(unittest.TestCase):
 
 
 class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_application_banner_is_sent_before_the_embed_panel(self):
+        banner = SimpleNamespace(id=100)
+        panel = SimpleNamespace(id=101)
+        channel = SimpleNamespace(send=AsyncMock(side_effect=[banner, panel]))
+        bot = object.__new__(MinecraftAccessBot)
+        bot.settings = SimpleNamespace(application_channel_id=20)
+        bot._configured_channel = AsyncMock(return_value=channel)
+        bot.data = SimpleNamespace(
+            get_config=AsyncMock(return_value=None),
+            set_configs=AsyncMock(),
+        )
+
+        result = await bot.post_application_panel()
+
+        self.assertIs(result, panel)
+        self.assertEqual(channel.send.await_count, 2)
+        first_call, second_call = channel.send.await_args_list
+        self.assertIn("file", first_call.kwargs)
+        self.assertNotIn("embeds", first_call.kwargs)
+        self.assertEqual(len(second_call.kwargs["embeds"]), 3)
+        bot.data.set_configs.assert_awaited_once_with(
+            {
+                "application_banner_message_id": "100",
+                "application_panel_message_id": "101",
+            }
+        )
+        first_call.kwargs["file"].close()
+        for file in second_call.kwargs["files"]:
+            file.close()
+
     async def test_apply_reveals_cancel_only_for_pending_verification(self):
         application = MinecraftApplication(
             id=42,

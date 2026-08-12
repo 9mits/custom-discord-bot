@@ -24,6 +24,7 @@ from .presentation import (
     approval_embed,
     branded_edit,
     branded_send,
+    brand_logo_file,
     denial_embed,
     decision_log_embed,
     info_embed,
@@ -304,32 +305,51 @@ class MinecraftAccessBot(commands.Bot):
         channel = await self._configured_channel(self.settings.application_channel_id)
         if channel is None or not hasattr(channel, "send"):
             raise RuntimeError("The configured Minecraft application channel is unavailable")
-        message_id = await self.data.get_config("application_panel_message_id")
-        if message_id:
+
+        async def fetch_saved_message(config_key: str) -> Optional[discord.Message]:
+            message_id = await self.data.get_config(config_key)
+            if not message_id:
+                return None
             try:
-                message = await channel.fetch_message(int(message_id))
+                return await channel.fetch_message(int(message_id))
             except (discord.NotFound, discord.Forbidden, discord.HTTPException, AttributeError):
-                message = None
-            if message is not None:
-                if getattr(getattr(message, "flags", None), "components_v2", False):
-                    with suppress(discord.NotFound, discord.Forbidden, discord.HTTPException):
-                        await message.delete()
-                    message = None
-                else:
-                    await message.edit(
-                        content=None,
-                        embeds=application_embeds(),
-                        attachments=application_panel_files(),
-                        view=application_panel(),
-                    )
-                    return message
-        message = await channel.send(
+                return None
+
+        banner = await fetch_saved_message("application_banner_message_id")
+        panel = await fetch_saved_message("application_panel_message_id")
+        panel_uses_v2 = bool(
+            panel is not None
+            and getattr(getattr(panel, "flags", None), "components_v2", False)
+        )
+        correct_order = banner is not None and panel is not None and banner.id < panel.id
+        if correct_order and not panel_uses_v2:
+            await banner.edit(content=None, attachments=[brand_logo_file()])
+            await panel.edit(
+                content=None,
+                embeds=application_embeds(),
+                attachments=application_panel_files(),
+                view=application_panel(),
+            )
+            return panel
+
+        for old_message in (banner, panel):
+            if old_message is not None:
+                with suppress(discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    await old_message.delete()
+
+        banner = await channel.send(file=brand_logo_file())
+        panel = await channel.send(
             embeds=application_embeds(),
             files=application_panel_files(),
             view=application_panel(),
         )
-        await self.data.set_config("application_panel_message_id", str(message.id))
-        return message
+        await self.data.set_configs(
+            {
+                "application_banner_message_id": str(banner.id),
+                "application_panel_message_id": str(panel.id),
+            }
+        )
+        return panel
 
     async def handle_bridge_verification(
         self,
