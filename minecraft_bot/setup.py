@@ -48,12 +48,16 @@ def configuration_findings(bot, guild: Optional[discord.Guild]) -> list[SetupFin
         return [SetupFinding("Server", "The configured Discord server is unavailable.")]
 
     channels = (
-        ("Application channel", settings.application_channel_id, False),
-        ("Review channel", settings.review_channel_id, True),
+        ("Application channel", settings.application_channel_id, False, True),
+        ("Review channel", settings.review_channel_id, True, True),
+        ("Application log", settings.application_log_channel_id, True, False),
+        ("Verification log", settings.verification_log_channel_id, True, False),
+        ("Player activity log", settings.player_log_channel_id, True, False),
     )
-    for label, channel_id, needs_embeds in channels:
+    for label, channel_id, needs_embeds, required_channel in channels:
         if not channel_id:
-            findings.append(SetupFinding(label, f"Select the {label.lower()}."))
+            if required_channel:
+                findings.append(SetupFinding(label, f"Select the {label.lower()}."))
             continue
         channel = guild.get_channel(channel_id)
         if channel is None:
@@ -373,6 +377,9 @@ class MinecraftSetupView(discord.ui.LayoutView):
                 f"**Bridge:** {bridge_state}\n"
                 f"**Application channel:** {_channel_value(guild, settings.application_channel_id)}\n"
                 f"**Review channel:** {_channel_value(guild, settings.review_channel_id)}\n"
+                f"**Application log:** {_channel_value(guild, settings.application_log_channel_id)}\n"
+                f"**Verification log:** {_channel_value(guild, settings.verification_log_channel_id)}\n"
+                f"**Player activity log:** {_channel_value(guild, settings.player_log_channel_id)}\n"
                 f"**Moderator role:** {_role_value(guild, settings.mod_role_id)}\n"
                 f"**Approved-member role:** {_role_value(guild, settings.member_role_id)}"
             )
@@ -389,6 +396,9 @@ class MinecraftSetupView(discord.ui.LayoutView):
         for item in (
             MinecraftChannelSelect("application_channel_id", "Application channel"),
             MinecraftChannelSelect("review_channel_id", "Review channel"),
+            MinecraftChannelSelect("application_log_channel_id", "Application log"),
+            MinecraftChannelSelect("verification_log_channel_id", "Verification log"),
+            MinecraftChannelSelect("player_log_channel_id", "Player activity log"),
             MinecraftRoleSelect("mod_role_id", "Moderator role"),
             MinecraftRoleSelect("member_role_id", "Approved-member role"),
         ):

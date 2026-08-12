@@ -16,6 +16,9 @@ SETTING_KEYS = (
     "review_channel_id",
     "mod_role_id",
     "member_role_id",
+    "application_log_channel_id",
+    "verification_log_channel_id",
+    "player_log_channel_id",
     "java_address",
     "bedrock_address",
     "bedrock_port",
@@ -89,6 +92,9 @@ class MinecraftSettings:
     review_channel_id: int = 0
     mod_role_id: int = 0
     member_role_id: int = 0
+    application_log_channel_id: int = 0
+    verification_log_channel_id: int = 0
+    player_log_channel_id: int = 0
     java_address: str = DEFAULT_JAVA_ADDRESS
     bedrock_address: str = DEFAULT_BEDROCK_ADDRESS
     bedrock_port: int = DEFAULT_BEDROCK_PORT
@@ -124,6 +130,9 @@ class MinecraftSettings:
             member_role_id=_positive_int(
                 stored_or("member_role_id", getattr(bootstrap_config, "member_role_id", 0))
             ),
+            application_log_channel_id=_positive_int(stored_or("application_log_channel_id", 0)),
+            verification_log_channel_id=_positive_int(stored_or("verification_log_channel_id", 0)),
+            player_log_channel_id=_positive_int(stored_or("player_log_channel_id", 0)),
             java_address=java_address,
             bedrock_address=bedrock_address,
             bedrock_port=bedrock_port,
@@ -134,12 +143,24 @@ class MinecraftSettings:
         if unknown:
             raise ValueError(f"Unsupported Minecraft setting(s): {', '.join(sorted(unknown))}")
         normalized = dict(updates)
-        for key in ("application_channel_id", "review_channel_id", "mod_role_id", "member_role_id"):
+        for key in (
+            "application_channel_id",
+            "review_channel_id",
+            "mod_role_id",
+            "member_role_id",
+        ):
             if key in normalized:
                 value = _positive_int(normalized[key])
                 if not value:
                     raise ValueError(f"{key} must be a positive Discord ID")
                 normalized[key] = value
+        for key in (
+            "application_log_channel_id",
+            "verification_log_channel_id",
+            "player_log_channel_id",
+        ):
+            if key in normalized:
+                normalized[key] = _positive_int(normalized[key])
         if "java_address" in normalized:
             normalized["java_address"] = normalize_java_address(normalized["java_address"])
         if "bedrock_address" in normalized:

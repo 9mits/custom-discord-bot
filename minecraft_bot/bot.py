@@ -18,13 +18,18 @@ from .data import MinecraftDataManager
 from .models import ApplicationStatus, BridgeAction, InvalidTransition, MinecraftApplication, OutboxRecord
 from .presentation import (
     application_panel,
+    application_embeds,
+    application_panel_files,
+    application_log_embed,
     approval_embed,
     branded_edit,
     branded_send,
-    brand_logo_file,
     denial_embed,
+    decision_log_embed,
     info_embed,
     review_embed,
+    player_activity_embed,
+    verification_log_embed,
     verified_embed,
 )
 from .settings import MinecraftSettings, SETTING_KEYS
@@ -75,6 +80,7 @@ class MinecraftAccessBot(commands.Bot):
             self.data,
             verification_handler=self.handle_bridge_verification,
             action_result_handler=self.handle_bridge_action_result,
+            player_event_handler=self.handle_player_event,
         )
         self.apply_rate_limit = RateLimiter(5)
         self.status_rate_limit = RateLimiter(10)
@@ -215,6 +221,7 @@ class MinecraftAccessBot(commands.Bot):
             guild_id=guild_id,
             discord_user_id=discord_user_id,
         )
+        await self.log_application_decision(application)
         self._application_interactions.pop(application.id, None)
         if self.bridge.connected:
             await self.bridge.dispatch_outbox()
@@ -237,6 +244,62 @@ class MinecraftAccessBot(commands.Bot):
             return guild
         return None
 
+    async def _send_configured_log(self, channel_id: int, embed: discord.Embed) -> None:
+        if not channel_id:
+            return
+        channel = await self._configured_channel(channel_id)
+        if channel is None or not hasattr(channel, "send"):
+            logger.warning("Configured Minecraft log channel %s is unavailable", channel_id)
+            return
+        try:
+            await channel.send(
+                **branded_send(embed),
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+        except (discord.Forbidden, discord.HTTPException):
+            logger.exception("Could not send Minecraft log to channel %s", channel_id)
+
+    async def log_application_submission(self, application: MinecraftApplication) -> None:
+        await self._send_configured_log(
+            self.settings.application_log_channel_id,
+            application_log_embed(application),
+        )
+
+    async def log_application_decision(self, application: MinecraftApplication) -> None:
+        await self._send_configured_log(
+            self.settings.application_log_channel_id,
+            decision_log_embed(application),
+        )
+
+    async def handle_player_event(
+        self,
+        *,
+        joined: bool,
+        minecraft_uuid: str,
+        current_username: str,
+        edition: str,
+        xuid: Optional[str],
+        event_idempotency_key: str,
+    ) -> None:
+        claimed = await self.data.claim_bridge_event(
+            event_idempotency_key,
+            "PLAYER_JOIN" if joined else "PLAYER_LEAVE",
+        )
+        if not claimed:
+            return
+        discord_user_id = await self.data.get_account_owner(edition, minecraft_uuid)
+        await self._send_configured_log(
+            self.settings.player_log_channel_id,
+            player_activity_embed(
+                joined=joined,
+                username=current_username,
+                minecraft_uuid=minecraft_uuid,
+                edition=edition,
+                xuid=xuid,
+                discord_user_id=discord_user_id,
+            ),
+        )
+
     async def post_application_panel(self) -> discord.Message:
         channel = await self._configured_channel(self.settings.application_channel_id)
         if channel is None or not hasattr(channel, "send"):
@@ -248,14 +311,23 @@ class MinecraftAccessBot(commands.Bot):
             except (discord.NotFound, discord.Forbidden, discord.HTTPException, AttributeError):
                 message = None
             if message is not None:
-                await message.edit(
-                    content=None,
-                    embed=None,
-                    attachments=[brand_logo_file()],
-                    view=application_panel(),
-                )
-                return message
-        message = await channel.send(file=brand_logo_file(), view=application_panel())
+                if getattr(getattr(message, "flags", None), "components_v2", False):
+                    with suppress(discord.NotFound, discord.Forbidden, discord.HTTPException):
+                        await message.delete()
+                    message = None
+                else:
+                    await message.edit(
+                        content=None,
+                        embeds=application_embeds(),
+                        attachments=application_panel_files(),
+                        view=application_panel(),
+                    )
+                    return message
+        message = await channel.send(
+            embeds=application_embeds(),
+            files=application_panel_files(),
+            view=application_panel(),
+        )
         await self.data.set_config("application_panel_message_id", str(message.id))
         return message
 
@@ -286,6 +358,10 @@ class MinecraftAccessBot(commands.Bot):
             await self.post_or_update_review(application)
         except Exception:
             logger.exception("Could not publish review for Minecraft application %s", application.id)
+        await self._send_configured_log(
+            self.settings.verification_log_channel_id,
+            verification_log_embed(application),
+        )
         user = self.get_user(int(application.discord_user_id))
         if user is None:
             with suppress(discord.NotFound, discord.HTTPException):
@@ -348,6 +424,7 @@ class MinecraftAccessBot(commands.Bot):
 
     async def finish_denial(self, application: MinecraftApplication) -> None:
         await self.update_review_message(application)
+        await self.log_application_decision(application)
         user = self.get_user(int(application.discord_user_id))
         if user is None:
             with suppress(discord.NotFound, discord.HTTPException):
@@ -375,11 +452,13 @@ class MinecraftAccessBot(commands.Bot):
         if record.action is BridgeAction.APPROVE and application.status is ApplicationStatus.APPROVED:
             try:
                 await self._finish_approval(application)
+                await self.log_application_decision(application)
             except Exception:
                 logger.exception("Discord approval finalization failed for application %s", application.id)
         elif record.action is BridgeAction.REVOKE and application.status is ApplicationStatus.REVOKED:
             try:
                 await self._finish_revocation(application)
+                await self.log_application_decision(application)
             except Exception:
                 logger.exception("Discord revocation finalization failed for application %s", application.id)
         try:
@@ -428,7 +507,9 @@ class MinecraftAccessBot(commands.Bot):
     @tasks.loop(seconds=30)
     async def application_maintenance(self) -> None:
         try:
-            await self.data.expire_pending(limit=100)
+            expired = await self.data.expire_pending(limit=100)
+            for application in expired:
+                await self.log_application_decision(application)
             if self.bridge.connected:
                 await self.bridge.dispatch_outbox()
             await self._restore_missing_reviews()
@@ -605,6 +686,121 @@ class MinecraftAccessBot(commands.Bot):
                 )
             )
 
+        @group.command(name="log-channel", description="Configure or disable a Minecraft event log.")
+        @app_commands.default_permissions(administrator=True)
+        @app_commands.describe(
+            log="Event stream to configure",
+            channel="Destination channel; leave empty to disable this log",
+        )
+        @app_commands.choices(
+            log=[
+                app_commands.Choice(name="Applications and decisions", value="application"),
+                app_commands.Choice(name="Account verifications", value="verification"),
+                app_commands.Choice(name="Player joins and leaves", value="player"),
+            ]
+        )
+        async def log_channel(
+            interaction: discord.Interaction,
+            log: app_commands.Choice[str],
+            channel: Optional[discord.TextChannel] = None,
+        ) -> None:
+            if not await self.require_administrator(interaction):
+                return
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            setting = {
+                "application": "application_log_channel_id",
+                "verification": "verification_log_channel_id",
+                "player": "player_log_channel_id",
+            }[log.value]
+            await self.update_settings(
+                actor_id=interaction.user.id,
+                **{setting: channel.id if channel is not None else 0},
+            )
+            destination = channel.mention if channel is not None else "Disabled"
+            await interaction.edit_original_response(
+                **branded_edit(
+                    info_embed(
+                        "Minecraft Log Updated",
+                        f"> **{log.name}**\n\n**Destination:** {destination}\n"
+                        "The change takes effect immediately.",
+                        success=True,
+                    )
+                )
+            )
+
+        @group.command(name="applications", description="List recent Minecraft applications by status.")
+        @app_commands.describe(status="Optional application state", limit="Number of records to show")
+        @app_commands.choices(
+            status=[
+                app_commands.Choice(
+                    name=state.value.replace("_", " ").title(),
+                    value=state.value,
+                )
+                for state in ApplicationStatus
+            ]
+        )
+        async def applications(
+            interaction: discord.Interaction,
+            status: Optional[app_commands.Choice[str]] = None,
+            limit: app_commands.Range[int, 1, 25] = 10,
+        ) -> None:
+            if not await self.require_moderator(interaction):
+                return
+            await interaction.response.defer(ephemeral=True)
+            parsed_status = ApplicationStatus(status.value) if status is not None else None
+            records = await self.data.list_applications(status=parsed_status, limit=limit)
+            lines = [
+                f"`#{item.id}` · <@{item.discord_user_id}> · {item.edition.value.title()} · "
+                f"`{item.verified_username or item.claimed_username}` · "
+                f"{item.status.value.replace('_', ' ').title()} · <t:{item.created_at}:R>"
+                for item in records
+            ]
+            await interaction.edit_original_response(
+                **branded_edit(
+                    info_embed(
+                        "Minecraft Applications",
+                        "\n".join(lines) if lines else "> No matching applications were found.",
+                    )
+                )
+            )
+
+        @group.command(name="audit", description="Show the recorded lifecycle for an application.")
+        @app_commands.describe(application="Application ID")
+        async def audit(
+            interaction: discord.Interaction,
+            application: app_commands.Range[int, 1],
+        ) -> None:
+            if not await self.require_moderator(interaction):
+                return
+            await interaction.response.defer(ephemeral=True)
+            record = await self.data.get_application(application)
+            if record is None:
+                await interaction.edit_original_response(
+                    **branded_edit(
+                        info_embed(
+                            "Application Not Found",
+                            f"> Application `#{application}` does not exist.",
+                            error=True,
+                        )
+                    )
+                )
+                return
+            rows = await self.data.audit_rows(application)
+            lines = [
+                f"<t:{int(row['created_at'])}:F> · **{str(row['action']).replace('_', ' ').title()}**"
+                for row in rows[-20:]
+            ]
+            await interaction.edit_original_response(
+                **branded_edit(
+                    info_embed(
+                        f"Application Audit #{application}",
+                        f"> <@{record.discord_user_id}> · `{record.claimed_username}` · "
+                        f"**{record.status.value.replace('_', ' ').title()}**\n\n"
+                        + ("\n".join(lines) if lines else "No audit events were recorded."),
+                    )
+                )
+            )
+
         @group.command(name="cancel", description="Cancel your pending verification or a staff-managed application.")
         @app_commands.describe(application="Staff only: application ID to cancel")
         async def cancel(
@@ -649,6 +845,7 @@ class MinecraftAccessBot(commands.Bot):
                 )
                 return
             await self.update_review_message(updated)
+            await self.log_application_decision(updated)
             if self.bridge.connected:
                 await self.bridge.dispatch_outbox()
             await interaction.edit_original_response(

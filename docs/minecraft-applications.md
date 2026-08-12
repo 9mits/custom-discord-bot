@@ -19,7 +19,7 @@ minecraft_main.py -> MinecraftAccessBot -> runtime/minecraft/minecraft.db
 
 The bridge exposes an HTTP WebSocket path inside the Minecraft bot process. Production traffic must reach it through a TLS endpoint (`wss://`). The Paper plugin makes the outbound connection, so the Minecraft server does not need an inbound bridge port and RCON is never used.
 
-Every bridge message carries an HMAC-SHA256 signature, timestamp, random nonce, and idempotency key. Both sides reject messages outside a 30-second clock window and replayed nonces. The bridge accepts only `APPROVE`, `REVOKE`, `KICK`, `SYNC_PENDING`, `REMOVE_PENDING`, and `STATUS`; it cannot run arbitrary console commands.
+Every bridge message carries an HMAC-SHA256 signature, timestamp, random nonce, and idempotency key. Both sides reject messages outside a 30-second clock window and replayed nonces. The bridge accepts only `APPROVE`, `REVOKE`, `KICK`, `SYNC_PENDING`, `REMOVE_PENDING`, and `STATUS`; it cannot run arbitrary console commands. Paper sends signed, acknowledged `PLAYER_JOIN` and `PLAYER_LEAVE` events for optional Discord activity logging.
 
 ## Discord bot configuration
 
@@ -40,8 +40,9 @@ secrets, and process-level bridge settings belong in this file:
 | `MINECRAFT_ALLOW_INSECURE_LOCALHOST` | Keep `0` in production. Set `1` only for a local `ws://localhost` test. |
 | `MINECRAFT_DATA_DIR` | Dedicated runtime directory; defaults to `runtime/minecraft`. |
 
-Application/review channels, moderator/approved-member roles, and the public Java and
-Bedrock addresses are configured inside Discord with `/minecraft setup`. They are saved
+Application/review channels, application/verification/player-activity logs,
+moderator/approved-member roles, and the public Java and Bedrock addresses are
+configured inside Discord with `/minecraft setup`. They are saved
 to `minecraft.db` and take effect immediately. Older `.env.minecraft` files may still
 contain `MINECRAFT_APPLICATION_CHANNEL_ID`, `MINECRAFT_REVIEW_CHANNEL_ID`,
 `MINECRAFT_MOD_ROLE_ID`, `MINECRAFT_MEMBER_ROLE_ID`, `MINECRAFT_JAVA_ADDRESS`,
@@ -130,8 +131,8 @@ After the dedicated bot is online, a server Administrator runs:
 ```
 
 The command opens an ephemeral Components V2 dashboard in the same visual style as the
-main bot. Select the application channel, private review channel, moderator role, and
-approved-member role, then use **Edit Addresses** for the public Java and Bedrock
+main bot. Select the application channel, private review channel, optional logging
+channels, moderator role, and approved-member role, then use **Edit Addresses** for the public Java and Bedrock
 addresses. The dashboard validates channel permissions and role hierarchy before
 **Post Application Panel** is available as a successful action.
 
@@ -161,13 +162,22 @@ The submitted edition, UUID, and XUID are never trusted. Paper and Floodgate pro
 ## Approval, denial, revocation, and management
 
 - **Approve** atomically claims a pending review and queues a typed whitelist action. Duplicate clicks cannot create a second approval. Offline bridge work remains queued.
-- **Deny** collects an internal staff note and an optional applicant-facing reason. Only the public reason is sent to the applicant.
+- **Deny** collects an internal staff note and an optional applicant-facing reason. The applicant receives an anonymous decision DM; only the public reason is included.
 - **View Previous Applications** shows staff a member's application history without exposing internal notes.
 - `/minecraft status` reports connection, heartbeat, application, and outbox state.
 - `/minecraft lookup user:<member>` shows linked UUID/XUID records and application history.
 - `/minecraft revoke user:<member> reason:<text>` queues whitelist removal for all approved accounts, removes the Discord role after Paper confirms the last revocation, and kicks matching online accounts.
 - `/minecraft retry application:<id>` retries failed bridge work.
 - `/minecraft cancel application:<id>` cancels an unfinished application and removes it from Paper's verification cache. A potentially in-flight approval is followed by an idempotent revocation.
+- `/minecraft log-channel log:<type> channel:<channel>` configures an application, verification, or player-activity stream. Omit `channel` to disable that stream.
+- `/minecraft applications status:<optional> limit:<optional>` lists recent applications and their current lifecycle state.
+- `/minecraft audit application:<id>` shows the recorded lifecycle events for one application.
+
+The application log receives the submitted edition, claimed username, answers, and
+verification deadline immediately—before the player connects. The verification log
+receives the authoritative username, UUID, and Floodgate XUID. The player-activity log
+receives acknowledged join and leave events from Paper. These channels should remain
+staff-only because they contain account and application data.
 
 Applicants are notified by DM when possible. Closed DMs never roll back a state transition. Moderator identities remain out of applicant DMs; private staff records and the audit log retain the reviewer for accountability.
 
