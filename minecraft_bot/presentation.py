@@ -93,16 +93,6 @@ def application_embeds() -> list[discord.Embed]:
         "> This is a private SMP, so every player applies and is reviewed before joining. "
         "Acceptance is intentionally approachable: if you want to play, we encourage you to apply.",
     )
-    rules = _panel_embed(
-        "General Rules",
-        "1. **Respect builds** — Do not grief, damage, or alter another player's work without permission.\n\n"
-        "2. **Play fairly** — No hacked clients, x-ray, duping, exploits, or unfair advantages.\n\n"
-        "3. **Keep PvP reasonable** — PvP is allowed; repeated targeting, spawn-killing, and harassment are not.\n\n"
-        "4. **Keep drama in-game** — Alliances, rivalries, wars, and betrayals are welcome when they remain fun.\n\n"
-        "5. **Protect server stability** — No lag machines, crash exploits, chunk bans, or destructive abuse.\n\n"
-        "6. **Use common sense** — Loopholes do not excuse behavior that ruins the experience for others.\n\n"
-        "**Have fun, create lore, and help make the server enjoyable for everyone.**",
-    )
     apply = _panel_embed(
         "Apply to Mysterious SMP X",
         "Apply entirely through Discord, verify ownership with one Minecraft connection, "
@@ -112,14 +102,42 @@ def application_embeds() -> list[discord.Embed]:
         "- Keep Discord DMs enabled so the bot can send status updates.\n"
         "- Entered the wrong username? Press **Apply** again for a private cancellation option.",
     )
-    return [welcome, rules, apply]
+    return [welcome, apply]
+
+
+def rules_embed(*, agreement: bool = False) -> discord.Embed:
+    introduction = (
+        "> Read every rule below. Select **I Agree** to confirm that you understand and accept "
+        "them before opening the application form.\n\n"
+        if agreement
+        else "> These rules apply to every Mysterious SMP X player.\n\n"
+    )
+    ending = (
+        "\n\n**Agreement**\nBy selecting **I Agree**, you confirm that you will follow these rules "
+        "and understand that serious or repeated violations may result in loss of access."
+        if agreement
+        else ""
+    )
+    return info_embed(
+        "Mysterious SMP X Rules & Agreement" if agreement else "Mysterious SMP X Rules",
+        introduction
+        + "1. **Respect builds** — Do not grief, damage, or alter another player's work without permission.\n\n"
+        "2. **Play fairly** — No hacked clients, x-ray, duping, exploits, or unfair advantages.\n\n"
+        "3. **Keep PvP reasonable** — PvP is allowed; repeated targeting, spawn-killing, and harassment are not.\n\n"
+        "4. **Keep drama in-game** — Alliances, rivalries, wars, and betrayals are welcome when they remain fun.\n\n"
+        "5. **Protect server stability** — No lag machines, crash exploits, chunk bans, or destructive abuse.\n\n"
+        "6. **Use common sense** — Loopholes do not excuse behavior that ruins the experience for others.\n\n"
+        "**Have fun, create lore, and help make the server enjoyable for everyone.**"
+        + ending,
+    )
 
 
 def application_panel() -> discord.ui.View:
-    from .ui import ApplyButton
+    from .ui import ApplyButton, RulesButton
 
     view = discord.ui.View(timeout=None)
     view.add_item(ApplyButton())
+    view.add_item(RulesButton())
     return view
 
 

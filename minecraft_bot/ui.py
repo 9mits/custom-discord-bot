@@ -7,7 +7,41 @@ from contextlib import suppress
 import discord
 
 from .models import ApplicationStatus, DuplicateActiveApplication, Edition, InvalidTransition
-from .presentation import branded_edit, branded_send, info_embed, verification_embed
+from .presentation import branded_edit, branded_send, info_embed, rules_embed, verification_embed
+
+
+async def _validate_application_panel(interaction: discord.Interaction) -> bool:
+    bot = interaction.client
+    if interaction.guild_id != bot.config.guild_id:
+        await interaction.response.send_message(
+            **branded_send(
+                info_embed(
+                    "Applications Unavailable",
+                    "> Minecraft applications are not available in this Discord server.",
+                    error=True,
+                )
+            ),
+            ephemeral=True,
+        )
+        return False
+    panel_id = await bot.data.get_config("application_panel_message_id")
+    if (
+        interaction.channel_id != bot.settings.application_channel_id
+        or panel_id
+        and (interaction.message is None or str(interaction.message.id) != str(panel_id))
+    ):
+        await interaction.response.send_message(
+            **branded_send(
+                info_embed(
+                    "Application Panel Updated",
+                    "> This panel is no longer active. Use the newest panel in the configured application channel.",
+                    error=True,
+                )
+            ),
+            ephemeral=True,
+        )
+        return False
+    return True
 
 
 class ApplyButton(discord.ui.Button):
@@ -20,34 +54,7 @@ class ApplyButton(discord.ui.Button):
 
     async def callback(self, interaction: discord.Interaction) -> None:
         bot = interaction.client
-        if interaction.guild_id != bot.config.guild_id:
-            await interaction.response.send_message(
-                **branded_send(
-                    info_embed(
-                        "Applications Unavailable",
-                        "> Minecraft applications are not available in this Discord server.",
-                        error=True,
-                    )
-                ),
-                ephemeral=True,
-            )
-            return
-        panel_id = await bot.data.get_config("application_panel_message_id")
-        if (
-            interaction.channel_id != bot.settings.application_channel_id
-            or panel_id
-            and (interaction.message is None or str(interaction.message.id) != str(panel_id))
-        ):
-            await interaction.response.send_message(
-                **branded_send(
-                    info_embed(
-                        "Application Panel Updated",
-                        "> This panel is no longer active. Use the newest panel in the configured application channel.",
-                        error=True,
-                    )
-                ),
-                ephemeral=True,
-            )
+        if not await _validate_application_panel(interaction):
             return
         active = await bot.data.get_active_application_for_user(
             guild_id=interaction.guild_id,
@@ -84,19 +91,78 @@ class ApplyButton(discord.ui.Button):
                 ephemeral=True,
             )
             return
+        await interaction.response.send_message(
+            **branded_send(rules_embed(agreement=True)),
+            view=RulesAgreementView(interaction.user.id),
+            ephemeral=True,
+        )
+
+
+class RulesButton(discord.ui.Button):
+    def __init__(self) -> None:
+        super().__init__(
+            label="Rules",
+            style=discord.ButtonStyle.secondary,
+            custom_id="minecraft:application:rules",
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if not await _validate_application_panel(interaction):
+            return
+        await interaction.response.send_message(
+            **branded_send(rules_embed()),
+            ephemeral=True,
+        )
+
+
+class RulesAgreementView(discord.ui.View):
+    def __init__(self, requester_id: int) -> None:
+        super().__init__(timeout=300)
+        self.requester_id = int(requester_id)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id == self.requester_id:
+            return True
+        await interaction.response.send_message(
+            **branded_send(
+                info_embed(
+                    "Agreement Unavailable",
+                    "> This rules agreement belongs to another applicant.",
+                    error=True,
+                )
+            ),
+            ephemeral=True,
+        )
+        return False
+
+    @discord.ui.button(label="I Agree", style=discord.ButtonStyle.success)
+    async def agree(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
         if hasattr(discord.ui, "Label"):
             await interaction.response.send_modal(MinecraftApplicationModal())
-        else:
-            await interaction.response.send_message(
-                **branded_send(
-                    info_embed(
-                        "Choose Your Minecraft Edition",
-                        "> Select the edition used by the account you want to verify.",
-                    )
-                ),
-                view=EditionSelectionView(interaction.user.id),
-                ephemeral=True,
-            )
+            return
+        await interaction.response.edit_message(
+            **branded_edit(
+                info_embed(
+                    "Choose Your Minecraft Edition",
+                    "> Select the edition used by the account you want to verify.",
+                )
+            ),
+            view=EditionSelectionView(interaction.user.id),
+        )
+
+    @discord.ui.button(label="I Disagree", style=discord.ButtonStyle.secondary)
+    async def disagree(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        await interaction.response.edit_message(
+            **branded_edit(
+                info_embed(
+                    "Application Closed",
+                    "> You chose not to accept the server rules, so no application was started.\n\n"
+                    "You may return to the public panel and apply later if you decide to accept them.",
+                )
+            ),
+            view=None,
+        )
+
 
 class CancelPendingConfirmationView(discord.ui.View):
     def __init__(self, requester_id: int) -> None:
