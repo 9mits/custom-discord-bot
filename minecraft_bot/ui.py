@@ -5,7 +5,7 @@ from __future__ import annotations
 import discord
 
 from .models import ApplicationStatus, DuplicateActiveApplication, Edition, InvalidTransition
-from .presentation import info_embed
+from .presentation import info_embed, verification_embed
 
 
 class ApplyButton(discord.ui.Button):
@@ -205,17 +205,8 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
         bot.remember_application_interaction(application.id, interaction)
         if bot.bridge.connected:
             await bot.bridge.dispatch_outbox()
-        if application.edition is Edition.JAVA:
-            address = bot.settings.java_address
-        else:
-            address = f"{bot.settings.bedrock_address}, port {bot.settings.bedrock_port}"
         await interaction.edit_original_response(
-            embed=info_embed(
-                "Verify Your Minecraft Account",
-                f"Connect once within **10 minutes** using **{address}**.\n\n"
-                "Your first connection will intentionally reject you after verifying the account. "
-                "You cannot enter the world until moderators approve the application.",
-            )
+            embed=verification_embed(application, bot.settings)
         )
 
 

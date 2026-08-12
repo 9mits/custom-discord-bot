@@ -66,6 +66,7 @@ def configuration_findings(bot, guild: Optional[discord.Guild]) -> list[SetupFin
             ("View Channel", permissions.view_channel),
             ("Send Messages", permissions.send_messages),
             ("Read Message History", permissions.read_message_history),
+            ("Attach Files", permissions.attach_files),
         )
         missing = [name for name, allowed in required if not allowed]
         if needs_embeds and not permissions.embed_links:
@@ -379,8 +380,12 @@ class MinecraftSetupView(discord.ui.LayoutView):
         container.add_item(discord.ui.Separator())
         container.add_item(
             discord.ui.TextDisplay(
-                f"**Java address:** `{settings.java_address}`\n"
-                f"**Bedrock address:** `{settings.bedrock_address}:{settings.bedrock_port}`\n"
+                "**Java server address**\n"
+                f"```text\n{settings.java_address}\n```\n"
+                "**Bedrock server address**\n"
+                f"```text\n{settings.bedrock_address}\n```\n"
+                "**Bedrock port**\n"
+                f"```text\n{settings.bedrock_port}\n```\n"
                 "The Discord token, guild ID, bridge secret, server ID, bind address, and data path remain in the environment."
             )
         )
@@ -399,7 +404,7 @@ class MinecraftSetupView(discord.ui.LayoutView):
         actions.add_item(MinecraftSetupAction("refresh", "Refresh", discord.ButtonStyle.secondary))
         container.add_item(actions)
         container.add_item(discord.ui.Separator(visible=False))
-        container.add_item(discord.ui.TextDisplay(f"-# {BRAND_NAME}"))
+        container.add_item(discord.ui.TextDisplay(f"-# {BRAND_NAME} — Minecraft access control"))
         self.add_item(container)
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
