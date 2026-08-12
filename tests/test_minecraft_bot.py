@@ -100,8 +100,10 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertEqual(len(embeds), 2)
         self.assertEqual(embeds[0].title, "Welcome to Mysterious SMP X")
         self.assertEqual(embeds[1].title, "Apply to Mysterious SMP X")
+        self.assertEqual(embeds[0].image.url, LOGO_ATTACHMENT_URI)
+        self.assertIsNone(embeds[0].footer.text)
         self.assertIsNone(embeds[1].image.url)
-        self.assertTrue(all(embed.footer.icon_url == FOOTER_ATTACHMENT_URI for embed in embeds))
+        self.assertEqual(embeds[1].footer.icon_url, FOOTER_ATTACHMENT_URI)
 
     def test_minecraft_presentation_uses_orange_brand_system(self):
         embed = info_embed("Status", "Operational", success=True)
@@ -317,10 +319,10 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(kwargs["view"], RulesAgreementView)
         self.assertEqual(kwargs["view"].children[0].style, discord.ButtonStyle.success)
         self.assertEqual(kwargs["view"].children[1].style, discord.ButtonStyle.secondary)
-        self.assertEqual(kwargs["embed"].image.url, LOGO_ATTACHMENT_URI)
-        self.assertIsNone(kwargs["embed"].footer.text)
-        self.assertNotIn("files", kwargs)
-        kwargs["file"].close()
+        self.assertIsNone(kwargs["embed"].image.url)
+        self.assertEqual(kwargs["embed"].footer.icon_url, FOOTER_ATTACHMENT_URI)
+        for file in kwargs["files"]:
+            file.close()
 
     async def test_rules_agreement_opens_modal_and_disagreement_edits_message(self):
         view = RulesAgreementView(99)

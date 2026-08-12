@@ -14,6 +14,7 @@ import aiosqlite
 
 from .models import (
     ACTIVE_APPLICATION_STATUSES,
+    AccountEditionAlreadyLinked,
     ApplicationStatus,
     BridgeAction,
     DuplicateActiveApplication,
@@ -359,6 +360,14 @@ class MinecraftDataManager:
                         application_id=expired_id,
                         timestamp=current,
                     )
+                linked_edition = await db.execute_fetchall(
+                    "SELECT id FROM minecraft_accounts WHERE discord_user_id=? AND edition=? LIMIT 1",
+                    (str(discord_user_id), edition.value),
+                )
+                if linked_edition:
+                    raise AccountEditionAlreadyLinked(
+                        f"Your Discord account already has a linked {edition.value.title()} account"
+                    )
                 placeholders = ",".join("?" for _ in ACTIVE_APPLICATION_STATUSES)
                 active = await db.execute_fetchall(
                     f"SELECT id FROM minecraft_applications WHERE guild_id=? AND discord_user_id=? "
@@ -626,6 +635,15 @@ class MinecraftDataManager:
                     raise InvalidTransition("Verified username does not match the application")
                 if edition is Edition.BEDROCK and not xuid:
                     raise InvalidTransition("Bedrock verification did not include a Floodgate XUID")
+
+                linked_edition = await db.execute_fetchall(
+                    "SELECT minecraft_uuid FROM minecraft_accounts WHERE discord_user_id=? AND edition=? LIMIT 1",
+                    (application.discord_user_id, edition.value),
+                )
+                if linked_edition and linked_edition[0]["minecraft_uuid"] != minecraft_uuid:
+                    raise InvalidTransition(
+                        f"Discord member already has a linked {edition.value.title()} account"
+                    )
 
                 existing = await db.execute_fetchall(
                     "SELECT discord_user_id FROM minecraft_accounts WHERE edition=? AND minecraft_uuid=?",
