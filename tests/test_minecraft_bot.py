@@ -22,6 +22,7 @@ from minecraft_bot.presentation import (
     THEME_COLOUR,
     application_embeds,
     application_panel,
+    denial_embed,
     info_embed,
     review_embed,
     verification_embed,
@@ -154,6 +155,27 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertIn("```text\n19132\n```", embed.description)
         self.assertNotIn("java.example", embed.description)
         self.assertIn("/minecraft cancel", embed.description)
+        self.assertNotIn("#42", embed.description)
+
+    def test_applicant_decision_embed_hides_internal_application_id(self):
+        application = MinecraftApplication(
+            id=42,
+            guild_id="1",
+            discord_user_id="123456789012345678",
+            edition=Edition.JAVA,
+            claimed_username="PlayerOne",
+            normalized_username="playerone",
+            answers={"why": "Build things", "about": "Helpful player"},
+            status=ApplicationStatus.DENIED,
+            verification_expires_at=2_000_000_000,
+            applicant_reason="The application needs more detail.",
+            created_at=1_999_999_400,
+            updated_at=1_999_999_400,
+        )
+
+        embed = denial_embed(application)
+
+        self.assertNotIn("#42", embed.description)
 
     def test_review_embed_uses_attached_logo_and_claimed_identity(self):
         application = MinecraftApplication(

@@ -235,7 +235,7 @@ def verification_embed(application: MinecraftApplication, settings) -> discord.E
         )
     return info_embed(
         "Verify Your Minecraft Account",
-        f"> Application `#{application.id}` is ready for Minecraft ownership verification.\n\n"
+        "> Your application is ready for Minecraft ownership verification.\n\n"
         f"{connection}\n\n"
         f"**Complete before:** {discord.utils.format_dt(expires_at, 'R')}\n\n"
         "**What happens next**\n"
@@ -269,7 +269,7 @@ def denial_embed(application: MinecraftApplication) -> discord.Embed:
     ).replace("\n", "\n> ")
     return info_embed(
         "Minecraft Application Denied",
-        f"> Staff completed the review for application `#{application.id}`.\n\n"
+        "> Staff completed the review of your Minecraft application.\n\n"
         f"**Decision reason**\n> {reason}\n\n"
         "If you need clarification, contact the server team through the normal support channel. "
         "Do not submit repeated applications unless staff ask you to reapply.",
