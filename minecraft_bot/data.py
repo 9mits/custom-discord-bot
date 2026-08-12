@@ -1025,6 +1025,115 @@ class MinecraftDataManager:
                 results.append(application)
         return results
 
+    async def unlink_account(
+        self,
+        discord_user_id: int | str,
+        edition: Edition,
+        moderator_id: int | str,
+        reason: str,
+    ) -> tuple[Optional[dict[str, Any]], list[MinecraftApplication], bool]:
+        current = _now()
+        db = self._connection()
+        account: Optional[dict[str, Any]] = None
+        affected_ids: list[int] = []
+        revocation_queued = False
+        async with self._write_lock:
+            try:
+                await self._begin(db)
+                account_rows = await db.execute_fetchall(
+                    "SELECT * FROM minecraft_accounts WHERE discord_user_id=? AND edition=? LIMIT 1",
+                    (str(discord_user_id), edition.value),
+                )
+                if not account_rows:
+                    await db.rollback()
+                    return None, [], False
+                account = dict(account_rows[0])
+                applications = await db.execute_fetchall(
+                    "SELECT * FROM minecraft_applications WHERE discord_user_id=? AND edition=? "
+                    "AND minecraft_uuid=? AND status IN (?, ?) ORDER BY id",
+                    (
+                        str(discord_user_id),
+                        edition.value,
+                        account["minecraft_uuid"],
+                        ApplicationStatus.APPROVAL_QUEUED.value,
+                        ApplicationStatus.APPROVED.value,
+                    ),
+                )
+                if applications:
+                    revocation_queued = True
+                    for row in applications:
+                        application = self._application(row)
+                        affected_ids.append(application.id)
+                        await self._queue(
+                            db,
+                            BridgeAction.REVOKE,
+                            {
+                                "application_id": application.id,
+                                "edition": edition.value,
+                                "minecraft_uuid": account["minecraft_uuid"],
+                                "reason": str(reason)[:500],
+                                "unlink_account": True,
+                            },
+                            idempotency_key=f"application:{application.id}:unlink",
+                            application_id=application.id,
+                            timestamp=current,
+                        )
+                        await self._audit(
+                            db,
+                            "ACCOUNT_UNLINK_QUEUED",
+                            application_id=application.id,
+                            actor_id=moderator_id,
+                            target_id=discord_user_id,
+                            payload={"edition": edition.value, "reason": str(reason)[:500]},
+                            timestamp=current,
+                        )
+                else:
+                    pending_rows = await db.execute_fetchall(
+                        "SELECT id FROM minecraft_applications WHERE discord_user_id=? AND edition=? "
+                        "AND minecraft_uuid=? AND status=?",
+                        (
+                            str(discord_user_id),
+                            edition.value,
+                            account["minecraft_uuid"],
+                            ApplicationStatus.PENDING_REVIEW.value,
+                        ),
+                    )
+                    affected_ids = [int(row["id"]) for row in pending_rows]
+                    if affected_ids:
+                        placeholders = ",".join("?" for _ in affected_ids)
+                        await db.execute(
+                            f"UPDATE minecraft_applications SET status=?, updated_at=? "
+                            f"WHERE id IN ({placeholders})",
+                            (ApplicationStatus.CANCELLED.value, current, *affected_ids),
+                        )
+                    await db.execute(
+                        "DELETE FROM minecraft_accounts WHERE id=?",
+                        (int(account["id"]),),
+                    )
+                    await self._audit(
+                        db,
+                        "ACCOUNT_UNLINKED",
+                        application_id=affected_ids[-1] if affected_ids else None,
+                        actor_id=moderator_id,
+                        target_id=discord_user_id,
+                        payload={
+                            "edition": edition.value,
+                            "minecraft_uuid": account["minecraft_uuid"],
+                            "reason": str(reason)[:500],
+                        },
+                        timestamp=current,
+                    )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+        affected = []
+        for application_id in affected_ids:
+            application = await self.get_application(application_id)
+            if application is not None:
+                affected.append(application)
+        return account, affected, revocation_queued
+
     async def get_outbox_batch(self, *, limit: int = 50) -> list[OutboxRecord]:
         rows = await self._connection().execute_fetchall(
             "SELECT * FROM minecraft_bridge_outbox WHERE status IN ('PENDING', 'SENT') "
@@ -1118,6 +1227,33 @@ class MinecraftDataManager:
                             application_id=application_id,
                             timestamp=current,
                         )
+                        if record.payload.get("unlink_account"):
+                            application_rows = await db.execute_fetchall(
+                                "SELECT discord_user_id FROM minecraft_applications WHERE id=?",
+                                (application_id,),
+                            )
+                            if application_rows:
+                                owner_id = str(application_rows[0]["discord_user_id"])
+                                await db.execute(
+                                    "DELETE FROM minecraft_accounts WHERE discord_user_id=? AND edition=? "
+                                    "AND minecraft_uuid=?",
+                                    (
+                                        owner_id,
+                                        str(record.payload.get("edition", "")),
+                                        str(record.payload.get("minecraft_uuid", "")),
+                                    ),
+                                )
+                                await self._audit(
+                                    db,
+                                    "ACCOUNT_UNLINKED",
+                                    application_id=application_id,
+                                    target_id=owner_id,
+                                    payload={
+                                        "edition": record.payload.get("edition"),
+                                        "minecraft_uuid": record.payload.get("minecraft_uuid"),
+                                    },
+                                    timestamp=current,
+                                )
                     await db.commit()
             except Exception:
                 await db.rollback()

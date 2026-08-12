@@ -69,6 +69,16 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertTrue(limiter.claim(3, now=20))
         self.assertLessEqual(len(limiter._entries), 2)
 
+    def test_staff_commands_have_moderator_default_permissions(self):
+        group = self.bot._build_command_group()
+        commands = {command.name: command for command in group.commands}
+
+        for name in ("status", "lookup", "revoke", "unlink", "retry", "applications", "audit"):
+            self.assertTrue(commands[name].default_permissions.manage_messages, name)
+        self.assertTrue(commands["setup"].default_permissions.administrator)
+        self.assertTrue(commands["log-channel"].default_permissions.administrator)
+        self.assertIsNone(commands["cancel"].default_permissions)
+
     def test_application_and_review_components_are_persistent(self):
         panel = application_panel()
         review = ReviewView()
