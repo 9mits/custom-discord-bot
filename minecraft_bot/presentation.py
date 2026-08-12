@@ -19,6 +19,9 @@ LOGO_ATTACHMENT_URI = f"attachment://{LOGO_FILENAME}"
 ICON_FILENAME = "mysterious_smp_x_icon.png"
 ICON_PATH = Path(__file__).resolve().parent.parent / "assets" / "minecraft" / ICON_FILENAME
 ICON_ATTACHMENT_URI = f"attachment://{ICON_FILENAME}"
+FOOTER_FILENAME = "mysterious_smp_x_footer.png"
+FOOTER_PATH = Path(__file__).resolve().parent.parent / "assets" / "minecraft" / FOOTER_FILENAME
+FOOTER_ATTACHMENT_URI = f"attachment://{FOOTER_FILENAME}"
 
 
 def _safe(value: object, limit: int = 1000) -> str:
@@ -42,12 +45,24 @@ def brand_icon_file() -> discord.File:
     )
 
 
+def brand_footer_file() -> discord.File:
+    return discord.File(
+        FOOTER_PATH,
+        filename=FOOTER_FILENAME,
+        description=f"{BRAND_NAME} footer icon",
+    )
+
+
 def branded_send(embed: discord.Embed) -> dict[str, object]:
-    return {"embed": embed, "file": brand_icon_file()}
+    return {"embed": embed, "files": [brand_icon_file(), brand_footer_file()]}
 
 
 def branded_edit(embed: discord.Embed) -> dict[str, object]:
-    return {"embed": embed, "attachments": [brand_icon_file()]}
+    return {"embed": embed, "attachments": [brand_icon_file(), brand_footer_file()]}
+
+
+def application_panel_files() -> list[discord.File]:
+    return [brand_logo_file(), brand_footer_file()]
 
 
 def _connection_blocks(settings) -> str:
@@ -61,39 +76,52 @@ def _connection_blocks(settings) -> str:
     )
 
 
-def application_panel() -> discord.ui.LayoutView:
+def _panel_embed(title: str, description: str) -> discord.Embed:
+    embed = discord.Embed(
+        title=title,
+        description=description,
+        colour=THEME_COLOUR,
+    )
+    embed.set_footer(text=BRAND_NAME, icon_url=FOOTER_ATTACHMENT_URI)
+    return embed
+
+
+def application_embeds() -> list[discord.Embed]:
+    welcome = _panel_embed(
+        "Welcome to Mysterious SMP X",
+        "The official Minecraft SMP of the Mysterious Girlfriend X Discord community—a place "
+        "to explore, build, battle, create stories, and enjoy the server together.\n\n"
+        "> This is a private SMP, so every player applies and is reviewed before joining. "
+        "Acceptance is intentionally approachable: if you want to play, we encourage you to apply.",
+    )
+    rules = _panel_embed(
+        "General Rules",
+        "1. **Respect builds** — Do not grief, damage, or alter another player's work without permission.\n\n"
+        "2. **Play fairly** — No hacked clients, x-ray, duping, exploits, or unfair advantages.\n\n"
+        "3. **Keep PvP reasonable** — PvP is allowed; repeated targeting, spawn-killing, and harassment are not.\n\n"
+        "4. **Keep drama in-game** — Alliances, rivalries, wars, and betrayals are welcome when they remain fun.\n\n"
+        "5. **Protect server stability** — No lag machines, crash exploits, chunk bans, or destructive abuse.\n\n"
+        "6. **Use common sense** — Loopholes do not excuse behavior that ruins the experience for others.\n\n"
+        "**Have fun, create lore, and help make the server enjoyable for everyone.**",
+    )
+    apply = _panel_embed(
+        "Apply to Mysterious SMP X",
+        "Apply entirely through Discord, verify ownership with one Minecraft connection, "
+        "and receive your result privately. Verification never grants early access to the world.\n\n"
+        "**Before you begin**\n"
+        "- Enter your exact Java username or Xbox gamertag.\n"
+        "- Keep Discord DMs enabled so the bot can send status updates.\n"
+        "- Entered the wrong username? Press **Apply** again for a private cancellation option.",
+    )
+    apply.set_image(url=LOGO_ATTACHMENT_URI)
+    return [welcome, rules, apply]
+
+
+def application_panel() -> discord.ui.View:
     from .ui import ApplyButton
 
-    view = discord.ui.LayoutView(timeout=None)
-    container = discord.ui.Container(accent_colour=THEME_COLOUR)
-    container.add_item(
-        discord.ui.Section(
-            discord.ui.TextDisplay("## Apply to Mysterious SMP X"),
-            discord.ui.TextDisplay(
-                "Apply entirely through Discord, verify ownership with one Minecraft connection, "
-                "and receive your result here. Verification never grants early access to the world."
-            ),
-            accessory=discord.ui.Thumbnail(
-                LOGO_ATTACHMENT_URI,
-                description=f"{BRAND_NAME} logo",
-            ),
-        )
-    )
-    container.add_item(
-        discord.ui.TextDisplay(
-            "**Before you begin**\n"
-            "- Enter your exact Java username or Xbox gamertag.\n"
-            "- Keep Discord DMs enabled so the bot can send status updates.\n"
-            "- Entered the wrong username? Press **Apply** again for a private cancellation option."
-        )
-    )
-    container.add_item(discord.ui.Separator())
-    row = discord.ui.ActionRow()
-    row.add_item(ApplyButton())
-    container.add_item(row)
-    container.add_item(discord.ui.Separator(visible=False))
-    container.add_item(discord.ui.TextDisplay(f"-# {BRAND_NAME} — Secure Minecraft applications"))
-    view.add_item(container)
+    view = discord.ui.View(timeout=None)
+    view.add_item(ApplyButton())
     return view
 
 
@@ -153,7 +181,7 @@ def review_embed(
         )
     if application.status is ApplicationStatus.DENIED and application.applicant_reason:
         embed.add_field(name="Applicant-Facing Reason", value=_safe(application.applicant_reason), inline=False)
-    embed.set_footer(text=BRAND_NAME, icon_url=ICON_ATTACHMENT_URI)
+    embed.set_footer(text=BRAND_NAME, icon_url=FOOTER_ATTACHMENT_URI)
     return embed
 
 
@@ -165,7 +193,7 @@ def info_embed(title: str, description: str, *, success: bool = False, error: bo
         timestamp=discord.utils.utcnow(),
     )
     embed.set_thumbnail(url=ICON_ATTACHMENT_URI)
-    embed.set_footer(text=BRAND_NAME, icon_url=ICON_ATTACHMENT_URI)
+    embed.set_footer(text=BRAND_NAME, icon_url=FOOTER_ATTACHMENT_URI)
     return embed
 
 
@@ -238,3 +266,108 @@ def approval_embed(settings) -> discord.Embed:
         "- Keep this message for quick access later.",
         success=True,
     )
+
+
+def application_log_embed(application: MinecraftApplication) -> discord.Embed:
+    expires_at = datetime.fromtimestamp(application.verification_expires_at, timezone.utc)
+    embed = info_embed(
+        f"Application Submitted #{application.id}",
+        f"> <@{application.discord_user_id}> entered the Minecraft verification stage.",
+    )
+    embed.add_field(name="Edition", value=application.edition.value.title(), inline=True)
+    embed.add_field(
+        name="Claimed Username",
+        value=f"`{_safe(application.claimed_username, 100)}`",
+        inline=True,
+    )
+    embed.add_field(
+        name="Verification Expires",
+        value=discord.utils.format_dt(expires_at, "R"),
+        inline=True,
+    )
+    embed.add_field(
+        name="Why They Want to Join",
+        value=_safe(application.answers.get("why"), 1000),
+        inline=False,
+    )
+    embed.add_field(
+        name="What They Would Bring",
+        value=_safe(application.answers.get("about"), 1000),
+        inline=False,
+    )
+    embed.add_field(
+        name="Applicant",
+        value=f"<@{application.discord_user_id}> · `{application.discord_user_id}`",
+        inline=False,
+    )
+    return embed
+
+
+def verification_log_embed(application: MinecraftApplication) -> discord.Embed:
+    embed = info_embed(
+        f"Account Verified #{application.id}",
+        f"> <@{application.discord_user_id}> completed Minecraft ownership verification.",
+        success=True,
+    )
+    embed.add_field(name="Edition", value=application.edition.value.title(), inline=True)
+    embed.add_field(
+        name="Verified Username",
+        value=f"`{_safe(application.verified_username, 100)}`",
+        inline=True,
+    )
+    embed.add_field(
+        name="Minecraft UUID",
+        value=f"`{_safe(application.minecraft_uuid, 100)}`",
+        inline=False,
+    )
+    if application.xuid:
+        embed.add_field(name="Floodgate XUID", value=f"`{_safe(application.xuid, 100)}`", inline=False)
+    return embed
+
+
+def decision_log_embed(application: MinecraftApplication) -> discord.Embed:
+    status = application.status.value.replace("_", " ").title()
+    embed = info_embed(
+        f"Application {status} #{application.id}",
+        f"> The application for <@{application.discord_user_id}> changed to **{status}**.",
+    )
+    embed.add_field(name="Edition", value=application.edition.value.title(), inline=True)
+    embed.add_field(
+        name="Minecraft Account",
+        value=f"`{_safe(application.verified_username or application.claimed_username, 100)}`",
+        inline=True,
+    )
+    if application.applicant_reason:
+        embed.add_field(
+            name="Applicant-Facing Reason",
+            value=_safe(application.applicant_reason, 1000),
+            inline=False,
+        )
+    return embed
+
+
+def player_activity_embed(
+    *,
+    joined: bool,
+    username: str,
+    minecraft_uuid: str,
+    edition: str,
+    xuid: Optional[str] = None,
+    discord_user_id: Optional[str] = None,
+) -> discord.Embed:
+    action = "Joined" if joined else "Left"
+    embed = info_embed(
+        f"Player {action} the Server",
+        f"> `{_safe(username, 100)}` **{action.lower()}** the Minecraft server.",
+    )
+    embed.add_field(name="Edition", value=_safe(edition.title(), 50), inline=True)
+    embed.add_field(name="Minecraft UUID", value=f"`{_safe(minecraft_uuid, 100)}`", inline=False)
+    if xuid:
+        embed.add_field(name="Floodgate XUID", value=f"`{_safe(xuid, 100)}`", inline=False)
+    if discord_user_id:
+        embed.add_field(
+            name="Linked Discord Account",
+            value=f"<@{discord_user_id}> · `{discord_user_id}`",
+            inline=False,
+        )
+    return embed

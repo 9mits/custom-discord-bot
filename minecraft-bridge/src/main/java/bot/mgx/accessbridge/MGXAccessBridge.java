@@ -5,6 +5,8 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerLoginEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.geysermc.floodgate.api.FloodgateApi;
 import org.geysermc.floodgate.api.player.FloodgatePlayer;
@@ -106,5 +108,37 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         // Preserve KICK_WHITELIST. Only the text changes; bans, full-server and
         // every other login rejection result were returned above untouched.
         event.kickMessage(VERIFIED_MESSAGE);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPlayerJoin(PlayerJoinEvent event) {
+        queuePlayerActivity(event.getPlayer().getUniqueId(), event.getPlayer().getName(), true);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        queuePlayerActivity(event.getPlayer().getUniqueId(), event.getPlayer().getName(), false);
+    }
+
+    private void queuePlayerActivity(UUID uuid, String javaUsername, boolean joined) {
+        FloodgatePlayer floodgatePlayer;
+        try {
+            floodgatePlayer = FloodgateApi.getInstance().getPlayer(uuid);
+        } catch (RuntimeException exception) {
+            getLogger().warning("Floodgate lookup failed for player activity: "
+                    + exception.getClass().getSimpleName());
+            floodgatePlayer = null;
+        }
+        if (floodgatePlayer == null) {
+            bridgeClient.queuePlayerActivity(joined, MinecraftEdition.JAVA, uuid, javaUsername, null);
+        } else {
+            bridgeClient.queuePlayerActivity(
+                    joined,
+                    MinecraftEdition.BEDROCK,
+                    uuid,
+                    floodgatePlayer.getUsername(),
+                    String.valueOf(floodgatePlayer.getXuid())
+            );
+        }
     }
 }

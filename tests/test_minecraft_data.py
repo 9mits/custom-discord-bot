@@ -121,6 +121,13 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((await self.data.get_application(previous.id)).status, ApplicationStatus.EXPIRED)
         self.assertEqual(replacement.status, ApplicationStatus.PENDING_VERIFICATION)
 
+    async def test_bridge_player_events_are_idempotent(self):
+        first = await self.data.claim_bridge_event("player-event-1", "PLAYER_JOIN", now=1000)
+        duplicate = await self.data.claim_bridge_event("player-event-1", "PLAYER_JOIN", now=1001)
+
+        self.assertTrue(first)
+        self.assertFalse(duplicate)
+
     async def test_java_verification_transitions_and_is_idempotent(self):
         application = await self.create_pending()
         verified, changed = await self.data.record_verification(

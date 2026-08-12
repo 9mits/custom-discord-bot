@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
+
 import discord
 
 from .models import ApplicationStatus, DuplicateActiveApplication, Edition, InvalidTransition
@@ -258,6 +260,8 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
             return
 
         bot.remember_application_interaction(application.id, interaction)
+        with suppress(Exception):
+            await bot.log_application_submission(application)
         if bot.bridge.connected:
             await bot.bridge.dispatch_outbox()
         await interaction.edit_original_response(
@@ -408,6 +412,7 @@ class ReviewView(discord.ui.View):
             )
             return
         await bot.update_review_message(updated)
+        await bot.log_application_decision(updated)
         if bot.bridge.connected:
             await bot.bridge.dispatch_outbox()
         state = "sent to the Minecraft server" if bot.bridge.connected else "queued until the Minecraft bridge reconnects"

@@ -1,5 +1,4 @@
 import asyncio
-import json
 import os
 import unittest
 from datetime import datetime, timezone
@@ -16,9 +15,12 @@ from minecraft_bot.presentation import (
     BRAND_NAME,
     ICON_ATTACHMENT_URI,
     ICON_PATH,
+    FOOTER_ATTACHMENT_URI,
+    FOOTER_PATH,
     LOGO_ATTACHMENT_URI,
     LOGO_PATH,
     THEME_COLOUR,
+    application_embeds,
     application_panel,
     info_embed,
     review_embed,
@@ -85,7 +87,7 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertEqual(modal.edition.options[1].value, "BEDROCK")
         panel_custom_ids = {
             component["custom_id"]
-            for child in panel.to_components()[0]["components"]
+            for child in panel.to_components()
             for component in child.get("components", [])
             if "custom_id" in component
         }
@@ -93,7 +95,12 @@ class MinecraftBotPolicyTests(unittest.TestCase):
             panel_custom_ids,
             {"minecraft:application:apply"},
         )
-        self.assertIn(LOGO_ATTACHMENT_URI, json.dumps(panel.to_components()))
+        embeds = application_embeds()
+        self.assertEqual(len(embeds), 3)
+        self.assertEqual(embeds[0].title, "Welcome to Mysterious SMP X")
+        self.assertEqual(embeds[1].title, "General Rules")
+        self.assertEqual(embeds[2].image.url, LOGO_ATTACHMENT_URI)
+        self.assertTrue(all(embed.footer.icon_url == FOOTER_ATTACHMENT_URI for embed in embeds))
 
     def test_minecraft_presentation_uses_orange_brand_system(self):
         embed = info_embed("Status", "Operational", success=True)
@@ -101,11 +108,12 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertEqual(THEME_COLOUR.value, discord.Colour.from_rgb(255, 153, 0).value)
         self.assertEqual(embed.colour.value, THEME_COLOUR.value)
         self.assertEqual(embed.footer.text, BRAND_NAME)
-        self.assertEqual(embed.footer.icon_url, ICON_ATTACHMENT_URI)
+        self.assertEqual(embed.footer.icon_url, FOOTER_ATTACHMENT_URI)
         self.assertEqual(embed.thumbnail.url, ICON_ATTACHMENT_URI)
         self.assertIsNotNone(embed.timestamp)
         self.assertTrue(LOGO_PATH.is_file())
         self.assertTrue(ICON_PATH.is_file())
+        self.assertTrue(FOOTER_PATH.is_file())
 
     def test_verification_instructions_are_copyable_and_edition_specific(self):
         application = MinecraftApplication(
@@ -154,7 +162,7 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         embed = review_embed(application)
 
         self.assertEqual(embed.thumbnail.url, ICON_ATTACHMENT_URI)
-        self.assertEqual(embed.footer.icon_url, ICON_ATTACHMENT_URI)
+        self.assertEqual(embed.footer.icon_url, FOOTER_ATTACHMENT_URI)
         self.assertTrue(any(field.name == "Claimed Username" for field in embed.fields))
 
     def test_setup_dashboard_uses_components_v2(self):
@@ -174,6 +182,9 @@ class MinecraftBotPolicyTests(unittest.TestCase):
             if "custom_id" in component
         }
         self.assertIn("minecraft:setup:application_channel_id", custom_ids)
+        self.assertIn("minecraft:setup:application_log_channel_id", custom_ids)
+        self.assertIn("minecraft:setup:verification_log_channel_id", custom_ids)
+        self.assertIn("minecraft:setup:player_log_channel_id", custom_ids)
         self.assertIn("minecraft:setup:member_role_id", custom_ids)
         self.assertIn("minecraft:setup:action:post", custom_ids)
 
@@ -227,7 +238,8 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         kwargs = response.send_message.await_args.kwargs
         self.assertTrue(kwargs["ephemeral"])
         self.assertIsInstance(kwargs["view"], CancelPendingConfirmationView)
-        kwargs["file"].close()
+        for file in kwargs["files"]:
+            file.close()
 
     async def test_cancel_confirmation_edits_the_existing_ephemeral(self):
         response = SimpleNamespace(defer=AsyncMock())
@@ -247,7 +259,31 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         kwargs = interaction.edit_original_response.await_args.kwargs
         self.assertIsNone(kwargs["view"])
         self.assertIn("attachments", kwargs)
-        kwargs["attachments"][0].close()
+        for file in kwargs["attachments"]:
+            file.close()
+
+    async def test_player_activity_is_deduplicated_before_logging(self):
+        bot = object.__new__(MinecraftAccessBot)
+        bot.settings = SimpleNamespace(player_log_channel_id=55)
+        bot.data = SimpleNamespace(
+            claim_bridge_event=AsyncMock(side_effect=[True, False]),
+            get_account_owner=AsyncMock(return_value="99"),
+        )
+        bot._send_configured_log = AsyncMock()
+        payload = {
+            "joined": True,
+            "minecraft_uuid": "123e4567-e89b-12d3-a456-426614174000",
+            "current_username": "PlayerOne",
+            "edition": "JAVA",
+            "xuid": None,
+            "event_idempotency_key": "player-event-1",
+        }
+
+        await bot.handle_player_event(**payload)
+        await bot.handle_player_event(**payload)
+
+        bot._send_configured_log.assert_awaited_once()
+        self.assertEqual(bot._send_configured_log.await_args.args[0], 55)
 
 
 class MinecraftConfigurationTests(unittest.IsolatedAsyncioTestCase):
@@ -315,7 +351,21 @@ class MinecraftConfigurationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(settings.application_channel_id, 99)
         self.assertEqual(settings.review_channel_id, 20)
+        self.assertEqual(settings.application_log_channel_id, 0)
         self.assertEqual(settings.java_address, "saved.example:25570")
+
+    def test_log_channels_are_persistent_and_can_be_disabled(self):
+        settings = MinecraftSettings().with_updates(
+            application_log_channel_id=101,
+            verification_log_channel_id=102,
+            player_log_channel_id=103,
+        )
+        disabled = settings.with_updates(player_log_channel_id=0)
+
+        self.assertEqual(settings.application_log_channel_id, 101)
+        self.assertEqual(settings.verification_log_channel_id, 102)
+        self.assertEqual(settings.player_log_channel_id, 103)
+        self.assertEqual(disabled.player_log_channel_id, 0)
 
     def test_invalid_or_overlapping_panel_settings_are_rejected(self):
         settings = MinecraftSettings(application_channel_id=10, mod_role_id=20)

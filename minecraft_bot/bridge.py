@@ -22,6 +22,7 @@ logger = logging.getLogger("MinecraftAccessBot.bridge")
 
 VerificationHandler = Callable[..., Awaitable[None]]
 ActionResultHandler = Callable[[OutboxRecord, Optional[Any]], Awaitable[None]]
+PlayerEventHandler = Callable[..., Awaitable[None]]
 
 
 class MinecraftBridgeServer:
@@ -32,11 +33,13 @@ class MinecraftBridgeServer:
         *,
         verification_handler: VerificationHandler,
         action_result_handler: ActionResultHandler,
+        player_event_handler: PlayerEventHandler,
     ) -> None:
         self.config = config
         self.data = data
         self.verification_handler = verification_handler
         self.action_result_handler = action_result_handler
+        self.player_event_handler = player_event_handler
         self._app = web.Application(client_max_size=1024 * 1024)
         self._app.router.add_get(config.bridge_path, self._websocket_handler)
         self._runner: Optional[web.AppRunner] = None
@@ -226,6 +229,21 @@ class MinecraftBridgeServer:
             await self._send(
                 "VERIFICATION_ACK",
                 {"application_id": int(payload["application_id"])},
+                idempotency_key=envelope["idempotency_key"],
+            )
+            return
+        if message_type in {"PLAYER_JOIN", "PLAYER_LEAVE"}:
+            await self.player_event_handler(
+                joined=message_type == "PLAYER_JOIN",
+                minecraft_uuid=str(payload["minecraft_uuid"]),
+                current_username=str(payload["current_username"]),
+                edition=str(payload["edition"]).upper(),
+                xuid=str(payload["xuid"]) if payload.get("xuid") is not None else None,
+                event_idempotency_key=envelope["idempotency_key"],
+            )
+            await self._send(
+                "PLAYER_EVENT_ACK",
+                {"event_idempotency_key": envelope["idempotency_key"]},
                 idempotency_key=envelope["idempotency_key"],
             )
             return

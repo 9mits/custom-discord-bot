@@ -38,11 +38,13 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         await self.data.open()
         self.verification_handler = AsyncMock()
         self.result_handler = AsyncMock()
+        self.player_event_handler = AsyncMock()
         self.server = MinecraftBridgeServer(
             self.config,
             self.data,
             verification_handler=self.verification_handler,
             action_result_handler=self.result_handler,
+            player_event_handler=self.player_event_handler,
         )
         await self.server.start()
         socket = self.server._site._server.sockets[0]
@@ -120,6 +122,45 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn(message.type, {aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.CLOSED})
 
+    async def test_player_activity_is_forwarded_and_acknowledged(self):
+        socket = await self.session.ws_connect(
+            f"http://127.0.0.1:{self.port}/minecraft-bridge"
+        )
+        await socket.send_json(
+            create_envelope(
+                self.secret,
+                "HELLO",
+                {"server_id": "mysterious-smp-x", "protocol_version": 1},
+                idempotency_key="hello-player",
+            )
+        )
+        await socket.receive_json()
+        await socket.receive_json()
+        await socket.send_json(
+            create_envelope(
+                self.secret,
+                "PLAYER_JOIN",
+                {
+                    "edition": "JAVA",
+                    "minecraft_uuid": "123e4567-e89b-12d3-a456-426614174000",
+                    "current_username": "TestPlayer",
+                    "xuid": None,
+                },
+                idempotency_key="player-join-1",
+            )
+        )
+
+        acknowledgement = await socket.receive_json()
+
+        self.assertEqual(acknowledgement["type"], "PLAYER_EVENT_ACK")
+        self.player_event_handler.assert_awaited_once()
+        self.assertTrue(self.player_event_handler.await_args.kwargs["joined"])
+        self.assertEqual(
+            self.player_event_handler.await_args.kwargs["event_idempotency_key"],
+            "player-join-1",
+        )
+        await socket.close()
+
     async def test_plaintext_non_development_connection_is_rejected(self):
         secure_config = replace(self.config, allow_insecure_localhost=False)
         secure_server = MinecraftBridgeServer(
@@ -127,6 +168,7 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
             self.data,
             verification_handler=self.verification_handler,
             action_result_handler=self.result_handler,
+            player_event_handler=self.player_event_handler,
         )
         await secure_server.start()
         port = secure_server._site._server.sockets[0].getsockname()[1]

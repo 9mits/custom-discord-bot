@@ -31,6 +31,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
     private final ScheduledExecutorService networkExecutor;
     private final HttpClient httpClient;
     private final ConcurrentHashMap<String, JsonObject> verificationOutbox = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, PlayerActivity> playerActivityOutbox = new ConcurrentHashMap<>();
     private final StringBuilder inbound = new StringBuilder();
     private final AtomicBoolean connecting = new AtomicBoolean(false);
 
@@ -148,6 +149,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                 reconnectAttempts = 0;
                 plugin.getLogger().info("Connected to the signed Minecraft application bridge.");
                 flushVerificationOutbox();
+                flushPlayerActivityOutbox();
             }
             case "HEARTBEAT_ACK" -> {
                 // The signed response is sufficient proof of liveness.
@@ -158,6 +160,10 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                 if (verification != null) {
                     pending.remove(verification.get("application_id").getAsLong());
                 }
+            }
+            case "PLAYER_EVENT_ACK" -> {
+                String key = payload.get("event_idempotency_key").getAsString();
+                playerActivityOutbox.remove(key);
             }
             case "ACTION" -> processAction(envelope.get("idempotency_key").getAsString(), payload);
             default -> {
@@ -330,6 +336,46 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         for (Map.Entry<String, JsonObject> entry : verificationOutbox.entrySet()) {
             sendRaw(protocol.create("VERIFICATION", entry.getKey(), entry.getValue()));
         }
+    }
+
+    void queuePlayerActivity(
+            boolean joined,
+            MinecraftEdition edition,
+            UUID minecraftUuid,
+            String currentUsername,
+            String xuid
+    ) {
+        if (playerActivityOutbox.size() >= 10_000) {
+            playerActivityOutbox.keySet().stream().findFirst().ifPresent(playerActivityOutbox::remove);
+        }
+        String key = "player:" + UUID.randomUUID();
+        JsonObject payload = new JsonObject();
+        payload.addProperty("edition", edition.name());
+        payload.addProperty("minecraft_uuid", minecraftUuid.toString());
+        payload.addProperty("current_username", currentUsername);
+        if (xuid == null) {
+            payload.add("xuid", null);
+        } else {
+            payload.addProperty("xuid", xuid);
+        }
+        playerActivityOutbox.put(key, new PlayerActivity(joined, payload));
+        if (isConnected()) {
+            sendRaw(protocol.create(joined ? "PLAYER_JOIN" : "PLAYER_LEAVE", key, payload));
+        }
+    }
+
+    private void flushPlayerActivityOutbox() {
+        for (Map.Entry<String, PlayerActivity> entry : playerActivityOutbox.entrySet()) {
+            PlayerActivity event = entry.getValue();
+            sendRaw(protocol.create(
+                    event.joined() ? "PLAYER_JOIN" : "PLAYER_LEAVE",
+                    entry.getKey(),
+                    event.payload()
+            ));
+        }
+    }
+
+    private record PlayerActivity(boolean joined, JsonObject payload) {
     }
 
     private void recordAndSend(String key, ProcessedActionStore.Result result) {

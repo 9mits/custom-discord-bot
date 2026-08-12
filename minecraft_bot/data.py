@@ -130,6 +130,8 @@ CREATE TABLE IF NOT EXISTS minecraft_bridge_events (
     message_type TEXT NOT NULL,
     processed_at INTEGER NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_minecraft_bridge_events_processed
+    ON minecraft_bridge_events(processed_at);
 """
 
 
@@ -474,12 +476,42 @@ class MinecraftDataManager:
         )
         return [self._application(row) for row in rows]
 
+    async def list_applications(
+        self,
+        *,
+        status: Optional[ApplicationStatus] = None,
+        limit: int = 25,
+    ) -> list[MinecraftApplication]:
+        bounded_limit = max(1, min(int(limit), 100))
+        if status is None:
+            rows = await self._connection().execute_fetchall(
+                "SELECT * FROM minecraft_applications ORDER BY id DESC LIMIT ?",
+                (bounded_limit,),
+            )
+        else:
+            rows = await self._connection().execute_fetchall(
+                "SELECT * FROM minecraft_applications WHERE status=? ORDER BY id DESC LIMIT ?",
+                (status.value, bounded_limit),
+            )
+        return [self._application(row) for row in rows]
+
     async def list_accounts_for_user(self, discord_user_id: int | str) -> list[dict[str, Any]]:
         rows = await self._connection().execute_fetchall(
             "SELECT * FROM minecraft_accounts WHERE discord_user_id=? ORDER BY id DESC",
             (str(discord_user_id),),
         )
         return [dict(row) for row in rows]
+
+    async def get_account_owner(self, edition: Edition | str, minecraft_uuid: str) -> Optional[str]:
+        try:
+            parsed_edition = Edition(str(edition).upper())
+        except ValueError:
+            return None
+        rows = await self._connection().execute_fetchall(
+            "SELECT discord_user_id FROM minecraft_accounts WHERE edition=? AND minecraft_uuid=? LIMIT 1",
+            (parsed_edition.value, str(minecraft_uuid)),
+        )
+        return str(rows[0]["discord_user_id"]) if rows else None
 
     async def list_pending_verifications(self) -> list[MinecraftApplication]:
         rows = await self._connection().execute_fetchall(
@@ -1166,6 +1198,32 @@ class MinecraftDataManager:
                 cursor = await db.execute(
                     "INSERT OR IGNORE INTO minecraft_bridge_nonces(nonce, expires_at) VALUES (?, ?)",
                     (nonce, int(expires_at)),
+                )
+                await db.commit()
+                return cursor.rowcount == 1
+            except Exception:
+                await db.rollback()
+                raise
+
+    async def claim_bridge_event(
+        self,
+        idempotency_key: str,
+        message_type: str,
+        *,
+        now: Optional[int] = None,
+    ) -> bool:
+        current = _now() if now is None else int(now)
+        async with self._write_lock:
+            db = self._connection()
+            try:
+                await db.execute(
+                    "DELETE FROM minecraft_bridge_events WHERE processed_at<=?",
+                    (current - 30 * 24 * 60 * 60,),
+                )
+                cursor = await db.execute(
+                    "INSERT OR IGNORE INTO minecraft_bridge_events"
+                    "(idempotency_key, message_type, processed_at) VALUES (?, ?, ?)",
+                    (str(idempotency_key), str(message_type)[:64], current),
                 )
                 await db.commit()
                 return cursor.rowcount == 1
