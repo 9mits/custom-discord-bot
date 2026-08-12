@@ -62,11 +62,7 @@ def branded_edit(embed: discord.Embed) -> dict[str, object]:
 
 
 def application_panel_files() -> list[discord.File]:
-    return [brand_footer_file()]
-
-
-def rules_agreement_send(embed: discord.Embed) -> dict[str, object]:
-    return {"embed": embed, "file": brand_logo_file()}
+    return [brand_logo_file(), brand_footer_file()]
 
 
 def _connection_blocks(settings) -> str:
@@ -98,6 +94,8 @@ def application_embeds() -> list[discord.Embed]:
         "> This is a private SMP, so every player applies and is reviewed before joining. "
         "Acceptance is intentionally approachable: if you want to play, we encourage you to apply.",
     )
+    welcome.set_image(url=LOGO_ATTACHMENT_URI)
+    welcome.remove_footer()
     apply = _panel_embed(
         "Apply to Mysterious SMP X",
         "Apply entirely through Discord, verify ownership with one Minecraft connection, "
@@ -134,16 +132,10 @@ def rules_embed(*, agreement: bool = False) -> discord.Embed:
         "**Have fun, create lore, and help make the server enjoyable for everyone.**"
         + ending
     )
-    if not agreement:
-        return info_embed("Mysterious SMP X Rules", description)
-    embed = discord.Embed(
-        title="Mysterious SMP X Rules & Agreement",
-        description=description,
-        colour=THEME_COLOUR,
-        timestamp=discord.utils.utcnow(),
+    return info_embed(
+        "Mysterious SMP X Rules & Agreement" if agreement else "Mysterious SMP X Rules",
+        description,
     )
-    embed.set_image(url=LOGO_ATTACHMENT_URI)
-    return embed
 
 
 def application_panel() -> discord.ui.View:
