@@ -46,7 +46,14 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
             normalize_username(Edition.BEDROCK, ".FloodgatePrefix")
 
     async def test_duplicate_active_application_is_rejected(self):
-        await self.create_pending()
+        pending = await self.create_pending()
+        active = await self.data.get_active_application_for_user(
+            guild_id=10,
+            discord_user_id=42,
+            now=1010,
+        )
+
+        self.assertEqual(active.id, pending.id)
         with self.assertRaises(DuplicateActiveApplication):
             await self.create_pending(username="OtherPlayer")
 
@@ -57,6 +64,13 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
             guild_id=10,
             discord_user_id=42,
             now=1010,
+        )
+        self.assertIsNone(
+            await self.data.get_active_application_for_user(
+                guild_id=10,
+                discord_user_id=42,
+                now=1011,
+            )
         )
         replacement = await self.create_pending(username="CorrectName", now=1020)
 

@@ -19,9 +19,13 @@ from .models import ApplicationStatus, BridgeAction, InvalidTransition, Minecraf
 from .presentation import (
     application_panel,
     approval_embed,
+    branded_edit,
+    branded_send,
     brand_logo_file,
+    denial_embed,
     info_embed,
     review_embed,
+    verified_embed,
 )
 from .settings import MinecraftSettings, SETTING_KEYS
 from .ui import ReviewView
@@ -123,11 +127,17 @@ class MinecraftAccessBot(commands.Bot):
             correlation_id,
             exc_info=(type(error), error, error.__traceback__),
         )
-        message = f"The command failed. Reference `{correlation_id}` if you contact staff."
+        embed = info_embed(
+            "Minecraft Command Failed",
+            "> The requested action could not be completed.\n\n"
+            f"**Reference:** `{correlation_id}`\n"
+            "Share this reference with staff if the problem continues.",
+            error=True,
+        )
         if interaction.response.is_done():
-            await interaction.followup.send(message, ephemeral=True)
+            await interaction.followup.send(**branded_send(embed), ephemeral=True)
         else:
-            await interaction.response.send_message(message, ephemeral=True)
+            await interaction.response.send_message(**branded_send(embed), ephemeral=True)
 
     def is_moderator(self, member: discord.Member | discord.User) -> bool:
         permissions = getattr(member, "guild_permissions", None)
@@ -143,14 +153,29 @@ class MinecraftAccessBot(commands.Bot):
     async def require_moderator(self, interaction: discord.Interaction) -> bool:
         if self.is_moderator(interaction.user):
             return True
-        await interaction.response.send_message("You are not allowed to manage Minecraft access.", ephemeral=True)
+        await interaction.response.send_message(
+            **branded_send(
+                info_embed(
+                    "Access Required",
+                    "> You do not have permission to manage Minecraft applications or access.",
+                    error=True,
+                )
+            ),
+            ephemeral=True,
+        )
         return False
 
     async def require_administrator(self, interaction: discord.Interaction) -> bool:
         if self.is_administrator(interaction.user):
             return True
         await interaction.response.send_message(
-            "Only server administrators can change Minecraft setup.",
+            **branded_send(
+                info_embed(
+                    "Administrator Access Required",
+                    "> Only server administrators can change the Minecraft setup.",
+                    error=True,
+                )
+            ),
             ephemeral=True,
         )
         return False
@@ -268,21 +293,13 @@ class MinecraftAccessBot(commands.Bot):
         if user is not None:
             with suppress(discord.Forbidden, discord.HTTPException):
                 await user.send(
-                    embed=info_embed(
-                        "Minecraft Account Verified",
-                        "Your account was verified and the application was sent to the staff team for review.",
-                        success=True,
-                    )
+                    **branded_send(verified_embed(application))
                 )
         remembered = self._application_interactions.pop(application.id, None)
         if remembered is not None and remembered[1] > time.monotonic():
             with suppress(discord.NotFound, discord.HTTPException):
                 await remembered[0].edit_original_response(
-                    embed=info_embed(
-                        "Minecraft Account Verified",
-                        "Your account was verified and the application was sent to the staff team for review.",
-                        success=True,
-                    )
+                    **branded_edit(verified_embed(application))
                 )
 
     async def post_or_update_review(self, application: MinecraftApplication) -> None:
@@ -300,8 +317,7 @@ class MinecraftAccessBot(commands.Bot):
             with suppress(discord.NotFound, discord.HTTPException):
                 user = await self.fetch_user(int(application.discord_user_id))
         message = await channel.send(
-            file=brand_logo_file(),
-            embed=review_embed(application, user=user, member=member),
+            **branded_send(review_embed(application, user=user, member=member)),
             view=ReviewView(disabled=application.status is not ApplicationStatus.PENDING_REVIEW),
             allowed_mentions=discord.AllowedMentions.none(),
         )
@@ -325,16 +341,13 @@ class MinecraftAccessBot(commands.Bot):
         member = guild.get_member(int(application.discord_user_id)) if guild else None
         user = member or self.get_user(int(application.discord_user_id))
         await message.edit(
-            attachments=[brand_logo_file()],
-            embed=review_embed(application, user=user, member=member),
+            **branded_edit(review_embed(application, user=user, member=member)),
             view=ReviewView(disabled=application.status is not ApplicationStatus.PENDING_REVIEW),
             allowed_mentions=discord.AllowedMentions.none(),
         )
 
     async def finish_denial(self, application: MinecraftApplication) -> None:
         await self.update_review_message(application)
-        if not application.applicant_reason:
-            return
         user = self.get_user(int(application.discord_user_id))
         if user is None:
             with suppress(discord.NotFound, discord.HTTPException):
@@ -342,11 +355,7 @@ class MinecraftAccessBot(commands.Bot):
         if user is not None:
             with suppress(discord.Forbidden, discord.HTTPException):
                 await user.send(
-                    embed=info_embed(
-                        "Minecraft Application Denied",
-                        application.applicant_reason,
-                        error=True,
-                    )
+                    **branded_send(denial_embed(application))
                 )
 
     async def handle_bridge_action_result(
@@ -400,7 +409,7 @@ class MinecraftAccessBot(commands.Bot):
         if user is not None:
             with suppress(discord.Forbidden, discord.HTTPException):
                 await user.send(
-                    embed=approval_embed(self.settings)
+                    **branded_send(approval_embed(self.settings))
                 )
 
     async def _finish_revocation(self, application: MinecraftApplication) -> None:
@@ -456,7 +465,15 @@ class MinecraftAccessBot(commands.Bot):
             if not await self.require_moderator(interaction):
                 return
             if not self.status_rate_limit.claim(interaction.user.id):
-                await interaction.response.send_message("Please wait before requesting status again.", ephemeral=True)
+                await interaction.response.send_message(
+                    **branded_send(
+                        info_embed(
+                            "Status Recently Requested",
+                            "> Please wait a few seconds before requesting runtime status again.",
+                        )
+                    ),
+                    ephemeral=True,
+                )
                 return
             await interaction.response.defer(ephemeral=True)
             outbox = await self.data.outbox_counts()
@@ -508,7 +525,7 @@ class MinecraftAccessBot(commands.Bot):
                     ),
                     inline=False,
                 )
-            await interaction.edit_original_response(embed=embed)
+            await interaction.edit_original_response(**branded_edit(embed))
 
         @group.command(name="lookup", description="Show a member's linked accounts and application history.")
         @app_commands.describe(user="Discord member to look up")
@@ -527,9 +544,14 @@ class MinecraftAccessBot(commands.Bot):
                 for item in history
             ] or ["No applications."]
             await interaction.edit_original_response(
-                embed=info_embed(
-                    f"Minecraft Lookup: {user}",
-                    "**Linked Accounts**\n" + "\n".join(account_lines) + "\n\n**Applications**\n" + "\n".join(history_lines),
+                **branded_edit(
+                    info_embed(
+                        f"Minecraft Lookup: {user}",
+                        "**Linked Accounts**\n"
+                        + "\n".join(account_lines)
+                        + "\n\n**Applications**\n"
+                        + "\n".join(history_lines),
+                    )
                 )
             )
 
@@ -541,15 +563,26 @@ class MinecraftAccessBot(commands.Bot):
             await interaction.response.defer(ephemeral=True, thinking=True)
             applications = await self.data.queue_revocations(user.id, interaction.user.id, reason)
             if not applications:
-                await interaction.edit_original_response(content="That member has no approved Minecraft access to revoke.")
+                await interaction.edit_original_response(
+                    **branded_edit(
+                        info_embed(
+                            "No Access to Revoke",
+                            "> That member has no approved Minecraft account access.",
+                            error=True,
+                        )
+                    )
+                )
                 return
             if self.bridge.connected:
                 await self.bridge.dispatch_outbox()
             await interaction.edit_original_response(
-                embed=info_embed(
-                    "Revocation Queued",
-                    f"Queued **{len(applications)}** account revocation(s). Discord access is removed only after Paper confirms each action.",
-                    success=True,
+                **branded_edit(
+                    info_embed(
+                        "Revocation Queued",
+                        f"> **{len(applications)}** Minecraft account revocation(s) were queued.\n\n"
+                        "Discord access will be removed only after the Minecraft server confirms every action.",
+                        success=True,
+                    )
                 )
             )
 
@@ -563,7 +596,13 @@ class MinecraftAccessBot(commands.Bot):
             if self.bridge.connected and count:
                 await self.bridge.dispatch_outbox()
             await interaction.edit_original_response(
-                embed=info_embed("Retry Scheduled", f"Reset **{count}** failed bridge action(s).", success=bool(count))
+                **branded_edit(
+                    info_embed(
+                        "Retry Scheduled",
+                        f"> Reset **{count}** failed bridge action(s) for another delivery attempt.",
+                        success=bool(count),
+                    )
+                )
             )
 
         @group.command(name="cancel", description="Cancel your pending verification or a staff-managed application.")
@@ -581,14 +620,19 @@ class MinecraftAccessBot(commands.Bot):
                     )
                 except InvalidTransition as exc:
                     await interaction.edit_original_response(
-                        embed=info_embed("Nothing to Cancel", str(exc), error=True)
+                        **branded_edit(
+                            info_embed("Nothing to Cancel", f"> {exc}", error=True)
+                        )
                     )
                     return
                 await interaction.edit_original_response(
-                    embed=info_embed(
-                        "Verification Cancelled",
-                        "Your pending verification was cancelled. You can apply again now with the correct username.",
-                        success=True,
+                    **branded_edit(
+                        info_embed(
+                            "Verification Cancelled",
+                            "> Your pending Minecraft verification was cancelled successfully.\n\n"
+                            "Return to the application panel and press **Apply** when you are ready to enter the correct username.",
+                            success=True,
+                        )
                     )
                 )
                 return
@@ -598,13 +642,23 @@ class MinecraftAccessBot(commands.Bot):
             try:
                 updated = await self.data.cancel_application(application, interaction.user.id)
             except InvalidTransition as exc:
-                await interaction.edit_original_response(content=str(exc))
+                await interaction.edit_original_response(
+                    **branded_edit(
+                        info_embed("Application Not Cancelled", f"> {exc}", error=True)
+                    )
+                )
                 return
             await self.update_review_message(updated)
             if self.bridge.connected:
                 await self.bridge.dispatch_outbox()
             await interaction.edit_original_response(
-                embed=info_embed("Application Cancelled", f"Application `#{updated.id}` was cancelled.", success=True)
+                **branded_edit(
+                    info_embed(
+                        "Application Cancelled",
+                        f"> Application `#{updated.id}` was cancelled and its Minecraft access actions were updated.",
+                        success=True,
+                    )
+                )
             )
 
         return group

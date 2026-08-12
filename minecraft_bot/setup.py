@@ -9,7 +9,7 @@ from typing import Optional
 
 import discord
 
-from .presentation import BRAND_NAME, THEME_COLOUR, info_embed
+from .presentation import BRAND_NAME, THEME_COLOUR, branded_edit, branded_send, info_embed
 
 
 logger = logging.getLogger("MinecraftAccessBot.Setup")
@@ -24,13 +24,15 @@ async def _report_internal_error(interaction: discord.Interaction, error: Except
     )
     embed = info_embed(
         "Setup Action Failed",
-        f"The action could not be completed. Reference `{correlation_id}` if you contact staff.",
+        "> The setup action could not be completed.\n\n"
+        f"**Reference:** `{correlation_id}`\n"
+        "Share this reference with staff if the problem continues.",
         error=True,
     )
     if interaction.response.is_done():
-        await interaction.followup.send(embed=embed, ephemeral=True)
+        await interaction.followup.send(**branded_send(embed), ephemeral=True)
     else:
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        await interaction.response.send_message(**branded_send(embed), ephemeral=True)
 
 
 @dataclass(frozen=True)
@@ -156,7 +158,7 @@ class MinecraftChannelSelect(discord.ui.ChannelSelect):
             )
         except ValueError as exc:
             await interaction.followup.send(
-                embed=info_embed("Setting Not Updated", str(exc), error=True),
+                **branded_send(info_embed("Setting Not Updated", f"> {exc}", error=True)),
                 ephemeral=True,
             )
             return
@@ -188,7 +190,7 @@ class MinecraftRoleSelect(discord.ui.RoleSelect):
             )
         except ValueError as exc:
             await interaction.followup.send(
-                embed=info_embed("Setting Not Updated", str(exc), error=True),
+                **branded_send(info_embed("Setting Not Updated", f"> {exc}", error=True)),
                 ephemeral=True,
             )
             return
@@ -231,7 +233,13 @@ class MinecraftAddressModal(discord.ui.Modal):
             or not self.setup_view.bot.is_administrator(interaction.user)
         ):
             await interaction.response.send_message(
-                "Only the administrator who opened this dashboard can change Minecraft setup.",
+                **branded_send(
+                    info_embed(
+                        "Setup Access Required",
+                        "> Only the administrator who opened this dashboard can change Minecraft setup.",
+                        error=True,
+                    )
+                ),
                 ephemeral=True,
             )
             return
@@ -244,7 +252,7 @@ class MinecraftAddressModal(discord.ui.Modal):
             self.setup_view.bot.settings.with_updates(**updates)
         except ValueError as exc:
             await interaction.response.send_message(
-                embed=info_embed("Addresses Not Updated", str(exc), error=True),
+                **branded_send(info_embed("Addresses Not Updated", f"> {exc}", error=True)),
                 ephemeral=True,
             )
             return
@@ -259,10 +267,13 @@ class MinecraftAddressModal(discord.ui.Modal):
                 )
             )
         await interaction.edit_original_response(
-            embed=info_embed(
-                "Addresses Updated",
-                "The Java and Bedrock connection addresses were saved.",
-                success=True,
+            **branded_edit(
+                info_embed(
+                    "Addresses Updated",
+                    "> The Java and Bedrock connection addresses were validated and saved.\n\n"
+                    "New applicant instructions will use these values immediately.",
+                    success=True,
+                )
             )
         )
 
@@ -304,28 +315,36 @@ class MinecraftSetupAction(discord.ui.Button):
         if findings:
             details = "\n".join(f"**{item.setting}:** {item.detail}" for item in findings[:8])
             await interaction.response.send_message(
-                embed=info_embed(
-                    "Setup Needs Attention",
-                    details + "\n\nResolve these items before posting the application panel.",
-                    error=True,
+                **branded_send(
+                    info_embed(
+                        "Setup Needs Attention",
+                        "> Resolve the findings below before posting the application panel.\n\n"
+                        + details,
+                        error=True,
+                    )
                 ),
                 ephemeral=True,
             )
             return
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.response.defer()
         try:
             message = await view.bot.post_application_panel()
         except RuntimeError as exc:
             await interaction.edit_original_response(
-                embed=info_embed("Panel Not Posted", str(exc), error=True)
+                **branded_edit(info_embed("Panel Not Posted", f"> {exc}", error=True)),
+                view=None,
             )
             return
         await interaction.edit_original_response(
-            embed=info_embed(
-                "Application Panel Ready",
-                f"The application panel is available in {message.channel.mention}.",
-                success=True,
-            )
+            **branded_edit(
+                info_embed(
+                    "Application Panel Ready",
+                    f"> The latest application panel is available in {message.channel.mention}.\n\n"
+                    "Applicants can begin the Discord and Minecraft verification flow immediately.",
+                    success=True,
+                )
+            ),
+            view=None,
         )
 
 
@@ -410,13 +429,25 @@ class MinecraftSetupView(discord.ui.LayoutView):
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id != self.requester_id:
             await interaction.response.send_message(
-                "This setup dashboard belongs to another administrator.",
+                **branded_send(
+                    info_embed(
+                        "Setup Dashboard Unavailable",
+                        "> This setup dashboard belongs to another administrator.",
+                        error=True,
+                    )
+                ),
                 ephemeral=True,
             )
             return False
         if not self.bot.is_administrator(interaction.user):
             await interaction.response.send_message(
-                "Only server administrators can change Minecraft setup.",
+                **branded_send(
+                    info_embed(
+                        "Administrator Access Required",
+                        "> Only server administrators can change Minecraft setup.",
+                        error=True,
+                    )
+                ),
                 ephemeral=True,
             )
             return False

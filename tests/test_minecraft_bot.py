@@ -14,6 +14,8 @@ from minecraft_bot.config import MinecraftConfig
 from minecraft_bot.models import ApplicationStatus, Edition, MinecraftApplication
 from minecraft_bot.presentation import (
     BRAND_NAME,
+    ICON_ATTACHMENT_URI,
+    ICON_PATH,
     LOGO_ATTACHMENT_URI,
     LOGO_PATH,
     THEME_COLOUR,
@@ -24,7 +26,12 @@ from minecraft_bot.presentation import (
 )
 from minecraft_bot.settings import MinecraftSettings
 from minecraft_bot.setup import MinecraftSetupView
-from minecraft_bot.ui import CancelPendingButton, MinecraftApplicationModal, ReviewView
+from minecraft_bot.ui import (
+    ApplyButton,
+    CancelPendingConfirmationView,
+    MinecraftApplicationModal,
+    ReviewView,
+)
 
 
 class MinecraftBotPolicyTests(unittest.TestCase):
@@ -76,7 +83,6 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         )
         self.assertEqual(modal.edition.options[0].value, "JAVA")
         self.assertEqual(modal.edition.options[1].value, "BEDROCK")
-        self.assertEqual(CancelPendingButton().custom_id, "minecraft:application:cancel")
         panel_custom_ids = {
             component["custom_id"]
             for child in panel.to_components()[0]["components"]
@@ -85,7 +91,7 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         }
         self.assertEqual(
             panel_custom_ids,
-            {"minecraft:application:apply", "minecraft:application:cancel"},
+            {"minecraft:application:apply"},
         )
         self.assertIn(LOGO_ATTACHMENT_URI, json.dumps(panel.to_components()))
 
@@ -95,8 +101,11 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertEqual(THEME_COLOUR.value, discord.Colour.from_rgb(255, 153, 0).value)
         self.assertEqual(embed.colour.value, THEME_COLOUR.value)
         self.assertEqual(embed.footer.text, BRAND_NAME)
+        self.assertEqual(embed.footer.icon_url, ICON_ATTACHMENT_URI)
+        self.assertEqual(embed.thumbnail.url, ICON_ATTACHMENT_URI)
         self.assertIsNotNone(embed.timestamp)
         self.assertTrue(LOGO_PATH.is_file())
+        self.assertTrue(ICON_PATH.is_file())
 
     def test_verification_instructions_are_copyable_and_edition_specific(self):
         application = MinecraftApplication(
@@ -144,8 +153,8 @@ class MinecraftBotPolicyTests(unittest.TestCase):
 
         embed = review_embed(application)
 
-        self.assertEqual(embed.thumbnail.url, LOGO_ATTACHMENT_URI)
-        self.assertEqual(embed.footer.icon_url, LOGO_ATTACHMENT_URI)
+        self.assertEqual(embed.thumbnail.url, ICON_ATTACHMENT_URI)
+        self.assertEqual(embed.footer.icon_url, ICON_ATTACHMENT_URI)
         self.assertTrue(any(field.name == "Claimed Username" for field in embed.fields))
 
     def test_setup_dashboard_uses_components_v2(self):
@@ -167,6 +176,78 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertIn("minecraft:setup:application_channel_id", custom_ids)
         self.assertIn("minecraft:setup:member_role_id", custom_ids)
         self.assertIn("minecraft:setup:action:post", custom_ids)
+
+
+class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_apply_reveals_cancel_only_for_pending_verification(self):
+        application = MinecraftApplication(
+            id=42,
+            guild_id="10",
+            discord_user_id="99",
+            edition=Edition.JAVA,
+            claimed_username="PlayerOne",
+            normalized_username="playerone",
+            answers={"why": "Build things", "about": "Helpful player"},
+            status=ApplicationStatus.PENDING_VERIFICATION,
+            verification_expires_at=2_000_000_000,
+            created_at=1_999_999_400,
+            updated_at=1_999_999_400,
+        )
+        response = SimpleNamespace(
+            send_message=AsyncMock(),
+            send_modal=AsyncMock(),
+        )
+        bot = SimpleNamespace(
+            config=SimpleNamespace(guild_id=10),
+            settings=SimpleNamespace(
+                application_channel_id=20,
+                java_address="java.example:25565",
+                bedrock_address="bedrock.example",
+                bedrock_port=19132,
+            ),
+            data=SimpleNamespace(
+                get_config=AsyncMock(return_value="30"),
+                get_active_application_for_user=AsyncMock(return_value=application),
+            ),
+            apply_rate_limit=SimpleNamespace(claim=lambda _user_id: True),
+        )
+        interaction = SimpleNamespace(
+            client=bot,
+            guild_id=10,
+            channel_id=20,
+            message=SimpleNamespace(id=30),
+            user=SimpleNamespace(id=99),
+            response=response,
+        )
+
+        await ApplyButton().callback(interaction)
+
+        response.send_modal.assert_not_awaited()
+        response.send_message.assert_awaited_once()
+        kwargs = response.send_message.await_args.kwargs
+        self.assertTrue(kwargs["ephemeral"])
+        self.assertIsInstance(kwargs["view"], CancelPendingConfirmationView)
+        kwargs["file"].close()
+
+    async def test_cancel_confirmation_edits_the_existing_ephemeral(self):
+        response = SimpleNamespace(defer=AsyncMock())
+        interaction = SimpleNamespace(
+            client=SimpleNamespace(cancel_pending_verification=AsyncMock()),
+            guild_id=10,
+            user=SimpleNamespace(id=99),
+            response=response,
+            edit_original_response=AsyncMock(),
+        )
+        view = CancelPendingConfirmationView(99)
+
+        await view.children[0].callback(interaction)
+
+        response.defer.assert_awaited_once_with()
+        interaction.edit_original_response.assert_awaited_once()
+        kwargs = interaction.edit_original_response.await_args.kwargs
+        self.assertIsNone(kwargs["view"])
+        self.assertIn("attachments", kwargs)
+        kwargs["attachments"][0].close()
 
 
 class MinecraftConfigurationTests(unittest.IsolatedAsyncioTestCase):

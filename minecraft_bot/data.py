@@ -427,6 +427,30 @@ class MinecraftDataManager:
         )
         return self._application(rows[0]) if rows else None
 
+    async def get_active_application_for_user(
+        self,
+        *,
+        guild_id: int | str,
+        discord_user_id: int | str,
+        now: Optional[int] = None,
+    ) -> Optional[MinecraftApplication]:
+        current = _now() if now is None else int(now)
+        rows = await self._connection().execute_fetchall(
+            "SELECT * FROM minecraft_applications "
+            "WHERE guild_id=? AND discord_user_id=? AND ("
+            "(status=? AND verification_expires_at>?) OR status IN (?, ?)"
+            ") ORDER BY id DESC LIMIT 1",
+            (
+                str(guild_id),
+                str(discord_user_id),
+                ApplicationStatus.PENDING_VERIFICATION.value,
+                current,
+                ApplicationStatus.PENDING_REVIEW.value,
+                ApplicationStatus.APPROVAL_QUEUED.value,
+            ),
+        )
+        return self._application(rows[0]) if rows else None
+
     async def get_application_by_review_message(self, message_id: int) -> Optional[MinecraftApplication]:
         rows = await self._connection().execute_fetchall(
             "SELECT * FROM minecraft_applications WHERE review_message_id=?",
