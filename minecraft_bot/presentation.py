@@ -15,6 +15,7 @@ BRAND_NAME = "Mysterious SMP X"
 THEME_COLOUR = discord.Colour.from_rgb(255, 153, 0)
 LOGO_FILENAME = "mysterious_smp_x_logo.png"
 LOGO_PATH = Path(__file__).resolve().parent.parent / "assets" / "minecraft" / LOGO_FILENAME
+LOGO_ATTACHMENT_URI = f"attachment://{LOGO_FILENAME}"
 ICON_FILENAME = "mysterious_smp_x_icon.png"
 ICON_PATH = Path(__file__).resolve().parent.parent / "assets" / "minecraft" / ICON_FILENAME
 ICON_ATTACHMENT_URI = f"attachment://{ICON_FILENAME}"
@@ -62,6 +63,10 @@ def branded_edit(embed: discord.Embed) -> dict[str, object]:
 
 def application_panel_files() -> list[discord.File]:
     return [brand_footer_file()]
+
+
+def rules_agreement_send(embed: discord.Embed) -> dict[str, object]:
+    return {"embed": embed, "file": brand_logo_file()}
 
 
 def _connection_blocks(settings) -> str:
@@ -118,8 +123,7 @@ def rules_embed(*, agreement: bool = False) -> discord.Embed:
         if agreement
         else ""
     )
-    return info_embed(
-        "Mysterious SMP X Rules & Agreement" if agreement else "Mysterious SMP X Rules",
+    description = (
         introduction
         + "1. **Respect builds** — Do not grief, damage, or alter another player's work without permission.\n\n"
         "2. **Play fairly** — No hacked clients, x-ray, duping, exploits, or unfair advantages.\n\n"
@@ -128,8 +132,18 @@ def rules_embed(*, agreement: bool = False) -> discord.Embed:
         "5. **Protect server stability** — No lag machines, crash exploits, chunk bans, or destructive abuse.\n\n"
         "6. **Use common sense** — Loopholes do not excuse behavior that ruins the experience for others.\n\n"
         "**Have fun, create lore, and help make the server enjoyable for everyone.**"
-        + ending,
+        + ending
     )
+    if not agreement:
+        return info_embed("Mysterious SMP X Rules", description)
+    embed = discord.Embed(
+        title="Mysterious SMP X Rules & Agreement",
+        description=description,
+        colour=THEME_COLOUR,
+        timestamp=discord.utils.utcnow(),
+    )
+    embed.set_image(url=LOGO_ATTACHMENT_URI)
+    return embed
 
 
 def application_panel() -> discord.ui.View:

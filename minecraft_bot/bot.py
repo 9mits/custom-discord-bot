@@ -24,7 +24,6 @@ from .presentation import (
     approval_embed,
     branded_edit,
     branded_send,
-    brand_logo_file,
     denial_embed,
     decision_log_embed,
     info_embed,
@@ -321,14 +320,21 @@ class MinecraftAccessBot(commands.Bot):
             panel is not None
             and getattr(getattr(panel, "flags", None), "components_v2", False)
         )
-        correct_order = banner is not None and panel is not None and banner.id < panel.id
-        if correct_order and not panel_uses_v2:
-            await banner.edit(content=None, attachments=[brand_logo_file()])
+        if panel is not None and not panel_uses_v2:
+            if banner is not None:
+                with suppress(discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    await banner.delete()
             await panel.edit(
                 content=None,
                 embeds=application_embeds(),
                 attachments=application_panel_files(),
                 view=application_panel(),
+            )
+            await self.data.set_configs(
+                {
+                    "application_banner_message_id": "",
+                    "application_panel_message_id": str(panel.id),
+                }
             )
             return panel
 
@@ -337,7 +343,6 @@ class MinecraftAccessBot(commands.Bot):
                 with suppress(discord.NotFound, discord.Forbidden, discord.HTTPException):
                     await old_message.delete()
 
-        banner = await channel.send(file=brand_logo_file())
         panel = await channel.send(
             embeds=application_embeds(),
             files=application_panel_files(),
@@ -345,7 +350,7 @@ class MinecraftAccessBot(commands.Bot):
         )
         await self.data.set_configs(
             {
-                "application_banner_message_id": str(banner.id),
+                "application_banner_message_id": "",
                 "application_panel_message_id": str(panel.id),
             }
         )
