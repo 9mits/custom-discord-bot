@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import secrets
+import ssl
 import time
 from contextlib import suppress
 from typing import Any, Awaitable, Callable, Optional
@@ -61,12 +62,21 @@ class MinecraftBridgeServer:
         return self._connected_at
 
     async def start(self) -> None:
+        ssl_context = None
+        if self.config.bridge_tls_cert_path and self.config.bridge_tls_key_path:
+            ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
+            ssl_context.load_cert_chain(
+                certfile=self.config.bridge_tls_cert_path,
+                keyfile=self.config.bridge_tls_key_path,
+            )
         self._runner = web.AppRunner(self._app, access_log=None)
         await self._runner.setup()
         self._site = web.TCPSite(
             self._runner,
             host=self.config.bridge_host,
             port=self.config.bridge_port,
+            ssl_context=ssl_context,
         )
         await self._site.start()
         self._dispatcher_task = asyncio.create_task(
@@ -74,7 +84,8 @@ class MinecraftBridgeServer:
             name="minecraft-bridge-outbox",
         )
         logger.info(
-            "Minecraft bridge listening on %s:%s%s",
+            "Minecraft bridge listening on %s://%s:%s%s",
+            "wss" if ssl_context else "ws",
             self.config.bridge_host,
             self.config.bridge_port,
             self.config.bridge_path,

@@ -1,6 +1,7 @@
 import asyncio
 import os
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -97,6 +98,39 @@ class MinecraftConfigurationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(config.review_channel_id, 0)
         self.assertEqual(config.mod_role_id, 0)
         self.assertEqual(config.member_role_id, 0)
+        self.assertIsNone(config.bridge_tls_cert_path)
+        self.assertIsNone(config.bridge_tls_key_path)
+
+    def test_bridge_tls_certificate_and_key_must_be_configured_together(self):
+        environment = {
+            "MINECRAFT_DISCORD_BOT_TOKEN": "token",
+            "MINECRAFT_GUILD_ID": "123456789",
+            "MINECRAFT_BRIDGE_SECRET": "ab" * 32,
+            "MINECRAFT_BRIDGE_TLS_CERT": "runtime/minecraft/bridge-cert.pem",
+        }
+        with patch.dict(os.environ, environment, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "must be set together"):
+                MinecraftConfig.from_env()
+
+    def test_bridge_tls_certificate_and_key_paths_are_resolved(self):
+        environment = {
+            "MINECRAFT_DISCORD_BOT_TOKEN": "token",
+            "MINECRAFT_GUILD_ID": "123456789",
+            "MINECRAFT_BRIDGE_SECRET": "ab" * 32,
+            "MINECRAFT_BRIDGE_TLS_CERT": "runtime/minecraft/bridge-cert.pem",
+            "MINECRAFT_BRIDGE_TLS_KEY": "runtime/minecraft/bridge-key.pem",
+        }
+        with patch.dict(os.environ, environment, clear=True):
+            config = MinecraftConfig.from_env()
+
+        self.assertEqual(
+            config.bridge_tls_cert_path,
+            (Path.cwd() / "runtime/minecraft/bridge-cert.pem").resolve(),
+        )
+        self.assertEqual(
+            config.bridge_tls_key_path,
+            (Path.cwd() / "runtime/minecraft/bridge-key.pem").resolve(),
+        )
 
     def test_database_settings_override_legacy_environment_defaults(self):
         bootstrap = SimpleNamespace(

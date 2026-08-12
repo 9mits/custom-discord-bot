@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 from urllib.parse import urlsplit
 
 
@@ -59,6 +60,8 @@ class MinecraftConfig:
     bridge_port: int
     data_dir: Path
     allow_insecure_localhost: bool
+    bridge_tls_cert_path: Optional[Path] = None
+    bridge_tls_key_path: Optional[Path] = None
 
     @property
     def database_path(self) -> Path:
@@ -82,6 +85,20 @@ class MinecraftConfig:
         data_dir = Path(os.environ.get("MINECRAFT_DATA_DIR", "runtime/minecraft")).expanduser()
         if not data_dir.is_absolute():
             data_dir = Path.cwd() / data_dir
+        tls_cert_text = os.environ.get("MINECRAFT_BRIDGE_TLS_CERT", "").strip()
+        tls_key_text = os.environ.get("MINECRAFT_BRIDGE_TLS_KEY", "").strip()
+        if bool(tls_cert_text) != bool(tls_key_text):
+            raise RuntimeError(
+                "MINECRAFT_BRIDGE_TLS_CERT and MINECRAFT_BRIDGE_TLS_KEY must be set together"
+            )
+
+        def optional_path(value: str) -> Optional[Path]:
+            if not value:
+                return None
+            path = Path(value).expanduser()
+            if not path.is_absolute():
+                path = Path.cwd() / path
+            return path.resolve()
 
         return cls(
             discord_token=_required("MINECRAFT_DISCORD_BOT_TOKEN"),
@@ -106,6 +123,8 @@ class MinecraftConfig:
             allow_insecure_localhost=os.environ.get(
                 "MINECRAFT_ALLOW_INSECURE_LOCALHOST", "0"
             ).strip().lower() in {"1", "true", "yes"},
+            bridge_tls_cert_path=optional_path(tls_cert_text),
+            bridge_tls_key_path=optional_path(tls_key_text),
         )
 
 
