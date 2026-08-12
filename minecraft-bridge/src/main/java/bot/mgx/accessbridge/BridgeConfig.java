@@ -10,6 +10,7 @@ record BridgeConfig(
         String serverId,
         URI bridgeUri,
         byte[] secret,
+        byte[] certificateSha256,
         boolean allowInsecureLocalhost,
         int verificationExpirySeconds,
         int reconnectMaxSeconds,
@@ -21,6 +22,7 @@ record BridgeConfig(
         String serverId = config.getString("server-id", "").trim();
         String bridgeUrl = config.getString("bridge-url", "").trim();
         String secretText = config.getString("bridge-secret", "").trim();
+        String certificatePinText = config.getString("bridge-certificate-sha256", "").trim();
         boolean allowInsecure = config.getBoolean("allow-insecure-localhost", false);
         int expiry = config.getInt("verification-expiry-seconds", 600);
         int reconnectMax = config.getInt("reconnect-max-seconds", 60);
@@ -55,12 +57,22 @@ record BridgeConfig(
         if (secret.length != 32) {
             throw new IllegalArgumentException("bridge-secret must decode to exactly 32 bytes");
         }
+        byte[] certificateSha256 = BridgeTls.decodeSha256Fingerprint(certificatePinText);
         if (expiry < 60 || expiry > 3600) {
             throw new IllegalArgumentException("verification-expiry-seconds must be between 60 and 3600");
         }
         if (reconnectMax < 5 || reconnectMax > 300) {
             throw new IllegalArgumentException("reconnect-max-seconds must be between 5 and 300");
         }
-        return new BridgeConfig(serverId, uri, secret, allowInsecure, expiry, reconnectMax, debug);
+        return new BridgeConfig(
+                serverId,
+                uri,
+                secret,
+                certificateSha256,
+                allowInsecure,
+                expiry,
+                reconnectMax,
+                debug
+        );
     }
 }

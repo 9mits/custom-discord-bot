@@ -7,6 +7,11 @@ bridge-url: "wss://replace-with-bot-host/minecraft-bridge"
 # Generate with: openssl rand -hex 32
 bridge-secret: "REPLACE_ME"
 
+# Optional SHA-256 pin for direct WSS with a private certificate. Leave blank
+# when using a normal publicly trusted certificate. The certificate must still
+# match the bridge URL hostname or IP.
+bridge-certificate-sha256: ""
+
 # Keep false in production. When true, ws:// is accepted only for localhost.
 allow-insecure-localhost: false
 

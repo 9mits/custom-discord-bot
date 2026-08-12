@@ -35,6 +35,8 @@ secrets, and process-level bridge settings belong in this file:
 | `MINECRAFT_BRIDGE_PATH` | WebSocket route, normally `/minecraft-bridge`. |
 | `MINECRAFT_BRIDGE_HOST` | Local bind address, normally `0.0.0.0`. |
 | `MINECRAFT_BRIDGE_PORT` | Local HTTP port allocated to this process. |
+| `MINECRAFT_BRIDGE_TLS_CERT` | Optional certificate PEM path for direct WSS. Must be set with the key. |
+| `MINECRAFT_BRIDGE_TLS_KEY` | Optional private-key PEM path for direct WSS. Must be set with the certificate. |
 | `MINECRAFT_ALLOW_INSECURE_LOCALHOST` | Keep `0` in production. Set `1` only for a local `ws://localhost` test. |
 | `MINECRAFT_DATA_DIR` | Dedicated runtime directory; defaults to `runtime/minecraft`. |
 
@@ -58,6 +60,22 @@ openssl rand -hex 32
 ```
 
 Put the same 64-character value in `.env.minecraft` as `MINECRAFT_BRIDGE_SECRET` and in the plugin's `plugins/MGXAccessBridge/config.yml` as `bridge-secret`. Never paste it into Discord, logs, support tickets, or git. Rotating it requires changing both sides and restarting both processes.
+
+### Direct TLS certificate pin
+
+Normal installations leave `bridge-certificate-sha256` blank and use a publicly
+trusted certificate. Direct WSS may instead use a private self-signed certificate
+and an explicit SHA-256 leaf-certificate pin:
+
+```yaml
+bridge-certificate-sha256: "64-character-lowercase-sha256-fingerprint"
+```
+
+Pinned mode remains WSS-only, verifies the URL hostname against the certificate, checks
+the exact certificate fingerprint, and keeps the signed HMAC application protocol. The
+pin is the trust anchor, so it also securely supports a private self-signed certificate.
+A certificate rotation fails closed until the independently verified pin is updated;
+never guess a pin or use one supplied by an untrusted party.
 
 ## Building the Paper plugin
 
@@ -85,7 +103,11 @@ Gson is shaded and relocated. Networking uses Java 21's built-in HTTP/WebSocket 
 5. Set `server-id`, the public `wss://.../minecraft-bridge` URL, and the shared secret. Keep `allow-insecure-localhost: false`.
 6. Start Paper and look for the signed bridge connection confirmation. If configuration is missing or insecure, the plugin disables itself without changing login behavior.
 
-The Discord bot host must route the public WSS URL to `MINECRAFT_BRIDGE_HOST:MINECRAFT_BRIDGE_PORT`. TLS can terminate at the host's reverse proxy, but it must forward `X-Forwarded-Proto: https`. Do not expose an unencrypted public `ws://` endpoint.
+The Discord bot host must expose the configured bridge port. TLS can terminate at a
+WebSocket-capable reverse proxy that forwards `X-Forwarded-Proto: https`. Alternatively,
+set `MINECRAFT_BRIDGE_TLS_CERT` and `MINECRAFT_BRIDGE_TLS_KEY` to terminate WSS directly
+inside the bot and use a certificate whose SAN matches the public hostname or IP. Do
+not expose an unencrypted public `ws://` endpoint.
 
 ## Database migration, backup, and recovery
 
@@ -158,6 +180,8 @@ Applicants are notified by DM when possible. Closed DMs never roll back a state 
 - Confirm system clocks are synchronized; messages more than 30 seconds apart are rejected.
 - Confirm the URL uses `wss://`, the certificate is valid, and the reverse proxy supports WebSocket upgrades.
 - Confirm the host routes the configured path and port to the Minecraft bot process.
+- If pinned TLS is enabled, confirm the current leaf-certificate SHA-256 matches
+  `bridge-certificate-sha256`; certificate rotation requires a pin update.
 - Do not switch to public `ws://`; the insecure setting exists only for localhost development.
 
 ### Verification never appears

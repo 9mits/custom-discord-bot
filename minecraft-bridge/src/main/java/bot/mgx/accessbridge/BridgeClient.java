@@ -52,10 +52,16 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         this.processedActions = processedActions;
         this.networkExecutor = networkExecutor;
         this.protocol = new SignedProtocol(config.secret());
-        this.httpClient = HttpClient.newBuilder()
+        HttpClient.Builder httpClientBuilder = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(15))
-                .executor(networkExecutor)
-                .build();
+                .executor(networkExecutor);
+        if (config.certificateSha256() != null) {
+            httpClientBuilder.sslContext(BridgeTls.pinnedSslContext(config.certificateSha256()));
+            plugin.getLogger().warning(
+                    "Bridge TLS certificate pin is active; update it whenever the certificate rotates."
+            );
+        }
+        this.httpClient = httpClientBuilder.build();
     }
 
     void start() {
