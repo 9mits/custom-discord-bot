@@ -17,7 +17,6 @@ from minecraft_bot.presentation import (
     ICON_PATH,
     FOOTER_ATTACHMENT_URI,
     FOOTER_PATH,
-    LOGO_ATTACHMENT_URI,
     LOGO_PATH,
     THEME_COLOUR,
     application_embeds,
@@ -33,6 +32,7 @@ from minecraft_bot.ui import (
     CancelPendingConfirmationView,
     MinecraftApplicationModal,
     ReviewView,
+    RulesAgreementView,
 )
 
 
@@ -93,13 +93,13 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         }
         self.assertEqual(
             panel_custom_ids,
-            {"minecraft:application:apply"},
+            {"minecraft:application:apply", "minecraft:application:rules"},
         )
         embeds = application_embeds()
-        self.assertEqual(len(embeds), 3)
+        self.assertEqual(len(embeds), 2)
         self.assertEqual(embeds[0].title, "Welcome to Mysterious SMP X")
-        self.assertEqual(embeds[1].title, "General Rules")
-        self.assertEqual(embeds[2].image.url, LOGO_ATTACHMENT_URI)
+        self.assertEqual(embeds[1].title, "Apply to Mysterious SMP X")
+        self.assertIsNone(embeds[1].image.url)
         self.assertTrue(all(embed.footer.icon_url == FOOTER_ATTACHMENT_URI for embed in embeds))
 
     def test_minecraft_presentation_uses_orange_brand_system(self):
@@ -190,6 +190,36 @@ class MinecraftBotPolicyTests(unittest.TestCase):
 
 
 class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_application_banner_is_sent_before_the_embed_panel(self):
+        banner = SimpleNamespace(id=100)
+        panel = SimpleNamespace(id=101)
+        channel = SimpleNamespace(send=AsyncMock(side_effect=[banner, panel]))
+        bot = object.__new__(MinecraftAccessBot)
+        bot.settings = SimpleNamespace(application_channel_id=20)
+        bot._configured_channel = AsyncMock(return_value=channel)
+        bot.data = SimpleNamespace(
+            get_config=AsyncMock(return_value=None),
+            set_configs=AsyncMock(),
+        )
+
+        result = await bot.post_application_panel()
+
+        self.assertIs(result, panel)
+        self.assertEqual(channel.send.await_count, 2)
+        first_call, second_call = channel.send.await_args_list
+        self.assertIn("file", first_call.kwargs)
+        self.assertNotIn("embeds", first_call.kwargs)
+        self.assertEqual(len(second_call.kwargs["embeds"]), 2)
+        bot.data.set_configs.assert_awaited_once_with(
+            {
+                "application_banner_message_id": "100",
+                "application_panel_message_id": "101",
+            }
+        )
+        first_call.kwargs["file"].close()
+        for file in second_call.kwargs["files"]:
+            file.close()
+
     async def test_apply_reveals_cancel_only_for_pending_verification(self):
         application = MinecraftApplication(
             id=42,
@@ -257,6 +287,61 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         response.defer.assert_awaited_once_with()
         interaction.edit_original_response.assert_awaited_once()
         kwargs = interaction.edit_original_response.await_args.kwargs
+        self.assertIsNone(kwargs["view"])
+        self.assertIn("attachments", kwargs)
+        for file in kwargs["attachments"]:
+            file.close()
+
+    async def test_new_application_requires_rules_agreement(self):
+        response = SimpleNamespace(send_message=AsyncMock(), send_modal=AsyncMock())
+        bot = SimpleNamespace(
+            config=SimpleNamespace(guild_id=10),
+            settings=SimpleNamespace(application_channel_id=20),
+            data=SimpleNamespace(
+                get_config=AsyncMock(return_value="30"),
+                get_active_application_for_user=AsyncMock(return_value=None),
+            ),
+            apply_rate_limit=SimpleNamespace(claim=lambda _user_id: True),
+        )
+        interaction = SimpleNamespace(
+            client=bot,
+            guild_id=10,
+            channel_id=20,
+            message=SimpleNamespace(id=30),
+            user=SimpleNamespace(id=99),
+            response=response,
+        )
+
+        await ApplyButton().callback(interaction)
+
+        response.send_modal.assert_not_awaited()
+        kwargs = response.send_message.await_args.kwargs
+        self.assertIsInstance(kwargs["view"], RulesAgreementView)
+        self.assertEqual(kwargs["view"].children[0].style, discord.ButtonStyle.success)
+        self.assertEqual(kwargs["view"].children[1].style, discord.ButtonStyle.secondary)
+        for file in kwargs["files"]:
+            file.close()
+
+    async def test_rules_agreement_opens_modal_and_disagreement_edits_message(self):
+        view = RulesAgreementView(99)
+        agree_response = SimpleNamespace(send_modal=AsyncMock())
+        agree_interaction = SimpleNamespace(
+            user=SimpleNamespace(id=99),
+            response=agree_response,
+        )
+
+        await view.children[0].callback(agree_interaction)
+
+        agree_response.send_modal.assert_awaited_once()
+
+        disagree_response = SimpleNamespace(edit_message=AsyncMock())
+        disagree_interaction = SimpleNamespace(
+            user=SimpleNamespace(id=99),
+            response=disagree_response,
+        )
+        await view.children[1].callback(disagree_interaction)
+
+        kwargs = disagree_response.edit_message.await_args.kwargs
         self.assertIsNone(kwargs["view"])
         self.assertIn("attachments", kwargs)
         for file in kwargs["attachments"]:
