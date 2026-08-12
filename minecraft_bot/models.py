@@ -91,3 +91,7 @@ class InvalidTransition(RuntimeError):
 
 class DuplicateActiveApplication(RuntimeError):
     """A Discord member already has an unfinished application."""
+
+
+class AccountEditionAlreadyLinked(RuntimeError):
+    """A Discord member already owns the allowed account for this edition."""

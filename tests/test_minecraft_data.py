@@ -6,6 +6,7 @@ from pathlib import Path
 
 from minecraft_bot.data import MinecraftDataManager, normalize_username
 from minecraft_bot.models import (
+    AccountEditionAlreadyLinked,
     ApplicationStatus,
     BridgeAction,
     DuplicateActiveApplication,
@@ -176,6 +177,63 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(verified.xuid, "2533274900000001")
         with self.assertRaises(ValueError):
             normalize_username(Edition.BEDROCK, ".Real Name")
+
+    async def test_user_can_link_one_account_per_edition(self):
+        java = await self.create_pending()
+        await self.data.record_verification(
+            application_id=java.id,
+            edition=Edition.JAVA,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            current_username="TestPlayer",
+            xuid=None,
+            event_idempotency_key="java-account-limit",
+            now=1010,
+        )
+        await self.data._connection().execute(
+            "UPDATE minecraft_applications SET status=? WHERE id=?",
+            (ApplicationStatus.DENIED.value, java.id),
+        )
+        await self.data._connection().commit()
+
+        with self.assertRaises(AccountEditionAlreadyLinked):
+            await self.create_pending(username="OtherJava", now=1020)
+
+        bedrock = await self.create_pending(
+            edition=Edition.BEDROCK,
+            username="Bedrock User",
+            now=1020,
+        )
+        self.assertEqual(bedrock.edition, Edition.BEDROCK)
+
+    async def test_verification_rechecks_edition_limit_transactionally(self):
+        application = await self.create_pending(username="OtherJava")
+        await self.data._connection().execute(
+            "INSERT INTO minecraft_accounts"
+            "(discord_user_id, edition, minecraft_uuid, current_username, verified_at, "
+            "last_seen_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "42",
+                Edition.JAVA.value,
+                "123e4567-e89b-12d3-a456-426614174099",
+                "OriginalJava",
+                1000,
+                1000,
+                1000,
+                1000,
+            ),
+        )
+        await self.data._connection().commit()
+
+        with self.assertRaisesRegex(InvalidTransition, "linked Java account"):
+            await self.data.record_verification(
+                application_id=application.id,
+                edition=Edition.JAVA,
+                minecraft_uuid="123e4567-e89b-12d3-a456-426614174098",
+                current_username="OtherJava",
+                xuid=None,
+                event_idempotency_key="defensive-account-limit",
+                now=1010,
+            )
 
     async def test_bedrock_verification_requires_floodgate_xuid(self):
         application = await self.create_pending(edition=Edition.BEDROCK, username="Real Name")

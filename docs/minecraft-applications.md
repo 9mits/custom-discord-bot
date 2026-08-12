@@ -21,6 +21,8 @@ The bridge exposes an HTTP WebSocket path inside the Minecraft bot process. Prod
 
 Every bridge message carries an HMAC-SHA256 signature, timestamp, random nonce, and idempotency key. Both sides reject messages outside a 30-second clock window and replayed nonces. The bridge accepts only `APPROVE`, `REVOKE`, `KICK`, `SYNC_PENDING`, `REMOVE_PENDING`, and `STATUS`; it cannot run arbitrary console commands. Paper sends signed, acknowledged `PLAYER_JOIN` and `PLAYER_LEAVE` events for optional Discord activity logging.
 
+Each Discord member can link at most one Java account and one Bedrock account. The limit is enforced transactionally when an application is created and checked again when Paper verifies ownership.
+
 ## Discord bot configuration
 
 Copy [`.env.example`](../.env.example) to a git-ignored `.env.minecraft`. Only identity,

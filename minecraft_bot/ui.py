@@ -6,7 +6,13 @@ from contextlib import suppress
 
 import discord
 
-from .models import ApplicationStatus, DuplicateActiveApplication, Edition, InvalidTransition
+from .models import (
+    AccountEditionAlreadyLinked,
+    ApplicationStatus,
+    DuplicateActiveApplication,
+    Edition,
+    InvalidTransition,
+)
 from .presentation import (
     branded_edit,
     branded_send,
@@ -323,6 +329,18 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
                     )
                 ),
                 view=view,
+            )
+            return
+        except AccountEditionAlreadyLinked as exc:
+            await interaction.edit_original_response(
+                **branded_edit(
+                    info_embed(
+                        "Minecraft Account Limit Reached",
+                        f"> {exc}.\n\n"
+                        "Each Discord member may link **one Java account and one Bedrock account**.",
+                        error=True,
+                    )
+                )
             )
             return
         except ValueError as exc:
