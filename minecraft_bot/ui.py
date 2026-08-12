@@ -32,6 +32,28 @@ class ApplyButton(discord.ui.Button):
                 ephemeral=True,
             )
             return
+        active = await bot.data.get_active_application_for_user(
+            guild_id=interaction.guild_id,
+            discord_user_id=interaction.user.id,
+        )
+        if active is not None:
+            if active.status is ApplicationStatus.PENDING_VERIFICATION:
+                await interaction.response.send_message(
+                    embed=verification_embed(active, bot.settings),
+                    view=CancelPendingConfirmationView(interaction.user.id),
+                    ephemeral=True,
+                )
+            else:
+                await interaction.response.send_message(
+                    embed=info_embed(
+                        "Application Already Active",
+                        f"Application `#{active.id}` is currently **"
+                        f"{active.status.value.replace('_', ' ').title()}**. "
+                        "It can no longer be cancelled by the applicant. Staff will send your result when review is complete.",
+                    ),
+                    ephemeral=True,
+                )
+            return
         if not bot.apply_rate_limit.claim(interaction.user.id):
             await interaction.response.send_message(
                 "Please wait a few seconds before opening the application again.",
@@ -47,37 +69,12 @@ class ApplyButton(discord.ui.Button):
                 ephemeral=True,
             )
 
-
-class CancelPendingButton(discord.ui.Button):
-    def __init__(self) -> None:
-        super().__init__(
-            label="Cancel Pending Verification",
-            style=discord.ButtonStyle.secondary,
-            custom_id="minecraft:application:cancel",
-        )
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        bot = interaction.client
-        if interaction.guild_id != bot.config.guild_id:
-            await interaction.response.send_message("Applications are not available here.", ephemeral=True)
-            return
-        await interaction.response.send_message(
-            embed=info_embed(
-                "Cancel Pending Verification?",
-                "This withdraws only an application that is still waiting for Minecraft verification. "
-                "You can apply again immediately with the correct username.",
-            ),
-            view=CancelPendingConfirmationView(interaction.user.id),
-            ephemeral=True,
-        )
-
-
 class CancelPendingConfirmationView(discord.ui.View):
     def __init__(self, requester_id: int) -> None:
         super().__init__(timeout=60)
         self.requester_id = int(requester_id)
 
-    @discord.ui.button(label="Cancel and Reapply", style=discord.ButtonStyle.danger)
+    @discord.ui.button(label="Cancel Pending Verification", style=discord.ButtonStyle.danger)
     async def confirm(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
         if interaction.user.id != self.requester_id:
             await interaction.response.send_message(
@@ -188,12 +185,23 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
                 answers={"why": str(self.why), "about": str(self.about)},
             )
         except DuplicateActiveApplication:
+            active = await bot.data.get_active_application_for_user(
+                guild_id=interaction.guild_id,
+                discord_user_id=interaction.user.id,
+            )
+            view = (
+                CancelPendingConfirmationView(interaction.user.id)
+                if active is not None and active.status is ApplicationStatus.PENDING_VERIFICATION
+                else None
+            )
             await interaction.edit_original_response(
                 embed=info_embed(
                     "Application Already Active",
-                    "You already have an application being verified or reviewed.",
+                    "You already have an application being verified or reviewed. "
+                    "If it is still awaiting verification, you can cancel it below and apply again.",
                     error=True,
-                )
+                ),
+                view=view,
             )
             return
         except ValueError as exc:
