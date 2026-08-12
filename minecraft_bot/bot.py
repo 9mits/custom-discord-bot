@@ -15,7 +15,7 @@ from discord.ext import commands, tasks
 from .bridge import MinecraftBridgeServer
 from .config import MinecraftConfig
 from .data import MinecraftDataManager
-from .models import ApplicationStatus, BridgeAction, InvalidTransition, MinecraftApplication, OutboxRecord
+from .models import ApplicationStatus, BridgeAction, Edition, InvalidTransition, MinecraftApplication, OutboxRecord
 from .presentation import (
     application_panel,
     application_embeds,
@@ -567,6 +567,7 @@ class MinecraftAccessBot(commands.Bot):
             )
 
         @group.command(name="status", description="Show Minecraft bridge and queue health.")
+        @app_commands.default_permissions(manage_messages=True)
         async def status(interaction: discord.Interaction) -> None:
             if not await self.require_moderator(interaction):
                 return
@@ -634,6 +635,7 @@ class MinecraftAccessBot(commands.Bot):
             await interaction.edit_original_response(**branded_edit(embed))
 
         @group.command(name="lookup", description="Show a member's linked accounts and application history.")
+        @app_commands.default_permissions(manage_messages=True)
         @app_commands.describe(user="Discord member to look up")
         async def lookup(interaction: discord.Interaction, user: discord.Member) -> None:
             if not await self.require_moderator(interaction):
@@ -662,6 +664,7 @@ class MinecraftAccessBot(commands.Bot):
             )
 
         @group.command(name="revoke", description="Remove a member's Minecraft access.")
+        @app_commands.default_permissions(manage_messages=True)
         @app_commands.describe(user="Discord member to revoke", reason="Internal audit reason")
         async def revoke(interaction: discord.Interaction, user: discord.Member, reason: app_commands.Range[str, 1, 500]) -> None:
             if not await self.require_moderator(interaction):
@@ -692,7 +695,70 @@ class MinecraftAccessBot(commands.Bot):
                 )
             )
 
+        @group.command(name="unlink", description="Unlink one Java or Bedrock account from a member.")
+        @app_commands.default_permissions(manage_messages=True)
+        @app_commands.describe(
+            user="Discord member whose account should be unlinked",
+            edition="Minecraft edition to unlink",
+            reason="Internal audit reason",
+        )
+        @app_commands.choices(
+            edition=[
+                app_commands.Choice(name="Java", value=Edition.JAVA.value),
+                app_commands.Choice(name="Bedrock", value=Edition.BEDROCK.value),
+            ]
+        )
+        async def unlink(
+            interaction: discord.Interaction,
+            user: discord.Member,
+            edition: app_commands.Choice[str],
+            reason: app_commands.Range[str, 1, 500],
+        ) -> None:
+            if not await self.require_moderator(interaction):
+                return
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            parsed_edition = Edition(edition.value)
+            account, applications, revocation_queued = await self.data.unlink_account(
+                user.id,
+                parsed_edition,
+                interaction.user.id,
+                reason,
+            )
+            if account is None:
+                await interaction.edit_original_response(
+                    **branded_edit(
+                        info_embed(
+                            "Minecraft Account Not Linked",
+                            f"> {user.mention} does not have a linked **{edition.name}** account.",
+                            error=True,
+                        )
+                    )
+                )
+                return
+            if revocation_queued and self.bridge.connected:
+                await self.bridge.dispatch_outbox()
+            for application in applications:
+                if application.status is ApplicationStatus.CANCELLED:
+                    with suppress(Exception):
+                        await self.update_review_message(application)
+            if revocation_queued:
+                description = (
+                    f"> `{account['current_username']}` will be unlinked from {user.mention} after Paper "
+                    "confirms removal of Minecraft access.\n\nThe member cannot replace that account until confirmation."
+                )
+                title = "Minecraft Unlink Queued"
+            else:
+                description = (
+                    f"> `{account['current_username']}` was unlinked from {user.mention}.\n\n"
+                    f"They may now link a different **{edition.name}** account."
+                )
+                title = "Minecraft Account Unlinked"
+            await interaction.edit_original_response(
+                **branded_edit(info_embed(title, description, success=True))
+            )
+
         @group.command(name="retry", description="Retry failed bridge actions for an application.")
+        @app_commands.default_permissions(manage_messages=True)
         @app_commands.describe(application="Application ID")
         async def retry(interaction: discord.Interaction, application: app_commands.Range[int, 1]) -> None:
             if not await self.require_moderator(interaction):
@@ -754,6 +820,7 @@ class MinecraftAccessBot(commands.Bot):
             )
 
         @group.command(name="applications", description="List recent Minecraft applications by status.")
+        @app_commands.default_permissions(manage_messages=True)
         @app_commands.describe(status="Optional application state", limit="Number of records to show")
         @app_commands.choices(
             status=[
@@ -790,6 +857,7 @@ class MinecraftAccessBot(commands.Bot):
             )
 
         @group.command(name="audit", description="Show the recorded lifecycle for an application.")
+        @app_commands.default_permissions(manage_messages=True)
         @app_commands.describe(application="Application ID")
         async def audit(
             interaction: discord.Interaction,

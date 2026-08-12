@@ -235,6 +235,74 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
                 now=1010,
             )
 
+    async def test_moderator_can_unlink_unapproved_account_immediately(self):
+        application = await self.create_pending()
+        await self.data.record_verification(
+            application_id=application.id,
+            edition=Edition.JAVA,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            current_username="TestPlayer",
+            xuid=None,
+            event_idempotency_key="unlink-unapproved",
+            now=1010,
+        )
+
+        account, affected, queued = await self.data.unlink_account(
+            42,
+            Edition.JAVA,
+            99,
+            "Applicant requested a different account",
+        )
+
+        self.assertEqual(account["current_username"], "TestPlayer")
+        self.assertFalse(queued)
+        self.assertEqual(affected[0].status, ApplicationStatus.CANCELLED)
+        self.assertEqual(await self.data.list_accounts_for_user(42), [])
+        audit = await self.data.audit_rows(application.id)
+        self.assertEqual(audit[-1]["action"], "ACCOUNT_UNLINKED")
+        self.assertEqual(audit[-1]["actor_discord_id"], "99")
+
+    async def test_approved_account_unlinks_only_after_paper_confirmation(self):
+        application = await self.create_pending()
+        await self.data.record_verification(
+            application_id=application.id,
+            edition=Edition.JAVA,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            current_username="TestPlayer",
+            xuid=None,
+            event_idempotency_key="unlink-approved",
+            now=1010,
+        )
+        await self.data.queue_approval(application.id, 99, now=1020)
+        approval = next(
+            record
+            for record in await self.data.get_outbox_batch()
+            if record.action is BridgeAction.APPROVE
+        )
+        await self.data.complete_outbox(approval.idempotency_key)
+
+        account, affected, queued = await self.data.unlink_account(
+            42,
+            Edition.JAVA,
+            99,
+            "Replacing linked account",
+        )
+
+        self.assertEqual(account["current_username"], "TestPlayer")
+        self.assertTrue(queued)
+        self.assertEqual(affected[0].status, ApplicationStatus.APPROVED)
+        self.assertEqual(len(await self.data.list_accounts_for_user(42)), 1)
+        unlink = next(
+            record
+            for record in await self.data.get_outbox_batch()
+            if record.action is BridgeAction.REVOKE and record.payload.get("unlink_account")
+        )
+        _, revoked, changed = await self.data.complete_outbox(unlink.idempotency_key)
+
+        self.assertTrue(changed)
+        self.assertEqual(revoked.status, ApplicationStatus.REVOKED)
+        self.assertEqual(await self.data.list_accounts_for_user(42), [])
+
     async def test_bedrock_verification_requires_floodgate_xuid(self):
         application = await self.create_pending(edition=Edition.BEDROCK, username="Real Name")
         with self.assertRaisesRegex(InvalidTransition, "XUID"):

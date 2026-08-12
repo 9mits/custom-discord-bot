@@ -168,6 +168,7 @@ The submitted edition, UUID, and XUID are never trusted. Paper and Floodgate pro
 - **View Previous Applications** shows staff a member's application history without exposing internal notes.
 - `/minecraft status` reports connection, heartbeat, application, and outbox state.
 - `/minecraft lookup user:<member>` shows linked UUID/XUID records and application history.
+- `/minecraft unlink user:<member> edition:<Java|Bedrock> reason:<text>` removes one linked account. Approved access is revoked on Paper before the link is deleted; unapproved links are removed immediately.
 - `/minecraft revoke user:<member> reason:<text>` queues whitelist removal for all approved accounts, removes the Discord role after Paper confirms the last revocation, and kicks matching online accounts.
 - `/minecraft retry application:<id>` retries failed bridge work.
 - `/minecraft cancel application:<id>` cancels an unfinished application and removes it from Paper's verification cache. A potentially in-flight approval is followed by an idempotent revocation.
