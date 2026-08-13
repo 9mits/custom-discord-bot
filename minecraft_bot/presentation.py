@@ -34,6 +34,7 @@ VERIFY_FILENAME = "mysterious_smp_x_verify.png"
 VERIFY_PATH = Path(__file__).resolve().parent.parent / "assets" / "minecraft" / VERIFY_FILENAME
 VERIFY_ATTACHMENT_URI = f"attachment://{VERIFY_FILENAME}"
 MINECRAFT_HEAD_URL = "https://mc-heads.net/head/{identifier}/128.png"
+BEDROCK_NAME_HEAD_URL = "https://api.mcheads.org/head/.{identifier}/128"
 
 
 def _safe(value: object, limit: int = 1000) -> str:
@@ -41,11 +42,27 @@ def _safe(value: object, limit: int = 1000) -> str:
     return text[:limit]
 
 
-def minecraft_head_url(application: MinecraftApplication) -> Optional[str]:
+def minecraft_head_url(
+    application: MinecraftApplication,
+    *,
+    allow_claimed_username: bool = False,
+) -> Optional[str]:
     identifier = str(application.minecraft_uuid or "").strip()
-    if not identifier:
+    if identifier:
+        return MINECRAFT_HEAD_URL.format(identifier=quote(identifier, safe=""))
+    if not allow_claimed_username:
         return None
-    return MINECRAFT_HEAD_URL.format(identifier=quote(identifier, safe=""))
+    username = str(application.verified_username or application.claimed_username or "").strip()
+    if not username:
+        return None
+    template = BEDROCK_NAME_HEAD_URL if application.edition.value == "BEDROCK" else MINECRAFT_HEAD_URL
+    return template.format(identifier=quote(username, safe=""))
+
+
+def _set_minecraft_thumbnail(embed: discord.Embed, thumbnail_url: Optional[str]) -> discord.Embed:
+    if thumbnail_url:
+        embed.set_thumbnail(url=thumbnail_url)
+    return embed
 
 
 def brand_logo_file() -> discord.File:
@@ -247,9 +264,7 @@ def review_embed(
         )
     if application.status is ApplicationStatus.DENIED and application.applicant_reason:
         embed.add_field(name="Applicant-Facing Reason", value=_safe(application.applicant_reason), inline=False)
-    skin_head = minecraft_head_url(application)
-    if skin_head:
-        embed.set_thumbnail(url=skin_head)
+    _set_minecraft_thumbnail(embed, minecraft_head_url(application))
     embed.set_footer(text=BRAND_NAME, icon_url=FOOTER_ICON_URL)
     return embed
 
@@ -427,7 +442,10 @@ def application_log_embed(application: MinecraftApplication) -> discord.Embed:
         value=f"<@{application.discord_user_id}> · `{application.discord_user_id}`",
         inline=False,
     )
-    return embed
+    return _set_minecraft_thumbnail(
+        embed,
+        minecraft_head_url(application, allow_claimed_username=True),
+    )
 
 
 def verification_log_embed(application: MinecraftApplication) -> discord.Embed:
@@ -449,7 +467,7 @@ def verification_log_embed(application: MinecraftApplication) -> discord.Embed:
     )
     if application.xuid:
         embed.add_field(name="Floodgate XUID", value=f"`{_safe(application.xuid, 100)}`", inline=False)
-    return embed
+    return _set_minecraft_thumbnail(embed, minecraft_head_url(application))
 
 
 def decision_log_embed(application: MinecraftApplication) -> discord.Embed:
@@ -470,7 +488,10 @@ def decision_log_embed(application: MinecraftApplication) -> discord.Embed:
             value=_safe(application.applicant_reason, 1000),
             inline=False,
         )
-    return embed
+    return _set_minecraft_thumbnail(
+        embed,
+        minecraft_head_url(application, allow_claimed_username=True),
+    )
 
 
 def player_activity_embed(
@@ -497,4 +518,7 @@ def player_activity_embed(
             value=f"<@{discord_user_id}> · `{discord_user_id}`",
             inline=False,
         )
-    return embed
+    return _set_minecraft_thumbnail(
+        embed,
+        MINECRAFT_HEAD_URL.format(identifier=quote(str(minecraft_uuid).strip(), safe="")),
+    )
