@@ -468,6 +468,21 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(restored.id, application.id)
         self.assertEqual(restored.status_channel_id, "500")
 
+    async def test_pending_verification_is_not_selected_for_dm_card_recovery(self):
+        pending = await self.create_pending()
+        self.assertNotIn(pending.id, [item.id for item in await self.data.list_live_card_applications()])
+
+        verified, _changed = await self.data.record_verification(
+            application_id=pending.id,
+            edition=Edition.JAVA,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174066",
+            current_username="TestPlayer",
+            xuid=None,
+            event_idempotency_key="live-card-after-verification",
+            now=1010,
+        )
+        self.assertIn(verified.id, [item.id for item in await self.data.list_live_card_applications()])
+
     async def test_join_updates_renamed_account_by_uuid(self):
         application = await self.create_pending()
         await self.data.record_verification(

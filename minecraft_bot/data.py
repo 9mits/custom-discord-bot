@@ -837,11 +837,14 @@ class MinecraftDataManager:
         return self._application(rows[0]) if rows else None
 
     async def list_live_card_applications(self, *, limit: int = 100) -> list[MinecraftApplication]:
-        placeholders = ",".join("?" for _ in ACTIVE_APPLICATION_STATUSES)
         rows = await self._connection().execute_fetchall(
-            f"SELECT * FROM minecraft_applications WHERE status IN ({placeholders}) "
+            "SELECT * FROM minecraft_applications WHERE status IN (?, ?) "
             "ORDER BY id DESC LIMIT ?",
-            (*(status.value for status in ACTIVE_APPLICATION_STATUSES), max(1, min(limit, 500))),
+            (
+                ApplicationStatus.PENDING_REVIEW.value,
+                ApplicationStatus.APPROVAL_QUEUED.value,
+                max(1, min(limit, 500)),
+            ),
         )
         return [self._application(row) for row in rows]
 

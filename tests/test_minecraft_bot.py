@@ -272,6 +272,18 @@ class MinecraftBotPolicyTests(unittest.TestCase):
 
 
 class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_submission_does_not_dm_a_pending_verification_card(self):
+        bot = object.__new__(MinecraftAccessBot)
+        bot.log_application_submission = AsyncMock()
+        bot.update_live_card = AsyncMock()
+        bot.bridge = SimpleNamespace(connected=False)
+        application = SimpleNamespace(id=1, status=ApplicationStatus.PENDING_VERIFICATION)
+
+        await bot.finish_application_submission(application)
+
+        bot.log_application_submission.assert_awaited_once_with(application)
+        bot.update_live_card.assert_not_awaited()
+
     async def test_application_panel_has_no_public_banner_message(self):
         panel = SimpleNamespace(id=101)
         channel = SimpleNamespace(send=AsyncMock(return_value=panel))

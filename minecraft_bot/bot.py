@@ -372,7 +372,6 @@ class MinecraftAccessBot(commands.Bot):
 
     async def finish_application_submission(self, application: MinecraftApplication) -> None:
         await self.log_application_submission(application)
-        await self.update_live_card(application)
         if self.bridge.connected:
             await self.bridge.dispatch_outbox()
 
