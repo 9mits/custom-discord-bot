@@ -33,6 +33,9 @@ RANK_ROLES = (
     (1476877246902960249, "booster", "BOOSTER", 0xFF73FA),
 )
 RANK_GROUPS = tuple(group for _role_id, group, _label, _colour in RANK_ROLES)
+# Boost perks are independent of the displayed rank: an owner who also boosts
+# still earns them, even though "owner" is the rank that wins the tag.
+BOOSTER_ROLE_ID = 1476877246902960249
 
 
 @dataclass(frozen=True)
@@ -66,6 +69,11 @@ def profile_for_role_ids(role_ids: Iterable[int]) -> MinecraftLevelProfile:
         ),
         elite=ELITE_ROLE_ID in owned,
     )
+
+
+def is_booster(role_ids: Iterable[int]) -> bool:
+    """Whether the member boosts the server, regardless of which rank wins."""
+    return BOOSTER_ROLE_ID in {int(role_id) for role_id in role_ids}
 
 
 def rank_for_role_ids(role_ids: Iterable[int]) -> Optional[MinecraftRank]:

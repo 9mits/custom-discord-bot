@@ -127,9 +127,10 @@ final class SidebarService {
             rows.add(new Row("Rank", profile.rankLabel(), TextColor.color(profile.rankColour())));
         }
         rows.add(new Row("Server Level", String.valueOf(profile.level()), NamedTextColor.GREEN));
-        rows.add(new Row("Extra Hearts", String.valueOf(profile.extraHearts()), NamedTextColor.GREEN));
-        if (profile.elite()) {
-            rows.add(new Row("Power", "+5% damage", NamedTextColor.LIGHT_PURPLE));
+        rows.add(new Row("Extra Hearts", String.valueOf(profile.totalExtraHearts()), NamedTextColor.GREEN));
+        int damageBonus = (int) Math.round((profile.damageMultiplier() - 1.0) * 100);
+        if (damageBonus > 0) {
+            rows.add(new Row("Power", "+" + damageBonus + "% damage", NamedTextColor.LIGHT_PURPLE));
         }
         clans.clanOf(player.getUniqueId())
                 .ifPresent(clan -> rows.add(new Row("Clan", clan.name(), clanColor(clan))));

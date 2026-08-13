@@ -8,6 +8,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityExhaustionEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 
 import java.nio.charset.StandardCharsets;
@@ -16,7 +17,10 @@ import java.util.Map;
 import java.util.UUID;
 
 final class PlayerPerkService implements Listener {
-    static final double ELITE_DAMAGE_MULTIPLIER = 1.05;
+    static final double ELITE_DAMAGE_BONUS = 0.15;
+    static final double BOOSTER_DAMAGE_BONUS = 0.10;
+    /** Boosters lose hunger 10% more slowly, which is how the saturation perk is felt. */
+    static final float BOOSTER_EXHAUSTION_MULTIPLIER = 0.90f;
     private static final UUID HEART_MODIFIER_ID = UUID.nameUUIDFromBytes(
             "mgx:discord-level-hearts".getBytes(StandardCharsets.UTF_8)
     );
@@ -38,11 +42,11 @@ final class PlayerPerkService implements Listener {
         if (current != null) {
             health.removeModifier(current);
         }
-        if (profile.extraHearts() > 0) {
+        if (profile.totalExtraHearts() > 0) {
             health.addTransientModifier(new AttributeModifier(
                     HEART_MODIFIER_ID,
                     HEART_MODIFIER_NAME,
-                    profile.extraHearts() * 2.0,
+                    profile.totalExtraHearts() * 2.0,
                     AttributeModifier.Operation.ADD_NUMBER
             ));
         }
@@ -69,9 +73,19 @@ final class PlayerPerkService implements Listener {
     }
 
     @EventHandler(priority = EventPriority.NORMAL, ignoreCancelled = true)
-    public void onEliteDamage(EntityDamageByEntityEvent event) {
-        if (event.getDamager() instanceof Player player && profile(player.getUniqueId()).elite()) {
-            event.setDamage(event.getDamage() * ELITE_DAMAGE_MULTIPLIER);
+    public void onPerkDamage(EntityDamageByEntityEvent event) {
+        if (event.getDamager() instanceof Player player) {
+            double multiplier = profile(player.getUniqueId()).damageMultiplier();
+            if (multiplier != 1.0) {
+                event.setDamage(event.getDamage() * multiplier);
+            }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.NORMAL, ignoreCancelled = true)
+    public void onBoosterExhaustion(EntityExhaustionEvent event) {
+        if (event.getEntity() instanceof Player player && profile(player.getUniqueId()).booster()) {
+            event.setExhaustion(event.getExhaustion() * BOOSTER_EXHAUSTION_MULTIPLIER);
         }
     }
 

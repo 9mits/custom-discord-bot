@@ -7,9 +7,10 @@ record PlayerProfile(
         String rankGroup,
         String rankLabel,
         int rankColour,
-        int rankWeight
+        int rankWeight,
+        boolean booster
 ) {
-    static final PlayerProfile NONE = new PlayerProfile(0, 0, false, "", "", 0, 0);
+    static final PlayerProfile NONE = new PlayerProfile(0, 0, false, "", "", 0, 0, false);
 
     PlayerProfile {
         level = Math.max(0, Math.min(level, 50));
@@ -22,7 +23,22 @@ record PlayerProfile(
     }
 
     PlayerProfile(int level, int extraHearts, boolean elite) {
-        this(level, extraHearts, elite, "", "", 0, 0);
+        this(level, extraHearts, elite, "", "", 0, 0, false);
+    }
+
+    /** Total extra hearts, including the one a booster earns on top of level rewards. */
+    int totalExtraHearts() {
+        return extraHearts + (booster ? 1 : 0);
+    }
+
+    /**
+     * Damage multiplier. Elite and boost stack additively, so a level 50 booster
+     * hits for 25% more rather than 26.5%.
+     */
+    double damageMultiplier() {
+        return 1.0
+                + (elite ? PlayerPerkService.ELITE_DAMAGE_BONUS : 0.0)
+                + (booster ? PlayerPerkService.BOOSTER_DAMAGE_BONUS : 0.0);
     }
 
     boolean hasRank() {
