@@ -18,7 +18,11 @@ from minecraft_bot.presentation import (
     LOGO_ATTACHMENT_URI,
     FOOTER_PATH,
     LOGO_PATH,
+    RULES_ATTACHMENT_URI,
+    RULES_PATH,
     THEME_COLOUR,
+    VERIFY_ATTACHMENT_URI,
+    VERIFY_PATH,
     application_embeds,
     application_panel,
     denial_embed,
@@ -26,6 +30,7 @@ from minecraft_bot.presentation import (
     review_embed,
     verification_embed,
     verified_embed,
+    live_status_embed,
 )
 from minecraft_bot.settings import MinecraftSettings
 from minecraft_bot.setup import MinecraftSetupView
@@ -37,6 +42,7 @@ from minecraft_bot.ui import (
     MinecraftApplicationModal,
     LiveApplicationView,
     ReviewView,
+    RulesButton,
     RulesAgreementView,
 )
 
@@ -150,11 +156,15 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertTrue(LOGO_PATH.is_file())
         self.assertTrue(ICON_PATH.is_file())
         self.assertTrue(FOOTER_PATH.is_file())
+        self.assertTrue(RULES_PATH.is_file())
+        self.assertTrue(VERIFY_PATH.is_file())
 
     def test_minecraft_brand_assets_stay_lightweight(self):
         self.assertLess(LOGO_PATH.stat().st_size, 500_000)
         self.assertLess(ICON_PATH.stat().st_size, 100_000)
         self.assertLess(FOOTER_PATH.stat().st_size, 25_000)
+        self.assertLess(RULES_PATH.stat().st_size, 1_000_000)
+        self.assertLess(VERIFY_PATH.stat().st_size, 1_000_000)
 
     def test_verification_instructions_are_copyable_and_edition_specific(self):
         application = MinecraftApplication(
@@ -183,6 +193,10 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertNotIn("java.example", embed.description)
         self.assertIn("/minecraft cancel", embed.description)
         self.assertNotIn("#42", embed.description)
+        self.assertEqual(embed.image.url, VERIFY_ATTACHMENT_URI)
+
+        live_embed = live_status_embed(application, settings)
+        self.assertEqual(live_embed.image.url, VERIFY_ATTACHMENT_URI)
 
     def test_applicant_decision_embed_hides_internal_application_id(self):
         application = MinecraftApplication(
@@ -280,18 +294,12 @@ class MinecraftBotPolicyTests(unittest.TestCase):
 
         view = MinecraftControlView(bot, 123)
 
+        self.assertEqual(len(view.children), 1)
+        self.assertEqual(view.children[0].custom_id, "minecraft:control:tools")
         self.assertEqual(
-            {item.custom_id for item in view.children},
-            {
-                "minecraft:control:overview",
-                "minecraft:control:diagnostics",
-                "minecraft:control:applications",
-                "minecraft:control:commandlog",
-                "minecraft:control:username",
-                "minecraft:control:member",
-            },
+            {option.value for option in view.children[0].options},
+            {"overview", "diagnostics", "applications", "commandlog", "username"},
         )
-        self.assertLessEqual(len(view.children), 6)
 
     def test_administrator_control_panel_includes_setup(self):
         bot = SimpleNamespace(
@@ -301,10 +309,60 @@ class MinecraftBotPolicyTests(unittest.TestCase):
 
         view = MinecraftControlView(bot, 123, include_setup=True)
 
-        self.assertIn("minecraft:control:setup", {item.custom_id for item in view.children})
+        self.assertEqual(len(view.children), 1)
+        self.assertIn("setup", {option.value for option in view.children[0].options})
+
+    def test_control_dropdown_reuses_the_compact_panel(self):
+        replacement = object()
+        bot = SimpleNamespace(
+            is_moderator=lambda _member: True,
+            is_administrator=lambda _member: False,
+            build_control_overview=AsyncMock(),
+            build_diagnostics_embed=AsyncMock(return_value=info_embed("Diagnostics", "Clear")),
+            build_applications_embed=AsyncMock(),
+            build_command_log_embed=AsyncMock(),
+            control_view=lambda _interaction: replacement,
+        )
+        view = MinecraftControlView(bot, 123)
+        menu = view.children[0]
+        menu._values = ["diagnostics"]
+        interaction = SimpleNamespace(
+            user=SimpleNamespace(id=123),
+            guild=SimpleNamespace(id=10),
+            response=SimpleNamespace(defer=AsyncMock()),
+            edit_original_response=AsyncMock(),
+        )
+
+        asyncio.run(menu.callback(interaction))
+
+        interaction.response.defer.assert_awaited_once_with(ephemeral=True)
+        bot.build_diagnostics_embed.assert_awaited_once_with(interaction.guild)
+        self.assertIs(interaction.edit_original_response.await_args.kwargs["view"], replacement)
 
 
 class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_rules_button_attaches_the_rules_image(self):
+        response = SimpleNamespace(send_message=AsyncMock())
+        bot = SimpleNamespace(
+            config=SimpleNamespace(guild_id=10),
+            settings=SimpleNamespace(application_channel_id=20),
+            data=SimpleNamespace(get_config=AsyncMock(return_value="30")),
+        )
+        interaction = SimpleNamespace(
+            client=bot,
+            guild_id=10,
+            channel_id=20,
+            message=SimpleNamespace(id=30),
+            response=response,
+        )
+
+        await RulesButton().callback(interaction)
+
+        kwargs = response.send_message.await_args.kwargs
+        self.assertEqual(kwargs["embed"].image.url, RULES_ATTACHMENT_URI)
+        self.assertEqual(kwargs["file"].filename, "mysterious_smp_x_rules.png")
+        kwargs["file"].close()
+
     async def test_submission_does_not_dm_a_pending_verification_card(self):
         bot = object.__new__(MinecraftAccessBot)
         bot.log_application_submission = AsyncMock()
@@ -441,7 +499,9 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         kwargs = response.send_message.await_args.kwargs
         self.assertTrue(kwargs["ephemeral"])
         self.assertIsInstance(kwargs["view"], CancelPendingConfirmationView)
-        self.assertNotIn("files", kwargs)
+        self.assertEqual(kwargs["embed"].image.url, VERIFY_ATTACHMENT_URI)
+        self.assertEqual(kwargs["file"].filename, "mysterious_smp_x_verify.png")
+        kwargs["file"].close()
 
     async def test_cancel_confirmation_edits_the_existing_ephemeral(self):
         response = SimpleNamespace(defer=AsyncMock())
@@ -460,7 +520,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         interaction.edit_original_response.assert_awaited_once()
         kwargs = interaction.edit_original_response.await_args.kwargs
         self.assertIsNone(kwargs["view"])
-        self.assertNotIn("attachments", kwargs)
+        self.assertEqual(kwargs["attachments"], [])
 
     async def test_new_application_requires_rules_agreement(self):
         response = SimpleNamespace(send_message=AsyncMock(), send_modal=AsyncMock())
@@ -489,9 +549,10 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(kwargs["view"], RulesAgreementView)
         self.assertEqual(kwargs["view"].children[0].style, discord.ButtonStyle.success)
         self.assertEqual(kwargs["view"].children[1].style, discord.ButtonStyle.secondary)
-        self.assertIsNone(kwargs["embed"].image.url)
+        self.assertEqual(kwargs["embed"].image.url, RULES_ATTACHMENT_URI)
         self.assertIsNone(kwargs["embed"].footer.icon_url)
-        self.assertNotIn("files", kwargs)
+        self.assertEqual(kwargs["file"].filename, "mysterious_smp_x_rules.png")
+        kwargs["file"].close()
 
     async def test_rules_agreement_opens_modal_and_disagreement_edits_message(self):
         view = RulesAgreementView(99)
@@ -515,7 +576,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
 
         kwargs = disagree_response.edit_message.await_args.kwargs
         self.assertIsNone(kwargs["view"])
-        self.assertNotIn("attachments", kwargs)
+        self.assertEqual(kwargs["attachments"], [])
 
     async def test_player_activity_is_deduplicated_before_logging(self):
         bot = object.__new__(MinecraftAccessBot)

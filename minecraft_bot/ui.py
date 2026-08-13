@@ -17,7 +17,9 @@ from .presentation import (
     info_embed,
     live_status_embed,
     rules_embed,
+    rules_image_file,
     verification_embed,
+    verification_image_file,
 )
 from .support import enqueue_support_request
 
@@ -76,6 +78,7 @@ class ApplyButton(discord.ui.Button):
             if active.status is ApplicationStatus.PENDING_VERIFICATION:
                 await interaction.response.send_message(
                     **branded_send(verification_embed(active, bot.settings)),
+                    file=verification_image_file(),
                     view=CancelPendingConfirmationView(interaction.user.id),
                     ephemeral=True,
                 )
@@ -105,6 +108,7 @@ class ApplyButton(discord.ui.Button):
             return
         await interaction.response.send_message(
             **branded_send(rules_embed(agreement=True)),
+            file=rules_image_file(),
             view=RulesAgreementView(interaction.user.id),
             ephemeral=True,
         )
@@ -123,6 +127,7 @@ class RulesButton(discord.ui.Button):
             return
         await interaction.response.send_message(
             **branded_send(rules_embed()),
+            file=rules_image_file(),
             ephemeral=True,
         )
 
@@ -163,6 +168,7 @@ class RulesAgreementView(discord.ui.View):
                     "You may return to the public panel and apply later if you decide to accept them.",
                 )
             ),
+            attachments=[],
             view=None,
         )
 
@@ -196,6 +202,7 @@ class CancelPendingConfirmationView(discord.ui.View):
         except InvalidTransition as exc:
             await interaction.edit_original_response(
                 **branded_edit(info_embed("Nothing to Cancel", f"> {exc}", error=True)),
+                attachments=[],
                 view=None,
             )
             return
@@ -208,6 +215,7 @@ class CancelPendingConfirmationView(discord.ui.View):
                     success=True,
                 )
             ),
+            attachments=[],
             view=None,
         )
 
@@ -354,6 +362,7 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
         )
         await interaction.edit_original_response(
             **branded_edit(live_status_embed(application, bot.settings)),
+            attachments=[verification_image_file()],
             view=LiveApplicationView(),
         )
 
@@ -454,82 +463,6 @@ class AccountView(discord.ui.View):
             ephemeral=True,
         )
 
-class MinecraftControlAction(discord.ui.Button):
-    def __init__(self, action: str, label: str, *, row: int = 0) -> None:
-        super().__init__(
-            label=label,
-            style=discord.ButtonStyle.secondary,
-            custom_id=f"minecraft:control:{action}",
-            row=row,
-        )
-        self.action = action
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        view = self.view
-        if not isinstance(view, MinecraftControlView):
-            return
-        if self.action == "username":
-            await interaction.response.send_modal(
-                MinecraftUsernameLookupModal(view.bot, view.requester_id)
-            )
-            return
-        if self.action == "setup":
-            from .setup import MinecraftSetupView
-
-            if not view.bot.is_administrator(interaction.user):
-                await interaction.response.send_message(
-                    **branded_send(
-                        info_embed(
-                            "Administrator Access Required",
-                            "> Only server administrators can change Minecraft setup.",
-                            error=True,
-                        )
-                    ),
-                    ephemeral=True,
-                )
-                return
-            await interaction.response.send_message(
-                view=MinecraftSetupView(view.bot, interaction.user.id, interaction.guild),
-                ephemeral=True,
-            )
-            return
-
-        await interaction.response.defer(ephemeral=True)
-        builders = {
-            "overview": lambda: view.bot.build_control_overview(interaction.guild),
-            "diagnostics": lambda: view.bot.build_diagnostics_embed(interaction.guild),
-            "applications": view.bot.build_applications_embed,
-            "commandlog": view.bot.build_command_log_embed,
-        }
-        embed = await builders[self.action]()
-        await interaction.edit_original_response(
-            **branded_edit(embed),
-            view=view.bot.control_view(interaction),
-        )
-
-
-class MinecraftMemberLookupSelect(discord.ui.UserSelect):
-    def __init__(self) -> None:
-        super().__init__(
-            placeholder="Look up a Discord member",
-            custom_id="minecraft:control:member",
-            min_values=1,
-            max_values=1,
-            row=2,
-        )
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        view = self.view
-        if not isinstance(view, MinecraftControlView):
-            return
-        await interaction.response.defer(ephemeral=True)
-        embed = await view.bot.build_member_lookup_embed(self.values[0])
-        await interaction.edit_original_response(
-            **branded_edit(embed),
-            view=view.bot.control_view(interaction),
-        )
-
-
 class MinecraftUsernameLookupModal(discord.ui.Modal, title="Minecraft Username Lookup"):
     username = discord.ui.TextInput(
         label="Java username or Bedrock gamertag",
@@ -564,21 +497,80 @@ class MinecraftUsernameLookupModal(discord.ui.Modal, title="Minecraft Username L
         )
 
 
+class MinecraftControlSelect(discord.ui.Select):
+    def __init__(self, *, include_setup: bool = False) -> None:
+        options = [
+            discord.SelectOption(label="Overview", value="overview", description="Service and queue health"),
+            discord.SelectOption(label="Diagnostics", value="diagnostics", description="Explain anything that needs attention"),
+            discord.SelectOption(label="Applications", value="applications", description="Recent application activity"),
+            discord.SelectOption(label="Command Log", value="commandlog", description="Recent moderator actions"),
+            discord.SelectOption(label="Username Lookup", value="username", description="Search Minecraft account names"),
+        ]
+        if include_setup:
+            options.append(
+                discord.SelectOption(label="Setup", value="setup", description="Minecraft configuration")
+            )
+        super().__init__(
+            placeholder="Choose a moderator tool",
+            custom_id="minecraft:control:tools",
+            min_values=1,
+            max_values=1,
+            options=options,
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.view
+        if not isinstance(view, MinecraftControlView):
+            return
+        action = self.values[0]
+        if action == "username":
+            await interaction.response.send_modal(
+                MinecraftUsernameLookupModal(view.bot, view.requester_id)
+            )
+            return
+        if action == "setup":
+            from .setup import MinecraftSetupView
+
+            if not view.bot.is_administrator(interaction.user):
+                await interaction.response.send_message(
+                    **branded_send(
+                        info_embed(
+                            "Administrator Access Required",
+                            "> Only server administrators can change Minecraft setup.",
+                            error=True,
+                        )
+                    ),
+                    ephemeral=True,
+                )
+                return
+            await interaction.response.send_message(
+                view=MinecraftSetupView(view.bot, interaction.user.id, interaction.guild),
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        builders = {
+            "overview": lambda: view.bot.build_control_overview(interaction.guild),
+            "diagnostics": lambda: view.bot.build_diagnostics_embed(interaction.guild),
+            "applications": view.bot.build_applications_embed,
+            "commandlog": view.bot.build_command_log_embed,
+        }
+        embed = await builders[action]()
+        await interaction.edit_original_response(
+            **branded_edit(embed),
+            view=view.bot.control_view(interaction),
+        )
+
+
 class MinecraftControlView(discord.ui.View):
-    """Compact navigation shared by Minecraft moderator tools."""
+    """One compact navigation menu shared by Minecraft moderator commands."""
 
     def __init__(self, bot, requester_id: int, *, include_setup: bool = False) -> None:
         super().__init__(timeout=900)
         self.bot = bot
         self.requester_id = int(requester_id)
-        self.add_item(MinecraftControlAction("overview", "Overview"))
-        self.add_item(MinecraftControlAction("diagnostics", "Diagnostics"))
-        self.add_item(MinecraftControlAction("applications", "Applications"))
-        self.add_item(MinecraftControlAction("commandlog", "Command Log"))
-        self.add_item(MinecraftControlAction("username", "Username Lookup", row=1))
-        if include_setup:
-            self.add_item(MinecraftControlAction("setup", "Setup", row=1))
-        self.add_item(MinecraftMemberLookupSelect())
+        self.add_item(MinecraftControlSelect(include_setup=include_setup))
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id == self.requester_id and self.bot.is_moderator(interaction.user):
