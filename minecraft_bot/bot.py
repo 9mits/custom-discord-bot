@@ -625,12 +625,14 @@ class MinecraftAccessBot(commands.Bot):
         ):
             accounts = await self.data.list_accounts_for_user(message.author.id)
             minecraft_uuid = str(accounts[0]["minecraft_uuid"]) if accounts else None
+            minecraft_username = str(accounts[0]["current_username"]) if accounts else None
             content = str(message.content or "")[:2000]
             attachment_url = message.jump_url if message.attachments else None
             await self.bridge.send_discord_chat(
                 discord_user_id=message.author.id,
                 discord_username=message.author.name,
                 minecraft_uuid=minecraft_uuid,
+                minecraft_username=minecraft_username,
                 message=content,
                 attachment_url=attachment_url,
                 attachment_count=len(message.attachments),
@@ -683,7 +685,7 @@ class MinecraftAccessBot(commands.Bot):
                 colour=discord.Colour.from_rgb(255, 153, 0),
             )
             embed.set_author(
-                name=f"Minecraft · {current_username} · {edition.title()}",
+                name=f"Minecraft · {current_username}",
                 icon_url=MINECRAFT_HEAD_URL.format(identifier=minecraft_uuid),
             )
             embed.set_footer(text=BRAND_NAME, icon_url=FOOTER_ICON_URL)

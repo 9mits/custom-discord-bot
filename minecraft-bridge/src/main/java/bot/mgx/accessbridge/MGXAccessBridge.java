@@ -99,7 +99,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         bridgeClient = new BridgeClient(
                 this, bridgeConfig, pending, processed, verificationEvents, verifiedApplications, networkExecutor
         );
-        chatRelayService = new ChatRelayService(bridgeClient, clanStore);
+        chatRelayService = new ChatRelayService(bridgeClient);
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(perkService, this);
         getServer().getPluginManager().registerEvents(clanService, this);
@@ -162,7 +162,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     void broadcastDiscordChat(
             String discordUsername,
-            UUID linkedMinecraftUuid,
+            String minecraftUsername,
             String message,
             int attachmentCount,
             String attachmentUrl
@@ -170,7 +170,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         if (chatRelayService != null) {
             chatRelayService.broadcastDiscordChat(
                     discordUsername,
-                    linkedMinecraftUuid,
+                    minecraftUsername,
                     message,
                     attachmentCount,
                     attachmentUrl

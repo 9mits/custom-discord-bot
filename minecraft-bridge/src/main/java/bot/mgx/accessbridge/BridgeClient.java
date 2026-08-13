@@ -362,12 +362,18 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                     ? UUID.fromString(payload.get("minecraft_uuid").getAsString())
                     : null;
             String discordUsername = payload.get("discord_username").getAsString().trim();
+            String minecraftUsername = payload.has("minecraft_username")
+                    ? payload.get("minecraft_username").getAsString().trim()
+                    : null;
             String message = payload.get("message").getAsString();
             if (discordUsername.isEmpty() || discordUsername.length() > 32) {
                 throw new IllegalArgumentException("DISCORD_CHAT has an invalid username");
             }
             if (message.length() > 2_000) {
                 throw new IllegalArgumentException("DISCORD_CHAT message is too long");
+            }
+            if (minecraftUsername != null && (minecraftUsername.isEmpty() || minecraftUsername.length() > 32)) {
+                throw new IllegalArgumentException("DISCORD_CHAT has an invalid Minecraft username");
             }
             int attachmentCount = payload.has("attachment_count")
                     ? Math.max(0, Math.min(payload.get("attachment_count").getAsInt(), 10))
@@ -377,7 +383,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                     : null;
             plugin.broadcastDiscordChat(
                     discordUsername,
-                    minecraftUuid,
+                    minecraftUsername,
                     message,
                     attachmentCount,
                     attachmentUrl
