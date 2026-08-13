@@ -248,16 +248,16 @@ class RenderingTests(unittest.TestCase):
         self.assertIn("FAILED", line)
         self.assertIn("mc-abc", line)
 
-    def test_the_important_embed_names_the_staff_member_and_target(self):
+    def test_the_important_embed_names_the_actor_and_target(self):
         embed = build_important_embed(make_record(
             command="minecraft revoke", risk=RISK_DESTRUCTIVE, target_id=555, channel_id=42
         ))
         rendered = {field.name: field.value for field in embed.fields}
 
-        self.assertIn("<@7>", rendered["Staff"])
+        self.assertIn("<@7>", rendered["Actor"])
         self.assertIn("<@555>", rendered["Target"])
         self.assertIn("<#42>", rendered["Channel"])
-        self.assertEqual(rendered["Risk"], "Destructive")
+        self.assertEqual(rendered["Category"], "Destructive")
 
     def test_an_empty_command_log_explains_itself(self):
         embed = build_command_log_embed([], total=0)
@@ -327,6 +327,17 @@ class DeliveryRoutingTests(unittest.TestCase):
 
         self.assertEqual(client.data.record_command_log.await_count, 1)
 
+    def test_live_logs_use_a_linked_players_minecraft_skin(self):
+        client = self._client(command_channel=10)
+        client.data.list_accounts_for_user = AsyncMock(return_value=[{
+            "minecraft_uuid": "123e4567-e89b-12d3-a456-426614174000",
+        }])
+
+        asyncio.run(deliver(client, make_record()))
+
+        embed = client._send_configured_log.await_args.args[1]
+        self.assertIn("123e4567-e89b-12d3-a456-426614174000", embed.thumbnail.url)
+
     def test_a_channel_failure_never_propagates_into_the_command_path(self):
         client = self._client(command_channel=10)
         client._send_configured_log = AsyncMock(side_effect=RuntimeError("channel exploded"))
@@ -368,12 +379,14 @@ class SettingsTests(unittest.TestCase):
     def test_the_new_channels_are_persisted_settings(self):
         self.assertIn("command_log_channel_id", SETTING_KEYS)
         self.assertIn("critical_log_channel_id", SETTING_KEYS)
+        self.assertIn("chat_channel_id", SETTING_KEYS)
 
     def test_they_default_to_disabled(self):
         settings = MinecraftSettings()
 
         self.assertEqual(settings.command_log_channel_id, 0)
         self.assertEqual(settings.critical_log_channel_id, 0)
+        self.assertEqual(settings.chat_channel_id, 0)
 
     def test_they_can_be_set_and_cleared(self):
         settings = MinecraftSettings().with_updates(command_log_channel_id=123)

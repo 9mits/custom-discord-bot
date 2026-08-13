@@ -21,11 +21,13 @@ from .security import MAX_CLOCK_SKEW_SECONDS, create_envelope, verify_envelope
 logger = logging.getLogger("MinecraftAccessBot.bridge")
 AUTO_EDITION_PROTOCOL_VERSION = 2
 PROFILE_SYNC_PROTOCOL_VERSION = 3
-CURRENT_PROTOCOL_VERSION = PROFILE_SYNC_PROTOCOL_VERSION
+CHAT_SYNC_PROTOCOL_VERSION = 4
+CURRENT_PROTOCOL_VERSION = CHAT_SYNC_PROTOCOL_VERSION
 
 VerificationHandler = Callable[..., Awaitable[None]]
 ActionResultHandler = Callable[[OutboxRecord, Optional[Any]], Awaitable[None]]
 PlayerEventHandler = Callable[..., Awaitable[None]]
+ChatMessageHandler = Callable[..., Awaitable[None]]
 
 
 class MinecraftBridgeServer:
@@ -37,12 +39,14 @@ class MinecraftBridgeServer:
         verification_handler: VerificationHandler,
         action_result_handler: ActionResultHandler,
         player_event_handler: PlayerEventHandler,
+        chat_message_handler: Optional[ChatMessageHandler] = None,
     ) -> None:
         self.config = config
         self.data = data
         self.verification_handler = verification_handler
         self.action_result_handler = action_result_handler
         self.player_event_handler = player_event_handler
+        self.chat_message_handler = chat_message_handler
         self._app = web.Application(client_max_size=1024 * 1024)
         self._app.router.add_get(config.bridge_path, self._websocket_handler)
         self._runner: Optional[web.AppRunner] = None
@@ -76,6 +80,10 @@ class MinecraftBridgeServer:
     @property
     def supports_profile_sync(self) -> bool:
         return self.connected and self._peer_protocol_version >= PROFILE_SYNC_PROTOCOL_VERSION
+
+    @property
+    def supports_chat_sync(self) -> bool:
+        return self.connected and self._peer_protocol_version >= CHAT_SYNC_PROTOCOL_VERSION
 
     async def start(self) -> None:
         ssl_context = None
@@ -270,6 +278,21 @@ class MinecraftBridgeServer:
                 idempotency_key=envelope["idempotency_key"],
             )
             return
+        if message_type == "MINECRAFT_CHAT":
+            if self.chat_message_handler is not None:
+                await self.chat_message_handler(
+                    minecraft_uuid=str(payload["minecraft_uuid"]),
+                    current_username=str(payload["current_username"]),
+                    edition=str(payload["edition"]).upper(),
+                    message=str(payload["message"]),
+                    event_idempotency_key=envelope["idempotency_key"],
+                )
+            await self._send(
+                "MINECRAFT_CHAT_ACK",
+                {"event_idempotency_key": envelope["idempotency_key"]},
+                idempotency_key=envelope["idempotency_key"],
+            )
+            return
         if message_type == "ACTION_RESULT":
             action_key = str(payload.get("action_idempotency_key", ""))
             if not action_key:
@@ -340,6 +363,7 @@ class MinecraftBridgeServer:
         level: int,
         extra_hearts: int,
         elite: bool,
+        discord_username: str = "",
     ) -> bool:
         """Apply an online player's Discord-derived perks on protocol v3 Paper."""
         if not self.supports_profile_sync:
@@ -353,8 +377,42 @@ class MinecraftBridgeServer:
                     "level": max(0, min(int(level), 50)),
                     "extra_hearts": max(0, min(int(extra_hearts), 5)),
                     "elite": bool(elite),
+                    "discord_username": str(discord_username).strip()[:32],
                 },
                 idempotency_key=f"profile:{minecraft_uuid}:{secrets.token_hex(12)}",
+            )
+        except ConnectionError:
+            return False
+        return True
+
+    async def send_discord_chat(
+        self,
+        *,
+        discord_user_id: int,
+        discord_username: str,
+        minecraft_uuid: Optional[str],
+        message: str,
+        attachment_url: Optional[str] = None,
+        attachment_count: int = 0,
+    ) -> bool:
+        if not self.supports_chat_sync:
+            return False
+        payload: dict[str, Any] = {
+            "action": "DISCORD_CHAT",
+            "discord_user_id": str(discord_user_id),
+            "discord_username": str(discord_username).strip()[:32],
+            "message": str(message)[:2000],
+            "attachment_count": max(0, min(int(attachment_count), 10)),
+        }
+        if minecraft_uuid:
+            payload["minecraft_uuid"] = str(minecraft_uuid)
+        if attachment_url:
+            payload["attachment_url"] = str(attachment_url)[:500]
+        try:
+            await self._send(
+                "ACTION",
+                payload,
+                idempotency_key=f"discord-chat:{discord_user_id}:{secrets.token_hex(12)}",
             )
         except ConnectionError:
             return False

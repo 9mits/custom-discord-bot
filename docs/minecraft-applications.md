@@ -19,7 +19,7 @@ minecraft_main.py -> MinecraftAccessBot -> runtime/minecraft/minecraft.db
 
 The bridge exposes an HTTP WebSocket path inside the Minecraft bot process. Production traffic must reach it through a TLS endpoint (`wss://`). The Paper plugin makes the outbound connection, so the Minecraft server does not need an inbound bridge port and RCON is never used.
 
-Every bridge message carries an HMAC-SHA256 signature, timestamp, random nonce, and idempotency key. Both sides reject messages outside a 30-second clock window and replayed nonces. The bridge accepts only `APPROVE`, `REVOKE`, `KICK`, `SYNC_PENDING`, `REMOVE_PENDING`, `STATUS`, and the transient `SYNC_PROFILE` perk update; it cannot run arbitrary console commands. Paper sends signed, acknowledged `PLAYER_JOIN` and `PLAYER_LEAVE` events for optional Discord activity logging and receives a derived level profile when a linked player joins or their milestone roles change.
+Every bridge message carries an HMAC-SHA256 signature, timestamp, random nonce, and idempotency key. Both sides reject messages outside a 30-second clock window and replayed nonces. The bridge accepts only `APPROVE`, `REVOKE`, `KICK`, `SYNC_PENDING`, `REMOVE_PENDING`, `STATUS`, `DISCORD_CHAT`, and the transient `SYNC_PROFILE` perk update; it cannot run arbitrary console commands. Paper sends signed, acknowledged `PLAYER_JOIN`, `PLAYER_LEAVE`, and `MINECRAFT_CHAT` events and receives a derived level profile when a linked player joins or their milestone roles change.
 
 Each Discord member can link at most one Java account and one Bedrock account. The limit is enforced transactionally when an application is created and checked again when Paper verifies ownership.
 
@@ -42,7 +42,7 @@ secrets, and process-level bridge settings belong in this file:
 | `MINECRAFT_ALLOW_INSECURE_LOCALHOST` | Keep `0` in production. Set `1` only for a local `ws://localhost` test. |
 | `MINECRAFT_DATA_DIR` | Dedicated runtime directory; defaults to `runtime/minecraft`. |
 
-Application/review channels, application/verification/player-activity logs,
+Application/review channels, application/verification/player-activity logs, two-way chat,
 moderator/approved-member roles, and the public Java and Bedrock addresses are
 configured inside Discord with `/minecraft setup`. They are saved
 to `minecraft.db` and take effect immediately. Older `.env.minecraft` files may still
@@ -52,7 +52,7 @@ contain `MINECRAFT_APPLICATION_CHANNEL_ID`, `MINECRAFT_REVIEW_CHANNEL_ID`,
 one-time bootstrap defaults when the database has no saved value, but can be removed
 after the first successful startup.
 
-The Discord application needs the Server Members intent enabled in the Developer Portal so review records can show join dates, the bot can assign the approved-member role, and Minecraft perks can update when milestone roles change. Invite only this dedicated application to the configured guild. Its role must sit above the approved-member role selected in the panel, and it needs View Channels, Send Messages, Embed Links, Read Message History, and Manage Roles in the relevant channels/server.
+The Discord application needs the Server Members and Message Content intents enabled in the Developer Portal. Server Members powers review metadata, approved roles, and milestone perks; Message Content is required for Discord-to-Minecraft chat. Invite only this dedicated application to the configured guild. Its role must sit above the approved-member role selected in the panel, and it needs View Channels, Send Messages, Embed Links, Read Message History, and Manage Roles in the relevant channels/server. The optional chat-sync channel also requires Manage Webhooks.
 
 ## Shared secret
 
@@ -164,6 +164,23 @@ scoreboard:
 The footer accepts 1-32 characters. Refresh intervals accept 10-200 ticks; the default
 is once per second.
 
+## Discord and Minecraft chat
+
+Select a **Minecraft chat** channel in `/minecraft setup`, or use
+`/minecraft chat-channel`. Minecraft messages are posted there through a bot-owned
+webhook. A linked player uses the linked Discord account's username and avatar; the
+embed still identifies the Minecraft username and edition. Discord messages are sent
+to Paper with a blurple `◆ DISCORD` badge, an optional clan tag, the Discord username,
+and the original plain text. Attachments become a clickable link back to the Discord
+message because Minecraft cannot render Discord files directly.
+
+Bots and webhook messages are ignored on the Discord-to-Minecraft path to prevent
+relay loops. All chat travels through the existing signed bridge; no second Discord
+client or separate account-link database is introduced. A linked Discord username is
+shown between the clan tag and normal Minecraft name in public chat, clan chat,
+nametags, and the player list. Players can use `/discordnames` to hide or restore their
+own linked name without changing their clan or Minecraft display name.
+
 ## Minecraft clans
 
 Clans are UUID-based, survive name changes and server restarts, and have one leader,
@@ -198,7 +215,7 @@ After the dedicated bot is online, a server Administrator runs:
 
 The command opens an ephemeral Components V2 dashboard in the same visual style as the
 main bot. Select the application channel, private review channel, optional logging
-channels, moderator role, and approved-member role, then use **Edit Addresses** for the public Java and Bedrock
+and chat-sync channels, moderator role, and approved-member role, then use **Edit Addresses** for the public Java and Bedrock
 addresses. The dashboard validates channel permissions and role hierarchy before
 **Post Application Panel** is available as a successful action.
 
@@ -236,7 +253,8 @@ The submitted edition, UUID, and XUID are never trusted. Paper and Floodgate pro
 - `/minecraft revoke user:<member> reason:<text>` queues whitelist removal for all approved accounts, removes the Discord role after Paper confirms the last revocation, and kicks matching online accounts.
 - `/minecraft retry application:<id>` retries failed bridge work.
 - `/minecraft cancel application:<id>` cancels an unfinished application and removes it from Paper's verification cache. A potentially in-flight approval is followed by an idempotent revocation.
-- `/minecraft log-channel log:<type> channel:<channel>` configures an application, verification, or player-activity stream. Omit `channel` to disable that stream.
+- `/minecraft log-channel log:<type> channel:<channel>` configures the shared Activity Log or the quieter Important Log. Omit `channel` to disable that stream.
+- `/minecraft chat-channel channel:<channel>` configures two-way Discord and Minecraft chat. Omit `channel` to disable the relay.
 - `/minecraft applications status:<optional> limit:<optional>` lists recent applications and their current lifecycle state.
 - `/minecraft audit application:<id>` shows the recorded lifecycle events for one application.
 

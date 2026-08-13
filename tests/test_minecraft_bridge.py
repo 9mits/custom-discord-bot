@@ -41,12 +41,14 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.verification_handler = AsyncMock()
         self.result_handler = AsyncMock()
         self.player_event_handler = AsyncMock()
+        self.chat_message_handler = AsyncMock()
         self.server = MinecraftBridgeServer(
             self.config,
             self.data,
             verification_handler=self.verification_handler,
             action_result_handler=self.result_handler,
             player_event_handler=self.player_event_handler,
+            chat_message_handler=self.chat_message_handler,
         )
         await self.server.start()
         socket = self.server._site._server.sockets[0]
@@ -177,6 +179,7 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
             level=50,
             extra_hearts=5,
             elite=True,
+            discord_username="hellomits",
         )
         profile = await socket.receive_json()
 
@@ -187,6 +190,7 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(profile["payload"]["level"], 50)
         self.assertEqual(profile["payload"]["extra_hearts"], 5)
         self.assertTrue(profile["payload"]["elite"])
+        self.assertEqual(profile["payload"]["discord_username"], "hellomits")
         await socket.close()
 
     async def test_replayed_nonce_closes_the_connection(self):
@@ -246,6 +250,57 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
             self.player_event_handler.await_args.kwargs["event_idempotency_key"],
             "player-join-1",
         )
+        await socket.close()
+
+    async def test_protocol_v4_relays_chat_in_both_directions(self):
+        socket = await self.session.ws_connect(
+            f"http://127.0.0.1:{self.port}/minecraft-bridge"
+        )
+        await socket.send_json(create_envelope(
+            self.secret,
+            "HELLO",
+            {"server_id": "mysterious-smp-x", "protocol_version": 4},
+            idempotency_key="hello-v4-chat",
+        ))
+        hello_ack = await socket.receive_json()
+        await socket.receive_json()
+
+        await socket.send_json(create_envelope(
+            self.secret,
+            "MINECRAFT_CHAT",
+            {
+                "edition": "JAVA",
+                "minecraft_uuid": "123e4567-e89b-12d3-a456-426614174000",
+                "current_username": "TestPlayer",
+                "message": "hello from Minecraft",
+            },
+            idempotency_key="minecraft-chat-1",
+        ))
+        acknowledgement = await socket.receive_json()
+
+        sent = await self.server.send_discord_chat(
+            discord_user_id=7,
+            discord_username="hellomits",
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            message="hello from Discord",
+            attachment_url="https://discord.com/channels/1/2/3",
+            attachment_count=1,
+        )
+        action = await socket.receive_json()
+
+        self.assertEqual(hello_ack["payload"]["protocol_version"], 4)
+        self.assertEqual(acknowledgement["type"], "MINECRAFT_CHAT_ACK")
+        self.chat_message_handler.assert_awaited_once_with(
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            current_username="TestPlayer",
+            edition="JAVA",
+            message="hello from Minecraft",
+            event_idempotency_key="minecraft-chat-1",
+        )
+        self.assertTrue(sent)
+        self.assertEqual(action["payload"]["action"], "DISCORD_CHAT")
+        self.assertEqual(action["payload"]["discord_username"], "hellomits")
+        self.assertEqual(action["payload"]["attachment_count"], 1)
         await socket.close()
 
     async def test_plaintext_non_development_connection_is_rejected(self):

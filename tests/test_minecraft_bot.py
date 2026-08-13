@@ -26,6 +26,7 @@ from minecraft_bot.presentation import (
     application_embeds,
     application_log_embed,
     application_panel,
+    application_panel_files,
     decision_log_embed,
     denial_embed,
     info_embed,
@@ -97,6 +98,7 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertFalse(lookup_parameters["username"].required)
         self.assertTrue(commands["setup"].default_permissions.administrator)
         self.assertTrue(commands["log-channel"].default_permissions.administrator)
+        self.assertTrue(commands["chat-channel"].default_permissions.administrator)
         self.assertIsNone(commands["cancel"].default_permissions)
 
     def test_application_and_review_components_are_persistent(self):
@@ -147,6 +149,10 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertEqual(embeds[0].footer.text, BRAND_NAME)
         self.assertIsNone(embeds[1].image.url)
         self.assertEqual(embeds[1].footer.icon_url, FOOTER_ICON_URL)
+        files = application_panel_files()
+        self.assertEqual([item.filename for item in files], ["mysterious_smp_x_logo.png"])
+        for item in files:
+            item.close()
 
     def test_minecraft_presentation_uses_orange_brand_system(self):
         embed = info_embed("Status", "Operational", success=True)
@@ -437,6 +443,97 @@ class MinecraftBotPolicyTests(unittest.TestCase):
 
 
 class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_discord_chat_channel_relays_plain_messages_and_attachment_link(self):
+        bot = object.__new__(MinecraftAccessBot)
+        bot.config = SimpleNamespace(guild_id=10)
+        bot.settings = SimpleNamespace(chat_channel_id=20)
+        bot.data = SimpleNamespace(list_accounts_for_user=AsyncMock(return_value=[{
+            "minecraft_uuid": "123e4567-e89b-12d3-a456-426614174000",
+        }]))
+        bot.bridge = SimpleNamespace(send_discord_chat=AsyncMock(return_value=True))
+        bot.process_commands = AsyncMock()
+        message = SimpleNamespace(
+            guild=SimpleNamespace(id=10),
+            channel=SimpleNamespace(id=20),
+            author=SimpleNamespace(id=99, name="hellomits", bot=False),
+            webhook_id=None,
+            content="hello from Discord",
+            attachments=[SimpleNamespace(filename="image.png")],
+            jump_url="https://discord.com/channels/10/20/30",
+        )
+
+        await bot.on_message(message)
+
+        bot.bridge.send_discord_chat.assert_awaited_once_with(
+            discord_user_id=99,
+            discord_username="hellomits",
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            message="hello from Discord",
+            attachment_url=message.jump_url,
+            attachment_count=1,
+        )
+        bot.process_commands.assert_awaited_once_with(message)
+
+    async def test_discord_chat_relay_ignores_webhooks_to_prevent_loops(self):
+        bot = object.__new__(MinecraftAccessBot)
+        bot.config = SimpleNamespace(guild_id=10)
+        bot.settings = SimpleNamespace(chat_channel_id=20)
+        bot.data = SimpleNamespace(list_accounts_for_user=AsyncMock())
+        bot.bridge = SimpleNamespace(send_discord_chat=AsyncMock())
+        bot.process_commands = AsyncMock()
+        message = SimpleNamespace(
+            guild=SimpleNamespace(id=10),
+            channel=SimpleNamespace(id=20),
+            author=SimpleNamespace(id=99, name="relay", bot=False),
+            webhook_id=123,
+            content="loop",
+            attachments=[],
+        )
+
+        await bot.on_message(message)
+
+        bot.bridge.send_discord_chat.assert_not_awaited()
+        bot.data.list_accounts_for_user.assert_not_awaited()
+
+    async def test_modal_submission_replaces_the_original_ephemeral_rules_card(self):
+        application = SimpleNamespace(id=42)
+        original_message = SimpleNamespace(id=9001)
+        bot = SimpleNamespace(
+            data=SimpleNamespace(create_application=AsyncMock(return_value=application)),
+            settings=SimpleNamespace(),
+            remember_application_message=Mock(),
+            finish_application_submission=Mock(return_value=asyncio.sleep(0)),
+        )
+
+        def close_background_work(work, *, name):
+            work.close()
+
+        bot.spawn_background_task = Mock(side_effect=close_background_work)
+        interaction = SimpleNamespace(
+            client=bot,
+            guild_id=10,
+            user=SimpleNamespace(id=99),
+            response=SimpleNamespace(defer=AsyncMock()),
+            original_response=AsyncMock(return_value=original_message),
+            edit_original_response=AsyncMock(),
+        )
+        modal = MinecraftApplicationModal(Edition.JAVA)
+        modal.username._value = "PlayerOne"
+        modal.why._value = "I enjoy collaborative survival servers."
+        modal.about._value = "I build farms and help other players."
+
+        with patch("minecraft_bot.ui.live_status_embed", return_value=info_embed("Application Received", "> Saved.")):
+            await modal.on_submit(interaction)
+
+        interaction.response.defer.assert_awaited_once_with()
+        interaction.edit_original_response.assert_awaited_once()
+        kwargs = interaction.edit_original_response.await_args.kwargs
+        self.assertEqual(kwargs["embed"].title, "Application Received")
+        self.assertIsInstance(kwargs["view"], LiveApplicationView)
+        self.assertEqual(kwargs["attachments"][0].filename, "mysterious_smp_x_verify.png")
+        kwargs["attachments"][0].close()
+        bot.remember_application_message.assert_called_once_with(42, original_message)
+
     async def test_rules_button_attaches_the_rules_image(self):
         response = SimpleNamespace(send_message=AsyncMock())
         bot = SimpleNamespace(
@@ -738,9 +835,9 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         await view.children[0].callback(agree_interaction)
 
         agree_response.send_modal.assert_awaited_once()
-        self.assertIs(
-            agree_response.send_modal.await_args.args[0].source_message,
-            agree_interaction.message,
+        self.assertIsInstance(
+            agree_response.send_modal.await_args.args[0],
+            MinecraftApplicationModal,
         )
 
         disagree_response = SimpleNamespace(edit_message=AsyncMock())
@@ -785,6 +882,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
             level=0,
             extra_hearts=0,
             elite=False,
+            discord_username="",
         )
 
     async def test_level_role_change_resyncs_all_linked_accounts(self):

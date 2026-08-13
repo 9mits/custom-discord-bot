@@ -40,6 +40,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private PlayerPerkService perkService;
     private SidebarService sidebarService;
     private VerifiedApplicationStore verifiedApplications;
+    private DiscordIdentityService identityService;
+    private ChatRelayService chatRelayService;
 
     @Override
     public void onEnable() {
@@ -62,6 +64,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         ProcessedActionStore processed;
         VerificationEventStore verificationEvents;
         ClanStore clanStore;
+        DiscordIdentityStore identityStore;
         try {
             Path resultFile = getDataFolder().toPath().resolve("processed-actions.properties");
             processed = new ProcessedActionStore(resultFile, networkExecutor);
@@ -72,6 +75,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                     getDataFolder().toPath().resolve("verified-applications.json")
             );
             clanStore = new ClanStore(getDataFolder().toPath().resolve("clans.json"));
+            identityStore = new DiscordIdentityStore(
+                    getDataFolder().toPath().resolve("discord-identities.json")
+            );
         } catch (IOException exception) {
             getLogger().severe("MGXAccessBridge could not open its data stores: " + exception.getMessage());
             networkExecutor.shutdownNow();
@@ -79,26 +85,31 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             return;
         }
         perkService = new PlayerPerkService();
-        ClanService clanService = new ClanService(this, clanStore);
+        identityService = new DiscordIdentityService(this, identityStore);
+        ClanService clanService = new ClanService(this, clanStore, identityService);
         GuideService guideService = new GuideService();
         sidebarService = new SidebarService(
                 this,
                 perkService,
                 clanStore,
+                identityService,
                 bridgeConfig.scoreboardFooter(),
                 bridgeConfig.scoreboardUpdateTicks()
         );
         bridgeClient = new BridgeClient(
                 this, bridgeConfig, pending, processed, verificationEvents, verifiedApplications, networkExecutor
         );
+        chatRelayService = new ChatRelayService(bridgeClient, clanStore);
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(perkService, this);
         getServer().getPluginManager().registerEvents(clanService, this);
+        getServer().getPluginManager().registerEvents(chatRelayService, this);
         if (getCommand("clans") == null
                 || getCommand("claninfo") == null
                 || getCommand("guide") == null
                 || getCommand("perks") == null
-                || getCommand("discord") == null) {
+                || getCommand("discord") == null
+                || getCommand("discordnames") == null) {
             getLogger().severe("A required Minecraft command is missing from plugin.yml.");
             getServer().getPluginManager().disablePlugin(this);
             return;
@@ -111,6 +122,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("guide").setTabCompleter(guideService);
         getCommand("perks").setExecutor(guideService);
         getCommand("discord").setExecutor(guideService);
+        getCommand("discordnames").setExecutor(identityService);
         sidebarService.start();
         bridgeClient.start();
     }
@@ -139,6 +151,30 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     void refreshClanAppearance() {
         if (sidebarService != null) {
             sidebarService.refreshAll();
+        }
+    }
+
+    void applyDiscordIdentity(UUID minecraftUuid, String discordUsername) {
+        if (identityService != null) {
+            identityService.sync(minecraftUuid, discordUsername);
+        }
+    }
+
+    void broadcastDiscordChat(
+            String discordUsername,
+            UUID linkedMinecraftUuid,
+            String message,
+            int attachmentCount,
+            String attachmentUrl
+    ) {
+        if (chatRelayService != null) {
+            chatRelayService.broadcastDiscordChat(
+                    discordUsername,
+                    linkedMinecraftUuid,
+                    message,
+                    attachmentCount,
+                    attachmentUrl
+            );
         }
     }
 
