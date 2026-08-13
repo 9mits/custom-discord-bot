@@ -745,7 +745,13 @@ class MinecraftAccessBot(commands.Bot):
                 linked_user = self.get_user(int(discord_user_id))
             except (TypeError, ValueError):
                 linked_user = None
-        member_role_ids = [role.id for role in getattr(member, "roles", ())]
+        # Highest Discord role first, so role hierarchy decides which rank wins.
+        member_roles = sorted(
+            getattr(member, "roles", ()),
+            key=lambda role: getattr(role, "position", 0),
+            reverse=True,
+        )
+        member_role_ids = [role.id for role in member_roles]
         profile = profile_for_role_ids(member_role_ids)
         rank = rank_for_role_ids(member_role_ids)
         return await self.bridge.send_player_profile(

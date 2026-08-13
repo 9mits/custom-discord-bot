@@ -1046,6 +1046,51 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
             member=after,
         )
 
+    async def test_discord_role_hierarchy_decides_which_rank_wins(self):
+        bot = object.__new__(MinecraftAccessBot)
+        bot.bridge = SimpleNamespace(
+            supports_profile_sync=True,
+            send_player_profile=AsyncMock(return_value=True),
+        )
+        bot.data = SimpleNamespace(account_for_uuid=AsyncMock(return_value=None))
+        # Deliberately listed lowest-first, the order discord.py yields.
+        booster = SimpleNamespace(id=1476877246902960249, position=2)
+        owner = SimpleNamespace(id=1476839722247786593, position=40)
+        member = SimpleNamespace(id=99, roles=[booster, owner], name="mits")
+
+        await bot.sync_player_profile(
+            "123e4567-e89b-12d3-a456-426614174000",
+            99,
+            member=member,
+        )
+
+        kwargs = bot.bridge.send_player_profile.await_args.kwargs
+        self.assertEqual(kwargs["rank_group"], "owner")
+        self.assertEqual(kwargs["rank_label"], "OWNER")
+
+    async def test_lower_discord_role_wins_when_ranked_above(self):
+        bot = object.__new__(MinecraftAccessBot)
+        bot.bridge = SimpleNamespace(
+            supports_profile_sync=True,
+            send_player_profile=AsyncMock(return_value=True),
+        )
+        bot.data = SimpleNamespace(account_for_uuid=AsyncMock(return_value=None))
+        # Booster dragged above owner in Discord: hierarchy, not code order, decides.
+        booster = SimpleNamespace(id=1476877246902960249, position=90)
+        owner = SimpleNamespace(id=1476839722247786593, position=40)
+        member = SimpleNamespace(id=99, roles=[owner, booster], name="mits")
+
+        await bot.sync_player_profile(
+            "123e4567-e89b-12d3-a456-426614174000",
+            99,
+            member=member,
+        )
+
+        self.assertEqual(
+            bot.bridge.send_player_profile.await_args.kwargs["rank_group"],
+            "booster",
+        )
+
 
 class MinecraftConfigurationTests(unittest.IsolatedAsyncioTestCase):
     def test_minimal_environment_is_enough_to_bootstrap(self):

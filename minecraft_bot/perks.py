@@ -17,9 +17,10 @@ LEVEL_ROLE_MILESTONES = (
 ELITE_ROLE_ID = LEVEL_ROLE_MILESTONES[-1][0]
 
 
-# Discord rank roles mapped to LuckPerms groups, ordered most to least powerful.
-# The first entry a member holds wins, so reordering this tuple reorders rank
-# priority. Colours mirror the Discord role colours so in-game tags match.
+# Discord rank roles mapped to LuckPerms groups. Priority is NOT taken from this
+# tuple: rank_for_role_ids() honours the order it is given, and the bot passes a
+# member's roles sorted by Discord hierarchy, so dragging a role in Discord
+# reorders ranks with no code change. Colours mirror the Discord role colours.
 RANK_ROLES = (
     (1476839722247786593, "owner", "OWNER", 0x4FA8DC),
     (1476839722247786591, "admin", "ADMIN", 0xA33A32),
@@ -67,9 +68,20 @@ def profile_for_role_ids(role_ids: Iterable[int]) -> MinecraftLevelProfile:
 
 
 def rank_for_role_ids(role_ids: Iterable[int]) -> Optional[MinecraftRank]:
-    """Return the highest-priority rank a member holds, or None when they hold none."""
-    owned = {int(role_id) for role_id in role_ids}
-    for role_id, group, label, colour in RANK_ROLES:
-        if role_id in owned:
-            return MinecraftRank(group=group, label=label, colour=colour)
+    """Return the rank for the first mapped role, or None when none are mapped.
+
+    Priority comes from the caller's ordering, so pass roles highest-first to
+    let Discord's own role hierarchy decide which rank wins.
+    """
+    ranks = {
+        role_id: MinecraftRank(group=group, label=label, colour=colour)
+        for role_id, group, label, colour in RANK_ROLES
+    }
+    for role_id in role_ids:
+        try:
+            rank = ranks.get(int(role_id))
+        except (TypeError, ValueError):
+            continue
+        if rank is not None:
+            return rank
     return None
