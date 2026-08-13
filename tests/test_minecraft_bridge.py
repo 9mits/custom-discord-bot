@@ -282,6 +282,7 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
             discord_user_id=7,
             discord_username="hellomits",
             minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            minecraft_username="TestPlayer",
             message="hello from Discord",
             attachment_url="https://discord.com/channels/1/2/3",
             attachment_count=1,
@@ -300,6 +301,7 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(sent)
         self.assertEqual(action["payload"]["action"], "DISCORD_CHAT")
         self.assertEqual(action["payload"]["discord_username"], "hellomits")
+        self.assertEqual(action["payload"]["minecraft_username"], "TestPlayer")
         self.assertEqual(action["payload"]["attachment_count"], 1)
         await socket.close()
 

@@ -454,6 +454,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         bot.settings = SimpleNamespace(chat_channel_id=20)
         bot.data = SimpleNamespace(list_accounts_for_user=AsyncMock(return_value=[{
             "minecraft_uuid": "123e4567-e89b-12d3-a456-426614174000",
+            "current_username": "TestPlayer",
         }]))
         bot.bridge = SimpleNamespace(send_discord_chat=AsyncMock(return_value=True))
         bot.process_commands = AsyncMock()
@@ -473,11 +474,38 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
             discord_user_id=99,
             discord_username="hellomits",
             minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            minecraft_username="TestPlayer",
             message="hello from Discord",
             attachment_url=message.jump_url,
             attachment_count=1,
         )
         bot.process_commands.assert_awaited_once_with(message)
+
+    async def test_minecraft_chat_webhook_omits_the_player_edition(self):
+        channel = Mock(spec=discord.TextChannel)
+        webhook = SimpleNamespace(send=AsyncMock())
+        bot = object.__new__(MinecraftAccessBot)
+        bot.config = SimpleNamespace(guild_id=10)
+        bot.settings = SimpleNamespace(chat_channel_id=20)
+        bot.data = SimpleNamespace(
+            claim_bridge_event=AsyncMock(return_value=True),
+            get_account_owner=AsyncMock(return_value=None),
+        )
+        bot._configured_channel = AsyncMock(return_value=channel)
+        bot._chat_webhook = AsyncMock(return_value=webhook)
+
+        await bot.handle_minecraft_chat(
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            current_username="TestPlayer",
+            edition="JAVA",
+            message="hello from Minecraft",
+            event_idempotency_key="minecraft-chat-1",
+        )
+
+        webhook.send.assert_awaited_once()
+        embed = webhook.send.await_args.kwargs["embed"]
+        self.assertEqual(embed.author.name, "Minecraft · TestPlayer")
+        self.assertNotIn("Java", embed.author.name)
 
     async def test_discord_chat_relay_ignores_webhooks_to_prevent_loops(self):
         bot = object.__new__(MinecraftAccessBot)

@@ -16,17 +16,14 @@ import org.bukkit.event.Listener;
 import org.geysermc.floodgate.api.FloodgateApi;
 import org.geysermc.floodgate.api.player.FloodgatePlayer;
 
-import java.util.Optional;
 import java.util.UUID;
 
 final class ChatRelayService implements Listener {
     private static final TextColor BLURPLE = TextColor.color(0x5865F2);
     private final BridgeClient bridge;
-    private final ClanStore clans;
 
-    ChatRelayService(BridgeClient bridge, ClanStore clans) {
+    ChatRelayService(BridgeClient bridge) {
         this.bridge = bridge;
-        this.clans = clans;
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -57,25 +54,19 @@ final class ChatRelayService implements Listener {
 
     void broadcastDiscordChat(
             String discordUsername,
-            UUID linkedMinecraftUuid,
+            String minecraftUsername,
             String message,
             int attachmentCount,
             String attachmentUrl
     ) {
-        Component rendered = Component.empty();
-        if (linkedMinecraftUuid != null) {
-            Optional<ClanStore.ClanView> clan = clans.clanOf(linkedMinecraftUuid);
-            if (clan.isPresent()) {
-                rendered = rendered.append(Component.text(
-                        "[" + clan.get().name() + "] ",
-                        TextColor.color(clan.get().themeColor()),
-                        TextDecoration.BOLD
-                ));
-            }
+        Component rendered = Component.text("◆ DISCORD", BLURPLE, TextDecoration.BOLD)
+                .append(Component.text("  (@" + discordUsername + ")", BLURPLE));
+        if (minecraftUsername != null && !minecraftUsername.isBlank()) {
+            rendered = rendered
+                    .append(Component.text(" ", NamedTextColor.DARK_GRAY))
+                    .append(Component.text(minecraftUsername, NamedTextColor.WHITE));
         }
         rendered = rendered
-                .append(Component.text("◆ DISCORD", BLURPLE, TextDecoration.BOLD))
-                .append(Component.text("  @" + discordUsername, BLURPLE))
                 .append(Component.text(": ", NamedTextColor.DARK_GRAY))
                 .append(Component.text(message, NamedTextColor.WHITE));
         if (attachmentCount > 0 && attachmentUrl != null && !attachmentUrl.isBlank()) {

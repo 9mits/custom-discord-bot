@@ -391,6 +391,7 @@ class MinecraftBridgeServer:
         discord_user_id: int,
         discord_username: str,
         minecraft_uuid: Optional[str],
+        minecraft_username: Optional[str],
         message: str,
         attachment_url: Optional[str] = None,
         attachment_count: int = 0,
@@ -406,6 +407,8 @@ class MinecraftBridgeServer:
         }
         if minecraft_uuid:
             payload["minecraft_uuid"] = str(minecraft_uuid)
+        if minecraft_username:
+            payload["minecraft_username"] = str(minecraft_username).strip()[:32]
         if attachment_url:
             payload["attachment_url"] = str(attachment_url)[:500]
         try:
