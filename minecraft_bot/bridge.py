@@ -41,6 +41,7 @@ class MinecraftBridgeServer:
         action_result_handler: ActionResultHandler,
         player_event_handler: PlayerEventHandler,
         chat_message_handler: Optional[ChatMessageHandler] = None,
+        leaderboard_handler: Optional[Callable[[dict[str, Any]], Awaitable[None]]] = None,
     ) -> None:
         self.config = config
         self.data = data
@@ -48,6 +49,9 @@ class MinecraftBridgeServer:
         self.action_result_handler = action_result_handler
         self.player_event_handler = player_event_handler
         self.chat_message_handler = chat_message_handler
+        self.leaderboard_handler = leaderboard_handler
+        # Newest standings pushed by Paper; the leaderboard message renders from this.
+        self.latest_leaderboard: dict[str, Any] = {}
         self._app = web.Application(client_max_size=1024 * 1024)
         self._app.router.add_get(config.bridge_path, self._websocket_handler)
         self._runner: Optional[web.AppRunner] = None
@@ -297,6 +301,13 @@ class MinecraftBridgeServer:
                 {"event_idempotency_key": envelope["idempotency_key"]},
                 idempotency_key=envelope["idempotency_key"],
             )
+            return
+        if message_type == "LEADERBOARD_SNAPSHOT":
+            # Newest snapshot wins; there is nothing to acknowledge because a dropped
+            # one is simply replaced by the next push.
+            self.latest_leaderboard = payload
+            if self.leaderboard_handler is not None:
+                await self.leaderboard_handler(payload)
             return
         if message_type == "ACTION_RESULT":
             action_key = str(payload.get("action_idempotency_key", ""))

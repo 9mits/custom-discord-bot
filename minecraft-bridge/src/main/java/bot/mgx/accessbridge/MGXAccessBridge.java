@@ -43,6 +43,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private DiscordIdentityService identityService;
     private ChatRelayService chatRelayService;
     private LuckPermsService luckPermsService;
+    private LeaderboardService leaderboardService;
 
     @Override
     public void onEnable() {
@@ -102,6 +103,19 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 this, bridgeConfig, pending, processed, verificationEvents, verifiedApplications, networkExecutor
         );
         chatRelayService = new ChatRelayService(bridgeClient);
+        // Statistics live beside the main world, which is where the server writes them.
+        PlayerStatsService statsService = new PlayerStatsService(
+                this,
+                getServer().getWorlds().get(0).getWorldFolder().toPath().resolve("stats"),
+                new java.util.concurrent.ConcurrentHashMap<>()
+        );
+        leaderboardService = new LeaderboardService(
+                this,
+                bridgeClient,
+                statsService,
+                clanStore,
+                bridgeConfig.leaderboardRefreshTicks()
+        );
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(perkService, this);
         getServer().getPluginManager().registerEvents(clanService, this);
@@ -126,11 +140,15 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("discord").setExecutor(guideService);
         getCommand("discordnames").setExecutor(identityService);
         sidebarService.start();
+        leaderboardService.start();
         bridgeClient.start();
     }
 
     @Override
     public void onDisable() {
+        if (leaderboardService != null) {
+            leaderboardService.stop();
+        }
         if (sidebarService != null) {
             sidebarService.stop();
         }

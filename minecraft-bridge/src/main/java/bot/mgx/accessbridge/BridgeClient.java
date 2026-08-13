@@ -512,6 +512,18 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         }
     }
 
+    /**
+     * Pushes a leaderboard snapshot. Deliberately fire-and-forget with no outbox:
+     * a dropped snapshot is replaced by the next one a few minutes later, so
+     * retaining stale standings would be worse than losing them.
+     */
+    void sendLeaderboardSnapshot(JsonObject snapshot) {
+        if (!isConnected()) {
+            return;
+        }
+        sendRaw(protocol.create("LEADERBOARD_SNAPSHOT", UUID.randomUUID().toString(), snapshot));
+    }
+
     private void flushMinecraftChatOutbox() {
         for (Map.Entry<String, JsonObject> entry : minecraftChatOutbox.entrySet()) {
             sendRaw(protocol.create("MINECRAFT_CHAT", entry.getKey(), entry.getValue()));
