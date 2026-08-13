@@ -172,12 +172,20 @@ final class SidebarService {
             lines.add(row.render(width));
         }
 
-        // A player with every extra fills all 15 rows, so the breathing room above
-        // the footer yields rather than pushing the footer off the board.
-        if (lines.size() + 2 <= MAX_LINES) {
-            lines.add(Component.empty());
+        lines.add(Component.empty());
+        lines.add(Component.text(
+                SidebarText.centredToWidth(footer, width, true), ORANGE, TextDecoration.BOLD
+        ));
+        // A player with every extra overflows the 15-row sidebar. Give up spacers from
+        // the top down: the gap above the footer is what separates it from the stats,
+        // so it is the last thing to go rather than the first.
+        while (lines.size() > MAX_LINES) {
+            int spacer = firstSpacerAfter(lines, 2);
+            if (spacer < 0) {
+                break;
+            }
+            lines.remove(spacer);
         }
-        lines.add(Component.text(SidebarText.centredToWidth(footer, width, true), ORANGE, TextDecoration.BOLD));
         return lines;
     }
 
@@ -203,6 +211,16 @@ final class SidebarService {
             }
             return statLine(label, value, valueColour);
         }
+    }
+
+    /** Finds a blank line to sacrifice, never the gap immediately above the footer. */
+    private static int firstSpacerAfter(List<Component> lines, int from) {
+        for (int index = from; index < lines.size() - 2; index++) {
+            if (lines.get(index).equals(Component.empty())) {
+                return index;
+            }
+        }
+        return -1;
     }
 
     /**
