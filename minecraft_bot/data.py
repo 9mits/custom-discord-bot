@@ -624,6 +624,14 @@ class MinecraftDataManager:
         )
         return str(rows[0]["discord_user_id"]) if rows else None
 
+    async def owner_for_uuid(self, minecraft_uuid: str) -> Optional[str]:
+        """Linked Discord id for a Minecraft UUID, without needing to know the edition."""
+        rows = await self._connection().execute_fetchall(
+            "SELECT discord_user_id FROM minecraft_accounts WHERE minecraft_uuid=? LIMIT 1",
+            (str(minecraft_uuid),),
+        )
+        return str(rows[0]["discord_user_id"]) if rows else None
+
     async def list_pending_verifications(self) -> list[MinecraftApplication]:
         rows = await self._connection().execute_fetchall(
             "SELECT * FROM minecraft_applications WHERE status=? AND verification_expires_at>? ORDER BY id",

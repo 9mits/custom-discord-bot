@@ -109,6 +109,9 @@ class MinecraftAccessBot(commands.Bot):
         )
         self.apply_rate_limit = RateLimiter(5)
         self.status_rate_limit = RateLimiter(10)
+        # Minecraft UUID -> linked Discord id, refreshed with the leaderboard so the
+        # dropdowns can render mentions without hitting the database again.
+        self.leaderboard_links: dict[str, str] = {}
         self._application_messages: dict[int, tuple[discord.Message, float]] = {}
         self._background_tasks: set[asyncio.Task] = set()
         self._commands_synced = False
@@ -1044,6 +1047,21 @@ class MinecraftAccessBot(commands.Bot):
     async def _before_leaderboard_refresh(self) -> None:
         await self.wait_until_ready()
 
+    async def _resolve_leaderboard_links(self, snapshot: dict) -> dict[str, str]:
+        """Maps every ranked Minecraft UUID to its linked Discord id, once per refresh."""
+        uuids: set[str] = set()
+        for board in (snapshot.get("individual") or {}).values():
+            for row in board if isinstance(board, list) else []:
+                uuid = str(row.get("minecraft_uuid") or "")
+                if uuid:
+                    uuids.add(uuid)
+        links: dict[str, str] = {}
+        for uuid in uuids:
+            owner = await self.data.owner_for_uuid(uuid)
+            if owner:
+                links[uuid] = owner
+        return links
+
     async def _refresh_leaderboard_message(self) -> Optional[str]:
         """Posts or edits the permanent leaderboard. Returns a reason when it could not."""
         from .leaderboard import CONFIG_CHANNEL, CONFIG_MESSAGE, HeadEmojiStore, message_payload
@@ -1061,7 +1079,8 @@ class MinecraftAccessBot(commands.Bot):
         heads: dict[str, str] = {}
         if channel.guild is not None:
             heads = await HeadEmojiStore(self).sync(channel.guild, snapshot)
-        payload = message_payload(snapshot, heads)
+        self.leaderboard_links = await self._resolve_leaderboard_links(snapshot)
+        payload = message_payload(snapshot, heads, self.leaderboard_links)
 
         message_id = await self.data.get_config(CONFIG_MESSAGE)
         if message_id:
