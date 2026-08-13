@@ -1266,10 +1266,13 @@ class MinecraftLeaderboardRenderTests(unittest.TestCase):
 
         self.assertEqual(embed.footer.text, self.leaderboard.BRAND_NAME)
 
-    def test_thumbnail_is_the_attached_logo(self):
+    def test_thumbnail_is_the_attached_x_mark(self):
+        from minecraft_bot.presentation import MARK_ATTACHMENT_URI, MARK_PATH
+
         embed = self.leaderboard.build_embed(self.snapshot, scope="individual", board="wealth")
 
-        self.assertEqual(embed.thumbnail.url, "attachment://mysterious_smp_x_logo.png")
+        self.assertEqual(embed.thumbnail.url, MARK_ATTACHMENT_URI)
+        self.assertTrue(MARK_PATH.is_file(), "the mark asset must ship with the repo")
 
     def test_heads_are_shown_for_the_podium_only(self):
         heads = {"u1": "<:a:1>", "u2": "<:b:2>", "u3": "<:c:3>", "u4": "<:d:4>"}

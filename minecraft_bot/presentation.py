@@ -35,6 +35,9 @@ RULES_ATTACHMENT_URI = f"attachment://{RULES_FILENAME}"
 VERIFY_FILENAME = "mysterious_smp_x_verify.png"
 VERIFY_PATH = Path(__file__).resolve().parent.parent / "assets" / "minecraft" / VERIFY_FILENAME
 VERIFY_ATTACHMENT_URI = f"attachment://{VERIFY_FILENAME}"
+MARK_FILENAME = "mysterious_smp_x_mark.png"
+MARK_PATH = Path(__file__).resolve().parent.parent / "assets" / "minecraft" / MARK_FILENAME
+MARK_ATTACHMENT_URI = f"attachment://{MARK_FILENAME}"
 MINECRAFT_HEAD_URL = "https://mc-heads.net/head/{identifier}/128.png"
 BEDROCK_NAME_HEAD_URL = "https://api.mcheads.org/head/.{identifier}/128"
 
@@ -72,6 +75,15 @@ def brand_logo_file() -> discord.File:
         LOGO_PATH,
         filename=LOGO_FILENAME,
         description=f"{BRAND_NAME} logo",
+    )
+
+
+def brand_mark_file() -> discord.File:
+    """The standalone X, which reads better than the wordmark at thumbnail size."""
+    return discord.File(
+        MARK_PATH,
+        filename=MARK_FILENAME,
+        description=f"{BRAND_NAME} mark",
     )
 
 

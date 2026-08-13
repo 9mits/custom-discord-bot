@@ -10,7 +10,13 @@ from typing import Any, Iterable, Optional
 import aiohttp
 import discord
 
-from .presentation import BRAND_NAME, FOOTER_ICON_URL, MINECRAFT_HEAD_URL, brand_logo_file
+from .presentation import (
+    BRAND_NAME,
+    FOOTER_ICON_URL,
+    MARK_ATTACHMENT_URI,
+    MINECRAFT_HEAD_URL,
+    brand_mark_file,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -214,7 +220,7 @@ def build_embed(
     generated = snapshot.get("generated_at")
     if generated:
         embed.timestamp = datetime.fromtimestamp(int(generated) / 1000, tz=timezone.utc)
-    embed.set_thumbnail(url="attachment://mysterious_smp_x_logo.png")
+    embed.set_thumbnail(url=MARK_ATTACHMENT_URI)
     embed.set_footer(text=BRAND_NAME, icon_url=FOOTER_ICON_URL)
     return embed
 
@@ -272,6 +278,6 @@ def message_payload(snapshot: dict[str, Any], heads: dict[str, str]) -> dict[str
             build_embed(snapshot, scope="individual", board=DEFAULT_TYPE, heads=heads),
             build_embed(snapshot, scope="clan", board=DEFAULT_TYPE),
         ],
-        "attachments": [brand_logo_file()],
+        "attachments": [brand_mark_file()],
         "view": LeaderboardView(),
     }
