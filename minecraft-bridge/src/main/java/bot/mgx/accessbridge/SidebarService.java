@@ -120,12 +120,27 @@ final class SidebarService {
     private List<Component> lines(Player player) {
         PlayerProfile profile = perks.profile(player.getUniqueId());
         ArrayList<Component> lines = new ArrayList<>();
+        lines.add(Component.empty());
         lines.add(Component.text(" " + player.getName(), NamedTextColor.AQUA, TextDecoration.BOLD)
                 .append(Component.text(" (" + player.getPing() + "ms)", NamedTextColor.GRAY)
                         .decoration(TextDecoration.BOLD, false)));
+        lines.add(Component.empty());
+
+        lines.add(sectionLine("PROFILE"));
         if (profile.hasRankLabel()) {
             lines.add(statLine("Rank", profile.rankLabel(), TextColor.color(profile.rankColour())));
         }
+        lines.add(statLine("Server Level", String.valueOf(profile.level()), NamedTextColor.GREEN));
+        lines.add(statLine("Extra Hearts", String.valueOf(profile.extraHearts()), NamedTextColor.GREEN));
+        if (profile.elite()) {
+            lines.add(statLine("Power", "+5% damage", NamedTextColor.LIGHT_PURPLE));
+        }
+        clans.clanOf(player.getUniqueId()).ifPresent(clan ->
+                lines.add(statLine("Clan", clan.name(), clanColor(clan)))
+        );
+        lines.add(Component.empty());
+
+        lines.add(sectionLine("STATS"));
         lines.add(statLine(
                 "Kills",
                 String.valueOf(player.getStatistic(Statistic.PLAYER_KILLS)),
@@ -136,21 +151,18 @@ final class SidebarService {
                 String.valueOf(player.getStatistic(Statistic.DEATHS)),
                 NamedTextColor.YELLOW
         ));
-        lines.add(statLine("Server Level", String.valueOf(profile.level()), NamedTextColor.GREEN));
-        lines.add(statLine("Extra Hearts", String.valueOf(profile.extraHearts()), NamedTextColor.GREEN));
-        if (profile.elite()) {
-            lines.add(statLine("Power", "+5% damage", NamedTextColor.LIGHT_PURPLE));
-        }
-        clans.clanOf(player.getUniqueId()).ifPresent(clan ->
-                lines.add(statLine("Clan", clan.name(), clanColor(clan)))
-        );
-        // A fully decorated player fills the sidebar, so the breathing room above
+
+        // A player with every extra fills all 15 rows, so the breathing room above
         // the footer yields rather than pushing the footer off the board.
         if (lines.size() + 2 <= MAX_LINES) {
             lines.add(Component.empty());
         }
         lines.add(footerLine());
         return lines;
+    }
+
+    private static Component sectionLine(String label) {
+        return Component.text(centred(label), ORANGE, TextDecoration.BOLD);
     }
 
     /**
