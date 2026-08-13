@@ -25,6 +25,9 @@ FOOTER_ATTACHMENT_URI = f"attachment://{FOOTER_FILENAME}"
 RULES_FILENAME = "mysterious_smp_x_rules.png"
 RULES_PATH = Path(__file__).resolve().parent.parent / "assets" / "minecraft" / RULES_FILENAME
 RULES_ATTACHMENT_URI = f"attachment://{RULES_FILENAME}"
+VERIFY_FILENAME = "mysterious_smp_x_verify.png"
+VERIFY_PATH = Path(__file__).resolve().parent.parent / "assets" / "minecraft" / VERIFY_FILENAME
+VERIFY_ATTACHMENT_URI = f"attachment://{VERIFY_FILENAME}"
 
 
 def _safe(value: object, limit: int = 1000) -> str:
@@ -61,6 +64,14 @@ def rules_image_file() -> discord.File:
         RULES_PATH,
         filename=RULES_FILENAME,
         description=f"{BRAND_NAME} rules",
+    )
+
+
+def verification_image_file() -> discord.File:
+    return discord.File(
+        VERIFY_PATH,
+        filename=VERIFY_FILENAME,
+        description=f"{BRAND_NAME} verification",
     )
 
 
@@ -246,7 +257,7 @@ def verification_embed(application: MinecraftApplication, settings) -> discord.E
             "**Bedrock port**\n"
             f"```text\n{settings.bedrock_port}\n```"
         )
-    return info_embed(
+    embed = info_embed(
         "Verify Your Minecraft Account",
         "> Your application is ready for Minecraft ownership verification.\n\n"
         f"{connection}\n\n"
@@ -259,6 +270,8 @@ def verification_embed(application: MinecraftApplication, settings) -> discord.E
         "**Wrong username?** Press **Apply** again on the application panel to reveal the private "
         "**Cancel Pending Verification** option, or run `/minecraft cancel`, then apply again.",
     )
+    embed.set_image(url=VERIFY_ATTACHMENT_URI)
+    return embed
 
 
 def live_status_embed(application: MinecraftApplication, settings) -> discord.Embed:
@@ -315,7 +328,10 @@ def live_status_embed(application: MinecraftApplication, settings) -> discord.Em
     )
     if connection:
         description += f"\n\n{connection}"
-    return info_embed("Your Minecraft Application", description)
+    embed = info_embed("Your Minecraft Application", description)
+    if status is ApplicationStatus.PENDING_VERIFICATION:
+        embed.set_image(url=VERIFY_ATTACHMENT_URI)
+    return embed
 
 
 def verified_embed(application: MinecraftApplication) -> discord.Embed:

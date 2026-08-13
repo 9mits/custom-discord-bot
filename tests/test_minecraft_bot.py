@@ -21,6 +21,8 @@ from minecraft_bot.presentation import (
     RULES_ATTACHMENT_URI,
     RULES_PATH,
     THEME_COLOUR,
+    VERIFY_ATTACHMENT_URI,
+    VERIFY_PATH,
     application_embeds,
     application_panel,
     denial_embed,
@@ -28,6 +30,7 @@ from minecraft_bot.presentation import (
     review_embed,
     verification_embed,
     verified_embed,
+    live_status_embed,
 )
 from minecraft_bot.settings import MinecraftSettings
 from minecraft_bot.setup import MinecraftSetupView
@@ -154,12 +157,14 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertTrue(ICON_PATH.is_file())
         self.assertTrue(FOOTER_PATH.is_file())
         self.assertTrue(RULES_PATH.is_file())
+        self.assertTrue(VERIFY_PATH.is_file())
 
     def test_minecraft_brand_assets_stay_lightweight(self):
         self.assertLess(LOGO_PATH.stat().st_size, 500_000)
         self.assertLess(ICON_PATH.stat().st_size, 100_000)
         self.assertLess(FOOTER_PATH.stat().st_size, 25_000)
         self.assertLess(RULES_PATH.stat().st_size, 1_000_000)
+        self.assertLess(VERIFY_PATH.stat().st_size, 1_000_000)
 
     def test_verification_instructions_are_copyable_and_edition_specific(self):
         application = MinecraftApplication(
@@ -188,6 +193,10 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertNotIn("java.example", embed.description)
         self.assertIn("/minecraft cancel", embed.description)
         self.assertNotIn("#42", embed.description)
+        self.assertEqual(embed.image.url, VERIFY_ATTACHMENT_URI)
+
+        live_embed = live_status_embed(application, settings)
+        self.assertEqual(live_embed.image.url, VERIFY_ATTACHMENT_URI)
 
     def test_applicant_decision_embed_hides_internal_application_id(self):
         application = MinecraftApplication(
@@ -468,7 +477,9 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         kwargs = response.send_message.await_args.kwargs
         self.assertTrue(kwargs["ephemeral"])
         self.assertIsInstance(kwargs["view"], CancelPendingConfirmationView)
-        self.assertNotIn("files", kwargs)
+        self.assertEqual(kwargs["embed"].image.url, VERIFY_ATTACHMENT_URI)
+        self.assertEqual(kwargs["file"].filename, "mysterious_smp_x_verify.png")
+        kwargs["file"].close()
 
     async def test_cancel_confirmation_edits_the_existing_ephemeral(self):
         response = SimpleNamespace(defer=AsyncMock())
@@ -487,7 +498,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         interaction.edit_original_response.assert_awaited_once()
         kwargs = interaction.edit_original_response.await_args.kwargs
         self.assertIsNone(kwargs["view"])
-        self.assertNotIn("attachments", kwargs)
+        self.assertEqual(kwargs["attachments"], [])
 
     async def test_new_application_requires_rules_agreement(self):
         response = SimpleNamespace(send_message=AsyncMock(), send_modal=AsyncMock())

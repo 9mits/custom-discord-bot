@@ -19,6 +19,7 @@ from .presentation import (
     rules_embed,
     rules_image_file,
     verification_embed,
+    verification_image_file,
 )
 from .support import enqueue_support_request
 
@@ -77,6 +78,7 @@ class ApplyButton(discord.ui.Button):
             if active.status is ApplicationStatus.PENDING_VERIFICATION:
                 await interaction.response.send_message(
                     **branded_send(verification_embed(active, bot.settings)),
+                    file=verification_image_file(),
                     view=CancelPendingConfirmationView(interaction.user.id),
                     ephemeral=True,
                 )
@@ -200,6 +202,7 @@ class CancelPendingConfirmationView(discord.ui.View):
         except InvalidTransition as exc:
             await interaction.edit_original_response(
                 **branded_edit(info_embed("Nothing to Cancel", f"> {exc}", error=True)),
+                attachments=[],
                 view=None,
             )
             return
@@ -212,6 +215,7 @@ class CancelPendingConfirmationView(discord.ui.View):
                     success=True,
                 )
             ),
+            attachments=[],
             view=None,
         )
 
@@ -358,6 +362,7 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
         )
         await interaction.edit_original_response(
             **branded_edit(live_status_embed(application, bot.settings)),
+            attachments=[verification_image_file()],
             view=LiveApplicationView(),
         )
 

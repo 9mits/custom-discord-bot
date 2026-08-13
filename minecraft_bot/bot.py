@@ -653,7 +653,8 @@ class MinecraftAccessBot(commands.Bot):
         if remembered is not None and remembered[1] > time.monotonic():
             with suppress(discord.NotFound, discord.HTTPException):
                 await remembered[0].edit_original_response(
-                    **branded_edit(verified_embed(application))
+                    **branded_edit(verified_embed(application)),
+                    attachments=[],
                 )
 
     async def post_or_update_review(self, application: MinecraftApplication) -> None:
