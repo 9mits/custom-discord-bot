@@ -390,7 +390,11 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         bot = object.__new__(MinecraftAccessBot)
         bot.get_user = lambda _user_id: user
         bot.fetch_user = AsyncMock()
-        bot.data = SimpleNamespace(set_status_message=AsyncMock(), enqueue_delivery=AsyncMock())
+        bot.data = SimpleNamespace(
+            get_application=AsyncMock(return_value=application),
+            set_status_message=AsyncMock(),
+            enqueue_delivery=AsyncMock(),
+        )
 
         delivered = await bot.update_live_card(application)
 
@@ -412,7 +416,10 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         bot = object.__new__(MinecraftAccessBot)
         bot.get_user = Mock()
         bot.fetch_user = AsyncMock()
-        bot.data = SimpleNamespace(enqueue_delivery=AsyncMock())
+        bot.data = SimpleNamespace(
+            get_application=AsyncMock(return_value=application),
+            enqueue_delivery=AsyncMock(),
+        )
 
         delivered = await bot.update_live_card(application)
 
@@ -435,7 +442,10 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         channel = SimpleNamespace(fetch_message=AsyncMock(return_value=message))
         bot = object.__new__(MinecraftAccessBot)
         bot._configured_channel = AsyncMock(return_value=channel)
-        bot.data = SimpleNamespace(enqueue_delivery=AsyncMock())
+        bot.data = SimpleNamespace(
+            get_application=AsyncMock(return_value=application),
+            enqueue_delivery=AsyncMock(),
+        )
 
         delivered = await bot.update_live_card(application)
 
@@ -443,6 +453,45 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         message.edit.assert_awaited_once()
         self.assertIsNone(message.edit.await_args.kwargs["view"])
         bot.data.enqueue_delivery.assert_not_awaited()
+
+    async def test_concurrent_verified_delivery_sends_only_one_dm(self):
+        stored = SimpleNamespace(
+            id=1,
+            discord_user_id="99",
+            edition=Edition.JAVA,
+            verified_username="PlayerOne",
+            status=ApplicationStatus.PENDING_REVIEW,
+            status_channel_id=None,
+            status_message_id=None,
+        )
+        sent_message = SimpleNamespace(channel=SimpleNamespace(id=50), id=60, edit=AsyncMock())
+        user = SimpleNamespace(send=AsyncMock(return_value=sent_message))
+        channel = SimpleNamespace(fetch_message=AsyncMock(return_value=sent_message))
+
+        async def remember_message(_application_id, channel_id, message_id):
+            stored.status_channel_id = str(channel_id)
+            stored.status_message_id = str(message_id)
+
+        bot = object.__new__(MinecraftAccessBot)
+        bot._live_card_lock = asyncio.Lock()
+        bot.get_user = lambda _user_id: user
+        bot.fetch_user = AsyncMock()
+        bot._configured_channel = AsyncMock(return_value=channel)
+        bot.data = SimpleNamespace(
+            get_application=AsyncMock(side_effect=lambda _application_id: stored),
+            set_status_message=AsyncMock(side_effect=remember_message),
+            enqueue_delivery=AsyncMock(),
+        )
+
+        results = await asyncio.gather(
+            bot.update_live_card(stored),
+            bot.update_live_card(stored),
+        )
+
+        self.assertEqual(results, [True, True])
+        user.send.assert_awaited_once()
+        sent_message.edit.assert_awaited_once()
+        bot.data.set_status_message.assert_awaited_once_with(1, 50, 60)
 
     async def test_application_panel_has_no_public_banner_message(self):
         panel = SimpleNamespace(id=101)
