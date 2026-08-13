@@ -27,7 +27,7 @@ from .models import (
 
 JAVA_USERNAME = re.compile(r"^[A-Za-z0-9_]{3,16}$")
 BEDROCK_USERNAME = re.compile(r"^[\w -]{1,16}$", re.UNICODE)
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 COMMAND_LOG_RETENTION_DAYS = 30
 COMMAND_LOG_RETENTION_ROWS = 20_000
 
@@ -60,6 +60,12 @@ CREATE TABLE IF NOT EXISTS minecraft_applications (
 );
 CREATE INDEX IF NOT EXISTS idx_minecraft_applications_user
     ON minecraft_applications(guild_id, discord_user_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_minecraft_applications_user_recent
+    ON minecraft_applications(discord_user_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_minecraft_applications_status_recent
+    ON minecraft_applications(status, id DESC);
+CREATE INDEX IF NOT EXISTS idx_minecraft_applications_username
+    ON minecraft_applications(normalized_username, id DESC);
 CREATE INDEX IF NOT EXISTS idx_minecraft_applications_verification
     ON minecraft_applications(status, verification_expires_at);
 CREATE INDEX IF NOT EXISTS idx_minecraft_applications_review_message
@@ -80,6 +86,8 @@ CREATE TABLE IF NOT EXISTS minecraft_accounts (
 );
 CREATE INDEX IF NOT EXISTS idx_minecraft_accounts_user
     ON minecraft_accounts(discord_user_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_minecraft_accounts_username
+    ON minecraft_accounts(current_username COLLATE NOCASE, id DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_minecraft_accounts_xuid
     ON minecraft_accounts(xuid) WHERE xuid IS NOT NULL;
 
@@ -1168,13 +1176,25 @@ class MinecraftDataManager:
         return [self._outbox(row) for row in rows]
 
     async def mark_outbox_sent(self, record_id: int) -> None:
+        await self.mark_outbox_sent_batch([record_id])
+
+    async def mark_outbox_sent_batch(self, record_ids: list[int]) -> None:
+        normalized = tuple(dict.fromkeys(int(record_id) for record_id in record_ids))
+        if not normalized:
+            return
         async with self._write_lock:
             db = self._connection()
-            await db.execute(
-                "UPDATE minecraft_bridge_outbox SET status='SENT', attempts=attempts+1, last_error=NULL WHERE id=?",
-                (int(record_id),),
-            )
-            await db.commit()
+            try:
+                await self._begin(db)
+                await db.executemany(
+                    "UPDATE minecraft_bridge_outbox SET status='SENT', attempts=attempts+1, "
+                    "last_error=NULL WHERE id=?",
+                    [(record_id,) for record_id in normalized],
+                )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
 
     async def mark_outbox_failed(self, idempotency_key: str, error: str) -> Optional[OutboxRecord]:
         async with self._write_lock:
@@ -1544,6 +1564,23 @@ class MinecraftDataManager:
             (f"%{needle}%", max(1, min(25, int(limit)))),
         )
         return [self._application(row) for row in rows]
+
+    async def find_accounts_by_username(
+        self,
+        username: str,
+        *,
+        limit: int = 10,
+    ) -> list[dict[str, Any]]:
+        """Find currently linked accounts by their latest known username."""
+        needle = " ".join(str(username or "").strip().split()).casefold()
+        if not needle:
+            return []
+        rows = await self._connection().execute_fetchall(
+            "SELECT * FROM minecraft_accounts WHERE current_username LIKE ? COLLATE NOCASE "
+            "ORDER BY id DESC LIMIT ?",
+            (f"%{needle}%", max(1, min(25, int(limit)))),
+        )
+        return [dict(row) for row in rows]
 
     async def write_audit(
         self,

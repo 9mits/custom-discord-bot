@@ -6,7 +6,7 @@ import asyncio
 import logging
 import time
 from contextlib import suppress
-from typing import Optional
+from typing import Awaitable, Optional
 
 import discord
 from discord import app_commands
@@ -14,7 +14,7 @@ from discord.ext import commands, tasks
 
 from .audit import (
     MinecraftCommandTree,
-    build_command_log_embed,
+    build_command_log_embed as command_log_embed,
     install_component_audit,
     record_denial,
 )
@@ -39,7 +39,7 @@ from .presentation import (
     verified_embed,
 )
 from .settings import MinecraftSettings, SETTING_KEYS
-from .ui import ReviewView
+from .ui import MinecraftControlView, ReviewView
 
 
 logger = logging.getLogger("MinecraftAccessBot")
@@ -92,6 +92,7 @@ class MinecraftAccessBot(commands.Bot):
         self.apply_rate_limit = RateLimiter(5)
         self.status_rate_limit = RateLimiter(10)
         self._application_interactions: dict[int, tuple[discord.Interaction, float]] = {}
+        self._background_tasks: set[asyncio.Task] = set()
         self._commands_synced = False
         self._application_panel_refreshed = False
         self._last_command_log_prune = 0.0
@@ -113,8 +114,37 @@ class MinecraftAccessBot(commands.Bot):
     async def close(self) -> None:
         self.application_maintenance.cancel()
         await self.bridge.close()
+        if self._background_tasks:
+            _done, pending = await asyncio.wait(self._background_tasks, timeout=5)
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
         await self.data.close()
         await super().close()
+
+    def spawn_background_task(self, work: Awaitable[object], *, name: str) -> asyncio.Task:
+        task = asyncio.create_task(work, name=name)
+        tasks = getattr(self, "_background_tasks", None)
+        if tasks is None:
+            tasks = set()
+            self._background_tasks = tasks
+        tasks.add(task)
+
+        def finished(completed: asyncio.Task) -> None:
+            tasks.discard(completed)
+            if completed.cancelled():
+                return
+            error = completed.exception()
+            if error is not None:
+                logger.error(
+                    "Minecraft background task %s failed",
+                    completed.get_name(),
+                    exc_info=(type(error), error, error.__traceback__),
+                )
+
+        task.add_done_callback(finished)
+        return task
 
     async def on_ready(self) -> None:
         if not self._commands_synced:
@@ -230,11 +260,17 @@ class MinecraftAccessBot(commands.Bot):
             guild_id=guild_id,
             discord_user_id=discord_user_id,
         )
-        await self.log_application_decision(application)
         self._application_interactions.pop(application.id, None)
+        self.spawn_background_task(
+            self._finish_cancellation(application),
+            name=f"minecraft-cancel:{application.id}",
+        )
+        return application
+
+    async def _finish_cancellation(self, application: MinecraftApplication) -> None:
+        await self.log_application_decision(application)
         if self.bridge.connected:
             await self.bridge.dispatch_outbox()
-        return application
 
     async def _configured_channel(self, channel_id: int):
         if not channel_id:
@@ -280,6 +316,34 @@ class MinecraftAccessBot(commands.Bot):
             decision_log_embed(application),
         )
 
+    async def finish_application_submission(self, application: MinecraftApplication) -> None:
+        await self.log_application_submission(application)
+        if self.bridge.connected:
+            await self.bridge.dispatch_outbox()
+
+    async def finish_approval_queue(self, application: MinecraftApplication) -> None:
+        await self.update_review_message(application)
+        await self.log_application_decision(application)
+        if self.bridge.connected:
+            await self.bridge.dispatch_outbox()
+
+    async def finish_unlink(self, applications: list[MinecraftApplication]) -> None:
+        for application in applications:
+            if application.status is ApplicationStatus.CANCELLED:
+                await self.update_review_message(application)
+        if self.bridge.connected:
+            await self.bridge.dispatch_outbox()
+
+    async def dispatch_outbox_if_connected(self) -> None:
+        if self.bridge.connected:
+            await self.bridge.dispatch_outbox()
+
+    async def finish_staff_cancellation(self, application: MinecraftApplication) -> None:
+        await self.update_review_message(application)
+        await self.log_application_decision(application)
+        if self.bridge.connected:
+            await self.bridge.dispatch_outbox()
+
     async def handle_player_event(
         self,
         *,
@@ -297,16 +361,19 @@ class MinecraftAccessBot(commands.Bot):
         if not claimed:
             return
         discord_user_id = await self.data.get_account_owner(edition, minecraft_uuid)
-        await self._send_configured_log(
-            self.settings.player_log_channel_id,
-            player_activity_embed(
-                joined=joined,
-                username=current_username,
-                minecraft_uuid=minecraft_uuid,
-                edition=edition,
-                xuid=xuid,
-                discord_user_id=discord_user_id,
+        self.spawn_background_task(
+            self._send_configured_log(
+                self.settings.player_log_channel_id,
+                player_activity_embed(
+                    joined=joined,
+                    username=current_username,
+                    minecraft_uuid=minecraft_uuid,
+                    edition=edition,
+                    xuid=xuid,
+                    discord_user_id=discord_user_id,
+                ),
             ),
+            name="minecraft-player-log",
         )
 
     async def post_application_panel(self) -> discord.Message:
@@ -383,6 +450,17 @@ class MinecraftAccessBot(commands.Bot):
             xuid=xuid,
             event_idempotency_key=event_idempotency_key,
         )
+        self.spawn_background_task(
+            self._publish_verification(application, changed=changed),
+            name=f"minecraft-verification:{application.id}",
+        )
+
+    async def _publish_verification(
+        self,
+        application: MinecraftApplication,
+        *,
+        changed: bool,
+    ) -> None:
         if not changed:
             if application.review_message_id is None:
                 with suppress(Exception):
@@ -483,6 +561,16 @@ class MinecraftAccessBot(commands.Bot):
                     record.last_error or "Paper rejected the action",
                 )
             return
+        self.spawn_background_task(
+            self._finalize_bridge_action(record, application),
+            name=f"minecraft-action-result:{record.id}",
+        )
+
+    async def _finalize_bridge_action(
+        self,
+        record: OutboxRecord,
+        application: MinecraftApplication,
+    ) -> None:
         if record.action is BridgeAction.APPROVE and application.status is ApplicationStatus.APPROVED:
             try:
                 await self._finish_approval(application)
@@ -569,6 +657,155 @@ class MinecraftAccessBot(commands.Bot):
         for application in await self.data.list_missing_review_messages(limit=20):
             await self.post_or_update_review(application)
 
+    def control_view(self, interaction: discord.Interaction) -> MinecraftControlView:
+        return MinecraftControlView(
+            self,
+            interaction.user.id,
+            include_setup=self.is_administrator(interaction.user),
+        )
+
+    async def build_control_overview(self, guild: Optional[discord.Guild]) -> discord.Embed:
+        outbox, applications = await asyncio.gather(
+            self.data.outbox_counts(),
+            self.data.application_status_counts(),
+        )
+        from .setup import configuration_findings
+
+        findings = configuration_findings(self, guild)
+        heartbeat = (
+            f"<t:{int(self.bridge.last_heartbeat_at)}:R>"
+            if self.bridge.last_heartbeat_at is not None
+            else "Never"
+        )
+        total = sum(applications.values())
+        embed = info_embed(
+            "Minecraft Control",
+            "> Live access, application, and bridge status in one place.",
+        )
+        embed.add_field(
+            name="Service",
+            value=(
+                f"**Bridge:** {'Connected' if self.bridge.connected else 'Offline'}\n"
+                f"**Setup:** {'Ready' if not findings else 'Needs attention'}\n"
+                f"**Heartbeat:** {heartbeat}"
+            ),
+            inline=True,
+        )
+        embed.add_field(
+            name="Applications",
+            value=(
+                f"**Total:** {total}\n"
+                f"**Verification:** {applications.get(ApplicationStatus.PENDING_VERIFICATION.value, 0)}\n"
+                f"**Review:** {applications.get(ApplicationStatus.PENDING_REVIEW.value, 0)}"
+            ),
+            inline=True,
+        )
+        embed.add_field(
+            name="Action Queue",
+            value=(
+                f"**Queued:** {outbox.get('PENDING', 0)}\n"
+                f"**Sent:** {outbox.get('SENT', 0)}\n"
+                f"**Failed:** {outbox.get('FAILED', 0)}"
+            ),
+            inline=True,
+        )
+        if findings:
+            embed.add_field(
+                name="Needs Attention",
+                value="\n".join(
+                    f"**{finding.setting}:** {finding.detail}" for finding in findings[:4]
+                ),
+                inline=False,
+            )
+        return embed
+
+    async def build_member_lookup_embed(
+        self,
+        user: discord.User | discord.Member,
+    ) -> discord.Embed:
+        accounts, history = await asyncio.gather(
+            self.data.list_accounts_for_user(user.id),
+            self.data.list_applications_for_user(user.id, limit=25),
+        )
+        account_lines = [
+            f"**{row['edition'].title()}** · `{row['current_username']}` · `{row['minecraft_uuid']}`"
+            for row in accounts
+        ] or ["No linked accounts."]
+        history_lines = [
+            f"`#{item.id}` · {item.edition.value.title()} · "
+            f"{item.status.value.replace('_', ' ').title()} · <t:{item.created_at}:d>"
+            for item in history
+        ] or ["No applications."]
+        return info_embed(
+            f"Minecraft Lookup: {user}",
+            f"> {user.mention} · `{user.id}`\n\n"
+            "**Linked Accounts**\n"
+            + "\n".join(account_lines)
+            + "\n\n**Application History**\n"
+            + "\n".join(history_lines),
+        )
+
+    async def build_username_lookup_embed(self, username: str) -> discord.Embed:
+        query = " ".join(str(username).strip().split())
+        accounts, applications = await asyncio.gather(
+            self.data.find_accounts_by_username(query, limit=10),
+            self.data.find_applications_by_username(query, limit=10),
+        )
+        if not accounts and not applications:
+            return info_embed(
+                "No Username Match",
+                f"> No linked account or Minecraft application matches `{query}`.",
+            )
+        account_lines = [
+            f"<@{row['discord_user_id']}> · `{row['current_username']}` · "
+            f"{row['edition'].title()} · `{row['minecraft_uuid']}`"
+            for row in accounts
+        ] or ["No currently linked accounts."]
+        application_lines = [
+            f"`#{record.id}` · <@{record.discord_user_id}> · `{record.claimed_username}` · "
+            f"{record.edition.value.title()} · {record.status.value.replace('_', ' ').title()}"
+            for record in applications
+        ] or ["No application history."]
+        return info_embed(
+            "Minecraft Username Lookup",
+            f"> Results matching `{query}`.\n\n"
+            "**Linked Accounts**\n"
+            + "\n".join(account_lines)
+            + "\n\n**Application History**\n"
+            + "\n".join(application_lines),
+        )
+
+    async def build_applications_embed(
+        self,
+        *,
+        status: Optional[ApplicationStatus] = None,
+        limit: int = 10,
+    ) -> discord.Embed:
+        records = await self.data.list_applications(status=status, limit=limit)
+        lines = [
+            f"`#{item.id}` · <@{item.discord_user_id}> · {item.edition.value.title()} · "
+            f"`{item.verified_username or item.claimed_username}` · "
+            f"{item.status.value.replace('_', ' ').title()} · <t:{item.created_at}:R>"
+            for item in records
+        ]
+        return info_embed(
+            "Minecraft Applications",
+            "\n".join(lines) if lines else "> No matching applications were found.",
+        )
+
+    async def build_command_log_embed(
+        self,
+        *,
+        user_id: Optional[int] = None,
+        command: Optional[str] = None,
+        limit: int = 20,
+    ) -> discord.Embed:
+        rows, total = await asyncio.gather(
+            self.data.list_command_log(actor_id=user_id, command=command, limit=limit),
+            self.data.count_command_log(actor_id=user_id, command=command),
+        )
+        return command_log_embed(rows, total=total)
+
     def _build_command_group(self) -> app_commands.Group:
         group = app_commands.Group(name="minecraft", description="Manage Minecraft applications and access.")
 
@@ -582,6 +819,17 @@ class MinecraftAccessBot(commands.Bot):
             await interaction.response.send_message(
                 view=MinecraftSetupView(self, interaction.user.id, interaction.guild),
                 ephemeral=True,
+            )
+
+        @group.command(name="panel", description="Open the Minecraft moderator control panel.")
+        @app_commands.default_permissions(manage_messages=True)
+        async def panel(interaction: discord.Interaction) -> None:
+            if not await self.require_moderator(interaction):
+                return
+            await interaction.response.defer(ephemeral=True)
+            await interaction.edit_original_response(
+                **branded_edit(await self.build_control_overview(interaction.guild)),
+                view=self.control_view(interaction),
             )
 
         @group.command(name="status", description="Show Minecraft bridge and queue health.")
@@ -601,84 +849,44 @@ class MinecraftAccessBot(commands.Bot):
                 )
                 return
             await interaction.response.defer(ephemeral=True)
-            outbox = await self.data.outbox_counts()
-            applications = await self.data.application_status_counts()
-            from .setup import configuration_findings
+            await interaction.edit_original_response(
+                **branded_edit(await self.build_control_overview(interaction.guild)),
+                view=self.control_view(interaction),
+            )
 
-            setup_findings = configuration_findings(self, interaction.guild)
-            heartbeat = (
-                f"<t:{int(self.bridge.last_heartbeat_at)}:R>"
-                if self.bridge.last_heartbeat_at is not None
-                else "Never"
-            )
-            embed = info_embed(
-                "Minecraft Access Status",
-                "Live health for the dedicated Discord application bot and Minecraft bridge.",
-            )
-            embed.add_field(
-                name="Runtime",
-                value=(
-                    f"**Bridge:** {'Connected' if self.bridge.connected else 'Offline'}\n"
-                    f"**Setup:** {'Ready' if not setup_findings else 'Needs attention'}\n"
-                    f"**Last heartbeat:** {heartbeat}"
-                ),
-                inline=False,
-            )
-            embed.add_field(
-                name="Applications",
-                value=(
-                    f"**Pending verification:** "
-                    f"{applications.get(ApplicationStatus.PENDING_VERIFICATION.value, 0)}\n"
-                    f"**Pending review:** {applications.get(ApplicationStatus.PENDING_REVIEW.value, 0)}"
-                ),
-                inline=True,
-            )
-            embed.add_field(
-                name="Bridge Queue",
-                value=(
-                    f"**Queued:** {outbox.get('PENDING', 0)}\n"
-                    f"**Awaiting confirmation:** {outbox.get('SENT', 0)}\n"
-                    f"**Failed:** {outbox.get('FAILED', 0)}"
-                ),
-                inline=True,
-            )
-            if setup_findings:
-                embed.add_field(
-                    name="Setup Attention",
-                    value="\n".join(
-                        f"**{finding.setting}:** {finding.detail}" for finding in setup_findings[:4]
-                    ),
-                    inline=False,
-                )
-            await interaction.edit_original_response(**branded_edit(embed))
-
-        @group.command(name="lookup", description="Show a member's linked accounts and application history.")
+        @group.command(name="lookup", description="Find Minecraft records by Discord member or username.")
         @app_commands.default_permissions(manage_messages=True)
-        @app_commands.describe(user="Discord member to look up")
-        async def lookup(interaction: discord.Interaction, user: discord.Member) -> None:
+        @app_commands.describe(
+            user="Discord member to look up",
+            username="Java username or Bedrock gamertag to search for",
+        )
+        async def lookup(
+            interaction: discord.Interaction,
+            user: Optional[discord.Member] = None,
+            username: Optional[app_commands.Range[str, 1, 32]] = None,
+        ) -> None:
             if not await self.require_moderator(interaction):
                 return
             await interaction.response.defer(ephemeral=True)
-            accounts = await self.data.list_accounts_for_user(user.id)
-            history = await self.data.list_applications_for_user(user.id, limit=25)
-            account_lines = [
-                f"{row['edition'].title()} · `{row['current_username']}` · `{row['minecraft_uuid']}`"
-                for row in accounts
-            ] or ["No linked accounts."]
-            history_lines = [
-                f"`#{item.id}` · {item.edition.value.title()} · {item.status.value.replace('_', ' ').title()} · <t:{item.created_at}:d>"
-                for item in history
-            ] or ["No applications."]
-            await interaction.edit_original_response(
-                **branded_edit(
-                    info_embed(
-                        f"Minecraft Lookup: {user}",
-                        "**Linked Accounts**\n"
-                        + "\n".join(account_lines)
-                        + "\n\n**Applications**\n"
-                        + "\n".join(history_lines),
-                    )
+            if user is not None and username is not None:
+                embed = info_embed(
+                    "Choose One Lookup",
+                    "> Search by either a Discord member or a Minecraft username, not both.",
+                    error=True,
                 )
+            elif user is not None:
+                embed = await self.build_member_lookup_embed(user)
+            elif username is not None:
+                embed = await self.build_username_lookup_embed(username)
+            else:
+                embed = info_embed(
+                    "Minecraft Lookup",
+                    "> Select a Discord member below, choose **Username Lookup**, or rerun "
+                    "`/minecraft lookup` with one search field.",
+                )
+            await interaction.edit_original_response(
+                **branded_edit(embed),
+                view=self.control_view(interaction),
             )
 
         @group.command(name="revoke", description="Remove a member's Minecraft access.")
@@ -697,11 +905,10 @@ class MinecraftAccessBot(commands.Bot):
                             "> That member has no approved Minecraft account access.",
                             error=True,
                         )
-                    )
+                    ),
+                    view=self.control_view(interaction),
                 )
                 return
-            if self.bridge.connected:
-                await self.bridge.dispatch_outbox()
             await interaction.edit_original_response(
                 **branded_edit(
                     info_embed(
@@ -710,7 +917,12 @@ class MinecraftAccessBot(commands.Bot):
                         "Discord access will be removed only after the Minecraft server confirms every action.",
                         success=True,
                     )
-                )
+                ),
+                view=self.control_view(interaction),
+            )
+            self.spawn_background_task(
+                self.dispatch_outbox_if_connected(),
+                name="minecraft-revocations",
             )
 
         @group.command(name="unlink", description="Unlink one Java or Bedrock account from a member.")
@@ -750,15 +962,10 @@ class MinecraftAccessBot(commands.Bot):
                             f"> {user.mention} does not have a linked **{edition.name}** account.",
                             error=True,
                         )
-                    )
+                    ),
+                    view=self.control_view(interaction),
                 )
                 return
-            if revocation_queued and self.bridge.connected:
-                await self.bridge.dispatch_outbox()
-            for application in applications:
-                if application.status is ApplicationStatus.CANCELLED:
-                    with suppress(Exception):
-                        await self.update_review_message(application)
             if revocation_queued:
                 description = (
                     f"> `{account['current_username']}` will be unlinked from {user.mention} after Paper "
@@ -772,7 +979,12 @@ class MinecraftAccessBot(commands.Bot):
                 )
                 title = "Minecraft Account Unlinked"
             await interaction.edit_original_response(
-                **branded_edit(info_embed(title, description, success=True))
+                **branded_edit(info_embed(title, description, success=True)),
+                view=self.control_view(interaction),
+            )
+            self.spawn_background_task(
+                self.finish_unlink(applications),
+                name=f"minecraft-unlink:{user.id}",
             )
 
         @group.command(name="retry", description="Retry failed bridge actions for an application.")
@@ -783,8 +995,6 @@ class MinecraftAccessBot(commands.Bot):
                 return
             await interaction.response.defer(ephemeral=True)
             count = await self.data.retry_application(application)
-            if self.bridge.connected and count:
-                await self.bridge.dispatch_outbox()
             await interaction.edit_original_response(
                 **branded_edit(
                     info_embed(
@@ -792,8 +1002,14 @@ class MinecraftAccessBot(commands.Bot):
                         f"> Reset **{count}** failed bridge action(s) for another delivery attempt.",
                         success=bool(count),
                     )
-                )
+                ),
+                view=self.control_view(interaction),
             )
+            if count:
+                self.spawn_background_task(
+                    self.dispatch_outbox_if_connected(),
+                    name=f"minecraft-retry:{application}",
+                )
 
         @group.command(name="log-channel", description="Configure or disable a Minecraft event log.")
         @app_commands.default_permissions(administrator=True)
@@ -838,7 +1054,8 @@ class MinecraftAccessBot(commands.Bot):
                         "The change takes effect immediately.",
                         success=True,
                     )
-                )
+                ),
+                view=self.control_view(interaction),
             )
 
         @group.command(name="applications", description="List recent Minecraft applications by status.")
@@ -862,20 +1079,11 @@ class MinecraftAccessBot(commands.Bot):
                 return
             await interaction.response.defer(ephemeral=True)
             parsed_status = ApplicationStatus(status.value) if status is not None else None
-            records = await self.data.list_applications(status=parsed_status, limit=limit)
-            lines = [
-                f"`#{item.id}` · <@{item.discord_user_id}> · {item.edition.value.title()} · "
-                f"`{item.verified_username or item.claimed_username}` · "
-                f"{item.status.value.replace('_', ' ').title()} · <t:{item.created_at}:R>"
-                for item in records
-            ]
             await interaction.edit_original_response(
                 **branded_edit(
-                    info_embed(
-                        "Minecraft Applications",
-                        "\n".join(lines) if lines else "> No matching applications were found.",
-                    )
-                )
+                    await self.build_applications_embed(status=parsed_status, limit=limit)
+                ),
+                view=self.control_view(interaction),
             )
 
         @group.command(name="audit", description="Show the recorded lifecycle for an application.")
@@ -897,7 +1105,8 @@ class MinecraftAccessBot(commands.Bot):
                             f"> Application `#{application}` does not exist.",
                             error=True,
                         )
-                    )
+                    ),
+                    view=self.control_view(interaction),
                 )
                 return
             rows = await self.data.audit_rows(application)
@@ -913,7 +1122,8 @@ class MinecraftAccessBot(commands.Bot):
                         f"**{record.status.value.replace('_', ' ').title()}**\n\n"
                         + ("\n".join(lines) if lines else "No audit events were recorded."),
                     )
-                )
+                ),
+                view=self.control_view(interaction),
             )
 
         @group.command(name="cancel", description="Cancel your pending verification or a staff-managed application.")
@@ -956,13 +1166,10 @@ class MinecraftAccessBot(commands.Bot):
                 await interaction.edit_original_response(
                     **branded_edit(
                         info_embed("Application Not Cancelled", f"> {exc}", error=True)
-                    )
+                    ),
+                    view=self.control_view(interaction),
                 )
                 return
-            await self.update_review_message(updated)
-            await self.log_application_decision(updated)
-            if self.bridge.connected:
-                await self.bridge.dispatch_outbox()
             await interaction.edit_original_response(
                 **branded_edit(
                     info_embed(
@@ -970,7 +1177,12 @@ class MinecraftAccessBot(commands.Bot):
                         f"> Application `#{updated.id}` was cancelled and its Minecraft access actions were updated.",
                         success=True,
                     )
-                )
+                ),
+                view=self.control_view(interaction),
+            )
+            self.spawn_background_task(
+                self.finish_staff_cancellation(updated),
+                name=f"minecraft-staff-cancel:{updated.id}",
             )
 
         @group.command(name="help", description="List the Minecraft commands you can use.")
@@ -993,9 +1205,9 @@ class MinecraftAccessBot(commands.Bot):
                     name="Moderators",
                     value=(
                         "`/minecraft status` — bridge and queue health\n"
+                        "`/minecraft panel` — interactive moderator controls\n"
                         "`/minecraft stats` — application and access totals\n"
-                        "`/minecraft lookup` — a member's accounts and history\n"
-                        "`/minecraft whois` — find who claimed a Minecraft username\n"
+                        "`/minecraft lookup` — search by member or Minecraft username\n"
                         "`/minecraft applications` — recent applications by status\n"
                         "`/minecraft audit` — one application's lifecycle\n"
                         "`/minecraft commandlog` — who ran which command\n"
@@ -1021,7 +1233,11 @@ class MinecraftAccessBot(commands.Bot):
                     value="Contact the server team through the normal support channel.",
                     inline=False,
                 )
-            await interaction.response.send_message(**branded_send(embed), ephemeral=True)
+            await interaction.response.send_message(
+                **branded_send(embed),
+                view=self.control_view(interaction) if is_staff else None,
+                ephemeral=True,
+            )
 
         @group.command(name="server", description="Show the Minecraft server address and how to join.")
         async def server(interaction: discord.Interaction) -> None:
@@ -1041,42 +1257,6 @@ class MinecraftAccessBot(commands.Bot):
                     )
                 ),
                 ephemeral=True,
-            )
-
-        @group.command(name="whois", description="Find which member claimed a Minecraft username.")
-        @app_commands.default_permissions(manage_messages=True)
-        @app_commands.describe(username="Java username or Bedrock gamertag to search for")
-        async def whois(
-            interaction: discord.Interaction,
-            username: app_commands.Range[str, 1, 32],
-        ) -> None:
-            if not await self.require_moderator(interaction):
-                await record_denial(self, interaction, "minecraft whois", "Not a moderator")
-                return
-            await interaction.response.defer(ephemeral=True, thinking=True)
-            matches = await self.data.find_applications_by_username(username, limit=10)
-            if not matches:
-                await interaction.edit_original_response(
-                    **branded_edit(
-                        info_embed(
-                            "No Match",
-                            f"> No application has claimed a username matching `{username}`.",
-                        )
-                    )
-                )
-                return
-            lines = [
-                f"`#{record.id}` <@{record.discord_user_id}> · `{record.claimed_username}` "
-                f"({record.edition.value.title()}) · **{record.status.value.replace('_', ' ').title()}**"
-                for record in matches
-            ]
-            await interaction.edit_original_response(
-                **branded_edit(
-                    info_embed(
-                        "Username Lookup",
-                        f"> {len(matches)} application(s) matched `{username}`.\n\n" + "\n".join(lines),
-                    )
-                )
             )
 
         @group.command(name="stats", description="Show Minecraft application and access totals.")
@@ -1117,7 +1297,10 @@ class MinecraftAccessBot(commands.Bot):
                 ),
                 inline=True,
             )
-            await interaction.edit_original_response(**branded_edit(embed))
+            await interaction.edit_original_response(
+                **branded_edit(embed),
+                view=self.control_view(interaction),
+            )
 
         @group.command(name="commandlog", description="Review who ran which Minecraft command.")
         @app_commands.default_permissions(manage_messages=True)
@@ -1136,17 +1319,15 @@ class MinecraftAccessBot(commands.Bot):
                 await record_denial(self, interaction, "minecraft commandlog", "Not a moderator")
                 return
             await interaction.response.defer(ephemeral=True, thinking=True)
-            rows = await self.data.list_command_log(
-                actor_id=user.id if user else None,
-                command=command,
-                limit=int(limit or 20),
-            )
-            total = await self.data.count_command_log(
-                actor_id=user.id if user else None,
-                command=command,
-            )
             await interaction.edit_original_response(
-                **branded_edit(build_command_log_embed(rows, total=total))
+                **branded_edit(
+                    await self.build_command_log_embed(
+                        user_id=user.id if user else None,
+                        command=command,
+                        limit=int(limit or 20),
+                    )
+                ),
+                view=self.control_view(interaction),
             )
 
         return group

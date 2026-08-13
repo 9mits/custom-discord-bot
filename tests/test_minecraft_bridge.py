@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import aiohttp
@@ -9,6 +10,7 @@ import aiohttp
 from minecraft_bot.bridge import MinecraftBridgeServer
 from minecraft_bot.config import MinecraftConfig
 from minecraft_bot.data import MinecraftDataManager
+from minecraft_bot.models import BridgeAction, OutboxRecord
 from minecraft_bot.security import create_envelope, verify_envelope
 
 
@@ -178,6 +180,42 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(raised.exception.status, 426)
         finally:
             await secure_server.close()
+
+
+class MinecraftBridgeDispatchTests(unittest.IsolatedAsyncioTestCase):
+    async def test_outbox_delivery_batches_sent_status_updates(self):
+        records = [
+            OutboxRecord(
+                id=index,
+                idempotency_key=f"action-{index}",
+                action=BridgeAction.STATUS,
+                payload={},
+                status="PENDING",
+                attempts=0,
+                last_error=None,
+                application_id=None,
+                created_at=1,
+                processed_at=None,
+            )
+            for index in (1, 2)
+        ]
+        data = SimpleNamespace(
+            get_outbox_batch=AsyncMock(return_value=records),
+            mark_outbox_sent_batch=AsyncMock(),
+        )
+        server = MinecraftBridgeServer(
+            SimpleNamespace(bridge_path="/bridge", bridge_secret=bytes(range(32))),
+            data,
+            verification_handler=AsyncMock(),
+            action_result_handler=AsyncMock(),
+            player_event_handler=AsyncMock(),
+        )
+        server._socket = SimpleNamespace(closed=False, send_json=AsyncMock())
+
+        await server.dispatch_outbox()
+
+        data.mark_outbox_sent_batch.assert_awaited_once_with([1, 2])
+        self.assertEqual(server._socket.send_json.await_count, 2)
 
 
 if __name__ == "__main__":
