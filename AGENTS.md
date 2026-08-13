@@ -9,10 +9,12 @@ specific files (`CLAUDE.md`) import it.
 
 These three rules override everything else. The rest of this file is guidance.
 
-1. **Merge only after the user says "merge."** Run the whole loop autonomously —
-   branch, code, test, push, open PR, watch CI, fix failures — but stop at green
-   CI and ask "Ready to merge?" This bot acts on real users and the test suite is
-   thin (~38 tests), so a human approves before anything reaches the live bots.
+1. **Automatically merge and deploy completed work.** Run the whole loop
+   autonomously — branch, code, test, push, open PR, watch CI, fix failures,
+   squash-merge once every required check is green, then restart production and
+   verify the panel reports `running`. Do not pause to ask for merge approval.
+   Stop before merging or deploying only when the user explicitly says to hold,
+   leave the PR open, or skip deployment.
 2. **Keep secrets out of git.** `.env*`, `.panel.env`, `config.json`, and
    `database*/` are git-ignored and hold live tokens and user data. Stage files
    by name; read what `git status` shows before committing.
@@ -64,9 +66,9 @@ git push -u origin fix/short-description
 machine it is at `~/.local/bin/gh`; auth per invocation via
 `GH_TOKEN=$(printf 'protocol=https\nhost=github.com\n' | git credential fill | grep '^password=' | cut -d= -f2)`
 (the keychain token lacks the scope `gh auth login --with-token` wants).
-Both `test (3.11)` and `test (3.12)` must pass; fix
-failures on the branch rather than working around the gate. When CI is green,
-report back and wait. After the user says "merge":
+Both `test (3.11)` and `test (3.12)` must pass; fix failures on the branch rather
+than working around the gate. When CI is green, automatically complete the
+merge-and-deploy sequence unless the user explicitly requested a hold:
 
 ```bash
 & "C:\Program Files\GitHub CLI\gh.exe" pr merge <number> --squash --delete-branch
