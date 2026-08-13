@@ -31,6 +31,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
     private final ScheduledExecutorService networkExecutor;
     private final HttpClient httpClient;
     private final VerificationEventStore verificationOutbox;
+    private final VerifiedApplicationStore verifiedApplications;
     private final ConcurrentHashMap<String, PlayerActivity> playerActivityOutbox = new ConcurrentHashMap<>();
     private final StringBuilder inbound = new StringBuilder();
     private final AtomicBoolean connecting = new AtomicBoolean(false);
@@ -46,6 +47,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             PendingVerificationCache pending,
             ProcessedActionStore processedActions,
             VerificationEventStore verificationOutbox,
+            VerifiedApplicationStore verifiedApplications,
             ScheduledExecutorService networkExecutor
     ) {
         this.plugin = plugin;
@@ -53,6 +55,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         this.pending = pending;
         this.processedActions = processedActions;
         this.verificationOutbox = verificationOutbox;
+        this.verifiedApplications = verifiedApplications;
         this.networkExecutor = networkExecutor;
         this.protocol = new SignedProtocol(config.secret());
         HttpClient.Builder httpClientBuilder = HttpClient.newBuilder()
@@ -205,7 +208,9 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                 }
             }
             case "REMOVE_PENDING" -> {
-                pending.remove(payload.get("application_id").getAsLong());
+                long applicationId = payload.get("application_id").getAsLong();
+                pending.remove(applicationId);
+                verifiedApplications.remove(applicationId);
                 recordAndSend(idempotencyKey, new ProcessedActionStore.Result(true, ""));
             }
             case "APPROVE", "REVOKE", "KICK", "STATUS" -> Bukkit.getScheduler().runTask(
@@ -291,6 +296,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                             throw new IllegalStateException("Floodgate rejected the whitelist command");
                         }
                     }
+                    verifiedApplications.remove(payload.get("application_id").getAsLong());
                 }
                 case "REVOKE" -> {
                     MinecraftEdition edition = MinecraftEdition.valueOf(payload.get("edition").getAsString());
@@ -353,6 +359,9 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             payload.addProperty("xuid", xuid);
         }
         try {
+            verifiedApplications.put(
+                    application.applicationId(), minecraftUuid, currentUsername
+            );
             verificationOutbox.put(key, payload);
         } catch (RuntimeException exception) {
             plugin.getLogger().severe("Could not persist verification event: " + safeError(exception));

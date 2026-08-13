@@ -298,12 +298,12 @@ class DeliveryRoutingTests(unittest.TestCase):
 
         self.assertEqual([call.args[0] for call in client._send_configured_log.await_args_list], [10])
 
-    def test_a_destructive_command_reaches_both_channels(self):
+    def test_a_destructive_command_only_reaches_the_important_channel(self):
         client = self._client(command_channel=10, important_channel=20)
 
         asyncio.run(deliver(client, make_record(command="minecraft revoke", risk=RISK_DESTRUCTIVE)))
 
-        self.assertEqual([call.args[0] for call in client._send_configured_log.await_args_list], [10, 20])
+        self.assertEqual([call.args[0] for call in client._send_configured_log.await_args_list], [20])
 
     def test_important_records_fall_back_to_the_command_log(self):
         client = self._client(command_channel=10, important_channel=0)

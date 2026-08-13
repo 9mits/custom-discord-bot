@@ -14,7 +14,7 @@ from minecraft_bot.models import ApplicationStatus, Edition, MinecraftApplicatio
 from minecraft_bot.presentation import (
     BRAND_NAME,
     ICON_PATH,
-    FOOTER_ATTACHMENT_URI,
+    FOOTER_ICON_URL,
     LOGO_ATTACHMENT_URI,
     FOOTER_PATH,
     LOGO_PATH,
@@ -106,7 +106,6 @@ class MinecraftBotPolicyTests(unittest.TestCase):
             {
                 "minecraft:review:approve",
                 "minecraft:review:deny",
-                "minecraft:review:history",
             },
         )
         self.assertIsNone(modal.edition)
@@ -140,9 +139,9 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertEqual(embeds[0].title, "Welcome to Mysterious SMP X")
         self.assertEqual(embeds[1].title, "Apply to Mysterious SMP X")
         self.assertEqual(embeds[0].image.url, LOGO_ATTACHMENT_URI)
-        self.assertIsNone(embeds[0].footer.text)
+        self.assertEqual(embeds[0].footer.text, BRAND_NAME)
         self.assertIsNone(embeds[1].image.url)
-        self.assertEqual(embeds[1].footer.icon_url, FOOTER_ATTACHMENT_URI)
+        self.assertEqual(embeds[1].footer.icon_url, FOOTER_ICON_URL)
 
     def test_minecraft_presentation_uses_orange_brand_system(self):
         embed = info_embed("Status", "Operational", success=True)
@@ -150,7 +149,7 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertEqual(THEME_COLOUR.value, discord.Colour.from_rgb(255, 153, 0).value)
         self.assertEqual(embed.colour.value, THEME_COLOUR.value)
         self.assertEqual(embed.footer.text, BRAND_NAME)
-        self.assertIsNone(embed.footer.icon_url)
+        self.assertEqual(embed.footer.icon_url, FOOTER_ICON_URL)
         self.assertIsNone(embed.thumbnail.url)
         self.assertIsNotNone(embed.timestamp)
         self.assertTrue(LOGO_PATH.is_file())
@@ -240,7 +239,7 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertIn("account was verified and your application has been sent", embed.description)
         self.assertNotIn("another DM", embed.description)
 
-    def test_review_embed_uses_attached_logo_and_claimed_identity(self):
+    def test_review_embed_uses_applicant_avatar_and_claimed_identity(self):
         application = MinecraftApplication(
             id=7,
             guild_id="1",
@@ -257,10 +256,14 @@ class MinecraftBotPolicyTests(unittest.TestCase):
             minecraft_uuid="00000000-0000-0000-0000-000000000000",
         )
 
-        embed = review_embed(application)
+        user = SimpleNamespace(
+            name="Applicant",
+            display_avatar=SimpleNamespace(url="https://cdn.discordapp.com/avatar.png"),
+        )
+        embed = review_embed(application, user=user)
 
-        self.assertIsNone(embed.thumbnail.url)
-        self.assertIsNone(embed.footer.icon_url)
+        self.assertEqual(embed.thumbnail.url, "https://cdn.discordapp.com/avatar.png")
+        self.assertEqual(embed.footer.icon_url, FOOTER_ICON_URL)
         self.assertTrue(any(field.name == "Claimed Username" for field in embed.fields))
 
     def test_setup_dashboard_uses_components_v2(self):
@@ -280,9 +283,8 @@ class MinecraftBotPolicyTests(unittest.TestCase):
             if "custom_id" in component
         }
         self.assertIn("minecraft:setup:application_channel_id", custom_ids)
-        self.assertIn("minecraft:setup:application_log_channel_id", custom_ids)
-        self.assertIn("minecraft:setup:verification_log_channel_id", custom_ids)
-        self.assertIn("minecraft:setup:player_log_channel_id", custom_ids)
+        self.assertIn("minecraft:setup:activity_log_channel_id", custom_ids)
+        self.assertIn("minecraft:setup:critical_log_channel_id", custom_ids)
         self.assertIn("minecraft:setup:member_role_id", custom_ids)
         self.assertIn("minecraft:setup:action:post", custom_ids)
 
@@ -405,27 +407,33 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         bot.data.set_status_message.assert_awaited_once_with(1, 50, 60)
         bot.data.enqueue_delivery.assert_not_awaited()
 
-    async def test_finished_application_never_creates_a_late_dm(self):
+    async def test_finished_application_uses_a_fallback_dm_when_the_ephemeral_card_expired(self):
         application = SimpleNamespace(
             id=1,
             discord_user_id="99",
             status=ApplicationStatus.DENIED,
             status_channel_id=None,
             status_message_id=None,
+            applicant_reason="Not this time",
         )
+        sent_message = SimpleNamespace(channel=SimpleNamespace(id=50), id=60)
+        user = SimpleNamespace(send=AsyncMock(return_value=sent_message))
         bot = object.__new__(MinecraftAccessBot)
-        bot.get_user = Mock()
+        bot.get_user = Mock(return_value=user)
         bot.fetch_user = AsyncMock()
         bot.data = SimpleNamespace(
             get_application=AsyncMock(return_value=application),
             enqueue_delivery=AsyncMock(),
+            set_status_message=AsyncMock(),
         )
 
         delivered = await bot.update_live_card(application)
 
         self.assertTrue(delivered)
-        bot.get_user.assert_not_called()
+        bot.get_user.assert_called_once_with(99)
         bot.fetch_user.assert_not_awaited()
+        user.send.assert_awaited_once()
+        self.assertEqual(user.send.await_args.kwargs["embed"].title, "Minecraft Application Denied")
         bot.data.enqueue_delivery.assert_not_awaited()
 
     async def test_existing_verified_message_has_controls_removed(self):
@@ -619,7 +627,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kwargs["view"].children[0].style, discord.ButtonStyle.success)
         self.assertEqual(kwargs["view"].children[1].style, discord.ButtonStyle.secondary)
         self.assertEqual(kwargs["embed"].image.url, RULES_ATTACHMENT_URI)
-        self.assertIsNone(kwargs["embed"].footer.icon_url)
+        self.assertEqual(kwargs["embed"].footer.icon_url, FOOTER_ICON_URL)
         self.assertEqual(kwargs["file"].filename, "mysterious_smp_x_rules.png")
         kwargs["file"].close()
 
@@ -628,6 +636,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         agree_response = SimpleNamespace(send_modal=AsyncMock())
         agree_interaction = SimpleNamespace(
             client=SimpleNamespace(bridge=SimpleNamespace(supports_auto_edition=True)),
+            message=SimpleNamespace(id=1),
             user=SimpleNamespace(id=99),
             response=agree_response,
         )
@@ -635,6 +644,10 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         await view.children[0].callback(agree_interaction)
 
         agree_response.send_modal.assert_awaited_once()
+        self.assertIs(
+            agree_response.send_modal.await_args.args[0].source_message,
+            agree_interaction.message,
+        )
 
         disagree_response = SimpleNamespace(edit_message=AsyncMock())
         disagree_interaction = SimpleNamespace(

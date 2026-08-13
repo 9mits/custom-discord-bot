@@ -28,12 +28,18 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             "No active verification matched this account.\n\n"
                     + "Check the username and expiry shown on your Discord Minecraft card, then try again."
     );
+    private static final Component APPLICATION_ALREADY_SENT_MESSAGE = Component.text(
+            "Your application has already been sent.\n\n"
+                    + "Your Minecraft account is verified and staff are reviewing it.\n"
+                    + "Please wait for your result in Discord before trying to join again."
+    );
 
     private ScheduledExecutorService networkExecutor;
     private BridgeClient bridgeClient;
     private PendingVerificationCache pending;
     private PlayerPerkService perkService;
     private SidebarService sidebarService;
+    private VerifiedApplicationStore verifiedApplications;
 
     @Override
     public void onEnable() {
@@ -62,6 +68,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             verificationEvents = new VerificationEventStore(
                     getDataFolder().toPath().resolve("verification-events.json")
             );
+            verifiedApplications = new VerifiedApplicationStore(
+                    getDataFolder().toPath().resolve("verified-applications.json")
+            );
             clanStore = new ClanStore(getDataFolder().toPath().resolve("clans.json"));
         } catch (IOException exception) {
             getLogger().severe("MGXAccessBridge could not open its data stores: " + exception.getMessage());
@@ -79,18 +88,20 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 bridgeConfig.scoreboardUpdateTicks()
         );
         bridgeClient = new BridgeClient(
-                this, bridgeConfig, pending, processed, verificationEvents, networkExecutor
+                this, bridgeConfig, pending, processed, verificationEvents, verifiedApplications, networkExecutor
         );
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(perkService, this);
         getServer().getPluginManager().registerEvents(clanService, this);
-        if (getCommand("clans") == null) {
-            getLogger().severe("The clans command is missing from plugin.yml.");
+        if (getCommand("clans") == null || getCommand("claninfo") == null) {
+            getLogger().severe("A clan command is missing from plugin.yml.");
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
         getCommand("clans").setExecutor(clanService);
         getCommand("clans").setTabCompleter(clanService);
+        getCommand("claninfo").setExecutor(clanService);
+        getCommand("claninfo").setTabCompleter(clanService);
         sidebarService.start();
         bridgeClient.start();
     }
@@ -114,6 +125,12 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     void applyPlayerProfile(org.bukkit.entity.Player player, PlayerProfile profile) {
         perkService.apply(player, profile);
         sidebarService.refresh(player);
+    }
+
+    void refreshClanAppearance() {
+        if (sidebarService != null) {
+            sidebarService.refreshAll();
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
@@ -145,7 +162,11 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
         Optional<PendingVerification> match = pending.match(edition, actualUsername);
         if (match.isEmpty()) {
-            event.kickMessage(VERIFICATION_HELP_MESSAGE);
+            event.kickMessage(
+                    verifiedApplications.find(uuid).isPresent()
+                            ? APPLICATION_ALREADY_SENT_MESSAGE
+                            : VERIFICATION_HELP_MESSAGE
+            );
             return;
         }
         if (!bridgeClient.queueVerification(match.get(), edition, uuid, actualUsername, xuid)) {

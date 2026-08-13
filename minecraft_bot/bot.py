@@ -94,7 +94,7 @@ class MinecraftAccessBot(commands.Bot):
         )
         self.apply_rate_limit = RateLimiter(5)
         self.status_rate_limit = RateLimiter(10)
-        self._application_interactions: dict[int, tuple[discord.Interaction, float]] = {}
+        self._application_messages: dict[int, tuple[discord.Message, float]] = {}
         self._background_tasks: set[asyncio.Task] = set()
         self._commands_synced = False
         self._application_panel_refreshed = False
@@ -254,15 +254,16 @@ class MinecraftAccessBot(commands.Bot):
             self.settings = candidate
             return candidate
 
-    def remember_application_interaction(self, application_id: int, interaction: discord.Interaction) -> None:
+    def remember_application_message(self, application_id: int, message: discord.Message) -> None:
         now = time.monotonic()
-        self._application_interactions = {
-            key: value for key, value in self._application_interactions.items() if value[1] > now
+        remembered = getattr(self, "_application_messages", {})
+        self._application_messages = {
+            key: value for key, value in remembered.items() if value[1] > now
         }
-        if len(self._application_interactions) >= 1000:
-            oldest = min(self._application_interactions, key=lambda key: self._application_interactions[key][1])
-            self._application_interactions.pop(oldest, None)
-        self._application_interactions[int(application_id)] = (interaction, now + 14 * 60)
+        if len(self._application_messages) >= 1000:
+            oldest = min(self._application_messages, key=lambda key: self._application_messages[key][1])
+            self._application_messages.pop(oldest, None)
+        self._application_messages[int(application_id)] = (message, now + 14 * 60)
 
     async def cancel_pending_verification(
         self,
@@ -274,7 +275,7 @@ class MinecraftAccessBot(commands.Bot):
             guild_id=guild_id,
             discord_user_id=discord_user_id,
         )
-        self._application_interactions.pop(application.id, None)
+        getattr(self, "_application_messages", {}).pop(application.id, None)
         self.spawn_background_task(
             self._finish_cancellation(application),
             name=f"minecraft-cancel:{application.id}",
@@ -378,6 +379,37 @@ class MinecraftAccessBot(commands.Bot):
         queue_on_failure: bool = True,
         create_if_missing: bool = True,
     ) -> bool:
+        remembered = getattr(self, "_application_messages", {}).get(application.id)
+        if remembered is not None:
+            if remembered[1] <= time.monotonic():
+                self._application_messages.pop(application.id, None)
+            else:
+                try:
+                    if application.status is ApplicationStatus.APPROVED:
+                        embed = approval_embed(self.settings)
+                    elif application.status is ApplicationStatus.DENIED:
+                        embed = denial_embed(application)
+                    elif application.status in {
+                        ApplicationStatus.PENDING_REVIEW,
+                        ApplicationStatus.APPROVAL_QUEUED,
+                    }:
+                        embed = verified_embed(application)
+                    else:
+                        embed = live_status_embed(application, self.settings)
+                    await remembered[0].edit(
+                        **branded_edit(embed),
+                        attachments=[],
+                        view=None,
+                    )
+                    if application.status not in {
+                        ApplicationStatus.PENDING_VERIFICATION,
+                        ApplicationStatus.PENDING_REVIEW,
+                        ApplicationStatus.APPROVAL_QUEUED,
+                    }:
+                        self._application_messages.pop(application.id, None)
+                    return True
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    self._application_messages.pop(application.id, None)
         lock = getattr(self, "_live_card_lock", None)
         if lock is None:
             lock = self._live_card_lock = asyncio.Lock()
@@ -406,7 +438,11 @@ class MinecraftAccessBot(commands.Bot):
                     with suppress(discord.NotFound, discord.Forbidden, discord.HTTPException):
                         message = await channel.fetch_message(int(application.status_message_id))
             if message is None:
-                if not create_if_missing or application.status is not ApplicationStatus.PENDING_REVIEW:
+                if not create_if_missing or application.status not in {
+                    ApplicationStatus.PENDING_REVIEW,
+                    ApplicationStatus.APPROVED,
+                    ApplicationStatus.DENIED,
+                }:
                     return True
                 user = self.get_user(int(application.discord_user_id))
                 if user is None:
@@ -414,9 +450,13 @@ class MinecraftAccessBot(commands.Bot):
                         user = await self.fetch_user(int(application.discord_user_id))
                 if user is None:
                     raise RuntimeError("Discord user unavailable")
-                message = await user.send(
-                    **branded_send(verified_embed(application)),
-                )
+                if application.status is ApplicationStatus.APPROVED:
+                    embed = approval_embed(self.settings)
+                elif application.status is ApplicationStatus.DENIED:
+                    embed = denial_embed(application)
+                else:
+                    embed = verified_embed(application)
+                message = await user.send(**branded_send(embed))
                 await self.data.set_status_message(application.id, message.channel.id, message.id)
             else:
                 if application.status is ApplicationStatus.APPROVED:
@@ -712,14 +752,6 @@ class MinecraftAccessBot(commands.Bot):
             verification_log_embed(application),
         )
         await self.update_live_card(application)
-        remembered = self._application_interactions.pop(application.id, None)
-        if remembered is not None and remembered[1] > time.monotonic():
-            with suppress(discord.NotFound, discord.HTTPException):
-                await remembered[0].edit_original_response(
-                    **branded_edit(verified_embed(application)),
-                    attachments=[],
-                    view=None,
-                )
 
     async def post_or_update_review(self, application: MinecraftApplication) -> None:
         if application.review_message_id:
@@ -1265,11 +1297,8 @@ class MinecraftAccessBot(commands.Bot):
         )
         @app_commands.choices(
             log=[
-                app_commands.Choice(name="Applications and decisions", value="application"),
-                app_commands.Choice(name="Account verifications", value="verification"),
-                app_commands.Choice(name="Player joins and leaves", value="player"),
-                app_commands.Choice(name="Every command that is run (staff only)", value="command"),
-                app_commands.Choice(name="Important commands only (staff only)", value="critical"),
+                app_commands.Choice(name="Activity Log", value="activity"),
+                app_commands.Choice(name="Important Log", value="important"),
             ]
         )
         async def log_channel(
@@ -1280,24 +1309,33 @@ class MinecraftAccessBot(commands.Bot):
             if not await self.require_administrator(interaction):
                 return
             await interaction.response.defer(ephemeral=True, thinking=True)
-            setting = {
-                "application": "application_log_channel_id",
-                "verification": "verification_log_channel_id",
-                "player": "player_log_channel_id",
-                "command": "command_log_channel_id",
-                "critical": "critical_log_channel_id",
-            }[log.value]
+            channel_id = channel.id if channel is not None else 0
+            if log.value == "activity":
+                updates = {
+                    "application_log_channel_id": channel_id,
+                    "verification_log_channel_id": channel_id,
+                    "player_log_channel_id": channel_id,
+                    "command_log_channel_id": channel_id,
+                }
+                explanation = (
+                    "Routine applications, verifications, player activity, and command usage share this channel."
+                )
+            else:
+                updates = {"critical_log_channel_id": channel_id}
+                explanation = (
+                    "Denied or failed actions and access-changing staff commands are isolated here."
+                )
             await self.update_settings(
                 actor_id=interaction.user.id,
-                **{setting: channel.id if channel is not None else 0},
+                **updates,
             )
             destination = channel.mention if channel is not None else "Disabled"
             await interaction.edit_original_response(
                 **branded_edit(
                     info_embed(
                         "Minecraft Log Updated",
-                        f"> **{log.name}**\n\n**Destination:** {destination}\n"
-                        "The change takes effect immediately.",
+                        f"> **{log.name}**\n\n**Destination:** {destination}\n\n"
+                        f"{explanation}\nThe change takes effect immediately.",
                         success=True,
                     )
                 ),
@@ -1481,7 +1519,7 @@ class MinecraftAccessBot(commands.Bot):
                     name="Administrators",
                     value=(
                         "`/minecraft setup` — the setup dashboard\n"
-                        "`/minecraft log-channel` — choose where each log is written"
+                        "`/minecraft log-channel` — choose the Activity and Important log channels"
                     ),
                     inline=False,
                 )

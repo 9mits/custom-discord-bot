@@ -982,6 +982,14 @@ class MinecraftDataManager:
                     "SELECT discord_user_id FROM minecraft_applications WHERE id=?",
                     (int(application_id),),
                 )
+                await self._queue(
+                    db,
+                    BridgeAction.REMOVE_PENDING,
+                    {"application_id": int(application_id)},
+                    idempotency_key=f"application:{application_id}:deny-remove",
+                    application_id=int(application_id),
+                    timestamp=current,
+                )
                 await self._audit(
                     db,
                     "APPLICATION_DENIED",

@@ -33,6 +33,7 @@ class ClanStoreTest {
 
         assertEquals(created.id(), joined.id());
         assertEquals("Orange Guard", clan.name());
+        assertEquals("EMBERG", clan.tag());
         assertEquals(2, clan.members().size());
         assertTrue(clan.staff().contains(member));
         assertFalse(clan.friendlyFire());
@@ -107,5 +108,21 @@ class ClanStoreTest {
                 ClanStore.ClanException.class,
                 () -> store.create(UUID.randomUUID(), "Third", "<>bad")
         );
+    }
+
+    @Test
+    void clanTagsAreGeneratedEditableUniqueAndSearchable() throws Exception {
+        ClanStore store = new ClanStore(temporaryDirectory.resolve("clans.json"));
+        UUID orange = UUID.randomUUID();
+        UUID lucky = UUID.randomUUID();
+        store.create(orange, "Orange", "Orange Crew");
+        store.create(lucky, "Lucky", "Lucky Group");
+
+        ClanStore.ClanView updated = store.setTag(lucky, "lucky");
+
+        assertEquals("LUCKY", updated.tag());
+        assertEquals(updated.id(), store.findClan("lucky").orElseThrow().id());
+        assertThrows(ClanStore.ClanException.class, () -> store.setTag(orange, "LUCKY"));
+        assertThrows(ClanStore.ClanException.class, () -> store.setTag(orange, "!"));
     }
 }

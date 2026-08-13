@@ -50,11 +50,8 @@ def configuration_findings(bot, guild: Optional[discord.Guild]) -> list[SetupFin
     channels = (
         ("Application channel", settings.application_channel_id, False, True),
         ("Review channel", settings.review_channel_id, True, True),
-        ("Application log", settings.application_log_channel_id, True, False),
-        ("Verification log", settings.verification_log_channel_id, True, False),
-        ("Player activity log", settings.player_log_channel_id, True, False),
-        ("Command log", settings.command_log_channel_id, True, False),
-        ("Important command log", settings.critical_log_channel_id, True, False),
+        ("Activity log", settings.command_log_channel_id, True, False),
+        ("Important log", settings.critical_log_channel_id, True, False),
     )
     for label, channel_id, needs_embeds, required_channel in channels:
         if not channel_id:
@@ -158,9 +155,18 @@ class MinecraftChannelSelect(discord.ui.ChannelSelect):
             return
         await interaction.response.defer(ephemeral=True)
         try:
+            if self.setting == "activity_log_channel_id":
+                updates = {
+                    "application_log_channel_id": self.values[0].id,
+                    "verification_log_channel_id": self.values[0].id,
+                    "player_log_channel_id": self.values[0].id,
+                    "command_log_channel_id": self.values[0].id,
+                }
+            else:
+                updates = {self.setting: self.values[0].id}
             await view.bot.update_settings(
                 actor_id=interaction.user.id,
-                **{self.setting: self.values[0].id},
+                **updates,
             )
         except ValueError as exc:
             await interaction.followup.send(
@@ -379,13 +385,16 @@ class MinecraftSetupView(discord.ui.LayoutView):
                 f"**Bridge:** {bridge_state}\n"
                 f"**Application channel:** {_channel_value(guild, settings.application_channel_id)}\n"
                 f"**Review channel:** {_channel_value(guild, settings.review_channel_id)}\n"
-                f"**Application log:** {_channel_value(guild, settings.application_log_channel_id)}\n"
-                f"**Verification log:** {_channel_value(guild, settings.verification_log_channel_id)}\n"
-                f"**Player activity log:** {_channel_value(guild, settings.player_log_channel_id)}\n"
-                f"**Command log:** {_channel_value(guild, settings.command_log_channel_id)}\n"
-                f"**Important command log:** {_channel_value(guild, settings.critical_log_channel_id)}\n"
+                f"**Activity log:** {_channel_value(guild, settings.command_log_channel_id)}\n"
+                f"**Important log:** {_channel_value(guild, settings.critical_log_channel_id)}\n"
                 f"**Moderator role:** {_role_value(guild, settings.mod_role_id)}\n"
                 f"**Approved-member role:** {_role_value(guild, settings.member_role_id)}"
+            )
+        )
+        container.add_item(
+            discord.ui.TextDisplay(
+                "**Activity log** keeps routine applications, verifications, player activity, and commands together.\n"
+                "**Important log** is the quieter escalation channel for denied or failed actions and access removal."
             )
         )
         if findings:
@@ -400,9 +409,8 @@ class MinecraftSetupView(discord.ui.LayoutView):
         for item in (
             MinecraftChannelSelect("application_channel_id", "Application channel"),
             MinecraftChannelSelect("review_channel_id", "Review channel"),
-            MinecraftChannelSelect("application_log_channel_id", "Application log"),
-            MinecraftChannelSelect("verification_log_channel_id", "Verification log"),
-            MinecraftChannelSelect("player_log_channel_id", "Player activity log"),
+            MinecraftChannelSelect("activity_log_channel_id", "Activity log"),
+            MinecraftChannelSelect("critical_log_channel_id", "Important log"),
             MinecraftRoleSelect("mod_role_id", "Moderator role"),
             MinecraftRoleSelect("member_role_id", "Approved-member role"),
         ):
@@ -413,11 +421,14 @@ class MinecraftSetupView(discord.ui.LayoutView):
         container.add_item(discord.ui.Separator())
         container.add_item(
             discord.ui.TextDisplay(
-                "**Java server address**\n"
+                "**Java Edition — PC/Mac launcher**\n"
+                "Use this in Multiplayer → Add Server. Java does not use the Bedrock port.\n"
                 f"```text\n{settings.java_address}\n```\n"
-                "**Bedrock server address**\n"
+                "**Bedrock Edition — phone, console, or Windows**\n"
+                "Use both the address and port when adding an external server.\n"
+                "**Address**\n"
                 f"```text\n{settings.bedrock_address}\n```\n"
-                "**Bedrock port**\n"
+                "**Port**\n"
                 f"```text\n{settings.bedrock_port}\n```\n"
                 "The Discord token, guild ID, bridge secret, server ID, bind address, and data path remain in the environment."
             )
