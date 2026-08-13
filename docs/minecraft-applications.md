@@ -19,7 +19,7 @@ minecraft_main.py -> MinecraftAccessBot -> runtime/minecraft/minecraft.db
 
 The bridge exposes an HTTP WebSocket path inside the Minecraft bot process. Production traffic must reach it through a TLS endpoint (`wss://`). The Paper plugin makes the outbound connection, so the Minecraft server does not need an inbound bridge port and RCON is never used.
 
-Every bridge message carries an HMAC-SHA256 signature, timestamp, random nonce, and idempotency key. Both sides reject messages outside a 30-second clock window and replayed nonces. The bridge accepts only `APPROVE`, `REVOKE`, `KICK`, `SYNC_PENDING`, `REMOVE_PENDING`, and `STATUS`; it cannot run arbitrary console commands. Paper sends signed, acknowledged `PLAYER_JOIN` and `PLAYER_LEAVE` events for optional Discord activity logging.
+Every bridge message carries an HMAC-SHA256 signature, timestamp, random nonce, and idempotency key. Both sides reject messages outside a 30-second clock window and replayed nonces. The bridge accepts only `APPROVE`, `REVOKE`, `KICK`, `SYNC_PENDING`, `REMOVE_PENDING`, `STATUS`, and the transient `SYNC_PROFILE` perk update; it cannot run arbitrary console commands. Paper sends signed, acknowledged `PLAYER_JOIN` and `PLAYER_LEAVE` events for optional Discord activity logging and receives a derived level profile when a linked player joins or their milestone roles change.
 
 Each Discord member can link at most one Java account and one Bedrock account. The limit is enforced transactionally when an application is created and checked again when Paper verifies ownership.
 
@@ -52,7 +52,7 @@ contain `MINECRAFT_APPLICATION_CHANNEL_ID`, `MINECRAFT_REVIEW_CHANNEL_ID`,
 one-time bootstrap defaults when the database has no saved value, but can be removed
 after the first successful startup.
 
-The Discord application needs the Server Members intent enabled in the Developer Portal so review records can show join dates and the bot can assign the approved-member role. Invite only this dedicated application to the configured guild. Its role must sit above the approved-member role selected in the panel, and it needs View Channels, Send Messages, Embed Links, Read Message History, and Manage Roles in the relevant channels/server.
+The Discord application needs the Server Members intent enabled in the Developer Portal so review records can show join dates, the bot can assign the approved-member role, and Minecraft perks can update when milestone roles change. Invite only this dedicated application to the configured guild. Its role must sit above the approved-member role selected in the panel, and it needs View Channels, Send Messages, Embed Links, Read Message History, and Manage Roles in the relevant channels/server.
 
 ## Shared secret
 
@@ -122,7 +122,71 @@ runtime/minecraft/backups/
 
 For routine backups, stop only the Minecraft bot process and copy the entire `MINECRAFT_DATA_DIR`. To recover, stop that process, preserve the damaged directory separately, restore `minecraft.db` plus its `-wal`/`-shm` files when present, and start the process again. Do not copy a live database without using SQLite's backup API.
 
+Clan data is owned by Paper and saved atomically in
+`plugins/MGXAccessBridge/clans.json`. Include that file when backing up the Minecraft
+server. The plugin fails closed instead of replacing malformed clan data.
+
 The durable outbox makes approval and revocation safe across disconnects. `APPROVAL_QUEUED` does not mean a player is whitelisted. The status becomes `APPROVED`, and the Discord role is assigned, only after Paper confirms the typed action.
+
+## Scoreboard and Discord level perks
+
+Every online player receives a compact orange sidebar containing their name, highest
+Discord milestone, bonus hearts, optional level-50 power bonus, optional clan, kills,
+deaths, online population, ping, and the configured footer. Clan and power rows are
+omitted when they do not apply. Paper 1.20.6's blank number format hides the sidebar's
+internal score values.
+
+The dedicated Discord bot derives profiles from these exact milestone roles:
+
+| Discord role ID | Displayed milestone | Perk |
+|---|---:|---|
+| `1476839722172158018` | 5 | +1 heart |
+| `1476839722172158019` | 10 | +1 heart |
+| `1476839722172158020` | 20 | +1 heart |
+| `1476839722172158021` | 30 | +1 heart |
+| `1476839722172158022` | 40 | +1 heart |
+| `1476839722172158023` | 50 | +5% direct melee damage |
+
+Heart milestones unlock cumulatively from the highest role to a maximum of five extra
+hearts. Level 50 does not add a sixth heart; it retains all lower milestone perks and enables the small
+damage bonus without a potion effect, particles, or a permanent player-data change.
+Removing a Discord role removes its matching perk. Profiles are sent only across the
+signed bridge and transient health modifiers are cleared when the plugin disables.
+
+The sidebar is configured in `plugins/MGXAccessBridge/config.yml`:
+
+```yaml
+scoreboard:
+  footer: "discord.gg/mgx"
+  update-ticks: 20
+```
+
+The footer accepts 1-32 characters. Refresh intervals accept 10-200 ticks; the default
+is once per second.
+
+## Minecraft clans
+
+Clans are UUID-based, survive name changes and server restarts, and have one leader,
+optional staff, up to 25 members, five-minute invites, private online chat, and friendly
+fire disabled by default. Clan membership appears on the sidebar only when applicable.
+
+| Command | Purpose |
+|---|---|
+| `/clans create <name>` | Create a uniquely named clan. |
+| `/clans invite <player>` | Invite an online player; `/clans add` is an alias. |
+| `/clans accept` / `/clans decline` | Answer the latest active invite. |
+| `/clans info [name]` / `/clans list [page]` | Inspect or browse clans. |
+| `/clans rename <name>` | Change the clan name as leader. |
+| `/clans promote <player>` / `/clans demote <player>` | Add or remove clan staff. |
+| `/clans transfer <player>` | Transfer leadership to an existing member. |
+| `/clans kick <player>` / `/clans leave` | Remove a member or leave voluntarily. |
+| `/clans chat <message>` | Message online members of the same clan. |
+| `/clans friendlyfire` | Let the leader toggle member-on-member damage. |
+| `/clans disband confirm` | Permanently remove the clan after explicit confirmation. |
+
+Leaders can perform every management action. Staff can invite and remove regular
+members, but cannot rename or disband the clan, change staff, transfer leadership, or
+remove another staff member.
 
 ## Posting the application panel
 

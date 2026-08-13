@@ -649,7 +649,10 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_player_activity_is_deduplicated_before_logging(self):
         bot = object.__new__(MinecraftAccessBot)
+        bot.config = SimpleNamespace(guild_id=1)
         bot.settings = SimpleNamespace(player_log_channel_id=55)
+        bot.bridge = SimpleNamespace(send_player_profile=AsyncMock(return_value=True))
+        bot.get_guild = Mock(return_value=None)
         bot.data = SimpleNamespace(
             claim_bridge_event=AsyncMock(side_effect=[True, False]),
             get_account_owner=AsyncMock(return_value="99"),
@@ -670,6 +673,36 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
 
         bot._send_configured_log.assert_awaited_once()
         self.assertEqual(bot._send_configured_log.await_args.args[0], 55)
+        bot.bridge.send_player_profile.assert_awaited_once_with(
+            minecraft_uuid=payload["minecraft_uuid"],
+            level=0,
+            extra_hearts=0,
+            elite=False,
+        )
+
+    async def test_level_role_change_resyncs_all_linked_accounts(self):
+        bot = object.__new__(MinecraftAccessBot)
+        bot.bridge = SimpleNamespace(supports_profile_sync=True)
+        bot.data = SimpleNamespace(
+            list_accounts_for_user=AsyncMock(return_value=[
+                {"minecraft_uuid": "123e4567-e89b-12d3-a456-426614174000"},
+                {"minecraft_uuid": "123e4567-e89b-12d3-a456-426614174001"},
+            ])
+        )
+        bot.sync_player_profile = AsyncMock(return_value=True)
+        unchanged = SimpleNamespace(id=7)
+        milestone = SimpleNamespace(id=1476839722172158018)
+        before = SimpleNamespace(id=99, roles=[unchanged])
+        after = SimpleNamespace(id=99, roles=[unchanged, milestone])
+
+        await bot.on_member_update(before, after)
+
+        self.assertEqual(bot.sync_player_profile.await_count, 2)
+        bot.sync_player_profile.assert_any_await(
+            "123e4567-e89b-12d3-a456-426614174000",
+            99,
+            member=after,
+        )
 
 
 class MinecraftConfigurationTests(unittest.IsolatedAsyncioTestCase):

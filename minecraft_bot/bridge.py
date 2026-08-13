@@ -20,6 +20,8 @@ from .security import MAX_CLOCK_SKEW_SECONDS, create_envelope, verify_envelope
 
 logger = logging.getLogger("MinecraftAccessBot.bridge")
 AUTO_EDITION_PROTOCOL_VERSION = 2
+PROFILE_SYNC_PROTOCOL_VERSION = 3
+CURRENT_PROTOCOL_VERSION = PROFILE_SYNC_PROTOCOL_VERSION
 
 VerificationHandler = Callable[..., Awaitable[None]]
 ActionResultHandler = Callable[[OutboxRecord, Optional[Any]], Awaitable[None]]
@@ -70,6 +72,10 @@ class MinecraftBridgeServer:
     @property
     def supports_auto_edition(self) -> bool:
         return self.connected and self._peer_protocol_version >= AUTO_EDITION_PROTOCOL_VERSION
+
+    @property
+    def supports_profile_sync(self) -> bool:
+        return self.connected and self._peer_protocol_version >= PROFILE_SYNC_PROTOCOL_VERSION
 
     async def start(self) -> None:
         ssl_context = None
@@ -171,7 +177,7 @@ class MinecraftBridgeServer:
                 "HELLO_ACK",
                 {
                     "server_id": self.config.server_id,
-                    "protocol_version": min(peer_protocol_version, AUTO_EDITION_PROTOCOL_VERSION),
+                    "protocol_version": min(peer_protocol_version, CURRENT_PROTOCOL_VERSION),
                 },
                 idempotency_key=envelope["idempotency_key"],
             )
@@ -326,6 +332,33 @@ class MinecraftBridgeServer:
             payload,
             idempotency_key=f"pending-sync:{secrets.token_hex(16)}",
         )
+
+    async def send_player_profile(
+        self,
+        *,
+        minecraft_uuid: str,
+        level: int,
+        extra_hearts: int,
+        elite: bool,
+    ) -> bool:
+        """Apply an online player's Discord-derived perks on protocol v3 Paper."""
+        if not self.supports_profile_sync:
+            return False
+        try:
+            await self._send(
+                "ACTION",
+                {
+                    "action": "SYNC_PROFILE",
+                    "minecraft_uuid": str(minecraft_uuid),
+                    "level": max(0, min(int(level), 50)),
+                    "extra_hearts": max(0, min(int(extra_hearts), 5)),
+                    "elite": bool(elite),
+                },
+                idempotency_key=f"profile:{minecraft_uuid}:{secrets.token_hex(12)}",
+            )
+        except ConnectionError:
+            return False
+        return True
 
     def _pending_edition(self, application) -> str:
         if (

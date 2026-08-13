@@ -17,4 +17,10 @@ allow-insecure-localhost: false
 
 verification-expiry-seconds: 600
 reconnect-max-seconds: 60
+
+# The sidebar refreshes live player, level, heart, clan, combat, and server data.
+scoreboard:
+  footer: "discord.gg/mgx"
+  update-ticks: 20
+
 debug: false

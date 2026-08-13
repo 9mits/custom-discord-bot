@@ -14,6 +14,8 @@ record BridgeConfig(
         boolean allowInsecureLocalhost,
         int verificationExpirySeconds,
         int reconnectMaxSeconds,
+        String scoreboardFooter,
+        int scoreboardUpdateTicks,
         boolean debug
 ) {
     private static final Set<String> LOOPBACK_HOSTS = Set.of("localhost", "127.0.0.1", "::1", "[::1]");
@@ -26,6 +28,8 @@ record BridgeConfig(
         boolean allowInsecure = config.getBoolean("allow-insecure-localhost", false);
         int expiry = config.getInt("verification-expiry-seconds", 600);
         int reconnectMax = config.getInt("reconnect-max-seconds", 60);
+        String scoreboardFooter = config.getString("scoreboard.footer", "discord.gg/mgx").trim();
+        int scoreboardUpdateTicks = config.getInt("scoreboard.update-ticks", 20);
         boolean debug = config.getBoolean("debug", false);
 
         if (serverId.isEmpty() || serverId.length() > 64) {
@@ -64,6 +68,12 @@ record BridgeConfig(
         if (reconnectMax < 5 || reconnectMax > 300) {
             throw new IllegalArgumentException("reconnect-max-seconds must be between 5 and 300");
         }
+        if (scoreboardFooter.isEmpty() || scoreboardFooter.length() > 32) {
+            throw new IllegalArgumentException("scoreboard.footer must contain 1-32 characters");
+        }
+        if (scoreboardUpdateTicks < 10 || scoreboardUpdateTicks > 200) {
+            throw new IllegalArgumentException("scoreboard.update-ticks must be between 10 and 200");
+        }
         return new BridgeConfig(
                 serverId,
                 uri,
@@ -72,6 +82,8 @@ record BridgeConfig(
                 allowInsecure,
                 expiry,
                 reconnectMax,
+                scoreboardFooter,
+                scoreboardUpdateTicks,
                 debug
         );
     }

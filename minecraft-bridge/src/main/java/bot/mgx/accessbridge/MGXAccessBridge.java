@@ -32,6 +32,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private ScheduledExecutorService networkExecutor;
     private BridgeClient bridgeClient;
     private PendingVerificationCache pending;
+    private PlayerPerkService perkService;
+    private SidebarService sidebarService;
 
     @Override
     public void onEnable() {
@@ -53,33 +55,65 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         pending = new PendingVerificationCache();
         ProcessedActionStore processed;
         VerificationEventStore verificationEvents;
+        ClanStore clanStore;
         try {
             Path resultFile = getDataFolder().toPath().resolve("processed-actions.properties");
             processed = new ProcessedActionStore(resultFile, networkExecutor);
             verificationEvents = new VerificationEventStore(
                     getDataFolder().toPath().resolve("verification-events.json")
             );
+            clanStore = new ClanStore(getDataFolder().toPath().resolve("clans.json"));
         } catch (IOException exception) {
-            getLogger().severe("MGXAccessBridge could not open its idempotency store: " + exception.getMessage());
+            getLogger().severe("MGXAccessBridge could not open its data stores: " + exception.getMessage());
             networkExecutor.shutdownNow();
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
+        perkService = new PlayerPerkService();
+        ClanService clanService = new ClanService(this, clanStore);
+        sidebarService = new SidebarService(
+                this,
+                perkService,
+                clanStore,
+                bridgeConfig.scoreboardFooter(),
+                bridgeConfig.scoreboardUpdateTicks()
+        );
         bridgeClient = new BridgeClient(
                 this, bridgeConfig, pending, processed, verificationEvents, networkExecutor
         );
         getServer().getPluginManager().registerEvents(this, this);
+        getServer().getPluginManager().registerEvents(perkService, this);
+        getServer().getPluginManager().registerEvents(clanService, this);
+        if (getCommand("clans") == null) {
+            getLogger().severe("The clans command is missing from plugin.yml.");
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
+        getCommand("clans").setExecutor(clanService);
+        getCommand("clans").setTabCompleter(clanService);
+        sidebarService.start();
         bridgeClient.start();
     }
 
     @Override
     public void onDisable() {
+        if (sidebarService != null) {
+            sidebarService.stop();
+        }
+        if (perkService != null) {
+            perkService.clearOnline(getServer().getOnlinePlayers());
+        }
         if (bridgeClient != null) {
             bridgeClient.close();
         }
         if (networkExecutor != null) {
             networkExecutor.shutdownNow();
         }
+    }
+
+    void applyPlayerProfile(org.bukkit.entity.Player player, PlayerProfile profile) {
+        perkService.apply(player, profile);
+        sidebarService.refresh(player);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)

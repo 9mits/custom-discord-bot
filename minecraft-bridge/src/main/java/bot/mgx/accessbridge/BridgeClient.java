@@ -101,7 +101,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         this.authenticated = false;
         JsonObject hello = new JsonObject();
         hello.addProperty("server_id", config.serverId());
-        hello.addProperty("protocol_version", 2);
+        hello.addProperty("protocol_version", 3);
         sendRaw(protocol.create("HELLO", UUID.randomUUID().toString(), hello));
         webSocket.request(1);
     }
@@ -176,16 +176,23 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
     }
 
     private void processAction(String idempotencyKey, JsonObject payload) {
-        Optional<ProcessedActionStore.Result> existing = processedActions.get(idempotencyKey);
-        if (existing.isPresent()) {
-            sendActionResult(idempotencyKey, existing.get());
-            return;
-        }
         String action;
         try {
             action = payload.get("action").getAsString();
         } catch (RuntimeException exception) {
             recordAndSend(idempotencyKey, new ProcessedActionStore.Result(false, "Action is missing"));
+            return;
+        }
+        if (action.equals("SYNC_PROFILE")) {
+            Bukkit.getScheduler().runTask(
+                    plugin,
+                    () -> executeProfileSync(idempotencyKey, payload)
+            );
+            return;
+        }
+        Optional<ProcessedActionStore.Result> existing = processedActions.get(idempotencyKey);
+        if (existing.isPresent()) {
+            sendActionResult(idempotencyKey, existing.get());
             return;
         }
         switch (action) {
@@ -209,6 +216,24 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                     idempotencyKey,
                     new ProcessedActionStore.Result(false, "Action is not allowlisted")
             );
+        }
+    }
+
+    private void executeProfileSync(String key, JsonObject payload) {
+        try {
+            UUID minecraftUuid = UUID.fromString(payload.get("minecraft_uuid").getAsString());
+            PlayerProfile profile = new PlayerProfile(
+                    payload.get("level").getAsInt(),
+                    payload.get("extra_hearts").getAsInt(),
+                    payload.get("elite").getAsBoolean()
+            );
+            Player online = Bukkit.getPlayer(minecraftUuid);
+            if (online != null) {
+                plugin.applyPlayerProfile(online, profile);
+            }
+            sendActionResult(key, new ProcessedActionStore.Result(true, ""));
+        } catch (RuntimeException exception) {
+            sendActionResult(key, new ProcessedActionStore.Result(false, safeError(exception)));
         }
     }
 

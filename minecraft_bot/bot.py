@@ -22,6 +22,7 @@ from .bridge import MinecraftBridgeServer
 from .config import MinecraftConfig
 from .data import MinecraftDataManager
 from .models import ApplicationStatus, BridgeAction, Edition, InvalidTransition, MinecraftApplication, OutboxRecord
+from .perks import LEVEL_ROLE_MILESTONES, profile_for_role_ids
 from .presentation import (
     application_panel,
     application_embeds,
@@ -553,6 +554,8 @@ class MinecraftAccessBot(commands.Bot):
             discord_user_id = await record_seen(edition, minecraft_uuid, current_username, xuid)
         else:
             discord_user_id = await self.data.get_account_owner(edition, minecraft_uuid)
+        if joined:
+            await self.sync_player_profile(minecraft_uuid, discord_user_id)
         self.spawn_background_task(
             self._send_configured_log(
                 self.settings.player_log_channel_id,
@@ -567,6 +570,46 @@ class MinecraftAccessBot(commands.Bot):
             ),
             name="minecraft-player-log",
         )
+
+    async def sync_player_profile(
+        self,
+        minecraft_uuid: str,
+        discord_user_id: Optional[int | str],
+        *,
+        member: Optional[discord.Member] = None,
+    ) -> bool:
+        if member is None and discord_user_id is not None:
+            guild = self.get_guild(self.config.guild_id)
+            if guild is not None:
+                try:
+                    member_id = int(discord_user_id)
+                except (TypeError, ValueError):
+                    member_id = 0
+                if member_id:
+                    member = guild.get_member(member_id)
+                    if member is None:
+                        with suppress(discord.NotFound, discord.Forbidden, discord.HTTPException):
+                            member = await guild.fetch_member(member_id)
+        profile = profile_for_role_ids(role.id for role in getattr(member, "roles", ()))
+        return await self.bridge.send_player_profile(
+            minecraft_uuid=minecraft_uuid,
+            level=profile.level,
+            extra_hearts=profile.extra_hearts,
+            elite=profile.elite,
+        )
+
+    async def on_member_update(self, before: discord.Member, after: discord.Member) -> None:
+        milestone_ids = {role_id for role_id, _level in LEVEL_ROLE_MILESTONES}
+        before_roles = {role.id for role in before.roles} & milestone_ids
+        after_roles = {role.id for role in after.roles} & milestone_ids
+        if before_roles == after_roles or not self.bridge.supports_profile_sync:
+            return
+        for account in await self.data.list_accounts_for_user(after.id):
+            await self.sync_player_profile(
+                str(account["minecraft_uuid"]),
+                after.id,
+                member=after,
+            )
 
     async def post_application_panel(self) -> discord.Message:
         channel = await self._configured_channel(self.settings.application_channel_id)
