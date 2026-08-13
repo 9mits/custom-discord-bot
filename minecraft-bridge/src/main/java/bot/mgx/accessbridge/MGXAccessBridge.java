@@ -80,6 +80,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         perkService = new PlayerPerkService();
         ClanService clanService = new ClanService(this, clanStore);
+        GuideService guideService = new GuideService();
         sidebarService = new SidebarService(
                 this,
                 perkService,
@@ -93,8 +94,13 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(perkService, this);
         getServer().getPluginManager().registerEvents(clanService, this);
-        if (getCommand("clans") == null || getCommand("claninfo") == null) {
-            getLogger().severe("A clan command is missing from plugin.yml.");
+        if (getCommand("clans") == null
+                || getCommand("claninfo") == null
+                || getCommand("guide") == null
+                || getCommand("perks") == null
+                || getCommand("discord") == null
+                || getCommand("connect") == null) {
+            getLogger().severe("A required Minecraft command is missing from plugin.yml.");
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
@@ -102,6 +108,11 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("clans").setTabCompleter(clanService);
         getCommand("claninfo").setExecutor(clanService);
         getCommand("claninfo").setTabCompleter(clanService);
+        getCommand("guide").setExecutor(guideService);
+        getCommand("guide").setTabCompleter(guideService);
+        getCommand("perks").setExecutor(guideService);
+        getCommand("discord").setExecutor(guideService);
+        getCommand("connect").setExecutor(guideService);
         sidebarService.start();
         bridgeClient.start();
     }

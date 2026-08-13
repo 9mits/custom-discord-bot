@@ -13,6 +13,21 @@ commands:
   claninfo:
     description: Open a detailed clan information card.
     usage: /claninfo [name]
+  guide:
+    description: Open the Mysterious SMP X server guide.
+    usage: /guide [levels|clans|commands|joining]
+    aliases: [serverguide]
+  perks:
+    description: View Discord level milestones and Minecraft perks.
+    usage: /perks
+    aliases: [levels, levelperks]
+  discord:
+    description: Open the Mysterious SMP X Discord invite.
+    usage: /discord
+  connect:
+    description: Explain the Java and Bedrock connection options.
+    usage: /connect
+    aliases: [joininfo]
 permissions:
   mgx.clans:
     description: Allows players to use the clan system.

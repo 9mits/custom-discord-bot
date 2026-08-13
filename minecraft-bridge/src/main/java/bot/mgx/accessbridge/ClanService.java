@@ -242,9 +242,11 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
             throw new ClanStore.ClanException("Clan chat messages can contain at most 160 characters.");
         }
         ClanStore.ClanView clan = ownClan(player);
-        TextColor theme = clanColor(clan);
-        Component chat = Component.text("[" + clan.name() + "] CLAN ", theme, TextDecoration.BOLD)
-                .append(Component.text(player.getName() + " » ", theme))
+        Component chat = Component.empty()
+                .append(clanTag(clan))
+                .append(Component.text("CLAN  ", NamedTextColor.DARK_GRAY))
+                .append(Component.text(player.getName(), NamedTextColor.WHITE))
+                .append(Component.text(": ", NamedTextColor.DARK_GRAY))
                 .append(Component.text(message, NamedTextColor.WHITE));
         for (UUID memberId : clan.members().keySet()) {
             Player online = Bukkit.getPlayer(memberId);
@@ -305,15 +307,16 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         }
     }
 
-    @EventHandler(priority = EventPriority.NORMAL, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPublicChat(AsyncChatEvent event) {
-        store.clanOf(event.getPlayer().getUniqueId()).ifPresent(clan ->
-                event.renderer((source, sourceDisplayName, message, viewer) ->
-                        Component.text("[" + clan.name() + "] ", clanColor(clan), TextDecoration.BOLD)
-                                .append(sourceDisplayName)
-                                .append(Component.text(" » ", NamedTextColor.DARK_GRAY))
-                                .append(message))
-        );
+        Optional<ClanStore.ClanView> clan = store.clanOf(event.getPlayer().getUniqueId());
+        if (clan.isEmpty()) {
+            return;
+        }
+        var originalRenderer = event.renderer();
+        event.renderer((source, sourceDisplayName, message, viewer) -> Component.empty()
+                .append(clanTag(clan.get()))
+                .append(originalRenderer.render(source, sourceDisplayName, message, viewer)));
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -423,6 +426,10 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
 
     private static TextColor clanColor(ClanStore.ClanView clan) {
         return TextColor.color(clan.themeColor());
+    }
+
+    private static Component clanTag(ClanStore.ClanView clan) {
+        return Component.text("[" + clan.name() + "] ", clanColor(clan), TextDecoration.BOLD);
     }
 
     private static String resolveThemeColor(String requestedColor) {
