@@ -53,6 +53,8 @@ def configuration_findings(bot, guild: Optional[discord.Guild]) -> list[SetupFin
         ("Application log", settings.application_log_channel_id, True, False),
         ("Verification log", settings.verification_log_channel_id, True, False),
         ("Player activity log", settings.player_log_channel_id, True, False),
+        ("Command log", settings.command_log_channel_id, True, False),
+        ("Important command log", settings.critical_log_channel_id, True, False),
     )
     for label, channel_id, needs_embeds, required_channel in channels:
         if not channel_id:
@@ -380,6 +382,8 @@ class MinecraftSetupView(discord.ui.LayoutView):
                 f"**Application log:** {_channel_value(guild, settings.application_log_channel_id)}\n"
                 f"**Verification log:** {_channel_value(guild, settings.verification_log_channel_id)}\n"
                 f"**Player activity log:** {_channel_value(guild, settings.player_log_channel_id)}\n"
+                f"**Command log:** {_channel_value(guild, settings.command_log_channel_id)}\n"
+                f"**Important command log:** {_channel_value(guild, settings.critical_log_channel_id)}\n"
                 f"**Moderator role:** {_role_value(guild, settings.mod_role_id)}\n"
                 f"**Approved-member role:** {_role_value(guild, settings.member_role_id)}"
             )

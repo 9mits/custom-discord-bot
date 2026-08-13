@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+import re
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -13,6 +14,7 @@ from typing import Any, Awaitable, Callable, Deque, Dict, Mapping, Optional
 import discord
 from discord import InteractionType, app_commands
 
+from . import command_audit
 from .actions import AcknowledgementPolicy, authorize_interaction
 from .errors import BotOperationError, classify_operation_error, respond_operation_error
 from .responding import InteractionResponder
@@ -263,36 +265,144 @@ class OperationMetrics:
         )
 
 
+async def emit_command_audit(
+    client,
+    interaction,
+    *,
+    source: str,
+    spec=None,
+    command: Optional[str] = None,
+    outcome: str = command_audit.OUTCOME_SUCCESS,
+    duration_ms: int = 0,
+    correlation_id: Optional[str] = None,
+    detail: Optional[str] = None,
+) -> None:
+    """Build and emit one audit record. Never raises into the command path."""
+    if not command_audit.has_sink():
+        return
+    try:
+        data_manager = getattr(client, "data_manager", None)
+        config = getattr(data_manager, "config", {}) or {}
+        settings = command_audit.get_settings(config)
+        if not settings.get("enabled", True):
+            return
+        record = command_audit.build_record(
+            interaction,
+            source=source,
+            spec=spec,
+            command=command,
+            outcome=outcome,
+            duration_ms=duration_ms,
+            correlation_id=correlation_id,
+            detail=detail,
+            redact=bool(settings.get("redact", True)),
+        )
+        if not command_audit.should_record(record, config):
+            return
+        await command_audit.emit(record)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.exception("Failed to emit command audit record")
+
+
 class MetricsCommandTree(app_commands.CommandTree):
     async def _call(self, interaction) -> None:
         metrics = getattr(self.client, "metrics", None)
+        audited = interaction.type is not InteractionType.autocomplete
+        started_at = time.perf_counter()
+        audit_state: Dict[str, Any] = {
+            "spec": None,
+            "outcome": command_audit.OUTCOME_SUCCESS,
+            "correlation_id": None,
+            "detail": None,
+        }
+
+        def mark_failed(operation_error: Optional[BotOperationError], detail: Optional[str] = None) -> None:
+            audit_state["outcome"] = command_audit.OUTCOME_FAILED
+            if operation_error is not None:
+                audit_state["correlation_id"] = operation_error.correlation_id
+                audit_state["detail"] = detail or type(operation_error).__name__
+            else:
+                audit_state["detail"] = detail
 
         async def operation() -> None:
             try:
                 data_manager = getattr(self.client, "data_manager", None)
                 config = getattr(data_manager, "config", {})
                 spec = authorize_interaction(interaction, config)
+                audit_state["spec"] = spec
                 if spec is not None and spec.acknowledgement_policy is AcknowledgementPolicy.DEFER:
                     await InteractionResponder(interaction, metrics=metrics).defer(ephemeral=True)
             except BotOperationError as error:
                 interaction.command_failed = True
+                mark_failed(error)
                 await respond_operation_error(interaction, error)
                 return
             except Exception as error:
                 operation_error = classify_operation_error(error)
                 interaction.command_failed = True
+                mark_failed(operation_error)
                 logger.exception(
                     "Interaction policy failed correlation_id=%s",
                     operation_error.correlation_id,
                 )
                 await respond_operation_error(interaction, operation_error)
                 return
-            await super(MetricsCommandTree, self)._call(interaction)
+            try:
+                await super(MetricsCommandTree, self)._call(interaction)
+            except Exception as error:
+                # classify_operation_error caches on the exception, so the id logged
+                # here is the same one on_app_command_error shows the caller.
+                mark_failed(classify_operation_error(error), type(error).__name__)
+                raise
+            if getattr(interaction, "command_failed", False):
+                mark_failed(None, "command_failed")
 
-        if metrics is None:
-            await operation()
-        else:
-            await metrics.measure_interaction(interaction, operation)
+        try:
+            if metrics is None:
+                await operation()
+            else:
+                await metrics.measure_interaction(interaction, operation)
+        finally:
+            if audited:
+                await emit_command_audit(
+                    self.client,
+                    interaction,
+                    source=(
+                        command_audit.SOURCE_CONTEXT
+                        if getattr(interaction, "command", None) is not None
+                        and isinstance(getattr(interaction, "command", None), app_commands.ContextMenu)
+                        else command_audit.SOURCE_SLASH
+                    ),
+                    spec=audit_state["spec"],
+                    outcome=audit_state["outcome"],
+                    duration_ms=int((time.perf_counter() - started_at) * 1000),
+                    correlation_id=audit_state["correlation_id"],
+                    detail=audit_state["detail"],
+                )
+
+
+_UI_NAME_SUFFIXES = ("Button", "Select", "Modal", "View", "Container")
+
+
+def _humanize_ui_name(name: str) -> str:
+    """`SettingsChannelValueSelect` -> `Settings Channel Value`."""
+    trimmed = str(name or "Component")
+    for suffix in _UI_NAME_SUFFIXES:
+        if trimmed.endswith(suffix) and len(trimmed) > len(suffix):
+            trimmed = trimmed[: -len(suffix)]
+            break
+    spaced = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", trimmed).strip()
+    return spaced or str(name or "Component")
+
+
+def _component_label(view, item) -> str:
+    """A readable `View → control` label for a panel interaction."""
+    control = getattr(item, "label", None) or getattr(item, "placeholder", None)
+    if not control:
+        control = _humanize_ui_name(type(item).__name__)
+    return f"{_humanize_ui_name(type(view).__name__)} → {control}"
 
 
 def install_component_metrics() -> None:
@@ -302,13 +412,31 @@ def install_component_metrics() -> None:
 
         async def measured_view_task(view, item, interaction):
             metrics = getattr(interaction.client, "metrics", None)
-            if metrics is None:
-                return await original_view_task(view, item, interaction)
+            started_at = time.perf_counter()
+            outcome = command_audit.OUTCOME_SUCCESS
+            detail = None
+            try:
+                if metrics is None:
+                    return await original_view_task(view, item, interaction)
 
-            async def operation():
-                return await original_view_task(view, item, interaction)
+                async def operation():
+                    return await original_view_task(view, item, interaction)
 
-            return await metrics.measure_interaction(interaction, operation)
+                return await metrics.measure_interaction(interaction, operation)
+            except Exception as error:
+                outcome = command_audit.OUTCOME_FAILED
+                detail = type(error).__name__
+                raise
+            finally:
+                await emit_command_audit(
+                    interaction.client,
+                    interaction,
+                    source=command_audit.SOURCE_COMPONENT,
+                    command=_component_label(view, item),
+                    outcome=outcome,
+                    duration_ms=int((time.perf_counter() - started_at) * 1000),
+                    detail=detail,
+                )
 
         discord.ui.View._scheduled_task = measured_view_task
         discord.ui.View._mgx_metrics_wrapped = True
@@ -318,13 +446,31 @@ def install_component_metrics() -> None:
 
         async def measured_modal_task(modal, interaction, components, resolved):
             metrics = getattr(interaction.client, "metrics", None)
-            if metrics is None:
-                return await original_modal_task(modal, interaction, components, resolved)
+            started_at = time.perf_counter()
+            outcome = command_audit.OUTCOME_SUCCESS
+            detail = None
+            try:
+                if metrics is None:
+                    return await original_modal_task(modal, interaction, components, resolved)
 
-            async def operation():
-                return await original_modal_task(modal, interaction, components, resolved)
+                async def operation():
+                    return await original_modal_task(modal, interaction, components, resolved)
 
-            return await metrics.measure_interaction(interaction, operation)
+                return await metrics.measure_interaction(interaction, operation)
+            except Exception as error:
+                outcome = command_audit.OUTCOME_FAILED
+                detail = type(error).__name__
+                raise
+            finally:
+                await emit_command_audit(
+                    interaction.client,
+                    interaction,
+                    source=command_audit.SOURCE_MODAL,
+                    command=_humanize_ui_name(type(modal).__name__),
+                    outcome=outcome,
+                    duration_ms=int((time.perf_counter() - started_at) * 1000),
+                    detail=detail,
+                )
 
         discord.ui.Modal._scheduled_task = measured_modal_task
         discord.ui.Modal._mgx_metrics_wrapped = True

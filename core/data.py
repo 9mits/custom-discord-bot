@@ -38,6 +38,7 @@ from core.services import (
     invalidate_native_automod_settings,
     run_schema_migrations,
 )
+from core.command_audit import DEFAULT_SETTINGS as DEFAULT_COMMAND_LOG_SETTINGS
 from core.runtime import TTLMap
 
 logger = logging.getLogger("MGXBot")
@@ -57,9 +58,11 @@ MODMAIL_FILE = DB_DIR / "modmail.json"
 DB_FILE = DB_DIR / "bot.db"
 # -----------------------------------------
 
-_STORAGE_SCHEMA_VERSION = 2
+_STORAGE_SCHEMA_VERSION = 3
 _BACKUP_RETENTION = 5
 _NATIVE_AUTOMOD_RETENTION_DAYS = 30
+_COMMAND_AUDIT_RETENTION_DAYS = 30
+_COMMAND_AUDIT_RETENTION_ROWS = 50_000
 _NATIVE_AUTOMOD_PER_USER_LIMIT = 100
 
 _CREATE_TABLES_SQL = """
@@ -148,6 +151,29 @@ CREATE INDEX IF NOT EXISTS idx_native_automod_steps_lookup
     ON native_automod_steps(user_id, rule_id, occurred_at DESC);
 CREATE INDEX IF NOT EXISTS idx_native_automod_steps_age
     ON native_automod_steps(occurred_at);
+
+CREATE TABLE IF NOT EXISTS command_audit (
+    audit_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    occurred_at    INTEGER NOT NULL,
+    source         TEXT    NOT NULL,
+    command        TEXT    NOT NULL,
+    user_id        TEXT    NOT NULL,
+    user_label     TEXT    NOT NULL,
+    target_id      TEXT,
+    channel_id     TEXT,
+    outcome        TEXT    NOT NULL,
+    risk           TEXT    NOT NULL,
+    duration_ms    INTEGER NOT NULL,
+    correlation_id TEXT,
+    detail         TEXT,
+    options        TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_command_audit_age
+    ON command_audit(occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_command_audit_user
+    ON command_audit(user_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_command_audit_command
+    ON command_audit(command, occurred_at DESC);
 """
 
 
@@ -801,6 +827,9 @@ class DataManager:
             "punishment_log_channel_id": 0,
             "automod_log_channel_id": 0,
             "automod_report_channel_id": 0,
+            "command_log_channel_id": 0,
+            "critical_log_channel_id": 0,
+            "command_log_settings": DEFAULT_COMMAND_LOG_SETTINGS,
             "role_owner": DEFAULT_ROLE_OWNER,
             "role_admin": DEFAULT_ROLE_ADMIN,
             "role_mod": DEFAULT_ROLE_MOD,
@@ -1747,6 +1776,113 @@ class DataManager:
                         (cutoff, limit),
                     )
                     deleted += max(0, int(cursor.rowcount))
+                await self._commit(db)
+            except Exception:
+                await db.rollback()
+                raise
+        return deleted
+
+    # ------------------------------------------------------------------
+    # Command audit trail (write-heavy, never held in memory)
+    # ------------------------------------------------------------------
+
+    async def record_command_audit(self, records: Sequence[Any]) -> int:
+        """Persist a batch of CommandAuditRecord objects. Returns rows written."""
+        rows = []
+        for record in records:
+            rows.append((
+                int(datetime.fromisoformat(record.timestamp).timestamp())
+                if isinstance(record.timestamp, str) else int(time.time()),
+                record.source,
+                record.command,
+                str(record.user_id),
+                record.user_label,
+                str(record.target_id) if record.target_id else None,
+                str(record.channel_id) if record.channel_id else None,
+                record.outcome,
+                record.risk,
+                int(record.duration_ms),
+                record.correlation_id,
+                record.detail,
+                json.dumps(list(record.options)),
+            ))
+        if not rows:
+            return 0
+        async with self._save_lock:
+            db = await self._db_conn()
+            try:
+                await db.executemany(
+                    "INSERT INTO command_audit ("
+                    "occurred_at, source, command, user_id, user_label, target_id, channel_id, "
+                    "outcome, risk, duration_ms, correlation_id, detail, options"
+                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    rows,
+                )
+                await self._commit(db)
+            except Exception:
+                await db.rollback()
+                raise
+        return len(rows)
+
+    async def list_command_audit(
+        self,
+        *,
+        user_id: Optional[int] = None,
+        command: Optional[str] = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> List[dict]:
+        clauses = []
+        params: List[Any] = []
+        if user_id:
+            clauses.append("user_id = ?")
+            params.append(str(user_id))
+        if command:
+            clauses.append("command LIKE ?")
+            params.append(f"%{command}%")
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.extend([max(1, min(100, int(limit))), max(0, int(offset))])
+        db = await self._db_conn()
+        rows = await db.execute_fetchall(
+            f"SELECT * FROM command_audit {where} ORDER BY audit_id DESC LIMIT ? OFFSET ?",
+            tuple(params),
+        )
+        return [dict(row) for row in rows]
+
+    async def count_command_audit(self, *, user_id: Optional[int] = None, command: Optional[str] = None) -> int:
+        clauses = []
+        params: List[Any] = []
+        if user_id:
+            clauses.append("user_id = ?")
+            params.append(str(user_id))
+        if command:
+            clauses.append("command LIKE ?")
+            params.append(f"%{command}%")
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        db = await self._db_conn()
+        rows = await db.execute_fetchall(
+            f"SELECT COUNT(*) AS total FROM command_audit {where}", tuple(params)
+        )
+        return int(rows[0]["total"]) if rows else 0
+
+    async def prune_command_audit(self, *, now_timestamp: Optional[int] = None) -> int:
+        """Age out old rows and cap total size so the trail can't grow unbounded."""
+        now_value = int(time.time()) if now_timestamp is None else int(now_timestamp)
+        cutoff = now_value - _COMMAND_AUDIT_RETENTION_DAYS * 86400
+        deleted = 0
+        async with self._save_lock:
+            db = await self._db_conn()
+            try:
+                cursor = await db.execute(
+                    "DELETE FROM command_audit WHERE occurred_at < ?", (cutoff,)
+                )
+                deleted += max(0, int(cursor.rowcount))
+                cursor = await db.execute(
+                    "DELETE FROM command_audit WHERE audit_id NOT IN "
+                    "(SELECT audit_id FROM command_audit ORDER BY audit_id DESC LIMIT ?)",
+                    (_COMMAND_AUDIT_RETENTION_ROWS,),
+                )
+                deleted += max(0, int(cursor.rowcount))
                 await self._commit(db)
             except Exception:
                 await db.rollback()

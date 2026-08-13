@@ -15,6 +15,7 @@ from core.constants import (
     DEFAULT_ROLE_OWNER,
     SCOPE_SYSTEM,
 )
+from core import command_audit
 from core.context import bot, tree
 from .shared import (
     logger,
@@ -691,6 +692,12 @@ async def sync(ctx):
     is_admin = ctx.author.guild_permissions.administrator
 
     if not (is_owner or has_role or is_admin):
+        await command_audit.emit(command_audit.build_prefix_record(
+            ctx,
+            command="sync",
+            outcome=command_audit.OUTCOME_FAILED,
+            detail="Access denied",
+        ))
         await ctx.send(
             "Access Denied: You need the Owner role, Server Owner status, or Administrator permission.",
             delete_after=SYNC_NOTICE_DELETE_AFTER,
@@ -709,6 +716,11 @@ async def sync(ctx):
         bot.tree.copy_global_to(guild=guild)
     guild_cmds = await bot.tree.sync(guild=guild)
     global_text = f" Removed {len(global_deleted)} stale global command(s)." if global_deleted else ""
+    await command_audit.emit(command_audit.build_prefix_record(
+        ctx,
+        command="sync",
+        options=(("synced", len(guild_cmds)), ("stale_removed", len(global_deleted))),
+    ))
     await ctx.send(
         f"Synced {len(guild_cmds)} server commands.{global_text}",
         delete_after=SYNC_NOTICE_DELETE_AFTER,

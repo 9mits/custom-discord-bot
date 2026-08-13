@@ -39,6 +39,7 @@ EXTENSIONS = (
     "cogs.analytics",
     "cogs.admin",
     "cogs.control_plane",
+    "cogs.command_log",
     "cogs.events",
     "cogs.event_leaderboard",
 )
@@ -120,6 +121,7 @@ class MGXBot(commands.Bot):
             ("fleet snapshot", 300),
             ("modmail SLA", 600),
             ("role cleanup", 21600),
+            ("command audit", 5),
         ):
             self.metrics.register_loop(loop_name, expected_interval_seconds=interval)
 
@@ -354,6 +356,7 @@ class MGXBot(commands.Bot):
     async def _storage_maintenance_once(self) -> None:
         if self.data_manager:
             await self.data_manager.prune_native_automod_history()
+            await self.data_manager.prune_command_audit()
 
     @tasks.loop(minutes=30)
     async def status_task(self) -> None:

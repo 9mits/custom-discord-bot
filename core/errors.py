@@ -59,17 +59,37 @@ class InternalFailure(BotOperationError):
     public_message = "The bot hit an unexpected error while processing this action."
 
 
+_CLASSIFICATION_ATTR = "_mgx_operation_error"
+
+
 def classify_operation_error(error: BaseException) -> BotOperationError:
     original = error.original if isinstance(error, app_commands.CommandInvokeError) else error
+
+    # Cache the result on the exception so repeated classification of the same
+    # failure keeps one correlation id: the reference shown to the user, the one in
+    # the application log, and the one in the command audit row all match.
+    for candidate in (error, original):
+        cached = getattr(candidate, _CLASSIFICATION_ATTR, None)
+        if isinstance(cached, BotOperationError):
+            return cached
+
     if isinstance(original, BotOperationError):
-        return original
-    if isinstance(error, app_commands.CheckFailure):
-        return CallerPermissionError(str(error))
-    if isinstance(original, discord.Forbidden):
-        return BotPermissionError(str(original))
-    if isinstance(original, discord.HTTPException) and original.status == 429:
-        return RateLimitError(str(original))
-    return InternalFailure(str(original))
+        classified = original
+    elif isinstance(error, app_commands.CheckFailure):
+        classified = CallerPermissionError(str(error))
+    elif isinstance(original, discord.Forbidden):
+        classified = BotPermissionError(str(original))
+    elif isinstance(original, discord.HTTPException) and original.status == 429:
+        classified = RateLimitError(str(original))
+    else:
+        classified = InternalFailure(str(original))
+
+    for candidate in (error, original):
+        try:
+            setattr(candidate, _CLASSIFICATION_ATTR, classified)
+        except (AttributeError, TypeError):
+            pass
+    return classified
 
 
 async def respond_operation_error(interaction: discord.Interaction, error: BotOperationError) -> None:

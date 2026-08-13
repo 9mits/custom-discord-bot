@@ -90,6 +90,8 @@ class ConfigTypeSelect(discord.ui.Select):
                 discord.SelectOption(label="Appeal Log Channel", value="appeal_channel_id", description="Where punishment appeals should go."),
                 discord.SelectOption(label="AutoMod Log Channel", value="automod_log_channel_id", description="Where AutoMod bridge events should be logged."),
                 discord.SelectOption(label="AutoMod Report Channel", value="automod_report_channel_id", description="Where user AutoMod reports should be sent."),
+                discord.SelectOption(label="Command Log Channel", value="command_log_channel_id", description="Staff-only log of every command that is run."),
+                discord.SelectOption(label="Important Command Log", value="critical_log_channel_id", description="Staff-only log of destructive and failed commands."),
                 discord.SelectOption(label="Archive Category", value="category_archive", description="Category for archive or storage channels."),
                 discord.SelectOption(label="Modmail Inbox Channel", value="modmail_inbox_channel", description="Where incoming modmail tickets appear for staff."),
                 discord.SelectOption(label="Modmail Action Log Channel", value="modmail_action_log_channel", description="Where modmail staff actions are logged."),
@@ -375,7 +377,9 @@ def _channels_summary(config) -> str:
         f"**Archive Category** · {_ch('category_archive')}\n"
         f"**Modmail Inbox** · {_ch('modmail_inbox_channel')}\n"
         f"**Modmail Action Log** · {_ch('modmail_action_log_channel')}\n"
-        f"**Modmail Panel** · {_ch('modmail_panel_channel')}"
+        f"**Modmail Panel** · {_ch('modmail_panel_channel')}\n"
+        f"**Command Log** · {_ch('command_log_channel_id')}\n"
+        f"**Important Command Log** · {_ch('critical_log_channel_id')}"
     )
 
 

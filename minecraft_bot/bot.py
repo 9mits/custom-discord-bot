@@ -12,6 +12,7 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
+from .audit import MinecraftCommandTree
 from .bridge import MinecraftBridgeServer
 from .config import MinecraftConfig
 from .data import MinecraftDataManager
@@ -70,6 +71,7 @@ class MinecraftAccessBot(commands.Bot):
             intents=intents,
             help_command=None,
             allowed_mentions=discord.AllowedMentions.none(),
+            tree_cls=MinecraftCommandTree,
         )
         self.config = config
         self.settings = MinecraftSettings.from_sources(config, {})
@@ -788,6 +790,8 @@ class MinecraftAccessBot(commands.Bot):
                 app_commands.Choice(name="Applications and decisions", value="application"),
                 app_commands.Choice(name="Account verifications", value="verification"),
                 app_commands.Choice(name="Player joins and leaves", value="player"),
+                app_commands.Choice(name="Every command that is run (staff only)", value="command"),
+                app_commands.Choice(name="Important commands only (staff only)", value="critical"),
             ]
         )
         async def log_channel(
@@ -802,6 +806,8 @@ class MinecraftAccessBot(commands.Bot):
                 "application": "application_log_channel_id",
                 "verification": "verification_log_channel_id",
                 "player": "player_log_channel_id",
+                "command": "command_log_channel_id",
+                "critical": "critical_log_channel_id",
             }[log.value]
             await self.update_settings(
                 actor_id=interaction.user.id,

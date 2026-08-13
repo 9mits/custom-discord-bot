@@ -97,6 +97,7 @@ _KNOWN_IMPORT_KEYS = {
     "role_owner", "role_admin", "role_mod", "role_community_manager", "role_anchor",
     "general_log_channel_id", "log_channel_id", "punishment_log_channel_id",
     "appeal_channel_id", "automod_log_channel_id", "automod_report_channel_id",
+    "command_log_channel_id", "critical_log_channel_id", "command_log_settings",
     "category_archive", "modmail_inbox_channel", "modmail_action_log_channel",
     "modmail_panel_channel", "modmail_ping_roles", "modmail_discussion_threads",
     "modmail_sla_minutes", "modmail_canned_replies", "native_automod",
@@ -642,6 +643,50 @@ def has_capability(
     return any(role_id in allowed_roles for role_id in role_ids)
 
 
+def validate_command_log_placement(config: Dict[str, Any], guild: discord.Guild) -> List[ValidationFinding]:
+    """Command logs name the staff member who acted, so they must stay staff-only.
+
+    Pointing one at a member-facing channel would leak moderator identities, which
+    the project treats as a hard rule.
+    """
+    findings: List[ValidationFinding] = []
+    member_facing = {
+        _parse_int(config.get("modmail_panel_channel")): "the modmail panel channel",
+        _parse_int(config.get("appeal_channel_id")): "the appeal channel",
+        _parse_int(config.get("automod_report_channel_id")): "the AutoMod report channel",
+    }
+    member_facing.pop(None, None)
+
+    for key, label in (
+        ("command_log_channel_id", "Command Log"),
+        ("critical_log_channel_id", "Important Command Log"),
+    ):
+        channel_id = _parse_int(config.get(key))
+        if channel_id is None or channel_id == 0:
+            continue
+        if channel_id in member_facing:
+            findings.append(ValidationFinding(
+                "error",
+                "Channels",
+                f"{label} is set to {member_facing[channel_id]}; it names the acting "
+                "staff member and must be a staff-only channel.",
+            ))
+            continue
+        channel = guild.get_channel(channel_id)
+        default_role = getattr(guild, "default_role", None)
+        if channel is None or default_role is None:
+            continue
+        overwrite = channel.overwrites_for(default_role)
+        if overwrite.read_messages is not False:
+            findings.append(ValidationFinding(
+                "warning",
+                "Channels",
+                f"{label} is readable by @everyone; it names the acting staff member, "
+                "so restrict it to staff.",
+            ))
+    return findings
+
+
 def validate_guild_configuration(config: Dict[str, Any], guild: discord.Guild, me: discord.Member) -> List[ValidationFinding]:
     findings: List[ValidationFinding] = []
 
@@ -668,11 +713,15 @@ def validate_guild_configuration(config: Dict[str, Any], guild: discord.Guild, m
         (config.get("modmail_inbox_channel"), "Modmail Inbox"),
         (config.get("modmail_action_log_channel"), "Modmail Action Log"),
         (config.get("modmail_panel_channel"), "Modmail Panel Channel"),
+        (config.get("command_log_channel_id"), "Command Log Channel"),
+        (config.get("critical_log_channel_id"), "Important Command Log Channel"),
     ]
     for channel_id, label in channel_checks:
         normalized_channel_id = _parse_int(channel_id)
         if normalized_channel_id is not None and not guild.get_channel(normalized_channel_id):
             findings.append(ValidationFinding("error", "Channels", f"{label} points to a missing channel."))
+
+    findings.extend(validate_command_log_placement(config, guild))
 
     archive_category = _parse_int(config.get("category_archive"))
     if archive_category is not None:

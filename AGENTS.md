@@ -119,6 +119,8 @@ core/      framework, no Discord UI code
   models.py     dataclasses shared across services (currently ValidationFinding)
   utils.py      stateless helpers: parse_duration_str, format_duration, truncate_text
   project_stats.py  cross-instance fleet snapshots powering /about (shared folder)
+  command_audit.py  audit record building, redaction, tier routing, sink registry
+                    (stdlib-only on purpose — the Minecraft bot imports it too)
 cogs/      one discord.py extension per domain
   shared.py            embed builders, log senders, permission checks (no Cog class)
   cases.py / history.py / case_panel.py   case mgmt, history UI, transcript export
@@ -129,6 +131,7 @@ cogs/      one discord.py extension per domain
   config.py            /setup, /config and settings views
   analytics.py         /stats, /directory, staff profiles
   admin.py             admin commands, anti-nuke, branding
+  command_log.py       buffered command audit delivery + /auditlog
   events.py            raw @bot.event listeners + native AutoMod bridge
   event_leaderboard.py VC-time leaderboard (gated on EVENT_CONTROL=1)
   registry.py          documents the cog dependency graph
@@ -175,6 +178,20 @@ Read the relevant file when you touch an area; these are the non-obvious points.
   JSON snapshot of its own stats into a shared `project_stats/` folder (one file
   per bot user id, refreshed by `project_stats_task` every 5 min); `/about` sums
   all snapshots. `project_stats.py` imports only stdlib + discord — never `cogs/`.
+- **Command audit:** every invocation is logged, with no per-command wiring. The
+  chokepoints are `MetricsCommandTree._call` (slash + context menus) and the
+  `install_component_metrics()` wrappers (buttons, dropdowns, modals) in
+  `core/metrics.py`; both call `emit_command_audit()`. `core/command_audit.py`
+  builds the record, redacts secret-looking option values, and picks the tier —
+  everything goes to `command_log_channel_id`, while destructive, failed, and
+  explicitly listed commands are mirrored to `critical_log_channel_id`. Risk comes
+  from `ACTION_SPECS`, so **a new command gets audited correctly the moment it has
+  an `ActionSpec`**. Delivery lives in `cogs/command_log.py`, which buffers routine
+  records (5s / 10 records) and sends critical ones immediately, then persists to
+  the `command_audit` table for `/auditlog`. The Minecraft bot mirrors this through
+  `minecraft_bot/audit.py` + its own `MinecraftCommandTree`.
+  Both log channels **must be staff-only** — they name the acting moderator, which
+  `validate_command_log_placement()` enforces against non-negotiable #3.
 - **Deps:** `pip install -r requirements.txt` (discord.py>=2.6, aiohttp>=3.13,
   aiosqlite>=0.22, python-dotenv).
 

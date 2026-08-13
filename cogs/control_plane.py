@@ -214,6 +214,8 @@ _CHANNEL_FIELDS = (
     ("appeal_channel_id", "Appeal Log"),
     ("automod_log_channel_id", "AutoMod Log"),
     ("automod_report_channel_id", "AutoMod Reports"),
+    ("command_log_channel_id", "Command Log"),
+    ("critical_log_channel_id", "Important Command Log"),
     ("category_archive", "Archive Category"),
     ("modmail_inbox_channel", "Modmail Inbox"),
     ("modmail_action_log_channel", "Modmail Action Log"),
