@@ -1,6 +1,7 @@
 package bot.mgx.accessbridge;
 
 import io.papermc.paper.scoreboard.numbers.NumberFormat;
+import net.kyori.adventure.key.Key;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextColor;
@@ -33,6 +34,13 @@ final class SidebarService {
     private static final int MAX_LINES = 15;
     private static final int SIDEBAR_WIDTH = 22;
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("MM/dd/yy");
+    /**
+     * Glyphs supplied by the optional Mysterious SMP X resource pack. Players who
+     * decline the pack see the wordmark fall back to plain text instead.
+     */
+    private static final Key BRAND_FONT = Key.key("minecraft", "mgx");
+    private static final String LOGO_LARGE = "\uE000";
+    private static final String LOGO_SMALL = "\uE001";
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private static final TextColor GOLD = TextColor.color(0xFFB52E);
     private static final ChatColor[] ENTRY_COLOURS = {
@@ -207,8 +215,9 @@ final class SidebarService {
         int online = plugin.getServer().getOnlinePlayers().size();
         Component header = Component.empty()
                 .append(Component.newline())
-                .append(Component.text("MYSTERIOUS", ORANGE, TextDecoration.BOLD))
-                .append(Component.text(" SMP X", GOLD, TextDecoration.BOLD))
+                .append(Component.newline())
+                .append(Component.text(LOGO_LARGE).font(BRAND_FONT))
+                .append(Component.newline())
                 .append(Component.newline())
                 .append(Component.text("Online ", NamedTextColor.GRAY))
                 .append(Component.text(
@@ -291,7 +300,7 @@ final class SidebarService {
 
         PlayerBoard(Player player) {
             Scoreboard created = plugin.getServer().getScoreboardManager().getNewScoreboard();
-            Component title = Component.text("Mysterious SMP X", ORANGE, TextDecoration.BOLD);
+            Component title = Component.text(LOGO_SMALL).font(BRAND_FONT);
             Objective createdObjective = created.registerNewObjective("mgx", Criteria.DUMMY, title);
             createdObjective.setDisplaySlot(DisplaySlot.SIDEBAR);
             for (int index = 0; index < MAX_LINES; index++) {
