@@ -159,6 +159,13 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
         accounts = await self.data.list_accounts_for_user(42)
         self.assertEqual(len(accounts), 1)
         self.assertEqual(accounts[0]["current_username"], "testplayer")
+        sync_key = f"application:{application.id}:sync"
+        await self.data.mark_outbox_failed(sync_key, "late failure")
+        sync_rows = await self.data._connection().execute_fetchall(
+            "SELECT status FROM minecraft_bridge_outbox WHERE idempotency_key=?",
+            (sync_key,),
+        )
+        self.assertEqual(sync_rows[0]["status"], "CANCELLED")
 
     async def test_bedrock_verification_uses_real_name_and_xuid(self):
         application = await self.create_pending(

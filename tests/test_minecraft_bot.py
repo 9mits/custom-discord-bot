@@ -29,6 +29,7 @@ from minecraft_bot.presentation import (
 from minecraft_bot.settings import MinecraftSettings
 from minecraft_bot.setup import MinecraftSetupView
 from minecraft_bot.ui import (
+    AccountView,
     ApplyButton,
     CancelPendingConfirmationView,
     MinecraftControlView,
@@ -106,7 +107,11 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertTrue(live.is_persistent())
         self.assertEqual(
             {item.custom_id for item in live.children},
-            {"minecraft:live:refresh", "minecraft:live:manage", "minecraft:live:help"},
+            {"minecraft:live:refresh", "minecraft:live:help"},
+        )
+        self.assertEqual(
+            {item.label for item in AccountView(123).children},
+            {"Refresh", "Cancel Verification"},
         )
         panel_custom_ids = {
             component["custom_id"]

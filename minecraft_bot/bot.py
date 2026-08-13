@@ -96,6 +96,7 @@ class MinecraftAccessBot(commands.Bot):
         self._background_tasks: set[asyncio.Task] = set()
         self._commands_synced = False
         self._application_panel_refreshed = False
+        self._live_card_views_refreshed = False
         self._last_command_log_prune = 0.0
         self.tree.on_error = self.on_tree_error
         self._minecraft_group = self._build_command_group()
@@ -164,6 +165,12 @@ class MinecraftAccessBot(commands.Bot):
                 logger.exception("Could not refresh the Minecraft application panel")
             else:
                 self._application_panel_refreshed = True
+        if not self._live_card_views_refreshed:
+            self._live_card_views_refreshed = True
+            self.spawn_background_task(
+                self._refresh_existing_live_card_views(),
+                name="minecraft-live-card-view-refresh",
+            )
         await self.change_presence(activity=discord.Game(name="Mysterious SMP X applications"))
         print(f"Minecraft access bot connected as {self.user} — successfully finished startup", flush=True)
 
@@ -394,6 +401,7 @@ class MinecraftAccessBot(commands.Bot):
         application: MinecraftApplication,
         *,
         queue_on_failure: bool = True,
+        create_if_missing: bool = True,
     ) -> bool:
         user = self.get_user(int(application.discord_user_id))
         if user is None:
@@ -409,6 +417,8 @@ class MinecraftAccessBot(commands.Bot):
                     with suppress(discord.NotFound, discord.Forbidden, discord.HTTPException):
                         message = await channel.fetch_message(int(application.status_message_id))
             if message is None:
+                if not create_if_missing:
+                    return False
                 message = await user.send(
                     **branded_send(live_status_embed(application, self.settings)),
                     view=LiveApplicationView(),
@@ -430,6 +440,14 @@ class MinecraftAccessBot(commands.Bot):
                 )
             logger.warning("Minecraft live card deferred for application %s: %s", application.id, type(exc).__name__)
             return False
+
+    async def _refresh_existing_live_card_views(self) -> None:
+        for application in await self.data.list_existing_live_cards(limit=100):
+            await self.update_live_card(
+                application,
+                queue_on_failure=False,
+                create_if_missing=False,
+            )
 
     async def _process_delivery_recovery(self) -> None:
         for delivery in await self.data.get_due_deliveries(limit=25):

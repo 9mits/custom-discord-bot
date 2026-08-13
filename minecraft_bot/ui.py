@@ -402,16 +402,6 @@ class LiveApplicationView(discord.ui.View):
                 view=self,
             )
 
-    @discord.ui.button(label="Manage Account", style=discord.ButtonStyle.primary, custom_id="minecraft:live:manage")
-    async def manage(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
-        application = await self._application(interaction)
-        if application is not None:
-            await interaction.response.send_message(
-                **branded_send(await interaction.client.build_account_embed(interaction.user.id)),
-                view=AccountView(interaction.user.id),
-                ephemeral=True,
-            )
-
     @discord.ui.button(label="Get Help", style=discord.ButtonStyle.danger, custom_id="minecraft:live:help")
     async def help(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
         application = await self._application(interaction)
@@ -448,60 +438,6 @@ class AccountView(discord.ui.View):
             view=CancelPendingConfirmationView(interaction.user.id),
             ephemeral=True,
         )
-
-    @discord.ui.button(label="Unlink Java", style=discord.ButtonStyle.secondary)
-    async def unlink_java(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
-        await self._unlink_prompt(interaction, Edition.JAVA)
-
-    @discord.ui.button(label="Unlink Bedrock", style=discord.ButtonStyle.secondary)
-    async def unlink_bedrock(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
-        await self._unlink_prompt(interaction, Edition.BEDROCK)
-
-    async def _unlink_prompt(self, interaction: discord.Interaction, edition: Edition) -> None:
-        await interaction.response.send_message(
-            **branded_send(info_embed(
-                f"Unlink {edition.value.title()} Account?",
-                "> This removes the account link and its Minecraft access. This cannot be undone without verifying again.",
-            )),
-            view=SelfUnlinkConfirmationView(interaction.user.id, edition),
-            ephemeral=True,
-        )
-
-
-class SelfUnlinkConfirmationView(discord.ui.View):
-    def __init__(self, requester_id: int, edition: Edition) -> None:
-        super().__init__(timeout=60)
-        self.requester_id = int(requester_id)
-        self.edition = edition
-
-    @discord.ui.button(label="Confirm Unlink", style=discord.ButtonStyle.danger)
-    async def confirm(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
-        if interaction.user.id != self.requester_id:
-            await interaction.response.send_message("This confirmation belongs to another member.", ephemeral=True)
-            return
-        await interaction.response.defer()
-        account, applications, queued = await interaction.client.data.unlink_account(
-            interaction.user.id,
-            self.edition,
-            interaction.user.id,
-            "Self-service account unlink",
-        )
-        if account is None:
-            await interaction.edit_original_response(
-                **branded_edit(info_embed("Account Not Linked", f"> You do not have a linked {self.edition.value.title()} account.", error=True)),
-                view=None,
-            )
-            return
-        interaction.client.spawn_background_task(
-            interaction.client.finish_unlink(applications),
-            name=f"minecraft-self-unlink:{interaction.user.id}",
-        )
-        state = "Access removal is queued safely." if queued else "The account link was removed."
-        await interaction.edit_original_response(
-            **branded_edit(info_embed("Minecraft Account Unlinked", f"> {state}", success=True)),
-            view=None,
-        )
-
 
 class MinecraftControlAction(discord.ui.Button):
     def __init__(self, action: str, label: str, *, row: int = 0) -> None:

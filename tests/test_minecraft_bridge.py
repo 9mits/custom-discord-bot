@@ -10,7 +10,7 @@ import aiohttp
 from minecraft_bot.bridge import MinecraftBridgeServer
 from minecraft_bot.config import MinecraftConfig
 from minecraft_bot.data import MinecraftDataManager
-from minecraft_bot.models import BridgeAction, OutboxRecord
+from minecraft_bot.models import BridgeAction, Edition, OutboxRecord
 from minecraft_bot.security import create_envelope, verify_envelope
 
 
@@ -102,6 +102,61 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         kwargs = self.verification_handler.await_args.kwargs
         self.assertEqual(kwargs["application_id"], 7)
         self.assertEqual(kwargs["event_idempotency_key"], "verification-7")
+        await socket.close()
+
+    async def _create_auto_pending(self):
+        return await self.data.create_application(
+            guild_id=1,
+            discord_user_id=42,
+            edition=None,
+            claimed_username="TestPlayer",
+            answers={
+                "why": "I want to build with this community.",
+                "about": "I am a considerate builder who enjoys group projects.",
+            },
+        )
+
+    async def test_protocol_v1_paper_receives_compatible_pending_edition(self):
+        application = await self._create_auto_pending()
+        self.assertEqual(application.edition, Edition.JAVA)
+        socket = await self.session.ws_connect(
+            f"http://127.0.0.1:{self.port}/minecraft-bridge"
+        )
+        await socket.send_json(create_envelope(
+            self.secret,
+            "HELLO",
+            {"server_id": "mysterious-smp-x", "protocol_version": 1},
+            idempotency_key="hello-v1-compatible",
+        ))
+
+        hello_ack = await socket.receive_json()
+        full_sync = await socket.receive_json()
+        queued_sync = await socket.receive_json()
+
+        self.assertEqual(hello_ack["payload"]["protocol_version"], 1)
+        self.assertEqual(full_sync["payload"]["applications"][0]["edition"], "JAVA")
+        self.assertEqual(queued_sync["payload"]["edition"], "JAVA")
+        await socket.close()
+
+    async def test_protocol_v2_paper_receives_automatic_pending_edition(self):
+        await self._create_auto_pending()
+        socket = await self.session.ws_connect(
+            f"http://127.0.0.1:{self.port}/minecraft-bridge"
+        )
+        await socket.send_json(create_envelope(
+            self.secret,
+            "HELLO",
+            {"server_id": "mysterious-smp-x", "protocol_version": 2},
+            idempotency_key="hello-v2-auto",
+        ))
+
+        hello_ack = await socket.receive_json()
+        full_sync = await socket.receive_json()
+        queued_sync = await socket.receive_json()
+
+        self.assertEqual(hello_ack["payload"]["protocol_version"], 2)
+        self.assertEqual(full_sync["payload"]["applications"][0]["edition"], "AUTO")
+        self.assertEqual(queued_sync["payload"]["edition"], "AUTO")
         await socket.close()
 
     async def test_replayed_nonce_closes_the_connection(self):
