@@ -22,6 +22,8 @@ import java.util.UUID;
 final class LeaderboardService {
     /** Enough rows for a top ten with room for the podium to shuffle. */
     private static final int ROWS = 10;
+    /** Publish shortly after boot so a freshly placed board is not blank for minutes. */
+    private static final long FIRST_PUBLISH_TICKS = 200L;
 
     private final MGXAccessBridge plugin;
     private final BridgeClient bridge;
@@ -48,7 +50,7 @@ final class LeaderboardService {
         taskId = plugin.getServer().getScheduler().scheduleSyncRepeatingTask(
                 plugin,
                 this::publish,
-                refreshTicks,
+                FIRST_PUBLISH_TICKS,
                 refreshTicks
         );
     }
