@@ -119,8 +119,8 @@ final class SidebarService {
         clans.clanOf(player.getUniqueId()).ifPresent(clan ->
                 lines.add(valueLine("CLAN", "[" + clan.name() + "]", clanColor(clan)))
         );
-        lines.add(Component.empty());
-        lines.add(sectionLine("STATS"));
+        lines.add(borderLine());
+        lines.add(sectionLine("STATS", false));
         lines.add(valueLine(
                 "KILLS",
                 String.valueOf(player.getStatistic(Statistic.PLAYER_KILLS)),
@@ -132,21 +132,35 @@ final class SidebarService {
                 NamedTextColor.GRAY
         ));
         lines.add(valueLine("PING", player.getPing() + "ms", pingColor(player.getPing())));
-        lines.add(Component.empty());
-        lines.add(Component.text(footer, GOLD));
+        lines.add(borderLine());
+        lines.add(footerLine());
         return lines;
     }
 
     private static Component valueLine(String label, String value, TextColor valueColor) {
-        return Component.text("› ", NamedTextColor.DARK_GRAY)
-                .append(Component.text(label + " ", NamedTextColor.GRAY))
-                .append(Component.text(value, valueColor));
+        return Component.text("│ ", NamedTextColor.DARK_GRAY)
+                .append(Component.text(label, NamedTextColor.GRAY))
+                .append(Component.text("  ", NamedTextColor.DARK_GRAY))
+                .append(Component.text(value, valueColor, TextDecoration.BOLD));
     }
 
     private static Component sectionLine(String label) {
-        return Component.text("── ", NamedTextColor.DARK_GRAY)
-                .append(Component.text(label, ORANGE, TextDecoration.BOLD))
-                .append(Component.text(" ──", NamedTextColor.DARK_GRAY));
+        return sectionLine(label, true);
+    }
+
+    private static Component sectionLine(String label, boolean first) {
+        return Component.text(first ? "╭─ " : "├─ ", ORANGE)
+                .append(Component.text(label, GOLD, TextDecoration.BOLD))
+                .append(Component.text(" ───", NamedTextColor.DARK_GRAY));
+    }
+
+    private static Component borderLine() {
+        return Component.text("│", NamedTextColor.DARK_GRAY);
+    }
+
+    private Component footerLine() {
+        return Component.text("╰─ ", ORANGE)
+                .append(Component.text(footer, GOLD, TextDecoration.BOLD));
     }
 
     private void updateTabName(Player player) {
@@ -244,7 +258,7 @@ final class SidebarService {
         PlayerBoard(Player player) {
             Scoreboard created = plugin.getServer().getScoreboardManager().getNewScoreboard();
             Component title = Component.text("MYSTERIOUS", ORANGE, TextDecoration.BOLD)
-                    .append(Component.text(" SMP X", GOLD, TextDecoration.BOLD));
+                    .append(Component.text(" SMP X", NamedTextColor.WHITE, TextDecoration.BOLD));
             Objective createdObjective = created.registerNewObjective("mgx", Criteria.DUMMY, title);
             createdObjective.setDisplaySlot(DisplaySlot.SIDEBAR);
             for (int index = 0; index < MAX_LINES; index++) {
