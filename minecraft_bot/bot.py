@@ -1072,6 +1072,11 @@ class MinecraftAccessBot(commands.Bot):
         channel_id = await self.data.get_config(CONFIG_CHANNEL)
         if not channel_id:
             return "No leaderboard channel is configured."
+        message_id = await self.data.get_config(CONFIG_MESSAGE)
+        if not snapshot and message_id:
+            # Standings live in memory, so a bot restart empties them until Paper's
+            # next push. Leave the last good board up rather than blanking it.
+            return None
         channel = self.get_channel(int(channel_id))
         if not isinstance(channel, discord.TextChannel):
             return "The configured leaderboard channel is not reachable."
@@ -1082,7 +1087,6 @@ class MinecraftAccessBot(commands.Bot):
         self.leaderboard_links = await self._resolve_leaderboard_links(snapshot)
         payload = message_payload(snapshot, heads, self.leaderboard_links)
 
-        message_id = await self.data.get_config(CONFIG_MESSAGE)
         if message_id:
             try:
                 message = await channel.fetch_message(int(message_id))

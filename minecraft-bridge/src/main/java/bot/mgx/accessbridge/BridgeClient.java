@@ -165,6 +165,9 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                 flushVerificationOutbox();
                 flushPlayerActivityOutbox();
                 flushMinecraftChatOutbox();
+                // The bot holds standings in memory, so a restart leaves it with none.
+                // Republish at once rather than making it wait for the next interval.
+                plugin.republishLeaderboard();
             }
             case "HEARTBEAT_ACK" -> {
                 // The signed response is sufficient proof of liveness.

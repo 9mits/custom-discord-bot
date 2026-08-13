@@ -178,6 +178,13 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         refreshClanAppearance();
     }
 
+    /** Called when the bridge reconnects, so the bot is never left without standings. */
+    void republishLeaderboard() {
+        if (leaderboardService != null) {
+            getServer().getScheduler().runTask(this, leaderboardService::publishNow);
+        }
+    }
+
     void applyPlayerRank(UUID minecraftUuid, String rankGroup) {
         if (luckPermsService != null) {
             luckPermsService.applyRank(minecraftUuid, rankGroup);

@@ -62,6 +62,11 @@ final class LeaderboardService {
         }
     }
 
+    /** Publishes immediately, off the timer. Must run on the main thread. */
+    void publishNow() {
+        publish();
+    }
+
     private void publish() {
         // Wealth only changes while someone is playing, so refresh the online players
         // first and let everyone else keep their last known figure.
