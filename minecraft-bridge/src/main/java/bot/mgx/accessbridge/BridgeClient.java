@@ -30,7 +30,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
     private final ProcessedActionStore processedActions;
     private final ScheduledExecutorService networkExecutor;
     private final HttpClient httpClient;
-    private final ConcurrentHashMap<String, JsonObject> verificationOutbox = new ConcurrentHashMap<>();
+    private final VerificationEventStore verificationOutbox;
     private final ConcurrentHashMap<String, PlayerActivity> playerActivityOutbox = new ConcurrentHashMap<>();
     private final StringBuilder inbound = new StringBuilder();
     private final AtomicBoolean connecting = new AtomicBoolean(false);
@@ -45,12 +45,14 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             BridgeConfig config,
             PendingVerificationCache pending,
             ProcessedActionStore processedActions,
+            VerificationEventStore verificationOutbox,
             ScheduledExecutorService networkExecutor
     ) {
         this.plugin = plugin;
         this.config = config;
         this.pending = pending;
         this.processedActions = processedActions;
+        this.verificationOutbox = verificationOutbox;
         this.networkExecutor = networkExecutor;
         this.protocol = new SignedProtocol(config.secret());
         HttpClient.Builder httpClientBuilder = HttpClient.newBuilder()
@@ -307,7 +309,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         }
     }
 
-    void queueVerification(
+    boolean queueVerification(
             PendingVerification application,
             MinecraftEdition edition,
             UUID minecraftUuid,
@@ -325,15 +327,21 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         } else {
             payload.addProperty("xuid", xuid);
         }
-        verificationOutbox.putIfAbsent(key, payload);
+        try {
+            verificationOutbox.put(key, payload);
+        } catch (RuntimeException exception) {
+            plugin.getLogger().severe("Could not persist verification event: " + safeError(exception));
+            return false;
+        }
         pending.remove(application.applicationId());
         if (isConnected()) {
             sendRaw(protocol.create("VERIFICATION", key, payload));
         }
+        return true;
     }
 
     private void flushVerificationOutbox() {
-        for (Map.Entry<String, JsonObject> entry : verificationOutbox.entrySet()) {
+        for (Map.Entry<String, JsonObject> entry : verificationOutbox.snapshot().entrySet()) {
             sendRaw(protocol.create("VERIFICATION", entry.getKey(), entry.getValue()));
         }
     }
@@ -402,6 +410,8 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         if (!isConnected()) {
             return;
         }
+        flushVerificationOutbox();
+        flushPlayerActivityOutbox();
         JsonObject payload = new JsonObject();
         payload.addProperty("server_id", config.serverId());
         payload.addProperty("pending_count", pending.size());

@@ -2,7 +2,8 @@ package bot.mgx.accessbridge;
 
 enum MinecraftEdition {
     JAVA,
-    BEDROCK
+    BEDROCK,
+    AUTO
 }
 record PendingVerification(
         long applicationId,
@@ -12,7 +13,7 @@ record PendingVerification(
         long expiresAt
 ) {
     boolean matches(MinecraftEdition actualEdition, String actualUsername, long now) {
-        return edition == actualEdition
+        return (edition == MinecraftEdition.AUTO || edition == actualEdition)
                 && expiresAt > now
                 && normalizedUsername.equals(normalize(actualUsername));
     }

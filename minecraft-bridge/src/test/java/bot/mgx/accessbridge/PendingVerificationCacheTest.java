@@ -49,4 +49,13 @@ class PendingVerificationCacheTest {
         assertTrue(cache.match(MinecraftEdition.JAVA, "First").isEmpty());
         assertEquals(2, cache.match(MinecraftEdition.JAVA, "Second").orElseThrow().applicationId());
     }
+
+    @Test
+    void automaticEditionMatchesJavaOrBedrock() {
+        PendingVerification verification = new PendingVerification(
+                3, MinecraftEdition.AUTO, "SharedName", "sharedname", Long.MAX_VALUE
+        );
+        assertTrue(verification.matches(MinecraftEdition.JAVA, "SharedName", 1));
+        assertTrue(verification.matches(MinecraftEdition.BEDROCK, "SharedName", 1));
+    }
 }

@@ -1,8 +1,10 @@
 import asyncio
 import sqlite3
 import tempfile
+import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from minecraft_bot.data import MinecraftDataManager, normalize_username
 from minecraft_bot.models import (
@@ -428,6 +430,86 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["actor_discord_id"], "42")
         self.assertIn("application_channel_id", rows[0]["payload"])
+
+    async def test_edition_is_detected_from_verified_connection(self):
+        application = await self.data.create_application(
+            guild_id=10,
+            discord_user_id=50,
+            edition=None,
+            claimed_username="Real Name",
+            answers={"why": "I want to join the community.", "about": "I enjoy building with friendly groups."},
+            now=1000,
+        )
+        self.assertTrue(application.auto_detect_edition)
+        outbox = await self.data.get_outbox_batch()
+        self.assertEqual(outbox[0].payload["edition"], "AUTO")
+
+        verified, changed = await self.data.record_verification(
+            application_id=application.id,
+            edition=Edition.BEDROCK,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174088",
+            current_username="Real Name",
+            xuid="2533274900000088",
+            event_idempotency_key="auto-bedrock",
+            now=1010,
+        )
+        self.assertTrue(changed)
+        self.assertEqual(verified.edition, Edition.BEDROCK)
+        self.assertFalse(verified.auto_detect_edition)
+
+    async def test_live_card_reference_survives_database_restart(self):
+        application = await self.create_pending()
+        await self.data.set_status_message(application.id, 500, 600)
+        await self.data.close()
+        self.data = MinecraftDataManager(Path(self.directory.name) / "minecraft.db")
+        await self.data.open()
+
+        restored = await self.data.get_application_by_status_message(600)
+        self.assertEqual(restored.id, application.id)
+        self.assertEqual(restored.status_channel_id, "500")
+
+    async def test_join_updates_renamed_account_by_uuid(self):
+        application = await self.create_pending()
+        await self.data.record_verification(
+            application_id=application.id,
+            edition=Edition.JAVA,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174077",
+            current_username="TestPlayer",
+            xuid=None,
+            event_idempotency_key="rename-original",
+            now=1010,
+        )
+        owner = await self.data.record_player_seen(
+            Edition.JAVA,
+            "123e4567-e89b-12d3-a456-426614174077",
+            "NewPlayerName",
+            now=2000,
+        )
+        accounts = await self.data.list_accounts_for_user(42)
+        self.assertEqual(owner, "42")
+        self.assertEqual(accounts[0]["current_username"], "NewPlayerName")
+        self.assertEqual(accounts[0]["last_seen_at"], 2000)
+
+    async def test_response_metrics_and_delivery_queue_are_persistent(self):
+        current = int(time.time())
+        for duration in (10, 20, 30, 100):
+            await self.data.record_command_log(SimpleNamespace(
+                source="command", command="minecraft account", user_id=42,
+                user_label="member", target_id=None, channel_id=None,
+                outcome="SUCCESS", risk="LOW", duration_ms=duration,
+                correlation_id=None, detail=None, options=(), created_at=current,
+            ))
+        metrics = await self.data.response_time_metrics()
+        self.assertEqual(metrics, {"samples": 4, "median_ms": 25, "p95_ms": 100})
+
+        await self.data.enqueue_delivery(
+            dedupe_key="dm:42", kind="USER_EMBED", target_id=42, payload={"title": "Test"}, now=1000
+        )
+        await self.data.close()
+        self.data = MinecraftDataManager(Path(self.directory.name) / "minecraft.db")
+        await self.data.open()
+        deliveries = await self.data.get_due_deliveries(now=1001)
+        self.assertEqual(deliveries[0].dedupe_key, "dm:42")
 
 
 class MinecraftMigrationBackupTests(unittest.IsolatedAsyncioTestCase):
