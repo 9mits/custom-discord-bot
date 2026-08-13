@@ -37,9 +37,10 @@ from .presentation import (
     player_activity_embed,
     verification_log_embed,
     verified_embed,
+    live_status_embed,
 )
 from .settings import MinecraftSettings, SETTING_KEYS
-from .ui import MinecraftControlView, ReviewView
+from .ui import AccountView, LiveApplicationView, MinecraftControlView, ReviewView
 
 
 logger = logging.getLogger("MinecraftAccessBot")
@@ -108,6 +109,7 @@ class MinecraftAccessBot(commands.Bot):
         await self.data.set_configs(self.settings.persistent_values())
         self.add_view(ReviewView())
         self.add_view(application_panel())
+        self.add_view(LiveApplicationView())
         await self.bridge.start()
         self.application_maintenance.start()
 
@@ -269,6 +271,7 @@ class MinecraftAccessBot(commands.Bot):
 
     async def _finish_cancellation(self, application: MinecraftApplication) -> None:
         await self.log_application_decision(application)
+        await self.update_live_card(application)
         if self.bridge.connected:
             await self.bridge.dispatch_outbox()
 
@@ -289,13 +292,27 @@ class MinecraftAccessBot(commands.Bot):
             return guild
         return None
 
-    async def _send_configured_log(self, channel_id: int, embed: discord.Embed) -> None:
+    async def _send_configured_log(
+        self,
+        channel_id: int,
+        embed: discord.Embed,
+        *,
+        queue_on_failure: bool = True,
+        dedupe_key: Optional[str] = None,
+    ) -> bool:
         if not channel_id:
-            return
+            return True
         channel = await self._configured_channel(channel_id)
         if channel is None or not hasattr(channel, "send"):
             logger.warning("Configured Minecraft log channel %s is unavailable", channel_id)
-            return
+            if queue_on_failure:
+                await self.data.enqueue_delivery(
+                    dedupe_key=dedupe_key or f"channel:{channel_id}:{time.time_ns()}",
+                    kind="CHANNEL_EMBED",
+                    target_id=channel_id,
+                    payload=embed.to_dict(),
+                )
+            return False
         try:
             await channel.send(
                 **branded_send(embed),
@@ -303,6 +320,43 @@ class MinecraftAccessBot(commands.Bot):
             )
         except (discord.Forbidden, discord.HTTPException):
             logger.exception("Could not send Minecraft log to channel %s", channel_id)
+            if queue_on_failure:
+                await self.data.enqueue_delivery(
+                    dedupe_key=dedupe_key or f"channel:{channel_id}:{time.time_ns()}",
+                    kind="CHANNEL_EMBED",
+                    target_id=channel_id,
+                    payload=embed.to_dict(),
+                )
+            return False
+        return True
+
+    async def _send_user_embed(
+        self,
+        user_id: int | str,
+        embed: discord.Embed,
+        *,
+        dedupe_key: str,
+        queue_on_failure: bool = True,
+    ) -> bool:
+        user = self.get_user(int(user_id))
+        if user is None:
+            with suppress(discord.NotFound, discord.HTTPException):
+                user = await self.fetch_user(int(user_id))
+        try:
+            if user is None:
+                raise RuntimeError("Discord user unavailable")
+            await user.send(**branded_send(embed))
+            return True
+        except (discord.Forbidden, discord.HTTPException, RuntimeError) as exc:
+            if queue_on_failure:
+                await self.data.enqueue_delivery(
+                    dedupe_key=dedupe_key,
+                    kind="USER_EMBED",
+                    target_id=user_id,
+                    payload=embed.to_dict(),
+                )
+            logger.warning("Minecraft DM delivery deferred for user %s: %s", user_id, type(exc).__name__)
+            return False
 
     async def log_application_submission(self, application: MinecraftApplication) -> None:
         await self._send_configured_log(
@@ -318,12 +372,14 @@ class MinecraftAccessBot(commands.Bot):
 
     async def finish_application_submission(self, application: MinecraftApplication) -> None:
         await self.log_application_submission(application)
+        await self.update_live_card(application)
         if self.bridge.connected:
             await self.bridge.dispatch_outbox()
 
     async def finish_approval_queue(self, application: MinecraftApplication) -> None:
         await self.update_review_message(application)
         await self.log_application_decision(application)
+        await self.update_live_card(application)
         if self.bridge.connected:
             await self.bridge.dispatch_outbox()
 
@@ -334,6 +390,121 @@ class MinecraftAccessBot(commands.Bot):
         if self.bridge.connected:
             await self.bridge.dispatch_outbox()
 
+    async def update_live_card(
+        self,
+        application: MinecraftApplication,
+        *,
+        queue_on_failure: bool = True,
+    ) -> bool:
+        user = self.get_user(int(application.discord_user_id))
+        if user is None:
+            with suppress(discord.NotFound, discord.HTTPException):
+                user = await self.fetch_user(int(application.discord_user_id))
+        try:
+            if user is None:
+                raise RuntimeError("Discord user unavailable")
+            message = None
+            if application.status_channel_id and application.status_message_id:
+                channel = await self._configured_channel(int(application.status_channel_id))
+                if channel is not None and hasattr(channel, "fetch_message"):
+                    with suppress(discord.NotFound, discord.Forbidden, discord.HTTPException):
+                        message = await channel.fetch_message(int(application.status_message_id))
+            if message is None:
+                message = await user.send(
+                    **branded_send(live_status_embed(application, self.settings)),
+                    view=LiveApplicationView(),
+                )
+                await self.data.set_status_message(application.id, message.channel.id, message.id)
+            else:
+                await message.edit(
+                    **branded_edit(live_status_embed(application, self.settings)),
+                    view=LiveApplicationView(),
+                )
+            return True
+        except (discord.Forbidden, discord.HTTPException, RuntimeError) as exc:
+            if queue_on_failure:
+                await self.data.enqueue_delivery(
+                    dedupe_key=f"live-card:{application.id}",
+                    kind="LIVE_CARD",
+                    target_id=application.id,
+                    payload={"application_id": application.id},
+                )
+            logger.warning("Minecraft live card deferred for application %s: %s", application.id, type(exc).__name__)
+            return False
+
+    async def _process_delivery_recovery(self) -> None:
+        for delivery in await self.data.get_due_deliveries(limit=25):
+            try:
+                if delivery.kind == "CHANNEL_EMBED":
+                    delivered = await self._send_configured_log(
+                        int(delivery.target_id),
+                        discord.Embed.from_dict(delivery.payload),
+                        queue_on_failure=False,
+                    )
+                elif delivery.kind == "USER_EMBED":
+                    delivered = await self._send_user_embed(
+                        delivery.target_id,
+                        discord.Embed.from_dict(delivery.payload),
+                        dedupe_key=delivery.dedupe_key,
+                        queue_on_failure=False,
+                    )
+                else:
+                    application = await self.data.get_application(int(delivery.target_id))
+                    delivered = bool(application) and await self.update_live_card(
+                        application, queue_on_failure=False
+                    )
+                if delivered:
+                    await self.data.complete_delivery(delivery.id)
+                else:
+                    await self.data.fail_delivery(delivery.id, "Destination unavailable", delivery.attempts)
+            except Exception as exc:
+                await self.data.fail_delivery(delivery.id, type(exc).__name__, delivery.attempts)
+
+    async def build_account_embed(self, user_id: int | str) -> discord.Embed:
+        accounts, applications = await asyncio.gather(
+            self.data.list_accounts_for_user(user_id),
+            self.data.list_applications_for_user(user_id, limit=1),
+        )
+        account_lines = [
+            f"**{row['edition'].title()}** · `{row['current_username']}` · Last seen <t:{row['last_seen_at']}:R>"
+            for row in accounts
+        ] or ["No linked Minecraft accounts yet."]
+        latest = applications[0] if applications else None
+        status = latest.status.value.replace("_", " ").title() if latest else "No application"
+        return info_embed(
+            "Your Minecraft Account",
+            "> One private place for your application and linked accounts.\n\n"
+            f"**Application**\n{status}\n\n**Linked Accounts**\n" + "\n".join(account_lines),
+        )
+
+    async def build_diagnostics_embed(self, guild: Optional[discord.Guild]) -> discord.Embed:
+        from .setup import configuration_findings
+
+        findings = configuration_findings(self, guild)
+        outbox, deliveries = await asyncio.gather(
+            self.data.outbox_counts(), self.data.delivery_counts()
+        )
+        issues = []
+        if not self.bridge.connected:
+            issues.append("The Minecraft server connection is offline. Queued actions will retry automatically.")
+        elif self.bridge.last_heartbeat_at and time.time() - self.bridge.last_heartbeat_at > 45:
+            issues.append("The Minecraft server connection is delayed. Recovery is already in progress.")
+        issues.extend(f"{finding.setting}: {finding.detail}" for finding in findings)
+        failed = outbox.get("FAILED", 0)
+        if failed:
+            issues.append(f"{failed} Minecraft action(s) need a manual retry.")
+        recovering = sum(deliveries.values())
+        if recovering:
+            issues.append(f"{recovering} Discord notification(s) are waiting for automatic delivery.")
+        if not issues:
+            issues.append("Everything is connected, configured, and responding normally.")
+        return info_embed(
+            "Minecraft Diagnostics",
+            "> A plain-language health check. Private IDs, errors, and secrets are intentionally hidden.\n\n"
+            + "\n".join(f"- {issue}" for issue in issues),
+            success=len(issues) == 1 and issues[0].startswith("Everything"),
+        )
+
     async def dispatch_outbox_if_connected(self) -> None:
         if self.bridge.connected:
             await self.bridge.dispatch_outbox()
@@ -341,6 +512,7 @@ class MinecraftAccessBot(commands.Bot):
     async def finish_staff_cancellation(self, application: MinecraftApplication) -> None:
         await self.update_review_message(application)
         await self.log_application_decision(application)
+        await self.update_live_card(application)
         if self.bridge.connected:
             await self.bridge.dispatch_outbox()
 
@@ -360,7 +532,11 @@ class MinecraftAccessBot(commands.Bot):
         )
         if not claimed:
             return
-        discord_user_id = await self.data.get_account_owner(edition, minecraft_uuid)
+        record_seen = getattr(self.data, "record_player_seen", None)
+        if record_seen is not None:
+            discord_user_id = await record_seen(edition, minecraft_uuid, current_username, xuid)
+        else:
+            discord_user_id = await self.data.get_account_owner(edition, minecraft_uuid)
         self.spawn_background_task(
             self._send_configured_log(
                 self.settings.player_log_channel_id,
@@ -474,15 +650,12 @@ class MinecraftAccessBot(commands.Bot):
             self.settings.verification_log_channel_id,
             verification_log_embed(application),
         )
-        user = self.get_user(int(application.discord_user_id))
-        if user is None:
-            with suppress(discord.NotFound, discord.HTTPException):
-                user = await self.fetch_user(int(application.discord_user_id))
-        if user is not None:
-            with suppress(discord.Forbidden, discord.HTTPException):
-                await user.send(
-                    **branded_send(verified_embed(application))
-                )
+        await self._send_user_embed(
+            application.discord_user_id,
+            verified_embed(application),
+            dedupe_key=f"verification-dm:{application.id}",
+        )
+        await self.update_live_card(application)
         remembered = self._application_interactions.pop(application.id, None)
         if remembered is not None and remembered[1] > time.monotonic():
             with suppress(discord.NotFound, discord.HTTPException):
@@ -537,15 +710,12 @@ class MinecraftAccessBot(commands.Bot):
     async def finish_denial(self, application: MinecraftApplication) -> None:
         await self.update_review_message(application)
         await self.log_application_decision(application)
-        user = self.get_user(int(application.discord_user_id))
-        if user is None:
-            with suppress(discord.NotFound, discord.HTTPException):
-                user = await self.fetch_user(int(application.discord_user_id))
-        if user is not None:
-            with suppress(discord.Forbidden, discord.HTTPException):
-                await user.send(
-                    **branded_send(denial_embed(application))
-                )
+        await self._send_user_embed(
+            application.discord_user_id,
+            denial_embed(application),
+            dedupe_key=f"denial-dm:{application.id}",
+        )
+        await self.update_live_card(application)
 
     async def handle_bridge_action_result(
         self,
@@ -587,6 +757,7 @@ class MinecraftAccessBot(commands.Bot):
             await self.update_review_message(application)
         except Exception:
             logger.exception("Review-message finalization failed for application %s", application.id)
+        await self.update_live_card(application)
 
     async def _finish_approval(self, application: MinecraftApplication) -> None:
         guild = await self._configured_guild()
@@ -606,12 +777,11 @@ class MinecraftAccessBot(commands.Bot):
                     )
                 except Exception:
                     logger.exception("Could not record approved-role failure for application %s", application.id)
-        user = member or self.get_user(int(application.discord_user_id))
-        if user is not None:
-            with suppress(discord.Forbidden, discord.HTTPException):
-                await user.send(
-                    **branded_send(approval_embed(self.settings))
-                )
+        await self._send_user_embed(
+            application.discord_user_id,
+            approval_embed(self.settings),
+            dedupe_key=f"approval-dm:{application.id}",
+        )
 
     async def _finish_revocation(self, application: MinecraftApplication) -> None:
         guild = await self._configured_guild()
@@ -632,9 +802,14 @@ class MinecraftAccessBot(commands.Bot):
             expired = await self.data.expire_pending(limit=100)
             for application in expired:
                 await self.log_application_decision(application)
+                await self.update_live_card(application)
             if self.bridge.connected:
                 await self.bridge.dispatch_outbox()
+            await self._process_delivery_recovery()
             await self._restore_missing_reviews()
+            for application in await self.data.list_live_card_applications(limit=20):
+                if not application.status_message_id:
+                    await self.update_live_card(application)
             await self._prune_command_log()
         except asyncio.CancelledError:
             raise
@@ -665,9 +840,11 @@ class MinecraftAccessBot(commands.Bot):
         )
 
     async def build_control_overview(self, guild: Optional[discord.Guild]) -> discord.Embed:
-        outbox, applications = await asyncio.gather(
+        outbox, applications, latency, deliveries = await asyncio.gather(
             self.data.outbox_counts(),
             self.data.application_status_counts(),
+            self.data.response_time_metrics(),
+            self.data.delivery_counts(),
         )
         from .setup import configuration_findings
 
@@ -707,6 +884,20 @@ class MinecraftAccessBot(commands.Bot):
                 f"**Sent:** {outbox.get('SENT', 0)}\n"
                 f"**Failed:** {outbox.get('FAILED', 0)}"
             ),
+            inline=True,
+        )
+        embed.add_field(
+            name="Response Time · 24h",
+            value=(
+                f"**Median:** {latency['median_ms']} ms\n"
+                f"**95th percentile:** {latency['p95_ms']} ms\n"
+                f"**Samples:** {latency['samples']}"
+            ),
+            inline=True,
+        )
+        embed.add_field(
+            name="Automatic Recovery",
+            value=f"**Waiting deliveries:** {sum(deliveries.values())}\n**State:** {'Recovering' if deliveries else 'Clear'}",
             inline=True,
         )
         if findings:
@@ -830,6 +1021,14 @@ class MinecraftAccessBot(commands.Bot):
             await interaction.edit_original_response(
                 **branded_edit(await self.build_control_overview(interaction.guild)),
                 view=self.control_view(interaction),
+            )
+
+        @group.command(name="account", description="Open your private Minecraft account and application panel.")
+        async def account(interaction: discord.Interaction) -> None:
+            await interaction.response.defer(ephemeral=True)
+            await interaction.edit_original_response(
+                **branded_edit(await self.build_account_embed(interaction.user.id)),
+                view=AccountView(interaction.user.id),
             )
 
         @group.command(name="status", description="Show Minecraft bridge and queue health.")

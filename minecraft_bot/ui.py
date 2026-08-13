@@ -15,9 +15,11 @@ from .presentation import (
     branded_edit,
     branded_send,
     info_embed,
+    live_status_embed,
     rules_embed,
     verification_embed,
 )
+from .support import enqueue_support_request
 
 
 async def _validate_application_panel(interaction: discord.Interaction) -> bool:
@@ -147,18 +149,7 @@ class RulesAgreementView(discord.ui.View):
 
     @discord.ui.button(label="I Agree", style=discord.ButtonStyle.success)
     async def agree(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
-        if hasattr(discord.ui, "Label"):
-            await interaction.response.send_modal(MinecraftApplicationModal())
-            return
-        await interaction.response.edit_message(
-            **branded_edit(
-                info_embed(
-                    "Choose Your Minecraft Edition",
-                    "> Select the edition used by the account you want to verify.",
-                )
-            ),
-            view=EditionSelectionView(interaction.user.id),
-        )
+        await interaction.response.send_modal(MinecraftApplicationModal())
 
     @discord.ui.button(label="I Disagree", style=discord.ButtonStyle.secondary)
     async def disagree(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
@@ -197,7 +188,7 @@ class CancelPendingConfirmationView(discord.ui.View):
         bot = interaction.client
         try:
             await bot.cancel_pending_verification(
-                guild_id=interaction.guild_id,
+                guild_id=interaction.guild_id or bot.config.guild_id,
                 discord_user_id=interaction.user.id,
             )
         except InvalidTransition as exc:
@@ -258,18 +249,6 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
     def __init__(self, fixed_edition: Edition | None = None) -> None:
         super().__init__(timeout=600, custom_id="minecraft:application:modal")
         self.fixed_edition = fixed_edition
-        self.edition = None
-        if fixed_edition is None:
-            self.edition = discord.ui.Select(
-                custom_id="minecraft:application:edition",
-                placeholder="Choose Java or Bedrock",
-                min_values=1,
-                max_values=1,
-                options=[
-                    discord.SelectOption(label="Java", value=Edition.JAVA.value),
-                    discord.SelectOption(label="Bedrock", value=Edition.BEDROCK.value),
-                ],
-            )
         self.username = discord.ui.TextInput(
             label="Minecraft username or Xbox gamertag",
             placeholder="Enter the exact account name",
@@ -289,8 +268,6 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
             min_length=10,
             max_length=1000,
         )
-        if self.edition is not None:
-            self.add_item(discord.ui.Label(text="Minecraft edition", component=self.edition))
         self.add_item(self.username)
         self.add_item(self.why)
         self.add_item(self.about)
@@ -299,11 +276,10 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
         await interaction.response.defer(ephemeral=True, thinking=True)
         bot = interaction.client
         try:
-            edition = self.fixed_edition or Edition(self.edition.values[0])
             application = await bot.data.create_application(
                 guild_id=interaction.guild_id,
                 discord_user_id=interaction.user.id,
-                edition=edition,
+                edition=self.fixed_edition,
                 claimed_username=str(self.username),
                 answers={"why": str(self.why), "about": str(self.about)},
             )
@@ -353,7 +329,177 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
             name=f"minecraft-application:{application.id}",
         )
         await interaction.edit_original_response(
-            **branded_edit(verification_embed(application, bot.settings))
+            **branded_edit(live_status_embed(application, bot.settings)),
+            view=LiveApplicationView(),
+        )
+
+
+class SupportConfirmationView(discord.ui.View):
+    def __init__(self, application_id: int, requester_id: int) -> None:
+        super().__init__(timeout=60)
+        self.application_id = int(application_id)
+        self.requester_id = int(requester_id)
+
+    @discord.ui.button(label="Open Support Ticket", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        if interaction.user.id != self.requester_id:
+            await interaction.response.send_message("This confirmation belongs to another applicant.", ephemeral=True)
+            return
+        application = await interaction.client.data.get_application(self.application_id)
+        if application is None or int(application.discord_user_id) != interaction.user.id:
+            await interaction.response.send_message("This application is no longer available.", ephemeral=True)
+            return
+        try:
+            enqueue_support_request(
+                guild_id=application.guild_id,
+                discord_user_id=application.discord_user_id,
+                application_id=application.id,
+                status=application.status.value,
+                username=application.verified_username or application.claimed_username,
+            )
+        except OSError:
+            await interaction.response.send_message(
+                **branded_send(info_embed("Support Temporarily Unavailable", "> Your request could not be saved. Please try again shortly.", error=True)),
+                ephemeral=True,
+            )
+            return
+        await interaction.response.edit_message(
+            **branded_edit(info_embed("Support Requested", "> Your request was saved securely. The support bot will open a normal modmail ticket and notify you by DM.", success=True)),
+            view=None,
+        )
+
+
+class LiveApplicationView(discord.ui.View):
+    """Persistent controls; the application is resolved from the stored message ID."""
+
+    def __init__(self) -> None:
+        super().__init__(timeout=None)
+
+    async def _application(self, interaction: discord.Interaction):
+        message = interaction.message
+        application = None
+        if message is not None:
+            application = await interaction.client.data.get_application_by_status_message(message.id)
+        if application is None:
+            application = await interaction.client.data.get_active_application_for_user(
+                guild_id=interaction.client.config.guild_id,
+                discord_user_id=interaction.user.id,
+            )
+        if application is None or int(application.discord_user_id) != interaction.user.id:
+            await interaction.response.send_message(
+                **branded_send(info_embed("Application Unavailable", "> This card is no longer connected to an application.", error=True)),
+                ephemeral=True,
+            )
+            return None
+        return application
+
+    @discord.ui.button(label="Refresh", style=discord.ButtonStyle.secondary, custom_id="minecraft:live:refresh")
+    async def refresh(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        application = await self._application(interaction)
+        if application is not None:
+            await interaction.response.edit_message(
+                **branded_edit(live_status_embed(application, interaction.client.settings)),
+                view=self,
+            )
+
+    @discord.ui.button(label="Manage Account", style=discord.ButtonStyle.primary, custom_id="minecraft:live:manage")
+    async def manage(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        application = await self._application(interaction)
+        if application is not None:
+            await interaction.response.send_message(
+                **branded_send(await interaction.client.build_account_embed(interaction.user.id)),
+                view=AccountView(interaction.user.id),
+                ephemeral=True,
+            )
+
+    @discord.ui.button(label="Get Help", style=discord.ButtonStyle.danger, custom_id="minecraft:live:help")
+    async def help(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        application = await self._application(interaction)
+        if application is not None:
+            await interaction.response.send_message(
+                **branded_send(info_embed("Open Minecraft Support?", "> This creates a private modmail ticket with your application status attached. Continue?")),
+                view=SupportConfirmationView(application.id, interaction.user.id),
+                ephemeral=True,
+            )
+
+
+class AccountView(discord.ui.View):
+    def __init__(self, requester_id: int) -> None:
+        super().__init__(timeout=600)
+        self.requester_id = int(requester_id)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id == self.requester_id:
+            return True
+        await interaction.response.send_message("This account panel belongs to another member.", ephemeral=True)
+        return False
+
+    @discord.ui.button(label="Refresh", style=discord.ButtonStyle.secondary)
+    async def refresh(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        await interaction.response.edit_message(
+            **branded_edit(await interaction.client.build_account_embed(interaction.user.id)),
+            view=self,
+        )
+
+    @discord.ui.button(label="Cancel Verification", style=discord.ButtonStyle.danger)
+    async def cancel(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        await interaction.response.send_message(
+            **branded_send(info_embed("Cancel Verification?", "> This only cancels an application that has not yet been verified.")),
+            view=CancelPendingConfirmationView(interaction.user.id),
+            ephemeral=True,
+        )
+
+    @discord.ui.button(label="Unlink Java", style=discord.ButtonStyle.secondary)
+    async def unlink_java(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        await self._unlink_prompt(interaction, Edition.JAVA)
+
+    @discord.ui.button(label="Unlink Bedrock", style=discord.ButtonStyle.secondary)
+    async def unlink_bedrock(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        await self._unlink_prompt(interaction, Edition.BEDROCK)
+
+    async def _unlink_prompt(self, interaction: discord.Interaction, edition: Edition) -> None:
+        await interaction.response.send_message(
+            **branded_send(info_embed(
+                f"Unlink {edition.value.title()} Account?",
+                "> This removes the account link and its Minecraft access. This cannot be undone without verifying again.",
+            )),
+            view=SelfUnlinkConfirmationView(interaction.user.id, edition),
+            ephemeral=True,
+        )
+
+
+class SelfUnlinkConfirmationView(discord.ui.View):
+    def __init__(self, requester_id: int, edition: Edition) -> None:
+        super().__init__(timeout=60)
+        self.requester_id = int(requester_id)
+        self.edition = edition
+
+    @discord.ui.button(label="Confirm Unlink", style=discord.ButtonStyle.danger)
+    async def confirm(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        if interaction.user.id != self.requester_id:
+            await interaction.response.send_message("This confirmation belongs to another member.", ephemeral=True)
+            return
+        await interaction.response.defer()
+        account, applications, queued = await interaction.client.data.unlink_account(
+            interaction.user.id,
+            self.edition,
+            interaction.user.id,
+            "Self-service account unlink",
+        )
+        if account is None:
+            await interaction.edit_original_response(
+                **branded_edit(info_embed("Account Not Linked", f"> You do not have a linked {self.edition.value.title()} account.", error=True)),
+                view=None,
+            )
+            return
+        interaction.client.spawn_background_task(
+            interaction.client.finish_unlink(applications),
+            name=f"minecraft-self-unlink:{interaction.user.id}",
+        )
+        state = "Access removal is queued safely." if queued else "The account link was removed."
+        await interaction.edit_original_response(
+            **branded_edit(info_embed("Minecraft Account Unlinked", f"> {state}", success=True)),
+            view=None,
         )
 
 
@@ -400,6 +546,7 @@ class MinecraftControlAction(discord.ui.Button):
         await interaction.response.defer(ephemeral=True)
         builders = {
             "overview": lambda: view.bot.build_control_overview(interaction.guild),
+            "diagnostics": lambda: view.bot.build_diagnostics_embed(interaction.guild),
             "applications": view.bot.build_applications_embed,
             "commandlog": view.bot.build_command_log_embed,
         }
@@ -417,7 +564,7 @@ class MinecraftMemberLookupSelect(discord.ui.UserSelect):
             custom_id="minecraft:control:member",
             min_values=1,
             max_values=1,
-            row=1,
+            row=2,
         )
 
     async def callback(self, interaction: discord.Interaction) -> None:
@@ -474,11 +621,12 @@ class MinecraftControlView(discord.ui.View):
         self.bot = bot
         self.requester_id = int(requester_id)
         self.add_item(MinecraftControlAction("overview", "Overview"))
+        self.add_item(MinecraftControlAction("diagnostics", "Diagnostics"))
         self.add_item(MinecraftControlAction("applications", "Applications"))
         self.add_item(MinecraftControlAction("commandlog", "Command Log"))
-        self.add_item(MinecraftControlAction("username", "Username Lookup"))
+        self.add_item(MinecraftControlAction("username", "Username Lookup", row=1))
         if include_setup:
-            self.add_item(MinecraftControlAction("setup", "Setup"))
+            self.add_item(MinecraftControlAction("setup", "Setup", row=1))
         self.add_item(MinecraftMemberLookupSelect())
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import re
+import statistics
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,6 +19,7 @@ from .models import (
     AccountEditionAlreadyLinked,
     ApplicationStatus,
     BridgeAction,
+    DeliveryRecord,
     DuplicateActiveApplication,
     Edition,
     InvalidTransition,
@@ -27,7 +30,7 @@ from .models import (
 
 JAVA_USERNAME = re.compile(r"^[A-Za-z0-9_]{3,16}$")
 BEDROCK_USERNAME = re.compile(r"^[\w -]{1,16}$", re.UNICODE)
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 COMMAND_LOG_RETENTION_DAYS = 30
 COMMAND_LOG_RETENTION_ROWS = 20_000
 
@@ -55,6 +58,9 @@ CREATE TABLE IF NOT EXISTS minecraft_applications (
     internal_note TEXT,
     review_channel_id TEXT,
     review_message_id TEXT,
+    auto_detect_edition INTEGER NOT NULL DEFAULT 0,
+    status_channel_id TEXT,
+    status_message_id TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
@@ -70,6 +76,8 @@ CREATE INDEX IF NOT EXISTS idx_minecraft_applications_verification
     ON minecraft_applications(status, verification_expires_at);
 CREATE INDEX IF NOT EXISTS idx_minecraft_applications_review_message
     ON minecraft_applications(review_message_id);
+CREATE INDEX IF NOT EXISTS idx_minecraft_applications_status_message
+    ON minecraft_applications(status_message_id);
 
 CREATE TABLE IF NOT EXISTS minecraft_accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -166,6 +174,20 @@ CREATE INDEX IF NOT EXISTS idx_minecraft_command_log_actor
     ON minecraft_command_log(actor_discord_id, id DESC);
 CREATE INDEX IF NOT EXISTS idx_minecraft_command_log_age
     ON minecraft_command_log(created_at);
+
+CREATE TABLE IF NOT EXISTS minecraft_delivery_outbox (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    dedupe_key TEXT NOT NULL UNIQUE,
+    kind TEXT NOT NULL CHECK (kind IN ('CHANNEL_EMBED', 'USER_EMBED', 'LIVE_CARD')),
+    target_id TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    next_attempt_at INTEGER NOT NULL,
+    last_error TEXT,
+    created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_minecraft_delivery_due
+    ON minecraft_delivery_outbox(next_attempt_at, id);
 """
 
 
@@ -208,6 +230,21 @@ class MinecraftDataManager:
             current_version = int(row[0] if row else 0)
             if existed and current_version < SCHEMA_VERSION:
                 await self._backup_database(db, current_version)
+            if existed and current_version < 4:
+                columns = {
+                    row[1]
+                    for row in await db.execute_fetchall("PRAGMA table_info(minecraft_applications)")
+                }
+                if columns:
+                    for name, definition in (
+                        ("auto_detect_edition", "INTEGER NOT NULL DEFAULT 0"),
+                        ("status_channel_id", "TEXT"),
+                        ("status_message_id", "TEXT"),
+                    ):
+                        if name not in columns:
+                            await db.execute(
+                                f"ALTER TABLE minecraft_applications ADD COLUMN {name} {definition}"
+                            )
             await db.executescript(SCHEMA_SQL)
             await db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
             await db.commit()
@@ -273,6 +310,9 @@ class MinecraftDataManager:
             internal_note=row["internal_note"],
             review_channel_id=row["review_channel_id"],
             review_message_id=row["review_message_id"],
+            auto_detect_edition=bool(row["auto_detect_edition"]),
+            status_channel_id=row["status_channel_id"],
+            status_message_id=row["status_message_id"],
             created_at=int(row["created_at"]),
             updated_at=int(row["updated_at"]),
         )
@@ -348,14 +388,24 @@ class MinecraftDataManager:
         *,
         guild_id: int,
         discord_user_id: int,
-        edition: Edition,
+        edition: Optional[Edition],
         claimed_username: str,
         answers: dict[str, str],
         verification_seconds: int = 600,
         now: Optional[int] = None,
     ) -> MinecraftApplication:
         current = _now() if now is None else int(now)
-        claimed, normalized = normalize_username(edition, claimed_username)
+        auto_detect_edition = edition is None
+        if auto_detect_edition:
+            cleaned = " ".join(str(claimed_username).strip().split())
+            if not BEDROCK_USERNAME.fullmatch(cleaned):
+                raise ValueError(
+                    "Minecraft names must contain 1-16 letters, numbers, spaces, underscores, or hyphens"
+                )
+            edition = Edition.JAVA if JAVA_USERNAME.fullmatch(cleaned) else Edition.BEDROCK
+            claimed, normalized = cleaned, cleaned.casefold()
+        else:
+            claimed, normalized = normalize_username(edition, claimed_username)
         why = str(answers.get("why", "")).strip()
         about = str(answers.get("about", "")).strip()
         if not 10 <= len(why) <= 500 or not 10 <= len(about) <= 1000:
@@ -393,14 +443,15 @@ class MinecraftDataManager:
                         application_id=expired_id,
                         timestamp=current,
                     )
-                linked_edition = await db.execute_fetchall(
-                    "SELECT id FROM minecraft_accounts WHERE discord_user_id=? AND edition=? LIMIT 1",
-                    (str(discord_user_id), edition.value),
-                )
-                if linked_edition:
-                    raise AccountEditionAlreadyLinked(
-                        f"Your Discord account already has a linked {edition.value.title()} account"
+                if not auto_detect_edition:
+                    linked_edition = await db.execute_fetchall(
+                        "SELECT id FROM minecraft_accounts WHERE discord_user_id=? AND edition=? LIMIT 1",
+                        (str(discord_user_id), edition.value),
                     )
+                    if linked_edition:
+                        raise AccountEditionAlreadyLinked(
+                            f"Your Discord account already has a linked {edition.value.title()} account"
+                        )
                 placeholders = ",".join("?" for _ in ACTIVE_APPLICATION_STATUSES)
                 active = await db.execute_fetchall(
                     f"SELECT id FROM minecraft_applications WHERE guild_id=? AND discord_user_id=? "
@@ -416,8 +467,8 @@ class MinecraftDataManager:
                 cursor = await db.execute(
                     "INSERT INTO minecraft_applications"
                     "(guild_id, discord_user_id, edition, claimed_username, normalized_username, answers, "
-                    "status, verification_expires_at, created_at, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "status, verification_expires_at, auto_detect_edition, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         str(guild_id),
                         str(discord_user_id),
@@ -427,6 +478,7 @@ class MinecraftDataManager:
                         json.dumps({"why": why, "about": about}, separators=(",", ":")),
                         ApplicationStatus.PENDING_VERIFICATION.value,
                         current + verification_seconds,
+                        int(auto_detect_edition),
                         current,
                         current,
                     ),
@@ -434,7 +486,7 @@ class MinecraftDataManager:
                 application_id = int(cursor.lastrowid)
                 payload = {
                     "application_id": application_id,
-                    "edition": edition.value,
+                    "edition": "AUTO" if auto_detect_edition else edition.value,
                     "claimed_username": claimed,
                     "normalized_username": normalized,
                     "expires_at": current + verification_seconds,
@@ -452,7 +504,7 @@ class MinecraftDataManager:
                     "APPLICATION_CREATED",
                     application_id=application_id,
                     target_id=discord_user_id,
-                    payload={"edition": edition.value, "claimed_username": claimed},
+                    payload={"edition": "AUTO" if auto_detect_edition else edition.value, "claimed_username": claimed},
                     timestamp=current,
                 )
                 await db.commit()
@@ -662,7 +714,7 @@ class MinecraftDataManager:
                     )
                     await db.commit()
                     raise InvalidTransition("Verification window expired")
-                if application.edition is not edition:
+                if not application.auto_detect_edition and application.edition is not edition:
                     raise InvalidTransition("Verified edition does not match the application")
                 if normalized_actual != application.normalized_username:
                     raise InvalidTransition("Verified username does not match the application")
@@ -693,9 +745,11 @@ class MinecraftDataManager:
                         raise InvalidTransition("Floodgate XUID is linked to another Discord member")
 
                 await db.execute(
-                    "UPDATE minecraft_applications SET verified_username=?, minecraft_uuid=?, xuid=?, "
-                    "status=?, verified_at=?, updated_at=? WHERE id=? AND status=?",
+                    "UPDATE minecraft_applications SET edition=?, auto_detect_edition=0, "
+                    "verified_username=?, minecraft_uuid=?, xuid=?, status=?, verified_at=?, updated_at=? "
+                    "WHERE id=? AND status=?",
                     (
+                        edition.value,
                         current_username,
                         minecraft_uuid,
                         str(xuid) if xuid is not None else None,
@@ -756,6 +810,68 @@ class MinecraftDataManager:
         if updated is None:
             raise RuntimeError("Verified application disappeared")
         return updated, changed
+
+    async def set_status_message(self, application_id: int, channel_id: int, message_id: int) -> None:
+        async with self._write_lock:
+            db = self._connection()
+            await db.execute(
+                "UPDATE minecraft_applications SET status_channel_id=?, status_message_id=? WHERE id=?",
+                (str(channel_id), str(message_id), int(application_id)),
+            )
+            await db.commit()
+
+    async def clear_status_message(self, application_id: int) -> None:
+        async with self._write_lock:
+            db = self._connection()
+            await db.execute(
+                "UPDATE minecraft_applications SET status_channel_id=NULL, status_message_id=NULL WHERE id=?",
+                (int(application_id),),
+            )
+            await db.commit()
+
+    async def get_application_by_status_message(self, message_id: int) -> Optional[MinecraftApplication]:
+        rows = await self._connection().execute_fetchall(
+            "SELECT * FROM minecraft_applications WHERE status_message_id=?",
+            (str(message_id),),
+        )
+        return self._application(rows[0]) if rows else None
+
+    async def list_live_card_applications(self, *, limit: int = 100) -> list[MinecraftApplication]:
+        placeholders = ",".join("?" for _ in ACTIVE_APPLICATION_STATUSES)
+        rows = await self._connection().execute_fetchall(
+            f"SELECT * FROM minecraft_applications WHERE status IN ({placeholders}) "
+            "ORDER BY id DESC LIMIT ?",
+            (*(status.value for status in ACTIVE_APPLICATION_STATUSES), max(1, min(limit, 500))),
+        )
+        return [self._application(row) for row in rows]
+
+    async def record_player_seen(
+        self,
+        edition: Edition | str,
+        minecraft_uuid: str,
+        current_username: str,
+        xuid: Optional[str] = None,
+        *,
+        now: Optional[int] = None,
+    ) -> Optional[str]:
+        parsed = Edition(str(edition).upper())
+        cleaned, _normalized = normalize_username(parsed, current_username)
+        current = _now() if now is None else int(now)
+        async with self._write_lock:
+            db = self._connection()
+            rows = await db.execute_fetchall(
+                "SELECT discord_user_id FROM minecraft_accounts WHERE edition=? AND minecraft_uuid=?",
+                (parsed.value, str(minecraft_uuid)),
+            )
+            if not rows:
+                return None
+            await db.execute(
+                "UPDATE minecraft_accounts SET current_username=?, xuid=COALESCE(?, xuid), "
+                "last_seen_at=?, updated_at=? WHERE edition=? AND minecraft_uuid=?",
+                (cleaned, str(xuid) if xuid else None, current, current, parsed.value, str(minecraft_uuid)),
+            )
+            await db.commit()
+            return str(rows[0]["discord_user_id"])
 
     async def queue_approval(self, application_id: int, moderator_id: int, *, now: Optional[int] = None) -> MinecraftApplication:
         current = _now() if now is None else int(now)
@@ -1435,6 +1551,92 @@ class MinecraftDataManager:
             "SELECT status, COUNT(*) AS count FROM minecraft_applications GROUP BY status"
         )
         return {row["status"]: int(row["count"]) for row in rows}
+
+    async def response_time_metrics(self, *, hours: int = 24) -> dict[str, int]:
+        rows = await self._connection().execute_fetchall(
+            "SELECT duration_ms FROM minecraft_command_log "
+            "WHERE outcome='SUCCESS' AND created_at>=? ORDER BY duration_ms",
+            (_now() - max(1, int(hours)) * 3600,),
+        )
+        values = [max(0, int(row["duration_ms"])) for row in rows]
+        if not values:
+            return {"samples": 0, "median_ms": 0, "p95_ms": 0}
+        return {
+            "samples": len(values),
+            "median_ms": int(statistics.median(values)),
+            "p95_ms": values[max(0, math.ceil(len(values) * 0.95) - 1)],
+        }
+
+    async def enqueue_delivery(
+        self,
+        *,
+        dedupe_key: str,
+        kind: str,
+        target_id: int | str,
+        payload: dict[str, Any],
+        now: Optional[int] = None,
+    ) -> None:
+        current = _now() if now is None else int(now)
+        async with self._write_lock:
+            db = self._connection()
+            await db.execute(
+                "INSERT INTO minecraft_delivery_outbox"
+                "(dedupe_key, kind, target_id, payload, next_attempt_at, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(dedupe_key) DO UPDATE SET "
+                "payload=excluded.payload, next_attempt_at=MIN(next_attempt_at, excluded.next_attempt_at)",
+                (
+                    str(dedupe_key),
+                    str(kind),
+                    str(target_id),
+                    json.dumps(payload, separators=(",", ":")),
+                    current,
+                    current,
+                ),
+            )
+            await db.commit()
+
+    async def get_due_deliveries(self, *, limit: int = 25, now: Optional[int] = None) -> list[DeliveryRecord]:
+        current = _now() if now is None else int(now)
+        rows = await self._connection().execute_fetchall(
+            "SELECT * FROM minecraft_delivery_outbox WHERE next_attempt_at<=? ORDER BY id LIMIT ?",
+            (current, max(1, min(int(limit), 100))),
+        )
+        return [
+            DeliveryRecord(
+                id=int(row["id"]),
+                dedupe_key=str(row["dedupe_key"]),
+                kind=str(row["kind"]),
+                target_id=str(row["target_id"]),
+                payload=json.loads(row["payload"]),
+                attempts=int(row["attempts"]),
+                next_attempt_at=int(row["next_attempt_at"]),
+                last_error=row["last_error"],
+            )
+            for row in rows
+        ]
+
+    async def complete_delivery(self, delivery_id: int) -> None:
+        async with self._write_lock:
+            db = self._connection()
+            await db.execute("DELETE FROM minecraft_delivery_outbox WHERE id=?", (int(delivery_id),))
+            await db.commit()
+
+    async def fail_delivery(self, delivery_id: int, error: str, attempts: int) -> None:
+        delay = min(3600, 5 * (2 ** min(max(0, int(attempts)), 9)))
+        async with self._write_lock:
+            db = self._connection()
+            await db.execute(
+                "UPDATE minecraft_delivery_outbox SET attempts=attempts+1, next_attempt_at=?, last_error=? "
+                "WHERE id=?",
+                (_now() + delay, str(error)[:500], int(delivery_id)),
+            )
+            await db.commit()
+
+    async def delivery_counts(self) -> dict[str, int]:
+        rows = await self._connection().execute_fetchall(
+            "SELECT kind, COUNT(*) AS count FROM minecraft_delivery_outbox GROUP BY kind"
+        )
+        return {str(row["kind"]): int(row["count"]) for row in rows}
 
     async def audit_rows(self, application_id: int) -> list[dict[str, Any]]:
         rows = await self._connection().execute_fetchall(

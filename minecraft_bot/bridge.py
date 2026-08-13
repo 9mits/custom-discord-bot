@@ -49,7 +49,7 @@ class MinecraftBridgeServer:
         self._dispatch_lock = asyncio.Lock()
         self._connection_lock = asyncio.Lock()
         self._dispatcher_task: Optional[asyncio.Task] = None
-        self._sent_this_connection: set[str] = set()
+        self._sent_this_connection: dict[str, float] = {}
         self._last_heartbeat_at: Optional[float] = None
         self._connected_at: Optional[float] = None
 
@@ -263,7 +263,7 @@ class MinecraftBridgeServer:
                 )
                 if record is not None:
                     await self.action_result_handler(record, None)
-            self._sent_this_connection.discard(action_key)
+            self._sent_this_connection.pop(action_key, None)
             return
         if message_type == "STATUS_RESULT":
             self._last_heartbeat_at = time.time()
@@ -297,7 +297,7 @@ class MinecraftBridgeServer:
             "applications": [
                 {
                     "application_id": application.id,
-                    "edition": application.edition.value,
+                    "edition": "AUTO" if application.auto_detect_edition else application.edition.value,
                     "claimed_username": application.claimed_username,
                     "normalized_username": application.normalized_username,
                     "expires_at": application.verification_expires_at,
@@ -318,7 +318,8 @@ class MinecraftBridgeServer:
             sent_ids: list[int] = []
             sent_keys: list[str] = []
             for record in await self.data.get_outbox_batch(limit=50):
-                if record.idempotency_key in self._sent_this_connection:
+                last_sent = self._sent_this_connection.get(record.idempotency_key)
+                if last_sent is not None and time.monotonic() - last_sent < 15:
                     continue
                 await self._send(
                     "ACTION",
@@ -328,7 +329,8 @@ class MinecraftBridgeServer:
                 sent_ids.append(record.id)
                 sent_keys.append(record.idempotency_key)
             await self.data.mark_outbox_sent_batch(sent_ids)
-            self._sent_this_connection.update(sent_keys)
+            sent_at = time.monotonic()
+            self._sent_this_connection.update({key: sent_at for key in sent_keys})
 
     async def _dispatch_loop(self) -> None:
         while True:

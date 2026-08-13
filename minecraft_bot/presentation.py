@@ -219,7 +219,9 @@ def info_embed(title: str, description: str, *, success: bool = False, error: bo
 
 def verification_embed(application: MinecraftApplication, settings) -> discord.Embed:
     expires_at = datetime.fromtimestamp(application.verification_expires_at, timezone.utc)
-    if application.edition.value == "JAVA":
+    if application.auto_detect_edition:
+        connection = _connection_blocks(settings)
+    elif application.edition.value == "JAVA":
         connection = (
             "**Java server address**\n"
             f"```text\n{settings.java_address}\n```"
@@ -244,6 +246,58 @@ def verification_embed(application: MinecraftApplication, settings) -> discord.E
         "**Wrong username?** Press **Apply** again on the application panel to reveal the private "
         "**Cancel Pending Verification** option, or run `/minecraft cancel`, then apply again.",
     )
+
+
+def live_status_embed(application: MinecraftApplication, settings) -> discord.Embed:
+    status = application.status
+    steps = [
+        ("Application received", True),
+        ("Account verified", application.verified_at is not None),
+        (
+            "Staff review complete",
+            status in {
+                ApplicationStatus.APPROVED,
+                ApplicationStatus.DENIED,
+                ApplicationStatus.REVOKED,
+            },
+        ),
+    ]
+    progress = "\n".join(f"{'Complete' if complete else 'Next'} · {label}" for label, complete in steps)
+    if status is ApplicationStatus.PENDING_VERIFICATION:
+        expiry = datetime.fromtimestamp(application.verification_expires_at, timezone.utc)
+        connection = _connection_blocks(settings)
+        next_action = (
+            f"Connect once as `{_safe(application.claimed_username, 100)}` before "
+            f"{discord.utils.format_dt(expiry, 'R')}. The server identifies Java or Bedrock automatically."
+        )
+    elif status is ApplicationStatus.PENDING_REVIEW:
+        connection = ""
+        next_action = "Your account is verified. Staff will review the application; no further action is needed."
+    elif status is ApplicationStatus.APPROVAL_QUEUED:
+        connection = ""
+        next_action = "Approval is being applied to the Minecraft server automatically."
+    elif status is ApplicationStatus.APPROVED:
+        connection = _connection_blocks(settings)
+        next_action = "Access is active. Use the server details below whenever you want to join."
+    elif status is ApplicationStatus.DENIED:
+        connection = ""
+        next_action = application.applicant_reason or "The application was not approved. Get help if you need clarification."
+    elif status is ApplicationStatus.EXPIRED:
+        connection = ""
+        next_action = "The verification window expired. Start a new application when you are ready."
+    elif status is ApplicationStatus.CANCELLED:
+        connection = ""
+        next_action = "This application was cancelled. You may apply again."
+    else:
+        connection = ""
+        next_action = "This Minecraft access record is no longer active."
+    description = (
+        f"> Application **#{application.id}** · {status.value.replace('_', ' ').title()}\n\n"
+        f"**Progress**\n{progress}\n\n**Next step**\n{next_action}"
+    )
+    if connection:
+        description += f"\n\n{connection}"
+    return info_embed("Your Minecraft Application", description)
 
 
 def verified_embed(application: MinecraftApplication) -> discord.Embed:
@@ -294,7 +348,11 @@ def application_log_embed(application: MinecraftApplication) -> discord.Embed:
         f"Application Submitted #{application.id}",
         f"> <@{application.discord_user_id}> entered the Minecraft verification stage.",
     )
-    embed.add_field(name="Edition", value=application.edition.value.title(), inline=True)
+    embed.add_field(
+        name="Edition",
+        value="Detected on connection" if application.auto_detect_edition else application.edition.value.title(),
+        inline=True,
+    )
     embed.add_field(
         name="Claimed Username",
         value=f"`{_safe(application.claimed_username, 100)}`",

@@ -69,6 +69,9 @@ class MinecraftApplication:
     internal_note: Optional[str] = None
     review_channel_id: Optional[str] = None
     review_message_id: Optional[str] = None
+    auto_detect_edition: bool = False
+    status_channel_id: Optional[str] = None
+    status_message_id: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -83,6 +86,18 @@ class OutboxRecord:
     application_id: Optional[int]
     created_at: int
     processed_at: Optional[int]
+
+
+@dataclass(frozen=True)
+class DeliveryRecord:
+    id: int
+    dedupe_key: str
+    kind: str
+    target_id: str
+    payload: dict[str, Any]
+    attempts: int
+    next_attempt_at: int
+    last_error: Optional[str]
 
 
 class InvalidTransition(RuntimeError):

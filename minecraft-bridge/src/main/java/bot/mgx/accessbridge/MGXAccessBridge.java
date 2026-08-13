@@ -24,6 +24,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                     + "Your application has been sent to the moderators.\n"
                     + "You will receive a Discord notification when it is reviewed."
     );
+    private static final Component VERIFICATION_HELP_MESSAGE = Component.text(
+            "No active verification matched this account.\n\n"
+                    + "Check the username and expiry shown on your Discord Minecraft card, then try again."
+    );
 
     private ScheduledExecutorService networkExecutor;
     private BridgeClient bridgeClient;
@@ -48,16 +52,22 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         });
         pending = new PendingVerificationCache();
         ProcessedActionStore processed;
+        VerificationEventStore verificationEvents;
         try {
             Path resultFile = getDataFolder().toPath().resolve("processed-actions.properties");
             processed = new ProcessedActionStore(resultFile, networkExecutor);
+            verificationEvents = new VerificationEventStore(
+                    getDataFolder().toPath().resolve("verification-events.json")
+            );
         } catch (IOException exception) {
             getLogger().severe("MGXAccessBridge could not open its idempotency store: " + exception.getMessage());
             networkExecutor.shutdownNow();
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
-        bridgeClient = new BridgeClient(this, bridgeConfig, pending, processed, networkExecutor);
+        bridgeClient = new BridgeClient(
+                this, bridgeConfig, pending, processed, verificationEvents, networkExecutor
+        );
         getServer().getPluginManager().registerEvents(this, this);
         bridgeClient.start();
     }
@@ -101,9 +111,15 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
         Optional<PendingVerification> match = pending.match(edition, actualUsername);
         if (match.isEmpty()) {
+            event.kickMessage(VERIFICATION_HELP_MESSAGE);
             return;
         }
-        bridgeClient.queueVerification(match.get(), edition, uuid, actualUsername, xuid);
+        if (!bridgeClient.queueVerification(match.get(), edition, uuid, actualUsername, xuid)) {
+            event.kickMessage(Component.text(
+                    "Verification is temporarily unavailable. Your application is safe; please try again shortly."
+            ));
+            return;
+        }
 
         // Preserve KICK_WHITELIST. Only the text changes; bans, full-server and
         // every other login rejection result were returned above untouched.

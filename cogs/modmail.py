@@ -1,12 +1,14 @@
 """Modmail relay: ticket creation, control views, modals, and ticket management."""
 
-import discord
-from discord.ext import commands
-from typing import Optional, Union
-
+import asyncio
 import io
 import re
+from contextlib import suppress
 from types import SimpleNamespace
+from typing import Optional, Union
+
+import discord
+from discord.ext import commands, tasks
 
 from core.constants import (
     DEFAULT_ROLE_ADMIN,
@@ -16,14 +18,22 @@ from core.constants import (
     MODMAIL_PANEL_CATEGORIES,
     SCOPE_SUPPORT,
 )
+from core.context import bot
+from core.responding import InteractionResponder
 from core.services import (
     DEFAULT_TICKET_PRIORITIES,
     normalize_modmail_ticket,
     sanitize_tags,
 )
-from core.context import bot
-from core.responding import InteractionResponder
 from core.utils import iso_to_dt, now_iso
+from minecraft_bot.support import (
+    claim_support_request,
+    list_support_requests,
+    read_support_request,
+    release_support_request,
+)
+
+from .case_panel import generate_transcript_html
 from .shared import (
     logger,
     truncate_text,
@@ -40,7 +50,6 @@ from .shared import (
     get_modal_item_label,
     build_canned_replies_embed,
 )
-from .case_panel import generate_transcript_html
 
 
 def _split_tag_input(value: str):
@@ -829,10 +838,149 @@ class ModmailPanelView(discord.ui.View):
         self.add_item(ModmailPanelSelect())
 
 
+async def create_minecraft_support_ticket(guild: discord.Guild, user: discord.User, request: dict) -> None:
+    """Create the same persisted modmail ticket as the public support panel."""
+    existing = bot.data_manager.modmail.get(str(user.id))
+    details = [
+        f"**Application:** #{request.get('application_id')}" if request.get("application_id") else "**Application:** Not available",
+        f"**Status:** {str(request.get('status', 'Unknown')).replace('_', ' ').title()}",
+        f"**Minecraft name:** {request.get('username') or 'Not available'}",
+        "**Request:** The applicant asked for help from their private Minecraft verification card.",
+    ]
+    if existing and existing.get("status") == "open":
+        thread = await resolve_modmail_thread(guild, existing)
+        if not isinstance(thread, discord.Thread):
+            raise RuntimeError("Existing support thread is unavailable")
+        await thread.send("\n".join(details), allowed_mentions=discord.AllowedMentions.none())
+        with suppress(discord.Forbidden, discord.HTTPException):
+            await user.send(
+                embed=make_embed(
+                    "Minecraft Help Added",
+                    "> Your Minecraft help request was added to your existing support ticket.",
+                    kind="support",
+                    scope=SCOPE_SUPPORT,
+                    guild=guild,
+                )
+            )
+        return
+
+    log_channel_id = bot.data_manager.config.get("modmail_inbox_channel")
+    log_channel = guild.get_channel(log_channel_id) if log_channel_id else None
+    if log_channel is None:
+        raise RuntimeError("Modmail inbox is unavailable")
+    embed = make_embed(
+        "New Ticket: Minecraft Support",
+        "> A Minecraft applicant requested help from their private verification card.",
+        kind="support",
+        scope=SCOPE_SUPPORT,
+        guild=guild,
+        thumbnail=user.display_avatar.url,
+        author_name=f"{user.display_name} ({user.id})",
+        author_icon=user.display_avatar.url,
+    )
+    for line in details:
+        label, value = line.replace("**", "").split(":", 1)
+        embed.add_field(name=label, value=f"> {value.strip()}", inline=False)
+    created = now_iso()
+    ticket_payload = {
+        "status": "open",
+        "category": "Support",
+        "created_at": created,
+        "priority": "normal",
+        "tags": ["minecraft"],
+        "assigned_moderator": None,
+        "claimed_at": None,
+        "last_user_message_at": created,
+        "last_staff_message_at": None,
+        "last_sla_alert_at": None,
+    }
+    normalize_modmail_ticket(ticket_payload)
+    apply_modmail_ticket_state(embed, ticket_payload, guild)
+    ping_roles = bot.data_manager.config.get("modmail_ping_roles", [])
+    if ping_roles:
+        pings = " ".join(f"<@&{role_id}>" for role_id in ping_roles)
+    else:
+        pings = " ".join(
+            f"<@&{bot.data_manager.config.get(key, fallback)}>"
+            for key, fallback in (
+                ("role_mod", DEFAULT_ROLE_MOD),
+                ("role_admin", DEFAULT_ROLE_ADMIN),
+                ("role_community_manager", DEFAULT_ROLE_COMMUNITY_MANAGER),
+            )
+        )
+    view = ModmailControlView(str(user.id))
+    log_msg = await log_channel.send(
+        content=f"New Ticket from {user.mention} {pings}", embed=embed, view=view
+    )
+    thread = await log_msg.create_thread(name=f"ticket-{user.name}"[:100])
+    ticket_payload["thread_id"] = thread.id
+    ticket_payload["log_id"] = log_msg.id
+    await bot.data_manager.mutate_modmail_ticket(user.id, lambda _candidate: ticket_payload)
+    await send_modmail_thread_intro(thread, user, "Minecraft Support", details)
+    if bot.data_manager.config.get("modmail_discussion_threads", True):
+        try:
+            discussion = await log_channel.send(
+                f"**Staff Discussion** for {user.mention} (Ticket #{log_msg.id})"
+            )
+            await discussion.create_thread(name=f"discuss-{user.name}"[:100])
+        except (discord.Forbidden, discord.HTTPException):
+            logger.warning("Could not create the optional discussion thread for Minecraft support")
+    with suppress(discord.Forbidden, discord.HTTPException):
+        await user.send(
+            embed=make_embed(
+                "Ticket Created",
+                "> Your Minecraft support ticket is open. Reply to this DM to send more details.",
+                kind="support",
+                scope=SCOPE_SUPPORT,
+                guild=guild,
+            )
+        )
+    await log_modmail_action(guild, "Ticket Created", [
+        ("User", user.mention), ("Category", "Minecraft Support"), ("Ticket ID", str(thread.id))
+    ])
+
+
 
 class ModmailCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        self.minecraft_support_requests.start()
+
+    def cog_unload(self):
+        self.minecraft_support_requests.cancel()
+
+    @tasks.loop(seconds=5)
+    async def minecraft_support_requests(self):
+        for path in list_support_requests()[:10]:
+            preview = read_support_request(path)
+            try:
+                target_guild_id = int(preview.get("guild_id", 0)) if preview else 0
+            except (TypeError, ValueError):
+                target_guild_id = 0
+            if not target_guild_id or self.bot.get_guild(target_guild_id) is None:
+                continue
+            claimed = claim_support_request(path)
+            if claimed is None:
+                continue
+            claimed_path, request = claimed
+            guild = self.bot.get_guild(int(request.get("guild_id", 0)))
+            try:
+                user = self.bot.get_user(int(request["discord_user_id"]))
+                if user is None:
+                    user = await self.bot.fetch_user(int(request["discord_user_id"]))
+                await create_minecraft_support_ticket(guild, user, request)
+            except asyncio.CancelledError:
+                release_support_request(claimed_path)
+                raise
+            except Exception:
+                logger.exception("Minecraft support request %s will be retried", request.get("request_id"))
+                release_support_request(claimed_path)
+            else:
+                claimed_path.unlink(missing_ok=True)
+
+    @minecraft_support_requests.before_loop
+    async def before_minecraft_support_requests(self):
+        await self.bot.wait_until_ready()
 
 
 async def setup(bot):

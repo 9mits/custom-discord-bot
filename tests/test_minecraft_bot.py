@@ -33,6 +33,7 @@ from minecraft_bot.ui import (
     CancelPendingConfirmationView,
     MinecraftControlView,
     MinecraftApplicationModal,
+    LiveApplicationView,
     ReviewView,
     RulesAgreementView,
 )
@@ -100,8 +101,13 @@ class MinecraftBotPolicyTests(unittest.TestCase):
                 "minecraft:review:history",
             },
         )
-        self.assertEqual(modal.edition.options[0].value, "JAVA")
-        self.assertEqual(modal.edition.options[1].value, "BEDROCK")
+        self.assertFalse(hasattr(modal, "edition"))
+        live = LiveApplicationView()
+        self.assertTrue(live.is_persistent())
+        self.assertEqual(
+            {item.custom_id for item in live.children},
+            {"minecraft:live:refresh", "minecraft:live:manage", "minecraft:live:help"},
+        )
         panel_custom_ids = {
             component["custom_id"]
             for child in panel.to_components()
@@ -245,13 +251,14 @@ class MinecraftBotPolicyTests(unittest.TestCase):
             {item.custom_id for item in view.children},
             {
                 "minecraft:control:overview",
+                "minecraft:control:diagnostics",
                 "minecraft:control:applications",
                 "minecraft:control:commandlog",
                 "minecraft:control:username",
                 "minecraft:control:member",
             },
         )
-        self.assertLessEqual(len(view.children), 5)
+        self.assertLessEqual(len(view.children), 6)
 
     def test_administrator_control_panel_includes_setup(self):
         bot = SimpleNamespace(
