@@ -19,18 +19,25 @@ class PlayerProfileRankTest {
 
     @Test
     void rankFieldsAreTrimmedAndClamped() {
-        PlayerProfile profile = new PlayerProfile(50, 5, true, "  staff  ", "  STAFF  ", 0x1FFFFFF);
+        PlayerProfile profile = new PlayerProfile(50, 5, true, "  staff  ", "  STAFF  ", 0x1FFFFFF, 40);
 
         assertEquals("staff", profile.rankGroup());
         assertEquals("STAFF", profile.rankLabel());
         assertEquals(0xFFFFFF, profile.rankColour());
+        assertEquals(40, profile.rankWeight());
         assertTrue(profile.hasRank());
         assertTrue(profile.hasRankLabel());
     }
 
     @Test
+    void rankWeightIsClampedToUsableSortRange() {
+        assertEquals(0, new PlayerProfile(0, 0, false, "", "", 0, -1).rankWeight());
+        assertEquals(9_999, new PlayerProfile(0, 0, false, "", "", 0, 50_000).rankWeight());
+    }
+
+    @Test
     void nullRankFieldsBecomeEmpty() {
-        PlayerProfile profile = new PlayerProfile(0, 0, false, null, null, -5);
+        PlayerProfile profile = new PlayerProfile(0, 0, false, null, null, -5, -3);
 
         assertEquals("", profile.rankGroup());
         assertEquals("", profile.rankLabel());
@@ -40,7 +47,7 @@ class PlayerProfileRankTest {
 
     @Test
     void rankWithoutLabelIsNotDisplayable() {
-        PlayerProfile profile = new PlayerProfile(0, 0, false, "booster", "", 0xFF73FA);
+        PlayerProfile profile = new PlayerProfile(0, 0, false, "booster", "", 0xFF73FA, 2);
 
         assertTrue(profile.hasRank());
         assertFalse(profile.hasRankLabel());

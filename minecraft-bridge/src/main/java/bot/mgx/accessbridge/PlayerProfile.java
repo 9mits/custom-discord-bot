@@ -6,9 +6,10 @@ record PlayerProfile(
         boolean elite,
         String rankGroup,
         String rankLabel,
-        int rankColour
+        int rankColour,
+        int rankWeight
 ) {
-    static final PlayerProfile NONE = new PlayerProfile(0, 0, false, "", "", 0);
+    static final PlayerProfile NONE = new PlayerProfile(0, 0, false, "", "", 0, 0);
 
     PlayerProfile {
         level = Math.max(0, Math.min(level, 50));
@@ -17,10 +18,11 @@ record PlayerProfile(
         rankGroup = rankGroup == null ? "" : rankGroup.trim();
         rankLabel = rankLabel == null ? "" : rankLabel.trim();
         rankColour = Math.max(0, Math.min(rankColour, 0xFFFFFF));
+        rankWeight = Math.max(0, Math.min(rankWeight, 9_999));
     }
 
     PlayerProfile(int level, int extraHearts, boolean elite) {
-        this(level, extraHearts, elite, "", "", 0);
+        this(level, extraHearts, elite, "", "", 0, 0);
     }
 
     boolean hasRank() {

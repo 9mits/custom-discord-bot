@@ -254,7 +254,8 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                     payload.get("elite").getAsBoolean(),
                     optionalString(payload, "rank_group"),
                     optionalString(payload, "rank_label"),
-                    payload.has("rank_colour") ? payload.get("rank_colour").getAsInt() : 0
+                    payload.has("rank_colour") ? payload.get("rank_colour").getAsInt() : 0,
+                    payload.has("rank_weight") ? payload.get("rank_weight").getAsInt() : 0
             );
             // Older bots omit the rank fields entirely; only touch LuckPerms when they are sent.
             if (payload.has("rank_group")) {
