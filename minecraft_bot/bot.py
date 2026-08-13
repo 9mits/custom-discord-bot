@@ -22,7 +22,7 @@ from .bridge import MinecraftBridgeServer
 from .config import MinecraftConfig
 from .data import MinecraftDataManager
 from .models import ApplicationStatus, BridgeAction, Edition, InvalidTransition, MinecraftApplication, OutboxRecord
-from .perks import LEVEL_ROLE_MILESTONES, profile_for_role_ids
+from .perks import LEVEL_ROLE_MILESTONES, RANK_ROLES, profile_for_role_ids, rank_for_role_ids
 from .presentation import (
     BRAND_NAME,
     FOOTER_ICON_URL,
@@ -745,19 +745,25 @@ class MinecraftAccessBot(commands.Bot):
                 linked_user = self.get_user(int(discord_user_id))
             except (TypeError, ValueError):
                 linked_user = None
-        profile = profile_for_role_ids(role.id for role in getattr(member, "roles", ()))
+        member_role_ids = [role.id for role in getattr(member, "roles", ())]
+        profile = profile_for_role_ids(member_role_ids)
+        rank = rank_for_role_ids(member_role_ids)
         return await self.bridge.send_player_profile(
             minecraft_uuid=minecraft_uuid,
             level=profile.level,
             extra_hearts=profile.extra_hearts,
             elite=profile.elite,
             discord_username=getattr(linked_user, "name", ""),
+            rank_group=rank.group if rank else "",
+            rank_label=rank.label if rank else "",
+            rank_colour=rank.colour if rank else 0,
         )
 
     async def on_member_update(self, before: discord.Member, after: discord.Member) -> None:
-        milestone_ids = {role_id for role_id, _level in LEVEL_ROLE_MILESTONES}
-        before_roles = {role.id for role in before.roles} & milestone_ids
-        after_roles = {role.id for role in after.roles} & milestone_ids
+        synced_ids = {role_id for role_id, _level in LEVEL_ROLE_MILESTONES}
+        synced_ids.update(role_id for role_id, _group, _label, _colour in RANK_ROLES)
+        before_roles = {role.id for role in before.roles} & synced_ids
+        after_roles = {role.id for role in after.roles} & synced_ids
         if before_roles == after_roles or not self.bridge.supports_profile_sync:
             return
         for account in await self.data.list_accounts_for_user(after.id):

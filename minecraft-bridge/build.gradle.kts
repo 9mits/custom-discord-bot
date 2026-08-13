@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "bot.mgx"
-version = "2.4.1"
+version = "2.5.0"
 
 repositories {
     mavenCentral()
@@ -15,10 +15,13 @@ repositories {
 dependencies {
     compileOnly("io.papermc.paper:paper-api:1.20.6-R0.1-SNAPSHOT")
     compileOnly("org.geysermc.floodgate:api:2.2.5-SNAPSHOT")
+    compileOnly("net.luckperms:api:5.4")
     implementation("com.google.code.gson:gson:2.11.0")
 
     testImplementation(platform("org.junit:junit-bom:5.11.4"))
     testImplementation("org.junit.jupiter:junit-jupiter")
+    // compileOnly at runtime is absent, so tests touching LuckPermsService need the API.
+    testImplementation("net.luckperms:api:5.4")
 }
 
 java {

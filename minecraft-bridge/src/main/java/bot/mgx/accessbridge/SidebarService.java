@@ -165,7 +165,7 @@ final class SidebarService {
     private void updateTabName(Player player) {
         PlayerProfile profile = perks.profile(player.getUniqueId());
         ClientPlatform platform = clientPlatform(player);
-        Component rendered = Component.empty();
+        Component rendered = rankTag(profile);
         Optional<ClanStore.ClanView> clan = clans.clanOf(player.getUniqueId());
         if (clan.isPresent()) {
             rendered = rendered.append(clanTag(clan.get()));
@@ -224,12 +224,15 @@ final class SidebarService {
         for (Player online : plugin.getServer().getOnlinePlayers()) {
             Optional<ClanStore.ClanView> clan = clans.clanOf(online.getUniqueId());
             Optional<String> discordUsername = identities.visibleUsername(online.getUniqueId());
-            if (clan.isEmpty() && discordUsername.isEmpty()) {
+            PlayerProfile profile = perks.profile(online.getUniqueId());
+            if (clan.isEmpty() && discordUsername.isEmpty() && !profile.hasRankLabel()) {
                 continue;
             }
             String teamName = "mgxp_" + online.getUniqueId().toString().replace("-", "").substring(0, 11);
-            Component prefix = clan.map(SidebarService::clanTag).orElse(Component.empty())
-                    .append(identities.tag(online.getUniqueId()));
+            // Nametags omit the Discord name: it is the tightest surface and the name
+            // is already shown in chat and the player list.
+            Component prefix = rankTag(profile)
+                    .append(clan.map(SidebarService::clanTag).orElse(Component.empty()));
             expected.put(teamName, prefix);
             entries.computeIfAbsent(teamName, ignored -> new LinkedHashSet<>()).add(online.getName());
         }
@@ -302,6 +305,17 @@ final class SidebarService {
 
     private static Component clanTag(ClanStore.ClanView clan) {
         return Component.text("[" + clan.name() + "] ", clanColor(clan), TextDecoration.BOLD);
+    }
+
+    static Component rankTag(PlayerProfile profile) {
+        if (!profile.hasRankLabel()) {
+            return Component.empty();
+        }
+        return Component.text(
+                "[" + profile.rankLabel() + "] ",
+                TextColor.color(profile.rankColour()),
+                TextDecoration.BOLD
+        );
     }
 
     private static TextColor pingColor(int ping) {
