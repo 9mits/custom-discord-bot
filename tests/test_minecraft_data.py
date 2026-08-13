@@ -405,6 +405,12 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(denied.status, ApplicationStatus.DENIED)
         self.assertEqual(denied.internal_note, "Internal context")
+        removal = next(
+            record
+            for record in await self.data.get_outbox_batch()
+            if record.application_id == review.id and record.action is BridgeAction.REMOVE_PENDING
+        )
+        self.assertEqual(removal.payload, {"application_id": review.id})
         with self.assertRaises(InvalidTransition):
             await self.data.deny_application(
                 review.id,

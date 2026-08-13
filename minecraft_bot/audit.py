@@ -1,8 +1,8 @@
 """Command audit trail for the Minecraft access bot.
 
 Every `/minecraft ...` invocation, review button, and modal submission produces a
-record here. Routine ones go to the command log channel; access-changing and failed
-ones also go to a dedicated important-command channel.
+record here. Routine ones go to the activity log; access-changing and failed ones
+go to the quieter important log.
 
 Self-contained by design: this module imports only stdlib, discord, and sibling
 `minecraft_bot` modules, so the Minecraft bot stays independent of the moderation
@@ -374,17 +374,13 @@ async def deliver(client: Any, record: CommandAuditRecord) -> None:
     command_channel = int(getattr(settings, "command_log_channel_id", 0) or 0)
     important_channel = int(getattr(settings, "critical_log_channel_id", 0) or 0)
 
-    targets: list[int] = []
-    if command_channel:
-        targets.append(command_channel)
     if record.important:
-        # Falls back to the command log so important records are never dropped.
-        fallback = important_channel or command_channel
-        if fallback:
-            targets.append(fallback)
+        targets = [important_channel or command_channel]
+    else:
+        targets = [command_channel]
 
     embed = build_important_embed(record) if record.important else build_batch_embed([record])
-    for channel_id in dict.fromkeys(targets):
+    for channel_id in (channel_id for channel_id in targets if channel_id):
         await _send(client, channel_id, embed)
 
 

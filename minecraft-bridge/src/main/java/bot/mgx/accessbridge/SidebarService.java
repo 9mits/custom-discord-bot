@@ -19,6 +19,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import java.util.UUID;
 
 final class SidebarService {
@@ -81,12 +84,14 @@ final class SidebarService {
     void refreshAll() {
         boards.keySet().removeIf(uuid -> plugin.getServer().getPlayer(uuid) == null);
         for (Player player : plugin.getServer().getOnlinePlayers()) {
+            updateTabName(player);
             refresh(player);
         }
     }
 
     void refresh(Player player) {
         PlayerBoard board = boards.computeIfAbsent(player.getUniqueId(), ignored -> new PlayerBoard(player));
+        syncClanTeams(board.scoreboard);
         board.update(lines(player));
         if (player.getScoreboard() != board.scoreboard) {
             player.setScoreboard(board.scoreboard);
@@ -97,33 +102,76 @@ final class SidebarService {
         PlayerProfile profile = perks.profile(player.getUniqueId());
         ArrayList<Component> lines = new ArrayList<>();
         lines.add(Component.empty());
-        lines.add(valueLine("✦", "Player", player.getName()));
-        lines.add(valueLine("⚡", "Level", String.valueOf(profile.level())));
-        lines.add(valueLine("♥", "Bonus Hearts", "+" + profile.extraHearts()));
+        lines.add(sectionLine("PLAYER PROFILE"));
+        lines.add(valueLine("PLAYER", player.getName()));
+        lines.add(valueLine("LEVEL", String.valueOf(profile.level())));
+        lines.add(valueLine("HEARTS", "+" + profile.extraHearts()));
         if (profile.elite()) {
-            lines.add(valueLine("✹", "Power", "+5% damage"));
+            lines.add(valueLine("POWER", "+5% damage"));
         }
         clans.clanOf(player.getUniqueId()).ifPresent(clan ->
-                lines.add(valueLine("◆", "Clan", clan.name()))
+                lines.add(valueLine("CLAN", "[" + clan.tag() + "] " + clan.name()))
         );
         lines.add(Component.empty());
-        lines.add(valueLine("⚔", "Kills", String.valueOf(player.getStatistic(Statistic.PLAYER_KILLS))));
-        lines.add(valueLine("☠", "Deaths", String.valueOf(player.getStatistic(Statistic.DEATHS))));
-        lines.add(valueLine(
-                "◉",
-                "Online",
-                plugin.getServer().getOnlinePlayers().size() + "/" + plugin.getServer().getMaxPlayers()
-        ));
-        lines.add(valueLine("↔", "Ping", player.getPing() + "ms"));
+        lines.add(sectionLine("SERVER STATS"));
+        lines.add(valueLine("KILLS", String.valueOf(player.getStatistic(Statistic.PLAYER_KILLS))));
+        lines.add(valueLine("DEATHS", String.valueOf(player.getStatistic(Statistic.DEATHS))));
+        lines.add(valueLine("PING", player.getPing() + "ms"));
         lines.add(Component.empty());
-        lines.add(Component.text(footer, LIGHT_ORANGE));
+        lines.add(Component.text("• " + footer + " •", LIGHT_ORANGE));
         return lines;
     }
 
-    private static Component valueLine(String icon, String label, String value) {
-        return Component.text(icon + " ", ORANGE)
-                .append(Component.text(label + " ", NamedTextColor.GRAY))
+    private static Component valueLine(String label, String value) {
+        return Component.text("» ", ORANGE, TextDecoration.BOLD)
+                .append(Component.text(label + " ", LIGHT_ORANGE, TextDecoration.BOLD))
                 .append(Component.text(value, NamedTextColor.WHITE));
+    }
+
+    private static Component sectionLine(String label) {
+        return Component.text("── ", NamedTextColor.DARK_GRAY)
+                .append(Component.text(label, ORANGE, TextDecoration.BOLD))
+                .append(Component.text(" ──", NamedTextColor.DARK_GRAY));
+    }
+
+    private void updateTabName(Player player) {
+        Component name = Component.text(player.getName(), NamedTextColor.WHITE);
+        Component rendered = clans.clanOf(player.getUniqueId())
+                .<Component>map(clan -> Component.text("[" + clan.tag() + "] ", ORANGE, TextDecoration.BOLD)
+                        .append(name))
+                .orElse(name);
+        player.playerListName(rendered);
+    }
+
+    private void syncClanTeams(Scoreboard scoreboard) {
+        Map<String, ClanStore.ClanView> expected = new LinkedHashMap<>();
+        Map<String, Set<String>> entries = new LinkedHashMap<>();
+        for (Player online : plugin.getServer().getOnlinePlayers()) {
+            clans.clanOf(online.getUniqueId()).ifPresent(clan -> {
+                String teamName = "mgxc_" + clan.id().toString().replace("-", "").substring(0, 11);
+                expected.put(teamName, clan);
+                entries.computeIfAbsent(teamName, ignored -> new LinkedHashSet<>()).add(online.getName());
+            });
+        }
+        for (Team team : new ArrayList<>(scoreboard.getTeams())) {
+            if (team.getName().startsWith("mgxc_") && !expected.containsKey(team.getName())) {
+                team.unregister();
+            }
+        }
+        expected.forEach((teamName, clan) -> {
+            Team team = scoreboard.getTeam(teamName);
+            if (team == null) {
+                team = scoreboard.registerNewTeam(teamName);
+            }
+            team.prefix(Component.text("[" + clan.tag() + "] ", ORANGE, TextDecoration.BOLD));
+            Set<String> expectedEntries = entries.getOrDefault(teamName, Set.of());
+            for (String oldEntry : new LinkedHashSet<>(team.getEntries())) {
+                if (!expectedEntries.contains(oldEntry)) {
+                    team.removeEntry(oldEntry);
+                }
+            }
+            expectedEntries.forEach(team::addEntry);
+        });
     }
 
     private final class PlayerBoard {

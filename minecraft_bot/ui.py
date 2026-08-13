@@ -18,7 +18,6 @@ from .presentation import (
     live_status_embed,
     rules_embed,
     rules_image_file,
-    verification_embed,
     verification_image_file,
 )
 from .support import enqueue_support_request
@@ -75,25 +74,21 @@ class ApplyButton(discord.ui.Button):
             discord_user_id=interaction.user.id,
         )
         if active is not None:
-            if active.status is ApplicationStatus.PENDING_VERIFICATION:
-                await interaction.response.send_message(
-                    **branded_send(verification_embed(active, bot.settings)),
-                    file=verification_image_file(),
-                    view=CancelPendingConfirmationView(interaction.user.id),
-                    ephemeral=True,
-                )
-            else:
-                await interaction.response.send_message(
-                    **branded_send(
-                        info_embed(
-                            "Application Already Active",
-                            "> Your application is currently **"
-                            f"{active.status.value.replace('_', ' ').title()}**.\n\n"
-                            "It can no longer be cancelled by the applicant. Staff aim to send a decision within **24 hours**.",
-                        )
-                    ),
-                    ephemeral=True,
-                )
+            pending_verification = active.status is ApplicationStatus.PENDING_VERIFICATION
+            message = {
+                **branded_send(live_status_embed(active, bot.settings)),
+                "view": (
+                    CancelPendingConfirmationView(interaction.user.id)
+                    if pending_verification
+                    else LiveApplicationView()
+                ),
+                "ephemeral": True,
+            }
+            if pending_verification:
+                message["file"] = verification_image_file()
+            await interaction.response.send_message(
+                **message,
+            )
             return
         if not bot.apply_rate_limit.claim(interaction.user.id):
             await interaction.response.send_message(
@@ -155,7 +150,8 @@ class RulesAgreementView(discord.ui.View):
     @discord.ui.button(label="I Agree", style=discord.ButtonStyle.success)
     async def agree(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
         await interaction.response.send_modal(MinecraftApplicationModal(
-            require_edition=not interaction.client.bridge.supports_auto_edition
+            require_edition=not interaction.client.bridge.supports_auto_edition,
+            source_message=getattr(interaction, "message", None),
         ))
 
     @discord.ui.button(label="I Disagree", style=discord.ButtonStyle.secondary)
@@ -261,9 +257,11 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
         fixed_edition: Edition | None = None,
         *,
         require_edition: bool = False,
+        source_message: discord.Message | None = None,
     ) -> None:
         super().__init__(timeout=600, custom_id="minecraft:application:modal")
         self.fixed_edition = fixed_edition
+        self.source_message = source_message
         self.edition = None
         if fixed_edition is None and require_edition:
             self.edition = discord.ui.Select(
@@ -302,8 +300,18 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
         self.add_item(self.about)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.response.defer(ephemeral=True)
         bot = interaction.client
+
+        async def edit_card(*, embed: discord.Embed, attachments=None, view=None) -> None:
+            payload = {**branded_edit(embed), "view": view}
+            if attachments is not None:
+                payload["attachments"] = attachments
+            if self.source_message is not None:
+                await self.source_message.edit(**payload)
+            else:
+                await interaction.edit_original_response(**payload)
+
         try:
             edition = self.fixed_edition
             if edition is None and self.edition is not None:
@@ -325,43 +333,45 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
                 if active is not None and active.status is ApplicationStatus.PENDING_VERIFICATION
                 else None
             )
-            await interaction.edit_original_response(
-                **branded_edit(
-                    info_embed(
-                        "Application Already Active",
-                        "> You already have an application being verified or reviewed.\n\n"
-                        "If it is still awaiting verification, you can cancel it below and apply again.",
-                        error=True,
-                    )
+            await edit_card(
+                embed=info_embed(
+                    "Application Already Active",
+                    "> You already have an application being verified or reviewed.\n\n"
+                    "If it is still awaiting verification, you can cancel it below and apply again.",
+                    error=True,
                 ),
+                attachments=[],
                 view=view,
             )
             return
         except AccountEditionAlreadyLinked as exc:
-            await interaction.edit_original_response(
-                **branded_edit(
-                    info_embed(
-                        "Minecraft Account Limit Reached",
-                        f"> {exc}.\n\n"
-                        "Each Discord member may link **one Java account and one Bedrock account**.",
-                        error=True,
-                    )
-                )
+            await edit_card(
+                embed=info_embed(
+                    "Minecraft Account Limit Reached",
+                    f"> {exc}.\n\n"
+                    "Each Discord member may link **one Java account and one Bedrock account**.",
+                    error=True,
+                ),
+                attachments=[],
             )
             return
         except ValueError as exc:
-            await interaction.edit_original_response(
-                **branded_edit(info_embed("Application Invalid", f"> {exc}", error=True))
+            await edit_card(
+                embed=info_embed("Application Invalid", f"> {exc}", error=True),
+                attachments=[],
             )
             return
 
-        bot.remember_application_interaction(application.id, interaction)
+        card_message = self.source_message
+        if card_message is None:
+            card_message = await interaction.original_response()
+        bot.remember_application_message(application.id, card_message)
         bot.spawn_background_task(
             bot.finish_application_submission(application),
             name=f"minecraft-application:{application.id}",
         )
-        await interaction.edit_original_response(
-            **branded_edit(live_status_embed(application, bot.settings)),
+        await edit_card(
+            embed=live_status_embed(application, bot.settings),
             attachments=[verification_image_file()],
             view=LiveApplicationView(),
         )
@@ -772,30 +782,3 @@ class ReviewView(discord.ui.View):
             )
             return
         await interaction.response.send_modal(DenialModal(application.id))
-
-    @discord.ui.button(
-        label="View Previous Applications",
-        style=discord.ButtonStyle.secondary,
-        custom_id="minecraft:review:history",
-    )
-    async def history(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
-        application = await self._authorize(interaction)
-        if application is None:
-            return
-        await interaction.response.defer(ephemeral=True)
-        history = await interaction.client.data.list_applications_for_user(
-            application.discord_user_id,
-            limit=25,
-        )
-        lines = [
-            f"`#{entry.id}` · {entry.edition.value.title()} · {entry.status.value.replace('_', ' ').title()} · <t:{entry.created_at}:d>"
-            for entry in history
-        ]
-        await interaction.edit_original_response(
-            **branded_edit(
-                info_embed(
-                    "Previous Minecraft Applications",
-                    "\n".join(lines) or "> No previous applications were found.",
-                )
-            )
-        )

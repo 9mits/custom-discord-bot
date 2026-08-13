@@ -22,6 +22,10 @@ ICON_ATTACHMENT_URI = f"attachment://{ICON_FILENAME}"
 FOOTER_FILENAME = "mysterious_smp_x_footer.png"
 FOOTER_PATH = Path(__file__).resolve().parent.parent / "assets" / "minecraft" / FOOTER_FILENAME
 FOOTER_ATTACHMENT_URI = f"attachment://{FOOTER_FILENAME}"
+FOOTER_ICON_URL = (
+    "https://raw.githubusercontent.com/9mits/custom-discord-bot/main/"
+    f"assets/minecraft/{FOOTER_FILENAME}"
+)
 RULES_FILENAME = "mysterious_smp_x_rules.png"
 RULES_PATH = Path(__file__).resolve().parent.parent / "assets" / "minecraft" / RULES_FILENAME
 RULES_ATTACHMENT_URI = f"attachment://{RULES_FILENAME}"
@@ -89,11 +93,14 @@ def application_panel_files() -> list[discord.File]:
 
 def _connection_blocks(settings) -> str:
     return (
-        "**Java server address**\n"
+        "**Java Edition — PC/Mac launcher**\n"
+        "> Choose **Multiplayer → Add Server**, then paste this address. Java players do not use the Bedrock port.\n"
         f"```text\n{settings.java_address}\n```\n"
-        "**Bedrock server address**\n"
+        "**Bedrock Edition — phone, console, or Windows**\n"
+        "> Add an external server using both the address and port below.\n"
+        "**Address**\n"
         f"```text\n{settings.bedrock_address}\n```\n"
-        "**Bedrock port**\n"
+        "**Port**\n"
         f"```text\n{settings.bedrock_port}\n```"
     )
 
@@ -104,7 +111,7 @@ def _panel_embed(title: str, description: str) -> discord.Embed:
         description=description,
         colour=THEME_COLOUR,
     )
-    embed.set_footer(text=BRAND_NAME, icon_url=FOOTER_ATTACHMENT_URI)
+    embed.set_footer(text=BRAND_NAME, icon_url=FOOTER_ICON_URL)
     return embed
 
 
@@ -117,7 +124,6 @@ def application_embeds() -> list[discord.Embed]:
         "Acceptance is intentionally approachable: if you want to play, we encourage you to apply.",
     )
     welcome.set_image(url=LOGO_ATTACHMENT_URI)
-    welcome.remove_footer()
     apply = _panel_embed(
         "Apply to Mysterious SMP X",
         "Apply entirely through Discord, verify ownership with one Minecraft connection, "
@@ -145,12 +151,18 @@ def rules_embed(*, agreement: bool = False) -> discord.Embed:
     )
     description = (
         introduction
-        + "1. **Respect builds** — Do not grief, damage, or alter another player's work without permission.\n\n"
+        + "1. **Protect player builds** — Griefing active bases, storage, farms, or meaningful builds is not allowed. "
+        "Minor damage during an agreed conflict must be repaired; lore is never permission to wipe someone's work.\n\n"
         "2. **Play fairly** — No hacked clients, x-ray, duping, exploits, or unfair advantages.\n\n"
-        "3. **Keep PvP reasonable** — PvP is allowed; repeated targeting, spawn-killing, and harassment are not.\n\n"
-        "4. **Keep drama in-game** — Alliances, rivalries, wars, and betrayals are welcome when they remain fun.\n\n"
-        "5. **Protect server stability** — No lag machines, crash exploits, chunk bans, or destructive abuse.\n\n"
-        "6. **Use common sense** — Loopholes do not excuse behavior that ruins the experience for others.\n\n"
+        "3. **Keep PvP fair** — Fighting, ambushes, and declared wars are allowed. Spawn-killing, combat logging, "
+        "repeatedly targeting one player, or continuing after someone clearly disengages is not.\n\n"
+        "4. **Build lore together** — Alliances, rivalries, wars, traps, theft, and betrayals may be part of the story "
+        "when everyone involved still has a fair chance to play. Keep real arguments out of character.\n\n"
+        "5. **Use proportional conflict** — A prank or stolen item does not justify destroying a base. Escalate through "
+        "roleplay, leave evidence, and give other players a way to respond.\n\n"
+        "6. **Protect server stability** — No lag machines, crash exploits, chunk bans, or destructive abuse.\n\n"
+        "7. **Use common sense** — Loopholes do not excuse behavior that ruins the experience for others. Staff may "
+        "step in when a conflict stops being fun or fair.\n\n"
         "**Have fun, create lore, and help make the server enjoyable for everyone.**"
         + ending
     )
@@ -226,7 +238,12 @@ def review_embed(
         )
     if application.status is ApplicationStatus.DENIED and application.applicant_reason:
         embed.add_field(name="Applicant-Facing Reason", value=_safe(application.applicant_reason), inline=False)
-    embed.set_footer(text=BRAND_NAME)
+    if user is not None:
+        avatar = getattr(user, "display_avatar", None)
+        avatar_url = getattr(avatar, "url", None)
+        if avatar_url:
+            embed.set_thumbnail(url=str(avatar_url))
+    embed.set_footer(text=BRAND_NAME, icon_url=FOOTER_ICON_URL)
     return embed
 
 
@@ -237,7 +254,7 @@ def info_embed(title: str, description: str, *, success: bool = False, error: bo
         colour=THEME_COLOUR,
         timestamp=discord.utils.utcnow(),
     )
-    embed.set_footer(text=BRAND_NAME)
+    embed.set_footer(text=BRAND_NAME, icon_url=FOOTER_ICON_URL)
     return embed
 
 
@@ -247,14 +264,17 @@ def verification_embed(application: MinecraftApplication, settings) -> discord.E
         connection = _connection_blocks(settings)
     elif application.edition.value == "JAVA":
         connection = (
-            "**Java server address**\n"
+            "**Java Edition — PC/Mac launcher**\n"
+            "> Choose **Multiplayer → Add Server**. Do not enter a separate Bedrock port.\n"
             f"```text\n{settings.java_address}\n```"
         )
     else:
         connection = (
-            "**Bedrock server address**\n"
+            "**Bedrock Edition — phone, console, or Windows**\n"
+            "> Add an external server using both values below.\n"
+            "**Address**\n"
             f"```text\n{settings.bedrock_address}\n```\n"
-            "**Bedrock port**\n"
+            "**Port**\n"
             f"```text\n{settings.bedrock_port}\n```"
         )
     embed = info_embed(
@@ -276,19 +296,6 @@ def verification_embed(application: MinecraftApplication, settings) -> discord.E
 
 def live_status_embed(application: MinecraftApplication, settings) -> discord.Embed:
     status = application.status
-    steps = [
-        ("Application received", True),
-        ("Account verified", application.verified_at is not None),
-        (
-            "Staff review complete",
-            status in {
-                ApplicationStatus.APPROVED,
-                ApplicationStatus.DENIED,
-                ApplicationStatus.REVOKED,
-            },
-        ),
-    ]
-    progress = "\n".join(f"{'Complete' if complete else 'Next'} · {label}" for label, complete in steps)
     if status is ApplicationStatus.PENDING_VERIFICATION:
         expiry = datetime.fromtimestamp(application.verification_expires_at, timezone.utc)
         connection = _connection_blocks(settings)
@@ -303,7 +310,11 @@ def live_status_embed(application: MinecraftApplication, settings) -> discord.Em
         )
     elif status is ApplicationStatus.PENDING_REVIEW:
         connection = ""
-        next_action = "Your account is verified. Staff will review the application; no further action is needed."
+        next_action = (
+            f"Your application has already been sent with the verified account "
+            f"`{_safe(application.verified_username or application.claimed_username, 100)}`. "
+            "Please wait for a staff decision; no further action is needed."
+        )
     elif status is ApplicationStatus.APPROVAL_QUEUED:
         connection = ""
         next_action = "Approval is being applied to the Minecraft server automatically."
@@ -324,7 +335,7 @@ def live_status_embed(application: MinecraftApplication, settings) -> discord.Em
         next_action = "This Minecraft access record is no longer active."
     description = (
         f"> Application **#{application.id}** · {status.value.replace('_', ' ').title()}\n\n"
-        f"**Progress**\n{progress}\n\n**Next step**\n{next_action}"
+        f"**What happens now**\n{next_action}"
     )
     if connection:
         description += f"\n\n{connection}"
@@ -347,7 +358,7 @@ def verified_embed(application: MinecraftApplication) -> discord.Embed:
 
 def denial_embed(application: MinecraftApplication) -> discord.Embed:
     reason = _safe(
-        application.applicant_reason or "No public reason was provided.",
+        getattr(application, "applicant_reason", None) or "No public reason was provided.",
         1000,
     ).replace("\n", "\n> ")
     return info_embed(
