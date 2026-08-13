@@ -18,8 +18,6 @@ import org.bukkit.scoreboard.Team;
 import org.geysermc.floodgate.api.FloodgateApi;
 import org.geysermc.floodgate.api.player.FloodgatePlayer;
 
-import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -33,14 +31,12 @@ import java.util.UUID;
 final class SidebarService {
     private static final int MAX_LINES = 15;
     private static final int SIDEBAR_WIDTH = 22;
-    private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("MM/dd/yy");
     /**
      * Glyphs supplied by the optional Mysterious SMP X resource pack. Players who
      * decline the pack see the wordmark fall back to plain text instead.
      */
     private static final Key BRAND_FONT = Key.key("minecraft", "mgx");
     private static final String LOGO_LARGE = "\uE000";
-    private static final String LOGO_SMALL = "\uE001";
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private static final TextColor GOLD = TextColor.color(0xFFB52E);
     private static final ChatColor[] ENTRY_COLOURS = {
@@ -124,13 +120,6 @@ final class SidebarService {
     private List<Component> lines(Player player) {
         PlayerProfile profile = perks.profile(player.getUniqueId());
         ArrayList<Component> lines = new ArrayList<>();
-        if (isBedrock(player)) {
-            lines.add(Component.text("     SMP X", NamedTextColor.WHITE, TextDecoration.BOLD));
-        }
-        lines.add(centredComponent(
-                Component.text(DATE_FORMAT.format(LocalDate.now()), NamedTextColor.GRAY)
-        ));
-        lines.add(Component.empty());
         lines.add(Component.text(" " + player.getName(), NamedTextColor.AQUA, TextDecoration.BOLD)
                 .append(Component.text(" (" + player.getPing() + "ms)", NamedTextColor.GRAY)
                         .decoration(TextDecoration.BOLD, false)));
@@ -176,13 +165,6 @@ final class SidebarService {
 
     private Component footerLine() {
         return Component.text(centred(footer), ORANGE, TextDecoration.BOLD);
-    }
-
-    private static Component centredComponent(Component text) {
-        String plain = net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
-                .plainText().serialize(text);
-        int padding = Math.max(0, (SIDEBAR_WIDTH - plain.length()) / 2);
-        return Component.text(" ".repeat(padding)).append(text);
     }
 
     /**
@@ -244,10 +226,6 @@ final class SidebarService {
                 .append(Component.text("discord.gg/mgx", ORANGE))
                 .append(Component.newline());
         player.sendPlayerListHeaderAndFooter(header, footerComponent);
-    }
-
-    private static boolean isBedrock(Player player) {
-        return clientPlatform(player).edition().equals("BEDROCK");
     }
 
     private static ClientPlatform clientPlatform(Player player) {
@@ -313,12 +291,10 @@ final class SidebarService {
 
         PlayerBoard(Player player) {
             Scoreboard created = plugin.getServer().getScoreboardManager().getNewScoreboard();
-            // Bedrock clients never receive the Java resource pack, so the wordmark
-            // glyph would render as nothing for them. They get stacked text instead,
-            // with "SMP X" carried on the first sidebar row.
-            Component title = isBedrock(player)
-                    ? Component.text("MYSTERIOUS", ORANGE, TextDecoration.BOLD)
-                    : Component.text(LOGO_SMALL).font(BRAND_FONT);
+            // The client centres the objective title for us, on both editions.
+            // Sidebar rows are left-aligned, so anything stacked below would have to
+            // be space-padded and would never line up; keep the wordmark on one line.
+            Component title = Component.text("MYSTERIOUS SMP X", ORANGE, TextDecoration.BOLD);
             Objective createdObjective = created.registerNewObjective("mgx", Criteria.DUMMY, title);
             createdObjective.setDisplaySlot(DisplaySlot.SIDEBAR);
             for (int index = 0; index < MAX_LINES; index++) {
