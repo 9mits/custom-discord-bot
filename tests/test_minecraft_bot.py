@@ -24,7 +24,9 @@ from minecraft_bot.presentation import (
     VERIFY_ATTACHMENT_URI,
     VERIFY_PATH,
     application_embeds,
+    application_log_embed,
     application_panel,
+    decision_log_embed,
     denial_embed,
     info_embed,
     review_embed,
@@ -32,6 +34,8 @@ from minecraft_bot.presentation import (
     verified_embed,
     live_status_embed,
     minecraft_head_url,
+    player_activity_embed,
+    verification_log_embed,
 )
 from minecraft_bot.settings import MinecraftSettings
 from minecraft_bot.setup import MinecraftSetupView
@@ -287,6 +291,74 @@ class MinecraftBotPolicyTests(unittest.TestCase):
 
         self.assertIsNone(minecraft_head_url(application))
         self.assertIsNone(review_embed(application).thumbnail.url)
+
+    def test_every_minecraft_player_log_has_a_skin_thumbnail(self):
+        verified = MinecraftApplication(
+            id=9,
+            guild_id="1",
+            discord_user_id="123456789012345678",
+            edition=Edition.JAVA,
+            claimed_username="ClaimedName",
+            normalized_username="claimedname",
+            answers={"why": "Play", "about": "Build"},
+            status=ApplicationStatus.PENDING_REVIEW,
+            verification_expires_at=2_000_000_000,
+            created_at=1_999_999_400,
+            updated_at=1_999_999_400,
+            verified_username="VerifiedName",
+            minecraft_uuid="12345678-1234-1234-1234-123456789abc",
+        )
+        expected = "https://mc-heads.net/head/12345678-1234-1234-1234-123456789abc/128.png"
+
+        self.assertEqual(application_log_embed(verified).thumbnail.url, expected)
+        self.assertEqual(verification_log_embed(verified).thumbnail.url, expected)
+        self.assertEqual(decision_log_embed(verified).thumbnail.url, expected)
+        self.assertEqual(
+            player_activity_embed(
+                joined=True,
+                username="VerifiedName",
+                minecraft_uuid=verified.minecraft_uuid,
+                edition="JAVA",
+            ).thumbnail.url,
+            expected,
+        )
+
+    def test_pre_verification_logs_resolve_java_and_bedrock_names(self):
+        java_application = MinecraftApplication(
+            id=10,
+            guild_id="1",
+            discord_user_id="123456789012345678",
+            edition=Edition.JAVA,
+            claimed_username="JavaPlayer",
+            normalized_username="javaplayer",
+            answers={"why": "Play", "about": "Build"},
+            status=ApplicationStatus.PENDING_VERIFICATION,
+            verification_expires_at=2_000_000_000,
+            created_at=1_999_999_400,
+            updated_at=1_999_999_400,
+        )
+        bedrock_application = MinecraftApplication(
+            id=11,
+            guild_id="1",
+            discord_user_id="123456789012345679",
+            edition=Edition.BEDROCK,
+            claimed_username="Bedrock Player",
+            normalized_username="bedrock player",
+            answers={"why": "Play", "about": "Build"},
+            status=ApplicationStatus.PENDING_VERIFICATION,
+            verification_expires_at=2_000_000_000,
+            created_at=1_999_999_400,
+            updated_at=1_999_999_400,
+        )
+
+        self.assertEqual(
+            application_log_embed(java_application).thumbnail.url,
+            "https://mc-heads.net/head/JavaPlayer/128.png",
+        )
+        self.assertEqual(
+            application_log_embed(bedrock_application).thumbnail.url,
+            "https://api.mcheads.org/head/.Bedrock%20Player/128",
+        )
 
     def test_setup_dashboard_uses_components_v2(self):
         bot = SimpleNamespace(
