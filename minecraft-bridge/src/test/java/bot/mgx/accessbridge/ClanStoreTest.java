@@ -3,6 +3,7 @@ package bot.mgx.accessbridge;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
 
@@ -22,18 +23,17 @@ class ClanStoreTest {
         UUID member = UUID.randomUUID();
         ClanStore store = new ClanStore(path);
 
-        ClanStore.ClanView created = store.create(leader, "Leader", "Ember Guard");
+        ClanStore.ClanView created = store.create(leader, "Leader", "EMBER");
         store.invite(leader, member, "Member", 1_000);
         ClanStore.ClanView joined = store.accept(member, "Member", 1_001);
         store.setStaff(leader, member, true);
-        store.rename(leader, "Orange Guard");
+        store.rename(leader, "ORANGE");
 
         ClanStore reloaded = new ClanStore(path);
         ClanStore.ClanView clan = reloaded.clanOf(member).orElseThrow();
 
         assertEquals(created.id(), joined.id());
-        assertEquals("Orange Guard", clan.name());
-        assertEquals("EMBERG", clan.tag());
+        assertEquals("ORANGE", clan.name());
         assertEquals(2, clan.members().size());
         assertTrue(clan.staff().contains(member));
         assertFalse(clan.friendlyFire());
@@ -44,11 +44,11 @@ class ClanStoreTest {
         ClanStore store = new ClanStore(temporaryDirectory.resolve("clans.json"));
         UUID leader = UUID.randomUUID();
         UUID member = UUID.randomUUID();
-        store.create(leader, "Leader", "Founders");
+        store.create(leader, "Leader", "FOUND");
         store.invite(leader, member, "Member", 1_000);
         store.accept(member, "Member", 1_001);
 
-        assertThrows(ClanStore.ClanException.class, () -> store.rename(member, "Nope Clan"));
+        assertThrows(ClanStore.ClanException.class, () -> store.rename(member, "NOPE"));
         assertThrows(ClanStore.ClanException.class, () -> store.setStaff(member, leader, true));
 
         ClanStore.ClanView transferred = store.transfer(leader, member);
@@ -64,8 +64,8 @@ class ClanStoreTest {
         UUID firstLeader = UUID.randomUUID();
         UUID secondLeader = UUID.randomUUID();
         UUID player = UUID.randomUUID();
-        store.create(firstLeader, "First", "First Clan");
-        store.create(secondLeader, "Second", "Second Clan");
+        store.create(firstLeader, "First", "FIRST");
+        store.create(secondLeader, "Second", "SECOND");
         store.invite(firstLeader, player, "Player", 1_000);
 
         assertThrows(
@@ -86,11 +86,11 @@ class ClanStoreTest {
     void leaderMustTransferOrDisbandBeforeLeaving() throws Exception {
         ClanStore store = new ClanStore(temporaryDirectory.resolve("clans.json"));
         UUID leader = UUID.randomUUID();
-        store.create(leader, "Leader", "Permanent Clan");
+        store.create(leader, "Leader", "PERM");
 
         assertThrows(ClanStore.ClanException.class, () -> store.leave(leader));
 
-        assertEquals("Permanent Clan", store.disband(leader));
+        assertEquals("PERM", store.disband(leader));
         assertTrue(store.clanOf(leader).isEmpty());
         assertTrue(store.list().isEmpty());
     }
@@ -98,31 +98,60 @@ class ClanStoreTest {
     @Test
     void namesAreValidatedAndUniqueIgnoringCase() throws Exception {
         ClanStore store = new ClanStore(temporaryDirectory.resolve("clans.json"));
-        store.create(UUID.randomUUID(), "First", "Orange Crew");
+        store.create(UUID.randomUUID(), "First", "LUCKY");
 
         assertThrows(
                 ClanStore.ClanException.class,
-                () -> store.create(UUID.randomUUID(), "Second", "orange crew")
+                () -> store.create(UUID.randomUUID(), "Second", "lucky")
         );
         assertThrows(
                 ClanStore.ClanException.class,
                 () -> store.create(UUID.randomUUID(), "Third", "<>bad")
         );
+        assertThrows(
+                ClanStore.ClanException.class,
+                () -> store.create(UUID.randomUUID(), "Fourth", "TOOLONG")
+        );
     }
 
     @Test
-    void clanTagsAreGeneratedEditableUniqueAndSearchable() throws Exception {
+    void clanNameIsTheOnlyIdentityAndRenameUpdatesIt() throws Exception {
         ClanStore store = new ClanStore(temporaryDirectory.resolve("clans.json"));
-        UUID orange = UUID.randomUUID();
         UUID lucky = UUID.randomUUID();
-        store.create(orange, "Orange", "Orange Crew");
-        store.create(lucky, "Lucky", "Lucky Group");
+        ClanStore.ClanView created = store.create(lucky, "Lucky", "lucky");
 
-        ClanStore.ClanView updated = store.setTag(lucky, "lucky");
+        ClanStore.ClanView updated = store.rename(lucky, "ember");
 
-        assertEquals("LUCKY", updated.tag());
-        assertEquals(updated.id(), store.findClan("lucky").orElseThrow().id());
-        assertThrows(ClanStore.ClanException.class, () -> store.setTag(orange, "LUCKY"));
-        assertThrows(ClanStore.ClanException.class, () -> store.setTag(orange, "!"));
+        assertEquals("LUCKY", created.name());
+        assertEquals("EMBER", updated.name());
+        assertEquals(updated.id(), store.findClan("ember").orElseThrow().id());
+        assertTrue(store.findClan("lucky").isEmpty());
+    }
+
+    @Test
+    void separateLegacyTagsMigrateIntoTheSingleClanName() throws Exception {
+        Path path = temporaryDirectory.resolve("clans.json");
+        UUID clanId = UUID.randomUUID();
+        UUID leader = UUID.randomUUID();
+        Files.writeString(path, """
+                {
+                  "version": 1,
+                  "clans": [{
+                    "id": "%s",
+                    "name": "Lucky Legends",
+                    "tag": "LUCKY",
+                    "leader": "%s",
+                    "members": {"%s": "Leader"},
+                    "staff": [],
+                    "friendlyFire": false
+                  }],
+                  "invites": {}
+                }
+                """.formatted(clanId, leader, leader));
+
+        ClanStore store = new ClanStore(path);
+
+        assertEquals("LUCKY", store.clanOf(leader).orElseThrow().name());
+        assertFalse(Files.readString(path).contains("\"tag\""));
     }
 }

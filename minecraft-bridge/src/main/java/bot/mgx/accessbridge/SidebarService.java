@@ -110,7 +110,7 @@ final class SidebarService {
             lines.add(valueLine("POWER", "+5% damage"));
         }
         clans.clanOf(player.getUniqueId()).ifPresent(clan ->
-                lines.add(valueLine("CLAN", "[" + clan.tag() + "] " + clan.name()))
+                lines.add(valueLine("CLAN", "[" + clan.name() + "]"))
         );
         lines.add(Component.empty());
         lines.add(sectionLine("SERVER STATS"));
@@ -137,7 +137,7 @@ final class SidebarService {
     private void updateTabName(Player player) {
         Component name = Component.text(player.getName(), NamedTextColor.WHITE);
         Component rendered = clans.clanOf(player.getUniqueId())
-                .<Component>map(clan -> Component.text("[" + clan.tag() + "] ", ORANGE, TextDecoration.BOLD)
+                .<Component>map(clan -> Component.text("[" + clan.name() + "] ", ORANGE, TextDecoration.BOLD)
                         .append(name))
                 .orElse(name);
         player.playerListName(rendered);
@@ -163,7 +163,7 @@ final class SidebarService {
             if (team == null) {
                 team = scoreboard.registerNewTeam(teamName);
             }
-            team.prefix(Component.text("[" + clan.tag() + "] ", ORANGE, TextDecoration.BOLD));
+            team.prefix(Component.text("[" + clan.name() + "] ", ORANGE, TextDecoration.BOLD));
             Set<String> expectedEntries = entries.getOrDefault(teamName, Set.of());
             for (String oldEntry : new LinkedHashSet<>(team.getEntries())) {
                 if (!expectedEntries.contains(oldEntry)) {
