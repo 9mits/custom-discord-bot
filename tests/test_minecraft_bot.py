@@ -294,18 +294,12 @@ class MinecraftBotPolicyTests(unittest.TestCase):
 
         view = MinecraftControlView(bot, 123)
 
+        self.assertEqual(len(view.children), 1)
+        self.assertEqual(view.children[0].custom_id, "minecraft:control:tools")
         self.assertEqual(
-            {item.custom_id for item in view.children},
-            {
-                "minecraft:control:overview",
-                "minecraft:control:diagnostics",
-                "minecraft:control:applications",
-                "minecraft:control:commandlog",
-                "minecraft:control:username",
-                "minecraft:control:member",
-            },
+            {option.value for option in view.children[0].options},
+            {"overview", "diagnostics", "applications", "commandlog", "username"},
         )
-        self.assertLessEqual(len(view.children), 6)
 
     def test_administrator_control_panel_includes_setup(self):
         bot = SimpleNamespace(
@@ -315,7 +309,35 @@ class MinecraftBotPolicyTests(unittest.TestCase):
 
         view = MinecraftControlView(bot, 123, include_setup=True)
 
-        self.assertIn("minecraft:control:setup", {item.custom_id for item in view.children})
+        self.assertEqual(len(view.children), 1)
+        self.assertIn("setup", {option.value for option in view.children[0].options})
+
+    def test_control_dropdown_reuses_the_compact_panel(self):
+        replacement = object()
+        bot = SimpleNamespace(
+            is_moderator=lambda _member: True,
+            is_administrator=lambda _member: False,
+            build_control_overview=AsyncMock(),
+            build_diagnostics_embed=AsyncMock(return_value=info_embed("Diagnostics", "Clear")),
+            build_applications_embed=AsyncMock(),
+            build_command_log_embed=AsyncMock(),
+            control_view=lambda _interaction: replacement,
+        )
+        view = MinecraftControlView(bot, 123)
+        menu = view.children[0]
+        menu._values = ["diagnostics"]
+        interaction = SimpleNamespace(
+            user=SimpleNamespace(id=123),
+            guild=SimpleNamespace(id=10),
+            response=SimpleNamespace(defer=AsyncMock()),
+            edit_original_response=AsyncMock(),
+        )
+
+        asyncio.run(menu.callback(interaction))
+
+        interaction.response.defer.assert_awaited_once_with(ephemeral=True)
+        bot.build_diagnostics_embed.assert_awaited_once_with(interaction.guild)
+        self.assertIs(interaction.edit_original_response.await_args.kwargs["view"], replacement)
 
 
 class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):

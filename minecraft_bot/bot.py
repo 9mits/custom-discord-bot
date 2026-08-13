@@ -839,7 +839,8 @@ class MinecraftAccessBot(commands.Bot):
         total = sum(applications.values())
         embed = info_embed(
             "Minecraft Control",
-            "> Live access, application, and bridge status in one place.",
+            "> Live access, application, and bridge status. Use the menu below for read-only tools; "
+            "use `/minecraft lookup` or the focused access commands for member-specific actions.",
         )
         embed.add_field(
             name="Service",
@@ -1383,19 +1384,31 @@ class MinecraftAccessBot(commands.Bot):
             embed.add_field(name="Everyone", value="\n".join(member_lines), inline=False)
             if is_staff:
                 embed.add_field(
-                    name="Moderators",
+                    name="Moderator Essentials",
                     value=(
-                        "`/minecraft status` — bridge and queue health\n"
                         "`/minecraft panel` — interactive moderator controls\n"
-                        "`/minecraft stats` — application and access totals\n"
                         "`/minecraft lookup` — search by member or Minecraft username\n"
-                        "`/minecraft applications` — recent applications by status\n"
-                        "`/minecraft audit` — one application's lifecycle\n"
-                        "`/minecraft commandlog` — who ran which command\n"
+                        "`/minecraft applications` — recent applications by status"
+                    ),
+                    inline=False,
+                )
+                embed.add_field(
+                    name="Access Actions",
+                    value=(
                         "`/minecraft revoke` — remove a member's access\n"
                         "`/minecraft unlink` — unlink one account\n"
-                        "`/minecraft retry` — retry failed bridge actions\n"
                         "`/minecraft cancel` — cancel a staff-managed application"
+                    ),
+                    inline=False,
+                )
+                embed.add_field(
+                    name="Health & Records",
+                    value=(
+                        "`/minecraft status` — bridge and queue health\n"
+                        "`/minecraft retry` — retry failed bridge actions\n"
+                        "`/minecraft audit` — one application's lifecycle\n"
+                        "`/minecraft commandlog` — who ran which command\n"
+                        "`/minecraft stats` — application and access totals"
                     ),
                     inline=False,
                 )
