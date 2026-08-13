@@ -82,6 +82,7 @@ class MinecraftAccessBot(commands.Bot):
         self.config = config
         self.settings = MinecraftSettings.from_sources(config, {})
         self._settings_lock = asyncio.Lock()
+        self._live_card_lock = asyncio.Lock()
         self.data = MinecraftDataManager(config.database_path)
         self.bridge = MinecraftBridgeServer(
             config,
@@ -375,6 +376,26 @@ class MinecraftAccessBot(commands.Bot):
         *,
         queue_on_failure: bool = True,
         create_if_missing: bool = True,
+    ) -> bool:
+        lock = getattr(self, "_live_card_lock", None)
+        if lock is None:
+            lock = self._live_card_lock = asyncio.Lock()
+        async with lock:
+            current = await self.data.get_application(application.id)
+            if current is not None:
+                application = current
+            return await self._update_live_card(
+                application,
+                queue_on_failure=queue_on_failure,
+                create_if_missing=create_if_missing,
+            )
+
+    async def _update_live_card(
+        self,
+        application: MinecraftApplication,
+        *,
+        queue_on_failure: bool,
+        create_if_missing: bool,
     ) -> bool:
         try:
             message = None
