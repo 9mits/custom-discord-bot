@@ -394,7 +394,6 @@ class MinecraftAccessBot(commands.Bot):
                     raise RuntimeError("Discord user unavailable")
                 message = await user.send(
                     **branded_send(verified_embed(application)),
-                    view=LiveApplicationView(),
                 )
                 await self.data.set_status_message(application.id, message.channel.id, message.id)
             else:
@@ -411,7 +410,7 @@ class MinecraftAccessBot(commands.Bot):
                     embed = live_status_embed(application, self.settings)
                 await message.edit(
                     **branded_edit(embed),
-                    view=LiveApplicationView(),
+                    view=None,
                 )
             return True
         except (discord.Forbidden, discord.HTTPException, RuntimeError) as exc:
@@ -655,6 +654,7 @@ class MinecraftAccessBot(commands.Bot):
                 await remembered[0].edit_original_response(
                     **branded_edit(verified_embed(application)),
                     attachments=[],
+                    view=None,
                 )
 
     async def post_or_update_review(self, application: MinecraftApplication) -> None:
