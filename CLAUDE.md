@@ -14,3 +14,8 @@ cross-tool source of truth. It is imported below so Claude Code loads it in full
   is not committed and does not travel with the repo. A repo-level `.claude/memory/`
   folder is **not** auto-loaded, so don't create one expecting it to be read.
 - Prefer plan mode before large, multi-file changes.
+- For substantial Minecraft integrations, it is acceptable to study, import,
+  and adapt suitably licensed open-source plugins such as TAB or DiscordSRV
+  instead of recreating established behavior. Verify license compatibility,
+  pin the upstream source, retain required attribution, and document material
+  changes rather than copying incompatible or untracked code.
