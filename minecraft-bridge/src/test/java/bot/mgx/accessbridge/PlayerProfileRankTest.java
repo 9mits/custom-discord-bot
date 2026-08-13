@@ -47,6 +47,13 @@ class PlayerProfileRankTest {
     }
 
     @Test
+    void protocolVersionAdvertisesRankSupport() {
+        // The bot only sends rank fields to peers advertising >= 5. Shipping the
+        // rank handler without raising this silently disables the whole feature.
+        assertTrue(BridgeClient.PROTOCOL_VERSION >= 5);
+    }
+
+    @Test
     void managedGroupsCoverEveryRankGroup() {
         // Mirrors RANK_ROLES in minecraft_bot/perks.py; both lists must stay in step.
         assertEquals(9, LuckPermsService.MANAGED_GROUPS.size());

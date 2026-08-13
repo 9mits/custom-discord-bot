@@ -23,6 +23,14 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 final class BridgeClient implements WebSocket.Listener, AutoCloseable {
+    /**
+     * Advertised in the HELLO handshake. The bot gates each capability on this
+     * number, so it must be raised whenever the plugin learns to handle a new
+     * field. Keep in step with the *_PROTOCOL_VERSION constants in
+     * {@code minecraft_bot/bridge.py}. 5 added the SYNC_PROFILE rank fields.
+     */
+    static final int PROTOCOL_VERSION = 5;
+
     private final MGXAccessBridge plugin;
     private final BridgeConfig config;
     private final PendingVerificationCache pending;
@@ -105,7 +113,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         this.authenticated = false;
         JsonObject hello = new JsonObject();
         hello.addProperty("server_id", config.serverId());
-        hello.addProperty("protocol_version", 4);
+        hello.addProperty("protocol_version", PROTOCOL_VERSION);
         sendRaw(protocol.create("HELLO", UUID.randomUUID().toString(), hello));
         webSocket.request(1);
     }
