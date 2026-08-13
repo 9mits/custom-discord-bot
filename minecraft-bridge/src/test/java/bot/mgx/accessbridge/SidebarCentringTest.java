@@ -26,12 +26,30 @@ class SidebarCentringTest {
         int start = leading * 4;
         int centre = start + SidebarText.textWidth("SMP X", true) / 2;
 
-        // Space quantisation means we cannot hit dead centre; half a space is close enough.
-        assertTrue(Math.abs(centre - board / 2) <= 2, "off-centre by " + (centre - board / 2) + "px");
+        // Padding moves in whole spaces, so dead centre is unreachable. The contract is
+        // "never past centre, and never more than one space short of it".
+        int offset = centre - board / 2;
+        assertTrue(offset <= 0, "padded past centre by " + offset + "px");
+        assertTrue(offset >= -SidebarText.SPACE_WIDTH, "more than a space short: " + offset + "px");
     }
 
     @Test
     void textWiderThanTheBoardIsNotPadded() {
         assertEquals("a very wide line", SidebarText.centredToWidth("a very wide line", 4, false));
+    }
+
+    @Test
+    void centringErrsLeftRatherThanRight() {
+        // Sidebar rows carry a small left inset, so overshooting right is visible
+        // while a space short of centre reads fine.
+        int board = SidebarText.textWidth(" » Power: ", false)
+                + SidebarText.textWidth("+15% damage", true);
+        String padded = SidebarText.centredToWidth("PROFILE", board, true);
+
+        int leading = padded.length() - padded.stripLeading().length();
+        int centre = leading * SidebarText.SPACE_WIDTH
+                + SidebarText.textWidth("PROFILE", true) / 2;
+
+        assertTrue(centre <= board / 2, "padded past centre by " + (centre - board / 2) + "px");
     }
 }

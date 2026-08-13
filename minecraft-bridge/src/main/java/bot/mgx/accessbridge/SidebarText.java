@@ -34,9 +34,15 @@ final class SidebarText {
         return width;
     }
 
-    /** Pads {@code text} with spaces so it sits centred inside {@code targetWidth} pixels. */
+    /**
+     * Pads {@code text} with spaces so it sits centred inside {@code targetWidth} pixels.
+     *
+     * <p>Padding can only move in whole 4px spaces, so exact centring is impossible.
+     * This floors rather than rounds: sidebar rows carry a small left inset, so
+     * erring left reads as centred while erring right visibly does not.
+     */
     static String centredToWidth(String text, int targetWidth, boolean bold) {
         int deficit = targetWidth - textWidth(text, bold);
-        return " ".repeat(Math.max(0, Math.round(deficit / 2f / SPACE_WIDTH))) + text;
+        return " ".repeat(Math.max(0, deficit / 2 / SPACE_WIDTH)) + text;
     }
 }
