@@ -29,6 +29,7 @@ import java.util.UUID;
 
 final class SidebarService {
     private static final int MAX_LINES = 15;
+    private static final int SIDEBAR_WIDTH = 18;
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private static final TextColor GOLD = TextColor.color(0xFFB52E);
     private static final TextColor LIGHT_ORANGE = TextColor.color(0xFFC266);
@@ -159,13 +160,20 @@ final class SidebarService {
     }
 
     private static Component sectionLine(String label) {
-        return Component.text(label, ORANGE, TextDecoration.BOLD)
-                .append(Component.text("  ", NamedTextColor.DARK_GRAY))
-                .append(Component.text("─────────", NamedTextColor.DARK_GRAY));
+        return Component.text(centred(label), ORANGE, TextDecoration.BOLD);
     }
 
     private Component footerLine() {
-        return Component.text(" " + footer, GOLD);
+        return Component.text(centred(footer), GOLD);
+    }
+
+    /**
+     * Minecraft's font is proportional, so the sidebar cannot be centred exactly.
+     * Padding against a nominal width lands close enough to read as centred.
+     */
+    private static String centred(String text) {
+        int padding = Math.max(0, (SIDEBAR_WIDTH - text.length()) / 2);
+        return " ".repeat(padding) + text;
     }
 
     private void updateTabName(Player player) {
@@ -192,7 +200,6 @@ final class SidebarService {
     private void updateTabHeaderAndFooter(Player player) {
         int online = plugin.getServer().getOnlinePlayers().size();
         Component header = Component.empty()
-                .append(rule())
                 .append(Component.newline())
                 .append(Component.text("MYSTERIOUS", ORANGE, TextDecoration.BOLD))
                 .append(Component.text(" SMP X", GOLD, TextDecoration.BOLD))
@@ -205,14 +212,13 @@ final class SidebarService {
                 .append(divider())
                 .append(Component.text("TPS ", NamedTextColor.GRAY))
                 .append(tpsValue())
-                .append(Component.newline())
-                .append(rule());
+                .append(Component.newline());
         Component footerComponent = Component.empty()
-                .append(rule())
                 .append(Component.newline())
                 .append(Component.text("/guide", GOLD))
                 .append(divider())
-                .append(Component.text("discord.gg/mgx", ORANGE));
+                .append(Component.text("discord.gg/mgx", ORANGE))
+                .append(Component.newline());
         player.sendPlayerListHeaderAndFooter(header, footerComponent);
     }
 
@@ -321,10 +327,6 @@ final class SidebarService {
 
     private static Component divider() {
         return Component.text("  │  ", NamedTextColor.DARK_GRAY);
-    }
-
-    private static Component rule() {
-        return Component.text("──────────────────────────────", NamedTextColor.DARK_GRAY);
     }
 
     private Component tpsValue() {
