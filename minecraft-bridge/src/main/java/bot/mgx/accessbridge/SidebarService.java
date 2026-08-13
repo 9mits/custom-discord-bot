@@ -114,6 +114,8 @@ final class SidebarService {
     private List<Component> lines(Player player) {
         PlayerProfile profile = perks.profile(player.getUniqueId());
         ArrayList<Component> lines = new ArrayList<>();
+        lines.add(Component.text("      SMP X", NamedTextColor.WHITE, TextDecoration.BOLD));
+        lines.add(Component.empty());
         lines.add(sectionLine("PROFILE"));
         if (profile.hasRankLabel()) {
             lines.add(valueLine(
@@ -144,7 +146,11 @@ final class SidebarService {
                 NamedTextColor.GRAY
         ));
         lines.add(valueLine("Ping", player.getPing() + "ms", pingColor(player.getPing())));
-        lines.add(Component.empty());
+        // A player holding a rank, elite power and a clan fills the sidebar, so the
+        // breathing room above the footer yields rather than pushing it off the board.
+        if (lines.size() + 2 <= MAX_LINES) {
+            lines.add(Component.empty());
+        }
         lines.add(footerLine());
         return lines;
     }
@@ -285,8 +291,9 @@ final class SidebarService {
 
         PlayerBoard(Player player) {
             Scoreboard created = plugin.getServer().getScoreboardManager().getNewScoreboard();
-            Component title = Component.text("MYSTERIOUS", ORANGE, TextDecoration.BOLD)
-                    .append(Component.text(" SMP X", NamedTextColor.WHITE, TextDecoration.BOLD));
+            // The objective title is a single client-centred line, so "SMP X"
+            // is rendered as the first sidebar row to stack it underneath.
+            Component title = Component.text("MYSTERIOUS", ORANGE, TextDecoration.BOLD);
             Objective createdObjective = created.registerNewObjective("mgx", Criteria.DUMMY, title);
             createdObjective.setDisplaySlot(DisplaySlot.SIDEBAR);
             for (int index = 0; index < MAX_LINES; index++) {
