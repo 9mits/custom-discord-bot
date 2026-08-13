@@ -417,15 +417,6 @@ class LiveApplicationView(discord.ui.View):
             return None
         return application
 
-    @discord.ui.button(label="Refresh", style=discord.ButtonStyle.secondary, custom_id="minecraft:live:refresh")
-    async def refresh(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
-        application = await self._application(interaction)
-        if application is not None:
-            await interaction.response.edit_message(
-                **branded_edit(live_status_embed(application, interaction.client.settings)),
-                view=self,
-            )
-
     @discord.ui.button(label="Get Help", style=discord.ButtonStyle.danger, custom_id="minecraft:live:help")
     async def help(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
         application = await self._application(interaction)

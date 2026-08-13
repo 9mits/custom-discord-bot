@@ -843,11 +843,10 @@ class MinecraftDataManager:
 
     async def list_live_card_applications(self, *, limit: int = 100) -> list[MinecraftApplication]:
         rows = await self._connection().execute_fetchall(
-            "SELECT * FROM minecraft_applications WHERE status IN (?, ?) "
+            "SELECT * FROM minecraft_applications WHERE status=? "
             "ORDER BY id DESC LIMIT ?",
             (
                 ApplicationStatus.PENDING_REVIEW.value,
-                ApplicationStatus.APPROVAL_QUEUED.value,
                 max(1, min(limit, 500)),
             ),
         )
@@ -1637,6 +1636,16 @@ class MinecraftDataManager:
             db = self._connection()
             await db.execute("DELETE FROM minecraft_delivery_outbox WHERE id=?", (int(delivery_id),))
             await db.commit()
+
+    async def discard_deliveries(self, kind: str) -> int:
+        async with self._write_lock:
+            db = self._connection()
+            cursor = await db.execute(
+                "DELETE FROM minecraft_delivery_outbox WHERE kind=?",
+                (str(kind),),
+            )
+            await db.commit()
+            return cursor.rowcount
 
     async def fail_delivery(self, delivery_id: int, error: str, attempts: int) -> None:
         delay = min(3600, 5 * (2 ** min(max(0, int(attempts)), 9)))

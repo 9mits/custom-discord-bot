@@ -105,6 +105,9 @@ class MinecraftAccessBot(commands.Bot):
     async def setup_hook(self) -> None:
         install_component_audit(self)
         await self.data.open()
+        discarded_dms = await self.data.discard_deliveries("USER_EMBED")
+        if discarded_dms:
+            logger.info("Discarded %s legacy Minecraft DM deliveries", discarded_dms)
         stored_settings = await self.data.get_configs(SETTING_KEYS)
         self.settings = MinecraftSettings.from_sources(self.config, stored_settings)
         await self.data.set_configs(self.settings.persistent_values())
@@ -278,7 +281,6 @@ class MinecraftAccessBot(commands.Bot):
 
     async def _finish_cancellation(self, application: MinecraftApplication) -> None:
         await self.log_application_decision(application)
-        await self.update_live_card(application)
         if self.bridge.connected:
             await self.bridge.dispatch_outbox()
 
@@ -337,34 +339,6 @@ class MinecraftAccessBot(commands.Bot):
             return False
         return True
 
-    async def _send_user_embed(
-        self,
-        user_id: int | str,
-        embed: discord.Embed,
-        *,
-        dedupe_key: str,
-        queue_on_failure: bool = True,
-    ) -> bool:
-        user = self.get_user(int(user_id))
-        if user is None:
-            with suppress(discord.NotFound, discord.HTTPException):
-                user = await self.fetch_user(int(user_id))
-        try:
-            if user is None:
-                raise RuntimeError("Discord user unavailable")
-            await user.send(**branded_send(embed))
-            return True
-        except (discord.Forbidden, discord.HTTPException, RuntimeError) as exc:
-            if queue_on_failure:
-                await self.data.enqueue_delivery(
-                    dedupe_key=dedupe_key,
-                    kind="USER_EMBED",
-                    target_id=user_id,
-                    payload=embed.to_dict(),
-                )
-            logger.warning("Minecraft DM delivery deferred for user %s: %s", user_id, type(exc).__name__)
-            return False
-
     async def log_application_submission(self, application: MinecraftApplication) -> None:
         await self._send_configured_log(
             self.settings.application_log_channel_id,
@@ -385,7 +359,6 @@ class MinecraftAccessBot(commands.Bot):
     async def finish_approval_queue(self, application: MinecraftApplication) -> None:
         await self.update_review_message(application)
         await self.log_application_decision(application)
-        await self.update_live_card(application)
         if self.bridge.connected:
             await self.bridge.dispatch_outbox()
 
@@ -403,13 +376,7 @@ class MinecraftAccessBot(commands.Bot):
         queue_on_failure: bool = True,
         create_if_missing: bool = True,
     ) -> bool:
-        user = self.get_user(int(application.discord_user_id))
-        if user is None:
-            with suppress(discord.NotFound, discord.HTTPException):
-                user = await self.fetch_user(int(application.discord_user_id))
         try:
-            if user is None:
-                raise RuntimeError("Discord user unavailable")
             message = None
             if application.status_channel_id and application.status_message_id:
                 channel = await self._configured_channel(int(application.status_channel_id))
@@ -417,16 +384,33 @@ class MinecraftAccessBot(commands.Bot):
                     with suppress(discord.NotFound, discord.Forbidden, discord.HTTPException):
                         message = await channel.fetch_message(int(application.status_message_id))
             if message is None:
-                if not create_if_missing:
-                    return False
+                if not create_if_missing or application.status is not ApplicationStatus.PENDING_REVIEW:
+                    return True
+                user = self.get_user(int(application.discord_user_id))
+                if user is None:
+                    with suppress(discord.NotFound, discord.HTTPException):
+                        user = await self.fetch_user(int(application.discord_user_id))
+                if user is None:
+                    raise RuntimeError("Discord user unavailable")
                 message = await user.send(
-                    **branded_send(live_status_embed(application, self.settings)),
+                    **branded_send(verified_embed(application)),
                     view=LiveApplicationView(),
                 )
                 await self.data.set_status_message(application.id, message.channel.id, message.id)
             else:
+                if application.status is ApplicationStatus.APPROVED:
+                    embed = approval_embed(self.settings)
+                elif application.status is ApplicationStatus.DENIED:
+                    embed = denial_embed(application)
+                elif application.status in {
+                    ApplicationStatus.PENDING_REVIEW,
+                    ApplicationStatus.APPROVAL_QUEUED,
+                }:
+                    embed = verified_embed(application)
+                else:
+                    embed = live_status_embed(application, self.settings)
                 await message.edit(
-                    **branded_edit(live_status_embed(application, self.settings)),
+                    **branded_edit(embed),
                     view=LiveApplicationView(),
                 )
             return True
@@ -459,12 +443,7 @@ class MinecraftAccessBot(commands.Bot):
                         queue_on_failure=False,
                     )
                 elif delivery.kind == "USER_EMBED":
-                    delivered = await self._send_user_embed(
-                        delivery.target_id,
-                        discord.Embed.from_dict(delivery.payload),
-                        dedupe_key=delivery.dedupe_key,
-                        queue_on_failure=False,
-                    )
+                    delivered = True
                 else:
                     application = await self.data.get_application(int(delivery.target_id))
                     delivered = bool(application) and await self.update_live_card(
@@ -658,6 +637,8 @@ class MinecraftAccessBot(commands.Bot):
             if application.review_message_id is None:
                 with suppress(Exception):
                     await self.post_or_update_review(application)
+            if application.status_message_id is None:
+                await self.update_live_card(application)
             return
         try:
             await self.post_or_update_review(application)
@@ -666,11 +647,6 @@ class MinecraftAccessBot(commands.Bot):
         await self._send_configured_log(
             self.settings.verification_log_channel_id,
             verification_log_embed(application),
-        )
-        await self._send_user_embed(
-            application.discord_user_id,
-            verified_embed(application),
-            dedupe_key=f"verification-dm:{application.id}",
         )
         await self.update_live_card(application)
         remembered = self._application_interactions.pop(application.id, None)
@@ -727,11 +703,6 @@ class MinecraftAccessBot(commands.Bot):
     async def finish_denial(self, application: MinecraftApplication) -> None:
         await self.update_review_message(application)
         await self.log_application_decision(application)
-        await self._send_user_embed(
-            application.discord_user_id,
-            denial_embed(application),
-            dedupe_key=f"denial-dm:{application.id}",
-        )
         await self.update_live_card(application)
 
     async def handle_bridge_action_result(
@@ -794,12 +765,6 @@ class MinecraftAccessBot(commands.Bot):
                     )
                 except Exception:
                     logger.exception("Could not record approved-role failure for application %s", application.id)
-        await self._send_user_embed(
-            application.discord_user_id,
-            approval_embed(self.settings),
-            dedupe_key=f"approval-dm:{application.id}",
-        )
-
     async def _finish_revocation(self, application: MinecraftApplication) -> None:
         guild = await self._configured_guild()
         member = guild.get_member(int(application.discord_user_id)) if guild else None
@@ -819,7 +784,6 @@ class MinecraftAccessBot(commands.Bot):
             expired = await self.data.expire_pending(limit=100)
             for application in expired:
                 await self.log_application_decision(application)
-                await self.update_live_card(application)
             if self.bridge.connected:
                 await self.bridge.dispatch_outbox()
             await self._process_delivery_recovery()

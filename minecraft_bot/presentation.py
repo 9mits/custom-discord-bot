@@ -307,14 +307,11 @@ def live_status_embed(application: MinecraftApplication, settings) -> discord.Em
 
 def verified_embed(application: MinecraftApplication) -> discord.Embed:
     return info_embed(
-        "Minecraft Account Verified",
-        f"> Your **{application.edition.value.title()}** account "
-        f"`{_safe(application.verified_username, 100)}` was securely matched to your application.\n\n"
-        "**What happens now**\n"
-        "- Your application has been sent to the staff review queue.\n"
-        "- Staff aim to respond within **24 hours**.\n"
-        "- You will receive another DM when a decision is finalized.\n\n"
-        "You do not need to connect again. Minecraft access remains locked until approval.",
+        "Account Verified — Application Sent",
+        "> Your Minecraft account was verified and your application has been sent!\n\n"
+        f"**Verified account**\n{application.edition.value.title()} · "
+        f"`{_safe(application.verified_username, 100)}`\n\n"
+        "Staff will review your application. No further action is needed.",
         success=True,
     )
 
