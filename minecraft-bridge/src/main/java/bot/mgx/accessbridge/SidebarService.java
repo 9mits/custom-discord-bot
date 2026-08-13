@@ -40,6 +40,7 @@ final class SidebarService {
      */
     private static final Key BRAND_FONT = Key.key("minecraft", "mgx");
     private static final String LOGO_LARGE = "\uE000";
+    private static final String LOGO_SMALL = "\uE001";
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private static final TextColor GOLD = TextColor.color(0xFFB52E);
     private static final ChatColor[] ENTRY_COLOURS = {
@@ -123,6 +124,9 @@ final class SidebarService {
     private List<Component> lines(Player player) {
         PlayerProfile profile = perks.profile(player.getUniqueId());
         ArrayList<Component> lines = new ArrayList<>();
+        if (isBedrock(player)) {
+            lines.add(Component.text("     SMP X", NamedTextColor.WHITE, TextDecoration.BOLD));
+        }
         lines.add(centredComponent(
                 Component.text(DATE_FORMAT.format(LocalDate.now()), NamedTextColor.GRAY)
         ));
@@ -241,6 +245,10 @@ final class SidebarService {
         player.sendPlayerListHeaderAndFooter(header, footerComponent);
     }
 
+    private static boolean isBedrock(Player player) {
+        return clientPlatform(player).edition().equals("BEDROCK");
+    }
+
     private static ClientPlatform clientPlatform(Player player) {
         try {
             FloodgatePlayer floodgatePlayer = FloodgateApi.getInstance().getPlayer(player.getUniqueId());
@@ -304,10 +312,12 @@ final class SidebarService {
 
         PlayerBoard(Player player) {
             Scoreboard created = plugin.getServer().getScoreboardManager().getNewScoreboard();
-            // The sidebar title is a single short line; the wordmark reads as
-            // cramped at that size, so this stays text and the logo lives in the
-            // player-list header where it has room.
-            Component title = Component.text("Mysterious SMP X", ORANGE, TextDecoration.BOLD);
+            // Bedrock clients never receive the Java resource pack, so the wordmark
+            // glyph would render as nothing for them. They get stacked text instead,
+            // with "SMP X" carried on the first sidebar row.
+            Component title = isBedrock(player)
+                    ? Component.text("MYSTERIOUS", ORANGE, TextDecoration.BOLD)
+                    : Component.text(LOGO_SMALL).font(BRAND_FONT);
             Objective createdObjective = created.registerNewObjective("mgx", Criteria.DUMMY, title);
             createdObjective.setDisplaySlot(DisplaySlot.SIDEBAR);
             for (int index = 0; index < MAX_LINES; index++) {
