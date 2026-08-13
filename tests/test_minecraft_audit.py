@@ -27,6 +27,7 @@ from minecraft_bot.audit import (
     redact_options,
     resolve_target_id,
     risk_for,
+    schedule_delivery,
 )
 from minecraft_bot.data import MinecraftDataManager
 from minecraft_bot.models import Edition
@@ -57,7 +58,7 @@ class RiskTests(unittest.TestCase):
                 self.assertEqual(risk_for(name), RISK_DESTRUCTIVE)
 
     def test_lookups_stay_read_only(self):
-        for name in ("minecraft status", "minecraft lookup", "minecraft whois", "minecraft stats"):
+        for name in ("minecraft status", "minecraft lookup", "minecraft panel", "minecraft stats"):
             with self.subTest(command=name):
                 self.assertEqual(risk_for(name), RISK_READ_ONLY)
 
@@ -342,6 +343,27 @@ class DeliveryRoutingTests(unittest.TestCase):
         self.assertEqual(client._send_configured_log.await_count, 1)
 
 
+class ScheduledDeliveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_scheduled_audit_does_not_wait_for_channel_delivery(self):
+        release = asyncio.Event()
+
+        async def slow_log(_channel_id, _embed):
+            await release.wait()
+
+        client = SimpleNamespace(
+            settings=SimpleNamespace(command_log_channel_id=10, critical_log_channel_id=0),
+            data=SimpleNamespace(record_command_log=AsyncMock(return_value=1)),
+            _send_configured_log=slow_log,
+        )
+
+        schedule_delivery(client, make_record())
+        await asyncio.sleep(0)
+
+        self.assertFalse(release.is_set())
+        release.set()
+        await asyncio.sleep(0)
+
+
 class SettingsTests(unittest.TestCase):
     def test_the_new_channels_are_persisted_settings(self):
         self.assertIn("command_log_channel_id", SETTING_KEYS)
@@ -479,6 +501,21 @@ class UsernameLookupTests(unittest.IsolatedAsyncioTestCase):
         await self._create("PlayerOne")
 
         self.assertEqual(await self.manager.find_applications_by_username("   "), [])
+
+    async def test_linked_account_username_search_is_case_insensitive(self):
+        application = await self._create("RenamedPlayer")
+        await self.manager.record_verification(
+            application_id=application.id,
+            edition=Edition.JAVA,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            current_username="RenamedPlayer",
+            xuid=None,
+            event_idempotency_key="verify-account-search",
+        )
+
+        matches = await self.manager.find_accounts_by_username("renamed")
+
+        self.assertEqual(matches[0]["current_username"], "RenamedPlayer")
 
 
 if __name__ == "__main__":

@@ -13,7 +13,6 @@ from minecraft_bot.config import MinecraftConfig
 from minecraft_bot.models import ApplicationStatus, Edition, MinecraftApplication
 from minecraft_bot.presentation import (
     BRAND_NAME,
-    ICON_ATTACHMENT_URI,
     ICON_PATH,
     FOOTER_ATTACHMENT_URI,
     LOGO_ATTACHMENT_URI,
@@ -32,6 +31,7 @@ from minecraft_bot.setup import MinecraftSetupView
 from minecraft_bot.ui import (
     ApplyButton,
     CancelPendingConfirmationView,
+    MinecraftControlView,
     MinecraftApplicationModal,
     ReviewView,
     RulesAgreementView,
@@ -74,8 +74,13 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         group = self.bot._build_command_group()
         commands = {command.name: command for command in group.commands}
 
-        for name in ("status", "lookup", "revoke", "unlink", "retry", "applications", "audit"):
+        for name in ("panel", "status", "lookup", "revoke", "unlink", "retry", "applications", "audit"):
             self.assertTrue(commands[name].default_permissions.manage_messages, name)
+        self.assertNotIn("whois", commands)
+        lookup_parameters = {parameter.name: parameter for parameter in commands["lookup"].parameters}
+        self.assertEqual(set(lookup_parameters), {"user", "username"})
+        self.assertFalse(lookup_parameters["user"].required)
+        self.assertFalse(lookup_parameters["username"].required)
         self.assertTrue(commands["setup"].default_permissions.administrator)
         self.assertTrue(commands["log-channel"].default_permissions.administrator)
         self.assertIsNone(commands["cancel"].default_permissions)
@@ -122,12 +127,17 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertEqual(THEME_COLOUR.value, discord.Colour.from_rgb(255, 153, 0).value)
         self.assertEqual(embed.colour.value, THEME_COLOUR.value)
         self.assertEqual(embed.footer.text, BRAND_NAME)
-        self.assertEqual(embed.footer.icon_url, FOOTER_ATTACHMENT_URI)
-        self.assertEqual(embed.thumbnail.url, ICON_ATTACHMENT_URI)
+        self.assertIsNone(embed.footer.icon_url)
+        self.assertIsNone(embed.thumbnail.url)
         self.assertIsNotNone(embed.timestamp)
         self.assertTrue(LOGO_PATH.is_file())
         self.assertTrue(ICON_PATH.is_file())
         self.assertTrue(FOOTER_PATH.is_file())
+
+    def test_minecraft_brand_assets_stay_lightweight(self):
+        self.assertLess(LOGO_PATH.stat().st_size, 500_000)
+        self.assertLess(ICON_PATH.stat().st_size, 100_000)
+        self.assertLess(FOOTER_PATH.stat().st_size, 25_000)
 
     def test_verification_instructions_are_copyable_and_edition_specific(self):
         application = MinecraftApplication(
@@ -196,8 +206,8 @@ class MinecraftBotPolicyTests(unittest.TestCase):
 
         embed = review_embed(application)
 
-        self.assertEqual(embed.thumbnail.url, ICON_ATTACHMENT_URI)
-        self.assertEqual(embed.footer.icon_url, FOOTER_ATTACHMENT_URI)
+        self.assertIsNone(embed.thumbnail.url)
+        self.assertIsNone(embed.footer.icon_url)
         self.assertTrue(any(field.name == "Claimed Username" for field in embed.fields))
 
     def test_setup_dashboard_uses_components_v2(self):
@@ -222,6 +232,36 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertIn("minecraft:setup:player_log_channel_id", custom_ids)
         self.assertIn("minecraft:setup:member_role_id", custom_ids)
         self.assertIn("minecraft:setup:action:post", custom_ids)
+
+    def test_moderator_control_panel_is_compact_and_actionable(self):
+        bot = SimpleNamespace(
+            is_moderator=lambda _member: True,
+            is_administrator=lambda _member: False,
+        )
+
+        view = MinecraftControlView(bot, 123)
+
+        self.assertEqual(
+            {item.custom_id for item in view.children},
+            {
+                "minecraft:control:overview",
+                "minecraft:control:applications",
+                "minecraft:control:commandlog",
+                "minecraft:control:username",
+                "minecraft:control:member",
+            },
+        )
+        self.assertLessEqual(len(view.children), 5)
+
+    def test_administrator_control_panel_includes_setup(self):
+        bot = SimpleNamespace(
+            is_moderator=lambda _member: True,
+            is_administrator=lambda _member: True,
+        )
+
+        view = MinecraftControlView(bot, 123, include_setup=True)
+
+        self.assertIn("minecraft:control:setup", {item.custom_id for item in view.children})
 
 
 class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
@@ -300,8 +340,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         kwargs = response.send_message.await_args.kwargs
         self.assertTrue(kwargs["ephemeral"])
         self.assertIsInstance(kwargs["view"], CancelPendingConfirmationView)
-        for file in kwargs["files"]:
-            file.close()
+        self.assertNotIn("files", kwargs)
 
     async def test_cancel_confirmation_edits_the_existing_ephemeral(self):
         response = SimpleNamespace(defer=AsyncMock())
@@ -320,9 +359,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         interaction.edit_original_response.assert_awaited_once()
         kwargs = interaction.edit_original_response.await_args.kwargs
         self.assertIsNone(kwargs["view"])
-        self.assertIn("attachments", kwargs)
-        for file in kwargs["attachments"]:
-            file.close()
+        self.assertNotIn("attachments", kwargs)
 
     async def test_new_application_requires_rules_agreement(self):
         response = SimpleNamespace(send_message=AsyncMock(), send_modal=AsyncMock())
@@ -352,9 +389,8 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kwargs["view"].children[0].style, discord.ButtonStyle.success)
         self.assertEqual(kwargs["view"].children[1].style, discord.ButtonStyle.secondary)
         self.assertIsNone(kwargs["embed"].image.url)
-        self.assertEqual(kwargs["embed"].footer.icon_url, FOOTER_ATTACHMENT_URI)
-        for file in kwargs["files"]:
-            file.close()
+        self.assertIsNone(kwargs["embed"].footer.icon_url)
+        self.assertNotIn("files", kwargs)
 
     async def test_rules_agreement_opens_modal_and_disagreement_edits_message(self):
         view = RulesAgreementView(99)
@@ -377,9 +413,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
 
         kwargs = disagree_response.edit_message.await_args.kwargs
         self.assertIsNone(kwargs["view"])
-        self.assertIn("attachments", kwargs)
-        for file in kwargs["attachments"]:
-            file.close()
+        self.assertNotIn("attachments", kwargs)
 
     async def test_player_activity_is_deduplicated_before_logging(self):
         bot = object.__new__(MinecraftAccessBot)
@@ -400,6 +434,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
 
         await bot.handle_player_event(**payload)
         await bot.handle_player_event(**payload)
+        await asyncio.gather(*bot._background_tasks)
 
         bot._send_configured_log.assert_awaited_once()
         self.assertEqual(bot._send_configured_log.await_args.args[0], 55)

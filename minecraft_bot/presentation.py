@@ -54,11 +54,11 @@ def brand_footer_file() -> discord.File:
 
 
 def branded_send(embed: discord.Embed) -> dict[str, object]:
-    return {"embed": embed, "files": [brand_icon_file(), brand_footer_file()]}
+    return {"embed": embed}
 
 
 def branded_edit(embed: discord.Embed) -> dict[str, object]:
-    return {"embed": embed, "attachments": [brand_icon_file(), brand_footer_file()]}
+    return {"embed": embed}
 
 
 def application_panel_files() -> list[discord.File]:
@@ -164,7 +164,6 @@ def review_embed(
         colour=THEME_COLOUR,
         timestamp=datetime.fromtimestamp(application.created_at, timezone.utc),
     )
-    embed.set_thumbnail(url=ICON_ATTACHMENT_URI)
     embed.add_field(name="Status", value=status_title, inline=True)
     embed.add_field(name="Edition", value=application.edition.value.title(), inline=True)
     embed.add_field(name="Claimed Username", value=f"`{_safe(application.claimed_username, 100)}`", inline=True)
@@ -203,7 +202,7 @@ def review_embed(
         )
     if application.status is ApplicationStatus.DENIED and application.applicant_reason:
         embed.add_field(name="Applicant-Facing Reason", value=_safe(application.applicant_reason), inline=False)
-    embed.set_footer(text=BRAND_NAME, icon_url=FOOTER_ATTACHMENT_URI)
+    embed.set_footer(text=BRAND_NAME)
     return embed
 
 
@@ -214,8 +213,7 @@ def info_embed(title: str, description: str, *, success: bool = False, error: bo
         colour=THEME_COLOUR,
         timestamp=discord.utils.utcnow(),
     )
-    embed.set_thumbnail(url=ICON_ATTACHMENT_URI)
-    embed.set_footer(text=BRAND_NAME, icon_url=FOOTER_ATTACHMENT_URI)
+    embed.set_footer(text=BRAND_NAME)
     return embed
 
 

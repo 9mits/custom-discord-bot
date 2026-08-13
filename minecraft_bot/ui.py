@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from contextlib import suppress
-
 import discord
 
 from .models import (
@@ -350,13 +348,153 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
             return
 
         bot.remember_application_interaction(application.id, interaction)
-        with suppress(Exception):
-            await bot.log_application_submission(application)
-        if bot.bridge.connected:
-            await bot.bridge.dispatch_outbox()
+        bot.spawn_background_task(
+            bot.finish_application_submission(application),
+            name=f"minecraft-application:{application.id}",
+        )
         await interaction.edit_original_response(
             **branded_edit(verification_embed(application, bot.settings))
         )
+
+
+class MinecraftControlAction(discord.ui.Button):
+    def __init__(self, action: str, label: str, *, row: int = 0) -> None:
+        super().__init__(
+            label=label,
+            style=discord.ButtonStyle.secondary,
+            custom_id=f"minecraft:control:{action}",
+            row=row,
+        )
+        self.action = action
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.view
+        if not isinstance(view, MinecraftControlView):
+            return
+        if self.action == "username":
+            await interaction.response.send_modal(
+                MinecraftUsernameLookupModal(view.bot, view.requester_id)
+            )
+            return
+        if self.action == "setup":
+            from .setup import MinecraftSetupView
+
+            if not view.bot.is_administrator(interaction.user):
+                await interaction.response.send_message(
+                    **branded_send(
+                        info_embed(
+                            "Administrator Access Required",
+                            "> Only server administrators can change Minecraft setup.",
+                            error=True,
+                        )
+                    ),
+                    ephemeral=True,
+                )
+                return
+            await interaction.response.send_message(
+                view=MinecraftSetupView(view.bot, interaction.user.id, interaction.guild),
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        builders = {
+            "overview": lambda: view.bot.build_control_overview(interaction.guild),
+            "applications": view.bot.build_applications_embed,
+            "commandlog": view.bot.build_command_log_embed,
+        }
+        embed = await builders[self.action]()
+        await interaction.edit_original_response(
+            **branded_edit(embed),
+            view=view.bot.control_view(interaction),
+        )
+
+
+class MinecraftMemberLookupSelect(discord.ui.UserSelect):
+    def __init__(self) -> None:
+        super().__init__(
+            placeholder="Look up a Discord member",
+            custom_id="minecraft:control:member",
+            min_values=1,
+            max_values=1,
+            row=1,
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        view = self.view
+        if not isinstance(view, MinecraftControlView):
+            return
+        await interaction.response.defer(ephemeral=True)
+        embed = await view.bot.build_member_lookup_embed(self.values[0])
+        await interaction.edit_original_response(
+            **branded_edit(embed),
+            view=view.bot.control_view(interaction),
+        )
+
+
+class MinecraftUsernameLookupModal(discord.ui.Modal, title="Minecraft Username Lookup"):
+    username = discord.ui.TextInput(
+        label="Java username or Bedrock gamertag",
+        placeholder="Enter all or part of the account name",
+        min_length=1,
+        max_length=32,
+    )
+
+    def __init__(self, bot, requester_id: int) -> None:
+        super().__init__(timeout=300)
+        self.bot = bot
+        self.requester_id = int(requester_id)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        if interaction.user.id != self.requester_id or not self.bot.is_moderator(interaction.user):
+            await interaction.response.send_message(
+                **branded_send(
+                    info_embed(
+                        "Lookup Unavailable",
+                        "> This Minecraft control panel belongs to another moderator.",
+                        error=True,
+                    )
+                ),
+                ephemeral=True,
+            )
+            return
+        await interaction.response.defer(ephemeral=True)
+        embed = await self.bot.build_username_lookup_embed(str(self.username))
+        await interaction.edit_original_response(
+            **branded_edit(embed),
+            view=self.bot.control_view(interaction),
+        )
+
+
+class MinecraftControlView(discord.ui.View):
+    """Compact navigation shared by Minecraft moderator tools."""
+
+    def __init__(self, bot, requester_id: int, *, include_setup: bool = False) -> None:
+        super().__init__(timeout=900)
+        self.bot = bot
+        self.requester_id = int(requester_id)
+        self.add_item(MinecraftControlAction("overview", "Overview"))
+        self.add_item(MinecraftControlAction("applications", "Applications"))
+        self.add_item(MinecraftControlAction("commandlog", "Command Log"))
+        self.add_item(MinecraftControlAction("username", "Username Lookup"))
+        if include_setup:
+            self.add_item(MinecraftControlAction("setup", "Setup"))
+        self.add_item(MinecraftMemberLookupSelect())
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id == self.requester_id and self.bot.is_moderator(interaction.user):
+            return True
+        await interaction.response.send_message(
+            **branded_send(
+                info_embed(
+                    "Control Panel Unavailable",
+                    "> This Minecraft control panel belongs to another moderator.",
+                    error=True,
+                )
+            ),
+            ephemeral=True,
+        )
+        return False
 
 
 class DenialModal(discord.ui.Modal, title="Deny Minecraft Application"):
@@ -416,13 +554,16 @@ class DenialModal(discord.ui.Modal, title="Deny Minecraft Application"):
                 **branded_edit(info_embed("Application Not Updated", f"> {exc}", error=True))
             )
             return
-        await bot.finish_denial(updated)
+        bot.spawn_background_task(
+            bot.finish_denial(updated),
+            name=f"minecraft-denial:{updated.id}",
+        )
         await interaction.edit_original_response(
             **branded_edit(
                 info_embed(
                     "Application Denied",
-                    "> The decision was saved and the staff review record was updated.\n\n"
-                    "The applicant was notified by DM without exposing the reviewing moderator.",
+                    "> The decision was saved and the staff review record is updating.\n\n"
+                    "The applicant is notified by DM without exposing the reviewing moderator.",
                     success=True,
                 )
             )
@@ -501,11 +642,11 @@ class ReviewView(discord.ui.View):
                 **branded_edit(info_embed("Approval Not Queued", f"> {exc}", error=True))
             )
             return
-        await bot.update_review_message(updated)
-        await bot.log_application_decision(updated)
-        if bot.bridge.connected:
-            await bot.bridge.dispatch_outbox()
-        state = "sent to the Minecraft server" if bot.bridge.connected else "queued until the Minecraft bridge reconnects"
+        state = "being sent to the Minecraft server" if bot.bridge.connected else "queued until the Minecraft bridge reconnects"
+        bot.spawn_background_task(
+            bot.finish_approval_queue(updated),
+            name=f"minecraft-approval:{updated.id}",
+        )
         await interaction.edit_original_response(
             **branded_edit(
                 info_embed(
@@ -550,6 +691,7 @@ class ReviewView(discord.ui.View):
         application = await self._authorize(interaction)
         if application is None:
             return
+        await interaction.response.defer(ephemeral=True)
         history = await interaction.client.data.list_applications_for_user(
             application.discord_user_id,
             limit=25,
@@ -558,12 +700,11 @@ class ReviewView(discord.ui.View):
             f"`#{entry.id}` · {entry.edition.value.title()} · {entry.status.value.replace('_', ' ').title()} · <t:{entry.created_at}:d>"
             for entry in history
         ]
-        await interaction.response.send_message(
-            **branded_send(
+        await interaction.edit_original_response(
+            **branded_edit(
                 info_embed(
                     "Previous Minecraft Applications",
                     "\n".join(lines) or "> No previous applications were found.",
                 )
-            ),
-            ephemeral=True,
+            )
         )

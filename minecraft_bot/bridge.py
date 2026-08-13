@@ -46,6 +46,7 @@ class MinecraftBridgeServer:
         self._site: Optional[web.TCPSite] = None
         self._socket: Optional[web.WebSocketResponse] = None
         self._send_lock = asyncio.Lock()
+        self._dispatch_lock = asyncio.Lock()
         self._connection_lock = asyncio.Lock()
         self._dispatcher_task: Optional[asyncio.Task] = None
         self._sent_this_connection: set[str] = set()
@@ -313,16 +314,21 @@ class MinecraftBridgeServer:
     async def dispatch_outbox(self) -> None:
         if not self.connected:
             return
-        for record in await self.data.get_outbox_batch(limit=50):
-            if record.idempotency_key in self._sent_this_connection:
-                continue
-            await self._send(
-                "ACTION",
-                {"action": record.action.value, **record.payload},
-                idempotency_key=record.idempotency_key,
-            )
-            await self.data.mark_outbox_sent(record.id)
-            self._sent_this_connection.add(record.idempotency_key)
+        async with self._dispatch_lock:
+            sent_ids: list[int] = []
+            sent_keys: list[str] = []
+            for record in await self.data.get_outbox_batch(limit=50):
+                if record.idempotency_key in self._sent_this_connection:
+                    continue
+                await self._send(
+                    "ACTION",
+                    {"action": record.action.value, **record.payload},
+                    idempotency_key=record.idempotency_key,
+                )
+                sent_ids.append(record.id)
+                sent_keys.append(record.idempotency_key)
+            await self.data.mark_outbox_sent_batch(sent_ids)
+            self._sent_this_connection.update(sent_keys)
 
     async def _dispatch_loop(self) -> None:
         while True:

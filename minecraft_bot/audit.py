@@ -11,6 +11,7 @@ bot's `core/` and `cogs/` packages.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass, field, replace
@@ -387,6 +388,26 @@ async def deliver(client: Any, record: CommandAuditRecord) -> None:
         await _send(client, channel_id, embed)
 
 
+def schedule_delivery(client: Any, record: CommandAuditRecord) -> None:
+    """Queue best-effort auditing without extending interaction response time."""
+    scheduler = getattr(client, "spawn_background_task", None)
+    coroutine = deliver(client, record)
+    if scheduler is not None:
+        scheduler(coroutine, name=f"minecraft-audit:{record.source}")
+        return
+    task = asyncio.create_task(coroutine, name=f"minecraft-audit:{record.source}")
+
+    def report_failure(completed: asyncio.Task) -> None:
+        if completed.cancelled():
+            return
+        try:
+            completed.result()
+        except Exception:
+            logger.exception("Minecraft audit delivery failed")
+
+    task.add_done_callback(report_failure)
+
+
 async def _persist(client: Any, record: CommandAuditRecord) -> None:
     data = getattr(client, "data", None)
     writer = getattr(data, "record_command_log", None)
@@ -445,7 +466,7 @@ class MinecraftCommandTree(app_commands.CommandTree):
                     detail=detail,
                     correlation_id=f"mc-{interaction.id:x}" if outcome == OUTCOME_FAILED else None,
                 )
-                await deliver(self.client, record)
+                schedule_delivery(self.client, record)
             except Exception:
                 logger.exception("Minecraft command audit failed")
 
@@ -480,7 +501,7 @@ def install_component_audit(client: Any) -> None:
             raise
         finally:
             label = component_label(view, item)
-            await _safe_deliver(
+            _safe_schedule_delivery(
                 client,
                 interaction,
                 source=SOURCE_COMPONENT,
@@ -507,7 +528,7 @@ def install_component_audit(client: Any) -> None:
             # Modal field values are free text (denial reasons, usernames) and are
             # deliberately not captured; the title alone identifies the action.
             label = str(getattr(modal, "title", "") or humanize_ui_name(type(modal).__name__))
-            await _safe_deliver(
+            _safe_schedule_delivery(
                 client,
                 interaction,
                 source=SOURCE_MODAL,
@@ -523,9 +544,9 @@ def install_component_audit(client: Any) -> None:
     discord.ui.View._mc_audit_wrapped = True
 
 
-async def _safe_deliver(client: Any, interaction: Any, **kwargs: Any) -> None:
+def _safe_schedule_delivery(client: Any, interaction: Any, **kwargs: Any) -> None:
     try:
-        await deliver(client, build_record(interaction, **kwargs))
+        schedule_delivery(client, build_record(interaction, **kwargs))
     except Exception:
         logger.exception("Minecraft component audit failed")
 
@@ -533,7 +554,7 @@ async def _safe_deliver(client: Any, interaction: Any, **kwargs: Any) -> None:
 async def record_denial(client: Any, interaction: Any, command: str, reason: str) -> None:
     """Log an attempt that was refused by a permission check."""
     try:
-        await deliver(
+        schedule_delivery(
             client,
             build_record(
                 interaction,
@@ -570,5 +591,6 @@ __all__: Iterable[str] = (
     "redact_options",
     "resolve_target_id",
     "risk_for",
+    "schedule_delivery",
     "with_risk",
 )
