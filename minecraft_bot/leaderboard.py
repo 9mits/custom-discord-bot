@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 
 BRAND_COLOUR = discord.Color.from_rgb(255, 153, 0)
 PODIUM = 3
+#: Five rows keeps the pair of boards readable in one message.
+DISPLAY_ROWS = 5
 #: Head emojis are a reward, so they outlive a single bad week on the board.
 EMOJI_RETENTION_DAYS = 14
 #: Leaves the guild's remaining emoji slots for everything else.
@@ -188,24 +190,25 @@ def build_embed(
         embed.description = "No standings yet. Play a little and this fills in."
     else:
         lines = []
-        for index, row in enumerate(rows):
+        for index, row in enumerate(rows[:DISPLAY_ROWS]):
+            podium = index < PODIUM
+            value = str(row.get("display", row.get("value", 0)))
             if scope == "clan":
                 name = str(row.get("clan") or "?")
                 members = row.get("members")
                 suffix = f" · {members} members" if members else ""
-                lines.append(
-                    f"**{_placement(index)}** — {name} — "
-                    f"`{row.get('display', row.get('value', 0))}`{suffix}".strip()
-                )
+                icon = ""
             else:
-                uuid = str(row.get("minecraft_uuid") or "")
-                icon = heads.get(uuid, "") if index < PODIUM else ""
+                name = str(row.get("username", "?"))
                 clan = row.get("clan")
                 suffix = f" · [{clan}]" if clan else ""
-                lines.append(
-                    f"{icon} **{_placement(index)}** — {row.get('username', '?')} — "
-                    f"`{row.get('display', row.get('value', 0))}`{suffix}".strip()
-                )
+                icon = heads.get(str(row.get("minecraft_uuid") or ""), "") if podium else ""
+            # The podium is bold and carries the head; the rest stay quiet beneath it.
+            if podium:
+                body = f"**{_placement(index)} · {name}** — `{value}`{suffix}"
+            else:
+                body = f"{_placement(index)} · {name} — {value}{suffix}"
+            lines.append(f"{icon} {body}".strip())
         embed.description = "\n".join(lines)
 
     generated = snapshot.get("generated_at")

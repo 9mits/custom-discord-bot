@@ -1254,6 +1254,8 @@ class MinecraftLeaderboardRenderTests(unittest.TestCase):
                     {"minecraft_uuid": "u2", "username": "kai", "value": 500, "display": "500"},
                     {"minecraft_uuid": "u3", "username": "sam", "value": 100, "display": "100"},
                     {"minecraft_uuid": "u4", "username": "noah", "value": 10, "display": "10"},
+                    {"minecraft_uuid": "u5", "username": "ely", "value": 5, "display": "5"},
+                    {"minecraft_uuid": "u6", "username": "zed", "value": 1, "display": "1"},
                 ]
             },
             "clan": {"wealth": [{"clan": "LUCKY", "members": 4, "value": 900, "display": "900"}]},
@@ -1293,3 +1295,18 @@ class MinecraftLeaderboardRenderTests(unittest.TestCase):
         self.assertEqual(self.leaderboard._emoji_name("Not.A-Name!"), "mgx_head_NotAName")
         self.assertTrue(self.leaderboard._emoji_name("").endswith("player"))
         self.assertLessEqual(len(self.leaderboard._emoji_name("x" * 60)), 32)
+
+    def test_only_five_rows_are_shown(self):
+        embed = self.leaderboard.build_embed(self.snapshot, scope="individual", board="wealth")
+
+        self.assertEqual(len(embed.description.splitlines()), 5)
+        self.assertNotIn("zed", embed.description)
+
+    def test_podium_is_bold_and_the_rest_are_not(self):
+        embed = self.leaderboard.build_embed(self.snapshot, scope="individual", board="wealth")
+        lines = embed.description.splitlines()
+
+        for line in lines[:3]:
+            self.assertIn("**", line)
+        for line in lines[3:]:
+            self.assertNotIn("**", line)
