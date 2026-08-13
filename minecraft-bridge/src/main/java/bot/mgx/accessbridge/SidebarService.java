@@ -27,7 +27,6 @@ import java.util.UUID;
 final class SidebarService {
     private static final int MAX_LINES = 11;
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
-    private static final TextColor LIGHT_ORANGE = TextColor.color(0xFFC266);
     private static final ChatColor[] ENTRY_COLOURS = {
             ChatColor.BLACK, ChatColor.DARK_BLUE, ChatColor.DARK_GREEN, ChatColor.DARK_AQUA,
             ChatColor.DARK_RED, ChatColor.DARK_PURPLE, ChatColor.GOLD, ChatColor.GRAY,
@@ -101,33 +100,43 @@ final class SidebarService {
     private List<Component> lines(Player player) {
         PlayerProfile profile = perks.profile(player.getUniqueId());
         ArrayList<Component> lines = new ArrayList<>();
-        lines.add(valueLine("LVL", String.valueOf(profile.level())));
-        lines.add(valueLine("HEARTS", "+" + profile.extraHearts()));
+        lines.add(valueLine("LVL", String.valueOf(profile.level()), NamedTextColor.AQUA));
+        lines.add(valueLine("HEARTS", "+" + profile.extraHearts(), NamedTextColor.RED));
         if (profile.elite()) {
-            lines.add(valueLine("POWER", "+5% DMG"));
+            lines.add(valueLine("POWER", "+5% DMG", NamedTextColor.LIGHT_PURPLE));
         }
         clans.clanOf(player.getUniqueId()).ifPresent(clan ->
-                lines.add(valueLine("CLAN", "[" + clan.name() + "]"))
+                lines.add(valueLine("CLAN", "[" + clan.name() + "]", clanColor(clan)))
         );
         lines.add(Component.empty());
-        lines.add(valueLine("KILLS", String.valueOf(player.getStatistic(Statistic.PLAYER_KILLS))));
-        lines.add(valueLine("DEATHS", String.valueOf(player.getStatistic(Statistic.DEATHS))));
-        lines.add(valueLine("PING", player.getPing() + "ms"));
+        lines.add(valueLine(
+                "KILLS",
+                String.valueOf(player.getStatistic(Statistic.PLAYER_KILLS)),
+                NamedTextColor.RED
+        ));
+        lines.add(valueLine(
+                "DEATHS",
+                String.valueOf(player.getStatistic(Statistic.DEATHS)),
+                NamedTextColor.GRAY
+        ));
+        lines.add(valueLine("PING", player.getPing() + "ms", pingColor(player.getPing())));
         lines.add(Component.empty());
-        lines.add(Component.text(footer, LIGHT_ORANGE));
+        lines.add(Component.text(footer, NamedTextColor.DARK_GRAY));
         return lines;
     }
 
-    private static Component valueLine(String label, String value) {
-        return Component.text("» ", ORANGE, TextDecoration.BOLD)
-                .append(Component.text(label + " ", LIGHT_ORANGE, TextDecoration.BOLD))
-                .append(Component.text(value, NamedTextColor.WHITE));
+    private static Component valueLine(String label, String value, TextColor valueColor) {
+        return Component.text("› ", NamedTextColor.DARK_GRAY)
+                .append(Component.text(label + " ", NamedTextColor.GRAY))
+                .append(Component.text(value, valueColor));
     }
 
     private void updateTabName(Player player) {
         Component name = Component.text(player.getName(), NamedTextColor.WHITE);
         Component rendered = clans.clanOf(player.getUniqueId())
-                .<Component>map(clan -> Component.text("[" + clan.name() + "] ", ORANGE, TextDecoration.BOLD)
+                .<Component>map(clan -> Component.text(
+                                "[" + clan.name() + "] ", clanColor(clan), TextDecoration.BOLD
+                        )
                         .append(name))
                 .orElse(name);
         player.playerListName(rendered);
@@ -153,7 +162,7 @@ final class SidebarService {
             if (team == null) {
                 team = scoreboard.registerNewTeam(teamName);
             }
-            team.prefix(Component.text("[" + clan.name() + "] ", ORANGE, TextDecoration.BOLD));
+            team.prefix(Component.text("[" + clan.name() + "] ", clanColor(clan), TextDecoration.BOLD));
             Set<String> expectedEntries = entries.getOrDefault(teamName, Set.of());
             for (String oldEntry : new LinkedHashSet<>(team.getEntries())) {
                 if (!expectedEntries.contains(oldEntry)) {
@@ -173,7 +182,7 @@ final class SidebarService {
         PlayerBoard(Player player) {
             Scoreboard created = plugin.getServer().getScoreboardManager().getNewScoreboard();
             Component title = Component.text("MYSTERIOUS", ORANGE, TextDecoration.BOLD)
-                    .append(Component.text(" X", LIGHT_ORANGE, TextDecoration.BOLD));
+                    .append(Component.text(" X", NamedTextColor.GOLD));
             Objective createdObjective = created.registerNewObjective("mgx", Criteria.DUMMY, title);
             createdObjective.setDisplaySlot(DisplaySlot.SIDEBAR);
             for (int index = 0; index < MAX_LINES; index++) {
@@ -202,5 +211,19 @@ final class SidebarService {
                 score.numberFormat(NumberFormat.blank());
             }
         }
+    }
+
+    private static TextColor clanColor(ClanStore.ClanView clan) {
+        return TextColor.color(clan.themeColor());
+    }
+
+    private static TextColor pingColor(int ping) {
+        if (ping <= 100) {
+            return NamedTextColor.GREEN;
+        }
+        if (ping <= 200) {
+            return NamedTextColor.YELLOW;
+        }
+        return NamedTextColor.RED;
     }
 }

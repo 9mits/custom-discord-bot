@@ -24,6 +24,7 @@ import java.util.regex.Pattern;
 
 final class ClanStore {
     static final int MAX_MEMBERS = 25;
+    static final int DEFAULT_THEME_COLOR = 0xFF9900;
     static final long INVITE_TTL_MILLIS = 5 * 60 * 1000L;
     private static final int FORMAT_VERSION = 1;
     private static final Pattern VALID_NAME = Pattern.compile("[A-Z0-9]{2,6}");
@@ -37,10 +38,10 @@ final class ClanStore {
     record ClanView(
             UUID id,
             String name,
+            int themeColor,
             UUID leader,
             Map<UUID, String> members,
-            Set<UUID> staff,
-            boolean friendlyFire
+            Set<UUID> staff
     ) {
         ClanRole roleOf(UUID playerId) {
             if (leader.equals(playerId)) {
@@ -60,10 +61,10 @@ final class ClanStore {
         String id;
         String name;
         String tag; // Read once when migrating data written by plugin 2.1.0.
+        Integer themeColor;
         String leader;
         Map<String, String> members = new LinkedHashMap<>();
         Set<String> staff = new LinkedHashSet<>();
-        boolean friendlyFire;
     }
 
     private static final class SavedInvite {
@@ -98,6 +99,7 @@ final class ClanStore {
         SavedClan clan = new SavedClan();
         clan.id = UUID.randomUUID().toString();
         clan.name = name;
+        clan.themeColor = DEFAULT_THEME_COLOR;
         clan.leader = owner.toString();
         clan.members.put(owner.toString(), cleanPlayerName(ownerName));
         state.clans.add(clan);
@@ -182,6 +184,13 @@ final class ClanStore {
         String name = normalizeName(requestedName);
         requireUniqueName(name, UUID.fromString(clan.id));
         clan.name = name;
+        persist();
+        return view(clan);
+    }
+
+    synchronized ClanView setThemeColor(UUID actor, String requestedColor) throws IOException {
+        SavedClan clan = requireLeader(actor);
+        clan.themeColor = parseThemeColor(requestedColor);
         persist();
         return view(clan);
     }
@@ -334,6 +343,12 @@ final class ClanStore {
                 migrated |= !migratedName.equals(clan.name) || clan.tag != null;
                 clan.name = migratedName;
                 clan.tag = null;
+                if (clan.themeColor == null) {
+                    clan.themeColor = DEFAULT_THEME_COLOR;
+                    migrated = true;
+                } else if (clan.themeColor < 0 || clan.themeColor > 0xFFFFFF) {
+                    throw new IOException("Clan theme colors must be valid RGB values");
+                }
                 if (clan.members == null || !clan.members.containsKey(leader.toString())) {
                     throw new IOException("A clan leader must be present in its member list");
                 }
@@ -343,7 +358,6 @@ final class ClanStore {
                 if (clan.staff == null) {
                     clan.staff = new LinkedHashSet<>();
                 }
-                clan.friendlyFire = false;
                 clan.staff.remove(leader.toString());
                 clan.staff.removeIf(member -> !clan.members.containsKey(member));
                 for (Map.Entry<String, String> member : clan.members.entrySet()) {
@@ -471,10 +485,10 @@ final class ClanStore {
         return new ClanView(
                 UUID.fromString(clan.id),
                 clan.name,
+                clan.themeColor,
                 UUID.fromString(clan.leader),
                 Map.copyOf(members),
-                Set.copyOf(staff),
-                clan.friendlyFire
+                Set.copyOf(staff)
         );
     }
 
@@ -488,6 +502,17 @@ final class ClanStore {
 
     private static String normalizeLookup(String value) {
         return (value == null ? "" : value.trim().replaceAll("\\s+", " ")).toLowerCase(Locale.ROOT);
+    }
+
+    private static int parseThemeColor(String value) {
+        String normalized = value == null ? "" : value.trim();
+        if (normalized.startsWith("#")) {
+            normalized = normalized.substring(1);
+        }
+        if (!normalized.matches("[0-9A-Fa-f]{6}")) {
+            throw new ClanException("Use a named color or a six-digit hex color such as #55FFFF.");
+        }
+        return Integer.parseInt(normalized, 16);
     }
 
     private static String cleanPlayerName(String value) {

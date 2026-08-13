@@ -30,9 +30,12 @@ import java.util.UUID;
 final class ClanService implements CommandExecutor, TabCompleter, Listener {
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private static final TextColor LIGHT_ORANGE = TextColor.color(0xFFC266);
+    private static final List<String> THEME_COLORS = List.of(
+            "orange", "gold", "yellow", "red", "pink", "purple", "blue", "aqua", "green", "white"
+    );
     private static final List<String> SUBCOMMANDS = List.of(
             "help", "create", "invite", "accept", "decline", "info", "list", "rename",
-            "promote", "demote", "transfer", "kick", "leave", "chat", "disband"
+            "color", "promote", "demote", "transfer", "kick", "leave", "chat", "disband"
     );
 
     private final MGXAccessBridge plugin;
@@ -61,6 +64,10 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 case "info" -> info(player, remainder(args, infoAlias ? 0 : 1));
                 case "list" -> list(player, args.length >= 2 ? args[1] : "1");
                 case "rename", "name" -> rename(player, remainder(args, 1));
+                case "color", "colour", "theme" -> color(
+                        player,
+                        argument(args, 1, "Usage: /clans color <color|#RRGGBB>")
+                );
                 case "promote" -> setStaff(player, argument(args, 1, "Usage: /clans promote <player>"), true);
                 case "demote" -> setStaff(player, argument(args, 1, "Usage: /clans demote <player>"), false);
                 case "transfer", "leader" -> transfer(player, argument(args, 1, "Usage: /clans transfer <player>"));
@@ -128,17 +135,21 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 .filter(entry -> !entry.getKey().equals(clan.leader()) && !clan.staff().contains(entry.getKey()))
                 .map(java.util.Map.Entry::getValue).sorted().toList();
         long online = clan.members().keySet().stream().filter(id -> Bukkit.getPlayer(id) != null).count();
-        player.sendMessage(divider());
-        player.sendMessage(Component.text("        [" + clan.name() + "]", ORANGE, TextDecoration.BOLD));
+        TextColor theme = clanColor(clan);
+        player.sendMessage(divider(theme));
+        player.sendMessage(Component.text("        [" + clan.name() + "]", theme, TextDecoration.BOLD));
         player.sendMessage(Component.text(" "));
         player.sendMessage(label("LEADER", leader));
         player.sendMessage(label("ONLINE", online + "/" + clan.members().size()));
         player.sendMessage(label("ROSTER", clan.members().size() + "/" + ClanStore.MAX_MEMBERS));
-        player.sendMessage(label("FRIENDLY FIRE", "Always disabled"));
+        player.sendMessage(label(
+                "THEME",
+                Component.text(String.format("#%06X", clan.themeColor()), theme)
+        ));
         player.sendMessage(Component.text(" "));
         player.sendMessage(label("STAFF", staff.isEmpty() ? "None" : String.join(", ", staff)));
         player.sendMessage(label("MEMBERS", members.isEmpty() ? "None" : String.join(", ", members)));
-        player.sendMessage(divider());
+        player.sendMessage(divider(theme));
     }
 
     private void list(Player player, String requestedPage) {
@@ -157,7 +168,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 "Directory " + page + "/" + pages, NamedTextColor.WHITE, TextDecoration.BOLD
         )));
         clans.stream().skip((long) (page - 1) * 8).limit(8).forEach(clan ->
-                player.sendMessage(Component.text("  [" + clan.name() + "]", ORANGE, TextDecoration.BOLD)
+                player.sendMessage(Component.text("  [" + clan.name() + "]", clanColor(clan), TextDecoration.BOLD)
                         .append(Component.text("  " + clan.members().size() + " members", NamedTextColor.GRAY)))
         );
         if (clans.isEmpty()) {
@@ -172,6 +183,17 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         ClanStore.ClanView clan = store.rename(player.getUniqueId(), name);
         plugin.refreshClanAppearance();
         broadcast(clan, Component.text("The clan is now named " + clan.name() + ".", LIGHT_ORANGE));
+    }
+
+    private void color(Player player, String requestedColor) throws IOException {
+        ClanStore.ClanView clan = store.setThemeColor(
+                player.getUniqueId(),
+                resolveThemeColor(requestedColor)
+        );
+        plugin.refreshClanAppearance();
+        TextColor theme = clanColor(clan);
+        broadcast(clan, Component.text("Clan theme changed to ", NamedTextColor.GRAY)
+                .append(Component.text(String.format("#%06X", clan.themeColor()), theme)));
     }
 
     private void setStaff(Player player, String targetName, boolean promoted) throws IOException {
@@ -220,8 +242,9 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
             throw new ClanStore.ClanException("Clan chat messages can contain at most 160 characters.");
         }
         ClanStore.ClanView clan = ownClan(player);
-        Component chat = Component.text("[" + clan.name() + "] CLAN ", ORANGE, TextDecoration.BOLD)
-                .append(Component.text(player.getName() + " » ", LIGHT_ORANGE))
+        TextColor theme = clanColor(clan);
+        Component chat = Component.text("[" + clan.name() + "] CLAN ", theme, TextDecoration.BOLD)
+                .append(Component.text(player.getName() + " » ", theme))
                 .append(Component.text(message, NamedTextColor.WHITE));
         for (UUID memberId : clan.members().keySet()) {
             Player online = Bukkit.getPlayer(memberId);
@@ -255,16 +278,20 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         player.sendMessage(help("/clans accept | decline", "Answer your latest invite"));
         player.sendMessage(help("/clans info [name] | list [page]", "Browse clans"));
         player.sendMessage(help("/clans rename <name>", "Change your clan name"));
+        player.sendMessage(help("/clans color <color|#hex>", "Change your clan theme"));
         player.sendMessage(help("/clans promote | demote <player>", "Manage clan staff"));
         player.sendMessage(help("/clans transfer <player>", "Transfer leadership"));
         player.sendMessage(help("/clans kick <player> | leave", "Manage membership"));
         player.sendMessage(help("/clans chat <message>", "Message online clan members"));
         player.sendMessage(help("/clans disband confirm", "Permanently remove your clan"));
-        player.sendMessage(Component.text("  Friendly fire is always disabled.", NamedTextColor.GRAY));
+        player.sendMessage(Component.text(
+                "  Clan protection: members of the same clan cannot damage one another.",
+                NamedTextColor.GRAY
+        ));
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    public void onFriendlyFire(EntityDamageByEntityEvent event) {
+    public void onClanDamage(EntityDamageByEntityEvent event) {
         Player attacker = attackingPlayer(event);
         if (attacker == null || !(event.getEntity() instanceof Player victim)) {
             return;
@@ -282,7 +309,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     public void onPublicChat(AsyncChatEvent event) {
         store.clanOf(event.getPlayer().getUniqueId()).ifPresent(clan ->
                 event.renderer((source, sourceDisplayName, message, viewer) ->
-                        Component.text("[" + clan.name() + "] ", ORANGE, TextDecoration.BOLD)
+                        Component.text("[" + clan.name() + "] ", clanColor(clan), TextDecoration.BOLD)
                                 .append(sourceDisplayName)
                                 .append(Component.text(" » ", NamedTextColor.DARK_GRAY))
                                 .append(message))
@@ -323,6 +350,9 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         }
         if (action.equals("info")) {
             return partial(args[1], store.list().stream().map(ClanStore.ClanView::name).toList());
+        }
+        if (List.of("color", "colour", "theme").contains(action)) {
+            return partial(args[1], THEME_COLORS);
         }
         if (action.equals("disband")) {
             return partial(args[1], List.of("confirm"));
@@ -378,13 +408,37 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 .append(Component.text(value, NamedTextColor.WHITE));
     }
 
+    private static Component label(String label, Component value) {
+        return Component.text(label + ": ", NamedTextColor.GRAY).append(value);
+    }
+
     private static Component help(String command, String description) {
         return Component.text("  " + command, LIGHT_ORANGE)
                 .append(Component.text(" — " + description, NamedTextColor.GRAY));
     }
 
-    private static Component divider() {
-        return Component.text("━━━━━━━━━━━━━━━━━━━━━━━━", ORANGE);
+    private static Component divider(TextColor color) {
+        return Component.text("━━━━━━━━━━━━━━━━━━━━━━━━", color);
+    }
+
+    private static TextColor clanColor(ClanStore.ClanView clan) {
+        return TextColor.color(clan.themeColor());
+    }
+
+    private static String resolveThemeColor(String requestedColor) {
+        return switch (requestedColor.toLowerCase(Locale.ROOT)) {
+            case "orange" -> "FF9900";
+            case "gold" -> "FFAA00";
+            case "yellow" -> "FFFF55";
+            case "red" -> "FF5555";
+            case "pink" -> "FF55FF";
+            case "purple" -> "AA00AA";
+            case "blue" -> "5555FF";
+            case "aqua" -> "55FFFF";
+            case "green" -> "55FF55";
+            case "white" -> "FFFFFF";
+            default -> requestedColor;
+        };
     }
 
     private static String argument(String[] args, int index, String error) {

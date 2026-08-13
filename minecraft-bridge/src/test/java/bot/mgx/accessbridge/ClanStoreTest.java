@@ -28,6 +28,7 @@ class ClanStoreTest {
         ClanStore.ClanView joined = store.accept(member, "Member", 1_001);
         store.setStaff(leader, member, true);
         store.rename(leader, "ORANGE");
+        store.setThemeColor(leader, "12ABEF");
 
         ClanStore reloaded = new ClanStore(path);
         ClanStore.ClanView clan = reloaded.clanOf(member).orElseThrow();
@@ -36,7 +37,7 @@ class ClanStoreTest {
         assertEquals("ORANGE", clan.name());
         assertEquals(2, clan.members().size());
         assertTrue(clan.staff().contains(member));
-        assertFalse(clan.friendlyFire());
+        assertEquals(0x12ABEF, clan.themeColor());
     }
 
     @Test
@@ -56,6 +57,23 @@ class ClanStoreTest {
         assertEquals(member, transferred.leader());
         assertTrue(transferred.staff().contains(leader));
         assertFalse(transferred.staff().contains(member));
+    }
+
+    @Test
+    void onlyLeaderCanSetAValidThemeColor() throws Exception {
+        ClanStore store = new ClanStore(temporaryDirectory.resolve("clans.json"));
+        UUID leader = UUID.randomUUID();
+        UUID member = UUID.randomUUID();
+        store.create(leader, "Leader", "EMBER");
+        store.invite(leader, member, "Member", 1_000);
+        store.accept(member, "Member", 1_001);
+
+        assertThrows(ClanStore.ClanException.class, () -> store.setThemeColor(member, "#55FFFF"));
+        assertThrows(ClanStore.ClanException.class, () -> store.setThemeColor(leader, "not-a-color"));
+
+        ClanStore.ClanView updated = store.setThemeColor(leader, "#55FFFF");
+
+        assertEquals(0x55FFFF, updated.themeColor());
     }
 
     @Test
@@ -151,7 +169,9 @@ class ClanStoreTest {
 
         ClanStore store = new ClanStore(path);
 
-        assertEquals("LUCKY", store.clanOf(leader).orElseThrow().name());
+        ClanStore.ClanView migrated = store.clanOf(leader).orElseThrow();
+        assertEquals("LUCKY", migrated.name());
+        assertEquals(ClanStore.DEFAULT_THEME_COLOR, migrated.themeColor());
         assertFalse(Files.readString(path).contains("\"tag\""));
     }
 }
