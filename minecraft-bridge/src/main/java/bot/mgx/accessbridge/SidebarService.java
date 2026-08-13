@@ -17,6 +17,8 @@ import org.bukkit.scoreboard.Team;
 import org.geysermc.floodgate.api.FloodgateApi;
 import org.geysermc.floodgate.api.player.FloodgatePlayer;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -29,10 +31,10 @@ import java.util.UUID;
 
 final class SidebarService {
     private static final int MAX_LINES = 15;
-    private static final int SIDEBAR_WIDTH = 18;
+    private static final int SIDEBAR_WIDTH = 22;
+    private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ofPattern("MM/dd/yy");
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private static final TextColor GOLD = TextColor.color(0xFFB52E);
-    private static final TextColor LIGHT_ORANGE = TextColor.color(0xFFC266);
     private static final ChatColor[] ENTRY_COLOURS = {
             ChatColor.BLACK, ChatColor.DARK_BLUE, ChatColor.DARK_GREEN, ChatColor.DARK_AQUA,
             ChatColor.DARK_RED, ChatColor.DARK_PURPLE, ChatColor.GOLD, ChatColor.GRAY,
@@ -114,40 +116,35 @@ final class SidebarService {
     private List<Component> lines(Player player) {
         PlayerProfile profile = perks.profile(player.getUniqueId());
         ArrayList<Component> lines = new ArrayList<>();
-        lines.add(Component.text("      SMP X", NamedTextColor.WHITE, TextDecoration.BOLD));
+        lines.add(centredComponent(
+                Component.text(DATE_FORMAT.format(LocalDate.now()), NamedTextColor.GRAY)
+        ));
         lines.add(Component.empty());
-        lines.add(sectionLine("PROFILE"));
+        lines.add(Component.text(" " + player.getName(), NamedTextColor.AQUA)
+                .append(Component.text(" (" + player.getPing() + "ms)", NamedTextColor.GRAY)));
         if (profile.hasRankLabel()) {
-            lines.add(valueLine(
-                    "Rank",
-                    profile.rankLabel(),
-                    TextColor.color(profile.rankColour())
-            ));
+            lines.add(statLine("Rank", profile.rankLabel(), TextColor.color(profile.rankColour())));
         }
-        lines.add(valueLine("Player", player.getName(), NamedTextColor.WHITE));
-        lines.add(valueLine("Level", String.valueOf(profile.level()), NamedTextColor.AQUA));
-        lines.add(valueLine("Hearts", "+" + profile.extraHearts(), NamedTextColor.RED));
-        if (profile.elite()) {
-            lines.add(valueLine("Power", "+5% damage", NamedTextColor.LIGHT_PURPLE));
-        }
-        clans.clanOf(player.getUniqueId()).ifPresent(clan ->
-                lines.add(valueLine("Clan", clan.name(), clanColor(clan)))
-        );
-        lines.add(Component.empty());
-        lines.add(sectionLine("STATS"));
-        lines.add(valueLine(
+        lines.add(statLine(
                 "Kills",
                 String.valueOf(player.getStatistic(Statistic.PLAYER_KILLS)),
-                NamedTextColor.RED
+                GOLD
         ));
-        lines.add(valueLine(
+        lines.add(statLine(
                 "Deaths",
                 String.valueOf(player.getStatistic(Statistic.DEATHS)),
-                NamedTextColor.GRAY
+                NamedTextColor.YELLOW
         ));
-        lines.add(valueLine("Ping", player.getPing() + "ms", pingColor(player.getPing())));
-        // A player holding a rank, elite power and a clan fills the sidebar, so the
-        // breathing room above the footer yields rather than pushing it off the board.
+        lines.add(statLine("Server Level", String.valueOf(profile.level()), NamedTextColor.GREEN));
+        lines.add(statLine("Extra Hearts", String.valueOf(profile.extraHearts()), NamedTextColor.GREEN));
+        if (profile.elite()) {
+            lines.add(statLine("Power", "+5% damage", NamedTextColor.LIGHT_PURPLE));
+        }
+        clans.clanOf(player.getUniqueId()).ifPresent(clan ->
+                lines.add(statLine("Clan", clan.name(), clanColor(clan)))
+        );
+        // A fully decorated player fills the sidebar, so the breathing room above
+        // the footer yields rather than pushing the footer off the board.
         if (lines.size() + 2 <= MAX_LINES) {
             lines.add(Component.empty());
         }
@@ -156,21 +153,24 @@ final class SidebarService {
     }
 
     /**
-     * Label stays quiet so the value carries the colour. Neither is bold: bold is
-     * reserved for the sidebar title and section headings.
+     * A muted marker, a white label and a coloured value. Nothing is bold: bold is
+     * reserved for the sidebar title so it still reads as the heading.
      */
-    private static Component valueLine(String label, String value, TextColor valueColor) {
-        return Component.text(" " + label, NamedTextColor.GRAY)
-                .append(Component.text("  ", NamedTextColor.DARK_GRAY))
+    private static Component statLine(String label, String value, TextColor valueColor) {
+        return Component.text(" » ", GOLD)
+                .append(Component.text(label + ": ", NamedTextColor.WHITE))
                 .append(Component.text(value, valueColor));
     }
 
-    private static Component sectionLine(String label) {
-        return Component.text(centred(label), ORANGE, TextDecoration.BOLD);
+    private Component footerLine() {
+        return Component.text(centred(footer), NamedTextColor.GRAY);
     }
 
-    private Component footerLine() {
-        return Component.text(centred(footer), GOLD);
+    private static Component centredComponent(Component text) {
+        String plain = net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
+                .plainText().serialize(text);
+        int padding = Math.max(0, (SIDEBAR_WIDTH - plain.length()) / 2);
+        return Component.text(" ".repeat(padding)).append(text);
     }
 
     /**
@@ -291,9 +291,7 @@ final class SidebarService {
 
         PlayerBoard(Player player) {
             Scoreboard created = plugin.getServer().getScoreboardManager().getNewScoreboard();
-            // The objective title is a single client-centred line, so "SMP X"
-            // is rendered as the first sidebar row to stack it underneath.
-            Component title = Component.text("MYSTERIOUS", ORANGE, TextDecoration.BOLD);
+            Component title = Component.text("Mysterious SMP X", ORANGE, TextDecoration.BOLD);
             Objective createdObjective = created.registerNewObjective("mgx", Criteria.DUMMY, title);
             createdObjective.setDisplaySlot(DisplaySlot.SIDEBAR);
             for (int index = 0; index < MAX_LINES; index++) {
