@@ -31,6 +31,7 @@ from minecraft_bot.presentation import (
     verification_embed,
     verified_embed,
     live_status_embed,
+    minecraft_head_url,
 )
 from minecraft_bot.settings import MinecraftSettings
 from minecraft_bot.setup import MinecraftSetupView
@@ -239,7 +240,7 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertIn("account was verified and your application has been sent", embed.description)
         self.assertNotIn("another DM", embed.description)
 
-    def test_review_embed_uses_applicant_avatar_and_claimed_identity(self):
+    def test_review_embed_uses_minecraft_skin_head_and_claimed_identity(self):
         application = MinecraftApplication(
             id=7,
             guild_id="1",
@@ -262,9 +263,30 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         )
         embed = review_embed(application, user=user)
 
-        self.assertEqual(embed.thumbnail.url, "https://cdn.discordapp.com/avatar.png")
+        self.assertEqual(
+            embed.thumbnail.url,
+            "https://mc-heads.net/head/00000000-0000-0000-0000-000000000000/128.png",
+        )
         self.assertEqual(embed.footer.icon_url, FOOTER_ICON_URL)
         self.assertTrue(any(field.name == "Claimed Username" for field in embed.fields))
+
+    def test_minecraft_skin_head_requires_a_verified_uuid(self):
+        application = MinecraftApplication(
+            id=8,
+            guild_id="1",
+            discord_user_id="123456789012345678",
+            edition=Edition.BEDROCK,
+            claimed_username="Bedrock Player",
+            normalized_username="bedrock player",
+            answers={"why": "Play", "about": "Build"},
+            status=ApplicationStatus.PENDING_VERIFICATION,
+            verification_expires_at=2_000_000_000,
+            created_at=1_999_999_400,
+            updated_at=1_999_999_400,
+        )
+
+        self.assertIsNone(minecraft_head_url(application))
+        self.assertIsNone(review_embed(application).thumbnail.url)
 
     def test_setup_dashboard_uses_components_v2(self):
         bot = SimpleNamespace(

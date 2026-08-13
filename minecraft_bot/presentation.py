@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+from urllib.parse import quote
 
 import discord
 
@@ -32,11 +33,19 @@ RULES_ATTACHMENT_URI = f"attachment://{RULES_FILENAME}"
 VERIFY_FILENAME = "mysterious_smp_x_verify.png"
 VERIFY_PATH = Path(__file__).resolve().parent.parent / "assets" / "minecraft" / VERIFY_FILENAME
 VERIFY_ATTACHMENT_URI = f"attachment://{VERIFY_FILENAME}"
+MINECRAFT_HEAD_URL = "https://mc-heads.net/head/{identifier}/128.png"
 
 
 def _safe(value: object, limit: int = 1000) -> str:
     text = discord.utils.escape_markdown(str(value or "Not provided"), as_needed=True)
     return text[:limit]
+
+
+def minecraft_head_url(application: MinecraftApplication) -> Optional[str]:
+    identifier = str(application.minecraft_uuid or "").strip()
+    if not identifier:
+        return None
+    return MINECRAFT_HEAD_URL.format(identifier=quote(identifier, safe=""))
 
 
 def brand_logo_file() -> discord.File:
@@ -238,11 +247,9 @@ def review_embed(
         )
     if application.status is ApplicationStatus.DENIED and application.applicant_reason:
         embed.add_field(name="Applicant-Facing Reason", value=_safe(application.applicant_reason), inline=False)
-    if user is not None:
-        avatar = getattr(user, "display_avatar", None)
-        avatar_url = getattr(avatar, "url", None)
-        if avatar_url:
-            embed.set_thumbnail(url=str(avatar_url))
+    skin_head = minecraft_head_url(application)
+    if skin_head:
+        embed.set_thumbnail(url=skin_head)
     embed.set_footer(text=BRAND_NAME, icon_url=FOOTER_ICON_URL)
     return embed
 
