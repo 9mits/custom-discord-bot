@@ -173,11 +173,9 @@ def build_embed(
     scope: str,
     board: str,
     heads: Optional[dict[str, str]] = None,
-    clan_emojis: Optional[dict[str, str]] = None,
 ) -> discord.Embed:
     """Renders one board. Scope is ``individual`` or ``clan``."""
     heads = heads or {}
-    clan_emojis = clan_emojis or {}
     label = TYPE_LABELS.get(board, board.replace("_", " ").title())
     scope_label = "Clans" if scope == "clan" else "Players"
 
@@ -193,11 +191,10 @@ def build_embed(
         for index, row in enumerate(rows):
             if scope == "clan":
                 name = str(row.get("clan") or "?")
-                icon = clan_emojis.get(name, "") if index < PODIUM else ""
                 members = row.get("members")
                 suffix = f" · {members} members" if members else ""
                 lines.append(
-                    f"{icon} **{_placement(index)}** — {name} — "
+                    f"**{_placement(index)}** — {name} — "
                     f"`{row.get('display', row.get('value', 0))}`{suffix}".strip()
                 )
             else:

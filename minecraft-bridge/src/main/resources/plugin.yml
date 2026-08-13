@@ -29,6 +29,10 @@ commands:
     description: Show or hide your linked Discord username in Minecraft.
     usage: /discordnames
     aliases: [discordname]
+  settings:
+    description: Change what you see in chat, nametags and the player list.
+    usage: /settings [clan_tags|discord_chat|discord_names]
+    aliases: [mysettings, prefs]
 permissions:
   mgx.clans:
     description: Allows players to use the clan system.

@@ -21,9 +21,11 @@ import java.util.UUID;
 final class ChatRelayService implements Listener {
     private static final TextColor BLURPLE = TextColor.color(0x5865F2);
     private final BridgeClient bridge;
+    private final PlayerSettingsStore settings;
 
-    ChatRelayService(BridgeClient bridge) {
+    ChatRelayService(BridgeClient bridge, PlayerSettingsStore settings) {
         this.bridge = bridge;
+        this.settings = settings;
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -77,6 +79,13 @@ final class ChatRelayService implements Listener {
                             .clickEvent(ClickEvent.openUrl(attachmentUrl))
                             .hoverEvent(HoverEvent.showText(Component.text("Open the Discord message"))));
         }
-        Bukkit.broadcast(rendered);
+        // Sent per player rather than broadcast so anyone who muted Discord chat
+        // simply never receives it.
+        for (Player online : Bukkit.getOnlinePlayers()) {
+            if (settings.isEnabled(online.getUniqueId(), PlayerSettingsStore.Setting.DISCORD_CHAT)) {
+                online.sendMessage(rendered);
+            }
+        }
+        Bukkit.getConsoleSender().sendMessage(rendered);
     }
 }

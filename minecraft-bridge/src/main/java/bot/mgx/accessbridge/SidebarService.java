@@ -49,6 +49,7 @@ final class SidebarService {
     private final PlayerPerkService perks;
     private final ClanStore clans;
     private final DiscordIdentityService identities;
+    private final PlayerSettingsStore settings;
     private final String footer;
     private final int updateTicks;
     private final Map<UUID, PlayerBoard> boards = new HashMap<>();
@@ -59,6 +60,7 @@ final class SidebarService {
             PlayerPerkService perks,
             ClanStore clans,
             DiscordIdentityService identities,
+            PlayerSettingsStore settings,
             String footer,
             int updateTicks
     ) {
@@ -66,6 +68,7 @@ final class SidebarService {
         this.perks = perks;
         this.clans = clans;
         this.identities = identities;
+        this.settings = settings;
         this.footer = footer;
         this.updateTicks = updateTicks;
     }
@@ -109,7 +112,7 @@ final class SidebarService {
 
     void refresh(Player player) {
         PlayerBoard board = boards.computeIfAbsent(player.getUniqueId(), ignored -> new PlayerBoard(player));
-        syncClanTeams(board.scoreboard);
+        syncClanTeams(board.scoreboard, player);
         board.update(lines(player));
         if (player.getScoreboard() != board.scoreboard) {
             player.setScoreboard(board.scoreboard);
@@ -284,7 +287,7 @@ final class SidebarService {
         return ClientPlatform.JAVA;
     }
 
-    private void syncClanTeams(Scoreboard scoreboard) {
+    private void syncClanTeams(Scoreboard scoreboard, Player viewer) {
         Map<String, Component> expected = new LinkedHashMap<>();
         Map<String, Set<String>> entries = new LinkedHashMap<>();
         for (Player online : plugin.getServer().getOnlinePlayers()) {
@@ -295,8 +298,14 @@ final class SidebarService {
             String teamName = teamNameFor(online, profile);
             // Nametags omit the Discord name: it is the tightest surface and the name
             // is already shown in chat and the player list.
+            // The scoreboard belongs to one viewer, so their clan-tag choice applies.
+            boolean showClan = settings.isEnabled(
+                    viewer.getUniqueId(), PlayerSettingsStore.Setting.CLAN_TAGS
+            );
             Component prefix = rankTag(profile)
-                    .append(clan.map(SidebarService::clanTag).orElse(Component.empty()));
+                    .append(showClan
+                            ? clan.map(SidebarService::clanTag).orElse(Component.empty())
+                            : Component.empty());
             expected.put(teamName, prefix);
             entries.computeIfAbsent(teamName, ignored -> new LinkedHashSet<>()).add(online.getName());
         }

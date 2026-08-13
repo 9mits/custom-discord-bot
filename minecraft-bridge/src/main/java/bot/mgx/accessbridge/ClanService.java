@@ -51,17 +51,20 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     private final ClanStore store;
     private final DiscordIdentityService identities;
     private final PlayerPerkService perks;
+    private final PlayerSettingsStore settings;
 
     ClanService(
             MGXAccessBridge plugin,
             ClanStore store,
             DiscordIdentityService identities,
-            PlayerPerkService perks
+            PlayerPerkService perks,
+            PlayerSettingsStore settings
     ) {
         this.plugin = plugin;
         this.store = store;
         this.identities = identities;
         this.perks = perks;
+        this.settings = settings;
     }
 
     @Override
@@ -368,8 +371,11 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         }
         var originalRenderer = event.renderer();
         event.renderer((source, sourceDisplayName, message, viewer) -> {
+            // Tags are the viewer's choice, so each player is rendered for separately.
+            boolean showClan = !(viewer instanceof Player watcher)
+                    || settings.isEnabled(watcher.getUniqueId(), PlayerSettingsStore.Setting.CLAN_TAGS);
             Component prefix = SidebarService.rankTag(profile);
-            if (clan.isPresent()) {
+            if (clan.isPresent() && showClan) {
                 prefix = prefix.append(clanTag(clan.get()));
             }
             prefix = prefix.append(identities.tag(event.getPlayer().getUniqueId()));

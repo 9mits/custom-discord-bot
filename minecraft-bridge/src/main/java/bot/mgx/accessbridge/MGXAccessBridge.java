@@ -44,6 +44,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private ChatRelayService chatRelayService;
     private LuckPermsService luckPermsService;
     private LeaderboardService leaderboardService;
+    private PlayerSettingsStore playerSettings;
 
     @Override
     public void onEnable() {
@@ -77,6 +78,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                     getDataFolder().toPath().resolve("verified-applications.json")
             );
             clanStore = new ClanStore(getDataFolder().toPath().resolve("clans.json"));
+            playerSettings = new PlayerSettingsStore(
+                    getDataFolder().toPath().resolve("player-settings.json")
+            );
             identityStore = new DiscordIdentityStore(
                     getDataFolder().toPath().resolve("discord-identities.json")
             );
@@ -89,20 +93,21 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         perkService = new PlayerPerkService();
         luckPermsService = LuckPermsService.createIfAvailable(this);
         identityService = new DiscordIdentityService(this, identityStore);
-        ClanService clanService = new ClanService(this, clanStore, identityService, perkService);
+        ClanService clanService = new ClanService(this, clanStore, identityService, perkService, playerSettings);
         GuideService guideService = new GuideService();
         sidebarService = new SidebarService(
                 this,
                 perkService,
                 clanStore,
                 identityService,
+                playerSettings,
                 bridgeConfig.scoreboardFooter(),
                 bridgeConfig.scoreboardUpdateTicks()
         );
         bridgeClient = new BridgeClient(
                 this, bridgeConfig, pending, processed, verificationEvents, verifiedApplications, networkExecutor
         );
-        chatRelayService = new ChatRelayService(bridgeClient);
+        chatRelayService = new ChatRelayService(bridgeClient, playerSettings);
         // Statistics live beside the main world, which is where the server writes them.
         PlayerStatsService statsService = new PlayerStatsService(
                 this,
@@ -125,7 +130,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 || getCommand("guide") == null
                 || getCommand("perks") == null
                 || getCommand("discord") == null
-                || getCommand("discordnames") == null) {
+                || getCommand("discordnames") == null
+                || getCommand("settings") == null) {
             getLogger().severe("A required Minecraft command is missing from plugin.yml.");
             getServer().getPluginManager().disablePlugin(this);
             return;
@@ -139,6 +145,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("perks").setExecutor(guideService);
         getCommand("discord").setExecutor(guideService);
         getCommand("discordnames").setExecutor(identityService);
+        PlayerSettingsService settingsService = new PlayerSettingsService(this, playerSettings);
+        getCommand("settings").setExecutor(settingsService);
+        getCommand("settings").setTabCompleter(settingsService);
         sidebarService.start();
         leaderboardService.start();
         bridgeClient.start();
