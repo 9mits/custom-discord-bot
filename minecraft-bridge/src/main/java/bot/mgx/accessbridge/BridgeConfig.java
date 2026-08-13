@@ -16,6 +16,7 @@ record BridgeConfig(
         int reconnectMaxSeconds,
         String scoreboardFooter,
         int scoreboardUpdateTicks,
+        int leaderboardRefreshTicks,
         boolean debug
 ) {
     private static final Set<String> LOOPBACK_HOSTS = Set.of("localhost", "127.0.0.1", "::1", "[::1]");
@@ -30,6 +31,9 @@ record BridgeConfig(
         int reconnectMax = config.getInt("reconnect-max-seconds", 60);
         String scoreboardFooter = config.getString("scoreboard.footer", "discord.gg/mgx").trim();
         int scoreboardUpdateTicks = config.getInt("scoreboard.update-ticks", 20);
+        // Minecraft statistics move slowly and each pass reads every player's file,
+        // so five minutes keeps the board live without hammering disk or Discord.
+        int leaderboardRefreshTicks = config.getInt("leaderboard.refresh-ticks", 6_000);
         boolean debug = config.getBoolean("debug", false);
 
         if (serverId.isEmpty() || serverId.length() > 64) {
@@ -71,6 +75,11 @@ record BridgeConfig(
         if (scoreboardFooter.isEmpty() || scoreboardFooter.length() > 32) {
             throw new IllegalArgumentException("scoreboard.footer must contain 1-32 characters");
         }
+        if (leaderboardRefreshTicks < 1_200 || leaderboardRefreshTicks > 72_000) {
+            throw new IllegalStateException(
+                    "leaderboard.refresh-ticks must be between 1200 (1m) and 72000 (1h)"
+            );
+        }
         if (scoreboardUpdateTicks < 10 || scoreboardUpdateTicks > 200) {
             throw new IllegalArgumentException("scoreboard.update-ticks must be between 10 and 200");
         }
@@ -84,6 +93,7 @@ record BridgeConfig(
                 reconnectMax,
                 scoreboardFooter,
                 scoreboardUpdateTicks,
+                leaderboardRefreshTicks,
                 debug
         );
     }

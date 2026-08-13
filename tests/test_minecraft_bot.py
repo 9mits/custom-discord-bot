@@ -1198,3 +1198,44 @@ class MinecraftConfigurationTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MinecraftLeaderboardTransportTests(unittest.IsolatedAsyncioTestCase):
+    """Drives the bridge's real message handler, not a copy of its logic."""
+
+    def _bridge(self):
+        from minecraft_bot.bridge import MinecraftBridgeServer
+
+        bridge = object.__new__(MinecraftBridgeServer)
+        bridge.latest_leaderboard = {}
+        bridge.leaderboard_handler = None
+        return bridge
+
+    @staticmethod
+    def _envelope(payload):
+        return {"type": "LEADERBOARD_SNAPSHOT", "payload": payload, "idempotency_key": "k"}
+
+    async def test_snapshot_is_cached_for_the_leaderboard_message(self):
+        bridge = self._bridge()
+        snapshot = {"individual": {"wealth": [{"username": "mits", "value": 10}]}, "clan": {}}
+
+        await bridge._handle_message(self._envelope(snapshot))
+
+        self.assertEqual(bridge.latest_leaderboard, snapshot)
+
+    async def test_newer_snapshot_replaces_the_older_one(self):
+        bridge = self._bridge()
+
+        await bridge._handle_message(self._envelope({"generated_at": 1}))
+        await bridge._handle_message(self._envelope({"generated_at": 2}))
+
+        self.assertEqual(bridge.latest_leaderboard["generated_at"], 2)
+
+    async def test_handler_is_notified_when_present(self):
+        bridge = self._bridge()
+        bridge.leaderboard_handler = AsyncMock()
+        snapshot = {"generated_at": 3}
+
+        await bridge._handle_message(self._envelope(snapshot))
+
+        bridge.leaderboard_handler.assert_awaited_once_with(snapshot)
