@@ -105,6 +105,7 @@ _KNOWN_IMPORT_KEYS = {
     "dm_modmail_panel_cooldown_minutes",
     "cr_whitelist_users", "cr_whitelist_roles", "cr_blacklist_users",
     "cr_blacklist_roles", "custom_role_settings", "role_cleanup",
+    "tags", "self_roles",
 }
 
 

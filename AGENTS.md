@@ -124,6 +124,7 @@ cogs/      one discord.py extension per domain
   cases.py / history.py / case_panel.py   case mgmt, history UI, transcript export
   moderation.py        execute_punishment, ModGroup commands, /punish
   roles.py / derole.py custom booster roles; bulk role removal
+  tags.py              server-defined tags + self-assignable role picker
   modmail.py           ticket relay, control/panel views
   automod.py           native + smart automod engine, /automod
   config.py            /setup, /config and settings views

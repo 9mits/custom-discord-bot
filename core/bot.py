@@ -39,6 +39,7 @@ EXTENSIONS = (
     "cogs.analytics",
     "cogs.admin",
     "cogs.control_plane",
+    "cogs.tags",
     "cogs.events",
     "cogs.event_leaderboard",
 )
@@ -166,8 +167,10 @@ class MGXBot(commands.Bot):
         from cogs.moderation import RevokeUndoButton
         from cogs.modmail import ModmailActionButton, ModmailPanelView
         from cogs.roles import AppealButton, AppealDenyButton, AppealRevokeButton
+        from cogs.tags import SelfRoleSelect
 
         self.add_dynamic_items(
+            SelfRoleSelect,
             OpenCaseButton,
             AppealButton,
             AppealRevokeButton,
