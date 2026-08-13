@@ -159,6 +159,13 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
         accounts = await self.data.list_accounts_for_user(42)
         self.assertEqual(len(accounts), 1)
         self.assertEqual(accounts[0]["current_username"], "testplayer")
+        sync_key = f"application:{application.id}:sync"
+        await self.data.mark_outbox_failed(sync_key, "late failure")
+        sync_rows = await self.data._connection().execute_fetchall(
+            "SELECT status FROM minecraft_bridge_outbox WHERE idempotency_key=?",
+            (sync_key,),
+        )
+        self.assertEqual(sync_rows[0]["status"], "CANCELLED")
 
     async def test_bedrock_verification_uses_real_name_and_xuid(self):
         application = await self.create_pending(
@@ -467,6 +474,21 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
         restored = await self.data.get_application_by_status_message(600)
         self.assertEqual(restored.id, application.id)
         self.assertEqual(restored.status_channel_id, "500")
+
+    async def test_pending_verification_is_not_selected_for_dm_card_recovery(self):
+        pending = await self.create_pending()
+        self.assertNotIn(pending.id, [item.id for item in await self.data.list_live_card_applications()])
+
+        verified, _changed = await self.data.record_verification(
+            application_id=pending.id,
+            edition=Edition.JAVA,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174066",
+            current_username="TestPlayer",
+            xuid=None,
+            event_idempotency_key="live-card-after-verification",
+            now=1010,
+        )
+        self.assertIn(verified.id, [item.id for item in await self.data.list_live_card_applications()])
 
     async def test_join_updates_renamed_account_by_uuid(self):
         application = await self.create_pending()

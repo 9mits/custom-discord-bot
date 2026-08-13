@@ -149,7 +149,9 @@ class RulesAgreementView(discord.ui.View):
 
     @discord.ui.button(label="I Agree", style=discord.ButtonStyle.success)
     async def agree(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
-        await interaction.response.send_modal(MinecraftApplicationModal())
+        await interaction.response.send_modal(MinecraftApplicationModal(
+            require_edition=not interaction.client.bridge.supports_auto_edition
+        ))
 
     @discord.ui.button(label="I Disagree", style=discord.ButtonStyle.secondary)
     async def disagree(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
@@ -246,9 +248,26 @@ class EditionSelectionView(discord.ui.View):
 
 
 class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Application"):
-    def __init__(self, fixed_edition: Edition | None = None) -> None:
+    def __init__(
+        self,
+        fixed_edition: Edition | None = None,
+        *,
+        require_edition: bool = False,
+    ) -> None:
         super().__init__(timeout=600, custom_id="minecraft:application:modal")
         self.fixed_edition = fixed_edition
+        self.edition = None
+        if fixed_edition is None and require_edition:
+            self.edition = discord.ui.Select(
+                custom_id="minecraft:application:edition",
+                placeholder="Choose Java or Bedrock",
+                min_values=1,
+                max_values=1,
+                options=[
+                    discord.SelectOption(label="Java", value=Edition.JAVA.value),
+                    discord.SelectOption(label="Bedrock", value=Edition.BEDROCK.value),
+                ],
+            )
         self.username = discord.ui.TextInput(
             label="Minecraft username or Xbox gamertag",
             placeholder="Enter the exact account name",
@@ -268,6 +287,8 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
             min_length=10,
             max_length=1000,
         )
+        if self.edition is not None:
+            self.add_item(discord.ui.Label(text="Minecraft edition", component=self.edition))
         self.add_item(self.username)
         self.add_item(self.why)
         self.add_item(self.about)
@@ -276,10 +297,13 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
         await interaction.response.defer(ephemeral=True, thinking=True)
         bot = interaction.client
         try:
+            edition = self.fixed_edition
+            if edition is None and self.edition is not None:
+                edition = Edition(self.edition.values[0])
             application = await bot.data.create_application(
                 guild_id=interaction.guild_id,
                 discord_user_id=interaction.user.id,
-                edition=self.fixed_edition,
+                edition=edition,
                 claimed_username=str(self.username),
                 answers={"why": str(self.why), "about": str(self.about)},
             )
@@ -402,16 +426,6 @@ class LiveApplicationView(discord.ui.View):
                 view=self,
             )
 
-    @discord.ui.button(label="Manage Account", style=discord.ButtonStyle.primary, custom_id="minecraft:live:manage")
-    async def manage(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
-        application = await self._application(interaction)
-        if application is not None:
-            await interaction.response.send_message(
-                **branded_send(await interaction.client.build_account_embed(interaction.user.id)),
-                view=AccountView(interaction.user.id),
-                ephemeral=True,
-            )
-
     @discord.ui.button(label="Get Help", style=discord.ButtonStyle.danger, custom_id="minecraft:live:help")
     async def help(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
         application = await self._application(interaction)
@@ -448,60 +462,6 @@ class AccountView(discord.ui.View):
             view=CancelPendingConfirmationView(interaction.user.id),
             ephemeral=True,
         )
-
-    @discord.ui.button(label="Unlink Java", style=discord.ButtonStyle.secondary)
-    async def unlink_java(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
-        await self._unlink_prompt(interaction, Edition.JAVA)
-
-    @discord.ui.button(label="Unlink Bedrock", style=discord.ButtonStyle.secondary)
-    async def unlink_bedrock(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
-        await self._unlink_prompt(interaction, Edition.BEDROCK)
-
-    async def _unlink_prompt(self, interaction: discord.Interaction, edition: Edition) -> None:
-        await interaction.response.send_message(
-            **branded_send(info_embed(
-                f"Unlink {edition.value.title()} Account?",
-                "> This removes the account link and its Minecraft access. This cannot be undone without verifying again.",
-            )),
-            view=SelfUnlinkConfirmationView(interaction.user.id, edition),
-            ephemeral=True,
-        )
-
-
-class SelfUnlinkConfirmationView(discord.ui.View):
-    def __init__(self, requester_id: int, edition: Edition) -> None:
-        super().__init__(timeout=60)
-        self.requester_id = int(requester_id)
-        self.edition = edition
-
-    @discord.ui.button(label="Confirm Unlink", style=discord.ButtonStyle.danger)
-    async def confirm(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
-        if interaction.user.id != self.requester_id:
-            await interaction.response.send_message("This confirmation belongs to another member.", ephemeral=True)
-            return
-        await interaction.response.defer()
-        account, applications, queued = await interaction.client.data.unlink_account(
-            interaction.user.id,
-            self.edition,
-            interaction.user.id,
-            "Self-service account unlink",
-        )
-        if account is None:
-            await interaction.edit_original_response(
-                **branded_edit(info_embed("Account Not Linked", f"> You do not have a linked {self.edition.value.title()} account.", error=True)),
-                view=None,
-            )
-            return
-        interaction.client.spawn_background_task(
-            interaction.client.finish_unlink(applications),
-            name=f"minecraft-self-unlink:{interaction.user.id}",
-        )
-        state = "Access removal is queued safely." if queued else "The account link was removed."
-        await interaction.edit_original_response(
-            **branded_edit(info_embed("Minecraft Account Unlinked", f"> {state}", success=True)),
-            view=None,
-        )
-
 
 class MinecraftControlAction(discord.ui.Button):
     def __init__(self, action: str, label: str, *, row: int = 0) -> None:

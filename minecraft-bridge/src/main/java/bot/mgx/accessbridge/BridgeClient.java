@@ -101,7 +101,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         this.authenticated = false;
         JsonObject hello = new JsonObject();
         hello.addProperty("server_id", config.serverId());
-        hello.addProperty("protocol_version", 1);
+        hello.addProperty("protocol_version", 2);
         sendRaw(protocol.create("HELLO", UUID.randomUUID().toString(), hello));
         webSocket.request(1);
     }

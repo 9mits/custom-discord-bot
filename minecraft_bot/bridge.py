@@ -19,6 +19,7 @@ from .security import MAX_CLOCK_SKEW_SECONDS, create_envelope, verify_envelope
 
 
 logger = logging.getLogger("MinecraftAccessBot.bridge")
+AUTO_EDITION_PROTOCOL_VERSION = 2
 
 VerificationHandler = Callable[..., Awaitable[None]]
 ActionResultHandler = Callable[[OutboxRecord, Optional[Any]], Awaitable[None]]
@@ -52,6 +53,7 @@ class MinecraftBridgeServer:
         self._sent_this_connection: dict[str, float] = {}
         self._last_heartbeat_at: Optional[float] = None
         self._connected_at: Optional[float] = None
+        self._peer_protocol_version = 1
 
     @property
     def connected(self) -> bool:
@@ -64,6 +66,10 @@ class MinecraftBridgeServer:
     @property
     def connected_at(self) -> Optional[float]:
         return self._connected_at
+
+    @property
+    def supports_auto_edition(self) -> bool:
+        return self.connected and self._peer_protocol_version >= AUTO_EDITION_PROTOCOL_VERSION
 
     async def start(self) -> None:
         ssl_context = None
@@ -144,6 +150,11 @@ class MinecraftBridgeServer:
                 logger.warning("Rejected bridge with unexpected server ID")
                 await socket.close(code=1008, message=b"Server ID mismatch")
                 return socket
+            try:
+                peer_protocol_version = max(1, int(payload.get("protocol_version", 1)))
+            except (TypeError, ValueError):
+                await socket.close(code=1008, message=b"Invalid protocol version")
+                return socket
 
             async with self._connection_lock:
                 previous = self._socket
@@ -153,11 +164,15 @@ class MinecraftBridgeServer:
                 self._sent_this_connection.clear()
                 self._connected_at = time.time()
                 self._last_heartbeat_at = time.time()
+                self._peer_protocol_version = peer_protocol_version
 
             logger.info("Minecraft bridge connected for server %s", self.config.server_id)
             await self._send(
                 "HELLO_ACK",
-                {"server_id": self.config.server_id, "protocol_version": 1},
+                {
+                    "server_id": self.config.server_id,
+                    "protocol_version": min(peer_protocol_version, AUTO_EDITION_PROTOCOL_VERSION),
+                },
                 idempotency_key=envelope["idempotency_key"],
             )
             await self.send_full_pending_sync()
@@ -189,6 +204,7 @@ class MinecraftBridgeServer:
                     self._socket = None
                     self._sent_this_connection.clear()
                     self._connected_at = None
+                    self._peer_protocol_version = 1
             logger.info("Minecraft bridge disconnected")
         return socket
 
@@ -297,7 +313,7 @@ class MinecraftBridgeServer:
             "applications": [
                 {
                     "application_id": application.id,
-                    "edition": "AUTO" if application.auto_detect_edition else application.edition.value,
+                    "edition": self._pending_edition(application),
                     "claimed_username": application.claimed_username,
                     "normalized_username": application.normalized_username,
                     "expires_at": application.verification_expires_at,
@@ -311,6 +327,27 @@ class MinecraftBridgeServer:
             idempotency_key=f"pending-sync:{secrets.token_hex(16)}",
         )
 
+    def _pending_edition(self, application) -> str:
+        if (
+            application.auto_detect_edition
+            and self._peer_protocol_version >= AUTO_EDITION_PROTOCOL_VERSION
+        ):
+            return "AUTO"
+        return application.edition.value
+
+    async def _action_payload(self, record: OutboxRecord) -> dict[str, Any]:
+        payload = dict(record.payload)
+        if (
+            record.action is BridgeAction.SYNC_PENDING
+            and payload.get("edition") == "AUTO"
+            and self._peer_protocol_version < AUTO_EDITION_PROTOCOL_VERSION
+            and record.application_id is not None
+        ):
+            application = await self.data.get_application(record.application_id)
+            if application is not None:
+                payload["edition"] = application.edition.value
+        return {"action": record.action.value, **payload}
+
     async def dispatch_outbox(self) -> None:
         if not self.connected:
             return
@@ -323,7 +360,7 @@ class MinecraftBridgeServer:
                     continue
                 await self._send(
                     "ACTION",
-                    {"action": record.action.value, **record.payload},
+                    await self._action_payload(record),
                     idempotency_key=record.idempotency_key,
                 )
                 sent_ids.append(record.id)

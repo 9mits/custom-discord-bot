@@ -779,6 +779,11 @@ class MinecraftDataManager:
                         current,
                     ),
                 )
+                await db.execute(
+                    "UPDATE minecraft_bridge_outbox SET status='CANCELLED', processed_at=? "
+                    "WHERE application_id=? AND action=? AND status IN ('PENDING', 'SENT', 'FAILED')",
+                    (current, application.id, BridgeAction.SYNC_PENDING.value),
+                )
                 await self._queue(
                     db,
                     BridgeAction.REMOVE_PENDING,
@@ -837,11 +842,22 @@ class MinecraftDataManager:
         return self._application(rows[0]) if rows else None
 
     async def list_live_card_applications(self, *, limit: int = 100) -> list[MinecraftApplication]:
-        placeholders = ",".join("?" for _ in ACTIVE_APPLICATION_STATUSES)
         rows = await self._connection().execute_fetchall(
-            f"SELECT * FROM minecraft_applications WHERE status IN ({placeholders}) "
+            "SELECT * FROM minecraft_applications WHERE status IN (?, ?) "
             "ORDER BY id DESC LIMIT ?",
-            (*(status.value for status in ACTIVE_APPLICATION_STATUSES), max(1, min(limit, 500))),
+            (
+                ApplicationStatus.PENDING_REVIEW.value,
+                ApplicationStatus.APPROVAL_QUEUED.value,
+                max(1, min(limit, 500)),
+            ),
+        )
+        return [self._application(row) for row in rows]
+
+    async def list_existing_live_cards(self, *, limit: int = 100) -> list[MinecraftApplication]:
+        rows = await self._connection().execute_fetchall(
+            "SELECT * FROM minecraft_applications WHERE status_message_id IS NOT NULL "
+            "ORDER BY id DESC LIMIT ?",
+            (max(1, min(limit, 500)),),
         )
         return [self._application(row) for row in rows]
 
@@ -1316,7 +1332,8 @@ class MinecraftDataManager:
         async with self._write_lock:
             db = self._connection()
             await db.execute(
-                "UPDATE minecraft_bridge_outbox SET status='FAILED', last_error=? WHERE idempotency_key=?",
+                "UPDATE minecraft_bridge_outbox SET status='FAILED', last_error=? WHERE idempotency_key=? "
+                "AND status IN ('PENDING', 'SENT')",
                 (str(error)[:1000], idempotency_key),
             )
             await db.commit()

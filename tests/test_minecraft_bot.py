@@ -29,6 +29,7 @@ from minecraft_bot.presentation import (
 from minecraft_bot.settings import MinecraftSettings
 from minecraft_bot.setup import MinecraftSetupView
 from minecraft_bot.ui import (
+    AccountView,
     ApplyButton,
     CancelPendingConfirmationView,
     MinecraftControlView,
@@ -101,12 +102,21 @@ class MinecraftBotPolicyTests(unittest.TestCase):
                 "minecraft:review:history",
             },
         )
-        self.assertFalse(hasattr(modal, "edition"))
+        self.assertIsNone(modal.edition)
+        compatibility_modal = MinecraftApplicationModal(require_edition=True)
+        self.assertEqual(
+            [option.value for option in compatibility_modal.edition.options],
+            ["JAVA", "BEDROCK"],
+        )
         live = LiveApplicationView()
         self.assertTrue(live.is_persistent())
         self.assertEqual(
             {item.custom_id for item in live.children},
-            {"minecraft:live:refresh", "minecraft:live:manage", "minecraft:live:help"},
+            {"minecraft:live:refresh", "minecraft:live:help"},
+        )
+        self.assertEqual(
+            {item.label for item in AccountView(123).children},
+            {"Refresh", "Cancel Verification"},
         )
         panel_custom_ids = {
             component["custom_id"]
@@ -272,6 +282,18 @@ class MinecraftBotPolicyTests(unittest.TestCase):
 
 
 class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_submission_does_not_dm_a_pending_verification_card(self):
+        bot = object.__new__(MinecraftAccessBot)
+        bot.log_application_submission = AsyncMock()
+        bot.update_live_card = AsyncMock()
+        bot.bridge = SimpleNamespace(connected=False)
+        application = SimpleNamespace(id=1, status=ApplicationStatus.PENDING_VERIFICATION)
+
+        await bot.finish_application_submission(application)
+
+        bot.log_application_submission.assert_awaited_once_with(application)
+        bot.update_live_card.assert_not_awaited()
+
     async def test_application_panel_has_no_public_banner_message(self):
         panel = SimpleNamespace(id=101)
         channel = SimpleNamespace(send=AsyncMock(return_value=panel))
@@ -403,6 +425,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         view = RulesAgreementView(99)
         agree_response = SimpleNamespace(send_modal=AsyncMock())
         agree_interaction = SimpleNamespace(
+            client=SimpleNamespace(bridge=SimpleNamespace(supports_auto_edition=True)),
             user=SimpleNamespace(id=99),
             response=agree_response,
         )
