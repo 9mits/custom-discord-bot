@@ -181,9 +181,11 @@ def build_embed(
     scope: str,
     board: str,
     heads: Optional[dict[str, str]] = None,
+    linked: Optional[dict[str, str]] = None,
 ) -> discord.Embed:
     """Renders one board. Scope is ``individual`` or ``clan``."""
     heads = heads or {}
+    linked = linked or {}
     label = TYPE_LABELS.get(board, board.replace("_", " ").title())
     scope_label = "Clans" if scope == "clan" else "Players"
 
@@ -205,10 +207,15 @@ def build_embed(
                 suffix = f" · {members} members" if members else ""
                 icon = ""
             else:
+                uuid = str(row.get("minecraft_uuid") or "")
                 name = str(row.get("username", "?"))
                 clan = row.get("clan")
                 suffix = f" · [{clan}]" if clan else ""
-                icon = heads.get(str(row.get("minecraft_uuid") or ""), "") if podium else ""
+                # Mentions render without pinging inside an embed description.
+                discord_id = linked.get(uuid)
+                if discord_id:
+                    suffix = f" · <@{discord_id}>{suffix}"
+                icon = heads.get(uuid, "") if podium else ""
             # The podium is bold and carries the head; the rest stay quiet beneath it.
             if podium:
                 body = f"**{_placement(index)} · {name}** — `{value}`{suffix}"
@@ -258,8 +265,11 @@ class BoardSelect(discord.ui.DynamicItem[discord.ui.Select], template=r"mgx_boar
         board = self.item.values[0]
         bot = interaction.client
         snapshot = getattr(getattr(bot, "bridge", None), "latest_leaderboard", {}) or {}
+        # Reuse the links the refresh loop already resolved rather than hitting the
+        # database again for every dropdown interaction.
+        linked = getattr(bot, "leaderboard_links", {}) or {}
         await interaction.response.send_message(
-            embed=build_embed(snapshot, scope=self.scope, board=board),
+            embed=build_embed(snapshot, scope=self.scope, board=board, linked=linked),
             ephemeral=True,
         )
 
@@ -271,11 +281,17 @@ class LeaderboardView(discord.ui.View):
         self.add_item(BoardSelect("clan"))
 
 
-def message_payload(snapshot: dict[str, Any], heads: dict[str, str]) -> dict[str, Any]:
+def message_payload(
+    snapshot: dict[str, Any],
+    heads: dict[str, str],
+    linked: Optional[dict[str, str]] = None,
+) -> dict[str, Any]:
     """The permanent message: both default boards side by side, plus the dropdowns."""
     return {
         "embeds": [
-            build_embed(snapshot, scope="individual", board=DEFAULT_TYPE, heads=heads),
+            build_embed(
+                snapshot, scope="individual", board=DEFAULT_TYPE, heads=heads, linked=linked
+            ),
             build_embed(snapshot, scope="clan", board=DEFAULT_TYPE),
         ],
         "attachments": [brand_mark_file()],

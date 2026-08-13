@@ -1313,3 +1313,27 @@ class MinecraftLeaderboardRenderTests(unittest.TestCase):
             self.assertIn("**", line)
         for line in lines[3:]:
             self.assertNotIn("**", line)
+
+    def test_linked_discord_account_is_mentioned_beside_the_username(self):
+        embed = self.leaderboard.build_embed(
+            self.snapshot,
+            scope="individual",
+            board="wealth",
+            linked={"u1": "12345"},
+        )
+        first = embed.description.splitlines()[0]
+
+        self.assertIn("mits", first)
+        self.assertIn("<@12345>", first)
+
+    def test_unlinked_players_show_no_mention(self):
+        embed = self.leaderboard.build_embed(
+            self.snapshot,
+            scope="individual",
+            board="wealth",
+            linked={"u1": "12345"},
+        )
+        second = embed.description.splitlines()[1]
+
+        self.assertIn("kai", second)
+        self.assertNotIn("<@", second)
