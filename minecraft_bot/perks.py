@@ -47,6 +47,7 @@ class MinecraftRank:
     group: str
     label: str
     colour: int
+    weight: int = 0
 
 
 def profile_for_role_ids(role_ids: Iterable[int]) -> MinecraftLevelProfile:

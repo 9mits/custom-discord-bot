@@ -754,6 +754,18 @@ class MinecraftAccessBot(commands.Bot):
         member_role_ids = [role.id for role in member_roles]
         profile = profile_for_role_ids(member_role_ids)
         rank = rank_for_role_ids(member_role_ids)
+        # Player-list ordering mirrors Discord hierarchy, so send the winning
+        # role's position as the sort weight.
+        rank_weight = 0
+        if rank is not None:
+            rank_weight = next(
+                (
+                    getattr(role, "position", 0)
+                    for role in member_roles
+                    if getattr(role, "id", None) in {r[0] for r in RANK_ROLES}
+                ),
+                0,
+            )
         return await self.bridge.send_player_profile(
             minecraft_uuid=minecraft_uuid,
             level=profile.level,
@@ -763,6 +775,7 @@ class MinecraftAccessBot(commands.Bot):
             rank_group=rank.group if rank else "",
             rank_label=rank.label if rank else "",
             rank_colour=rank.colour if rank else 0,
+            rank_weight=rank_weight,
         )
 
     async def on_member_update(self, before: discord.Member, after: discord.Member) -> None:

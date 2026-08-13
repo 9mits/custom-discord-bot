@@ -372,6 +372,7 @@ class MinecraftBridgeServer:
         rank_group: str = "",
         rank_label: str = "",
         rank_colour: int = 0,
+        rank_weight: int = 0,
     ) -> bool:
         """Apply an online player's Discord-derived perks on protocol v3 Paper."""
         if not self.supports_profile_sync:
@@ -389,6 +390,7 @@ class MinecraftBridgeServer:
             payload["rank_group"] = str(rank_group).strip()[:32]
             payload["rank_label"] = str(rank_label).strip()[:16]
             payload["rank_colour"] = max(0, min(int(rank_colour), 0xFFFFFF))
+            payload["rank_weight"] = max(0, min(int(rank_weight), 9_999))
         try:
             await self._send(
                 "ACTION",

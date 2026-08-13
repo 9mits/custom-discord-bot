@@ -114,52 +114,58 @@ final class SidebarService {
         PlayerProfile profile = perks.profile(player.getUniqueId());
         ArrayList<Component> lines = new ArrayList<>();
         lines.add(sectionLine("PROFILE"));
-        lines.add(Component.empty());
-        lines.add(valueLine("PLAYER", player.getName(), NamedTextColor.WHITE));
-        lines.add(valueLine("LEVEL", String.valueOf(profile.level()), NamedTextColor.AQUA));
-        lines.add(valueLine("HEARTS", "+" + profile.extraHearts(), NamedTextColor.RED));
+        if (profile.hasRankLabel()) {
+            lines.add(valueLine(
+                    "Rank",
+                    profile.rankLabel(),
+                    TextColor.color(profile.rankColour())
+            ));
+        }
+        lines.add(valueLine("Player", player.getName(), NamedTextColor.WHITE));
+        lines.add(valueLine("Level", String.valueOf(profile.level()), NamedTextColor.AQUA));
+        lines.add(valueLine("Hearts", "+" + profile.extraHearts(), NamedTextColor.RED));
         if (profile.elite()) {
-            lines.add(valueLine("POWER", "+5% damage", NamedTextColor.LIGHT_PURPLE));
+            lines.add(valueLine("Power", "+5% damage", NamedTextColor.LIGHT_PURPLE));
         }
         clans.clanOf(player.getUniqueId()).ifPresent(clan ->
-                lines.add(valueLine("CLAN", "[" + clan.name() + "]", clanColor(clan)))
+                lines.add(valueLine("Clan", clan.name(), clanColor(clan)))
         );
         lines.add(Component.empty());
         lines.add(sectionLine("STATS"));
-        lines.add(Component.empty());
         lines.add(valueLine(
-                "KILLS",
+                "Kills",
                 String.valueOf(player.getStatistic(Statistic.PLAYER_KILLS)),
                 NamedTextColor.RED
         ));
         lines.add(valueLine(
-                "DEATHS",
+                "Deaths",
                 String.valueOf(player.getStatistic(Statistic.DEATHS)),
                 NamedTextColor.GRAY
         ));
-        lines.add(valueLine("PING", player.getPing() + "ms", pingColor(player.getPing())));
+        lines.add(valueLine("Ping", player.getPing() + "ms", pingColor(player.getPing())));
         lines.add(Component.empty());
         lines.add(footerLine());
         return lines;
     }
 
+    /**
+     * Label stays quiet so the value carries the colour. Neither is bold: bold is
+     * reserved for the sidebar title and section headings.
+     */
     private static Component valueLine(String label, String value, TextColor valueColor) {
-        return Component.text("» ", ORANGE, TextDecoration.BOLD)
-                .append(Component.text(label, LIGHT_ORANGE, TextDecoration.BOLD))
+        return Component.text(" " + label, NamedTextColor.GRAY)
                 .append(Component.text("  ", NamedTextColor.DARK_GRAY))
                 .append(Component.text(value, valueColor));
     }
 
     private static Component sectionLine(String label) {
-        return Component.text("━━ ", NamedTextColor.DARK_GRAY)
-                .append(Component.text(label, ORANGE, TextDecoration.BOLD))
-                .append(Component.text(" ━━━", NamedTextColor.DARK_GRAY));
+        return Component.text(label, ORANGE, TextDecoration.BOLD)
+                .append(Component.text("  ", NamedTextColor.DARK_GRAY))
+                .append(Component.text("─────────", NamedTextColor.DARK_GRAY));
     }
 
     private Component footerLine() {
-        return Component.text("• ", ORANGE)
-                .append(Component.text(footer, GOLD, TextDecoration.BOLD))
-                .append(Component.text(" •", ORANGE));
+        return Component.text(" " + footer, GOLD);
     }
 
     private void updateTabName(Player player) {
@@ -173,12 +179,12 @@ final class SidebarService {
         rendered = rendered
                 .append(identities.tag(player.getUniqueId()))
                 .append(Component.text(player.getName(), NamedTextColor.WHITE))
-                .append(Component.text("  │  ", NamedTextColor.DARK_GRAY))
-                .append(Component.text("LVL " + profile.level(), NamedTextColor.AQUA))
-                .append(Component.text("  •  ", NamedTextColor.DARK_GRAY))
+                .append(divider())
+                .append(Component.text("Lv" + profile.level(), NamedTextColor.AQUA))
+                .append(divider())
                 .append(Component.text(platform.edition(), editionColor(platform)))
-                .append(Component.text("/" + platform.device(), NamedTextColor.GRAY))
-                .append(Component.text("  •  ", NamedTextColor.DARK_GRAY))
+                .append(Component.text("·" + platform.device(), NamedTextColor.GRAY))
+                .append(divider())
                 .append(Component.text(player.getPing() + "ms", pingColor(player.getPing())));
         player.playerListName(rendered);
     }
@@ -186,20 +192,27 @@ final class SidebarService {
     private void updateTabHeaderAndFooter(Player player) {
         int online = plugin.getServer().getOnlinePlayers().size();
         Component header = Component.empty()
+                .append(rule())
+                .append(Component.newline())
                 .append(Component.text("MYSTERIOUS", ORANGE, TextDecoration.BOLD))
                 .append(Component.text(" SMP X", GOLD, TextDecoration.BOLD))
                 .append(Component.newline())
-                .append(Component.text("ONLINE  ", ORANGE, TextDecoration.BOLD))
+                .append(Component.text("Online ", NamedTextColor.GRAY))
                 .append(Component.text(
                         online + "/" + plugin.getServer().getMaxPlayers(),
                         NamedTextColor.WHITE
-                ));
-        Component footerComponent = Component.empty()
-                .append(Component.text("/guide", GOLD, TextDecoration.BOLD))
-                .append(Component.text(" for server guide", NamedTextColor.GRAY))
+                ))
+                .append(divider())
+                .append(Component.text("TPS ", NamedTextColor.GRAY))
+                .append(tpsValue())
                 .append(Component.newline())
-                .append(Component.text("discord.gg/mgx", ORANGE, TextDecoration.BOLD))
-                .append(Component.text(" for support", NamedTextColor.GRAY));
+                .append(rule());
+        Component footerComponent = Component.empty()
+                .append(rule())
+                .append(Component.newline())
+                .append(Component.text("/guide", GOLD))
+                .append(divider())
+                .append(Component.text("discord.gg/mgx", ORANGE));
         player.sendPlayerListHeaderAndFooter(header, footerComponent);
     }
 
@@ -225,10 +238,8 @@ final class SidebarService {
             Optional<ClanStore.ClanView> clan = clans.clanOf(online.getUniqueId());
             Optional<String> discordUsername = identities.visibleUsername(online.getUniqueId());
             PlayerProfile profile = perks.profile(online.getUniqueId());
-            if (clan.isEmpty() && discordUsername.isEmpty() && !profile.hasRankLabel()) {
-                continue;
-            }
-            String teamName = "mgxp_" + online.getUniqueId().toString().replace("-", "").substring(0, 11);
+            // Everyone gets a team now: it is what orders the player list.
+            String teamName = teamNameFor(online, profile);
             // Nametags omit the Discord name: it is the tightest surface and the name
             // is already shown in chat and the player list.
             Component prefix = rankTag(profile)
@@ -237,7 +248,8 @@ final class SidebarService {
             entries.computeIfAbsent(teamName, ignored -> new LinkedHashSet<>()).add(online.getName());
         }
         for (Team team : new ArrayList<>(scoreboard.getTeams())) {
-            if ((team.getName().startsWith("mgxc_") || team.getName().startsWith("mgxp_"))
+            if (team.getName().startsWith("mgx")
+                    && !team.getName().startsWith("line_")
                     && !expected.containsKey(team.getName())) {
                 team.unregister();
             }
@@ -305,6 +317,38 @@ final class SidebarService {
 
     private static Component clanTag(ClanStore.ClanView clan) {
         return Component.text("[" + clan.name() + "] ", clanColor(clan), TextDecoration.BOLD);
+    }
+
+    private static Component divider() {
+        return Component.text("  │  ", NamedTextColor.DARK_GRAY);
+    }
+
+    private static Component rule() {
+        return Component.text("──────────────────────────────", NamedTextColor.DARK_GRAY);
+    }
+
+    private Component tpsValue() {
+        double tps = Math.min(plugin.getServer().getTPS()[0], 20.0);
+        TextColor colour = NamedTextColor.GREEN;
+        if (tps < 18.0) {
+            colour = NamedTextColor.YELLOW;
+        }
+        if (tps < 15.0) {
+            colour = NamedTextColor.RED;
+        }
+        return Component.text(String.format("%.1f", tps), colour);
+    }
+
+    /**
+     * Player-list order is decided by team name, so rows are keyed on the rank
+     * weight the bot derived from Discord role position. Higher weight sorts
+     * first; unranked players fall to the bottom. Team names are capped at 16
+     * characters, which this key just fits.
+     */
+    private static String teamNameFor(Player player, PlayerProfile profile) {
+        int inverted = Math.max(0, 9_999 - profile.rankWeight());
+        return "mgx" + String.format("%04d", inverted)
+                + player.getUniqueId().toString().replace("-", "").substring(0, 9);
     }
 
     static Component rankTag(PlayerProfile profile) {
