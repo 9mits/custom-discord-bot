@@ -84,7 +84,7 @@ class ApplyButton(discord.ui.Button):
                     **branded_send(
                         info_embed(
                             "Application Already Active",
-                            f"> Application `#{active.id}` is currently **"
+                            "> Your application is currently **"
                             f"{active.status.value.replace('_', ' ').title()}**.\n\n"
                             "It can no longer be cancelled by the applicant. Staff aim to send a decision within **24 hours**.",
                         )
