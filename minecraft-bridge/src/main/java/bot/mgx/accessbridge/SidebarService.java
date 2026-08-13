@@ -40,7 +40,6 @@ final class SidebarService {
      */
     private static final Key BRAND_FONT = Key.key("minecraft", "mgx");
     private static final String LOGO_LARGE = "\uE000";
-    private static final String LOGO_SMALL = "\uE001";
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private static final TextColor GOLD = TextColor.color(0xFFB52E);
     private static final ChatColor[] ENTRY_COLOURS = {
@@ -213,10 +212,15 @@ final class SidebarService {
 
     private void updateTabHeaderAndFooter(Player player) {
         int online = plugin.getServer().getOnlinePlayers().size();
+        // The wordmark glyph is drawn well above its baseline, so it needs more
+        // clearance above than below to avoid crowding whatever sits around it.
         Component header = Component.empty()
                 .append(Component.newline())
                 .append(Component.newline())
+                .append(Component.newline())
+                .append(Component.newline())
                 .append(Component.text(LOGO_LARGE).font(BRAND_FONT))
+                .append(Component.newline())
                 .append(Component.newline())
                 .append(Component.newline())
                 .append(Component.text("Online ", NamedTextColor.GRAY))
@@ -300,7 +304,10 @@ final class SidebarService {
 
         PlayerBoard(Player player) {
             Scoreboard created = plugin.getServer().getScoreboardManager().getNewScoreboard();
-            Component title = Component.text(LOGO_SMALL).font(BRAND_FONT);
+            // The sidebar title is a single short line; the wordmark reads as
+            // cramped at that size, so this stays text and the logo lives in the
+            // player-list header where it has room.
+            Component title = Component.text("Mysterious SMP X", ORANGE, TextDecoration.BOLD);
             Objective createdObjective = created.registerNewObjective("mgx", Criteria.DUMMY, title);
             createdObjective.setDisplaySlot(DisplaySlot.SIDEBAR);
             for (int index = 0; index < MAX_LINES; index++) {
