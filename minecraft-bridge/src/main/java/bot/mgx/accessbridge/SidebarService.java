@@ -131,8 +131,9 @@ final class SidebarService {
                 Component.text(DATE_FORMAT.format(LocalDate.now()), NamedTextColor.GRAY)
         ));
         lines.add(Component.empty());
-        lines.add(Component.text(" " + player.getName(), NamedTextColor.AQUA)
-                .append(Component.text(" (" + player.getPing() + "ms)", NamedTextColor.GRAY)));
+        lines.add(Component.text(" " + player.getName(), NamedTextColor.AQUA, TextDecoration.BOLD)
+                .append(Component.text(" (" + player.getPing() + "ms)", NamedTextColor.GRAY)
+                        .decoration(TextDecoration.BOLD, false)));
         if (profile.hasRankLabel()) {
             lines.add(statLine("Rank", profile.rankLabel(), TextColor.color(profile.rankColour())));
         }
@@ -170,11 +171,11 @@ final class SidebarService {
     private static Component statLine(String label, String value, TextColor valueColor) {
         return Component.text(" » ", GOLD)
                 .append(Component.text(label + ": ", NamedTextColor.WHITE))
-                .append(Component.text(value, valueColor));
+                .append(Component.text(value, valueColor, TextDecoration.BOLD));
     }
 
     private Component footerLine() {
-        return Component.text(centred(footer), NamedTextColor.GRAY);
+        return Component.text(centred(footer), ORANGE, TextDecoration.BOLD);
     }
 
     private static Component centredComponent(Component text) {
