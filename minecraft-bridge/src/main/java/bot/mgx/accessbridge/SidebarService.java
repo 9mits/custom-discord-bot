@@ -30,7 +30,6 @@ import java.util.UUID;
 
 final class SidebarService {
     private static final int MAX_LINES = 15;
-    private static final int SIDEBAR_WIDTH = 22;
     /**
      * Glyphs supplied by the optional Mysterious SMP X resource pack. Players who
      * decline the pack see the wordmark fall back to plain text instead.
@@ -119,50 +118,87 @@ final class SidebarService {
 
     private List<Component> lines(Player player) {
         PlayerProfile profile = perks.profile(player.getUniqueId());
-        ArrayList<Component> lines = new ArrayList<>();
-        lines.add(Component.empty());
-        lines.add(Component.text(" " + player.getName(), NamedTextColor.AQUA, TextDecoration.BOLD)
-                .append(Component.text(" (" + player.getPing() + "ms)", NamedTextColor.GRAY)
-                        .decoration(TextDecoration.BOLD, false)));
-        lines.add(Component.empty());
 
-        lines.add(sectionLine("PROFILE"));
+        // Build the stat rows first: their widest line decides what "centred" means
+        // for the headings, the wordmark tail and the footer.
+        List<Row> rows = new ArrayList<>();
+        rows.add(new Row("PROFILE", null, null));
         if (profile.hasRankLabel()) {
-            lines.add(statLine("Rank", profile.rankLabel(), TextColor.color(profile.rankColour())));
+            rows.add(new Row("Rank", profile.rankLabel(), TextColor.color(profile.rankColour())));
         }
-        lines.add(statLine("Server Level", String.valueOf(profile.level()), NamedTextColor.GREEN));
-        lines.add(statLine("Extra Hearts", String.valueOf(profile.extraHearts()), NamedTextColor.GREEN));
+        rows.add(new Row("Server Level", String.valueOf(profile.level()), NamedTextColor.GREEN));
+        rows.add(new Row("Extra Hearts", String.valueOf(profile.extraHearts()), NamedTextColor.GREEN));
         if (profile.elite()) {
-            lines.add(statLine("Power", "+5% damage", NamedTextColor.LIGHT_PURPLE));
+            rows.add(new Row("Power", "+5% damage", NamedTextColor.LIGHT_PURPLE));
         }
-        clans.clanOf(player.getUniqueId()).ifPresent(clan ->
-                lines.add(statLine("Clan", clan.name(), clanColor(clan)))
-        );
-        lines.add(Component.empty());
-
-        lines.add(sectionLine("STATS"));
-        lines.add(statLine(
+        clans.clanOf(player.getUniqueId())
+                .ifPresent(clan -> rows.add(new Row("Clan", clan.name(), clanColor(clan))));
+        rows.add(new Row("STATS", null, null));
+        rows.add(new Row(
                 "Kills",
                 String.valueOf(player.getStatistic(Statistic.PLAYER_KILLS)),
                 GOLD
         ));
-        lines.add(statLine(
+        rows.add(new Row(
                 "Deaths",
                 String.valueOf(player.getStatistic(Statistic.DEATHS)),
                 NamedTextColor.YELLOW
         ));
+
+        String playerLine = " " + player.getName() + " (" + player.getPing() + "ms)";
+        int width = SidebarText.textWidth(playerLine, false);
+        for (Row row : rows) {
+            width = Math.max(width, row.width());
+        }
+
+        ArrayList<Component> lines = new ArrayList<>();
+        lines.add(Component.text(
+                SidebarText.centredToWidth("SMP X", width, true),
+                NamedTextColor.WHITE,
+                TextDecoration.BOLD
+        ));
+        lines.add(Component.empty());
+        lines.add(Component.text(" " + player.getName(), NamedTextColor.AQUA, TextDecoration.BOLD)
+                .append(Component.text(" (" + player.getPing() + "ms)", NamedTextColor.GRAY)
+                        .decoration(TextDecoration.BOLD, false)));
+        for (Row row : rows) {
+            if (row.isHeading()) {
+                lines.add(Component.empty());
+            }
+            lines.add(row.render(width));
+        }
 
         // A player with every extra fills all 15 rows, so the breathing room above
         // the footer yields rather than pushing the footer off the board.
         if (lines.size() + 2 <= MAX_LINES) {
             lines.add(Component.empty());
         }
-        lines.add(footerLine());
+        lines.add(Component.text(SidebarText.centredToWidth(footer, width, true), ORANGE, TextDecoration.BOLD));
         return lines;
     }
 
-    private static Component sectionLine(String label) {
-        return Component.text(centred(label), ORANGE, TextDecoration.BOLD);
+    /** A heading (no value) or a stat row, able to report its own rendered width. */
+    private record Row(String label, String value, TextColor valueColour) {
+        boolean isHeading() {
+            return value == null;
+        }
+
+        int width() {
+            return isHeading()
+                    ? SidebarText.textWidth(label, true)
+                    : SidebarText.textWidth(" » " + label + ": ", false) + SidebarText.textWidth(value, true);
+        }
+
+        Component render(int boardWidth) {
+            if (isHeading()) {
+                return Component.text(
+                        SidebarText.centredToWidth(label, boardWidth, true),
+                        ORANGE,
+                        TextDecoration.BOLD
+                );
+            }
+            return statLine(label, value, valueColour);
+        }
     }
 
     /**
@@ -175,18 +211,10 @@ final class SidebarService {
                 .append(Component.text(value, valueColor, TextDecoration.BOLD));
     }
 
-    private Component footerLine() {
-        return Component.text(centred(footer), ORANGE, TextDecoration.BOLD);
-    }
-
     /**
      * Minecraft's font is proportional, so the sidebar cannot be centred exactly.
      * Padding against a nominal width lands close enough to read as centred.
      */
-    private static String centred(String text) {
-        int padding = Math.max(0, (SIDEBAR_WIDTH - text.length()) / 2);
-        return " ".repeat(padding) + text;
-    }
 
     private void updateTabName(Player player) {
         PlayerProfile profile = perks.profile(player.getUniqueId());
@@ -306,7 +334,7 @@ final class SidebarService {
             // The client centres the objective title for us, on both editions.
             // Sidebar rows are left-aligned, so anything stacked below would have to
             // be space-padded and would never line up; keep the wordmark on one line.
-            Component title = Component.text("MYSTERIOUS SMP X", ORANGE, TextDecoration.BOLD);
+            Component title = Component.text("MYSTERIOUS", ORANGE, TextDecoration.BOLD);
             Objective createdObjective = created.registerNewObjective("mgx", Criteria.DUMMY, title);
             createdObjective.setDisplaySlot(DisplaySlot.SIDEBAR);
             for (int index = 0; index < MAX_LINES; index++) {
