@@ -133,6 +133,56 @@ class ClanStoreTest {
     }
 
     @Test
+    void errorsDescribeThePlayersActualClanSituation() throws Exception {
+        ClanStore store = new ClanStore(temporaryDirectory.resolve("clans.json"));
+        UUID leader = UUID.randomUUID();
+        UUID otherLeader = UUID.randomUUID();
+        store.create(leader, "Leader", "EMBER");
+        store.create(otherLeader, "Other", "OTHER");
+
+        ClanStore.ClanException duplicateCreate = assertThrows(
+                ClanStore.ClanException.class,
+                () -> store.create(leader, "Leader", "THIRD")
+        );
+        ClanStore.ClanException duplicateAccept = assertThrows(
+                ClanStore.ClanException.class,
+                () -> store.accept(leader, "Leader", 1_000)
+        );
+        ClanStore.ClanException occupiedInvite = assertThrows(
+                ClanStore.ClanException.class,
+                () -> store.invite(otherLeader, leader, "Leader", 1_000)
+        );
+        ClanStore.ClanException selfKick = assertThrows(
+                ClanStore.ClanException.class,
+                () -> store.kick(leader, leader)
+        );
+
+        assertEquals("You already have a clan!", duplicateCreate.getMessage());
+        assertEquals("You already have a clan!", duplicateAccept.getMessage());
+        assertEquals("That player already has a clan.", occupiedInvite.getMessage());
+        assertEquals("Transfer leadership or disband the clan before leaving.", selfKick.getMessage());
+    }
+
+    @Test
+    void unchangedClanIdentityAndThemeReportNoChange() throws Exception {
+        ClanStore store = new ClanStore(temporaryDirectory.resolve("clans.json"));
+        UUID leader = UUID.randomUUID();
+        store.create(leader, "Leader", "EMBER");
+
+        ClanStore.ClanException sameName = assertThrows(
+                ClanStore.ClanException.class,
+                () -> store.rename(leader, "ember")
+        );
+        ClanStore.ClanException sameColor = assertThrows(
+                ClanStore.ClanException.class,
+                () -> store.setThemeColor(leader, "#FF9900")
+        );
+
+        assertEquals("Your clan already uses that name.", sameName.getMessage());
+        assertEquals("Your clan already uses that theme color.", sameColor.getMessage());
+    }
+
+    @Test
     void clanNameIsTheOnlyIdentityAndRenameUpdatesIt() throws Exception {
         ClanStore store = new ClanStore(temporaryDirectory.resolve("clans.json"));
         UUID lucky = UUID.randomUUID();

@@ -20,7 +20,7 @@ import java.util.Locale;
 final class GuideService implements CommandExecutor, TabCompleter {
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private static final TextColor GOLD = TextColor.color(0xFFB52E);
-    private static final List<String> GUIDE_PAGES = List.of("levels", "clans", "commands", "joining");
+    private static final List<String> GUIDE_PAGES = List.of("levels", "clans", "commands");
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
@@ -32,7 +32,6 @@ final class GuideService implements CommandExecutor, TabCompleter {
         String page = switch (command.getName().toLowerCase(Locale.ROOT)) {
             case "perks" -> "levels";
             case "discord" -> "discord";
-            case "connect" -> "joining";
             default -> args.length == 0 ? "overview" : args[0].toLowerCase(Locale.ROOT);
         };
         switch (page) {
@@ -40,7 +39,6 @@ final class GuideService implements CommandExecutor, TabCompleter {
             case "levels", "level", "perks" -> levels(player);
             case "clans", "clan" -> clans(player);
             case "commands", "command" -> commands(player);
-            case "joining", "join", "connect", "connection" -> joining(player);
             case "discord" -> discord(player);
             default -> {
                 error(player, "Unknown guide page. Use /guide to see the available topics.");
@@ -52,12 +50,9 @@ final class GuideService implements CommandExecutor, TabCompleter {
 
     private static void overview(Player player) {
         title(player, "SERVER GUIDE");
-        player.sendMessage(body("Mysterious SMP X is a survival community connected to Discord progression and clans."));
-        player.sendMessage(Component.empty());
         player.sendMessage(guideLink("/guide levels", "Discord levels and Minecraft perks", NamedTextColor.AQUA));
         player.sendMessage(guideLink("/guide clans", "Clan creation, identity, and protection", GOLD));
         player.sendMessage(guideLink("/guide commands", "Useful custom server commands", NamedTextColor.GREEN));
-        player.sendMessage(guideLink("/guide joining", "Java and Bedrock connection help", NamedTextColor.LIGHT_PURPLE));
         player.sendMessage(guideLink("/discord", "Community, support, and announcements", ORANGE));
         footer(player);
     }
@@ -87,39 +82,23 @@ final class GuideService implements CommandExecutor, TabCompleter {
         player.sendMessage(detail("THEME", "Leaders can choose a named color or custom hex color.", NamedTextColor.LIGHT_PURPLE));
         player.sendMessage(detail("VISIBILITY", "Your tag appears in chat, nametags, Tab, and the scoreboard.", NamedTextColor.AQUA));
         player.sendMessage(detail("PROTECTION", "Members of the same clan cannot damage one another.", NamedTextColor.GREEN));
-        player.sendMessage(detail("MANAGEMENT", "Leaders can appoint staff, transfer ownership, invite, and remove members.", NamedTextColor.YELLOW));
+        player.sendMessage(detail(
+                "MANAGEMENT",
+                "Leaders manage settings and staff; leaders and staff can invite or remove members.",
+                NamedTextColor.YELLOW
+        ));
         player.sendMessage(Component.empty());
-        player.sendMessage(guideLink("/clan help", "View every clan command", GOLD));
+        player.sendMessage(guideLink("/clan help", "View the commands available to you", GOLD));
         footer(player);
     }
 
     private static void commands(Player player) {
         title(player, "USEFUL COMMANDS");
-        player.sendMessage(guideLink("/clan", "Create or manage your clan", GOLD));
+        player.sendMessage(guideLink("/clan", "Open your available clan commands", GOLD));
         player.sendMessage(guideLink("/claninfo [name]", "Open a clan information card", NamedTextColor.AQUA));
         player.sendMessage(guideLink("/perks", "View Discord level rewards", NamedTextColor.LIGHT_PURPLE));
-        player.sendMessage(guideLink("/connect", "Understand Java and Bedrock joining", NamedTextColor.GREEN));
         player.sendMessage(guideLink("/discord", "Open the community invite", ORANGE));
         player.sendMessage(guideLink("/guide", "Return to the main server guide", NamedTextColor.WHITE));
-        footer(player);
-    }
-
-    private static void joining(Player player) {
-        title(player, "CONNECTION GUIDE");
-        player.sendMessage(detail(
-                "JAVA",
-                "PC, macOS, and Linux players using Java Edition should use the Java address shown in Discord.",
-                NamedTextColor.AQUA
-        ));
-        player.sendMessage(Component.empty());
-        player.sendMessage(detail(
-                "BEDROCK",
-                "Console, mobile, and Windows Bedrock players should use the Bedrock address and port shown in Discord.",
-                NamedTextColor.GREEN
-        ));
-        player.sendMessage(Component.empty());
-        player.sendMessage(body("If you are unsure, the title screen says either Java Edition or Minecraft for Bedrock."));
-        player.sendMessage(guideLink("/discord", "Open Discord for the current addresses and support", ORANGE));
         footer(player);
     }
 
