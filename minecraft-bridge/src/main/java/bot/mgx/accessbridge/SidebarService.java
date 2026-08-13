@@ -25,7 +25,7 @@ import java.util.Set;
 import java.util.UUID;
 
 final class SidebarService {
-    private static final int MAX_LINES = 15;
+    private static final int MAX_LINES = 11;
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private static final TextColor LIGHT_ORANGE = TextColor.color(0xFFC266);
     private static final ChatColor[] ENTRY_COLOURS = {
@@ -101,24 +101,20 @@ final class SidebarService {
     private List<Component> lines(Player player) {
         PlayerProfile profile = perks.profile(player.getUniqueId());
         ArrayList<Component> lines = new ArrayList<>();
-        lines.add(Component.empty());
-        lines.add(sectionLine("PLAYER PROFILE"));
-        lines.add(valueLine("PLAYER", player.getName()));
-        lines.add(valueLine("LEVEL", String.valueOf(profile.level())));
+        lines.add(valueLine("LVL", String.valueOf(profile.level())));
         lines.add(valueLine("HEARTS", "+" + profile.extraHearts()));
         if (profile.elite()) {
-            lines.add(valueLine("POWER", "+5% damage"));
+            lines.add(valueLine("POWER", "+5% DMG"));
         }
         clans.clanOf(player.getUniqueId()).ifPresent(clan ->
                 lines.add(valueLine("CLAN", "[" + clan.name() + "]"))
         );
         lines.add(Component.empty());
-        lines.add(sectionLine("SERVER STATS"));
         lines.add(valueLine("KILLS", String.valueOf(player.getStatistic(Statistic.PLAYER_KILLS))));
         lines.add(valueLine("DEATHS", String.valueOf(player.getStatistic(Statistic.DEATHS))));
         lines.add(valueLine("PING", player.getPing() + "ms"));
         lines.add(Component.empty());
-        lines.add(Component.text("• " + footer + " •", LIGHT_ORANGE));
+        lines.add(Component.text(footer, LIGHT_ORANGE));
         return lines;
     }
 
@@ -126,12 +122,6 @@ final class SidebarService {
         return Component.text("» ", ORANGE, TextDecoration.BOLD)
                 .append(Component.text(label + " ", LIGHT_ORANGE, TextDecoration.BOLD))
                 .append(Component.text(value, NamedTextColor.WHITE));
-    }
-
-    private static Component sectionLine(String label) {
-        return Component.text("── ", NamedTextColor.DARK_GRAY)
-                .append(Component.text(label, ORANGE, TextDecoration.BOLD))
-                .append(Component.text(" ──", NamedTextColor.DARK_GRAY));
     }
 
     private void updateTabName(Player player) {
@@ -183,7 +173,7 @@ final class SidebarService {
         PlayerBoard(Player player) {
             Scoreboard created = plugin.getServer().getScoreboardManager().getNewScoreboard();
             Component title = Component.text("MYSTERIOUS", ORANGE, TextDecoration.BOLD)
-                    .append(Component.text(" SMP X", LIGHT_ORANGE, TextDecoration.BOLD));
+                    .append(Component.text(" X", LIGHT_ORANGE, TextDecoration.BOLD));
             Objective createdObjective = created.registerNewObjective("mgx", Criteria.DUMMY, title);
             createdObjective.setDisplaySlot(DisplaySlot.SIDEBAR);
             for (int index = 0; index < MAX_LINES; index++) {
