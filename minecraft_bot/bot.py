@@ -130,6 +130,7 @@ class MinecraftAccessBot(commands.Bot):
         self.add_view(LiveApplicationView())
         await self.bridge.start()
         self.application_maintenance.start()
+        self.leaderboard_refresh.start()
 
     async def close(self) -> None:
         self.application_maintenance.cancel()
@@ -1031,6 +1032,61 @@ class MinecraftAccessBot(commands.Bot):
             with suppress(discord.Forbidden, discord.HTTPException):
                 await member.remove_roles(role, reason="Minecraft access revoked")
 
+    @tasks.loop(seconds=300)
+    async def leaderboard_refresh(self) -> None:
+        """Keeps the permanent leaderboard message current by editing it in place."""
+        try:
+            await self._refresh_leaderboard_message()
+        except Exception:
+            logger.exception("Leaderboard refresh failed; retrying on the next interval")
+
+    @leaderboard_refresh.before_loop
+    async def _before_leaderboard_refresh(self) -> None:
+        await self.wait_until_ready()
+
+    async def _refresh_leaderboard_message(self) -> None:
+        from .leaderboard import CONFIG_CHANNEL, CONFIG_MESSAGE, HeadEmojiStore, message_payload
+
+        snapshot = getattr(self.bridge, "latest_leaderboard", {}) or {}
+        if not snapshot:
+            return  # Paper has not pushed standings yet
+        channel_id = await self.data.get_config(CONFIG_CHANNEL)
+        if not channel_id:
+            return
+        channel = self.get_channel(int(channel_id))
+        if not isinstance(channel, discord.TextChannel):
+            return
+
+        heads: dict[str, str] = {}
+        if channel.guild is not None:
+            heads = await HeadEmojiStore(self).sync(channel.guild, snapshot)
+        payload = message_payload(snapshot, heads)
+
+        message_id = await self.data.get_config(CONFIG_MESSAGE)
+        if message_id:
+            try:
+                message = await channel.fetch_message(int(message_id))
+                await message.edit(
+                    embeds=payload["embeds"],
+                    attachments=payload["attachments"],
+                    view=payload["view"],
+                )
+                return
+            except discord.NotFound:
+                pass  # deleted by someone; fall through and repost
+            except discord.HTTPException:
+                return  # transient; the next tick tries again
+        try:
+            posted = await channel.send(
+                embeds=payload["embeds"],
+                files=payload["attachments"],
+                view=payload["view"],
+            )
+        except discord.HTTPException:
+            logger.exception("Could not post the leaderboard message")
+            return
+        await self.data.set_config(CONFIG_MESSAGE, posted.id)
+
     @tasks.loop(seconds=30)
     async def application_maintenance(self) -> None:
         try:
@@ -1256,6 +1312,28 @@ class MinecraftAccessBot(commands.Bot):
             await interaction.edit_original_response(
                 **branded_edit(await self.build_control_overview(interaction.guild)),
                 view=self.control_view(interaction),
+            )
+
+        @group.command(
+            name="leaderboard",
+            description="Choose the channel that holds the permanent leaderboard message.",
+        )
+        @app_commands.describe(channel="Where the self-updating leaderboard should live.")
+        @app_commands.default_permissions(administrator=True)
+        async def leaderboard(
+            interaction: discord.Interaction, channel: discord.TextChannel
+        ) -> None:
+            if not await self.require_administrator(interaction):
+                return
+            from .leaderboard import CONFIG_CHANNEL, CONFIG_MESSAGE
+
+            await interaction.response.defer(ephemeral=True)
+            # A new channel means the old message is orphaned, so forget it and repost.
+            await self.data.set_config(CONFIG_CHANNEL, channel.id)
+            await self.data.set_config(CONFIG_MESSAGE, None)
+            await self._refresh_leaderboard_message()
+            await interaction.edit_original_response(
+                content=f"The leaderboard now lives in {channel.mention} and refreshes every 5 minutes."
             )
 
         @group.command(name="account", description="Open your private Minecraft account and application panel.")

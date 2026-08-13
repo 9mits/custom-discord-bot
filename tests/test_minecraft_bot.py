@@ -1239,3 +1239,57 @@ class MinecraftLeaderboardTransportTests(unittest.IsolatedAsyncioTestCase):
         await bridge._handle_message(self._envelope(snapshot))
 
         bridge.leaderboard_handler.assert_awaited_once_with(snapshot)
+
+
+class MinecraftLeaderboardRenderTests(unittest.TestCase):
+    def setUp(self):
+        from minecraft_bot import leaderboard
+
+        self.leaderboard = leaderboard
+        self.snapshot = {
+            "generated_at": 1_700_000_000_000,
+            "individual": {
+                "wealth": [
+                    {"minecraft_uuid": "u1", "username": "mits", "value": 900, "display": "900", "clan": "LUCKY"},
+                    {"minecraft_uuid": "u2", "username": "kai", "value": 500, "display": "500"},
+                    {"minecraft_uuid": "u3", "username": "sam", "value": 100, "display": "100"},
+                    {"minecraft_uuid": "u4", "username": "noah", "value": 10, "display": "10"},
+                ]
+            },
+            "clan": {"wealth": [{"clan": "LUCKY", "members": 4, "value": 900, "display": "900"}]},
+        }
+
+    def test_footer_is_the_brand_name_alone(self):
+        embed = self.leaderboard.build_embed(self.snapshot, scope="individual", board="wealth")
+
+        self.assertEqual(embed.footer.text, self.leaderboard.BRAND_NAME)
+
+    def test_thumbnail_is_the_attached_logo(self):
+        embed = self.leaderboard.build_embed(self.snapshot, scope="individual", board="wealth")
+
+        self.assertEqual(embed.thumbnail.url, "attachment://mysterious_smp_x_logo.png")
+
+    def test_heads_are_shown_for_the_podium_only(self):
+        heads = {"u1": "<:a:1>", "u2": "<:b:2>", "u3": "<:c:3>", "u4": "<:d:4>"}
+
+        embed = self.leaderboard.build_embed(
+            self.snapshot, scope="individual", board="wealth", heads=heads
+        )
+
+        for markdown in ("<:a:1>", "<:b:2>", "<:c:3>"):
+            self.assertIn(markdown, embed.description)
+        self.assertNotIn("<:d:4>", embed.description)
+
+    def test_empty_board_reads_as_a_sentence_not_a_blank(self):
+        embed = self.leaderboard.build_embed({}, scope="individual", board="kills")
+
+        self.assertIn("No standings yet", embed.description)
+
+    def test_clan_boards_exclude_per_player_only_types(self):
+        self.assertNotIn("blocks_mined", tuple(self.leaderboard.boards_for("clan")))
+        self.assertIn("blocks_mined", tuple(self.leaderboard.boards_for("individual")))
+
+    def test_emoji_names_are_discord_safe(self):
+        self.assertEqual(self.leaderboard._emoji_name("Not.A-Name!"), "mgx_head_NotAName")
+        self.assertTrue(self.leaderboard._emoji_name("").endswith("player"))
+        self.assertLessEqual(len(self.leaderboard._emoji_name("x" * 60)), 32)
