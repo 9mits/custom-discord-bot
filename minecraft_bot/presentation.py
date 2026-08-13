@@ -22,6 +22,9 @@ ICON_ATTACHMENT_URI = f"attachment://{ICON_FILENAME}"
 FOOTER_FILENAME = "mysterious_smp_x_footer.png"
 FOOTER_PATH = Path(__file__).resolve().parent.parent / "assets" / "minecraft" / FOOTER_FILENAME
 FOOTER_ATTACHMENT_URI = f"attachment://{FOOTER_FILENAME}"
+RULES_FILENAME = "mysterious_smp_x_rules.png"
+RULES_PATH = Path(__file__).resolve().parent.parent / "assets" / "minecraft" / RULES_FILENAME
+RULES_ATTACHMENT_URI = f"attachment://{RULES_FILENAME}"
 
 
 def _safe(value: object, limit: int = 1000) -> str:
@@ -50,6 +53,14 @@ def brand_footer_file() -> discord.File:
         FOOTER_PATH,
         filename=FOOTER_FILENAME,
         description=f"{BRAND_NAME} footer icon",
+    )
+
+
+def rules_image_file() -> discord.File:
+    return discord.File(
+        RULES_PATH,
+        filename=RULES_FILENAME,
+        description=f"{BRAND_NAME} rules",
     )
 
 
@@ -132,10 +143,12 @@ def rules_embed(*, agreement: bool = False) -> discord.Embed:
         "**Have fun, create lore, and help make the server enjoyable for everyone.**"
         + ending
     )
-    return info_embed(
+    embed = info_embed(
         "Mysterious SMP X Rules & Agreement" if agreement else "Mysterious SMP X Rules",
         description,
     )
+    embed.set_image(url=RULES_ATTACHMENT_URI)
+    return embed
 
 
 def application_panel() -> discord.ui.View:

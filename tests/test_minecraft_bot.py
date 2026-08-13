@@ -18,6 +18,8 @@ from minecraft_bot.presentation import (
     LOGO_ATTACHMENT_URI,
     FOOTER_PATH,
     LOGO_PATH,
+    RULES_ATTACHMENT_URI,
+    RULES_PATH,
     THEME_COLOUR,
     application_embeds,
     application_panel,
@@ -37,6 +39,7 @@ from minecraft_bot.ui import (
     MinecraftApplicationModal,
     LiveApplicationView,
     ReviewView,
+    RulesButton,
     RulesAgreementView,
 )
 
@@ -150,11 +153,13 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertTrue(LOGO_PATH.is_file())
         self.assertTrue(ICON_PATH.is_file())
         self.assertTrue(FOOTER_PATH.is_file())
+        self.assertTrue(RULES_PATH.is_file())
 
     def test_minecraft_brand_assets_stay_lightweight(self):
         self.assertLess(LOGO_PATH.stat().st_size, 500_000)
         self.assertLess(ICON_PATH.stat().st_size, 100_000)
         self.assertLess(FOOTER_PATH.stat().st_size, 25_000)
+        self.assertLess(RULES_PATH.stat().st_size, 1_000_000)
 
     def test_verification_instructions_are_copyable_and_edition_specific(self):
         application = MinecraftApplication(
@@ -305,6 +310,28 @@ class MinecraftBotPolicyTests(unittest.TestCase):
 
 
 class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_rules_button_attaches_the_rules_image(self):
+        response = SimpleNamespace(send_message=AsyncMock())
+        bot = SimpleNamespace(
+            config=SimpleNamespace(guild_id=10),
+            settings=SimpleNamespace(application_channel_id=20),
+            data=SimpleNamespace(get_config=AsyncMock(return_value="30")),
+        )
+        interaction = SimpleNamespace(
+            client=bot,
+            guild_id=10,
+            channel_id=20,
+            message=SimpleNamespace(id=30),
+            response=response,
+        )
+
+        await RulesButton().callback(interaction)
+
+        kwargs = response.send_message.await_args.kwargs
+        self.assertEqual(kwargs["embed"].image.url, RULES_ATTACHMENT_URI)
+        self.assertEqual(kwargs["file"].filename, "mysterious_smp_x_rules.png")
+        kwargs["file"].close()
+
     async def test_submission_does_not_dm_a_pending_verification_card(self):
         bot = object.__new__(MinecraftAccessBot)
         bot.log_application_submission = AsyncMock()
@@ -489,9 +516,10 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(kwargs["view"], RulesAgreementView)
         self.assertEqual(kwargs["view"].children[0].style, discord.ButtonStyle.success)
         self.assertEqual(kwargs["view"].children[1].style, discord.ButtonStyle.secondary)
-        self.assertIsNone(kwargs["embed"].image.url)
+        self.assertEqual(kwargs["embed"].image.url, RULES_ATTACHMENT_URI)
         self.assertIsNone(kwargs["embed"].footer.icon_url)
-        self.assertNotIn("files", kwargs)
+        self.assertEqual(kwargs["file"].filename, "mysterious_smp_x_rules.png")
+        kwargs["file"].close()
 
     async def test_rules_agreement_opens_modal_and_disagreement_edits_message(self):
         view = RulesAgreementView(99)
@@ -515,7 +543,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
 
         kwargs = disagree_response.edit_message.await_args.kwargs
         self.assertIsNone(kwargs["view"])
-        self.assertNotIn("attachments", kwargs)
+        self.assertEqual(kwargs["attachments"], [])
 
     async def test_player_activity_is_deduplicated_before_logging(self):
         bot = object.__new__(MinecraftAccessBot)

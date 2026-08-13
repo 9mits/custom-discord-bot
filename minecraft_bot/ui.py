@@ -17,6 +17,7 @@ from .presentation import (
     info_embed,
     live_status_embed,
     rules_embed,
+    rules_image_file,
     verification_embed,
 )
 from .support import enqueue_support_request
@@ -105,6 +106,7 @@ class ApplyButton(discord.ui.Button):
             return
         await interaction.response.send_message(
             **branded_send(rules_embed(agreement=True)),
+            file=rules_image_file(),
             view=RulesAgreementView(interaction.user.id),
             ephemeral=True,
         )
@@ -123,6 +125,7 @@ class RulesButton(discord.ui.Button):
             return
         await interaction.response.send_message(
             **branded_send(rules_embed()),
+            file=rules_image_file(),
             ephemeral=True,
         )
 
@@ -163,6 +166,7 @@ class RulesAgreementView(discord.ui.View):
                     "You may return to the public panel and apply later if you decide to accept them.",
                 )
             ),
+            attachments=[],
             view=None,
         )
 
