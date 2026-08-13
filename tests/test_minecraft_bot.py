@@ -13,6 +13,8 @@ from minecraft_bot.config import MinecraftConfig
 from minecraft_bot.models import ApplicationStatus, Edition, MinecraftApplication
 from minecraft_bot.presentation import (
     BRAND_NAME,
+    ERROR_COLOUR,
+    ICON_ATTACHMENT_URI,
     ICON_PATH,
     FOOTER_ICON_URL,
     LOGO_ATTACHMENT_URI,
@@ -20,10 +22,12 @@ from minecraft_bot.presentation import (
     LOGO_PATH,
     RULES_ATTACHMENT_URI,
     RULES_PATH,
+    SUCCESS_COLOUR,
     THEME_COLOUR,
     VERIFY_ATTACHMENT_URI,
     VERIFY_PATH,
     application_embeds,
+    application_dm_embed,
     application_log_embed,
     application_panel,
     application_panel_files,
@@ -32,7 +36,6 @@ from minecraft_bot.presentation import (
     info_embed,
     review_embed,
     verification_embed,
-    verified_embed,
     live_status_embed,
     minecraft_head_url,
     player_activity_embed,
@@ -228,7 +231,7 @@ class MinecraftBotPolicyTests(unittest.TestCase):
 
         self.assertNotIn("#42", embed.description)
 
-    def test_verified_dm_is_the_single_concise_submission_confirmation(self):
+    def test_verified_dm_is_the_concise_submission_confirmation(self):
         application = MinecraftApplication(
             id=42,
             guild_id="1",
@@ -244,11 +247,13 @@ class MinecraftBotPolicyTests(unittest.TestCase):
             updated_at=1_999_999_400,
         )
 
-        embed = verified_embed(application)
+        embed = application_dm_embed(application, SimpleNamespace(), "verification")
 
         self.assertEqual(embed.title, "Account Verified — Application Sent")
         self.assertIn("account was verified and your application has been sent", embed.description)
         self.assertNotIn("another DM", embed.description)
+        self.assertEqual(embed.colour.value, THEME_COLOUR.value)
+        self.assertEqual(embed.thumbnail.url, ICON_ATTACHMENT_URI)
 
     def test_review_embed_uses_minecraft_skin_head_and_claimed_identity(self):
         application = MinecraftApplication(
@@ -577,15 +582,19 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
             status=ApplicationStatus.PENDING_REVIEW,
             status_channel_id=None,
             status_message_id=None,
+            decision_channel_id=None,
+            decision_message_id=None,
         )
         message = SimpleNamespace(channel=SimpleNamespace(id=50), id=60)
         user = SimpleNamespace(send=AsyncMock(return_value=message))
         bot = object.__new__(MinecraftAccessBot)
+        bot.settings = SimpleNamespace()
         bot.get_user = lambda _user_id: user
         bot.fetch_user = AsyncMock()
         bot.data = SimpleNamespace(
             get_application=AsyncMock(return_value=application),
             set_status_message=AsyncMock(),
+            set_decision_message=AsyncMock(),
             enqueue_delivery=AsyncMock(),
         )
 
@@ -593,41 +602,103 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(delivered)
         user.send.assert_awaited_once()
-        self.assertEqual(user.send.await_args.kwargs["embed"].title, "Account Verified — Application Sent")
-        self.assertNotIn("view", user.send.await_args.kwargs)
+        kwargs = user.send.await_args.kwargs
+        self.assertEqual(kwargs["embed"].title, "Account Verified — Application Sent")
+        self.assertEqual(kwargs["embed"].colour.value, THEME_COLOUR.value)
+        self.assertEqual(kwargs["embed"].thumbnail.url, ICON_ATTACHMENT_URI)
+        self.assertEqual(kwargs["file"].filename, "mysterious_smp_x_icon.png")
+        self.assertNotIn("view", kwargs)
         bot.data.set_status_message.assert_awaited_once_with(1, 50, 60)
+        bot.data.set_decision_message.assert_not_awaited()
         bot.data.enqueue_delivery.assert_not_awaited()
 
-    async def test_finished_application_uses_a_fallback_dm_when_the_ephemeral_card_expired(self):
+    async def test_finished_application_sends_missing_confirmation_and_denial_dms(self):
         application = SimpleNamespace(
             id=1,
             discord_user_id="99",
+            edition=Edition.JAVA,
+            verified_username="PlayerOne",
             status=ApplicationStatus.DENIED,
             status_channel_id=None,
             status_message_id=None,
+            decision_channel_id=None,
+            decision_message_id=None,
             applicant_reason="Not this time",
         )
-        sent_message = SimpleNamespace(channel=SimpleNamespace(id=50), id=60)
-        user = SimpleNamespace(send=AsyncMock(return_value=sent_message))
+        confirmation = SimpleNamespace(channel=SimpleNamespace(id=50), id=60)
+        decision = SimpleNamespace(channel=SimpleNamespace(id=50), id=61)
+        user = SimpleNamespace(send=AsyncMock(side_effect=[confirmation, decision]))
         bot = object.__new__(MinecraftAccessBot)
+        bot.settings = SimpleNamespace()
         bot.get_user = Mock(return_value=user)
         bot.fetch_user = AsyncMock()
         bot.data = SimpleNamespace(
             get_application=AsyncMock(return_value=application),
             enqueue_delivery=AsyncMock(),
             set_status_message=AsyncMock(),
+            set_decision_message=AsyncMock(),
         )
 
         delivered = await bot.update_live_card(application)
 
         self.assertTrue(delivered)
-        bot.get_user.assert_called_once_with(99)
+        self.assertEqual(bot.get_user.call_count, 2)
         bot.fetch_user.assert_not_awaited()
-        user.send.assert_awaited_once()
-        self.assertEqual(user.send.await_args.kwargs["embed"].title, "Minecraft Application Denied")
+        self.assertEqual(user.send.await_count, 2)
+        confirmation_kwargs = user.send.await_args_list[0].kwargs
+        decision_kwargs = user.send.await_args_list[1].kwargs
+        self.assertEqual(confirmation_kwargs["embed"].title, "Account Verified — Application Sent")
+        self.assertEqual(decision_kwargs["embed"].title, "Minecraft Application Denied")
+        self.assertEqual(decision_kwargs["embed"].colour.value, ERROR_COLOUR.value)
+        for kwargs in (confirmation_kwargs, decision_kwargs):
+            self.assertEqual(kwargs["embed"].thumbnail.url, ICON_ATTACHMENT_URI)
+            self.assertEqual(kwargs["file"].filename, "mysterious_smp_x_icon.png")
+        bot.data.set_status_message.assert_awaited_once_with(1, 50, 60)
+        bot.data.set_decision_message.assert_awaited_once_with(1, 50, 61)
         bot.data.enqueue_delivery.assert_not_awaited()
 
-    async def test_existing_verified_message_has_controls_removed(self):
+    async def test_approved_application_sends_a_separate_green_decision_dm(self):
+        application = SimpleNamespace(
+            id=1,
+            discord_user_id="99",
+            edition=Edition.JAVA,
+            verified_username="PlayerOne",
+            status=ApplicationStatus.APPROVED,
+            status_channel_id="50",
+            status_message_id="60",
+            decision_channel_id=None,
+            decision_message_id=None,
+        )
+        decision = SimpleNamespace(channel=SimpleNamespace(id=50), id=61)
+        user = SimpleNamespace(send=AsyncMock(return_value=decision))
+        bot = object.__new__(MinecraftAccessBot)
+        bot.settings = SimpleNamespace(
+            java_address="play.example.test",
+            bedrock_address="bedrock.example.test",
+            bedrock_port=19132,
+        )
+        bot.get_user = Mock(return_value=user)
+        bot.fetch_user = AsyncMock()
+        bot.data = SimpleNamespace(
+            get_application=AsyncMock(return_value=application),
+            enqueue_delivery=AsyncMock(),
+            set_status_message=AsyncMock(),
+            set_decision_message=AsyncMock(),
+        )
+
+        delivered = await bot.update_live_card(application)
+
+        self.assertTrue(delivered)
+        user.send.assert_awaited_once()
+        kwargs = user.send.await_args.kwargs
+        self.assertEqual(kwargs["embed"].title, "Minecraft Application Approved")
+        self.assertEqual(kwargs["embed"].colour.value, SUCCESS_COLOUR.value)
+        self.assertEqual(kwargs["embed"].thumbnail.url, ICON_ATTACHMENT_URI)
+        self.assertEqual(kwargs["file"].filename, "mysterious_smp_x_icon.png")
+        bot.data.set_status_message.assert_not_awaited()
+        bot.data.set_decision_message.assert_awaited_once_with(1, 50, 61)
+
+    async def test_existing_verification_dm_is_not_edited_or_duplicated(self):
         application = SimpleNamespace(
             id=1,
             discord_user_id="99",
@@ -636,11 +707,11 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
             status=ApplicationStatus.PENDING_REVIEW,
             status_channel_id="50",
             status_message_id="60",
+            decision_channel_id=None,
+            decision_message_id=None,
         )
-        message = SimpleNamespace(edit=AsyncMock())
-        channel = SimpleNamespace(fetch_message=AsyncMock(return_value=message))
         bot = object.__new__(MinecraftAccessBot)
-        bot._configured_channel = AsyncMock(return_value=channel)
+        bot.get_user = Mock()
         bot.data = SimpleNamespace(
             get_application=AsyncMock(return_value=application),
             enqueue_delivery=AsyncMock(),
@@ -649,9 +720,43 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         delivered = await bot.update_live_card(application)
 
         self.assertTrue(delivered)
-        message.edit.assert_awaited_once()
-        self.assertIsNone(message.edit.await_args.kwargs["view"])
+        bot.get_user.assert_not_called()
         bot.data.enqueue_delivery.assert_not_awaited()
+
+    async def test_ephemeral_card_update_does_not_suppress_verification_dm(self):
+        application = SimpleNamespace(
+            id=1,
+            discord_user_id="99",
+            edition=Edition.JAVA,
+            verified_username="PlayerOne",
+            status=ApplicationStatus.PENDING_REVIEW,
+            status_channel_id=None,
+            status_message_id=None,
+            decision_channel_id=None,
+            decision_message_id=None,
+        )
+        ephemeral = SimpleNamespace(edit=AsyncMock())
+        sent_message = SimpleNamespace(channel=SimpleNamespace(id=50), id=60)
+        user = SimpleNamespace(send=AsyncMock(return_value=sent_message))
+        bot = object.__new__(MinecraftAccessBot)
+        bot.settings = SimpleNamespace()
+        bot._application_messages = {1: (ephemeral, float("inf"))}
+        bot.get_user = Mock(return_value=user)
+        bot.fetch_user = AsyncMock()
+        bot.data = SimpleNamespace(
+            get_application=AsyncMock(return_value=application),
+            enqueue_delivery=AsyncMock(),
+            set_status_message=AsyncMock(),
+            set_decision_message=AsyncMock(),
+        )
+
+        delivered = await bot.update_live_card(application)
+
+        self.assertTrue(delivered)
+        ephemeral.edit.assert_awaited_once()
+        self.assertEqual(ephemeral.edit.await_args.kwargs["attachments"], [])
+        user.send.assert_awaited_once()
+        bot.data.set_status_message.assert_awaited_once_with(1, 50, 60)
 
     async def test_concurrent_verified_delivery_sends_only_one_dm(self):
         stored = SimpleNamespace(
@@ -662,23 +767,25 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
             status=ApplicationStatus.PENDING_REVIEW,
             status_channel_id=None,
             status_message_id=None,
+            decision_channel_id=None,
+            decision_message_id=None,
         )
-        sent_message = SimpleNamespace(channel=SimpleNamespace(id=50), id=60, edit=AsyncMock())
+        sent_message = SimpleNamespace(channel=SimpleNamespace(id=50), id=60)
         user = SimpleNamespace(send=AsyncMock(return_value=sent_message))
-        channel = SimpleNamespace(fetch_message=AsyncMock(return_value=sent_message))
 
         async def remember_message(_application_id, channel_id, message_id):
             stored.status_channel_id = str(channel_id)
             stored.status_message_id = str(message_id)
 
         bot = object.__new__(MinecraftAccessBot)
+        bot.settings = SimpleNamespace()
         bot._live_card_lock = asyncio.Lock()
         bot.get_user = lambda _user_id: user
         bot.fetch_user = AsyncMock()
-        bot._configured_channel = AsyncMock(return_value=channel)
         bot.data = SimpleNamespace(
             get_application=AsyncMock(side_effect=lambda _application_id: stored),
             set_status_message=AsyncMock(side_effect=remember_message),
+            set_decision_message=AsyncMock(),
             enqueue_delivery=AsyncMock(),
         )
 
@@ -689,7 +796,6 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(results, [True, True])
         user.send.assert_awaited_once()
-        sent_message.edit.assert_awaited_once()
         bot.data.set_status_message.assert_awaited_once_with(1, 50, 60)
 
     async def test_application_panel_has_no_public_banner_message(self):

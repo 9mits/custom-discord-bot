@@ -473,6 +473,7 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
     async def test_live_card_reference_survives_database_restart(self):
         application = await self.create_pending()
         await self.data.set_status_message(application.id, 500, 600)
+        await self.data.set_decision_message(application.id, 700, 800)
         await self.data.close()
         self.data = MinecraftDataManager(Path(self.directory.name) / "minecraft.db")
         await self.data.open()
@@ -480,6 +481,8 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
         restored = await self.data.get_application_by_status_message(600)
         self.assertEqual(restored.id, application.id)
         self.assertEqual(restored.status_channel_id, "500")
+        self.assertEqual(restored.decision_channel_id, "700")
+        self.assertEqual(restored.decision_message_id, "800")
 
     async def test_pending_verification_is_not_selected_for_dm_card_recovery(self):
         pending = await self.create_pending()
