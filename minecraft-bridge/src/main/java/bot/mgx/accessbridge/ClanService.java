@@ -32,7 +32,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     private static final TextColor LIGHT_ORANGE = TextColor.color(0xFFC266);
     private static final List<String> SUBCOMMANDS = List.of(
             "help", "create", "invite", "accept", "decline", "info", "list", "rename",
-            "tag", "promote", "demote", "transfer", "kick", "leave", "chat", "disband"
+            "promote", "demote", "transfer", "kick", "leave", "chat", "disband"
     );
 
     private final MGXAccessBridge plugin;
@@ -61,7 +61,6 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 case "info" -> info(player, remainder(args, infoAlias ? 0 : 1));
                 case "list" -> list(player, args.length >= 2 ? args[1] : "1");
                 case "rename", "name" -> rename(player, remainder(args, 1));
-                case "tag" -> tag(player, argument(args, 1, "Usage: /clans tag <2-6 letters or numbers>"));
                 case "promote" -> setStaff(player, argument(args, 1, "Usage: /clans promote <player>"), true);
                 case "demote" -> setStaff(player, argument(args, 1, "Usage: /clans demote <player>"), false);
                 case "transfer", "leader" -> transfer(player, argument(args, 1, "Usage: /clans transfer <player>"));
@@ -86,7 +85,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         }
         ClanStore.ClanView clan = store.create(player.getUniqueId(), player.getName(), name);
         plugin.refreshClanAppearance();
-        success(player, "Created [" + clan.tag() + "] " + clan.name() + ". You are its leader.");
+        success(player, "Created [" + clan.name() + "]. You are its leader.");
     }
 
     private void invite(Player player, String targetName) throws IOException {
@@ -130,8 +129,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 .map(java.util.Map.Entry::getValue).sorted().toList();
         long online = clan.members().keySet().stream().filter(id -> Bukkit.getPlayer(id) != null).count();
         player.sendMessage(divider());
-        player.sendMessage(Component.text("        [" + clan.tag() + "] ", ORANGE, TextDecoration.BOLD)
-                .append(Component.text(clan.name(), NamedTextColor.WHITE, TextDecoration.BOLD)));
+        player.sendMessage(Component.text("        [" + clan.name() + "]", ORANGE, TextDecoration.BOLD));
         player.sendMessage(Component.text(" "));
         player.sendMessage(label("LEADER", leader));
         player.sendMessage(label("ONLINE", online + "/" + clan.members().size()));
@@ -159,8 +157,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 "Directory " + page + "/" + pages, NamedTextColor.WHITE, TextDecoration.BOLD
         )));
         clans.stream().skip((long) (page - 1) * 8).limit(8).forEach(clan ->
-                player.sendMessage(Component.text("  [" + clan.tag() + "] ", ORANGE, TextDecoration.BOLD)
-                        .append(Component.text(clan.name(), LIGHT_ORANGE))
+                player.sendMessage(Component.text("  [" + clan.name() + "]", ORANGE, TextDecoration.BOLD)
                         .append(Component.text("  " + clan.members().size() + " members", NamedTextColor.GRAY)))
         );
         if (clans.isEmpty()) {
@@ -175,12 +172,6 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         ClanStore.ClanView clan = store.rename(player.getUniqueId(), name);
         plugin.refreshClanAppearance();
         broadcast(clan, Component.text("The clan is now named " + clan.name() + ".", LIGHT_ORANGE));
-    }
-
-    private void tag(Player player, String requestedTag) throws IOException {
-        ClanStore.ClanView clan = store.setTag(player.getUniqueId(), requestedTag);
-        plugin.refreshClanAppearance();
-        broadcast(clan, Component.text("The clan tag is now [" + clan.tag() + "].", LIGHT_ORANGE));
     }
 
     private void setStaff(Player player, String targetName, boolean promoted) throws IOException {
@@ -229,7 +220,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
             throw new ClanStore.ClanException("Clan chat messages can contain at most 160 characters.");
         }
         ClanStore.ClanView clan = ownClan(player);
-        Component chat = Component.text("[" + clan.tag() + "] CLAN ", ORANGE, TextDecoration.BOLD)
+        Component chat = Component.text("[" + clan.name() + "] CLAN ", ORANGE, TextDecoration.BOLD)
                 .append(Component.text(player.getName() + " » ", LIGHT_ORANGE))
                 .append(Component.text(message, NamedTextColor.WHITE));
         for (UUID memberId : clan.members().keySet()) {
@@ -264,7 +255,6 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         player.sendMessage(help("/clans accept | decline", "Answer your latest invite"));
         player.sendMessage(help("/clans info [name] | list [page]", "Browse clans"));
         player.sendMessage(help("/clans rename <name>", "Change your clan name"));
-        player.sendMessage(help("/clans tag <tag>", "Set a unique 2-6 character tag"));
         player.sendMessage(help("/clans promote | demote <player>", "Manage clan staff"));
         player.sendMessage(help("/clans transfer <player>", "Transfer leadership"));
         player.sendMessage(help("/clans kick <player> | leave", "Manage membership"));
@@ -292,7 +282,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     public void onPublicChat(AsyncChatEvent event) {
         store.clanOf(event.getPlayer().getUniqueId()).ifPresent(clan ->
                 event.renderer((source, sourceDisplayName, message, viewer) ->
-                        Component.text("[" + clan.tag() + "] ", ORANGE, TextDecoration.BOLD)
+                        Component.text("[" + clan.name() + "] ", ORANGE, TextDecoration.BOLD)
                                 .append(sourceDisplayName)
                                 .append(Component.text(" » ", NamedTextColor.DARK_GRAY))
                                 .append(message))

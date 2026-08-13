@@ -26,8 +26,7 @@ final class ClanStore {
     static final int MAX_MEMBERS = 25;
     static final long INVITE_TTL_MILLIS = 5 * 60 * 1000L;
     private static final int FORMAT_VERSION = 1;
-    private static final Pattern VALID_NAME = Pattern.compile("[A-Za-z0-9][A-Za-z0-9 _-]{2,15}");
-    private static final Pattern VALID_TAG = Pattern.compile("[A-Z0-9]{2,6}");
+    private static final Pattern VALID_NAME = Pattern.compile("[A-Z0-9]{2,6}");
 
     enum ClanRole {
         LEADER,
@@ -38,7 +37,6 @@ final class ClanStore {
     record ClanView(
             UUID id,
             String name,
-            String tag,
             UUID leader,
             Map<UUID, String> members,
             Set<UUID> staff,
@@ -61,7 +59,7 @@ final class ClanStore {
     private static final class SavedClan {
         String id;
         String name;
-        String tag;
+        String tag; // Read once when migrating data written by plugin 2.1.0.
         String leader;
         Map<String, String> members = new LinkedHashMap<>();
         Set<String> staff = new LinkedHashSet<>();
@@ -88,7 +86,9 @@ final class ClanStore {
     ClanStore(Path path) throws IOException {
         this.path = path;
         this.state = load(path);
-        rebuildIndex();
+        if (rebuildIndex()) {
+            persist();
+        }
     }
 
     synchronized ClanView create(UUID owner, String ownerName, String requestedName) throws IOException {
@@ -98,7 +98,6 @@ final class ClanStore {
         SavedClan clan = new SavedClan();
         clan.id = UUID.randomUUID().toString();
         clan.name = name;
-        clan.tag = availableTag(name, null);
         clan.leader = owner.toString();
         clan.members.put(owner.toString(), cleanPlayerName(ownerName));
         state.clans.add(clan);
@@ -115,8 +114,7 @@ final class ClanStore {
     synchronized Optional<ClanView> findClan(String name) {
         String lookup = normalizeLookup(name);
         return state.clans.stream()
-                .filter(clan -> clan.name.toLowerCase(Locale.ROOT).equals(lookup)
-                        || clan.tag.toLowerCase(Locale.ROOT).equals(lookup))
+                .filter(clan -> clan.name.toLowerCase(Locale.ROOT).equals(lookup))
                 .findFirst()
                 .map(this::view);
     }
@@ -184,15 +182,6 @@ final class ClanStore {
         String name = normalizeName(requestedName);
         requireUniqueName(name, UUID.fromString(clan.id));
         clan.name = name;
-        persist();
-        return view(clan);
-    }
-
-    synchronized ClanView setTag(UUID actor, String requestedTag) throws IOException {
-        SavedClan clan = requireLeader(actor);
-        String tag = normalizeTag(requestedTag);
-        requireUniqueTag(tag, UUID.fromString(clan.id));
-        clan.tag = tag;
         persist();
         return view(clan);
     }
@@ -320,25 +309,31 @@ final class ClanStore {
         }
     }
 
-    private void rebuildIndex() throws IOException {
+    private boolean rebuildIndex() throws IOException {
         Set<String> names = new LinkedHashSet<>();
-        Set<String> tags = new LinkedHashSet<>();
         Set<UUID> clanIds = new LinkedHashSet<>();
+        boolean migrated = false;
         try {
             for (SavedClan clan : state.clans) {
                 UUID clanId = UUID.fromString(clan.id);
                 UUID leader = UUID.fromString(clan.leader);
-                if (!clanIds.add(clanId) || !names.add(normalizeLookup(clan.name))) {
+                if (!clanIds.add(clanId)) {
                     throw new IOException("Clan IDs and names must be unique");
                 }
-                normalizeName(clan.name);
-                if (clan.tag == null || clan.tag.isBlank()) {
-                    clan.tag = availableTag(clan.name, clanId);
+                String identity = clan.tag == null || clan.tag.isBlank()
+                        ? clan.name
+                        : clan.tag;
+                String migratedName = identity == null ? "" : identity.trim().toUpperCase(Locale.ROOT);
+                if (!VALID_NAME.matcher(migratedName).matches()) {
+                    migratedName = availableLegacyName(clan.name, names);
                 }
-                clan.tag = normalizeTag(clan.tag);
-                if (!tags.add(clan.tag.toLowerCase(Locale.ROOT))) {
-                    throw new IOException("Clan tags must be unique");
+                if (!names.add(normalizeLookup(migratedName))) {
+                    migratedName = availableLegacyName(migratedName, names);
+                    names.add(normalizeLookup(migratedName));
                 }
+                migrated |= !migratedName.equals(clan.name) || clan.tag != null;
+                clan.name = migratedName;
+                clan.tag = null;
                 if (clan.members == null || !clan.members.containsKey(leader.toString())) {
                     throw new IOException("A clan leader must be present in its member list");
                 }
@@ -377,6 +372,7 @@ final class ClanStore {
         } catch (IllegalArgumentException exception) {
             throw new IOException("clans.json contains invalid clan data", exception);
         }
+        return migrated;
     }
 
     private void persist() throws IOException {
@@ -444,19 +440,10 @@ final class ClanStore {
         }
     }
 
-    private void requireUniqueTag(String tag, UUID exceptId) {
-        boolean taken = state.clans.stream().anyMatch(clan ->
-                clan.tag != null
-                        && (exceptId == null || !clan.id.equals(exceptId.toString()))
-                        && clan.tag.equalsIgnoreCase(tag)
-        );
-        if (taken) {
-            throw new ClanException("That clan tag is already in use.");
-        }
-    }
-
-    private String availableTag(String name, UUID exceptId) {
-        String base = name.replaceAll("[^A-Za-z0-9]", "").toUpperCase(Locale.ROOT);
+    private static String availableLegacyName(String name, Set<String> takenNames) {
+        String base = (name == null ? "" : name)
+                .replaceAll("[^A-Za-z0-9]", "")
+                .toUpperCase(Locale.ROOT);
         if (base.length() < 2) {
             base = "CLAN";
         }
@@ -465,14 +452,11 @@ final class ClanStore {
             String candidate = suffix == 0
                     ? base
                     : base.substring(0, Math.min(4, base.length())) + suffix;
-            try {
-                requireUniqueTag(candidate, exceptId);
+            if (!takenNames.contains(normalizeLookup(candidate))) {
                 return candidate;
-            } catch (ClanException ignored) {
-                // Try another compact suffix.
             }
         }
-        throw new ClanException("Could not generate a unique clan tag.");
+        throw new ClanException("Could not migrate a unique clan name.");
     }
 
     private void pruneInvites(long now) {
@@ -487,7 +471,6 @@ final class ClanStore {
         return new ClanView(
                 UUID.fromString(clan.id),
                 clan.name,
-                clan.tag,
                 UUID.fromString(clan.leader),
                 Map.copyOf(members),
                 Set.copyOf(staff),
@@ -496,23 +479,15 @@ final class ClanStore {
     }
 
     private static String normalizeName(String value) {
-        String normalized = value == null ? "" : value.trim().replaceAll("\\s+", " ");
+        String normalized = value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
         if (!VALID_NAME.matcher(normalized).matches()) {
-            throw new ClanException("Clan names must be 3-16 letters, numbers, spaces, hyphens, or underscores.");
+            throw new ClanException("Clan names must contain 2-6 letters or numbers.");
         }
         return normalized;
     }
 
     private static String normalizeLookup(String value) {
         return (value == null ? "" : value.trim().replaceAll("\\s+", " ")).toLowerCase(Locale.ROOT);
-    }
-
-    private static String normalizeTag(String value) {
-        String normalized = value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
-        if (!VALID_TAG.matcher(normalized).matches()) {
-            throw new ClanException("Clan tags must contain 2-6 letters or numbers.");
-        }
-        return normalized;
     }
 
     private static String cleanPlayerName(String value) {
