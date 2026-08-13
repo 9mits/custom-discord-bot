@@ -12,6 +12,12 @@ import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
+from .audit import (
+    MinecraftCommandTree,
+    build_command_log_embed,
+    install_component_audit,
+    record_denial,
+)
 from .bridge import MinecraftBridgeServer
 from .config import MinecraftConfig
 from .data import MinecraftDataManager
@@ -70,6 +76,7 @@ class MinecraftAccessBot(commands.Bot):
             intents=intents,
             help_command=None,
             allowed_mentions=discord.AllowedMentions.none(),
+            tree_cls=MinecraftCommandTree,
         )
         self.config = config
         self.settings = MinecraftSettings.from_sources(config, {})
@@ -87,11 +94,13 @@ class MinecraftAccessBot(commands.Bot):
         self._application_interactions: dict[int, tuple[discord.Interaction, float]] = {}
         self._commands_synced = False
         self._application_panel_refreshed = False
+        self._last_command_log_prune = 0.0
         self.tree.on_error = self.on_tree_error
         self._minecraft_group = self._build_command_group()
         self.tree.add_command(self._minecraft_group, guild=discord.Object(id=config.guild_id))
 
     async def setup_hook(self) -> None:
+        install_component_audit(self)
         await self.data.open()
         stored_settings = await self.data.get_configs(SETTING_KEYS)
         self.settings = MinecraftSettings.from_sources(self.config, stored_settings)
@@ -538,10 +547,19 @@ class MinecraftAccessBot(commands.Bot):
             if self.bridge.connected:
                 await self.bridge.dispatch_outbox()
             await self._restore_missing_reviews()
+            await self._prune_command_log()
         except asyncio.CancelledError:
             raise
         except Exception:
             logger.exception("Minecraft application maintenance failed")
+
+    async def _prune_command_log(self) -> None:
+        """Age out the command trail roughly hourly rather than every 30s tick."""
+        now = time.monotonic()
+        if now - self._last_command_log_prune < 3600:
+            return
+        self._last_command_log_prune = now
+        await self.data.prune_command_log()
 
     @application_maintenance.before_loop
     async def before_application_maintenance(self) -> None:
@@ -788,6 +806,8 @@ class MinecraftAccessBot(commands.Bot):
                 app_commands.Choice(name="Applications and decisions", value="application"),
                 app_commands.Choice(name="Account verifications", value="verification"),
                 app_commands.Choice(name="Player joins and leaves", value="player"),
+                app_commands.Choice(name="Every command that is run (staff only)", value="command"),
+                app_commands.Choice(name="Important commands only (staff only)", value="critical"),
             ]
         )
         async def log_channel(
@@ -802,6 +822,8 @@ class MinecraftAccessBot(commands.Bot):
                 "application": "application_log_channel_id",
                 "verification": "verification_log_channel_id",
                 "player": "player_log_channel_id",
+                "command": "command_log_channel_id",
+                "critical": "critical_log_channel_id",
             }[log.value]
             await self.update_settings(
                 actor_id=interaction.user.id,
@@ -949,6 +971,182 @@ class MinecraftAccessBot(commands.Bot):
                         success=True,
                     )
                 )
+            )
+
+        @group.command(name="help", description="List the Minecraft commands you can use.")
+        async def help_command(interaction: discord.Interaction) -> None:
+            is_staff = self.is_moderator(interaction.user)
+            is_admin = self.is_administrator(interaction.user)
+
+            member_lines = [
+                "`/minecraft help` — this list",
+                "`/minecraft server` — server address and how to connect",
+                "`/minecraft cancel` — cancel your own pending verification",
+            ]
+            embed = info_embed(
+                "Minecraft Commands",
+                "> Commands are filtered to what your roles allow.",
+            )
+            embed.add_field(name="Everyone", value="\n".join(member_lines), inline=False)
+            if is_staff:
+                embed.add_field(
+                    name="Moderators",
+                    value=(
+                        "`/minecraft status` — bridge and queue health\n"
+                        "`/minecraft stats` — application and access totals\n"
+                        "`/minecraft lookup` — a member's accounts and history\n"
+                        "`/minecraft whois` — find who claimed a Minecraft username\n"
+                        "`/minecraft applications` — recent applications by status\n"
+                        "`/minecraft audit` — one application's lifecycle\n"
+                        "`/minecraft commandlog` — who ran which command\n"
+                        "`/minecraft revoke` — remove a member's access\n"
+                        "`/minecraft unlink` — unlink one account\n"
+                        "`/minecraft retry` — retry failed bridge actions\n"
+                        "`/minecraft cancel` — cancel a staff-managed application"
+                    ),
+                    inline=False,
+                )
+            if is_admin:
+                embed.add_field(
+                    name="Administrators",
+                    value=(
+                        "`/minecraft setup` — the setup dashboard\n"
+                        "`/minecraft log-channel` — choose where each log is written"
+                    ),
+                    inline=False,
+                )
+            if not is_staff:
+                embed.add_field(
+                    name="Need help?",
+                    value="Contact the server team through the normal support channel.",
+                    inline=False,
+                )
+            await interaction.response.send_message(**branded_send(embed), ephemeral=True)
+
+        @group.command(name="server", description="Show the Minecraft server address and how to join.")
+        async def server(interaction: discord.Interaction) -> None:
+            await interaction.response.send_message(
+                **branded_send(
+                    info_embed(
+                        "Minecraft Server Details",
+                        "> Connection details for approved members.\n\n"
+                        "**Java server address**\n"
+                        f"```text\n{self.settings.java_address}\n```\n"
+                        "**Bedrock server address**\n"
+                        f"```text\n{self.settings.bedrock_address}\n```\n"
+                        "**Bedrock port**\n"
+                        f"```text\n{self.settings.bedrock_port}\n```\n"
+                        "If the server rejects your connection, make sure your application "
+                        "was approved and that you are joining with the username you applied with.",
+                    )
+                ),
+                ephemeral=True,
+            )
+
+        @group.command(name="whois", description="Find which member claimed a Minecraft username.")
+        @app_commands.default_permissions(manage_messages=True)
+        @app_commands.describe(username="Java username or Bedrock gamertag to search for")
+        async def whois(
+            interaction: discord.Interaction,
+            username: app_commands.Range[str, 1, 32],
+        ) -> None:
+            if not await self.require_moderator(interaction):
+                await record_denial(self, interaction, "minecraft whois", "Not a moderator")
+                return
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            matches = await self.data.find_applications_by_username(username, limit=10)
+            if not matches:
+                await interaction.edit_original_response(
+                    **branded_edit(
+                        info_embed(
+                            "No Match",
+                            f"> No application has claimed a username matching `{username}`.",
+                        )
+                    )
+                )
+                return
+            lines = [
+                f"`#{record.id}` <@{record.discord_user_id}> · `{record.claimed_username}` "
+                f"({record.edition.value.title()}) · **{record.status.value.replace('_', ' ').title()}**"
+                for record in matches
+            ]
+            await interaction.edit_original_response(
+                **branded_edit(
+                    info_embed(
+                        "Username Lookup",
+                        f"> {len(matches)} application(s) matched `{username}`.\n\n" + "\n".join(lines),
+                    )
+                )
+            )
+
+        @group.command(name="stats", description="Show Minecraft application and access totals.")
+        @app_commands.default_permissions(manage_messages=True)
+        async def stats(interaction: discord.Interaction) -> None:
+            if not await self.require_moderator(interaction):
+                await record_denial(self, interaction, "minecraft stats", "Not a moderator")
+                return
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            counts = await self.data.application_status_counts()
+            outbox = await self.data.outbox_counts()
+            total = sum(counts.values())
+            approved = counts.get(ApplicationStatus.APPROVED.value, 0)
+            denied = counts.get(ApplicationStatus.DENIED.value, 0)
+            decided = approved + denied
+            approval_rate = f"{(approved / decided * 100):.0f}%" if decided else "No decisions yet"
+
+            embed = info_embed(
+                "Minecraft Statistics",
+                f"> {total} application(s) recorded in total.",
+            )
+            embed.add_field(
+                name="Outcomes",
+                value=(
+                    f"**Approved:** {approved}\n"
+                    f"**Denied:** {denied}\n"
+                    f"**Approval rate:** {approval_rate}"
+                ),
+                inline=True,
+            )
+            embed.add_field(
+                name="In Flight",
+                value=(
+                    f"**Pending verification:** "
+                    f"{counts.get(ApplicationStatus.PENDING_VERIFICATION.value, 0)}\n"
+                    f"**Pending review:** {counts.get(ApplicationStatus.PENDING_REVIEW.value, 0)}\n"
+                    f"**Bridge queue:** {outbox.get('PENDING', 0)}"
+                ),
+                inline=True,
+            )
+            await interaction.edit_original_response(**branded_edit(embed))
+
+        @group.command(name="commandlog", description="Review who ran which Minecraft command.")
+        @app_commands.default_permissions(manage_messages=True)
+        @app_commands.describe(
+            user="Only show commands run by this member",
+            command="Filter by command name",
+            limit="How many records to show (1-50)",
+        )
+        async def commandlog(
+            interaction: discord.Interaction,
+            user: Optional[discord.User] = None,
+            command: Optional[str] = None,
+            limit: Optional[app_commands.Range[int, 1, 50]] = None,
+        ) -> None:
+            if not await self.require_moderator(interaction):
+                await record_denial(self, interaction, "minecraft commandlog", "Not a moderator")
+                return
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            rows = await self.data.list_command_log(
+                actor_id=user.id if user else None,
+                command=command,
+                limit=int(limit or 20),
+            )
+            total = await self.data.count_command_log(
+                actor_id=user.id if user else None,
+                command=command,
+            )
+            await interaction.edit_original_response(
+                **branded_edit(build_command_log_embed(rows, total=total))
             )
 
         return group

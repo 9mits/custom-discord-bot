@@ -27,7 +27,9 @@ from .models import (
 
 JAVA_USERNAME = re.compile(r"^[A-Za-z0-9_]{3,16}$")
 BEDROCK_USERNAME = re.compile(r"^[\w -]{1,16}$", re.UNICODE)
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+COMMAND_LOG_RETENTION_DAYS = 30
+COMMAND_LOG_RETENTION_ROWS = 20_000
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS minecraft_applications (
@@ -133,6 +135,29 @@ CREATE TABLE IF NOT EXISTS minecraft_bridge_events (
 );
 CREATE INDEX IF NOT EXISTS idx_minecraft_bridge_events_processed
     ON minecraft_bridge_events(processed_at);
+
+CREATE TABLE IF NOT EXISTS minecraft_command_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source TEXT NOT NULL,
+    command TEXT NOT NULL,
+    actor_discord_id TEXT NOT NULL,
+    actor_label TEXT NOT NULL,
+    target_discord_id TEXT,
+    channel_id TEXT,
+    outcome TEXT NOT NULL,
+    risk TEXT NOT NULL,
+    duration_ms INTEGER NOT NULL,
+    correlation_id TEXT,
+    detail TEXT,
+    options TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_minecraft_command_log_recent
+    ON minecraft_command_log(id DESC);
+CREATE INDEX IF NOT EXISTS idx_minecraft_command_log_actor
+    ON minecraft_command_log(actor_discord_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_minecraft_command_log_age
+    ON minecraft_command_log(created_at);
 """
 
 
@@ -1397,6 +1422,128 @@ class MinecraftDataManager:
             (int(application_id),),
         )
         return [dict(row) for row in rows]
+
+    # ------------------------------------------------------------------
+    # Command audit trail (every invocation, not just application lifecycle)
+    # ------------------------------------------------------------------
+
+    async def record_command_log(self, record: Any) -> int:
+        """Persist one CommandAuditRecord. Returns its new row id."""
+        async with self._write_lock:
+            db = self._connection()
+            try:
+                await self._begin(db)
+                cursor = await db.execute(
+                    "INSERT INTO minecraft_command_log ("
+                    "source, command, actor_discord_id, actor_label, target_discord_id, "
+                    "channel_id, outcome, risk, duration_ms, correlation_id, detail, options, created_at"
+                    ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        record.source,
+                        record.command,
+                        str(record.user_id),
+                        record.user_label,
+                        str(record.target_id) if record.target_id else None,
+                        str(record.channel_id) if record.channel_id else None,
+                        record.outcome,
+                        record.risk,
+                        int(record.duration_ms),
+                        record.correlation_id,
+                        record.detail,
+                        json.dumps(list(record.options)),
+                        int(record.created_at),
+                    ),
+                )
+                row_id = cursor.lastrowid
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+        return int(row_id)
+
+    async def list_command_log(
+        self,
+        *,
+        actor_id: Optional[int | str] = None,
+        command: Optional[str] = None,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if actor_id:
+            clauses.append("actor_discord_id=?")
+            params.append(str(actor_id))
+        if command:
+            clauses.append("command LIKE ?")
+            params.append(f"%{command}%")
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        params.append(max(1, min(50, int(limit))))
+        rows = await self._connection().execute_fetchall(
+            f"SELECT * FROM minecraft_command_log {where} ORDER BY id DESC LIMIT ?",
+            tuple(params),
+        )
+        return [dict(row) for row in rows]
+
+    async def count_command_log(
+        self,
+        *,
+        actor_id: Optional[int | str] = None,
+        command: Optional[str] = None,
+    ) -> int:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if actor_id:
+            clauses.append("actor_discord_id=?")
+            params.append(str(actor_id))
+        if command:
+            clauses.append("command LIKE ?")
+            params.append(f"%{command}%")
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = await self._connection().execute_fetchall(
+            f"SELECT COUNT(*) AS count FROM minecraft_command_log {where}", tuple(params)
+        )
+        return int(rows[0]["count"]) if rows else 0
+
+    async def prune_command_log(self, *, now: Optional[int] = None) -> int:
+        """Age out old rows and cap total size so the trail cannot grow unbounded."""
+        cutoff = (_now() if now is None else int(now)) - COMMAND_LOG_RETENTION_DAYS * 86400
+        deleted = 0
+        async with self._write_lock:
+            db = self._connection()
+            try:
+                await self._begin(db)
+                cursor = await db.execute(
+                    "DELETE FROM minecraft_command_log WHERE created_at < ?", (cutoff,)
+                )
+                deleted += max(0, int(cursor.rowcount))
+                cursor = await db.execute(
+                    "DELETE FROM minecraft_command_log WHERE id NOT IN "
+                    "(SELECT id FROM minecraft_command_log ORDER BY id DESC LIMIT ?)",
+                    (COMMAND_LOG_RETENTION_ROWS,),
+                )
+                deleted += max(0, int(cursor.rowcount))
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+        return deleted
+
+    async def find_applications_by_username(
+        self,
+        username: str,
+        *,
+        limit: int = 10,
+    ) -> list[MinecraftApplication]:
+        """Reverse lookup: which applications claimed this Minecraft username."""
+        needle = " ".join(str(username or "").strip().split()).casefold()
+        if not needle:
+            return []
+        rows = await self._connection().execute_fetchall(
+            "SELECT * FROM minecraft_applications WHERE normalized_username LIKE ? "
+            "ORDER BY id DESC LIMIT ?",
+            (f"%{needle}%", max(1, min(25, int(limit)))),
+        )
+        return [self._application(row) for row in rows]
 
     async def write_audit(
         self,

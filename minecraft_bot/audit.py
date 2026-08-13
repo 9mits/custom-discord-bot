@@ -1,0 +1,574 @@
+"""Command audit trail for the Minecraft access bot.
+
+Every `/minecraft ...` invocation, review button, and modal submission produces a
+record here. Routine ones go to the command log channel; access-changing and failed
+ones also go to a dedicated important-command channel.
+
+Self-contained by design: this module imports only stdlib, discord, and sibling
+`minecraft_bot` modules, so the Minecraft bot stays independent of the moderation
+bot's `core/` and `cogs/` packages.
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+from dataclasses import dataclass, field, replace
+from typing import Any, Iterable, Mapping, Optional, Sequence
+
+import discord
+from discord import InteractionType, app_commands
+
+from .presentation import branded_send, info_embed
+
+
+logger = logging.getLogger("MinecraftAccessBot")
+
+# Option values whose *name* matches one of these are never written to a channel or
+# the database.
+SECRET_OPTION_PARTS = ("token", "secret", "password", "credential", "webhook")
+REDACTED = "[redacted]"
+OPTION_VALUE_LIMIT = 200
+
+SOURCE_COMMAND = "command"
+SOURCE_COMPONENT = "component"
+SOURCE_MODAL = "modal"
+
+OUTCOME_SUCCESS = "success"
+OUTCOME_FAILED = "failed"
+OUTCOME_DENIED = "denied"
+
+RISK_READ_ONLY = "read_only"
+RISK_CONFIGURATION = "configuration"
+RISK_MODERATE = "moderate"
+RISK_DESTRUCTIVE = "destructive"
+
+# The Minecraft bot has no shared action registry, so risk is declared here.
+# Anything absent is treated as read-only.
+COMMAND_RISK: Mapping[str, str] = {
+    "minecraft revoke": RISK_DESTRUCTIVE,
+    "minecraft unlink": RISK_DESTRUCTIVE,
+    "minecraft cancel": RISK_DESTRUCTIVE,
+    "minecraft retry": RISK_MODERATE,
+    "minecraft setup": RISK_CONFIGURATION,
+    "minecraft log-channel": RISK_CONFIGURATION,
+}
+
+# Review-panel controls that change a member's access. Matched against the view or
+# item class name so button clicks are tiered like the equivalent command.
+DESTRUCTIVE_COMPONENT_HINTS = ("approve", "deny", "revoke", "cancel", "unlink")
+
+# Option names that identify the member an action was aimed at, most specific first.
+_TARGET_OPTION_NAMES = ("user", "member", "target", "application")
+
+_UI_NAME_SUFFIXES = ("Button", "Select", "Modal", "View", "Container")
+
+
+@dataclass(frozen=True)
+class CommandAuditRecord:
+    source: str
+    command: str
+    user_id: int
+    user_label: str
+    channel_id: Optional[int] = None
+    guild_id: Optional[int] = None
+    target_id: Optional[int] = None
+    options: tuple[tuple[str, str], ...] = ()
+    outcome: str = OUTCOME_SUCCESS
+    risk: str = RISK_READ_ONLY
+    duration_ms: int = 0
+    correlation_id: Optional[str] = None
+    detail: Optional[str] = None
+    created_at: int = field(default_factory=lambda: int(time.time()))
+
+    @property
+    def failed(self) -> bool:
+        return self.outcome in (OUTCOME_FAILED, OUTCOME_DENIED)
+
+    @property
+    def important(self) -> bool:
+        """Whether this belongs in the dedicated important-command channel."""
+        return self.risk == RISK_DESTRUCTIVE or self.failed
+
+    def option_summary(self) -> str:
+        if not self.options:
+            return ""
+        return " · ".join(f"{name}: {value}" for name, value in self.options)
+
+
+def truncate(value: Any, limit: int) -> str:
+    text = str(value if value is not None else "")
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)] + "..."
+
+
+def risk_for(command_name: str) -> str:
+    return COMMAND_RISK.get(str(command_name).strip().casefold(), RISK_READ_ONLY)
+
+
+def _is_secret_option(name: str) -> bool:
+    lowered = str(name).casefold()
+    return any(part in lowered for part in SECRET_OPTION_PARTS)
+
+
+def redact_options(
+    options: Sequence[tuple[str, Any]],
+    *,
+    redact: bool = True,
+) -> tuple[tuple[str, str], ...]:
+    """Drop secret-looking values and bound every option to a loggable length."""
+    cleaned: list[tuple[str, str]] = []
+    for name, value in options:
+        label = str(name)
+        if redact and _is_secret_option(label):
+            cleaned.append((label, REDACTED))
+            continue
+        cleaned.append((label, truncate(value, OPTION_VALUE_LIMIT) or "—"))
+    return tuple(cleaned)
+
+
+def flatten_options(data: Optional[Mapping[str, Any]]) -> list[tuple[str, Any]]:
+    """Pull the leaf options out of a raw interaction payload.
+
+    `/minecraft <sub>` arrives as a subcommand wrapper (type 1) holding the real
+    options one level down, so wrappers are unwrapped rather than reported.
+    """
+    raw = (data or {}).get("options") or []
+    queue: list[Any] = list(raw) if isinstance(raw, list) else []
+    flattened: list[tuple[str, Any]] = []
+    while queue:
+        option = queue.pop(0)
+        if not isinstance(option, Mapping):
+            continue
+        if option.get("type") in (1, 2):
+            nested = option.get("options") or []
+            if isinstance(nested, list):
+                queue = list(nested) + queue
+            continue
+        if "value" in option:
+            flattened.append((str(option.get("name") or "option"), option.get("value")))
+    return flattened
+
+
+def resolve_target_id(interaction: Any, options: Sequence[tuple[str, Any]]) -> Optional[int]:
+    resolved = ((getattr(interaction, "data", None) or {}).get("resolved") or {})
+    users = resolved.get("users") if isinstance(resolved, Mapping) else None
+    if isinstance(users, Mapping) and users:
+        try:
+            return int(next(iter(users)))
+        except (TypeError, ValueError):
+            pass
+    lookup = {str(name).casefold(): value for name, value in options}
+    for name in _TARGET_OPTION_NAMES:
+        if name in lookup:
+            try:
+                return int(str(lookup[name]).strip())
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
+def command_name_for(interaction: Any) -> str:
+    command = getattr(interaction, "command", None)
+    qualified = getattr(command, "qualified_name", None)
+    if qualified:
+        return str(qualified)
+
+    data: Mapping[str, Any] = getattr(interaction, "data", None) or {}
+    names = [str(data.get("name") or "")]
+    options = data.get("options") or []
+    while options and isinstance(options, list):
+        nested = next(
+            (option for option in options if isinstance(option, Mapping) and option.get("type") in (1, 2)),
+            None,
+        )
+        if nested is None:
+            break
+        names.append(str(nested.get("name") or ""))
+        options = nested.get("options") or []
+    return " ".join(name for name in names if name) or "unknown"
+
+
+def humanize_ui_name(name: str) -> str:
+    """`ApproveApplicationButton` -> `Approve Application`."""
+    trimmed = str(name or "Component")
+    for suffix in _UI_NAME_SUFFIXES:
+        if trimmed.endswith(suffix) and len(trimmed) > len(suffix):
+            trimmed = trimmed[: -len(suffix)]
+            break
+    spaced = "".join(
+        f" {char}" if index and char.isupper() and not trimmed[index - 1].isupper() else char
+        for index, char in enumerate(trimmed)
+    ).strip()
+    return spaced or str(name or "Component")
+
+
+def component_label(view: Any, item: Any) -> str:
+    control = getattr(item, "label", None) or getattr(item, "placeholder", None)
+    if not control:
+        control = humanize_ui_name(type(item).__name__)
+    return f"{humanize_ui_name(type(view).__name__)} → {control}"
+
+
+def component_risk(label: str) -> str:
+    lowered = str(label).casefold()
+    if any(hint in lowered for hint in DESTRUCTIVE_COMPONENT_HINTS):
+        return RISK_DESTRUCTIVE
+    return RISK_READ_ONLY
+
+
+def _user_label(user: Any) -> str:
+    if user is None:
+        return "Unknown"
+    for attribute in ("global_name", "display_name", "name"):
+        value = getattr(user, attribute, None)
+        if value:
+            return str(value)
+    return str(getattr(user, "id", "Unknown"))
+
+
+def build_record(
+    interaction: Any,
+    *,
+    source: str = SOURCE_COMMAND,
+    command: Optional[str] = None,
+    outcome: str = OUTCOME_SUCCESS,
+    risk: Optional[str] = None,
+    duration_ms: int = 0,
+    correlation_id: Optional[str] = None,
+    detail: Optional[str] = None,
+    redact: bool = True,
+) -> CommandAuditRecord:
+    name = command or command_name_for(interaction)
+    raw_options = flatten_options(getattr(interaction, "data", None)) if source == SOURCE_COMMAND else []
+    user = getattr(interaction, "user", None)
+    channel_id = getattr(interaction, "channel_id", None)
+    guild = getattr(interaction, "guild", None)
+
+    return CommandAuditRecord(
+        source=source,
+        command=name,
+        user_id=int(getattr(user, "id", 0) or 0),
+        user_label=_user_label(user),
+        channel_id=int(channel_id) if channel_id else None,
+        guild_id=int(getattr(guild, "id", 0)) if guild is not None else None,
+        target_id=resolve_target_id(interaction, raw_options),
+        options=redact_options(raw_options, redact=redact),
+        outcome=outcome,
+        risk=risk if risk is not None else risk_for(name),
+        duration_ms=max(0, int(duration_ms)),
+        correlation_id=correlation_id,
+        detail=detail,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Rendering
+# ---------------------------------------------------------------------------
+
+_OUTCOME_LABELS = {
+    OUTCOME_SUCCESS: "OK",
+    OUTCOME_FAILED: "FAILED",
+    OUTCOME_DENIED: "DENIED",
+}
+
+
+def format_record(record: CommandAuditRecord) -> str:
+    parts = [
+        f"`{_OUTCOME_LABELS.get(record.outcome, record.outcome)}`",
+        f"**{record.command}**",
+        f"by <@{record.user_id}>",
+    ]
+    if record.target_id:
+        parts.append(f"on <@{record.target_id}>")
+    if record.channel_id:
+        parts.append(f"in <#{record.channel_id}>")
+    line = " ".join(parts)
+    summary = record.option_summary()
+    if summary:
+        line += f"\n{truncate(summary, 300)}"
+    if record.failed and record.detail:
+        failure = record.detail
+        if record.correlation_id:
+            failure += f" · ref `{record.correlation_id}`"
+        line += f"\n{failure}"
+    return line
+
+
+def build_batch_embed(records: Sequence[CommandAuditRecord]) -> discord.Embed:
+    lines = [f"<t:{record.created_at}:T> {format_record(record)}" for record in records]
+    return info_embed(
+        f"Command Log ({len(records)})",
+        truncate("\n\n".join(lines), 4000),
+    )
+
+
+def build_important_embed(record: CommandAuditRecord) -> discord.Embed:
+    embed = info_embed(
+        "Important Command",
+        f"**{record.command}** was run by <@{record.user_id}>.",
+        error=record.failed,
+    )
+    embed.add_field(name="Outcome", value=_OUTCOME_LABELS.get(record.outcome, record.outcome), inline=True)
+    embed.add_field(name="Risk", value=str(record.risk).replace("_", " ").title(), inline=True)
+    embed.add_field(name="Took", value=f"{record.duration_ms} ms", inline=True)
+    embed.add_field(name="Staff", value=f"<@{record.user_id}> (`{record.user_id}`)", inline=True)
+    if record.target_id:
+        embed.add_field(name="Target", value=f"<@{record.target_id}> (`{record.target_id}`)", inline=True)
+    if record.channel_id:
+        embed.add_field(name="Channel", value=f"<#{record.channel_id}>", inline=True)
+    summary = record.option_summary()
+    if summary:
+        embed.add_field(name="Arguments", value=truncate(summary, 1024), inline=False)
+    if record.failed:
+        failure = record.detail or "error"
+        if record.correlation_id:
+            failure += f"\nReference: `{record.correlation_id}`"
+        embed.add_field(name="Failure", value=truncate(failure, 1024), inline=False)
+    return embed
+
+
+def build_command_log_embed(rows: Sequence[Mapping[str, Any]], *, total: int) -> discord.Embed:
+    if not rows:
+        return info_embed(
+            "Command Log",
+            "> No command invocations match that filter yet.",
+        )
+    lines = []
+    for row in rows:
+        outcome = _OUTCOME_LABELS.get(str(row.get("outcome")), str(row.get("outcome")))
+        line = (
+            f"`{outcome}` **{row.get('command')}** by <@{row.get('actor_discord_id')}> "
+            f"<t:{int(row.get('created_at') or 0)}:R>"
+        )
+        if row.get("target_discord_id"):
+            line += f" on <@{row['target_discord_id']}>"
+        lines.append(line)
+    embed = info_embed("Command Log", truncate("\n".join(lines), 4000))
+    embed.add_field(name="Shown", value=str(len(rows)), inline=True)
+    embed.add_field(name="Matching Records", value=str(total), inline=True)
+    return embed
+
+
+# ---------------------------------------------------------------------------
+# Delivery
+# ---------------------------------------------------------------------------
+
+
+async def deliver(client: Any, record: CommandAuditRecord) -> None:
+    """Persist the record, then write it to whichever log channels are configured.
+
+    Auditing is best-effort: a logging failure must never take a command down.
+    """
+    try:
+        await _persist(client, record)
+    except Exception:
+        logger.exception("Could not persist Minecraft command audit for %s", record.command)
+
+    settings = getattr(client, "settings", None)
+    if settings is None:
+        return
+
+    command_channel = int(getattr(settings, "command_log_channel_id", 0) or 0)
+    important_channel = int(getattr(settings, "critical_log_channel_id", 0) or 0)
+
+    targets: list[int] = []
+    if command_channel:
+        targets.append(command_channel)
+    if record.important:
+        # Falls back to the command log so important records are never dropped.
+        fallback = important_channel or command_channel
+        if fallback:
+            targets.append(fallback)
+
+    embed = build_important_embed(record) if record.important else build_batch_embed([record])
+    for channel_id in dict.fromkeys(targets):
+        await _send(client, channel_id, embed)
+
+
+async def _persist(client: Any, record: CommandAuditRecord) -> None:
+    data = getattr(client, "data", None)
+    writer = getattr(data, "record_command_log", None)
+    if writer is None:
+        return
+    await writer(record)
+
+
+async def _send(client: Any, channel_id: int, embed: discord.Embed) -> None:
+    send_log = getattr(client, "_send_configured_log", None)
+    if send_log is not None:
+        try:
+            await send_log(channel_id, embed)
+        except Exception:
+            logger.exception("Could not write Minecraft command audit to channel %s", channel_id)
+        return
+
+    channel = client.get_channel(channel_id)
+    if channel is None or not hasattr(channel, "send"):
+        return
+    try:
+        await channel.send(**branded_send(embed), allowed_mentions=discord.AllowedMentions.none())
+    except Exception:
+        logger.exception("Could not write Minecraft command audit to channel %s", channel_id)
+
+
+# ---------------------------------------------------------------------------
+# Interaction hooks
+# ---------------------------------------------------------------------------
+
+
+class MinecraftCommandTree(app_commands.CommandTree):
+    """Times every command and writes an audit record on the way out."""
+
+    async def _call(self, interaction: discord.Interaction) -> None:
+        if interaction.type is InteractionType.autocomplete:
+            await super()._call(interaction)
+            return
+
+        started_at = time.perf_counter()
+        outcome = OUTCOME_SUCCESS
+        detail: Optional[str] = None
+        try:
+            await super()._call(interaction)
+        except Exception as error:
+            outcome = OUTCOME_FAILED
+            detail = type(error).__name__
+            raise
+        finally:
+            try:
+                record = build_record(
+                    interaction,
+                    source=SOURCE_COMMAND,
+                    outcome=outcome,
+                    duration_ms=int((time.perf_counter() - started_at) * 1000),
+                    detail=detail,
+                    correlation_id=f"mc-{interaction.id:x}" if outcome == OUTCOME_FAILED else None,
+                )
+                await deliver(self.client, record)
+            except Exception:
+                logger.exception("Minecraft command audit failed")
+
+
+def install_component_audit(client: Any) -> None:
+    """Audit button, dropdown, and modal use on the Minecraft bot's panels.
+
+    discord.ui dispatch is process-global, so every callback is guarded on the
+    interaction's client being this bot. The Minecraft bot runs in its own process
+    and the guard keeps the patch inert anywhere else.
+    """
+    if getattr(discord.ui.View, "_mc_audit_wrapped", False):
+        return
+
+    original_view_task = discord.ui.View._scheduled_task
+    original_modal_task = discord.ui.Modal._scheduled_task
+
+    def _is_target(interaction: Any) -> bool:
+        return getattr(interaction, "client", None) is client
+
+    async def audited_view_task(view, item, interaction):
+        if not _is_target(interaction):
+            return await original_view_task(view, item, interaction)
+        started_at = time.perf_counter()
+        outcome = OUTCOME_SUCCESS
+        detail = None
+        try:
+            return await original_view_task(view, item, interaction)
+        except Exception as error:
+            outcome = OUTCOME_FAILED
+            detail = type(error).__name__
+            raise
+        finally:
+            label = component_label(view, item)
+            await _safe_deliver(
+                client,
+                interaction,
+                source=SOURCE_COMPONENT,
+                command=label,
+                risk=component_risk(label),
+                outcome=outcome,
+                detail=detail,
+                duration_ms=int((time.perf_counter() - started_at) * 1000),
+            )
+
+    async def audited_modal_task(modal, interaction, components, resolved):
+        if not _is_target(interaction):
+            return await original_modal_task(modal, interaction, components, resolved)
+        started_at = time.perf_counter()
+        outcome = OUTCOME_SUCCESS
+        detail = None
+        try:
+            return await original_modal_task(modal, interaction, components, resolved)
+        except Exception as error:
+            outcome = OUTCOME_FAILED
+            detail = type(error).__name__
+            raise
+        finally:
+            # Modal field values are free text (denial reasons, usernames) and are
+            # deliberately not captured; the title alone identifies the action.
+            label = str(getattr(modal, "title", "") or humanize_ui_name(type(modal).__name__))
+            await _safe_deliver(
+                client,
+                interaction,
+                source=SOURCE_MODAL,
+                command=label,
+                risk=component_risk(label),
+                outcome=outcome,
+                detail=detail,
+                duration_ms=int((time.perf_counter() - started_at) * 1000),
+            )
+
+    discord.ui.View._scheduled_task = audited_view_task
+    discord.ui.Modal._scheduled_task = audited_modal_task
+    discord.ui.View._mc_audit_wrapped = True
+
+
+async def _safe_deliver(client: Any, interaction: Any, **kwargs: Any) -> None:
+    try:
+        await deliver(client, build_record(interaction, **kwargs))
+    except Exception:
+        logger.exception("Minecraft component audit failed")
+
+
+async def record_denial(client: Any, interaction: Any, command: str, reason: str) -> None:
+    """Log an attempt that was refused by a permission check."""
+    try:
+        await deliver(
+            client,
+            build_record(
+                interaction,
+                command=command,
+                outcome=OUTCOME_DENIED,
+                risk=risk_for(command),
+                detail=reason,
+            ),
+        )
+    except Exception:
+        logger.exception("Minecraft denial audit failed")
+
+
+def with_risk(record: CommandAuditRecord, risk: str) -> CommandAuditRecord:
+    return replace(record, risk=risk)
+
+
+__all__: Iterable[str] = (
+    "COMMAND_RISK",
+    "CommandAuditRecord",
+    "MinecraftCommandTree",
+    "build_batch_embed",
+    "build_command_log_embed",
+    "build_important_embed",
+    "build_record",
+    "component_label",
+    "component_risk",
+    "deliver",
+    "flatten_options",
+    "format_record",
+    "humanize_ui_name",
+    "install_component_audit",
+    "record_denial",
+    "redact_options",
+    "resolve_target_id",
+    "risk_for",
+    "with_risk",
+)
