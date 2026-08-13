@@ -130,11 +130,11 @@ The durable outbox makes approval and revocation safe across disconnects. `APPRO
 
 ## Scoreboard and Discord level perks
 
-Every online player receives a compact orange sidebar containing their name, highest
-Discord milestone, bonus hearts, optional level-50 power bonus, optional clan, kills,
-deaths, online population, ping, and the configured footer. Clan and power rows are
-omitted when they do not apply. Paper 1.20.6's blank number format hides the sidebar's
-internal score values.
+Every online player receives a compact orange-led sidebar with clear profile and stats
+sections. It contains their name, highest Discord milestone, bonus hearts, optional
+level-50 power bonus, optional clan, kills, deaths, ping, and the configured footer.
+Clan and power rows are omitted when they do not apply. Paper 1.20.6's blank number
+format hides the sidebar's internal score values.
 
 The dedicated Discord bot derives profiles from these exact milestone roles:
 
@@ -167,8 +167,9 @@ is once per second.
 ## Minecraft clans
 
 Clans are UUID-based, survive name changes and server restarts, and have one leader,
-optional staff, up to 25 members, five-minute invites, private online chat, and friendly
-fire disabled by default. Clan membership appears on the sidebar only when applicable.
+optional staff, up to 25 members, five-minute invites, and private online chat. Members
+of the same clan can never damage one another; this protection cannot be changed. Clan
+membership appears on the sidebar only when applicable.
 
 | Command | Purpose |
 |---|---|
@@ -181,7 +182,6 @@ fire disabled by default. Clan membership appears on the sidebar only when appli
 | `/clans transfer <player>` | Transfer leadership to an existing member. |
 | `/clans kick <player>` / `/clans leave` | Remove a member or leave voluntarily. |
 | `/clans chat <message>` | Message online members of the same clan. |
-| `/clans friendlyfire` | Let the leader toggle member-on-member damage. |
 | `/clans disband confirm` | Permanently remove the clan after explicit confirmation. |
 
 Leaders can perform every management action. Staff can invite and remove regular

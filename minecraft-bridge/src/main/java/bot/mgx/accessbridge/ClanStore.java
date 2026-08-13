@@ -93,7 +93,7 @@ final class ClanStore {
     }
 
     synchronized ClanView create(UUID owner, String ownerName, String requestedName) throws IOException {
-        requireNotInClan(owner);
+        requireNotInClan(owner, "You already have a clan!");
         String name = normalizeName(requestedName);
         requireUniqueName(name, null);
         SavedClan clan = new SavedClan();
@@ -138,7 +138,7 @@ final class ClanStore {
         if (actor.equals(target)) {
             throw new ClanException("You cannot invite yourself.");
         }
-        requireNotInClan(target);
+        requireNotInClan(target, "That player already has a clan.");
         if (clan.members.size() >= MAX_MEMBERS) {
             throw new ClanException("Your clan has reached its 25-player limit.");
         }
@@ -153,7 +153,7 @@ final class ClanStore {
     }
 
     synchronized ClanView accept(UUID player, String playerName, long now) throws IOException {
-        requireNotInClan(player);
+        requireNotInClan(player, "You already have a clan!");
         pruneInvites(now);
         SavedInvite invite = state.invites.get(player.toString());
         if (invite == null) {
@@ -182,6 +182,9 @@ final class ClanStore {
     synchronized ClanView rename(UUID actor, String requestedName) throws IOException {
         SavedClan clan = requireLeader(actor);
         String name = normalizeName(requestedName);
+        if (clan.name.equals(name)) {
+            throw new ClanException("Your clan already uses that name.");
+        }
         requireUniqueName(name, UUID.fromString(clan.id));
         clan.name = name;
         persist();
@@ -190,7 +193,11 @@ final class ClanStore {
 
     synchronized ClanView setThemeColor(UUID actor, String requestedColor) throws IOException {
         SavedClan clan = requireLeader(actor);
-        clan.themeColor = parseThemeColor(requestedColor);
+        int themeColor = parseThemeColor(requestedColor);
+        if (clan.themeColor == themeColor) {
+            throw new ClanException("Your clan already uses that theme color.");
+        }
+        clan.themeColor = themeColor;
         persist();
         return view(clan);
     }
@@ -230,6 +237,9 @@ final class ClanStore {
         SavedClan clan = requireStaff(actor);
         requireMember(clan, target);
         if (actor.equals(target)) {
+            if (clan.leader.equals(actor.toString())) {
+                throw new ClanException("Transfer leadership or disband the clan before leaving.");
+            }
             throw new ClanException("Use /clans leave to leave your clan.");
         }
         if (clan.leader.equals(target.toString())) {
@@ -431,9 +441,9 @@ final class ClanStore {
         return clan;
     }
 
-    private void requireNotInClan(UUID member) {
+    private void requireNotInClan(UUID member, String message) {
         if (memberIndex.containsKey(member)) {
-            throw new ClanException("That player is already in a clan.");
+            throw new ClanException(message);
         }
     }
 

@@ -31,6 +31,7 @@ final class SidebarService {
     private static final int MAX_LINES = 13;
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private static final TextColor GOLD = TextColor.color(0xFFB52E);
+    private static final TextColor LIGHT_ORANGE = TextColor.color(0xFFC266);
     private static final ChatColor[] ENTRY_COLOURS = {
             ChatColor.BLACK, ChatColor.DARK_BLUE, ChatColor.DARK_GREEN, ChatColor.DARK_AQUA,
             ChatColor.DARK_RED, ChatColor.DARK_PURPLE, ChatColor.GOLD, ChatColor.GRAY,
@@ -119,8 +120,8 @@ final class SidebarService {
         clans.clanOf(player.getUniqueId()).ifPresent(clan ->
                 lines.add(valueLine("CLAN", "[" + clan.name() + "]", clanColor(clan)))
         );
-        lines.add(borderLine());
-        lines.add(sectionLine("STATS", false));
+        lines.add(Component.empty());
+        lines.add(sectionLine("STATS"));
         lines.add(valueLine(
                 "KILLS",
                 String.valueOf(player.getStatistic(Statistic.PLAYER_KILLS)),
@@ -132,35 +133,28 @@ final class SidebarService {
                 NamedTextColor.GRAY
         ));
         lines.add(valueLine("PING", player.getPing() + "ms", pingColor(player.getPing())));
-        lines.add(borderLine());
+        lines.add(Component.empty());
         lines.add(footerLine());
         return lines;
     }
 
     private static Component valueLine(String label, String value, TextColor valueColor) {
-        return Component.text("│ ", NamedTextColor.DARK_GRAY)
-                .append(Component.text(label, NamedTextColor.GRAY))
+        return Component.text("» ", ORANGE, TextDecoration.BOLD)
+                .append(Component.text(label, LIGHT_ORANGE, TextDecoration.BOLD))
                 .append(Component.text("  ", NamedTextColor.DARK_GRAY))
-                .append(Component.text(value, valueColor, TextDecoration.BOLD));
+                .append(Component.text(value, valueColor));
     }
 
     private static Component sectionLine(String label) {
-        return sectionLine(label, true);
-    }
-
-    private static Component sectionLine(String label, boolean first) {
-        return Component.text(first ? "╭─ " : "├─ ", ORANGE)
-                .append(Component.text(label, GOLD, TextDecoration.BOLD))
-                .append(Component.text(" ───", NamedTextColor.DARK_GRAY));
-    }
-
-    private static Component borderLine() {
-        return Component.text("│", NamedTextColor.DARK_GRAY);
+        return Component.text("━━ ", NamedTextColor.DARK_GRAY)
+                .append(Component.text(label, ORANGE, TextDecoration.BOLD))
+                .append(Component.text(" ━━━", NamedTextColor.DARK_GRAY));
     }
 
     private Component footerLine() {
-        return Component.text("╰─ ", ORANGE)
-                .append(Component.text(footer, GOLD, TextDecoration.BOLD));
+        return Component.text("• ", ORANGE)
+                .append(Component.text(footer, GOLD, TextDecoration.BOLD))
+                .append(Component.text(" •", ORANGE));
     }
 
     private void updateTabName(Player player) {
@@ -173,12 +167,14 @@ final class SidebarService {
         }
         rendered = rendered
                 .append(Component.text(player.getName(), NamedTextColor.WHITE))
-                .append(Component.text("  │  ", NamedTextColor.DARK_GRAY))
-                .append(Component.text("LVL " + profile.level(), NamedTextColor.AQUA))
-                .append(Component.text("  •  ", NamedTextColor.DARK_GRAY))
+                .append(Component.text("    │    ", NamedTextColor.DARK_GRAY))
+                .append(Component.text("LVL ", NamedTextColor.GRAY))
+                .append(Component.text(String.valueOf(profile.level()), NamedTextColor.AQUA))
+                .append(Component.text("    │    ", NamedTextColor.DARK_GRAY))
                 .append(Component.text(platform.edition(), editionColor(platform)))
-                .append(Component.text("/" + platform.device(), NamedTextColor.GRAY))
-                .append(Component.text("  •  ", NamedTextColor.DARK_GRAY))
+                .append(Component.text("  ·  ", NamedTextColor.DARK_GRAY))
+                .append(Component.text(platform.device(), NamedTextColor.GRAY))
+                .append(Component.text("    │    ", NamedTextColor.DARK_GRAY))
                 .append(Component.text(player.getPing() + "ms", pingColor(player.getPing())));
         player.playerListName(rendered);
     }
@@ -186,19 +182,23 @@ final class SidebarService {
     private void updateTabHeaderAndFooter(Player player) {
         int online = plugin.getServer().getOnlinePlayers().size();
         Component header = Component.empty()
+                .append(Component.newline())
                 .append(Component.text("MYSTERIOUS", ORANGE, TextDecoration.BOLD))
                 .append(Component.text(" SMP X", GOLD, TextDecoration.BOLD))
                 .append(Component.newline())
-                .append(Component.text("Survival  •  Progression  •  Clans", NamedTextColor.GRAY))
                 .append(Component.newline())
+                .append(Component.text("ONLINE  ", ORANGE, TextDecoration.BOLD))
                 .append(Component.text(
-                        online + "/" + plugin.getServer().getMaxPlayers() + " players online",
-                        NamedTextColor.DARK_GRAY
-                ));
+                        online + " / " + plugin.getServer().getMaxPlayers(),
+                        NamedTextColor.WHITE
+                ))
+                .append(Component.newline());
         Component footerComponent = Component.empty()
-                .append(Component.text("Use /guide for server help", NamedTextColor.GRAY))
                 .append(Component.newline())
-                .append(Component.text("discord.gg/mgx", ORANGE, TextDecoration.BOLD));
+                .append(Component.text("/guide", GOLD, TextDecoration.BOLD))
+                .append(Component.text("  •  ", NamedTextColor.DARK_GRAY))
+                .append(Component.text("discord.gg/mgx", ORANGE, TextDecoration.BOLD))
+                .append(Component.newline());
         player.sendPlayerListHeaderAndFooter(header, footerComponent);
     }
 

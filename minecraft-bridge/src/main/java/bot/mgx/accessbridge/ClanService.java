@@ -33,9 +33,18 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     private static final List<String> THEME_COLORS = List.of(
             "orange", "gold", "yellow", "red", "pink", "purple", "blue", "aqua", "green", "white"
     );
-    private static final List<String> SUBCOMMANDS = List.of(
-            "help", "create", "invite", "accept", "decline", "info", "list", "rename",
-            "color", "promote", "demote", "transfer", "kick", "leave", "chat", "disband"
+    private static final List<String> CLANLESS_SUBCOMMANDS = List.of(
+            "help", "create", "accept", "decline", "info", "list"
+    );
+    private static final List<String> MEMBER_SUBCOMMANDS = List.of(
+            "help", "info", "list", "chat", "leave"
+    );
+    private static final List<String> STAFF_SUBCOMMANDS = List.of(
+            "help", "invite", "info", "list", "kick", "chat", "leave"
+    );
+    private static final List<String> LEADER_SUBCOMMANDS = List.of(
+            "help", "invite", "info", "list", "rename", "color", "promote", "demote",
+            "transfer", "kick", "chat", "disband"
     );
 
     private final MGXAccessBridge plugin;
@@ -58,20 +67,17 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
             switch (action) {
                 case "help" -> sendHelp(player);
                 case "create" -> create(player, remainder(args, 1));
-                case "invite", "add" -> invite(player, argument(args, 1, "Usage: /clans invite <player>"));
+                case "invite", "add" -> invite(player, remainder(args, 1));
                 case "accept", "join" -> accept(player);
                 case "decline" -> decline(player);
                 case "info" -> info(player, remainder(args, infoAlias ? 0 : 1));
                 case "list" -> list(player, args.length >= 2 ? args[1] : "1");
                 case "rename", "name" -> rename(player, remainder(args, 1));
-                case "color", "colour", "theme" -> color(
-                        player,
-                        argument(args, 1, "Usage: /clans color <color|#RRGGBB>")
-                );
-                case "promote" -> setStaff(player, argument(args, 1, "Usage: /clans promote <player>"), true);
-                case "demote" -> setStaff(player, argument(args, 1, "Usage: /clans demote <player>"), false);
-                case "transfer", "leader" -> transfer(player, argument(args, 1, "Usage: /clans transfer <player>"));
-                case "kick", "remove" -> kick(player, argument(args, 1, "Usage: /clans kick <player>"));
+                case "color", "colour", "theme" -> color(player, remainder(args, 1));
+                case "promote" -> setStaff(player, remainder(args, 1), true);
+                case "demote" -> setStaff(player, remainder(args, 1), false);
+                case "transfer", "leader" -> transfer(player, remainder(args, 1));
+                case "kick", "remove" -> kick(player, remainder(args, 1));
                 case "leave" -> leave(player);
                 case "chat" -> chat(player, remainder(args, 1));
                 case "disband" -> disband(player, args.length >= 2 ? args[1] : "");
@@ -87,6 +93,9 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void create(Player player, String name) throws IOException {
+        if (store.clanOf(player.getUniqueId()).isPresent()) {
+            throw new ClanStore.ClanException("You already have a clan!");
+        }
         if (name.isBlank()) {
             throw new ClanStore.ClanException("Usage: /clans create <name>");
         }
@@ -96,6 +105,10 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void invite(Player player, String targetName) throws IOException {
+        staffClan(player);
+        if (targetName.isBlank()) {
+            throw new ClanStore.ClanException("Usage: /clans invite <player>");
+        }
         Player target = Bukkit.getPlayerExact(targetName);
         if (target == null) {
             throw new ClanStore.ClanException("That player must be online to receive an invite.");
@@ -177,6 +190,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void rename(Player player, String name) throws IOException {
+        leaderClan(player);
         if (name.isBlank()) {
             throw new ClanStore.ClanException("Usage: /clans rename <new name>");
         }
@@ -186,6 +200,10 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void color(Player player, String requestedColor) throws IOException {
+        leaderClan(player);
+        if (requestedColor.isBlank()) {
+            throw new ClanStore.ClanException("Usage: /clans color <color|#RRGGBB>");
+        }
         ClanStore.ClanView clan = store.setThemeColor(
                 player.getUniqueId(),
                 resolveThemeColor(requestedColor)
@@ -197,7 +215,12 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void setStaff(Player player, String targetName, boolean promoted) throws IOException {
-        ClanStore.ClanView clan = ownClan(player);
+        ClanStore.ClanView clan = leaderClan(player);
+        if (targetName.isBlank()) {
+            throw new ClanStore.ClanException(
+                    promoted ? "Usage: /clans promote <player>" : "Usage: /clans demote <player>"
+            );
+        }
         UUID target = member(clan, targetName);
         ClanStore.ClanView updated = store.setStaff(player.getUniqueId(), target, promoted);
         String name = updated.members().get(target);
@@ -208,7 +231,10 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void transfer(Player player, String targetName) throws IOException {
-        ClanStore.ClanView clan = ownClan(player);
+        ClanStore.ClanView clan = leaderClan(player);
+        if (targetName.isBlank()) {
+            throw new ClanStore.ClanException("Usage: /clans transfer <player>");
+        }
         UUID target = member(clan, targetName);
         ClanStore.ClanView updated = store.transfer(player.getUniqueId(), target);
         broadcast(updated, Component.text(
@@ -217,7 +243,10 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void kick(Player player, String targetName) throws IOException {
-        ClanStore.ClanView clan = ownClan(player);
+        ClanStore.ClanView clan = staffClan(player);
+        if (targetName.isBlank()) {
+            throw new ClanStore.ClanException("Usage: /clans kick <player>");
+        }
         UUID target = member(clan, targetName);
         String removedName = store.kick(player.getUniqueId(), target);
         plugin.refreshClanAppearance();
@@ -235,13 +264,13 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void chat(Player player, String message) {
+        ClanStore.ClanView clan = ownClan(player);
         if (message.isBlank()) {
             throw new ClanStore.ClanException("Usage: /clans chat <message>");
         }
         if (message.length() > 160) {
             throw new ClanStore.ClanException("Clan chat messages can contain at most 160 characters.");
         }
-        ClanStore.ClanView clan = ownClan(player);
         Component chat = Component.empty()
                 .append(clanTag(clan))
                 .append(Component.text("CLAN  ", NamedTextColor.DARK_GRAY))
@@ -257,10 +286,10 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void disband(Player player, String confirmation) throws IOException {
+        ClanStore.ClanView clan = leaderClan(player);
         if (!confirmation.equalsIgnoreCase("confirm")) {
             throw new ClanStore.ClanException("This removes the clan permanently. Use /clans disband confirm.");
         }
-        ClanStore.ClanView clan = ownClan(player);
         store.disband(player.getUniqueId());
         plugin.refreshClanAppearance();
         for (UUID memberId : clan.members().keySet()) {
@@ -274,18 +303,30 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void sendHelp(Player player) {
+        Optional<ClanStore.ClanView> current = store.clanOf(player.getUniqueId());
         player.sendMessage(prefix().append(Component.text("Commands", NamedTextColor.WHITE, TextDecoration.BOLD)));
-        player.sendMessage(help("/clans create <name>", "Create a clan"));
-        player.sendMessage(help("/clans invite <player>", "Invite an online player"));
-        player.sendMessage(help("/clans accept | decline", "Answer your latest invite"));
+        if (current.isEmpty()) {
+            player.sendMessage(help("/clans create <name>", "Create a clan"));
+            player.sendMessage(help("/clans accept | decline", "Answer your latest invite"));
+        }
         player.sendMessage(help("/clans info [name] | list [page]", "Browse clans"));
-        player.sendMessage(help("/clans rename <name>", "Change your clan name"));
-        player.sendMessage(help("/clans color <color|#hex>", "Change your clan theme"));
-        player.sendMessage(help("/clans promote | demote <player>", "Manage clan staff"));
-        player.sendMessage(help("/clans transfer <player>", "Transfer leadership"));
-        player.sendMessage(help("/clans kick <player> | leave", "Manage membership"));
-        player.sendMessage(help("/clans chat <message>", "Message online clan members"));
-        player.sendMessage(help("/clans disband confirm", "Permanently remove your clan"));
+        if (current.isPresent()) {
+            ClanStore.ClanRole role = current.get().roleOf(player.getUniqueId());
+            if (role == ClanStore.ClanRole.LEADER || role == ClanStore.ClanRole.STAFF) {
+                player.sendMessage(help("/clans invite <player>", "Invite an online player"));
+                player.sendMessage(help("/clans kick <player>", "Remove a clan member"));
+            }
+            if (role == ClanStore.ClanRole.LEADER) {
+                player.sendMessage(help("/clans rename <name>", "Change your clan name"));
+                player.sendMessage(help("/clans color <color|#hex>", "Change your clan theme"));
+                player.sendMessage(help("/clans promote | demote <player>", "Manage clan staff"));
+                player.sendMessage(help("/clans transfer <player>", "Transfer leadership"));
+                player.sendMessage(help("/clans disband confirm", "Permanently remove your clan"));
+            } else {
+                player.sendMessage(help("/clans leave", "Leave your current clan"));
+            }
+            player.sendMessage(help("/clans chat <message>", "Message online clan members"));
+        }
         player.sendMessage(Component.text(
                 "  Clan protection: members of the same clan cannot damage one another.",
                 NamedTextColor.GRAY
@@ -337,12 +378,18 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                     : List.of();
         }
         if (args.length == 1) {
-            return partial(args[0], SUBCOMMANDS);
+            List<String> available = sender instanceof Player player
+                    ? availableSubcommands(player)
+                    : CLANLESS_SUBCOMMANDS;
+            return partial(args[0], available);
         }
         if (!(sender instanceof Player player) || args.length != 2) {
             return List.of();
         }
         String action = args[0].toLowerCase(Locale.ROOT);
+        if (!availableSubcommands(player).contains(canonicalAction(action))) {
+            return List.of();
+        }
         if (action.equals("invite") || action.equals("add")) {
             return partial(args[1], Bukkit.getOnlinePlayers().stream().map(Player::getName).toList());
         }
@@ -377,6 +424,44 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     private ClanStore.ClanView ownClan(Player player) {
         return store.clanOf(player.getUniqueId())
                 .orElseThrow(() -> new ClanStore.ClanException("You are not in a clan."));
+    }
+
+    private ClanStore.ClanView staffClan(Player player) {
+        ClanStore.ClanView clan = ownClan(player);
+        if (clan.roleOf(player.getUniqueId()) == ClanStore.ClanRole.MEMBER) {
+            throw new ClanStore.ClanException("Only clan staff can do that.");
+        }
+        return clan;
+    }
+
+    private ClanStore.ClanView leaderClan(Player player) {
+        ClanStore.ClanView clan = ownClan(player);
+        if (clan.roleOf(player.getUniqueId()) != ClanStore.ClanRole.LEADER) {
+            throw new ClanStore.ClanException("Only the clan leader can do that.");
+        }
+        return clan;
+    }
+
+    private List<String> availableSubcommands(Player player) {
+        return store.clanOf(player.getUniqueId())
+                .map(clan -> switch (clan.roleOf(player.getUniqueId())) {
+                    case LEADER -> LEADER_SUBCOMMANDS;
+                    case STAFF -> STAFF_SUBCOMMANDS;
+                    case MEMBER -> MEMBER_SUBCOMMANDS;
+                })
+                .orElse(CLANLESS_SUBCOMMANDS);
+    }
+
+    private static String canonicalAction(String action) {
+        return switch (action) {
+            case "add" -> "invite";
+            case "join" -> "accept";
+            case "name" -> "rename";
+            case "colour", "theme" -> "color";
+            case "leader" -> "transfer";
+            case "remove" -> "kick";
+            default -> action;
+        };
     }
 
     private UUID member(ClanStore.ClanView clan, String name) {
@@ -446,13 +531,6 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
             case "white" -> "FFFFFF";
             default -> requestedColor;
         };
-    }
-
-    private static String argument(String[] args, int index, String error) {
-        if (args.length <= index || args[index].isBlank()) {
-            throw new ClanStore.ClanException(error);
-        }
-        return args[index];
     }
 
     private static String remainder(String[] args, int start) {

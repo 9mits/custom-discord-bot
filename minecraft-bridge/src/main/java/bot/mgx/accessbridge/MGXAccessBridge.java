@@ -98,8 +98,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 || getCommand("claninfo") == null
                 || getCommand("guide") == null
                 || getCommand("perks") == null
-                || getCommand("discord") == null
-                || getCommand("connect") == null) {
+                || getCommand("discord") == null) {
             getLogger().severe("A required Minecraft command is missing from plugin.yml.");
             getServer().getPluginManager().disablePlugin(this);
             return;
@@ -112,7 +111,6 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("guide").setTabCompleter(guideService);
         getCommand("perks").setExecutor(guideService);
         getCommand("discord").setExecutor(guideService);
-        getCommand("connect").setExecutor(guideService);
         sidebarService.start();
         bridgeClient.start();
     }
