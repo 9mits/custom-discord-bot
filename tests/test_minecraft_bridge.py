@@ -159,6 +159,36 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(queued_sync["payload"]["edition"], "AUTO")
         await socket.close()
 
+    async def test_protocol_v3_can_receive_transient_player_profiles(self):
+        socket = await self.session.ws_connect(
+            f"http://127.0.0.1:{self.port}/minecraft-bridge"
+        )
+        await socket.send_json(create_envelope(
+            self.secret,
+            "HELLO",
+            {"server_id": "mysterious-smp-x", "protocol_version": 3},
+            idempotency_key="hello-v3-profile",
+        ))
+
+        hello_ack = await socket.receive_json()
+        await socket.receive_json()
+        sent = await self.server.send_player_profile(
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            level=50,
+            extra_hearts=5,
+            elite=True,
+        )
+        profile = await socket.receive_json()
+
+        self.assertTrue(sent)
+        self.assertEqual(hello_ack["payload"]["protocol_version"], 3)
+        self.assertEqual(profile["type"], "ACTION")
+        self.assertEqual(profile["payload"]["action"], "SYNC_PROFILE")
+        self.assertEqual(profile["payload"]["level"], 50)
+        self.assertEqual(profile["payload"]["extra_hearts"], 5)
+        self.assertTrue(profile["payload"]["elite"])
+        await socket.close()
+
     async def test_replayed_nonce_closes_the_connection(self):
         socket = await self.session.ws_connect(
             f"http://127.0.0.1:{self.port}/minecraft-bridge"
