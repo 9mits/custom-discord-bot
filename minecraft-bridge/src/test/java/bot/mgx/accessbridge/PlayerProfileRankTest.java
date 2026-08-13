@@ -19,7 +19,7 @@ class PlayerProfileRankTest {
 
     @Test
     void rankFieldsAreTrimmedAndClamped() {
-        PlayerProfile profile = new PlayerProfile(50, 5, true, "  staff  ", "  STAFF  ", 0x1FFFFFF, 40);
+        PlayerProfile profile = new PlayerProfile(50, 5, true, "  staff  ", "  STAFF  ", 0x1FFFFFF, 40, false);
 
         assertEquals("staff", profile.rankGroup());
         assertEquals("STAFF", profile.rankLabel());
@@ -31,13 +31,13 @@ class PlayerProfileRankTest {
 
     @Test
     void rankWeightIsClampedToUsableSortRange() {
-        assertEquals(0, new PlayerProfile(0, 0, false, "", "", 0, -1).rankWeight());
-        assertEquals(9_999, new PlayerProfile(0, 0, false, "", "", 0, 50_000).rankWeight());
+        assertEquals(0, new PlayerProfile(0, 0, false, "", "", 0, -1, false).rankWeight());
+        assertEquals(9_999, new PlayerProfile(0, 0, false, "", "", 0, 50_000, false).rankWeight());
     }
 
     @Test
     void nullRankFieldsBecomeEmpty() {
-        PlayerProfile profile = new PlayerProfile(0, 0, false, null, null, -5, -3);
+        PlayerProfile profile = new PlayerProfile(0, 0, false, null, null, -5, -3, false);
 
         assertEquals("", profile.rankGroup());
         assertEquals("", profile.rankLabel());
@@ -47,7 +47,7 @@ class PlayerProfileRankTest {
 
     @Test
     void rankWithoutLabelIsNotDisplayable() {
-        PlayerProfile profile = new PlayerProfile(0, 0, false, "booster", "", 0xFF73FA, 2);
+        PlayerProfile profile = new PlayerProfile(0, 0, false, "booster", "", 0xFF73FA, 2, false);
 
         assertTrue(profile.hasRank());
         assertFalse(profile.hasRankLabel());
@@ -67,5 +67,34 @@ class PlayerProfileRankTest {
         assertTrue(LuckPermsService.MANAGED_GROUPS.contains("owner"));
         assertTrue(LuckPermsService.MANAGED_GROUPS.contains("community-manager"));
         assertTrue(LuckPermsService.MANAGED_GROUPS.contains("booster"));
+    }
+
+    @Test
+    void boosterAddsAHeartOnTopOfLevelRewards() {
+        PlayerProfile levelsOnly = new PlayerProfile(50, 5, true, "owner", "OWNER", 0, 0, false);
+        PlayerProfile boosting = new PlayerProfile(50, 5, true, "owner", "OWNER", 0, 0, true);
+
+        assertEquals(5, levelsOnly.totalExtraHearts());
+        assertEquals(6, boosting.totalExtraHearts());
+    }
+
+    @Test
+    void elitAndBoostStackAdditively() {
+        assertEquals(1.0, new PlayerProfile(10, 1, false).damageMultiplier(), 1e-9);
+        assertEquals(
+                1.15,
+                new PlayerProfile(50, 5, true, "", "", 0, 0, false).damageMultiplier(),
+                1e-9
+        );
+        assertEquals(
+                1.10,
+                new PlayerProfile(10, 1, false, "", "", 0, 0, true).damageMultiplier(),
+                1e-9
+        );
+        assertEquals(
+                1.25,
+                new PlayerProfile(50, 5, true, "", "", 0, 0, true).damageMultiplier(),
+                1e-9
+        );
     }
 }

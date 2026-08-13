@@ -22,7 +22,14 @@ from .bridge import MinecraftBridgeServer
 from .config import MinecraftConfig
 from .data import MinecraftDataManager
 from .models import ApplicationStatus, BridgeAction, Edition, InvalidTransition, MinecraftApplication, OutboxRecord
-from .perks import LEVEL_ROLE_MILESTONES, RANK_ROLES, profile_for_role_ids, rank_for_role_ids
+from .perks import (
+    BOOSTER_ROLE_ID,
+    LEVEL_ROLE_MILESTONES,
+    RANK_ROLES,
+    is_booster,
+    profile_for_role_ids,
+    rank_for_role_ids,
+)
 from .presentation import (
     BRAND_NAME,
     FOOTER_ICON_URL,
@@ -776,11 +783,13 @@ class MinecraftAccessBot(commands.Bot):
             rank_label=rank.label if rank else "",
             rank_colour=rank.colour if rank else 0,
             rank_weight=rank_weight,
+            booster=is_booster(member_role_ids),
         )
 
     async def on_member_update(self, before: discord.Member, after: discord.Member) -> None:
         synced_ids = {role_id for role_id, _level in LEVEL_ROLE_MILESTONES}
         synced_ids.update(role_id for role_id, _group, _label, _colour in RANK_ROLES)
+        synced_ids.add(BOOSTER_ROLE_ID)
         before_roles = {role.id for role in before.roles} & synced_ids
         after_roles = {role.id for role in after.roles} & synced_ids
         if before_roles == after_roles or not self.bridge.supports_profile_sync:
