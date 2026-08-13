@@ -4,7 +4,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import discord
 
@@ -25,6 +25,7 @@ from minecraft_bot.presentation import (
     info_embed,
     review_embed,
     verification_embed,
+    verified_embed,
 )
 from minecraft_bot.settings import MinecraftSettings
 from minecraft_bot.setup import MinecraftSetupView
@@ -112,7 +113,7 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertTrue(live.is_persistent())
         self.assertEqual(
             {item.custom_id for item in live.children},
-            {"minecraft:live:refresh", "minecraft:live:help"},
+            {"minecraft:live:help"},
         )
         self.assertEqual(
             {item.label for item in AccountView(123).children},
@@ -202,6 +203,28 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         embed = denial_embed(application)
 
         self.assertNotIn("#42", embed.description)
+
+    def test_verified_dm_is_the_single_concise_submission_confirmation(self):
+        application = MinecraftApplication(
+            id=42,
+            guild_id="1",
+            discord_user_id="123456789012345678",
+            edition=Edition.JAVA,
+            claimed_username="PlayerOne",
+            normalized_username="playerone",
+            answers={"why": "Build things", "about": "Helpful player"},
+            status=ApplicationStatus.PENDING_REVIEW,
+            verification_expires_at=2_000_000_000,
+            verified_username="PlayerOne",
+            created_at=1_999_999_400,
+            updated_at=1_999_999_400,
+        )
+
+        embed = verified_embed(application)
+
+        self.assertEqual(embed.title, "Account Verified — Application Sent")
+        self.assertIn("account was verified and your application has been sent", embed.description)
+        self.assertNotIn("another DM", embed.description)
 
     def test_review_embed_uses_attached_logo_and_claimed_identity(self):
         application = MinecraftApplication(
@@ -293,6 +316,55 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
 
         bot.log_application_submission.assert_awaited_once_with(application)
         bot.update_live_card.assert_not_awaited()
+
+    async def test_verified_application_creates_one_concise_tracked_dm(self):
+        application = SimpleNamespace(
+            id=1,
+            discord_user_id="99",
+            edition=Edition.JAVA,
+            verified_username="PlayerOne",
+            status=ApplicationStatus.PENDING_REVIEW,
+            status_channel_id=None,
+            status_message_id=None,
+        )
+        message = SimpleNamespace(channel=SimpleNamespace(id=50), id=60)
+        user = SimpleNamespace(send=AsyncMock(return_value=message))
+        bot = object.__new__(MinecraftAccessBot)
+        bot.get_user = lambda _user_id: user
+        bot.fetch_user = AsyncMock()
+        bot.data = SimpleNamespace(set_status_message=AsyncMock(), enqueue_delivery=AsyncMock())
+
+        delivered = await bot.update_live_card(application)
+
+        self.assertTrue(delivered)
+        user.send.assert_awaited_once()
+        self.assertEqual(user.send.await_args.kwargs["embed"].title, "Account Verified — Application Sent")
+        self.assertEqual(
+            {item.custom_id for item in user.send.await_args.kwargs["view"].children},
+            {"minecraft:live:help"},
+        )
+        bot.data.set_status_message.assert_awaited_once_with(1, 50, 60)
+        bot.data.enqueue_delivery.assert_not_awaited()
+
+    async def test_finished_application_never_creates_a_late_dm(self):
+        application = SimpleNamespace(
+            id=1,
+            discord_user_id="99",
+            status=ApplicationStatus.DENIED,
+            status_channel_id=None,
+            status_message_id=None,
+        )
+        bot = object.__new__(MinecraftAccessBot)
+        bot.get_user = Mock()
+        bot.fetch_user = AsyncMock()
+        bot.data = SimpleNamespace(enqueue_delivery=AsyncMock())
+
+        delivered = await bot.update_live_card(application)
+
+        self.assertTrue(delivered)
+        bot.get_user.assert_not_called()
+        bot.fetch_user.assert_not_awaited()
+        bot.data.enqueue_delivery.assert_not_awaited()
 
     async def test_application_panel_has_no_public_banner_message(self):
         panel = SimpleNamespace(id=101)

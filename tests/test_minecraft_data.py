@@ -525,13 +525,23 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(metrics, {"samples": 4, "median_ms": 25, "p95_ms": 100})
 
         await self.data.enqueue_delivery(
-            dedupe_key="dm:42", kind="USER_EMBED", target_id=42, payload={"title": "Test"}, now=1000
+            dedupe_key="card:42", kind="LIVE_CARD", target_id=42, payload={"application_id": 42}, now=1000
         )
         await self.data.close()
         self.data = MinecraftDataManager(Path(self.directory.name) / "minecraft.db")
         await self.data.open()
         deliveries = await self.data.get_due_deliveries(now=1001)
-        self.assertEqual(deliveries[0].dedupe_key, "dm:42")
+        self.assertEqual(deliveries[0].dedupe_key, "card:42")
+
+    async def test_legacy_user_dm_deliveries_can_be_discarded(self):
+        await self.data.enqueue_delivery(
+            dedupe_key="dm:42", kind="USER_EMBED", target_id=42, payload={"title": "Old"}, now=1000
+        )
+
+        discarded = await self.data.discard_deliveries("USER_EMBED")
+
+        self.assertEqual(discarded, 1)
+        self.assertEqual(await self.data.get_due_deliveries(now=1001), [])
 
 
 class MinecraftMigrationBackupTests(unittest.IsolatedAsyncioTestCase):
