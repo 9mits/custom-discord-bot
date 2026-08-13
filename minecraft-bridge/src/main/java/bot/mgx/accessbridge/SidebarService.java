@@ -42,6 +42,7 @@ final class SidebarService {
     private final MGXAccessBridge plugin;
     private final PlayerPerkService perks;
     private final ClanStore clans;
+    private final DiscordIdentityService identities;
     private final String footer;
     private final int updateTicks;
     private final Map<UUID, PlayerBoard> boards = new HashMap<>();
@@ -51,12 +52,14 @@ final class SidebarService {
             MGXAccessBridge plugin,
             PlayerPerkService perks,
             ClanStore clans,
+            DiscordIdentityService identities,
             String footer,
             int updateTicks
     ) {
         this.plugin = plugin;
         this.perks = perks;
         this.clans = clans;
+        this.identities = identities;
         this.footer = footer;
         this.updateTicks = updateTicks;
     }
@@ -166,6 +169,7 @@ final class SidebarService {
             rendered = rendered.append(clanTag(clan.get()));
         }
         rendered = rendered
+                .append(identities.tag(player.getUniqueId()))
                 .append(Component.text(player.getName(), NamedTextColor.WHITE))
                 .append(Component.text("    │    ", NamedTextColor.DARK_GRAY))
                 .append(Component.text("LVL ", NamedTextColor.GRAY))
@@ -218,26 +222,32 @@ final class SidebarService {
     }
 
     private void syncClanTeams(Scoreboard scoreboard) {
-        Map<String, ClanStore.ClanView> expected = new LinkedHashMap<>();
+        Map<String, Component> expected = new LinkedHashMap<>();
         Map<String, Set<String>> entries = new LinkedHashMap<>();
         for (Player online : plugin.getServer().getOnlinePlayers()) {
-            clans.clanOf(online.getUniqueId()).ifPresent(clan -> {
-                String teamName = "mgxc_" + clan.id().toString().replace("-", "").substring(0, 11);
-                expected.put(teamName, clan);
-                entries.computeIfAbsent(teamName, ignored -> new LinkedHashSet<>()).add(online.getName());
-            });
+            Optional<ClanStore.ClanView> clan = clans.clanOf(online.getUniqueId());
+            Optional<String> discordUsername = identities.visibleUsername(online.getUniqueId());
+            if (clan.isEmpty() && discordUsername.isEmpty()) {
+                continue;
+            }
+            String teamName = "mgxp_" + online.getUniqueId().toString().replace("-", "").substring(0, 11);
+            Component prefix = clan.map(SidebarService::clanTag).orElse(Component.empty())
+                    .append(identities.tag(online.getUniqueId()));
+            expected.put(teamName, prefix);
+            entries.computeIfAbsent(teamName, ignored -> new LinkedHashSet<>()).add(online.getName());
         }
         for (Team team : new ArrayList<>(scoreboard.getTeams())) {
-            if (team.getName().startsWith("mgxc_") && !expected.containsKey(team.getName())) {
+            if ((team.getName().startsWith("mgxc_") || team.getName().startsWith("mgxp_"))
+                    && !expected.containsKey(team.getName())) {
                 team.unregister();
             }
         }
-        expected.forEach((teamName, clan) -> {
+        expected.forEach((teamName, prefix) -> {
             Team team = scoreboard.getTeam(teamName);
             if (team == null) {
                 team = scoreboard.registerNewTeam(teamName);
             }
-            team.prefix(clanTag(clan));
+            team.prefix(prefix);
             team.color(NamedTextColor.WHITE);
             Set<String> expectedEntries = entries.getOrDefault(teamName, Set.of());
             for (String oldEntry : new LinkedHashSet<>(team.getEntries())) {

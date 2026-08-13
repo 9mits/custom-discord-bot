@@ -49,10 +49,12 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
 
     private final MGXAccessBridge plugin;
     private final ClanStore store;
+    private final DiscordIdentityService identities;
 
-    ClanService(MGXAccessBridge plugin, ClanStore store) {
+    ClanService(MGXAccessBridge plugin, ClanStore store, DiscordIdentityService identities) {
         this.plugin = plugin;
         this.store = store;
+        this.identities = identities;
     }
 
     @Override
@@ -274,6 +276,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         Component chat = Component.empty()
                 .append(clanTag(clan))
                 .append(Component.text("CLAN  ", NamedTextColor.DARK_GRAY))
+                .append(identities.tag(player.getUniqueId()))
                 .append(Component.text(player.getName(), NamedTextColor.WHITE))
                 .append(Component.text(": ", NamedTextColor.DARK_GRAY))
                 .append(Component.text(message, NamedTextColor.WHITE));
@@ -351,13 +354,19 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPublicChat(AsyncChatEvent event) {
         Optional<ClanStore.ClanView> clan = store.clanOf(event.getPlayer().getUniqueId());
-        if (clan.isEmpty()) {
+        Optional<String> discordUsername = identities.visibleUsername(event.getPlayer().getUniqueId());
+        if (clan.isEmpty() && discordUsername.isEmpty()) {
             return;
         }
         var originalRenderer = event.renderer();
-        event.renderer((source, sourceDisplayName, message, viewer) -> Component.empty()
-                .append(clanTag(clan.get()))
-                .append(originalRenderer.render(source, sourceDisplayName, message, viewer)));
+        event.renderer((source, sourceDisplayName, message, viewer) -> {
+            Component prefix = Component.empty();
+            if (clan.isPresent()) {
+                prefix = prefix.append(clanTag(clan.get()));
+            }
+            prefix = prefix.append(identities.tag(event.getPlayer().getUniqueId()));
+            return prefix.append(originalRenderer.render(source, sourceDisplayName, message, viewer));
+        });
     }
 
     @EventHandler(priority = EventPriority.MONITOR)

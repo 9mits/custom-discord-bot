@@ -114,7 +114,9 @@ def branded_edit(embed: discord.Embed) -> dict[str, object]:
 
 
 def application_panel_files() -> list[discord.File]:
-    return [brand_logo_file(), brand_footer_file()]
+    # The footer uses a hosted URL. Uploading the same icon without referencing
+    # its attachment URI makes Discord render it as a loose file below the card.
+    return [brand_logo_file()]
 
 
 def _connection_blocks(settings) -> str:

@@ -21,6 +21,7 @@ SETTING_KEYS = (
     "player_log_channel_id",
     "command_log_channel_id",
     "critical_log_channel_id",
+    "chat_channel_id",
     "java_address",
     "bedrock_address",
     "bedrock_port",
@@ -99,6 +100,7 @@ class MinecraftSettings:
     player_log_channel_id: int = 0
     command_log_channel_id: int = 0
     critical_log_channel_id: int = 0
+    chat_channel_id: int = 0
     java_address: str = DEFAULT_JAVA_ADDRESS
     bedrock_address: str = DEFAULT_BEDROCK_ADDRESS
     bedrock_port: int = DEFAULT_BEDROCK_PORT
@@ -139,6 +141,7 @@ class MinecraftSettings:
             player_log_channel_id=_positive_int(stored_or("player_log_channel_id", 0)),
             command_log_channel_id=_positive_int(stored_or("command_log_channel_id", 0)),
             critical_log_channel_id=_positive_int(stored_or("critical_log_channel_id", 0)),
+            chat_channel_id=_positive_int(stored_or("chat_channel_id", 0)),
             java_address=java_address,
             bedrock_address=bedrock_address,
             bedrock_port=bedrock_port,
@@ -166,6 +169,7 @@ class MinecraftSettings:
             "player_log_channel_id",
             "command_log_channel_id",
             "critical_log_channel_id",
+            "chat_channel_id",
         ):
             if key in normalized:
                 normalized[key] = _positive_int(normalized[key])

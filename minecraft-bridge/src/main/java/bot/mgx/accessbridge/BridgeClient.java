@@ -33,6 +33,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
     private final VerificationEventStore verificationOutbox;
     private final VerifiedApplicationStore verifiedApplications;
     private final ConcurrentHashMap<String, PlayerActivity> playerActivityOutbox = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, JsonObject> minecraftChatOutbox = new ConcurrentHashMap<>();
     private final StringBuilder inbound = new StringBuilder();
     private final AtomicBoolean connecting = new AtomicBoolean(false);
 
@@ -104,7 +105,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         this.authenticated = false;
         JsonObject hello = new JsonObject();
         hello.addProperty("server_id", config.serverId());
-        hello.addProperty("protocol_version", 3);
+        hello.addProperty("protocol_version", 4);
         sendRaw(protocol.create("HELLO", UUID.randomUUID().toString(), hello));
         webSocket.request(1);
     }
@@ -155,6 +156,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                 plugin.getLogger().info("Connected to the signed Minecraft application bridge.");
                 flushVerificationOutbox();
                 flushPlayerActivityOutbox();
+                flushMinecraftChatOutbox();
             }
             case "HEARTBEAT_ACK" -> {
                 // The signed response is sufficient proof of liveness.
@@ -169,6 +171,10 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             case "PLAYER_EVENT_ACK" -> {
                 String key = payload.get("event_idempotency_key").getAsString();
                 playerActivityOutbox.remove(key);
+            }
+            case "MINECRAFT_CHAT_ACK" -> {
+                String key = payload.get("event_idempotency_key").getAsString();
+                minecraftChatOutbox.remove(key);
             }
             case "ACTION" -> processAction(envelope.get("idempotency_key").getAsString(), payload);
             default -> {
@@ -190,6 +196,13 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             Bukkit.getScheduler().runTask(
                     plugin,
                     () -> executeProfileSync(idempotencyKey, payload)
+            );
+            return;
+        }
+        if (action.equals("DISCORD_CHAT")) {
+            Bukkit.getScheduler().runTask(
+                    plugin,
+                    () -> executeDiscordChat(idempotencyKey, payload)
             );
             return;
         }
@@ -233,6 +246,9 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                     payload.get("elite").getAsBoolean()
             );
             Player online = Bukkit.getPlayer(minecraftUuid);
+            if (payload.has("discord_username")) {
+                plugin.applyDiscordIdentity(minecraftUuid, payload.get("discord_username").getAsString());
+            }
             if (online != null) {
                 plugin.applyPlayerProfile(online, profile);
             }
@@ -340,6 +356,38 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         }
     }
 
+    private void executeDiscordChat(String key, JsonObject payload) {
+        try {
+            UUID minecraftUuid = payload.has("minecraft_uuid")
+                    ? UUID.fromString(payload.get("minecraft_uuid").getAsString())
+                    : null;
+            String discordUsername = payload.get("discord_username").getAsString().trim();
+            String message = payload.get("message").getAsString();
+            if (discordUsername.isEmpty() || discordUsername.length() > 32) {
+                throw new IllegalArgumentException("DISCORD_CHAT has an invalid username");
+            }
+            if (message.length() > 2_000) {
+                throw new IllegalArgumentException("DISCORD_CHAT message is too long");
+            }
+            int attachmentCount = payload.has("attachment_count")
+                    ? Math.max(0, Math.min(payload.get("attachment_count").getAsInt(), 10))
+                    : 0;
+            String attachmentUrl = payload.has("attachment_url")
+                    ? payload.get("attachment_url").getAsString()
+                    : null;
+            plugin.broadcastDiscordChat(
+                    discordUsername,
+                    minecraftUuid,
+                    message,
+                    attachmentCount,
+                    attachmentUrl
+            );
+            sendActionResult(key, new ProcessedActionStore.Result(true, ""));
+        } catch (RuntimeException exception) {
+            sendActionResult(key, new ProcessedActionStore.Result(false, safeError(exception)));
+        }
+    }
+
     boolean queueVerification(
             PendingVerification application,
             MinecraftEdition edition,
@@ -420,6 +468,33 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
     private record PlayerActivity(boolean joined, JsonObject payload) {
     }
 
+    void queueMinecraftChat(
+            MinecraftEdition edition,
+            UUID minecraftUuid,
+            String currentUsername,
+            String message
+    ) {
+        if (minecraftChatOutbox.size() >= 1_000) {
+            minecraftChatOutbox.keySet().stream().findFirst().ifPresent(minecraftChatOutbox::remove);
+        }
+        String key = "minecraft-chat:" + UUID.randomUUID();
+        JsonObject payload = new JsonObject();
+        payload.addProperty("edition", edition.name());
+        payload.addProperty("minecraft_uuid", minecraftUuid.toString());
+        payload.addProperty("current_username", currentUsername);
+        payload.addProperty("message", message);
+        minecraftChatOutbox.put(key, payload);
+        if (isConnected()) {
+            sendRaw(protocol.create("MINECRAFT_CHAT", key, payload));
+        }
+    }
+
+    private void flushMinecraftChatOutbox() {
+        for (Map.Entry<String, JsonObject> entry : minecraftChatOutbox.entrySet()) {
+            sendRaw(protocol.create("MINECRAFT_CHAT", entry.getKey(), entry.getValue()));
+        }
+    }
+
     private void recordAndSend(String key, ProcessedActionStore.Result result) {
         processedActions.put(key, result).whenComplete((ignored, error) -> {
             if (error != null) {
@@ -446,6 +521,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         }
         flushVerificationOutbox();
         flushPlayerActivityOutbox();
+        flushMinecraftChatOutbox();
         JsonObject payload = new JsonObject();
         payload.addProperty("server_id", config.serverId());
         payload.addProperty("pending_count", pending.size());

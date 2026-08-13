@@ -151,7 +151,6 @@ class RulesAgreementView(discord.ui.View):
     async def agree(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
         await interaction.response.send_modal(MinecraftApplicationModal(
             require_edition=not interaction.client.bridge.supports_auto_edition,
-            source_message=getattr(interaction, "message", None),
         ))
 
     @discord.ui.button(label="I Disagree", style=discord.ButtonStyle.secondary)
@@ -257,11 +256,9 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
         fixed_edition: Edition | None = None,
         *,
         require_edition: bool = False,
-        source_message: discord.Message | None = None,
     ) -> None:
         super().__init__(timeout=600, custom_id="minecraft:application:modal")
         self.fixed_edition = fixed_edition
-        self.source_message = source_message
         self.edition = None
         if fixed_edition is None and require_edition:
             self.edition = discord.ui.Select(
@@ -300,17 +297,17 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
         self.add_item(self.about)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer(ephemeral=True)
+        # A modal opened from a component can defer a message update. Editing
+        # that response keeps the entire application on the original ephemeral
+        # card and avoids relying on a stale Message object captured earlier.
+        await interaction.response.defer()
         bot = interaction.client
 
         async def edit_card(*, embed: discord.Embed, attachments=None, view=None) -> None:
             payload = {**branded_edit(embed), "view": view}
             if attachments is not None:
                 payload["attachments"] = attachments
-            if self.source_message is not None:
-                await self.source_message.edit(**payload)
-            else:
-                await interaction.edit_original_response(**payload)
+            await interaction.edit_original_response(**payload)
 
         try:
             edition = self.fixed_edition
@@ -362,9 +359,7 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
             )
             return
 
-        card_message = self.source_message
-        if card_message is None:
-            card_message = await interaction.original_response()
+        card_message = await interaction.original_response()
         bot.remember_application_message(application.id, card_message)
         bot.spawn_background_task(
             bot.finish_application_submission(application),

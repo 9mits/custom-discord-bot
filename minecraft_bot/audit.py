@@ -16,11 +16,12 @@ import logging
 import time
 from dataclasses import dataclass, field, replace
 from typing import Any, Iterable, Mapping, Optional, Sequence
+from urllib.parse import quote
 
 import discord
 from discord import InteractionType, app_commands
 
-from .presentation import branded_send, info_embed
+from .presentation import MINECRAFT_HEAD_URL, branded_send, info_embed
 
 
 logger = logging.getLogger("MinecraftAccessBot")
@@ -63,6 +64,14 @@ DESTRUCTIVE_COMPONENT_HINTS = ("approve", "deny", "revoke", "cancel", "unlink")
 _TARGET_OPTION_NAMES = ("user", "member", "target", "application")
 
 _UI_NAME_SUFFIXES = ("Button", "Select", "Modal", "View", "Container")
+
+# Opening the application, reading/agreeing to the rules, and submitting its
+# modal are navigation within one workflow. The application lifecycle has its
+# own detailed submission, verification, and decision logs, so logging these
+# clicks as separate commands only creates misleading duplicates.
+_ROUTINE_APPLICATION_ITEMS = {"ApplyButton", "RulesButton", "EditionSelection"}
+_ROUTINE_APPLICATION_VIEWS = {"RulesAgreementView"}
+_ROUTINE_APPLICATION_MODALS = {"MinecraftApplicationModal"}
 
 
 @dataclass(frozen=True)
@@ -269,15 +278,82 @@ def build_record(
 # ---------------------------------------------------------------------------
 
 _OUTCOME_LABELS = {
+    OUTCOME_SUCCESS: "Processed",
+    OUTCOME_FAILED: "Failed",
+    OUTCOME_DENIED: "Denied",
+}
+
+_OUTCOME_CODES = {
     OUTCOME_SUCCESS: "OK",
     OUTCOME_FAILED: "FAILED",
     OUTCOME_DENIED: "DENIED",
 }
 
 
+def _action_title(record: CommandAuditRecord) -> str:
+    command = str(record.command).strip()
+    if command.casefold().startswith("minecraft "):
+        return f"Minecraft {command.split(' ', 1)[1].replace('-', ' ').title()}"
+    return command.replace("→", "—") or "Minecraft Action"
+
+
+def build_action_embed(record: CommandAuditRecord) -> discord.Embed:
+    source_label = {
+        SOURCE_COMMAND: "command",
+        SOURCE_COMPONENT: "panel action",
+        SOURCE_MODAL: "form submission",
+    }.get(record.source, "action")
+    outcome = _OUTCOME_LABELS.get(record.outcome, str(record.outcome).title())
+    if record.outcome == OUTCOME_SUCCESS:
+        summary = f"> The bot processed this Minecraft {source_label} without an internal error."
+    elif record.outcome == OUTCOME_DENIED:
+        summary = f"> This Minecraft {source_label} was refused before it could make a change."
+    else:
+        summary = f"> This Minecraft {source_label} could not be completed."
+    embed = info_embed(_action_title(record), summary, error=record.failed)
+    embed.add_field(
+        name="Actor",
+        value=f"<@{record.user_id}> (`{record.user_id}`)",
+        inline=True,
+    )
+    if record.target_id:
+        embed.add_field(
+            name="Target",
+            value=f"<@{record.target_id}> (`{record.target_id}`)",
+            inline=True,
+        )
+    embed.add_field(name="Outcome", value=outcome, inline=True)
+    action = f"/{record.command}" if record.source == SOURCE_COMMAND else record.command
+    embed.add_field(name="Action", value=f"`{truncate(action, 200)}`", inline=True)
+    embed.add_field(
+        name="Category",
+        value=str(record.risk).replace("_", " ").title(),
+        inline=True,
+    )
+    embed.add_field(name="Execution Time", value=f"{record.duration_ms} ms", inline=True)
+    if record.channel_id:
+        embed.add_field(
+            name="Channel",
+            value=f"<#{record.channel_id}> (`{record.channel_id}`)",
+            inline=False,
+        )
+    if record.options:
+        arguments = "\n".join(
+            f"**{str(name).replace('_', ' ').title()}:** {value}"
+            for name, value in record.options
+        )
+        embed.add_field(name="Arguments", value=truncate(arguments, 1024), inline=False)
+    if record.failed:
+        failure = record.detail or "No additional error detail was available."
+        if record.correlation_id:
+            failure += f"\nReference: `{record.correlation_id}`"
+        embed.add_field(name="Failure", value=truncate(failure, 1024), inline=False)
+    return embed
+
+
 def format_record(record: CommandAuditRecord) -> str:
     parts = [
-        f"`{_OUTCOME_LABELS.get(record.outcome, record.outcome)}`",
+        f"`{_OUTCOME_CODES.get(record.outcome, record.outcome.upper())}`",
         f"**{record.command}**",
         f"by <@{record.user_id}>",
     ]
@@ -306,28 +382,7 @@ def build_batch_embed(records: Sequence[CommandAuditRecord]) -> discord.Embed:
 
 
 def build_important_embed(record: CommandAuditRecord) -> discord.Embed:
-    embed = info_embed(
-        "Important Command",
-        f"**{record.command}** was run by <@{record.user_id}>.",
-        error=record.failed,
-    )
-    embed.add_field(name="Outcome", value=_OUTCOME_LABELS.get(record.outcome, record.outcome), inline=True)
-    embed.add_field(name="Risk", value=str(record.risk).replace("_", " ").title(), inline=True)
-    embed.add_field(name="Took", value=f"{record.duration_ms} ms", inline=True)
-    embed.add_field(name="Staff", value=f"<@{record.user_id}> (`{record.user_id}`)", inline=True)
-    if record.target_id:
-        embed.add_field(name="Target", value=f"<@{record.target_id}> (`{record.target_id}`)", inline=True)
-    if record.channel_id:
-        embed.add_field(name="Channel", value=f"<#{record.channel_id}>", inline=True)
-    summary = record.option_summary()
-    if summary:
-        embed.add_field(name="Arguments", value=truncate(summary, 1024), inline=False)
-    if record.failed:
-        failure = record.detail or "error"
-        if record.correlation_id:
-            failure += f"\nReference: `{record.correlation_id}`"
-        embed.add_field(name="Failure", value=truncate(failure, 1024), inline=False)
-    return embed
+    return build_action_embed(record)
 
 
 def build_command_log_embed(rows: Sequence[Mapping[str, Any]], *, total: int) -> discord.Embed:
@@ -379,9 +434,27 @@ async def deliver(client: Any, record: CommandAuditRecord) -> None:
     else:
         targets = [command_channel]
 
-    embed = build_important_embed(record) if record.important else build_batch_embed([record])
+    embed = build_action_embed(record)
+    await _set_player_thumbnail(client, embed, record.target_id or record.user_id)
     for channel_id in (channel_id for channel_id in targets if channel_id):
         await _send(client, channel_id, embed)
+
+
+async def _set_player_thumbnail(client: Any, embed: discord.Embed, discord_user_id: int) -> None:
+    data = getattr(client, "data", None)
+    reader = getattr(data, "list_accounts_for_user", None)
+    if reader is None:
+        return
+    try:
+        accounts = await reader(discord_user_id)
+    except Exception:
+        logger.exception("Could not resolve the Minecraft skin for command audit %s", discord_user_id)
+        return
+    if not accounts:
+        return
+    minecraft_uuid = str(accounts[0].get("minecraft_uuid") or "").strip()
+    if minecraft_uuid:
+        embed.set_thumbnail(url=MINECRAFT_HEAD_URL.format(identifier=quote(minecraft_uuid, safe="")))
 
 
 def schedule_delivery(client: Any, record: CommandAuditRecord) -> None:
@@ -496,17 +569,22 @@ def install_component_audit(client: Any) -> None:
             detail = type(error).__name__
             raise
         finally:
-            label = component_label(view, item)
-            _safe_schedule_delivery(
-                client,
-                interaction,
-                source=SOURCE_COMPONENT,
-                command=label,
-                risk=component_risk(label),
-                outcome=outcome,
-                detail=detail,
-                duration_ms=int((time.perf_counter() - started_at) * 1000),
+            routine_navigation = outcome == OUTCOME_SUCCESS and (
+                type(item).__name__ in _ROUTINE_APPLICATION_ITEMS
+                or type(view).__name__ in _ROUTINE_APPLICATION_VIEWS
             )
+            if not routine_navigation:
+                label = component_label(view, item)
+                _safe_schedule_delivery(
+                    client,
+                    interaction,
+                    source=SOURCE_COMPONENT,
+                    command=label,
+                    risk=component_risk(label),
+                    outcome=outcome,
+                    detail=detail,
+                    duration_ms=int((time.perf_counter() - started_at) * 1000),
+                )
 
     async def audited_modal_task(modal, interaction, components, resolved):
         if not _is_target(interaction):
@@ -521,19 +599,20 @@ def install_component_audit(client: Any) -> None:
             detail = type(error).__name__
             raise
         finally:
-            # Modal field values are free text (denial reasons, usernames) and are
-            # deliberately not captured; the title alone identifies the action.
-            label = str(getattr(modal, "title", "") or humanize_ui_name(type(modal).__name__))
-            _safe_schedule_delivery(
-                client,
-                interaction,
-                source=SOURCE_MODAL,
-                command=label,
-                risk=component_risk(label),
-                outcome=outcome,
-                detail=detail,
-                duration_ms=int((time.perf_counter() - started_at) * 1000),
-            )
+            if not (outcome == OUTCOME_SUCCESS and type(modal).__name__ in _ROUTINE_APPLICATION_MODALS):
+                # Modal field values are free text (denial reasons, usernames) and are
+                # deliberately not captured; the title alone identifies the action.
+                label = str(getattr(modal, "title", "") or humanize_ui_name(type(modal).__name__))
+                _safe_schedule_delivery(
+                    client,
+                    interaction,
+                    source=SOURCE_MODAL,
+                    command=label,
+                    risk=component_risk(label),
+                    outcome=outcome,
+                    detail=detail,
+                    duration_ms=int((time.perf_counter() - started_at) * 1000),
+                )
 
     discord.ui.View._scheduled_task = audited_view_task
     discord.ui.Modal._scheduled_task = audited_modal_task
@@ -573,6 +652,7 @@ __all__: Iterable[str] = (
     "CommandAuditRecord",
     "MinecraftCommandTree",
     "build_batch_embed",
+    "build_action_embed",
     "build_command_log_embed",
     "build_important_embed",
     "build_record",

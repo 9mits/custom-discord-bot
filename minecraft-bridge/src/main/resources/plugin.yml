@@ -2,7 +2,7 @@ name: MGXAccessBridge
 version: ${version}
 main: bot.mgx.accessbridge.MGXAccessBridge
 api-version: "1.20"
-description: Signed Minecraft access, Discord perks, scoreboard, and clans.
+description: Signed Minecraft access, Discord chat and perks, scoreboard, and clans.
 authors: [9mits]
 depend: [floodgate]
 commands:
@@ -24,6 +24,10 @@ commands:
   discord:
     description: Open the Mysterious SMP X Discord invite.
     usage: /discord
+  discordnames:
+    description: Show or hide your linked Discord username in Minecraft.
+    usage: /discordnames
+    aliases: [discordname]
 permissions:
   mgx.clans:
     description: Allows players to use the clan system.

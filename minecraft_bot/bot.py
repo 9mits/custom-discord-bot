@@ -24,6 +24,9 @@ from .data import MinecraftDataManager
 from .models import ApplicationStatus, BridgeAction, Edition, InvalidTransition, MinecraftApplication, OutboxRecord
 from .perks import LEVEL_ROLE_MILESTONES, profile_for_role_ids
 from .presentation import (
+    BRAND_NAME,
+    FOOTER_ICON_URL,
+    MINECRAFT_HEAD_URL,
     application_panel,
     application_embeds,
     application_panel_files,
@@ -73,6 +76,8 @@ class MinecraftAccessBot(commands.Bot):
         intents = discord.Intents.none()
         intents.guilds = True
         intents.members = True
+        intents.messages = True
+        intents.message_content = True
         super().__init__(
             command_prefix=commands.when_mentioned,
             intents=intents,
@@ -91,6 +96,7 @@ class MinecraftAccessBot(commands.Bot):
             verification_handler=self.handle_bridge_verification,
             action_result_handler=self.handle_bridge_action_result,
             player_event_handler=self.handle_player_event,
+            chat_message_handler=self.handle_minecraft_chat,
         )
         self.apply_rate_limit = RateLimiter(5)
         self.status_rate_limit = RateLimiter(10)
@@ -100,6 +106,7 @@ class MinecraftAccessBot(commands.Bot):
         self._application_panel_refreshed = False
         self._live_card_views_refreshed = False
         self._last_command_log_prune = 0.0
+        self._chat_webhooks: dict[int, discord.Webhook] = {}
         self.tree.on_error = self.on_tree_error
         self._minecraft_group = self._build_command_group()
         self.tree.add_command(self._minecraft_group, guild=discord.Object(id=config.guild_id))
@@ -611,6 +618,109 @@ class MinecraftAccessBot(commands.Bot):
             name="minecraft-player-log",
         )
 
+    async def on_message(self, message: discord.Message) -> None:
+        if (
+            message.guild is not None
+            and message.guild.id == self.config.guild_id
+            and message.channel.id == self.settings.chat_channel_id
+            and not message.author.bot
+            and message.webhook_id is None
+        ):
+            accounts = await self.data.list_accounts_for_user(message.author.id)
+            minecraft_uuid = str(accounts[0]["minecraft_uuid"]) if accounts else None
+            content = str(message.content or "")[:2000]
+            attachment_url = message.jump_url if message.attachments else None
+            await self.bridge.send_discord_chat(
+                discord_user_id=message.author.id,
+                discord_username=message.author.name,
+                minecraft_uuid=minecraft_uuid,
+                message=content,
+                attachment_url=attachment_url,
+                attachment_count=len(message.attachments),
+            )
+        await self.process_commands(message)
+
+    async def handle_minecraft_chat(
+        self,
+        *,
+        minecraft_uuid: str,
+        current_username: str,
+        edition: str,
+        message: str,
+        event_idempotency_key: str,
+    ) -> None:
+        claimed = await self.data.claim_bridge_event(event_idempotency_key, "MINECRAFT_CHAT")
+        if not claimed or not self.settings.chat_channel_id:
+            return
+        channel = await self._configured_channel(self.settings.chat_channel_id)
+        if not isinstance(channel, discord.TextChannel):
+            logger.warning("Configured Minecraft chat channel %s is unavailable", self.settings.chat_channel_id)
+            return
+        owner_id = await self.data.get_account_owner(edition, minecraft_uuid)
+        linked_user: Optional[discord.User | discord.Member] = None
+        if owner_id is not None:
+            try:
+                user_id = int(owner_id)
+            except (TypeError, ValueError):
+                user_id = 0
+            if user_id:
+                guild = self.get_guild(self.config.guild_id)
+                linked_user = guild.get_member(user_id) if guild is not None else None
+                linked_user = linked_user or self.get_user(user_id)
+                if linked_user is None:
+                    with suppress(discord.NotFound, discord.Forbidden, discord.HTTPException):
+                        linked_user = await self.fetch_user(user_id)
+        try:
+            webhook = await self._chat_webhook(channel)
+            username = f"{current_username} • Minecraft"
+            avatar_url = MINECRAFT_HEAD_URL.format(identifier=minecraft_uuid)
+            if linked_user is not None:
+                username = f"{current_username} • @{linked_user.name}"
+                avatar_url = str(linked_user.display_avatar.url)
+            rendered_message = discord.utils.escape_markdown(
+                discord.utils.escape_mentions(str(message)[:2000]),
+                as_needed=True,
+            )
+            embed = discord.Embed(
+                description=rendered_message or "*Empty message*",
+                colour=discord.Colour.from_rgb(255, 153, 0),
+            )
+            embed.set_author(
+                name=f"Minecraft · {current_username} · {edition.title()}",
+                icon_url=MINECRAFT_HEAD_URL.format(identifier=minecraft_uuid),
+            )
+            embed.set_footer(text=BRAND_NAME, icon_url=FOOTER_ICON_URL)
+            await webhook.send(
+                username=username[:80],
+                avatar_url=avatar_url,
+                embed=embed,
+                allowed_mentions=discord.AllowedMentions.none(),
+                wait=True,
+            )
+        except (discord.Forbidden, discord.NotFound, discord.HTTPException):
+            logger.exception("Could not relay Minecraft chat into Discord channel %s", channel.id)
+
+    async def _chat_webhook(self, channel: discord.TextChannel) -> discord.Webhook:
+        cached = self._chat_webhooks.get(channel.id)
+        if cached is not None:
+            return cached
+        for webhook in await channel.webhooks():
+            if (
+                webhook.name == "Mysterious SMP X Chat"
+                and webhook.user is not None
+                and self.user is not None
+                and webhook.user.id == self.user.id
+                and webhook.token
+            ):
+                self._chat_webhooks[channel.id] = webhook
+                return webhook
+        webhook = await channel.create_webhook(
+            name="Mysterious SMP X Chat",
+            reason="Two-way Minecraft and Discord chat relay",
+        )
+        self._chat_webhooks[channel.id] = webhook
+        return webhook
+
     async def sync_player_profile(
         self,
         minecraft_uuid: str,
@@ -630,12 +740,19 @@ class MinecraftAccessBot(commands.Bot):
                     if member is None:
                         with suppress(discord.NotFound, discord.Forbidden, discord.HTTPException):
                             member = await guild.fetch_member(member_id)
+        linked_user: Optional[discord.User | discord.Member] = member
+        if linked_user is None and discord_user_id is not None and hasattr(self, "_connection"):
+            try:
+                linked_user = self.get_user(int(discord_user_id))
+            except (TypeError, ValueError):
+                linked_user = None
         profile = profile_for_role_ids(role.id for role in getattr(member, "roles", ()))
         return await self.bridge.send_player_profile(
             minecraft_uuid=minecraft_uuid,
             level=profile.level,
             extra_hearts=profile.extra_hearts,
             elite=profile.elite,
+            discord_username=getattr(linked_user, "name", ""),
         )
 
     async def on_member_update(self, before: discord.Member, after: discord.Member) -> None:
@@ -650,6 +767,12 @@ class MinecraftAccessBot(commands.Bot):
                 after.id,
                 member=after,
             )
+
+    async def on_user_update(self, before: discord.User, after: discord.User) -> None:
+        if before.name == after.name or not self.bridge.supports_profile_sync:
+            return
+        for account in await self.data.list_accounts_for_user(after.id):
+            await self.sync_player_profile(str(account["minecraft_uuid"]), after.id)
 
     async def post_application_panel(self) -> discord.Message:
         channel = await self._configured_channel(self.settings.application_channel_id)
@@ -1339,6 +1462,53 @@ class MinecraftAccessBot(commands.Bot):
                         success=True,
                     )
                 ),
+                view=self.control_view(interaction),
+            )
+
+        @group.command(name="chat-channel", description="Configure or disable two-way Minecraft chat sync.")
+        @app_commands.default_permissions(administrator=True)
+        @app_commands.describe(channel="Discord channel to mirror with Minecraft; leave empty to disable")
+        async def chat_channel(
+            interaction: discord.Interaction,
+            channel: Optional[discord.TextChannel] = None,
+        ) -> None:
+            if not await self.require_administrator(interaction):
+                return
+            if channel is not None and interaction.guild is not None:
+                bot_member = interaction.guild.me
+                permissions = channel.permissions_for(bot_member) if bot_member is not None else None
+                if permissions is None or not all((
+                    permissions.view_channel,
+                    permissions.send_messages,
+                    permissions.embed_links,
+                    permissions.read_message_history,
+                    permissions.manage_webhooks,
+                )):
+                    await interaction.response.send_message(
+                        **branded_send(info_embed(
+                            "Chat Sync Not Updated",
+                            "> The bot needs View Channel, Send Messages, Embed Links, Read Message History, "
+                            "and Manage Webhooks in that channel.",
+                            error=True,
+                        )),
+                        ephemeral=True,
+                    )
+                    return
+            await interaction.response.defer(ephemeral=True)
+            await self.update_settings(
+                actor_id=interaction.user.id,
+                chat_channel_id=channel.id if channel is not None else 0,
+            )
+            self._chat_webhooks.clear()
+            destination = channel.mention if channel is not None else "Disabled"
+            await interaction.edit_original_response(
+                **branded_edit(info_embed(
+                    "Minecraft Chat Sync Updated",
+                    f"> **Destination:** {destination}\n\n"
+                    "Messages from Minecraft use the linked Discord profile through a webhook. "
+                    "Discord messages appear in-game with a distinct Discord badge. Bots and webhooks are ignored to prevent loops.",
+                    success=True,
+                )),
                 view=self.control_view(interaction),
             )
 

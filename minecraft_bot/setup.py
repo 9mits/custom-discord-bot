@@ -52,6 +52,7 @@ def configuration_findings(bot, guild: Optional[discord.Guild]) -> list[SetupFin
         ("Review channel", settings.review_channel_id, True, True),
         ("Activity log", settings.command_log_channel_id, True, False),
         ("Important log", settings.critical_log_channel_id, True, False),
+        ("Minecraft chat", settings.chat_channel_id, True, False),
     )
     for label, channel_id, needs_embeds, required_channel in channels:
         if not channel_id:
@@ -76,8 +77,22 @@ def configuration_findings(bot, guild: Optional[discord.Guild]) -> list[SetupFin
         missing = [name for name, allowed in required if not allowed]
         if needs_embeds and not permissions.embed_links:
             missing.append("Embed Links")
+        if label == "Minecraft chat" and not permissions.manage_webhooks:
+            missing.append("Manage Webhooks")
         if missing:
             findings.append(SetupFinding(label, "Missing bot permissions: " + ", ".join(missing) + "."))
+
+    bridge = getattr(bot, "bridge", None)
+    if (
+        settings.chat_channel_id
+        and bridge is not None
+        and getattr(bridge, "connected", False)
+        and not getattr(bridge, "supports_chat_sync", False)
+    ):
+        findings.append(SetupFinding(
+            "Minecraft chat",
+            "Update MGXAccessBridge to protocol v4 before enabling chat sync.",
+        ))
 
     if (
         settings.application_channel_id
@@ -387,6 +402,7 @@ class MinecraftSetupView(discord.ui.LayoutView):
                 f"**Review channel:** {_channel_value(guild, settings.review_channel_id)}\n"
                 f"**Activity log:** {_channel_value(guild, settings.command_log_channel_id)}\n"
                 f"**Important log:** {_channel_value(guild, settings.critical_log_channel_id)}\n"
+                f"**Minecraft chat:** {_channel_value(guild, settings.chat_channel_id)}\n"
                 f"**Moderator role:** {_role_value(guild, settings.mod_role_id)}\n"
                 f"**Approved-member role:** {_role_value(guild, settings.member_role_id)}"
             )
@@ -395,6 +411,7 @@ class MinecraftSetupView(discord.ui.LayoutView):
             discord.ui.TextDisplay(
                 "**Activity log** keeps routine applications, verifications, player activity, and commands together.\n"
                 "**Important log** is the quieter escalation channel for denied or failed actions and access removal."
+                "\n**Minecraft chat** mirrors messages between this Discord channel and the game."
             )
         )
         if findings:
@@ -411,6 +428,7 @@ class MinecraftSetupView(discord.ui.LayoutView):
             MinecraftChannelSelect("review_channel_id", "Review channel"),
             MinecraftChannelSelect("activity_log_channel_id", "Activity log"),
             MinecraftChannelSelect("critical_log_channel_id", "Important log"),
+            MinecraftChannelSelect("chat_channel_id", "Minecraft chat"),
             MinecraftRoleSelect("mod_role_id", "Moderator role"),
             MinecraftRoleSelect("member_role_id", "Approved-member role"),
         ):
