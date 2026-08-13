@@ -30,8 +30,10 @@ from .presentation import (
     application_panel,
     application_embeds,
     application_panel_files,
+    application_dm_embed,
     application_log_embed,
     approval_embed,
+    brand_icon_file,
     branded_edit,
     branded_send,
     denial_embed,
@@ -104,7 +106,6 @@ class MinecraftAccessBot(commands.Bot):
         self._background_tasks: set[asyncio.Task] = set()
         self._commands_synced = False
         self._application_panel_refreshed = False
-        self._live_card_views_refreshed = False
         self._last_command_log_prune = 0.0
         self._chat_webhooks: dict[int, discord.Webhook] = {}
         self.tree.on_error = self.on_tree_error
@@ -114,9 +115,6 @@ class MinecraftAccessBot(commands.Bot):
     async def setup_hook(self) -> None:
         install_component_audit(self)
         await self.data.open()
-        discarded_dms = await self.data.discard_deliveries("USER_EMBED")
-        if discarded_dms:
-            logger.info("Discarded %s legacy Minecraft DM deliveries", discarded_dms)
         stored_settings = await self.data.get_configs(SETTING_KEYS)
         self.settings = MinecraftSettings.from_sources(self.config, stored_settings)
         await self.data.set_configs(self.settings.persistent_values())
@@ -177,12 +175,6 @@ class MinecraftAccessBot(commands.Bot):
                 logger.exception("Could not refresh the Minecraft application panel")
             else:
                 self._application_panel_refreshed = True
-        if not self._live_card_views_refreshed:
-            self._live_card_views_refreshed = True
-            self.spawn_background_task(
-                self._refresh_existing_live_card_views(),
-                name="minecraft-live-card-view-refresh",
-            )
         await self.change_presence(activity=discord.Game(name="Mysterious SMP X applications"))
         print(f"Minecraft access bot connected as {self.user} — successfully finished startup", flush=True)
 
@@ -392,19 +384,8 @@ class MinecraftAccessBot(commands.Bot):
                 self._application_messages.pop(application.id, None)
             else:
                 try:
-                    if application.status is ApplicationStatus.APPROVED:
-                        embed = approval_embed(self.settings)
-                    elif application.status is ApplicationStatus.DENIED:
-                        embed = denial_embed(application)
-                    elif application.status in {
-                        ApplicationStatus.PENDING_REVIEW,
-                        ApplicationStatus.APPROVAL_QUEUED,
-                    }:
-                        embed = verified_embed(application)
-                    else:
-                        embed = live_status_embed(application, self.settings)
                     await remembered[0].edit(
-                        **branded_edit(embed),
+                        **branded_edit(self._application_card_embed(application)),
                         attachments=[],
                         view=None,
                     )
@@ -414,9 +395,10 @@ class MinecraftAccessBot(commands.Bot):
                         ApplicationStatus.APPROVAL_QUEUED,
                     }:
                         self._application_messages.pop(application.id, None)
-                    return True
                 except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                     self._application_messages.pop(application.id, None)
+        if not create_if_missing:
+            return True
         lock = getattr(self, "_live_card_lock", None)
         if lock is None:
             lock = self._live_card_lock = asyncio.Lock()
@@ -424,82 +406,86 @@ class MinecraftAccessBot(commands.Bot):
             current = await self.data.get_application(application.id)
             if current is not None:
                 application = current
-            return await self._update_live_card(
-                application,
-                queue_on_failure=queue_on_failure,
-                create_if_missing=create_if_missing,
-            )
+            notifications: list[str] = []
+            if application.status in {
+                ApplicationStatus.PENDING_REVIEW,
+                ApplicationStatus.APPROVAL_QUEUED,
+                ApplicationStatus.APPROVED,
+                ApplicationStatus.DENIED,
+            }:
+                notifications.append("verification")
+            if application.status in {ApplicationStatus.APPROVED, ApplicationStatus.DENIED}:
+                notifications.append("decision")
+            delivered = True
+            for notification in notifications:
+                delivered = await self._send_application_dm(
+                    application,
+                    notification,
+                    queue_on_failure=queue_on_failure,
+                ) and delivered
+            return delivered
 
-    async def _update_live_card(
+    def _application_card_embed(self, application: MinecraftApplication) -> discord.Embed:
+        if application.status is ApplicationStatus.APPROVED:
+            return approval_embed(self.settings)
+        if application.status is ApplicationStatus.DENIED:
+            return denial_embed(application)
+        if application.status in {
+            ApplicationStatus.PENDING_REVIEW,
+            ApplicationStatus.APPROVAL_QUEUED,
+        }:
+            return verified_embed(application)
+        return live_status_embed(application, self.settings)
+
+    async def _send_application_dm(
         self,
         application: MinecraftApplication,
+        notification: str,
         *,
         queue_on_failure: bool,
-        create_if_missing: bool,
     ) -> bool:
+        marker = (
+            getattr(application, "status_message_id", None)
+            if notification == "verification"
+            else getattr(application, "decision_message_id", None)
+        )
+        if marker:
+            return True
         try:
-            message = None
-            if application.status_channel_id and application.status_message_id:
-                channel = await self._configured_channel(int(application.status_channel_id))
-                if channel is not None and hasattr(channel, "fetch_message"):
-                    with suppress(discord.NotFound, discord.Forbidden, discord.HTTPException):
-                        message = await channel.fetch_message(int(application.status_message_id))
-            if message is None:
-                if not create_if_missing or application.status not in {
-                    ApplicationStatus.PENDING_REVIEW,
-                    ApplicationStatus.APPROVED,
-                    ApplicationStatus.DENIED,
-                }:
-                    return True
-                user = self.get_user(int(application.discord_user_id))
-                if user is None:
-                    with suppress(discord.NotFound, discord.HTTPException):
-                        user = await self.fetch_user(int(application.discord_user_id))
-                if user is None:
-                    raise RuntimeError("Discord user unavailable")
-                if application.status is ApplicationStatus.APPROVED:
-                    embed = approval_embed(self.settings)
-                elif application.status is ApplicationStatus.DENIED:
-                    embed = denial_embed(application)
-                else:
-                    embed = verified_embed(application)
-                message = await user.send(**branded_send(embed))
+            user = self.get_user(int(application.discord_user_id))
+            if user is None:
+                with suppress(discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    user = await self.fetch_user(int(application.discord_user_id))
+            if user is None:
+                raise RuntimeError("Discord user unavailable")
+            icon = brand_icon_file()
+            try:
+                message = await user.send(
+                    **branded_send(application_dm_embed(application, self.settings, notification)),
+                    file=icon,
+                )
+            finally:
+                icon.close()
+            if notification == "verification":
                 await self.data.set_status_message(application.id, message.channel.id, message.id)
             else:
-                if application.status is ApplicationStatus.APPROVED:
-                    embed = approval_embed(self.settings)
-                elif application.status is ApplicationStatus.DENIED:
-                    embed = denial_embed(application)
-                elif application.status in {
-                    ApplicationStatus.PENDING_REVIEW,
-                    ApplicationStatus.APPROVAL_QUEUED,
-                }:
-                    embed = verified_embed(application)
-                else:
-                    embed = live_status_embed(application, self.settings)
-                await message.edit(
-                    **branded_edit(embed),
-                    view=None,
-                )
+                await self.data.set_decision_message(application.id, message.channel.id, message.id)
             return True
         except (discord.Forbidden, discord.HTTPException, RuntimeError) as exc:
             if queue_on_failure:
                 await self.data.enqueue_delivery(
-                    dedupe_key=f"live-card:{application.id}",
-                    kind="LIVE_CARD",
+                    dedupe_key=f"application:{application.id}:{notification}-dm",
+                    kind="USER_EMBED",
                     target_id=application.id,
-                    payload={"application_id": application.id},
+                    payload={"application_id": application.id, "notification": notification},
                 )
-            logger.warning("Minecraft live card deferred for application %s: %s", application.id, type(exc).__name__)
-            return False
-
-    async def _refresh_existing_live_card_views(self) -> None:
-        for application in await self.data.list_existing_live_cards(limit=100):
-            await self.update_live_card(
-                application,
-                queue_on_failure=False,
-                create_if_missing=False,
+            logger.warning(
+                "Minecraft %s DM deferred for application %s: %s",
+                notification,
+                application.id,
+                type(exc).__name__,
             )
+            return False
 
     async def _process_delivery_recovery(self) -> None:
         for delivery in await self.data.get_due_deliveries(limit=25):
@@ -511,7 +497,18 @@ class MinecraftAccessBot(commands.Bot):
                         queue_on_failure=False,
                     )
                 elif delivery.kind == "USER_EMBED":
-                    delivered = True
+                    application = await self.data.get_application(int(delivery.target_id))
+                    notification = str(delivery.payload.get("notification") or "")
+                    if notification not in {"verification", "decision"}:
+                        delivered = True
+                    elif application is not None:
+                        delivered = await self._send_application_dm(
+                            application,
+                            notification,
+                            queue_on_failure=False,
+                        )
+                    else:
+                        delivered = True
                 else:
                     application = await self.data.get_application(int(delivery.target_id))
                     delivered = bool(application) and await self.update_live_card(

@@ -30,7 +30,7 @@ from .models import (
 
 JAVA_USERNAME = re.compile(r"^[A-Za-z0-9_]{3,16}$")
 BEDROCK_USERNAME = re.compile(r"^[\w -]{1,16}$", re.UNICODE)
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 COMMAND_LOG_RETENTION_DAYS = 30
 COMMAND_LOG_RETENTION_ROWS = 20_000
 
@@ -61,6 +61,8 @@ CREATE TABLE IF NOT EXISTS minecraft_applications (
     auto_detect_edition INTEGER NOT NULL DEFAULT 0,
     status_channel_id TEXT,
     status_message_id TEXT,
+    decision_channel_id TEXT,
+    decision_message_id TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );
@@ -78,6 +80,8 @@ CREATE INDEX IF NOT EXISTS idx_minecraft_applications_review_message
     ON minecraft_applications(review_message_id);
 CREATE INDEX IF NOT EXISTS idx_minecraft_applications_status_message
     ON minecraft_applications(status_message_id);
+CREATE INDEX IF NOT EXISTS idx_minecraft_applications_decision_message
+    ON minecraft_applications(decision_message_id);
 
 CREATE TABLE IF NOT EXISTS minecraft_accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -245,6 +249,17 @@ class MinecraftDataManager:
                             await db.execute(
                                 f"ALTER TABLE minecraft_applications ADD COLUMN {name} {definition}"
                             )
+            if existed and current_version < 5:
+                columns = {
+                    row[1]
+                    for row in await db.execute_fetchall("PRAGMA table_info(minecraft_applications)")
+                }
+                if columns:
+                    for name in ("decision_channel_id", "decision_message_id"):
+                        if name not in columns:
+                            await db.execute(
+                                f"ALTER TABLE minecraft_applications ADD COLUMN {name} TEXT"
+                            )
             await db.executescript(SCHEMA_SQL)
             await db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
             await db.commit()
@@ -313,6 +328,8 @@ class MinecraftDataManager:
             auto_detect_edition=bool(row["auto_detect_edition"]),
             status_channel_id=row["status_channel_id"],
             status_message_id=row["status_message_id"],
+            decision_channel_id=row["decision_channel_id"],
+            decision_message_id=row["decision_message_id"],
             created_at=int(row["created_at"]),
             updated_at=int(row["updated_at"]),
         )
@@ -821,6 +838,15 @@ class MinecraftDataManager:
             db = self._connection()
             await db.execute(
                 "UPDATE minecraft_applications SET status_channel_id=?, status_message_id=? WHERE id=?",
+                (str(channel_id), str(message_id), int(application_id)),
+            )
+            await db.commit()
+
+    async def set_decision_message(self, application_id: int, channel_id: int, message_id: int) -> None:
+        async with self._write_lock:
+            db = self._connection()
+            await db.execute(
+                "UPDATE minecraft_applications SET decision_channel_id=?, decision_message_id=? WHERE id=?",
                 (str(channel_id), str(message_id), int(application_id)),
             )
             await db.commit()

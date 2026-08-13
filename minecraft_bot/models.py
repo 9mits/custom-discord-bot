@@ -72,6 +72,8 @@ class MinecraftApplication:
     auto_detect_edition: bool = False
     status_channel_id: Optional[str] = None
     status_message_id: Optional[str] = None
+    decision_channel_id: Optional[str] = None
+    decision_message_id: Optional[str] = None
 
 
 @dataclass(frozen=True)

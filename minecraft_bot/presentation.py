@@ -14,6 +14,8 @@ from .models import ApplicationStatus, MinecraftApplication
 
 BRAND_NAME = "Mysterious SMP X"
 THEME_COLOUR = discord.Colour.from_rgb(255, 153, 0)
+SUCCESS_COLOUR = discord.Colour.from_rgb(87, 242, 135)
+ERROR_COLOUR = discord.Colour.from_rgb(237, 66, 69)
 LOGO_FILENAME = "mysterious_smp_x_logo.png"
 LOGO_PATH = Path(__file__).resolve().parent.parent / "assets" / "minecraft" / LOGO_FILENAME
 LOGO_ATTACHMENT_URI = f"attachment://{LOGO_FILENAME}"
@@ -376,7 +378,6 @@ def verified_embed(application: MinecraftApplication) -> discord.Embed:
         f"**Verified account**\n{application.edition.value.title()} · "
         f"`{_safe(application.verified_username, 100)}`\n\n"
         "Staff will review your application. No further action is needed.",
-        success=True,
     )
 
 
@@ -406,6 +407,25 @@ def approval_embed(settings) -> discord.Embed:
         "- Keep this message for quick access later.",
         success=True,
     )
+
+
+def application_dm_embed(
+    application: MinecraftApplication,
+    settings,
+    notification: str,
+) -> discord.Embed:
+    if notification == "verification":
+        embed = verified_embed(application)
+    elif notification == "decision" and application.status is ApplicationStatus.APPROVED:
+        embed = approval_embed(settings)
+        embed.colour = SUCCESS_COLOUR
+    elif notification == "decision" and application.status is ApplicationStatus.DENIED:
+        embed = denial_embed(application)
+        embed.colour = ERROR_COLOUR
+    else:
+        raise ValueError("Application does not have a DM notification for this state")
+    embed.set_thumbnail(url=ICON_ATTACHMENT_URI)
+    return embed
 
 
 def application_log_embed(application: MinecraftApplication) -> discord.Embed:
