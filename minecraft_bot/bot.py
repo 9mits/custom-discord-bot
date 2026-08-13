@@ -1044,18 +1044,19 @@ class MinecraftAccessBot(commands.Bot):
     async def _before_leaderboard_refresh(self) -> None:
         await self.wait_until_ready()
 
-    async def _refresh_leaderboard_message(self) -> None:
+    async def _refresh_leaderboard_message(self) -> Optional[str]:
+        """Posts or edits the permanent leaderboard. Returns a reason when it could not."""
         from .leaderboard import CONFIG_CHANNEL, CONFIG_MESSAGE, HeadEmojiStore, message_payload
 
+        # Posted even before Paper has pushed anything: the board renders its own
+        # "no standings yet" state, which is far better than silently doing nothing.
         snapshot = getattr(self.bridge, "latest_leaderboard", {}) or {}
-        if not snapshot:
-            return  # Paper has not pushed standings yet
         channel_id = await self.data.get_config(CONFIG_CHANNEL)
         if not channel_id:
-            return
+            return "No leaderboard channel is configured."
         channel = self.get_channel(int(channel_id))
         if not isinstance(channel, discord.TextChannel):
-            return
+            return "The configured leaderboard channel is not reachable."
 
         heads: dict[str, str] = {}
         if channel.guild is not None:
@@ -1071,11 +1072,11 @@ class MinecraftAccessBot(commands.Bot):
                     attachments=payload["attachments"],
                     view=payload["view"],
                 )
-                return
+                return None
             except discord.NotFound:
                 pass  # deleted by someone; fall through and repost
             except discord.HTTPException:
-                return  # transient; the next tick tries again
+                return "Discord refused the edit; retrying on the next refresh."
         try:
             posted = await channel.send(
                 embeds=payload["embeds"],
@@ -1084,8 +1085,9 @@ class MinecraftAccessBot(commands.Bot):
             )
         except discord.HTTPException:
             logger.exception("Could not post the leaderboard message")
-            return
+            return "I could not post there. Check my permissions in that channel."
         await self.data.set_config(CONFIG_MESSAGE, posted.id)
+        return None
 
     @tasks.loop(seconds=30)
     async def application_maintenance(self) -> None:
@@ -1331,9 +1333,15 @@ class MinecraftAccessBot(commands.Bot):
             # A new channel means the old message is orphaned, so forget it and repost.
             await self.data.set_config(CONFIG_CHANNEL, channel.id)
             await self.data.set_config(CONFIG_MESSAGE, None)
-            await self._refresh_leaderboard_message()
+            problem = await self._refresh_leaderboard_message()
+            if problem:
+                await interaction.edit_original_response(content=problem)
+                return
             await interaction.edit_original_response(
-                content=f"The leaderboard now lives in {channel.mention} and refreshes every 5 minutes."
+                content=(
+                    f"The leaderboard is now in {channel.mention} and refreshes every 5 minutes. "
+                    "Standings fill in once the Minecraft server reports them."
+                )
             )
 
         @group.command(name="account", description="Open your private Minecraft account and application panel.")
