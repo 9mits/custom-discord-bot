@@ -397,10 +397,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(delivered)
         user.send.assert_awaited_once()
         self.assertEqual(user.send.await_args.kwargs["embed"].title, "Account Verified — Application Sent")
-        self.assertEqual(
-            {item.custom_id for item in user.send.await_args.kwargs["view"].children},
-            {"minecraft:live:help"},
-        )
+        self.assertNotIn("view", user.send.await_args.kwargs)
         bot.data.set_status_message.assert_awaited_once_with(1, 50, 60)
         bot.data.enqueue_delivery.assert_not_awaited()
 
@@ -422,6 +419,29 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(delivered)
         bot.get_user.assert_not_called()
         bot.fetch_user.assert_not_awaited()
+        bot.data.enqueue_delivery.assert_not_awaited()
+
+    async def test_existing_verified_message_has_controls_removed(self):
+        application = SimpleNamespace(
+            id=1,
+            discord_user_id="99",
+            edition=Edition.JAVA,
+            verified_username="PlayerOne",
+            status=ApplicationStatus.PENDING_REVIEW,
+            status_channel_id="50",
+            status_message_id="60",
+        )
+        message = SimpleNamespace(edit=AsyncMock())
+        channel = SimpleNamespace(fetch_message=AsyncMock(return_value=message))
+        bot = object.__new__(MinecraftAccessBot)
+        bot._configured_channel = AsyncMock(return_value=channel)
+        bot.data = SimpleNamespace(enqueue_delivery=AsyncMock())
+
+        delivered = await bot.update_live_card(application)
+
+        self.assertTrue(delivered)
+        message.edit.assert_awaited_once()
+        self.assertIsNone(message.edit.await_args.kwargs["view"])
         bot.data.enqueue_delivery.assert_not_awaited()
 
     async def test_application_panel_has_no_public_banner_message(self):
