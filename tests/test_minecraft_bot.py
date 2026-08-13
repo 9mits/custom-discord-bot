@@ -1337,3 +1337,28 @@ class MinecraftLeaderboardRenderTests(unittest.TestCase):
 
         self.assertIn("kai", second)
         self.assertNotIn("<@", second)
+
+
+class MinecraftLeaderboardRestartTests(unittest.IsolatedAsyncioTestCase):
+    """A bot restart empties in-memory standings; the posted board must survive it."""
+
+    def _bot(self, *, snapshot, message_id):
+        bot = object.__new__(MinecraftAccessBot)
+        bot.bridge = SimpleNamespace(latest_leaderboard=snapshot)
+        bot.data = SimpleNamespace(
+            get_config=AsyncMock(side_effect=lambda key, default=None: {
+                "leaderboard_channel_id": 999,
+                "leaderboard_message_id": message_id,
+            }.get(key, default)),
+            set_config=AsyncMock(),
+        )
+        bot.get_channel = lambda _id: SimpleNamespace(guild=None)
+        return bot
+
+    async def test_empty_standings_do_not_blank_a_posted_board(self):
+        bot = self._bot(snapshot={}, message_id=555)
+
+        result = await bot._refresh_leaderboard_message()
+
+        self.assertIsNone(result)
+        bot.data.set_config.assert_not_awaited()
