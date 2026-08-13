@@ -243,8 +243,15 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             PlayerProfile profile = new PlayerProfile(
                     payload.get("level").getAsInt(),
                     payload.get("extra_hearts").getAsInt(),
-                    payload.get("elite").getAsBoolean()
+                    payload.get("elite").getAsBoolean(),
+                    optionalString(payload, "rank_group"),
+                    optionalString(payload, "rank_label"),
+                    payload.has("rank_colour") ? payload.get("rank_colour").getAsInt() : 0
             );
+            // Older bots omit the rank fields entirely; only touch LuckPerms when they are sent.
+            if (payload.has("rank_group")) {
+                plugin.applyPlayerRank(minecraftUuid, profile.rankGroup());
+            }
             Player online = Bukkit.getPlayer(minecraftUuid);
             if (payload.has("discord_username")) {
                 plugin.applyDiscordIdentity(minecraftUuid, payload.get("discord_username").getAsString());
@@ -582,6 +589,12 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         if (current != null) {
             current.sendClose(code, reason);
         }
+    }
+
+    private static String optionalString(JsonObject payload, String key) {
+        return payload.has(key) && !payload.get(key).isJsonNull()
+                ? payload.get(key).getAsString()
+                : "";
     }
 
     private static String safeError(Throwable error) {

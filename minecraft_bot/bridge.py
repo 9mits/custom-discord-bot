@@ -22,7 +22,8 @@ logger = logging.getLogger("MinecraftAccessBot.bridge")
 AUTO_EDITION_PROTOCOL_VERSION = 2
 PROFILE_SYNC_PROTOCOL_VERSION = 3
 CHAT_SYNC_PROTOCOL_VERSION = 4
-CURRENT_PROTOCOL_VERSION = CHAT_SYNC_PROTOCOL_VERSION
+RANK_SYNC_PROTOCOL_VERSION = 5
+CURRENT_PROTOCOL_VERSION = RANK_SYNC_PROTOCOL_VERSION
 
 VerificationHandler = Callable[..., Awaitable[None]]
 ActionResultHandler = Callable[[OutboxRecord, Optional[Any]], Awaitable[None]]
@@ -84,6 +85,10 @@ class MinecraftBridgeServer:
     @property
     def supports_chat_sync(self) -> bool:
         return self.connected and self._peer_protocol_version >= CHAT_SYNC_PROTOCOL_VERSION
+
+    @property
+    def supports_rank_sync(self) -> bool:
+        return self.connected and self._peer_protocol_version >= RANK_SYNC_PROTOCOL_VERSION
 
     async def start(self) -> None:
         ssl_context = None
@@ -364,21 +369,30 @@ class MinecraftBridgeServer:
         extra_hearts: int,
         elite: bool,
         discord_username: str = "",
+        rank_group: str = "",
+        rank_label: str = "",
+        rank_colour: int = 0,
     ) -> bool:
         """Apply an online player's Discord-derived perks on protocol v3 Paper."""
         if not self.supports_profile_sync:
             return False
+        payload = {
+            "action": "SYNC_PROFILE",
+            "minecraft_uuid": str(minecraft_uuid),
+            "level": max(0, min(int(level), 50)),
+            "extra_hearts": max(0, min(int(extra_hearts), 5)),
+            "elite": bool(elite),
+            "discord_username": str(discord_username).strip()[:32],
+        }
+        if self.supports_rank_sync:
+            # Sent even when empty so the plugin can clear a rank the member lost.
+            payload["rank_group"] = str(rank_group).strip()[:32]
+            payload["rank_label"] = str(rank_label).strip()[:16]
+            payload["rank_colour"] = max(0, min(int(rank_colour), 0xFFFFFF))
         try:
             await self._send(
                 "ACTION",
-                {
-                    "action": "SYNC_PROFILE",
-                    "minecraft_uuid": str(minecraft_uuid),
-                    "level": max(0, min(int(level), 50)),
-                    "extra_hearts": max(0, min(int(extra_hearts), 5)),
-                    "elite": bool(elite),
-                    "discord_username": str(discord_username).strip()[:32],
-                },
+                payload,
                 idempotency_key=f"profile:{minecraft_uuid}:{secrets.token_hex(12)}",
             )
         except ConnectionError:

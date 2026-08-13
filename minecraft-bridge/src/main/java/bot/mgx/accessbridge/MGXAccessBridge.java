@@ -42,6 +42,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private VerifiedApplicationStore verifiedApplications;
     private DiscordIdentityService identityService;
     private ChatRelayService chatRelayService;
+    private LuckPermsService luckPermsService;
 
     @Override
     public void onEnable() {
@@ -85,8 +86,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             return;
         }
         perkService = new PlayerPerkService();
+        luckPermsService = LuckPermsService.createIfAvailable(this);
         identityService = new DiscordIdentityService(this, identityStore);
-        ClanService clanService = new ClanService(this, clanStore, identityService);
+        ClanService clanService = new ClanService(this, clanStore, identityService, perkService);
         GuideService guideService = new GuideService();
         sidebarService = new SidebarService(
                 this,
@@ -146,6 +148,13 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     void applyPlayerProfile(org.bukkit.entity.Player player, PlayerProfile profile) {
         perkService.apply(player, profile);
         sidebarService.refresh(player);
+        refreshClanAppearance();
+    }
+
+    void applyPlayerRank(UUID minecraftUuid, String rankGroup) {
+        if (luckPermsService != null) {
+            luckPermsService.applyRank(minecraftUuid, rankGroup);
+        }
     }
 
     void refreshClanAppearance() {

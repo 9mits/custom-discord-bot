@@ -50,11 +50,18 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     private final MGXAccessBridge plugin;
     private final ClanStore store;
     private final DiscordIdentityService identities;
+    private final PlayerPerkService perks;
 
-    ClanService(MGXAccessBridge plugin, ClanStore store, DiscordIdentityService identities) {
+    ClanService(
+            MGXAccessBridge plugin,
+            ClanStore store,
+            DiscordIdentityService identities,
+            PlayerPerkService perks
+    ) {
         this.plugin = plugin;
         this.store = store;
         this.identities = identities;
+        this.perks = perks;
     }
 
     @Override
@@ -355,12 +362,13 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     public void onPublicChat(AsyncChatEvent event) {
         Optional<ClanStore.ClanView> clan = store.clanOf(event.getPlayer().getUniqueId());
         Optional<String> discordUsername = identities.visibleUsername(event.getPlayer().getUniqueId());
-        if (clan.isEmpty() && discordUsername.isEmpty()) {
+        PlayerProfile profile = perks.profile(event.getPlayer().getUniqueId());
+        if (clan.isEmpty() && discordUsername.isEmpty() && !profile.hasRankLabel()) {
             return;
         }
         var originalRenderer = event.renderer();
         event.renderer((source, sourceDisplayName, message, viewer) -> {
-            Component prefix = Component.empty();
+            Component prefix = SidebarService.rankTag(profile);
             if (clan.isPresent()) {
                 prefix = prefix.append(clanTag(clan.get()));
             }

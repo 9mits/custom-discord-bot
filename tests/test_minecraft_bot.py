@@ -1017,6 +1017,9 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
             extra_hearts=0,
             elite=False,
             discord_username="",
+            rank_group="",
+            rank_label="",
+            rank_colour=0,
         )
 
     async def test_level_role_change_resyncs_all_linked_accounts(self):

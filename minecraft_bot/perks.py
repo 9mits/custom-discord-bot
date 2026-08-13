@@ -1,9 +1,9 @@
-"""Discord level milestones exposed to the Minecraft bridge."""
+"""Discord level milestones and rank roles exposed to the Minecraft bridge."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Iterable, Optional
 
 
 LEVEL_ROLE_MILESTONES = (
@@ -17,11 +17,35 @@ LEVEL_ROLE_MILESTONES = (
 ELITE_ROLE_ID = LEVEL_ROLE_MILESTONES[-1][0]
 
 
+# Discord rank roles mapped to LuckPerms groups, ordered most to least powerful.
+# The first entry a member holds wins, so reordering this tuple reorders rank
+# priority. Colours mirror the Discord role colours so in-game tags match.
+RANK_ROLES = (
+    (1476839722247786593, "owner", "OWNER", 0x4FA8DC),
+    (1476839722247786591, "admin", "ADMIN", 0xA33A32),
+    (1476839722247786590, "community-manager", "MANAGER", 0xF0A868),
+    (1476839722247786589, "staff", "STAFF", 0xA855F7),
+    (1476839722230747137, "legend", "LEGEND", 0x99A9F0),
+    (1484195104649515058, "og", "OG", 0x9BA5A8),
+    (1484190796042207423, "supporter", "SUPPORTER", 0x45B6D4),
+    (1476839722247786587, "partner", "PARTNER", 0xE8399E),
+    (1476877246902960249, "booster", "BOOSTER", 0xFF73FA),
+)
+RANK_GROUPS = tuple(group for _role_id, group, _label, _colour in RANK_ROLES)
+
+
 @dataclass(frozen=True)
 class MinecraftLevelProfile:
     level: int
     extra_hearts: int
     elite: bool
+
+
+@dataclass(frozen=True)
+class MinecraftRank:
+    group: str
+    label: str
+    colour: int
 
 
 def profile_for_role_ids(role_ids: Iterable[int]) -> MinecraftLevelProfile:
@@ -40,3 +64,12 @@ def profile_for_role_ids(role_ids: Iterable[int]) -> MinecraftLevelProfile:
         ),
         elite=ELITE_ROLE_ID in owned,
     )
+
+
+def rank_for_role_ids(role_ids: Iterable[int]) -> Optional[MinecraftRank]:
+    """Return the highest-priority rank a member holds, or None when they hold none."""
+    owned = {int(role_id) for role_id in role_ids}
+    for role_id, group, label, colour in RANK_ROLES:
+        if role_id in owned:
+            return MinecraftRank(group=group, label=label, colour=colour)
+    return None
