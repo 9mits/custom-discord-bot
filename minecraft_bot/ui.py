@@ -149,7 +149,9 @@ class RulesAgreementView(discord.ui.View):
 
     @discord.ui.button(label="I Agree", style=discord.ButtonStyle.success)
     async def agree(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
-        await interaction.response.send_modal(MinecraftApplicationModal())
+        await interaction.response.send_modal(MinecraftApplicationModal(
+            require_edition=not interaction.client.bridge.supports_auto_edition
+        ))
 
     @discord.ui.button(label="I Disagree", style=discord.ButtonStyle.secondary)
     async def disagree(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
@@ -246,9 +248,26 @@ class EditionSelectionView(discord.ui.View):
 
 
 class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Application"):
-    def __init__(self, fixed_edition: Edition | None = None) -> None:
+    def __init__(
+        self,
+        fixed_edition: Edition | None = None,
+        *,
+        require_edition: bool = False,
+    ) -> None:
         super().__init__(timeout=600, custom_id="minecraft:application:modal")
         self.fixed_edition = fixed_edition
+        self.edition = None
+        if fixed_edition is None and require_edition:
+            self.edition = discord.ui.Select(
+                custom_id="minecraft:application:edition",
+                placeholder="Choose Java or Bedrock",
+                min_values=1,
+                max_values=1,
+                options=[
+                    discord.SelectOption(label="Java", value=Edition.JAVA.value),
+                    discord.SelectOption(label="Bedrock", value=Edition.BEDROCK.value),
+                ],
+            )
         self.username = discord.ui.TextInput(
             label="Minecraft username or Xbox gamertag",
             placeholder="Enter the exact account name",
@@ -268,6 +287,8 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
             min_length=10,
             max_length=1000,
         )
+        if self.edition is not None:
+            self.add_item(discord.ui.Label(text="Minecraft edition", component=self.edition))
         self.add_item(self.username)
         self.add_item(self.why)
         self.add_item(self.about)
@@ -276,10 +297,13 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
         await interaction.response.defer(ephemeral=True, thinking=True)
         bot = interaction.client
         try:
+            edition = self.fixed_edition
+            if edition is None and self.edition is not None:
+                edition = Edition(self.edition.values[0])
             application = await bot.data.create_application(
                 guild_id=interaction.guild_id,
                 discord_user_id=interaction.user.id,
-                edition=self.fixed_edition,
+                edition=edition,
                 claimed_username=str(self.username),
                 answers={"why": str(self.why), "about": str(self.about)},
             )

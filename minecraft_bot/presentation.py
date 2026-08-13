@@ -266,9 +266,14 @@ def live_status_embed(application: MinecraftApplication, settings) -> discord.Em
     if status is ApplicationStatus.PENDING_VERIFICATION:
         expiry = datetime.fromtimestamp(application.verification_expires_at, timezone.utc)
         connection = _connection_blocks(settings)
+        edition_note = (
+            "The server identifies Java or Bedrock automatically."
+            if application.auto_detect_edition
+            else f"Use the {application.edition.value.title()} connection details."
+        )
         next_action = (
             f"Connect once as `{_safe(application.claimed_username, 100)}` before "
-            f"{discord.utils.format_dt(expiry, 'R')}. The server identifies Java or Bedrock automatically."
+            f"{discord.utils.format_dt(expiry, 'R')}. {edition_note}"
         )
     elif status is ApplicationStatus.PENDING_REVIEW:
         connection = ""

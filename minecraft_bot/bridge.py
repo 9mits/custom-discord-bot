@@ -67,6 +67,10 @@ class MinecraftBridgeServer:
     def connected_at(self) -> Optional[float]:
         return self._connected_at
 
+    @property
+    def supports_auto_edition(self) -> bool:
+        return self.connected and self._peer_protocol_version >= AUTO_EDITION_PROTOCOL_VERSION
+
     async def start(self) -> None:
         ssl_context = None
         if self.config.bridge_tls_cert_path and self.config.bridge_tls_key_path:

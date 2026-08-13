@@ -102,7 +102,12 @@ class MinecraftBotPolicyTests(unittest.TestCase):
                 "minecraft:review:history",
             },
         )
-        self.assertFalse(hasattr(modal, "edition"))
+        self.assertIsNone(modal.edition)
+        compatibility_modal = MinecraftApplicationModal(require_edition=True)
+        self.assertEqual(
+            [option.value for option in compatibility_modal.edition.options],
+            ["JAVA", "BEDROCK"],
+        )
         live = LiveApplicationView()
         self.assertTrue(live.is_persistent())
         self.assertEqual(
@@ -420,6 +425,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         view = RulesAgreementView(99)
         agree_response = SimpleNamespace(send_modal=AsyncMock())
         agree_interaction = SimpleNamespace(
+            client=SimpleNamespace(bridge=SimpleNamespace(supports_auto_edition=True)),
             user=SimpleNamespace(id=99),
             response=agree_response,
         )
