@@ -50,11 +50,18 @@ class MinecraftRankTests(unittest.TestCase):
     def test_no_rank_role_returns_none(self):
         self.assertIsNone(rank_for_role_ids([1, 2, 3]))
 
-    def test_highest_priority_rank_wins(self):
+    def test_first_mapped_role_in_caller_order_wins(self):
         owner_id = RANK_ROLES[0][0]
         booster_id = RANK_ROLES[-1][0]
 
-        rank = rank_for_role_ids([booster_id, owner_id])
+        # The bot passes roles highest-first, so the leading entry is the winner.
+        self.assertEqual(rank_for_role_ids([owner_id, booster_id]).group, "owner")
+        self.assertEqual(rank_for_role_ids([booster_id, owner_id]).group, "booster")
+
+    def test_unmapped_roles_are_skipped(self):
+        owner_id = RANK_ROLES[0][0]
+
+        rank = rank_for_role_ids([1, 2, owner_id])
 
         self.assertIsNotNone(rank)
         self.assertEqual(rank.group, "owner")
@@ -68,12 +75,11 @@ class MinecraftRankTests(unittest.TestCase):
         self.assertEqual(rank.group, "booster")
         self.assertEqual(rank.label, "BOOSTER")
 
-    def test_rank_roles_are_unique_and_ordered_by_priority(self):
+    def test_rank_roles_and_groups_are_unique(self):
         role_ids = [role_id for role_id, _group, _label, _colour in RANK_ROLES]
 
         self.assertEqual(len(role_ids), len(set(role_ids)))
         self.assertEqual(len(RANK_GROUPS), len(set(RANK_GROUPS)))
-        self.assertEqual(RANK_GROUPS[0], "owner")
 
     def test_rank_colours_are_valid_rgb(self):
         for _role_id, group, label, colour in RANK_ROLES:
