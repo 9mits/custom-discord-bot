@@ -39,6 +39,7 @@ EXTENSIONS = (
     "cogs.analytics",
     "cogs.admin",
     "cogs.control_plane",
+    "cogs.utility",
     "cogs.events",
     "cogs.event_leaderboard",
 )

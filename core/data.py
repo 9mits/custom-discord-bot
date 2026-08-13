@@ -57,7 +57,7 @@ MODMAIL_FILE = DB_DIR / "modmail.json"
 DB_FILE = DB_DIR / "bot.db"
 # -----------------------------------------
 
-_STORAGE_SCHEMA_VERSION = 2
+_STORAGE_SCHEMA_VERSION = 3
 _BACKUP_RETENTION = 5
 _NATIVE_AUTOMOD_RETENTION_DAYS = 30
 _NATIVE_AUTOMOD_PER_USER_LIMIT = 100
@@ -148,6 +148,16 @@ CREATE INDEX IF NOT EXISTS idx_native_automod_steps_lookup
     ON native_automod_steps(user_id, rule_id, occurred_at DESC);
 CREATE INDEX IF NOT EXISTS idx_native_automod_steps_age
     ON native_automod_steps(occurred_at);
+
+CREATE TABLE IF NOT EXISTS user_notes (
+    note_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id    TEXT    NOT NULL,
+    author_id  TEXT    NOT NULL,
+    created_at TEXT    NOT NULL,
+    content    TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_user_notes_lookup
+    ON user_notes(user_id, note_id DESC);
 """
 
 
@@ -1752,6 +1762,70 @@ class DataManager:
                 await db.rollback()
                 raise
         return deleted
+
+    # ------------------------------------------------------------------
+    # Staff notes on members (non-punitive; separate from the case history)
+    # ------------------------------------------------------------------
+
+    _NOTES_PER_USER = 50
+
+    async def add_user_note(self, *, user_id: int, author_id: int, content: str) -> int:
+        from core.utils import now_iso
+
+        async with self._save_lock:
+            db = await self._db_conn()
+            try:
+                cursor = await db.execute(
+                    "INSERT INTO user_notes (user_id, author_id, created_at, content) VALUES (?, ?, ?, ?)",
+                    (str(user_id), str(author_id), now_iso(), str(content)),
+                )
+                note_id = cursor.lastrowid
+                # Oldest notes fall off so one member cannot grow the table forever.
+                await db.execute(
+                    "DELETE FROM user_notes WHERE user_id = ? AND note_id NOT IN "
+                    "(SELECT note_id FROM user_notes WHERE user_id = ? ORDER BY note_id DESC LIMIT ?)",
+                    (str(user_id), str(user_id), self._NOTES_PER_USER),
+                )
+                await self._commit(db)
+            except Exception:
+                await db.rollback()
+                raise
+        return note_id
+
+    async def list_user_notes(self, user_id: int, *, limit: int = 25) -> List[dict]:
+        db = await self._db_conn()
+        rows = await db.execute_fetchall(
+            "SELECT note_id, user_id, author_id, created_at, content FROM user_notes "
+            "WHERE user_id = ? ORDER BY note_id DESC LIMIT ?",
+            (str(user_id), max(1, min(100, int(limit)))),
+        )
+        return [dict(row) for row in rows]
+
+    async def count_user_notes(self, user_id: int) -> int:
+        db = await self._db_conn()
+        rows = await db.execute_fetchall(
+            "SELECT COUNT(*) AS total FROM user_notes WHERE user_id = ?", (str(user_id),)
+        )
+        return int(rows[0]["total"]) if rows else 0
+
+    async def delete_user_note(self, note_id: int) -> Optional[dict]:
+        """Remove one note, returning it so the caller can log what was deleted."""
+        async with self._save_lock:
+            db = await self._db_conn()
+            async with db.execute(
+                "SELECT note_id, user_id, author_id, created_at, content FROM user_notes WHERE note_id = ?",
+                (int(note_id),),
+            ) as cursor:
+                row = await cursor.fetchone()
+            if row is None:
+                return None
+            try:
+                await db.execute("DELETE FROM user_notes WHERE note_id = ?", (int(note_id),))
+                await self._commit(db)
+            except Exception:
+                await db.rollback()
+                raise
+        return dict(row)
 
     # ------------------------------------------------------------------
     # Message exports (stored on-demand, not held in memory)

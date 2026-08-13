@@ -128,6 +128,7 @@ cogs/      one discord.py extension per domain
   automod.py           native + smart automod engine, /automod
   config.py            /setup, /config and settings views
   analytics.py         /stats, /directory, staff profiles
+  utility.py           info lookups, staff notes, slowmode/nickname, polls
   admin.py             admin commands, anti-nuke, branding
   events.py            raw @bot.event listeners + native AutoMod bridge
   event_leaderboard.py VC-time leaderboard (gated on EVENT_CONTROL=1)
