@@ -1,7 +1,7 @@
 """Command audit trail for the Minecraft access bot.
 
-Every `/minecraft ...` invocation, review button, and modal submission produces a
-record here. Routine ones go to the activity log; access-changing and failed ones
+Every `/minecraft`, `/mcstaff`, and `/mcadmin` invocation, review button, and modal
+submission produces a record here. Routine ones go to the activity log; access-changing and failed ones
 go to the quieter important log.
 
 Self-contained by design: this module imports only stdlib, discord, and sibling
@@ -48,15 +48,31 @@ RISK_DESTRUCTIVE = "destructive"
 # The Minecraft bot has no shared action registry, so risk is declared here.
 # Anything absent is treated as read-only.
 COMMAND_RISK: Mapping[str, str] = {
-    "minecraft revoke": RISK_DESTRUCTIVE,
-    "minecraft unlink": RISK_DESTRUCTIVE,
     "minecraft cancel": RISK_DESTRUCTIVE,
-    "minecraft moderate": RISK_DESTRUCTIVE,
-    "minecraft broadcast": RISK_DESTRUCTIVE,
-    "minecraft clan": RISK_MODERATE,
-    "minecraft retry": RISK_MODERATE,
-    "minecraft setup": RISK_CONFIGURATION,
-    "minecraft log-channel": RISK_CONFIGURATION,
+    "mcstaff cancel": RISK_DESTRUCTIVE,
+    "mcstaff revoke": RISK_DESTRUCTIVE,
+    "mcstaff unlink": RISK_DESTRUCTIVE,
+    "mcstaff kick": RISK_DESTRUCTIVE,
+    "mcstaff mute": RISK_DESTRUCTIVE,
+    "mcstaff ban": RISK_DESTRUCTIVE,
+    "mcstaff tempban": RISK_DESTRUCTIVE,
+    "mcstaff unban": RISK_DESTRUCTIVE,
+    "mcstaff broadcast": RISK_DESTRUCTIVE,
+    "mcstaff heal": RISK_MODERATE,
+    "mcstaff retry": RISK_MODERATE,
+    "minecraft clan invite": RISK_MODERATE,
+    "minecraft clan kick": RISK_MODERATE,
+    "minecraft clan promote": RISK_MODERATE,
+    "minecraft clan demote": RISK_MODERATE,
+    "minecraft clan transfer": RISK_MODERATE,
+    "minecraft clan rename": RISK_MODERATE,
+    "minecraft clan color": RISK_MODERATE,
+    "minecraft clan disband": RISK_MODERATE,
+    "minecraft clan leave": RISK_MODERATE,
+    "mcadmin setup": RISK_CONFIGURATION,
+    "mcadmin log-channel": RISK_CONFIGURATION,
+    "mcadmin chat-channel": RISK_CONFIGURATION,
+    "mcadmin leaderboard": RISK_CONFIGURATION,
 }
 
 # Review-panel controls that change a member's access. Matched against the view or
@@ -295,8 +311,9 @@ _OUTCOME_CODES = {
 
 def _action_title(record: CommandAuditRecord) -> str:
     command = str(record.command).strip()
-    if command.casefold().startswith("minecraft "):
-        return f"Minecraft {command.split(' ', 1)[1].replace('-', ' ').title()}"
+    for prefix in ("minecraft ", "mcstaff ", "mcadmin "):
+        if command.casefold().startswith(prefix):
+            return f"Minecraft {command[len(prefix):].replace('-', ' ').title()}"
     return command.replace("→", "—") or "Minecraft Action"
 
 
