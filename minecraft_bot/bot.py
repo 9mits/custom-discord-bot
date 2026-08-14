@@ -136,6 +136,11 @@ class MinecraftAccessBot(commands.Bot):
         self.add_view(ReviewView())
         self.add_view(application_panel())
         self.add_view(LiveApplicationView())
+        # Without this the leaderboard dropdowns have no handler, so Discord reports
+        # that the bot did not respond in time.
+        from .leaderboard import BoardSelect
+
+        self.add_dynamic_items(BoardSelect)
         await self.bridge.start()
         self.application_maintenance.start()
         self.leaderboard_refresh.start()
