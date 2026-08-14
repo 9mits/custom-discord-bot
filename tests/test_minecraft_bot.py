@@ -2116,23 +2116,9 @@ class MinecraftInformationPanelTests(unittest.TestCase):
     def test_panel_is_titled_information(self):
         self.assertEqual(self.information.overview_embed(0).title, "Information")
 
-    def test_overview_carries_both_connection_addresses(self):
-        # The address is the one thing a new member needs before anything else
-        # on the panel is useful, so it belongs on the front page, copyable.
-        class _Settings:
-            java_address = "play.example.net"
-            bedrock_address = "bedrock.example.net"
-            bedrock_port = 50549
-            application_channel_id = 0
-
-        described = self.embed_text(self.information.overview_embed(_Settings()))
-
-        self.assertIn("```text\nplay.example.net\n```", described)
-        self.assertIn("```text\nbedrock.example.net\n```", described)
-        # The port lives on the versions page only; the front page stays short.
-        self.assertNotIn("50549", described)
-
-    def test_overview_and_versions_page_agree_on_addresses(self):
+    def test_connection_details_live_only_on_the_versions_page(self):
+        # The front page is an overview, not a join guide; addresses and ports
+        # belong behind the Server & Versions button with the rest of the setup.
         class _Settings:
             java_address = "play.example.net"
             bedrock_address = "bedrock.example.net"
@@ -2143,11 +2129,10 @@ class MinecraftInformationPanelTests(unittest.TestCase):
         overview = self.embed_text(self.information.overview_embed(settings))
         versions = self.embed_text(self.information.technical_embed(settings))
 
-        for value in ("play.example.net", "bedrock.example.net"):
+        for value in ("play.example.net", "bedrock.example.net", "50549"):
             with self.subTest(value=value):
-                self.assertIn(value, overview)
+                self.assertNotIn(value, overview)
                 self.assertIn(value, versions)
-        self.assertIn("50549", versions)
 
     def _every_embed(self):
         """Every page and every category within a page, as (name, embed)."""
