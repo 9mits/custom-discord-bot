@@ -1935,22 +1935,25 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
 
         self.assertIn("**1. Do not grief**", description)
 
-    def test_rules_render_as_one_blockquote(self):
-        # A heading followed by its own quote opens a fresh quote block per rule,
-        # and Discord pads each one until the list sprawls off the screen.
+    def test_each_rule_sits_directly_above_its_own_text(self):
+        # Discord margins every line inside a blockquote, which pushed each
+        # heading a full line away from the rule it belongs to.
         from minecraft_bot.presentation import rules_embed
 
-        rules = [
-            line
-            for line in rules_embed().description.splitlines()
-            if line.strip() and line.lstrip(">").strip().startswith("**")
-            and line.lstrip(">").strip()[2].isdigit()
+        lines = rules_embed().description.splitlines()
+        headings = [
+            index
+            for index, line in enumerate(lines)
+            if line.startswith("**") and line[2].isdigit()
         ]
 
-        self.assertEqual(len(rules), 7)
-        for line in rules:
-            with self.subTest(rule=line[:24]):
-                self.assertTrue(line.startswith("> "), f"{line[:30]!r} breaks the quote")
+        self.assertEqual(len(headings), 12)
+        for index in headings:
+            with self.subTest(rule=lines[index]):
+                self.assertFalse(lines[index].startswith(">"), "quoting adds margins")
+                body = lines[index + 1]
+                self.assertTrue(body.strip(), "heading is stranded above a blank line")
+                self.assertFalse(body.startswith("**"), "two headings in a row")
 
     def test_rules_state_a_consequence(self):
         # Rules with no stated consequence read as suggestions.
