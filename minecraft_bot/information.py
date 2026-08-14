@@ -1,4 +1,10 @@
-"""The server information panel: one message, one embed, buttons for each topic."""
+"""The server information panel: one message, one embed, buttons for each topic.
+
+Pages listed in :data:`PAGES` are the top-level buttons. A page may also declare
+categories in :data:`SECTIONS`; those render as a second row of buttons on the
+page's own (ephemeral) message, so a long command list never arrives as one wall
+of text. Nothing here documents staff commands — the panel is read by members.
+"""
 
 from __future__ import annotations
 
@@ -36,7 +42,7 @@ TELEPORT_WARMUP_SECONDS = 5
 
 def _role_mentions() -> str:
     return "\n".join(
-        f"<@&{role_id}> — level {level}" for role_id, level in LEVEL_ROLE_MILESTONES
+        f"> <@&{role_id}> — level {level}" for role_id, level in LEVEL_ROLE_MILESTONES
     )
 
 
@@ -82,21 +88,21 @@ def overview_embed(settings=None) -> discord.Embed:
         [
             (
                 "The server",
-                "A survival world shared by Java and Bedrock players. PvP is enabled, "
-                "so raiding and rivalry are permitted; every block placed or broken is "
-                "logged, so griefing can be reverted and staff can intervene.",
+                "> A survival world shared by Java and Bedrock players.\n"
+                "> PvP is enabled, so raiding and rivalry are permitted.\n"
+                "> Every block placed or broken is logged, so griefing can be "
+                "reverted.",
             ),
             (
                 "Client versions",
-                f"The server runs **{SERVER_VERSION}**. Java clients from "
-                f"**{JAVA_SUPPORTED_RANGE}** are translated automatically; releases "
-                "newer than that are refused. Bedrock players join on the current "
-                "release from any device.",
+                f"> **Java** — {JAVA_SUPPORTED_RANGE}, translated automatically.\n"
+                f"> Releases newer than **{SERVER_VERSION}** are refused.\n"
+                "> **Bedrock** — the current release, from any device.",
             ),
             (
                 "Getting started",
-                f"Open **Commands** for the full command list. Set a home with "
-                f"`/sethome` as soon as you find your spot — you get "
+                "> Open **Commands** for everything you can type.\n"
+                f"> Run `/sethome` once you find your spot — you get "
                 f"**{DEFAULT_HOME_LIMIT}**.",
             ),
         ],
@@ -108,68 +114,168 @@ def overview_embed(settings=None) -> discord.Embed:
 def commands_embed() -> discord.Embed:
     return _page(
         "Commands",
-        "Every command available to players, grouped by purpose. Arguments in "
-        "`<>` are required; those in `[]` are optional.",
+        "Everything available to you in game. Choose a category below for the "
+        "full list.",
         [
             (
-                "Homes and travel",
-                f"`/sethome [name]` — save your location; **{DEFAULT_HOME_LIMIT}** "
-                "homes are included\n"
-                "`/home [name]` — return to a saved home\n"
-                "`/delhome <name>` · `/renamehome <old> <new>` — manage your homes\n"
-                "`/back` — return to your previous location\n"
-                "`/warp [name]` — list staff-created warps, or travel to one",
+                "Most used",
+                "> `/sethome` — save your current location\n"
+                "> `/home` — return to it\n"
+                "> `/tpa <player>` — ask to teleport to someone\n"
+                "> `/msg <player> <message>` — send a private message",
             ),
             (
-                "Teleport requests",
-                "`/tpa <player>` — ask to teleport to someone\n"
-                "`/tpahere <player>` — ask someone to teleport to you\n"
-                "`/tpaccept` · `/tpdeny` — answer a pending request\n"
-                "`/tpacancel` — withdraw your request\n"
-                "`/tptoggle` — stop receiving requests entirely\n\n"
-                f"Teleports wait **{TELEPORT_WARMUP_SECONDS} seconds** and cancel if "
-                f"you move or take damage, with **{TELEPORT_COOLDOWN_SECONDS} "
-                "seconds** between uses.",
+                "Categories",
+                "> **Homes & Travel** — saving and returning to locations\n"
+                "> **Teleports** — requests between players\n"
+                "> **Communication** — messages, mail and chat\n"
+                "> **Clans** — founding and running a clan\n"
+                "> **Account** — your perks, preferences and server details",
+            ),
+        ],
+    )
+
+
+def commands_homes_embed(settings=None) -> discord.Embed:
+    return _page(
+        "Commands — Homes & Travel",
+        "Saving locations and moving between them.",
+        [
+            (
+                "Homes",
+                "> `/sethome [name]` — save your current location\n"
+                "> `/home [name]` — travel to a saved home\n"
+                "> `/delhome <name>` — remove one\n"
+                "> `/renamehome <old> <new>` — rename one",
             ),
             (
-                "Communication",
-                "`/msg <player> <message>` — send a private message\n"
-                "`/r <message>` — reply to the last message received\n"
-                "`/mail send <player> <message>` · `/mail read` — message offline players\n"
-                "`/ignore <player>` — mute someone privately\n"
-                "`/afk [reason]` — mark yourself away\n"
-                "`/me <action>` — emote in chat\n"
-                "`/helpop <message>` — contact online staff",
+                "Travel",
+                "> `/back` — return to your previous location\n"
+                "> `/warp [name]` — list available warps, or travel to one",
             ),
             (
-                "Clans",
-                "`/clans` — create, invite, chat and manage\n"
-                "`/claninfo [name]` — inspect any clan\n\n"
-                "Open the **Clans** section for the full breakdown.",
+                "Worth knowing",
+                f"> You may keep **{DEFAULT_HOME_LIMIT} homes**.\n"
+                f"> Travel pauses **{TELEPORT_WARMUP_SECONDS} seconds** before it "
+                "completes, and cancels if you move or take damage.",
+            ),
+        ],
+    )
+
+
+def commands_teleports_embed(settings=None) -> discord.Embed:
+    return _page(
+        "Commands — Teleports",
+        "Teleporting to other players is by request; both sides must agree.",
+        [
+            (
+                "Sending a request",
+                "> `/tpa <player>` — ask to teleport to them\n"
+                "> `/tpahere <player>` — ask them to teleport to you\n"
+                "> `/tpacancel` — withdraw your request",
             ),
             (
-                "Your account and preferences",
-                "`/perks` — your level rewards and bonuses\n"
-                "`/settings` — what you see: clan tags, Discord chat, Discord names\n"
-                "`/discordnames` — whether others see your Discord name\n"
-                "`/playtime` — time spent on the server\n"
-                "`/guide` — the in-game guide",
+                "Answering a request",
+                "> `/tpaccept` — accept\n"
+                "> `/tpdeny` — decline\n"
+                "> `/tptoggle` — stop receiving requests entirely",
             ),
             (
-                "Server information",
-                "`/list` — who is online\n"
-                "`/ping` — your connection latency\n"
-                "`/whitelisted [page]` — everyone with access\n"
-                "`/realname <name>` — look up a display name\n"
-                "`/rules` · `/motd` — server rules and welcome text\n"
-                "`/discord` — the community invite",
+                "Timing",
+                f"> Teleports wait **{TELEPORT_WARMUP_SECONDS} seconds** and cancel "
+                "if you move or take damage.\n"
+                f"> There are **{TELEPORT_COOLDOWN_SECONDS} seconds** between uses.",
+            ),
+        ],
+    )
+
+
+def commands_chat_embed(settings=None) -> discord.Embed:
+    return _page(
+        "Commands — Communication",
+        "Talking to players in game, whether or not they are online.",
+        [
+            (
+                "Private messages",
+                "> `/msg <player> <message>` — send a private message\n"
+                "> `/r <message>` — reply to the last message received\n"
+                "> `/msgtoggle` — stop receiving private messages\n"
+                "> `/ignore <player>` — mute someone privately",
+            ),
+            (
+                "Offline and public",
+                "> `/mail send <player> <message>` — message an offline player\n"
+                "> `/mail read` — read your mail\n"
+                "> `/me <action>` — emote in chat\n"
+                "> `/afk [reason]` — mark yourself away",
+            ),
+            (
+                "Needing help",
+                "> `/helpop <message>` — reach whoever is on duty.\n"
+                "> Use it for rule breaking or anything that needs intervention.",
+            ),
+        ],
+    )
+
+
+def commands_clans_embed(settings=None) -> discord.Embed:
+    return _page(
+        "Commands — Clans",
+        "Founding, joining and running a clan. Open the **Clans** section for how "
+        "they behave.",
+        [
+            (
+                "Everyday",
+                "> `/clans create <name>` — found a clan and lead it\n"
+                "> `/clans invite <player>` — invite a player\n"
+                "> `/clans chat` — speak to your clan only\n"
+                "> `/clans list` — every clan on the server\n"
+                "> `/clans leave` — depart your clan",
+            ),
+            (
+                "If you lead one",
+                "> `/clans promote` · `/clans demote` — manage clan staff\n"
+                "> `/clans rename` · `/clans color` — change name or colour\n"
+                "> `/clans transfer <player>` — hand over leadership\n"
+                "> `/clans kick <player>` — remove a member\n"
+                "> `/clans disband` — dissolve the clan",
+            ),
+            (
+                "Inspecting",
+                "> `/claninfo [name]` — a clan's leader, staff and members\n"
+                "> `/clans help` — only what your role currently permits",
+            ),
+        ],
+    )
+
+
+def commands_account_embed(settings=None) -> discord.Embed:
+    return _page(
+        "Commands — Account",
+        "Your perks and preferences, plus details about the server.",
+        [
+            (
+                "Your account",
+                "> `/perks` — your level rewards and bonuses\n"
+                "> `/settings` — clan tags, Discord chat and Discord names\n"
+                "> `/discordnames` — whether others see your Discord name\n"
+                "> `/playtime` — time spent on the server",
+            ),
+            (
+                "The server",
+                "> `/list` — who is online\n"
+                "> `/ping` — your connection latency\n"
+                "> `/whitelisted [page]` — everyone with access\n"
+                "> `/realname <name>` — look up a display name\n"
+                "> `/rules` · `/motd` — rules and welcome text\n"
+                "> `/guide` — the in-game guide\n"
+                "> `/discord` — the community invite",
             ),
             (
                 "In Discord",
-                "`/minecraft account` — your application and linked account\n"
-                "`/minecraft whitelist` — everyone with access\n"
-                "`/minecraft clan view` — your clan and permitted actions\n"
-                "`/mcstaff …` — staff only; moderate without opening the game",
+                "> `/minecraft account` — your application and linked account\n"
+                "> `/minecraft whitelist` — everyone with access\n"
+                "> `/minecraft clan view` — your clan and permitted actions",
             ),
         ],
     )
@@ -183,31 +289,19 @@ def clans_embed() -> discord.Embed:
         [
             (
                 "How clans behave",
-                "- Members cannot damage one another. This is permanent and cannot "
-                "be disabled.\n"
-                "- The clan name serves as the tag; there is no separate tag to set.\n"
-                "- Each clan has one leader, any number of staff, and its members.",
+                "> Members cannot damage one another. This is permanent.\n"
+                "> The clan name serves as the tag; there is no separate one.\n"
+                "> Each clan has one leader, any number of staff, and its members.",
             ),
             (
-                "Member commands",
-                "`/clans create <name>` — found a clan and lead it\n"
-                "`/clans invite <player>` — invite a player\n"
-                "`/clans chat` — speak to your clan only\n"
-                "`/clans list` — every clan on the server\n"
-                "`/clans leave` — depart your clan",
+                "Joining one",
+                "> Clans are invitation only — a leader or clan staff must invite "
+                "you.\n"
+                "> `/clans list` shows every clan currently on the server.",
             ),
             (
-                "Leader and staff commands",
-                "`/clans promote` · `/clans demote` — manage clan staff\n"
-                "`/clans rename` · `/clans color` — change name or colour\n"
-                "`/clans transfer <player>` — hand over leadership\n"
-                "`/clans kick <player>` — remove a member\n"
-                "`/clans disband` — dissolve the clan",
-            ),
-            (
-                "Inspecting clans",
-                "`/claninfo [name]` lists a clan's leader, staff and members.\n\n"
-                "*`/clans help` shows only what your role currently permits.*",
+                "Commands",
+                "> The full command list lives under **Commands → Clans**.",
             ),
         ],
     )
@@ -221,21 +315,21 @@ def levels_embed() -> discord.Embed:
         [
             (
                 "Earning levels",
-                "Levels accrue from participation: chatting in text channels and "
-                "speaking in voice channels.\n\n"
-                f"Full detail: {LEVELS_CHANNEL_URL}",
+                "> Levels accrue from participation: chatting in text channels and "
+                "speaking in voice channels.\n"
+                f"> Full detail: {LEVELS_CHANNEL_URL}",
             ),
             ("Milestone roles", _role_mentions()),
             (
                 "Rewards",
-                "Each milestone below 50 grants **one additional heart**, to a "
-                "maximum of **five**.\n\n"
-                "**Level 50** replaces the sixth heart with **+15% damage**.",
+                "> Each milestone below 50 grants **one additional heart**, to a "
+                "maximum of **five**.\n"
+                "> **Level 50** replaces the sixth heart with **+15% damage**.",
             ),
             (
                 "Reviewing your perks",
-                "Your level, hearts and damage bonus appear on the sidebar. `/perks` "
-                "displays them at any time.",
+                "> Your level, hearts and damage bonus appear on the sidebar.\n"
+                "> `/perks` displays them at any time.",
             ),
         ],
     )
@@ -248,16 +342,16 @@ def boosting_embed() -> discord.Embed:
         [
             (
                 "While boosting",
-                "- **+10% damage**\n"
-                "- **+1 heart**, in addition to your level rewards\n"
-                "- **Hunger drains 10% more slowly**",
+                "> **+10% damage**\n"
+                "> **+1 heart**, in addition to your level rewards\n"
+                "> **Hunger drains 10% more slowly**",
             ),
             (
                 "Stacking with levels",
-                "A level 50 player who also boosts receives **+25% damage** and "
-                "**six additional hearts**.\n\n"
-                "Ending a boost removes these bonuses only. Rank, clan and progress "
-                "are unaffected.",
+                "> A level 50 player who also boosts receives **+25% damage** and "
+                "**six additional hearts**.\n"
+                "> Ending a boost removes these bonuses only. Rank, clan and "
+                "progress are unaffected.",
             ),
         ],
     )
@@ -271,34 +365,33 @@ def mods_embed() -> discord.Embed:
         [
             (
                 "Voice chat",
-                f"The server supports {mod_link('Simple Voice Chat')} for proximity "
-                "voice between nearby players.\n\n"
-                "Install the build matching your Minecraft version; the download page "
-                "lists each one.",
+                f"> {mod_link('Simple Voice Chat')} carries proximity voice between "
+                "nearby players.\n"
+                "> Install the build matching your Minecraft version.",
             ),
             (
                 "Permitted on Java",
-                f"**Performance** — {mod_link('Sodium')}, {mod_link('Lithium')}, "
+                f"> **Performance** — {mod_link('Sodium')}, {mod_link('Lithium')}, "
                 f"{mod_link('OptiFine')}\n"
-                f"**Shaders** — {mod_link('Iris Shaders')}\n"
-                f"**Mapping** — {xaeros_link} or {mod_link('JourneyMap')}, with cave "
-                "mapping and player radar disabled\n"
-                f"**Building** — {mod_link('Litematica')}, including its printer\n"
-                f"**Quality of life** — {mod_link('AppleSkin')} and similar\n\n"
+                f"> **Shaders** — {mod_link('Iris Shaders')}\n"
+                f"> **Mapping** — {xaeros_link} or {mod_link('JourneyMap')}, with "
+                "cave mapping and player radar disabled\n"
+                f"> **Building** — {mod_link('Litematica')}, including its printer\n"
+                f"> **Quality of life** — {mod_link('AppleSkin')} and similar\n\n"
                 f"*Most require the {mod_link('Fabric')} loader.*",
             ),
             (
                 "Prohibited on every edition",
-                "X-ray, freecam, baritone, tracers, kill aura, reach modification, "
-                "and anything else revealing information you could not observe "
-                "yourself. The server runs an anticheat and logs all block activity.",
+                "> X-ray, freecam, baritone, tracers, kill aura, reach modification, "
+                "and anything else revealing what you could not observe yourself.\n"
+                "> The server runs an anticheat and logs all block activity.",
             ),
             (
                 "Bedrock",
-                "Bedrock does not support client mods, so voice chat, minimaps and "
-                "performance mods are unavailable. Marketplace texture packs are "
-                "permitted, being purely cosmetic.\n\n"
-                "For voice, use a Discord voice channel.",
+                "> Client mods are unavailable, so voice chat, minimaps and "
+                "performance mods do not apply.\n"
+                "> Marketplace texture packs are permitted, being purely cosmetic.\n"
+                "> For voice, use a Discord voice channel.",
             ),
         ],
     )
@@ -314,24 +407,25 @@ def technical_embed(settings=None) -> discord.Embed:
         [
             (
                 "Software",
-                f"**[Paper](https://papermc.io)** {SERVER_VERSION}, with "
-                "**[Geyser](https://geysermc.org)** providing Bedrock access and "
-                "**[ViaVersion](https://modrinth.com/plugin/viaversion)** with "
-                "ViaBackwards translating older Java clients.\n\n"
-                "All run server-side; none require installation.",
+                f"> **[Paper](https://papermc.io)** {SERVER_VERSION}\n"
+                "> **[Geyser](https://geysermc.org)** provides Bedrock access\n"
+                "> **[ViaVersion](https://modrinth.com/plugin/viaversion)** with "
+                "ViaBackwards translates older Java clients\n\n"
+                "*All run server-side; none require installation.*",
             ),
             (
                 "Java Edition",
-                f"Supported versions are **{JAVA_SUPPORTED_RANGE}**. Newer releases "
-                f"are refused, so if your launcher has moved past {SERVER_VERSION}, "
-                f"create a **{SERVER_VERSION}** entry under **Installations**.\n\n"
+                f"> Supported versions are **{JAVA_SUPPORTED_RANGE}**.\n"
+                f"> Newer releases are refused — if your launcher has moved past "
+                f"{SERVER_VERSION}, create a **{SERVER_VERSION}** entry under "
+                "**Installations**.\n\n"
                 "Add the server under **Multiplayer → Add Server**:\n"
                 f"```text\n{java_address}\n```",
             ),
             (
                 "Bedrock Edition",
-                "Join on the current release from phone, console, tablet or Windows "
-                "by adding an external server with both values below.\n\n"
+                "> Join on the current release from phone, console, tablet or "
+                "Windows by adding an external server.\n\n"
                 "**Address**\n"
                 f"```text\n{bedrock_address}\n```\n"
                 "**Port**\n"
@@ -348,36 +442,34 @@ def troubleshooting_embed(settings=None) -> discord.Embed:
         [
             (
                 "Expired applications",
-                "An application expires when a step is not completed in time — either "
-                "the account was never verified in game, or the written form was not "
-                "submitted afterwards.\n\n"
-                f"Nothing is lost. Press **Apply** again in {_apply_here(settings)}, "
-                "or check the current state with `/minecraft account`.",
+                "> An application expires when a step is not completed in time.\n"
+                f"> Nothing is lost — press **Apply** again in {_apply_here(settings)}, "
+                "or check `/minecraft account`.",
             ),
             (
                 "Disconnected on first join",
-                "This is intended. The first connection verifies account ownership "
+                "> This is intended. The first connection verifies account ownership "
                 "only and never grants world access.",
             ),
             (
                 "Verified but no form submitted",
-                "Use the **Continue Application** button in your direct messages, or "
-                f"press **Apply** in {_apply_here(settings)} to resume where you "
-                "stopped.",
+                "> Use **Continue Application** in your direct messages, or press "
+                f"**Apply** in {_apply_here(settings)} to resume where you stopped.",
             ),
             (
                 "Incorrect username submitted",
-                "Press **Apply** again to reveal **Cancel Pending Verification**, or "
-                "run `/minecraft cancel`, then reapply with the correct name.",
+                "> Press **Apply** again to reveal **Cancel Pending Verification**, "
+                "or run `/minecraft cancel`, then reapply with the correct name.",
             ),
             (
                 "No direct message received",
-                "Enable direct messages from server members, then check "
-                "`/minecraft account`. Undelivered messages are retried automatically.",
+                "> Enable direct messages from server members, then check "
+                "`/minecraft account`.\n"
+                "> Undelivered messages are retried automatically.",
             ),
             (
                 "Playing on both editions",
-                "Permitted. Each account applies separately, as each is verified "
+                "> Permitted. Each account applies separately, as each is verified "
                 "independently.",
             ),
         ],
@@ -392,6 +484,18 @@ PAGES: dict[str, tuple[str, Callable[[Optional[object]], discord.Embed]]] = {
     "mods": ("Mods & Voice Chat", lambda _settings: mods_embed()),
     "versions": ("Server & Versions", technical_embed),
     "help": ("Troubleshooting", troubleshooting_embed),
+}
+
+#: Categories shown as a second row of buttons on a page's own message. Keeping
+#: each category to one screenful is the whole point, so resist growing them.
+SECTIONS: dict[str, dict[str, tuple[str, Callable[[Optional[object]], discord.Embed]]]] = {
+    "commands": {
+        "homes": ("Homes & Travel", commands_homes_embed),
+        "teleports": ("Teleports", commands_teleports_embed),
+        "chat": ("Communication", commands_chat_embed),
+        "clans": ("Clans", commands_clans_embed),
+        "account": ("Account", commands_account_embed),
+    },
 }
 
 
@@ -429,7 +533,59 @@ class InformationButton(
             )
             return
         settings = getattr(interaction.client, "settings", None)
-        await interaction.response.send_message(embed=page[1](settings), ephemeral=True)
+        payload: dict[str, object] = {"embed": page[1](settings), "ephemeral": True}
+        if self.page in SECTIONS:
+            payload["view"] = SectionView(self.page)
+        await interaction.response.send_message(**payload)
+
+
+class SectionButton(
+    discord.ui.DynamicItem[discord.ui.Button],
+    template=r"mgx_sec:(?P<page>\w+):(?P<section>\w+)",
+):
+    """A category within one page.
+
+    Edits the member's own ephemeral message rather than sending another, so
+    switching categories never buries the panel under a stack of replies.
+    """
+
+    def __init__(
+        self, page: str, section: str, *, item: Optional[discord.ui.Button] = None
+    ) -> None:
+        self.page = page
+        self.section = section
+        entry = SECTIONS.get(page, {}).get(section)
+        super().__init__(
+            item
+            or discord.ui.Button(
+                label=entry[0] if entry else section.title(),
+                style=discord.ButtonStyle.secondary,
+                custom_id=f"mgx_sec:{page}:{section}",
+            )
+        )
+
+    @classmethod
+    async def from_custom_id(cls, interaction, item, match):  # type: ignore[override]
+        return cls(match["page"], match["section"], item=item)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        entry = SECTIONS.get(self.page, {}).get(self.section)
+        if entry is None:
+            await interaction.response.send_message(
+                "That category no longer exists.", ephemeral=True
+            )
+            return
+        settings = getattr(interaction.client, "settings", None)
+        await interaction.response.edit_message(
+            embed=entry[1](settings), view=SectionView(self.page)
+        )
+
+
+class SectionView(discord.ui.View):
+    def __init__(self, page: str) -> None:
+        super().__init__(timeout=None)
+        for section in SECTIONS.get(page, {}):
+            self.add_item(SectionButton(page, section))
 
 
 class InformationView(discord.ui.View):
