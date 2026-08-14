@@ -89,20 +89,50 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertLessEqual(len(limiter._entries), 2)
 
     def test_staff_commands_have_moderator_default_permissions(self):
-        group = self.bot._build_command_group()
-        commands = {command.name: command for command in group.commands}
+        member_group, staff_group, admin_group = self.bot._build_command_groups()
 
-        for name in ("panel", "status", "lookup", "revoke", "unlink", "retry", "applications", "audit"):
-            self.assertTrue(commands[name].default_permissions.manage_messages, name)
-        self.assertNotIn("whois", commands)
-        lookup_parameters = {parameter.name: parameter for parameter in commands["lookup"].parameters}
+        # Discord only honours default permissions on top-level commands, so the
+        # gate has to sit on the groups themselves.
+        self.assertIsNone(member_group.default_permissions)
+        self.assertTrue(staff_group.default_permissions.manage_messages)
+        self.assertTrue(admin_group.default_permissions.administrator)
+
+        member_commands = {command.name: command for command in member_group.commands}
+        staff_commands = {command.name: command for command in staff_group.commands}
+        admin_commands = {command.name: command for command in admin_group.commands}
+
+        for name in ("account", "server", "help", "cancel", "clan"):
+            self.assertIn(name, member_commands)
+        for name in (
+            "panel", "status", "lookup", "revoke", "unlink", "retry", "applications",
+            "audit", "cancel", "stats", "commandlog", "tools",
+            "kick", "mute", "ban", "tempban", "unban", "heal", "broadcast",
+        ):
+            self.assertIn(name, staff_commands)
+        for name in (
+            "setup", "information", "leaderboard", "log-channel", "chat-channel", "cleanheads",
+        ):
+            self.assertIn(name, admin_commands)
+        self.assertNotIn("whois", staff_commands)
+        self.assertNotIn("moderate", staff_commands)
+
+        clan_commands = {command.name for command in member_commands["clan"].commands}
+        self.assertLessEqual(
+            {"view", "invite", "kick", "promote", "demote", "transfer",
+             "rename", "color", "disband", "leave"},
+            clan_commands,
+        )
+
+        lookup_parameters = {parameter.name: parameter for parameter in staff_commands["lookup"].parameters}
         self.assertEqual(set(lookup_parameters), {"user", "username"})
         self.assertFalse(lookup_parameters["user"].required)
         self.assertFalse(lookup_parameters["username"].required)
-        self.assertTrue(commands["setup"].default_permissions.administrator)
-        self.assertTrue(commands["log-channel"].default_permissions.administrator)
-        self.assertTrue(commands["chat-channel"].default_permissions.administrator)
-        self.assertIsNone(commands["cancel"].default_permissions)
+
+        tempban_parameters = {parameter.name: parameter for parameter in staff_commands["tempban"].parameters}
+        self.assertTrue(tempban_parameters["duration"].required)
+        self.assertFalse(tempban_parameters["reason"].required)
+        broadcast_parameters = {parameter.name for parameter in staff_commands["broadcast"].parameters}
+        self.assertEqual(broadcast_parameters, {"message"})
 
     def test_application_and_review_components_are_persistent(self):
         panel = application_panel()

@@ -309,6 +309,10 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                                 : safeError(cause);
                         recordAndSend(key, new ProcessedActionStore.Result(false, message));
                     });
+        } catch (StaffActionException exception) {
+            // A refusal thrown before dispatch is a real answer for the requester, not
+            // an internal failure — relay it without the exception class name.
+            recordAndSend(key, new ProcessedActionStore.Result(false, exception.getMessage()));
         } catch (RuntimeException exception) {
             recordAndSend(key, new ProcessedActionStore.Result(false, safeError(exception)));
         }
@@ -621,6 +625,9 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         JsonObject payload = new JsonObject();
         payload.addProperty("action_idempotency_key", actionKey);
         payload.addProperty("success", result.success());
+        // Success outcomes carry text too ("Ran on the server: ..."). Older bots only
+        // read "error", so failures keep that field alongside the newer "message".
+        payload.addProperty("message", result.error());
         if (!result.success()) {
             payload.addProperty("error", result.error());
         }

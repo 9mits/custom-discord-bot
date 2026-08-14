@@ -144,11 +144,11 @@ def commands_embed() -> discord.Embed:
         "> `/discord` — the community invite\n\n"
         "**In Discord**\n"
         "> `/minecraft account` — your application and linked account\n"
-        "> `/minecraft clan` — your clan and the actions your role allows\n"
-        "> `/minecraft staff` — the staff tools your permissions grant\n"
-        "> `/minecraft moderate` — staff only; kick, mute, ban and more, without "
+        "> `/minecraft clan view` — your clan and the actions your role allows\n"
+        "> `/mcstaff tools` — staff only; the staff tools your permissions grant\n"
+        "> `/mcstaff kick`, `/mcstaff ban` and more — staff only; moderate without "
         "opening the game\n"
-        "> `/minecraft broadcast` — staff only; announce a message in game\n\n"
+        "> `/mcstaff broadcast` — staff only; announce a message in game\n\n"
         "Settings only affect your own screen. Hiding clan tags hides them for you; "
         "everyone else still sees them.",
     )

@@ -326,8 +326,13 @@ class MinecraftBridgeServer:
             pending = self._pending_results.pop(action_key, None)
             if pending is not None:
                 if not pending.done():
+                    # Newer plugins send the outcome text as "message" for successes and
+                    # failures alike; older ones only set "error" on failure.
                     pending.set_result(
-                        (bool(payload.get("success")), str(payload.get("error", "")))
+                        (
+                            bool(payload.get("success")),
+                            str(payload.get("message") or payload.get("error") or ""),
+                        )
                     )
                 self._sent_this_connection.pop(action_key, None)
                 return
@@ -338,7 +343,7 @@ class MinecraftBridgeServer:
             else:
                 record = await self.data.mark_outbox_failed(
                     action_key,
-                    str(payload.get("error", "Paper rejected the action")),
+                    str(payload.get("message") or payload.get("error") or "Paper rejected the action"),
                 )
                 if record is not None:
                     await self.action_result_handler(record, None)

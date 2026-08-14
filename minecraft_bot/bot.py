@@ -19,7 +19,6 @@ from .audit import (
     record_denial,
 )
 from .bridge import MinecraftBridgeServer
-from .capabilities import CLAN_ACTIONS, REMOTE_STAFF_TOOLS, STAFF_TOOL_LABELS
 from .config import MinecraftConfig
 from .data import MinecraftDataManager
 from .models import ApplicationStatus, BridgeAction, Edition, InvalidTransition, MinecraftApplication, OutboxRecord
@@ -126,8 +125,10 @@ class MinecraftAccessBot(commands.Bot):
         self._last_command_log_prune = 0.0
         self._chat_webhooks: dict[int, discord.Webhook] = {}
         self.tree.on_error = self.on_tree_error
-        self._minecraft_group = self._build_command_group()
-        self.tree.add_command(self._minecraft_group, guild=discord.Object(id=config.guild_id))
+        self._command_groups = self._build_command_groups()
+        guild_object = discord.Object(id=config.guild_id)
+        for command_group in self._command_groups:
+            self.tree.add_command(command_group, guild=guild_object)
 
     async def setup_hook(self) -> None:
         install_component_audit(self)
@@ -1104,9 +1105,14 @@ class MinecraftAccessBot(commands.Bot):
             success, message = await self.bridge.run_clan_action(
                 actor_uuid=uuid, action=action, argument=argument
             )
+            detail = message or (
+                "The Minecraft server accepted the request."
+                if success
+                else "The Minecraft server declined the request without details."
+            )
             return info_embed(
                 "Done" if success else "Refused by the Server",
-                f"> {message}" if message else "> The server did not give a reason.",
+                f"> {detail}",
                 success=success,
                 error=not success,
             )
@@ -1153,7 +1159,7 @@ class MinecraftAccessBot(commands.Bot):
         if needs is None:
             return info_embed(
                 "Not Available",
-                "> That tool cannot be run from Discord. Use `/minecraft staff` to see "
+                "> That tool cannot be run from Discord. Use `/mcstaff tools` to see "
                 "what you hold, and run it in game instead.",
                 error=True,
             )
@@ -1180,15 +1186,20 @@ class MinecraftAccessBot(commands.Bot):
                 reason=reason,
                 duration=duration,
             )
+            detail = message or (
+                "The Minecraft server accepted the request."
+                if success
+                else "The Minecraft server declined the request without details."
+            )
             return info_embed(
                 "Done" if success else "Refused by the Server",
-                f"> {message}" if message else "> The server did not give a reason.",
+                f"> {detail}",
                 success=success,
                 error=not success,
             )
         return info_embed(
             "Not Allowed",
-            "> Your account does not hold that permission. Use `/minecraft staff` to "
+            "> Your account does not hold that permission. Use `/mcstaff tools` to "
             "see what you can run.",
             error=True,
         )
@@ -1412,7 +1423,7 @@ class MinecraftAccessBot(commands.Bot):
         embed = info_embed(
             "Minecraft Control",
             "> Live access, application, and bridge status. Use the menu below for read-only tools; "
-            "use `/minecraft lookup` or the focused access commands for member-specific actions.",
+            "use `/mcstaff lookup` or the focused access commands for member-specific actions.",
         )
         embed.add_field(
             name="Service",
@@ -1552,11 +1563,59 @@ class MinecraftAccessBot(commands.Bot):
         )
         return command_log_embed(rows, total=total)
 
-    def _build_command_group(self) -> app_commands.Group:
-        group = app_commands.Group(name="minecraft", description="Manage Minecraft applications and access.")
+    async def _respond_with_clan_action(
+        self, interaction: discord.Interaction, action: str, argument: str = ""
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+        await interaction.edit_original_response(
+            embed=await self.run_clan_action(interaction.user.id, action, argument)
+        )
 
-        @group.command(name="setup", description="Open the Minecraft application setup dashboard.")
-        @app_commands.default_permissions(administrator=True)
+    async def _respond_with_staff_tool(
+        self,
+        interaction: discord.Interaction,
+        tool: str,
+        *,
+        target: str = "",
+        reason: str = "",
+        duration: str = "",
+    ) -> None:
+        # Gate one: the Discord-side moderator role. Gate two, inside
+        # run_staff_action, is the linked account's real LuckPerms permission —
+        # both have to hold for anything to run.
+        if not await self.require_moderator(interaction):
+            return
+        await interaction.response.defer(ephemeral=True)
+        await interaction.edit_original_response(
+            embed=await self.run_staff_action(
+                interaction.user.id, tool, target=target, reason=reason, duration=duration
+            )
+        )
+
+    def _build_command_groups(self) -> tuple[app_commands.Group, ...]:
+        """Builds the member, staff, and admin command groups, split by audience.
+
+        Discord only honours default_member_permissions on top-level commands —
+        on a subcommand it is silently ignored — so staff and admin commands
+        must live in their own top-level groups to stay hidden from members
+        who cannot run them.
+        """
+        group = app_commands.Group(
+            name="minecraft",
+            description="Minecraft applications, accounts, and clans.",
+        )
+        staff_group = app_commands.Group(
+            name="mcstaff",
+            description="Minecraft staff tools and records.",
+            default_permissions=discord.Permissions(manage_messages=True),
+        )
+        admin_group = app_commands.Group(
+            name="mcadmin",
+            description="Minecraft bot administration.",
+            default_permissions=discord.Permissions(administrator=True),
+        )
+
+        @admin_group.command(name="setup", description="Open the Minecraft application setup dashboard.")
         async def setup(interaction: discord.Interaction) -> None:
             if not await self.require_administrator(interaction):
                 return
@@ -1567,8 +1626,7 @@ class MinecraftAccessBot(commands.Bot):
                 ephemeral=True,
             )
 
-        @group.command(name="panel", description="Open the Minecraft moderator control panel.")
-        @app_commands.default_permissions(manage_messages=True)
+        @staff_group.command(name="panel", description="Open the Minecraft moderator control panel.")
         async def panel(interaction: discord.Interaction) -> None:
             if not await self.require_moderator(interaction):
                 return
@@ -1578,12 +1636,11 @@ class MinecraftAccessBot(commands.Bot):
                 view=self.control_view(interaction),
             )
 
-        @group.command(
+        @admin_group.command(
             name="leaderboard",
             description="Choose the channel that holds the permanent leaderboard message.",
         )
         @app_commands.describe(channel="Where the self-updating leaderboard should live.")
-        @app_commands.default_permissions(administrator=True)
         async def leaderboard(
             interaction: discord.Interaction, channel: discord.TextChannel
         ) -> None:
@@ -1606,119 +1663,161 @@ class MinecraftAccessBot(commands.Bot):
                 )
             )
 
-        @group.command(
+        clan_group = app_commands.Group(
             name="clan",
             description="Your clan, and the actions your role allows.",
+            parent=group,
         )
-        @app_commands.describe(
-            action="Leave blank to see your clan and what you can do.",
-            player="The clan member to act on, for kick, promote, demote or transfer.",
-            value="The new name or colour, for rename or color.",
-        )
-        @app_commands.choices(
-            action=[
-                app_commands.Choice(name=label, value=key)
-                for key, (label, _roles) in CLAN_ACTIONS.items()
-            ]
-        )
-        async def clan(
-            interaction: discord.Interaction,
-            action: Optional[app_commands.Choice[str]] = None,
-            player: Optional[str] = None,
-            value: Optional[str] = None,
-        ) -> None:
+
+        @clan_group.command(name="view", description="Your clan, its members, and what you can do.")
+        async def clan_view(interaction: discord.Interaction) -> None:
             await interaction.response.defer(ephemeral=True)
-            if action is None:
-                await interaction.edit_original_response(
-                    embed=await self.build_capability_embed(interaction.user.id, staff=False)
-                )
-                return
             await interaction.edit_original_response(
-                embed=await self.run_clan_action(
-                    interaction.user.id,
-                    action.value,
-                    player or value or "",
-                )
+                embed=await self.build_capability_embed(interaction.user.id, staff=False)
             )
 
-        @group.command(
-            name="staff",
+        @clan_group.command(name="invite", description="Invite a player to your clan.")
+        @app_commands.describe(player="The player to invite.")
+        async def clan_invite(interaction: discord.Interaction, player: str) -> None:
+            await self._respond_with_clan_action(interaction, "invite", player)
+
+        @clan_group.command(name="kick", description="Remove a member from your clan.")
+        @app_commands.describe(player="The clan member to remove.")
+        async def clan_kick(interaction: discord.Interaction, player: str) -> None:
+            await self._respond_with_clan_action(interaction, "kick", player)
+
+        @clan_group.command(name="promote", description="Promote a clan member to clan staff.")
+        @app_commands.describe(player="The clan member to promote.")
+        async def clan_promote(interaction: discord.Interaction, player: str) -> None:
+            await self._respond_with_clan_action(interaction, "promote", player)
+
+        @clan_group.command(name="demote", description="Demote a clan staff member.")
+        @app_commands.describe(player="The clan staff member to demote.")
+        async def clan_demote(interaction: discord.Interaction, player: str) -> None:
+            await self._respond_with_clan_action(interaction, "demote", player)
+
+        @clan_group.command(name="transfer", description="Transfer clan leadership.")
+        @app_commands.describe(player="The clan member who should lead.")
+        async def clan_transfer(interaction: discord.Interaction, player: str) -> None:
+            await self._respond_with_clan_action(interaction, "transfer", player)
+
+        @clan_group.command(name="rename", description="Rename your clan.")
+        @app_commands.describe(name="The new clan name.")
+        async def clan_rename(
+            interaction: discord.Interaction, name: app_commands.Range[str, 1, 32]
+        ) -> None:
+            await self._respond_with_clan_action(interaction, "rename", name)
+
+        @clan_group.command(name="color", description="Change your clan's colour.")
+        @app_commands.describe(colour="The new clan colour.")
+        async def clan_color(
+            interaction: discord.Interaction, colour: app_commands.Range[str, 1, 32]
+        ) -> None:
+            await self._respond_with_clan_action(interaction, "color", colour)
+
+        @clan_group.command(name="disband", description="Disband your clan.")
+        async def clan_disband(interaction: discord.Interaction) -> None:
+            await self._respond_with_clan_action(interaction, "disband")
+
+        @clan_group.command(name="leave", description="Leave your clan.")
+        async def clan_leave(interaction: discord.Interaction) -> None:
+            await self._respond_with_clan_action(interaction, "leave")
+
+        @staff_group.command(
+            name="tools",
             description="The Minecraft staff tools your permissions allow.",
         )
-        async def staff(interaction: discord.Interaction) -> None:
+        async def staff_tools(interaction: discord.Interaction) -> None:
             await interaction.response.defer(ephemeral=True)
             await interaction.edit_original_response(
                 embed=await self.build_capability_embed(interaction.user.id, staff=True)
             )
 
-        @group.command(
-            name="moderate",
-            description="Run a Minecraft moderation tool from Discord.",
-        )
+        @staff_group.command(name="kick", description="Kick a player from the Minecraft server.")
         @app_commands.describe(
-            tool="Which staff tool to run.",
-            target="The player it applies to.",
-            reason="Shown to the player and logged, where the tool uses one.",
-            duration="How long, for a temporary ban or mute (e.g. 10m, 1d).",
+            player="The player to kick.",
+            reason="Shown to the player and logged.",
         )
-        @app_commands.choices(
-            tool=[
-                app_commands.Choice(name=STAFF_TOOL_LABELS[key], value=key)
-                for key in REMOTE_STAFF_TOOLS
-                # Broadcast has no target and its message rides the "reason" field
-                # under this shared label set, which reads wrong. It gets its own
-                # command below instead of a mislabelled field here.
-                if key != "broadcast"
-            ]
-        )
-        async def moderate(
+        async def staff_kick(
             interaction: discord.Interaction,
-            tool: app_commands.Choice[str],
-            target: Optional[str] = None,
+            player: str,
             reason: Optional[str] = None,
-            duration: Optional[str] = None,
         ) -> None:
-            # Gate one: the Discord-side moderator role. Gate two, inside
-            # run_staff_action, is the linked account's real LuckPerms permission —
-            # both have to hold for anything to run.
-            if not await self.require_moderator(interaction):
-                return
-            await interaction.response.defer(ephemeral=True)
-            await interaction.edit_original_response(
-                embed=await self.run_staff_action(
-                    interaction.user.id,
-                    tool.value,
-                    target=target or "",
-                    reason=reason or "",
-                    duration=duration or "",
-                )
+            await self._respond_with_staff_tool(
+                interaction, "kick", target=player, reason=reason or ""
             )
 
-        @group.command(
+        @staff_group.command(name="mute", description="Mute a player in Minecraft chat.")
+        @app_commands.describe(
+            player="The player to mute.",
+            duration="How long, such as 10m or 1d; leave empty for indefinite.",
+            reason="Shown to the player and logged.",
+        )
+        async def staff_mute(
+            interaction: discord.Interaction,
+            player: str,
+            duration: Optional[str] = None,
+            reason: Optional[str] = None,
+        ) -> None:
+            await self._respond_with_staff_tool(
+                interaction, "mute", target=player, reason=reason or "", duration=duration or ""
+            )
+
+        @staff_group.command(name="ban", description="Ban a player from the Minecraft server.")
+        @app_commands.describe(
+            player="The player to ban.",
+            reason="Shown to the player and logged.",
+        )
+        async def staff_ban(
+            interaction: discord.Interaction,
+            player: str,
+            reason: Optional[str] = None,
+        ) -> None:
+            await self._respond_with_staff_tool(
+                interaction, "ban", target=player, reason=reason or ""
+            )
+
+        @staff_group.command(
+            name="tempban", description="Temporarily ban a player from the Minecraft server."
+        )
+        @app_commands.describe(
+            player="The player to ban.",
+            duration="How long, such as 10m or 1d.",
+            reason="Shown to the player and logged.",
+        )
+        async def staff_tempban(
+            interaction: discord.Interaction,
+            player: str,
+            duration: str,
+            reason: Optional[str] = None,
+        ) -> None:
+            await self._respond_with_staff_tool(
+                interaction, "tempban", target=player, duration=duration, reason=reason or ""
+            )
+
+        @staff_group.command(name="unban", description="Lift a Minecraft ban.")
+        @app_commands.describe(player="The player to unban.")
+        async def staff_unban(interaction: discord.Interaction, player: str) -> None:
+            await self._respond_with_staff_tool(interaction, "unban", target=player)
+
+        @staff_group.command(name="heal", description="Heal a player on the Minecraft server.")
+        @app_commands.describe(player="The player to heal.")
+        async def staff_heal(interaction: discord.Interaction, player: str) -> None:
+            await self._respond_with_staff_tool(interaction, "heal", target=player)
+
+        @staff_group.command(
             name="broadcast",
             description="Announce a message to everyone online, from Discord.",
         )
         @app_commands.describe(message="The message every online player will see.")
-        async def broadcast(interaction: discord.Interaction, message: str) -> None:
-            if not await self.require_moderator(interaction):
-                return
-            await interaction.response.defer(ephemeral=True)
-            await interaction.edit_original_response(
-                embed=await self.run_staff_action(
-                    interaction.user.id,
-                    "broadcast",
-                    target="",
-                    reason=message,
-                    duration="",
-                )
-            )
+        async def staff_broadcast(interaction: discord.Interaction, message: str) -> None:
+            await self._respond_with_staff_tool(interaction, "broadcast", reason=message)
 
-        @group.command(
+        @admin_group.command(
             name="information",
             description="Post the server guide panel in a channel.",
         )
         @app_commands.describe(channel="Where the permanent guide should live.")
-        @app_commands.default_permissions(administrator=True)
         async def information(
             interaction: discord.Interaction, channel: discord.TextChannel
         ) -> None:
@@ -1733,11 +1832,10 @@ class MinecraftAccessBot(commands.Bot):
                 content=f"The server guide is now in {channel.mention}."
             )
 
-        @group.command(
+        @admin_group.command(
             name="cleanheads",
             description="Remove every leaderboard head emoji from this server.",
         )
-        @app_commands.default_permissions(administrator=True)
         async def cleanheads(interaction: discord.Interaction) -> None:
             if not await self.require_administrator(interaction):
                 return
@@ -1766,8 +1864,7 @@ class MinecraftAccessBot(commands.Bot):
                 view=AccountView(interaction.user.id),
             )
 
-        @group.command(name="status", description="Show Minecraft bridge and queue health.")
-        @app_commands.default_permissions(manage_messages=True)
+        @staff_group.command(name="status", description="Show Minecraft bridge and queue health.")
         async def status(interaction: discord.Interaction) -> None:
             if not await self.require_moderator(interaction):
                 return
@@ -1788,8 +1885,7 @@ class MinecraftAccessBot(commands.Bot):
                 view=self.control_view(interaction),
             )
 
-        @group.command(name="lookup", description="Find Minecraft records by Discord member or username.")
-        @app_commands.default_permissions(manage_messages=True)
+        @staff_group.command(name="lookup", description="Find Minecraft records by Discord member or username.")
         @app_commands.describe(
             user="Discord member to look up",
             username="Java username or Bedrock gamertag to search for",
@@ -1816,15 +1912,14 @@ class MinecraftAccessBot(commands.Bot):
                 embed = info_embed(
                     "Minecraft Lookup",
                     "> Select a Discord member below, choose **Username Lookup**, or rerun "
-                    "`/minecraft lookup` with one search field.",
+                    "`/mcstaff lookup` with one search field.",
                 )
             await interaction.edit_original_response(
                 **branded_edit(embed),
                 view=self.control_view(interaction),
             )
 
-        @group.command(name="revoke", description="Remove a member's Minecraft access.")
-        @app_commands.default_permissions(manage_messages=True)
+        @staff_group.command(name="revoke", description="Remove a member's Minecraft access.")
         @app_commands.describe(user="Discord member to revoke", reason="Internal audit reason")
         async def revoke(interaction: discord.Interaction, user: discord.Member, reason: app_commands.Range[str, 1, 500]) -> None:
             if not await self.require_moderator(interaction):
@@ -1859,8 +1954,7 @@ class MinecraftAccessBot(commands.Bot):
                 name="minecraft-revocations",
             )
 
-        @group.command(name="unlink", description="Unlink one Java or Bedrock account from a member.")
-        @app_commands.default_permissions(manage_messages=True)
+        @staff_group.command(name="unlink", description="Unlink one Java or Bedrock account from a member.")
         @app_commands.describe(
             user="Discord member whose account should be unlinked",
             edition="Minecraft edition to unlink",
@@ -1921,8 +2015,7 @@ class MinecraftAccessBot(commands.Bot):
                 name=f"minecraft-unlink:{user.id}",
             )
 
-        @group.command(name="retry", description="Retry failed bridge actions for an application.")
-        @app_commands.default_permissions(manage_messages=True)
+        @staff_group.command(name="retry", description="Retry failed bridge actions for an application.")
         @app_commands.describe(application="Application ID")
         async def retry(interaction: discord.Interaction, application: app_commands.Range[int, 1]) -> None:
             if not await self.require_moderator(interaction):
@@ -1945,8 +2038,7 @@ class MinecraftAccessBot(commands.Bot):
                     name=f"minecraft-retry:{application}",
                 )
 
-        @group.command(name="log-channel", description="Configure or disable a Minecraft event log.")
-        @app_commands.default_permissions(administrator=True)
+        @admin_group.command(name="log-channel", description="Configure or disable a Minecraft event log.")
         @app_commands.describe(
             log="Event stream to configure",
             channel="Destination channel; leave empty to disable this log",
@@ -1998,8 +2090,7 @@ class MinecraftAccessBot(commands.Bot):
                 view=self.control_view(interaction),
             )
 
-        @group.command(name="chat-channel", description="Configure or disable two-way Minecraft chat sync.")
-        @app_commands.default_permissions(administrator=True)
+        @admin_group.command(name="chat-channel", description="Configure or disable two-way Minecraft chat sync.")
         @app_commands.describe(channel="Discord channel to mirror with Minecraft; leave empty to disable")
         async def chat_channel(
             interaction: discord.Interaction,
@@ -2045,8 +2136,7 @@ class MinecraftAccessBot(commands.Bot):
                 view=self.control_view(interaction),
             )
 
-        @group.command(name="applications", description="List recent Minecraft applications by status.")
-        @app_commands.default_permissions(manage_messages=True)
+        @staff_group.command(name="applications", description="List recent Minecraft applications by status.")
         @app_commands.describe(status="Optional application state", limit="Number of records to show")
         @app_commands.choices(
             status=[
@@ -2073,8 +2163,7 @@ class MinecraftAccessBot(commands.Bot):
                 view=self.control_view(interaction),
             )
 
-        @group.command(name="audit", description="Show the recorded lifecycle for an application.")
-        @app_commands.default_permissions(manage_messages=True)
+        @staff_group.command(name="audit", description="Show the recorded lifecycle for an application.")
         @app_commands.describe(application="Application ID")
         async def audit(
             interaction: discord.Interaction,
@@ -2113,37 +2202,38 @@ class MinecraftAccessBot(commands.Bot):
                 view=self.control_view(interaction),
             )
 
-        @group.command(name="cancel", description="Cancel your pending verification or a staff-managed application.")
-        @app_commands.describe(application="Staff only: application ID to cancel")
-        async def cancel(
-            interaction: discord.Interaction,
-            application: Optional[app_commands.Range[int, 1]] = None,
-        ) -> None:
-            if application is None:
-                await interaction.response.defer(ephemeral=True, thinking=True)
-                try:
-                    await self.cancel_pending_verification(
-                        guild_id=interaction.guild_id,
-                        discord_user_id=interaction.user.id,
-                    )
-                except InvalidTransition as exc:
-                    await interaction.edit_original_response(
-                        **branded_edit(
-                            info_embed("Nothing to Cancel", f"> {exc}", error=True)
-                        )
-                    )
-                    return
+        @group.command(name="cancel", description="Cancel your pending Minecraft verification.")
+        async def cancel(interaction: discord.Interaction) -> None:
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            try:
+                await self.cancel_pending_verification(
+                    guild_id=interaction.guild_id,
+                    discord_user_id=interaction.user.id,
+                )
+            except InvalidTransition as exc:
                 await interaction.edit_original_response(
                     **branded_edit(
-                        info_embed(
-                            "Verification Cancelled",
-                            "> Your pending Minecraft verification was cancelled successfully.\n\n"
-                            "Return to the application panel and press **Apply** when you are ready to enter the correct username.",
-                            success=True,
-                        )
+                        info_embed("Nothing to Cancel", f"> {exc}", error=True)
                     )
                 )
                 return
+            await interaction.edit_original_response(
+                **branded_edit(
+                    info_embed(
+                        "Verification Cancelled",
+                        "> Your pending Minecraft verification was cancelled successfully.\n\n"
+                        "Return to the application panel and press **Apply** when you are ready to enter the correct username.",
+                        success=True,
+                    )
+                )
+            )
+
+        @staff_group.command(name="cancel", description="Cancel a staff-managed application.")
+        @app_commands.describe(application="Application ID to cancel")
+        async def staff_cancel(
+            interaction: discord.Interaction,
+            application: app_commands.Range[int, 1],
+        ) -> None:
             if not await self.require_moderator(interaction):
                 return
             await interaction.response.defer(ephemeral=True, thinking=True)
@@ -2179,7 +2269,9 @@ class MinecraftAccessBot(commands.Bot):
 
             member_lines = [
                 "`/minecraft help` — this list",
+                "`/minecraft account` — your application and linked account",
                 "`/minecraft server` — server address and how to connect",
+                "`/minecraft clan view` — your clan and the actions your role allows",
                 "`/minecraft cancel` — cancel your own pending verification",
             ]
             embed = info_embed(
@@ -2191,29 +2283,39 @@ class MinecraftAccessBot(commands.Bot):
                 embed.add_field(
                     name="Moderator Essentials",
                     value=(
-                        "`/minecraft panel` — interactive moderator controls\n"
-                        "`/minecraft lookup` — search by member or Minecraft username\n"
-                        "`/minecraft applications` — recent applications by status"
+                        "`/mcstaff panel` — interactive moderator controls\n"
+                        "`/mcstaff lookup` — search by member or Minecraft username\n"
+                        "`/mcstaff applications` — recent applications by status\n"
+                        "`/mcstaff tools` — the in-game tools your permissions allow"
+                    ),
+                    inline=False,
+                )
+                embed.add_field(
+                    name="In-Game Moderation",
+                    value=(
+                        "`/mcstaff kick` · `/mcstaff mute` · `/mcstaff ban` · `/mcstaff tempban` · "
+                        "`/mcstaff unban` · `/mcstaff heal`\n"
+                        "`/mcstaff broadcast` — announce a message to everyone online"
                     ),
                     inline=False,
                 )
                 embed.add_field(
                     name="Access Actions",
                     value=(
-                        "`/minecraft revoke` — remove a member's access\n"
-                        "`/minecraft unlink` — unlink one account\n"
-                        "`/minecraft cancel` — cancel a staff-managed application"
+                        "`/mcstaff revoke` — remove a member's access\n"
+                        "`/mcstaff unlink` — unlink one account\n"
+                        "`/mcstaff cancel` — cancel a staff-managed application"
                     ),
                     inline=False,
                 )
                 embed.add_field(
                     name="Health & Records",
                     value=(
-                        "`/minecraft status` — bridge and queue health\n"
-                        "`/minecraft retry` — retry failed bridge actions\n"
-                        "`/minecraft audit` — one application's lifecycle\n"
-                        "`/minecraft commandlog` — who ran which command\n"
-                        "`/minecraft stats` — application and access totals"
+                        "`/mcstaff status` — bridge and queue health\n"
+                        "`/mcstaff retry` — retry failed bridge actions\n"
+                        "`/mcstaff audit` — one application's lifecycle\n"
+                        "`/mcstaff commandlog` — who ran which command\n"
+                        "`/mcstaff stats` — application and access totals"
                     ),
                     inline=False,
                 )
@@ -2221,8 +2323,12 @@ class MinecraftAccessBot(commands.Bot):
                 embed.add_field(
                     name="Administrators",
                     value=(
-                        "`/minecraft setup` — the setup dashboard\n"
-                        "`/minecraft log-channel` — choose the Activity and Important log channels"
+                        "`/mcadmin setup` — the setup dashboard\n"
+                        "`/mcadmin information` — post the server guide panel\n"
+                        "`/mcadmin leaderboard` — choose the leaderboard channel\n"
+                        "`/mcadmin log-channel` — choose the Activity and Important log channels\n"
+                        "`/mcadmin chat-channel` — two-way Minecraft chat sync\n"
+                        "`/mcadmin cleanheads` — remove leaderboard head emoji"
                     ),
                     inline=False,
                 )
@@ -2258,11 +2364,10 @@ class MinecraftAccessBot(commands.Bot):
                 ephemeral=True,
             )
 
-        @group.command(name="stats", description="Show Minecraft application and access totals.")
-        @app_commands.default_permissions(manage_messages=True)
+        @staff_group.command(name="stats", description="Show Minecraft application and access totals.")
         async def stats(interaction: discord.Interaction) -> None:
             if not await self.require_moderator(interaction):
-                await record_denial(self, interaction, "minecraft stats", "Not a moderator")
+                await record_denial(self, interaction, "mcstaff stats", "Not a moderator")
                 return
             await interaction.response.defer(ephemeral=True, thinking=True)
             counts = await self.data.application_status_counts()
@@ -2301,8 +2406,7 @@ class MinecraftAccessBot(commands.Bot):
                 view=self.control_view(interaction),
             )
 
-        @group.command(name="commandlog", description="Review who ran which Minecraft command.")
-        @app_commands.default_permissions(manage_messages=True)
+        @staff_group.command(name="commandlog", description="Review who ran which Minecraft command.")
         @app_commands.describe(
             user="Only show commands run by this member",
             command="Filter by command name",
@@ -2315,7 +2419,7 @@ class MinecraftAccessBot(commands.Bot):
             limit: Optional[app_commands.Range[int, 1, 50]] = None,
         ) -> None:
             if not await self.require_moderator(interaction):
-                await record_denial(self, interaction, "minecraft commandlog", "Not a moderator")
+                await record_denial(self, interaction, "mcstaff commandlog", "Not a moderator")
                 return
             await interaction.response.defer(ephemeral=True, thinking=True)
             await interaction.edit_original_response(
@@ -2329,7 +2433,7 @@ class MinecraftAccessBot(commands.Bot):
                 view=self.control_view(interaction),
             )
 
-        return group
+        return group, staff_group, admin_group
 
 
 def run() -> None:
