@@ -28,6 +28,8 @@ from .presentation import (
     SERVER_VERSION,
     brand_logo_file,
     mod_link,
+    rules_embed,
+    rules_image_file,
 )
 
 THEME_COLOUR = discord.Color.from_rgb(255, 153, 0)
@@ -609,7 +611,14 @@ PAGES: dict[str, tuple[str, Callable[[Optional[object]], discord.Embed]]] = {
     "levels": ("Levels & Perks", lambda _settings: levels_embed()),
     "boosting": ("Boosting", lambda _settings: boosting_embed()),
     "mods": ("Mods & Voice Chat", lambda _settings: mods_embed()),
+    "rules": ("Rules", lambda _settings: rules_embed()),
     "versions": ("Server & Versions", technical_embed),
+}
+
+#: Pages whose embed points at an attachment rather than a hosted image. An
+#: ephemeral reply has to carry the file or Discord draws a broken image.
+PAGE_FILES: dict[str, Callable[[], discord.File]] = {
+    "rules": rules_image_file,
 }
 
 #: Categories shown as a second row of buttons on a page's own message. Keeping
@@ -667,6 +676,9 @@ class InformationButton(
         payload: dict[str, object] = {"embed": page[1](settings), "ephemeral": True}
         if self.page in SECTIONS:
             payload["view"] = SectionView(self.page)
+        attachment = PAGE_FILES.get(self.page)
+        if attachment is not None:
+            payload["file"] = attachment()
         await interaction.response.send_message(**payload)
 
 
