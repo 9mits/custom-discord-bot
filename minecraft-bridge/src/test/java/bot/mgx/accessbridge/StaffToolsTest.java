@@ -72,6 +72,17 @@ class StaffToolsTest {
     }
 
     @Test
+    void broadcastIsTheOnlyRemoteToolThatSkipsTargetValidation() {
+        for (StaffTools.StaffTool tool : StaffTools.ALL) {
+            if (tool.remote().isEmpty()) {
+                continue;
+            }
+            assertEquals(!tool.key().equals("broadcast"), tool.needsTarget(),
+                    tool.key() + " target requirement");
+        }
+    }
+
+    @Test
     void unknownKeysAreNotFound() {
         assertFalse(StaffTools.find("nonsense").isPresent());
     }

@@ -18,13 +18,18 @@ final class StaffTools {
         String build(String target, String reason, String duration) throws IllegalArgumentException;
     }
 
-    record StaffTool(String key, String permission, Optional<RemoteCommand> remote) {
+    record StaffTool(String key, String permission, boolean needsTarget, Optional<RemoteCommand> remote) {
         static StaffTool infoOnly(String key, String permission) {
-            return new StaffTool(key, permission, Optional.empty());
+            return new StaffTool(key, permission, false, Optional.empty());
         }
 
         static StaffTool remote(String key, String permission, RemoteCommand command) {
-            return new StaffTool(key, permission, Optional.of(command));
+            return new StaffTool(key, permission, true, Optional.of(command));
+        }
+
+        /** A remote tool that acts on the whole server, so no player name to validate. */
+        static StaffTool remoteUntargeted(String key, String permission, RemoteCommand command) {
+            return new StaffTool(key, permission, false, Optional.of(command));
         }
     }
 
@@ -68,7 +73,7 @@ final class StaffTools {
                     "unban", "essentials.unban",
                     (target, reason, duration) -> "unban " + target
             ),
-            StaffTool.remote(
+            StaffTool.remoteUntargeted(
                     "broadcast", "essentials.broadcast",
                     (target, reason, duration) -> {
                         if (reason.isEmpty()) {

@@ -288,7 +288,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                         "That tool has to be used in game, not from Discord."
                 ));
 
-        String safeTarget = StaffActionInput.sanitizeUsername(target);
+        // Broadcast-style tools carry no player, so an empty target is correct there
+        // and must not be pushed through the username check.
+        String safeTarget = tool.needsTarget() ? StaffActionInput.sanitizeUsername(target) : "";
         String safeReason = StaffActionInput.sanitizeFreeText(reason, 200);
         String safeDuration = StaffActionInput.sanitizeFreeText(duration, 20);
         String command;
