@@ -301,13 +301,18 @@ def build_embed(
                 icon = ""
             else:
                 uuid = str(row.get("minecraft_uuid") or "")
-                name = str(row.get("username", "?"))
+                # Identity reads clan, then Discord, then Minecraft — broadest first.
+                parts = []
                 clan = row.get("clan")
-                suffix = f" · [{clan}]" if clan else ""
+                if clan:
+                    parts.append(f"[{clan}]")
                 # Mentions render without pinging inside an embed description.
                 discord_id = linked.get(uuid)
                 if discord_id:
-                    suffix = f" · <@{discord_id}>{suffix}"
+                    parts.append(f"<@{discord_id}>")
+                parts.append(str(row.get("username", "?")))
+                name = " ".join(parts)
+                suffix = ""
                 icon = heads.get(uuid, "") if podium else ""
             # The podium is bold and carries the head; the rest stay quiet beneath it.
             if podium:

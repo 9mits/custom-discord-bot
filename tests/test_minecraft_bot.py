@@ -1315,6 +1315,18 @@ class MinecraftLeaderboardRenderTests(unittest.TestCase):
         for line in lines[3:]:
             self.assertNotIn("**", line)
 
+    def test_row_reads_clan_then_discord_then_minecraft(self):
+        embed = self.leaderboard.build_embed(
+            self.snapshot,
+            scope="individual",
+            board="wealth",
+            linked={"u1": "12345"},
+        )
+        first = embed.description.splitlines()[0]
+
+        self.assertLess(first.index("[LUCKY]"), first.index("<@12345>"))
+        self.assertLess(first.index("<@12345>"), first.index("mits"))
+
     def test_linked_discord_account_is_mentioned_beside_the_username(self):
         embed = self.leaderboard.build_embed(
             self.snapshot,
