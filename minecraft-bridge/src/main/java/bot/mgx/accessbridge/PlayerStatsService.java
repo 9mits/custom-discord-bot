@@ -42,8 +42,13 @@ final class PlayerStatsService {
         this.wealthSnapshots = wealthSnapshots;
     }
 
-    /** Every player the server has a statistics file for. */
-    List<PlayerStats> everyKnownPlayer() {
+    /**
+     * Every player the server has a statistics file for.
+     *
+     * <p>Safe to call off the main thread: {@code onlineNames} is captured by the caller
+     * beforehand so this never has to ask Bukkit who is online.
+     */
+    List<PlayerStats> everyKnownPlayer(Map<UUID, String> onlineNames) {
         List<PlayerStats> all = new ArrayList<>();
         if (!Files.isDirectory(statsDirectory)) {
             plugin.getLogger().warning("No statistics directory at " + statsDirectory);
@@ -51,7 +56,7 @@ final class PlayerStatsService {
         }
         try (Stream<Path> files = Files.list(statsDirectory)) {
             for (Path file : files.filter(path -> path.toString().endsWith(".json")).toList()) {
-                statsFor(file).ifPresent(all::add);
+                statsFor(file, onlineNames).ifPresent(all::add);
             }
         } catch (IOException exception) {
             plugin.getLogger().warning("Could not list player statistics: " + exception.getMessage());
@@ -59,7 +64,7 @@ final class PlayerStatsService {
         return all;
     }
 
-    private java.util.Optional<PlayerStats> statsFor(Path file) {
+    private java.util.Optional<PlayerStats> statsFor(Path file, Map<UUID, String> onlineNames) {
         String name = file.getFileName().toString().replace(".json", "");
         UUID uuid;
         try {
@@ -78,7 +83,7 @@ final class PlayerStatsService {
             }
             return java.util.Optional.of(new PlayerStats(
                     uuid,
-                    usernameOf(uuid),
+                    usernameOf(uuid, onlineNames),
                     custom(stats, "minecraft:player_kills"),
                     custom(stats, "minecraft:deaths"),
                     custom(stats, "minecraft:play_time"),
@@ -115,11 +120,13 @@ final class PlayerStatsService {
         return total;
     }
 
-    private String usernameOf(UUID uuid) {
-        Player online = Bukkit.getPlayer(uuid);
+    private String usernameOf(UUID uuid, Map<UUID, String> onlineNames) {
+        String online = onlineNames.get(uuid);
         if (online != null) {
-            return online.getName();
+            return online;
         }
+        // Safe off the main thread: a UUID lookup reads the local cache and never
+        // makes a web request, unlike looking a player up by name.
         OfflinePlayer offline = Bukkit.getOfflinePlayer(uuid);
         String name = offline.getName();
         return name == null ? uuid.toString().substring(0, 8) : name;
