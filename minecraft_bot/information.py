@@ -521,8 +521,10 @@ def boosting_embed() -> discord.Embed:
             ),
             (
                 "If you stop boosting",
-                "> Only these three stop. Your level rewards, rank, clan and "
-                "everything you have built are untouched.",
+                "> Your boosting perks are removed immediately\n"
+                "> Keep boosting to keep them\n"
+                "> \n"
+                "> *Your level rewards, rank and clan are unaffected.*",
             ),
         ],
     )
