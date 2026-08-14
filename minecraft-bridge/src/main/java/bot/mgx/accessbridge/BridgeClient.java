@@ -238,6 +238,10 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                 verifiedApplications.remove(applicationId);
                 recordAndSend(idempotencyKey, new ProcessedActionStore.Result(true, ""));
             }
+            case "CLAN_ACTION" -> Bukkit.getScheduler().runTask(
+                    plugin,
+                    () -> executeClanAction(idempotencyKey, payload)
+            );
             case "APPROVE", "REVOKE", "KICK", "STATUS" -> Bukkit.getScheduler().runTask(
                     plugin,
                     () -> executeMainThreadAction(idempotencyKey, action, payload)
@@ -246,6 +250,27 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                     idempotencyKey,
                     new ProcessedActionStore.Result(false, "Action is not allowlisted")
             );
+        }
+    }
+
+    /**
+     * Runs a clan action on the requester's behalf.
+     *
+     * <p>{@link ClanStore} enforces who may do what, so this never has to trust the
+     * bot's view of a player's role — a stale menu in Discord cannot grant anything.
+     */
+    private void executeClanAction(String key, JsonObject payload) {
+        try {
+            UUID actor = UUID.fromString(payload.get("actor_uuid").getAsString());
+            String action = payload.get("clan_action").getAsString();
+            String argument = optionalString(payload, "argument");
+            String outcome = plugin.runClanAction(actor, action, argument);
+            recordAndSend(key, new ProcessedActionStore.Result(true, outcome));
+        } catch (ClanStore.ClanException exception) {
+            // A refusal is a real answer for the player, not a bridge failure.
+            recordAndSend(key, new ProcessedActionStore.Result(false, exception.getMessage()));
+        } catch (RuntimeException | java.io.IOException exception) {
+            recordAndSend(key, new ProcessedActionStore.Result(false, safeError(exception)));
         }
     }
 
