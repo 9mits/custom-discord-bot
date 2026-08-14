@@ -1928,6 +1928,54 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
                 self.assertIn(paragraph, welcome)
                 self.assertIn(paragraph, panel)
 
+    def test_welcome_showcases_what_the_server_offers(self):
+        # Someone reading this is deciding whether the server suits them, which
+        # they cannot tell from atmosphere alone.
+        from minecraft_bot.presentation import application_embeds
+
+        showcase = next(
+            field.value
+            for field in application_embeds()[0].fields
+            if field.name == "What you can do here"
+        )
+
+        for feature in (
+            "Clans",
+            "Levels",
+            "/sethome",
+            "/tpa",
+            "Voice chat",
+            "Leaderboards",
+            "Crossplay",
+        ):
+            with self.subTest(feature=feature):
+                self.assertIn(feature, showcase)
+
+    def test_welcome_only_advertises_commands_that_exist(self):
+        # /spawn was once documented on a server that had never installed it.
+        # The front door is the worst place to promise a command that errors.
+        import re
+
+        from minecraft_bot import information
+        from minecraft_bot.presentation import application_embeds
+
+        advertised = set()
+        for field in application_embeds()[0].fields:
+            advertised.update(re.findall(r"`(/[a-z]+)`", field.value))
+
+        documented = []
+        for _label, builder in information.PAGES.values():
+            documented += [field.value for field in builder(0).fields]
+        for sections in information.SECTIONS.values():
+            for _label, builder in sections.values():
+                documented += [field.value for field in builder(0).fields]
+        catalogue = "\n".join(documented)
+
+        self.assertTrue(advertised, "the showcase names no commands at all")
+        for command in sorted(advertised):
+            with self.subTest(command=command):
+                self.assertIn(command, catalogue)
+
     def _rules_text(self, *, agreement=False):
         from minecraft_bot.presentation import rules_embed
 

@@ -225,10 +225,35 @@ def application_embeds() -> list[discord.Embed]:
     welcome = _panel_embed(
         "Welcome to Mysterious SMP X",
         "**Mysterious Girlfriend X Discord, in partnership with r/MysteriousGirlfriendX.**\n\n"
-        f"{SERVER_TAGLINE}\n\n"
-        "> Mysterious SMP X is a private server, so every player applies and is "
-        "reviewed before joining. Acceptance is intentionally straightforward: if "
-        "you would like to play, you are encouraged to apply.",
+        f"{SERVER_TAGLINE}",
+    )
+    # Someone reading this is deciding whether the server suits them, so it lists
+    # what is actually here rather than describing the atmosphere twice.
+    welcome.add_field(
+        name="What you can do here",
+        value=(
+            "> **Clans** — found one, share a name, tag and colour, and never "
+            "take damage from your own members\n"
+            "> **Levels** — chatting in Discord earns permanent extra hearts and "
+            "damage in game\n"
+            "> **Homes and travel** — save your spots with `/sethome`, and "
+            "teleport to friends with `/tpa`\n"
+            "> **Voice chat** — proximity voice with whoever is standing near "
+            "you\n"
+            "> **Leaderboards** — richest, kills, playtime, blocks mined and "
+            "distance walked\n"
+            "> **Crossplay** — Java and Bedrock players in one shared world"
+        ),
+        inline=False,
+    )
+    welcome.add_field(
+        name="Joining",
+        value=(
+            "> A private server: everyone applies and is reviewed before "
+            "joining. Acceptance is intentionally straightforward — if you would "
+            "like to play, apply."
+        ),
+        inline=False,
     )
     welcome.set_image(url=LOGO_ATTACHMENT_URI)
     apply = _panel_embed(
