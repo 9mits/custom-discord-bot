@@ -1665,6 +1665,10 @@ class MinecraftAccessBot(commands.Bot):
             tool=[
                 app_commands.Choice(name=STAFF_TOOL_LABELS[key], value=key)
                 for key in REMOTE_STAFF_TOOLS
+                # Broadcast has no target and its message rides the "reason" field
+                # under this shared label set, which reads wrong. It gets its own
+                # command below instead of a mislabelled field here.
+                if key != "broadcast"
             ]
         )
         async def moderate(
@@ -1687,6 +1691,25 @@ class MinecraftAccessBot(commands.Bot):
                     target=target or "",
                     reason=reason or "",
                     duration=duration or "",
+                )
+            )
+
+        @group.command(
+            name="broadcast",
+            description="Announce a message to everyone online, from Discord.",
+        )
+        @app_commands.describe(message="The message every online player will see.")
+        async def broadcast(interaction: discord.Interaction, message: str) -> None:
+            if not await self.require_moderator(interaction):
+                return
+            await interaction.response.defer(ephemeral=True)
+            await interaction.edit_original_response(
+                embed=await self.run_staff_action(
+                    interaction.user.id,
+                    "broadcast",
+                    target="",
+                    reason=message,
+                    duration="",
                 )
             )
 

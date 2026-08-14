@@ -52,6 +52,7 @@ COMMAND_RISK: Mapping[str, str] = {
     "minecraft unlink": RISK_DESTRUCTIVE,
     "minecraft cancel": RISK_DESTRUCTIVE,
     "minecraft moderate": RISK_DESTRUCTIVE,
+    "minecraft broadcast": RISK_DESTRUCTIVE,
     "minecraft clan": RISK_MODERATE,
     "minecraft retry": RISK_MODERATE,
     "minecraft setup": RISK_CONFIGURATION,
