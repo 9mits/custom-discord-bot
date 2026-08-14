@@ -137,6 +137,7 @@ final class LeaderboardService {
         Map<String, Long> totals = new HashMap<>();
         Map<String, Integer> members = new HashMap<>();
         Map<String, Integer> colours = new HashMap<>();
+        Map<String, String> icons = new HashMap<>();
         for (PlayerStats row : everyone) {
             Optional<ClanStore.ClanView> clan = clans.clanOf(row.minecraftUuid());
             if (clan.isEmpty()) {
@@ -146,6 +147,7 @@ final class LeaderboardService {
             totals.merge(name, row.value(type), Long::sum);
             members.merge(name, 1, Integer::sum);
             colours.putIfAbsent(name, clan.get().themeColor());
+            icons.putIfAbsent(name, clan.get().icon());
         }
         List<Map.Entry<String, Long>> ranked = new ArrayList<>(totals.entrySet());
         ranked.sort(Map.Entry.<String, Long>comparingByValue().reversed());
@@ -158,6 +160,7 @@ final class LeaderboardService {
             row.addProperty("clan", entry.getKey());
             row.addProperty("members", members.getOrDefault(entry.getKey(), 0));
             row.addProperty("colour", colours.getOrDefault(entry.getKey(), 0xFF9900));
+            row.addProperty("icon", icons.getOrDefault(entry.getKey(), ""));
             row.addProperty("value", entry.getValue());
             row.addProperty("display", type.describe(entry.getValue()));
             rows.add(row);
