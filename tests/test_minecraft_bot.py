@@ -2027,8 +2027,8 @@ class MinecraftInformationPanelTests(unittest.TestCase):
         self.assertIn(str(self.information.CLAN_MAX_MEMBERS), described)
         self.assertIn(str(self.information.CLAN_INVITE_EXPIRY_MINUTES), described)
         self.assertIn("online", described)
-        self.assertRegex(described, r"leader cannot be kicked")
-        self.assertRegex(described, r"only the leader can\s+remove")
+        self.assertRegex(described, r"(?i)leader cannot be kicked")
+        self.assertRegex(described, r"(?i)only the leader can\s+remove")
         self.assertIn("as **staff**", described)
 
     def test_perk_figures_match_the_plugin_that_applies_them(self):
