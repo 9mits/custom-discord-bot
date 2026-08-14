@@ -76,9 +76,21 @@ def _apply_here(settings) -> str:
     return f"<#{channel_id}>" if channel_id else "the application channel"
 
 
+def _addresses(settings) -> tuple[str, str, str]:
+    """Java address, Bedrock address and Bedrock port, with honest fallbacks.
+
+    Shared so the overview and the versions page can never drift apart.
+    """
+    java = getattr(settings, "java_address", None) or "ask staff for the address"
+    bedrock = getattr(settings, "bedrock_address", None) or "ask staff for the address"
+    port = getattr(settings, "bedrock_port", None) or "19132"
+    return java, bedrock, str(port)
+
+
 def overview_embed(settings=None) -> discord.Embed:
     # This message lives in a channel members only see after they are accepted,
     # so it reads as the server handbook — never as joining instructions.
+    java_address, bedrock_address, bedrock_port = _addresses(settings)
     embed = _page(
         "Information",
         "Mysterious Girlfriend X Discord, in partnership with "
@@ -88,16 +100,26 @@ def overview_embed(settings=None) -> discord.Embed:
         [
             (
                 "The server",
-                "> A survival world shared by Java and Bedrock players.\n"
-                "> PvP is enabled, so raiding and rivalry are permitted.\n"
-                "> Every block placed or broken is logged, so griefing can be "
-                "reverted.",
+                "> A survival SMP with full Java and Bedrock crossplay — one world, "
+                "one community, whichever edition you own.\n"
+                "> Built around building, clans, teamwork, rivalry and lore.\n"
+                "> PvP is enabled, so raids and betrayals are part of the story. "
+                "Every block placed or broken is logged, so genuine griefing can "
+                "always be reverted.",
             ),
             (
                 "Client versions",
                 f"> **Java** — {JAVA_SUPPORTED_RANGE}, translated automatically.\n"
-                f"> Releases newer than **{SERVER_VERSION}** are refused.\n"
-                "> **Bedrock** — the current release, from any device.",
+                f"> Releases newer than **{SERVER_VERSION}** are blocked for "
+                "safety reasons.\n"
+                "> **Bedrock** — the current release, from phone, console, tablet "
+                "or Windows.",
+            ),
+            (
+                "Server address",
+                f"**Java Edition**\n```text\n{java_address}\n```\n"
+                f"**Bedrock Edition**\n```text\n{bedrock_address}\n```\n"
+                f"**Bedrock port**\n```text\n{bedrock_port}\n```",
             ),
             (
                 "Getting started",
@@ -398,9 +420,7 @@ def mods_embed() -> discord.Embed:
 
 
 def technical_embed(settings=None) -> discord.Embed:
-    java_address = getattr(settings, "java_address", None) or "ask staff for the address"
-    bedrock_address = getattr(settings, "bedrock_address", None) or "ask staff for the address"
-    bedrock_port = getattr(settings, "bedrock_port", None) or "19132"
+    java_address, bedrock_address, bedrock_port = _addresses(settings)
     return _page(
         "Server and Versions",
         "The software the server runs, and the connection details for each edition.",
