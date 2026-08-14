@@ -332,26 +332,20 @@ SERVER_RULES: tuple[tuple[str, str], ...] = (
         "cheating.",
     ),
     (
-        "11. Honour your trades",
-        "A deal is binding once both sides agree. Taking payment without "
-        "delivering, changing the terms afterwards, or inventing a trade to lure "
-        "someone somewhere is theft, and is handled as such.",
-    ),
-    (
-        "12. One account per player",
+        "11. One account per player",
         "Alternate accounts are prohibited when used to evade a punishment, "
         "bypass a whitelist decision, or claim a second set of perks. Do not "
         "share your account: anything done on it is your responsibility.",
     ),
     (
-        "13. Protect the server",
+        "12. Protect the server",
         "Ordinary farms are fine. Lag machines, crash exploits, chunk bans and "
         "anything else built or run to strain server stability are prohibited, "
         "including work you did not realise would cause it once staff have asked "
         "you to stop.",
     ),
     (
-        "14. Staff decisions are final",
+        "13. Staff decisions are final",
         "A loophole is not permission, and not having read a rule is not a "
         "defence. If you are unsure whether something is allowed, ask before "
         "doing it rather than afterwards. Staff may intervene in any conflict "
