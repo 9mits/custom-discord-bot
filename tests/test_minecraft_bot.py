@@ -1537,3 +1537,28 @@ class MinecraftPodiumScopeTests(unittest.TestCase):
         }
 
         self.assertEqual(len(self._store()._podium_players(snapshot)), PODIUM)
+
+
+class MinecraftBoardSelectRoutingTests(unittest.TestCase):
+    """An unregistered DynamicItem never gets its callback, so Discord times out."""
+
+    def test_template_matches_the_custom_ids_the_view_emits(self):
+        from minecraft_bot.leaderboard import BoardSelect, LeaderboardView
+
+        pattern = BoardSelect.__discord_ui_compiled_template__
+        emitted = [item.custom_id for item in LeaderboardView().children]
+
+        self.assertEqual(len(emitted), 2)
+        for custom_id in emitted:
+            self.assertTrue(
+                pattern.fullmatch(custom_id),
+                f"{custom_id} would not route back to BoardSelect",
+            )
+
+    def test_scope_is_recovered_from_the_custom_id(self):
+        from minecraft_bot.leaderboard import BoardSelect
+
+        pattern = BoardSelect.__discord_ui_compiled_template__
+
+        self.assertEqual(pattern.fullmatch("mgx_board:clan")["scope"], "clan")
+        self.assertEqual(pattern.fullmatch("mgx_board:individual")["scope"], "individual")
