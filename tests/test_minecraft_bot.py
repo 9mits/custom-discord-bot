@@ -1725,6 +1725,14 @@ class MinecraftInformationPanelTests(unittest.TestCase):
 
         self.information = information
 
+    @staticmethod
+    def embed_text(embed):
+        """Description plus every field, since pages lay sections out as fields."""
+        parts = [embed.description or ""]
+        for field in embed.fields:
+            parts.append(f"{field.name}\n{field.value}")
+        return "\n".join(parts)
+
     def test_overview_uses_the_logo_as_the_image_not_a_thumbnail(self):
         from minecraft_bot.presentation import LOGO_ATTACHMENT_URI
 
@@ -1744,7 +1752,7 @@ class MinecraftInformationPanelTests(unittest.TestCase):
     def test_levels_page_mentions_every_milestone_role(self):
         from minecraft_bot.perks import LEVEL_ROLE_MILESTONES
 
-        description = self.information.levels_embed().description
+        description = self.embed_text(self.information.levels_embed())
 
         for role_id, level in LEVEL_ROLE_MILESTONES:
             self.assertIn(f"<@&{role_id}>", description)
@@ -1752,13 +1760,13 @@ class MinecraftInformationPanelTests(unittest.TestCase):
         self.assertIn(self.information.LEVELS_CHANNEL_URL, description)
 
     def test_levels_page_explains_how_levels_are_earned(self):
-        description = self.information.levels_embed().description
+        description = self.embed_text(self.information.levels_embed())
 
         self.assertIn("chatting", description)
         self.assertIn("voice", description)
 
     def test_boosting_page_states_the_stacked_totals(self):
-        description = self.information.boosting_embed().description
+        description = self.embed_text(self.information.boosting_embed())
 
         self.assertIn("+10% damage", description)
         self.assertIn("+25% damage", description)
@@ -1777,18 +1785,18 @@ class MinecraftInformationPanelTests(unittest.TestCase):
     def test_apply_channel_is_mentioned_when_known(self):
         # The overview lives in a post-acceptance channel, so joining
         # instructions belong only in the troubleshooting page.
-        described = self.information.troubleshooting_embed(1234).description
+        described = self.embed_text(self.information.troubleshooting_embed(1234))
 
         self.assertIn("<#1234>", described)
         self.assertNotIn("the application channel", described)
 
     def test_apply_channel_falls_back_to_words_when_unset(self):
-        described = self.information.troubleshooting_embed(0).description
+        described = self.embed_text(self.information.troubleshooting_embed(0))
 
         self.assertIn("the application channel", described)
 
     def test_overview_reads_as_a_post_acceptance_handbook(self):
-        described = self.information.overview_embed(0).description
+        described = self.embed_text(self.information.overview_embed(0))
 
         self.assertIn("Java", described)
         self.assertIn("Bedrock", described)
@@ -1796,8 +1804,19 @@ class MinecraftInformationPanelTests(unittest.TestCase):
         self.assertNotIn("How to join", described)
         self.assertNotIn("Apply", described)
 
+    def test_pages_lay_sections_out_as_fields(self):
+        # The panel's readability rests on fields, so a page collapsing back
+        # into one long description should fail loudly.
+        for key, (_label, builder) in self.information.PAGES.items():
+            with self.subTest(page=key):
+                embed = builder(0)
+                self.assertGreaterEqual(len(embed.fields), 2)
+                for field in embed.fields:
+                    self.assertFalse(field.inline)
+                    self.assertLessEqual(len(field.value), 1024)
+
     def test_expired_applications_are_explained(self):
-        described = self.information.troubleshooting_embed(99).description
+        described = self.embed_text(self.information.troubleshooting_embed(99))
 
         self.assertIn("expired", described)
         self.assertIn("/minecraft account", described)
@@ -1806,7 +1825,7 @@ class MinecraftInformationPanelTests(unittest.TestCase):
     def test_panel_no_longer_says_presents(self):
         from minecraft_bot.presentation import application_embeds
 
-        self.assertNotIn("presents", self.information.overview_embed(0).description)
+        self.assertNotIn("presents", self.embed_text(self.information.overview_embed(0)))
         self.assertNotIn("presents", application_embeds()[0].description)
         self.assertIn("in partnership with", application_embeds()[0].description)
 
