@@ -30,7 +30,7 @@ EMOJI_RETENTION_DAYS = 14
 EMOJI_BUDGET = 20
 EMOJI_PREFIX = "mgx_head_"
 #: Deleting emojis is rate-limited, so a backlog is cleared over several refreshes.
-EMOJI_CLEANUP_PER_PASS = 10
+EMOJI_CLEANUP_PER_PASS = 25
 
 #: The board everyone sees by default; the rest are a dropdown away.
 DEFAULT_TYPE = "wealth"
@@ -389,3 +389,30 @@ def message_payload(
         "attachments": [brand_mark_file()],
         "view": LeaderboardView(),
     }
+
+
+async def purge_head_emojis(guild: discord.Guild) -> tuple[int, int]:
+    """Deletes every podium head emoji in the guild.
+
+    Returns (removed, failed). discord.py backs off on rate limits by itself, so this
+    can take a while on a large backlog — it is meant to be awaited from a command
+    that has already deferred.
+    """
+    try:
+        emojis = await guild.fetch_emojis()
+    except discord.HTTPException:
+        logger.exception("Could not list guild emojis for a head purge")
+        return 0, 0
+
+    removed = 0
+    failed = 0
+    for emoji in emojis:
+        if not emoji.name.startswith(EMOJI_PREFIX):
+            continue
+        try:
+            await emoji.delete(reason=f"{BRAND_NAME} podium head purge")
+            removed += 1
+        except discord.HTTPException:
+            failed += 1
+            logger.warning("Could not delete podium head %s", emoji.name)
+    return removed, failed

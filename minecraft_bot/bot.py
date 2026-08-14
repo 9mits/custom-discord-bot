@@ -1369,6 +1369,31 @@ class MinecraftAccessBot(commands.Bot):
                 )
             )
 
+        @group.command(
+            name="cleanheads",
+            description="Remove every leaderboard head emoji from this server.",
+        )
+        @app_commands.default_permissions(administrator=True)
+        async def cleanheads(interaction: discord.Interaction) -> None:
+            if not await self.require_administrator(interaction):
+                return
+            if interaction.guild is None:
+                await interaction.response.send_message(
+                    "Run this in the server you want cleaned.", ephemeral=True
+                )
+                return
+            from .leaderboard import CONFIG_EMOJIS, purge_head_emojis
+
+            await interaction.response.defer(ephemeral=True)
+            removed, failed = await purge_head_emojis(interaction.guild)
+            # Forget the registry too, or the next refresh believes they still exist.
+            await self.data.set_config(CONFIG_EMOJIS, {})
+            self.leaderboard_heads = {}
+            summary = f"Removed {removed} leaderboard head emoji."
+            if failed:
+                summary += f" {failed} could not be deleted; run it again in a minute."
+            await interaction.edit_original_response(content=summary)
+
         @group.command(name="account", description="Open your private Minecraft account and application panel.")
         async def account(interaction: discord.Interaction) -> None:
             await interaction.response.defer(ephemeral=True)
