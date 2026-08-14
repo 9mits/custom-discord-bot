@@ -19,7 +19,7 @@ from .audit import (
     record_denial,
 )
 from .bridge import MinecraftBridgeServer
-from .capabilities import CLAN_ACTIONS
+from .capabilities import CLAN_ACTIONS, REMOTE_STAFF_TOOLS, STAFF_TOOL_LABELS
 from .config import MinecraftConfig
 from .data import MinecraftDataManager
 from .models import ApplicationStatus, BridgeAction, Edition, InvalidTransition, MinecraftApplication, OutboxRecord
@@ -1072,7 +1072,7 @@ class MinecraftAccessBot(commands.Bot):
         The offered actions are filtered by the server's own report of their role, and
         the server checks again before doing anything — a stale menu grants nothing.
         """
-        from .capabilities import CLAN_ACTIONS, capabilities_for
+        from .capabilities import capabilities_for
         from .presentation import info_embed
 
         accounts = await self.data.list_accounts_for_user(discord_user_id)
@@ -1101,21 +1101,95 @@ class MinecraftAccessBot(commands.Bot):
             uuid = str(account["minecraft_uuid"])
             if not capabilities_for(snapshot, uuid).may(action):
                 continue
-            await self.bridge.run_clan_action(
+            success, message = await self.bridge.run_clan_action(
                 actor_uuid=uuid, action=action, argument=argument
             )
-            label = CLAN_ACTIONS[action][0].lower()
             return info_embed(
-                "Sent to the Server",
-                f"> Asked the server to {label}."
-                + (f" (`{argument}`)" if argument else "")
-                + "\n> The server confirms in game, and refuses if the action is not allowed.",
-                success=True,
+                "Done" if success else "Refused by the Server",
+                f"> {message}" if message else "> The server did not give a reason.",
+                success=success,
+                error=not success,
             )
         return info_embed(
             "Not Allowed",
             "> Your clan role does not allow that. Use `/minecraft clan` with no action "
             "to see what you can do.",
+            error=True,
+        )
+
+    async def run_staff_action(
+        self,
+        discord_user_id: int,
+        tool: str,
+        *,
+        target: str,
+        reason: str,
+        duration: str,
+    ) -> discord.Embed:
+        """Requests a staff tool for the caller's linked account.
+
+        Offered tools are filtered by the server's own report of what the linked
+        account's LuckPerms permissions allow — the Discord moderator role that gated
+        the command is only the first of two checks. Paper checks again, through
+        LuckPerms directly, before running anything.
+        """
+        from .capabilities import REMOTE_STAFF_TOOLS, capabilities_for
+        from .presentation import info_embed
+
+        accounts = await self.data.list_accounts_for_user(discord_user_id)
+        if not accounts:
+            return info_embed(
+                "No Linked Account",
+                "> Link a Minecraft account before using moderation tools.",
+                error=True,
+            )
+        if not self.bridge.connected:
+            return info_embed(
+                "Server Offline",
+                "> The Minecraft server is not reachable right now. Try again shortly.",
+                error=True,
+            )
+        needs = REMOTE_STAFF_TOOLS.get(tool)
+        if needs is None:
+            return info_embed(
+                "Not Available",
+                "> That tool cannot be run from Discord. Use `/minecraft staff` to see "
+                "what you hold, and run it in game instead.",
+                error=True,
+            )
+        if needs["needs_target"] and not target:
+            return info_embed(
+                "Missing Detail", "> That tool needs a player. Add one and try again.", error=True
+            )
+        if needs["needs_duration"] and not duration:
+            return info_embed(
+                "Missing Detail",
+                "> That tool needs a duration, such as `10m` or `1d`.",
+                error=True,
+            )
+
+        snapshot = getattr(self.bridge, "latest_capabilities", {}) or {}
+        for account in accounts:
+            uuid = str(account["minecraft_uuid"])
+            if not capabilities_for(snapshot, uuid).may_run_remotely(tool):
+                continue
+            success, message = await self.bridge.run_staff_action(
+                actor_uuid=uuid,
+                tool=tool,
+                target=target,
+                reason=reason,
+                duration=duration,
+            )
+            return info_embed(
+                "Done" if success else "Refused by the Server",
+                f"> {message}" if message else "> The server did not give a reason.",
+                success=success,
+                error=not success,
+            )
+        return info_embed(
+            "Not Allowed",
+            "> Your account does not hold that permission. Use `/minecraft staff` to "
+            "see what you can run.",
             error=True,
         )
 
@@ -1575,6 +1649,45 @@ class MinecraftAccessBot(commands.Bot):
             await interaction.response.defer(ephemeral=True)
             await interaction.edit_original_response(
                 embed=await self.build_capability_embed(interaction.user.id, staff=True)
+            )
+
+        @group.command(
+            name="moderate",
+            description="Run a Minecraft moderation tool from Discord.",
+        )
+        @app_commands.describe(
+            tool="Which staff tool to run.",
+            target="The player it applies to.",
+            reason="Shown to the player and logged, where the tool uses one.",
+            duration="How long, for a temporary ban or mute (e.g. 10m, 1d).",
+        )
+        @app_commands.choices(
+            tool=[
+                app_commands.Choice(name=STAFF_TOOL_LABELS[key], value=key)
+                for key in REMOTE_STAFF_TOOLS
+            ]
+        )
+        async def moderate(
+            interaction: discord.Interaction,
+            tool: app_commands.Choice[str],
+            target: Optional[str] = None,
+            reason: Optional[str] = None,
+            duration: Optional[str] = None,
+        ) -> None:
+            # Gate one: the Discord-side moderator role. Gate two, inside
+            # run_staff_action, is the linked account's real LuckPerms permission —
+            # both have to hold for anything to run.
+            if not await self.require_moderator(interaction):
+                return
+            await interaction.response.defer(ephemeral=True)
+            await interaction.edit_original_response(
+                embed=await self.run_staff_action(
+                    interaction.user.id,
+                    tool.value,
+                    target=target or "",
+                    reason=reason or "",
+                    duration=duration or "",
+                )
             )
 
         @group.command(

@@ -9,6 +9,7 @@ import org.bukkit.plugin.RegisteredServiceProvider;
 
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.logging.Level;
 
 /**
@@ -54,6 +55,26 @@ final class LuckPermsService {
             plugin.getLogger().info("LuckPerms was not found; Discord rank sync is inactive.");
             return null;
         }
+    }
+
+    /** Whether the LuckPerms service is present at all, so callers can degrade cleanly. */
+    boolean available() {
+        return true;
+    }
+
+    /**
+     * Whether a player — online or not — holds a permission, per LuckPerms' own
+     * cached data. This is the authoritative check for remote Discord actions:
+     * {@code Player#hasPermission} only reflects the current session, but staff
+     * running a command from Discord are usually not logged in at the time.
+     */
+    CompletableFuture<Boolean> hasPermission(UUID playerId, String permission) {
+        return luckPerms.getUserManager().loadUser(playerId)
+                .thenApply(user -> user.getCachedData()
+                        .getPermissionData()
+                        .checkPermission(permission)
+                        .asBoolean())
+                .exceptionally(error -> false);
     }
 
     /**

@@ -7,9 +7,11 @@ import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 import org.bukkit.permissions.Permission;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Tells the bot what each player is allowed to do, so Discord can offer exactly that.
@@ -20,29 +22,10 @@ import java.util.UUID;
  * server still checks permission when a command actually runs.
  */
 final class CapabilityService {
-    /** Staff tools worth surfacing in Discord, each with the permission that runs it. */
-    private static final List<String[]> STAFF_TOOLS = List.of(
-            new String[]{"inspect", "coreprotect.inspect"},
-            new String[]{"lookup", "coreprotect.lookup"},
-            new String[]{"rollback", "coreprotect.rollback"},
-            new String[]{"restore", "coreprotect.restore"},
-            new String[]{"alerts", "grim.alerts"},
-            new String[]{"heal", "essentials.heal"},
-            new String[]{"god", "essentials.god"},
-            new String[]{"invsee", "essentials.invsee"},
-            new String[]{"vanish", "essentials.vanish"},
-            new String[]{"kick", "essentials.kick"},
-            new String[]{"mute", "essentials.mute"},
-            new String[]{"ban", "essentials.ban"},
-            new String[]{"tempban", "essentials.tempban"},
-            new String[]{"unban", "essentials.unban"},
-            new String[]{"broadcast", "essentials.broadcast"},
-            new String[]{"gamemode", "essentials.gamemode"}
-    );
-
     private final MGXAccessBridge plugin;
     private final BridgeClient bridge;
     private final ClanStore clans;
+    private final LuckPermsService luckPerms;
     private final long refreshTicks;
     private int taskId = -1;
 
@@ -50,11 +33,13 @@ final class CapabilityService {
             MGXAccessBridge plugin,
             BridgeClient bridge,
             ClanStore clans,
+            LuckPermsService luckPerms,
             long refreshTicks
     ) {
         this.plugin = plugin;
         this.bridge = bridge;
         this.clans = clans;
+        this.luckPerms = luckPerms;
         this.refreshTicks = refreshTicks;
     }
 
@@ -79,29 +64,93 @@ final class CapabilityService {
     }
 
     /**
-     * Permission lookups need the main thread for online players, so the whole pass
-     * runs here. It only walks players the server already knows, which is cheap.
+     * Online players are resolved synchronously here, on the main thread their
+     * permissions actually live on. Offline players need LuckPerms' storage, which is
+     * async, so those finish later and the snapshot is sent once every future settles.
      */
     private void publish() {
+        List<UUID> offlineTargets = new ArrayList<>();
         JsonObject players = new JsonObject();
+
         for (Player online : plugin.getServer().getOnlinePlayers()) {
-            players.add(online.getUniqueId().toString(), describe(online.getUniqueId(), online));
+            players.add(online.getUniqueId().toString(), describeOnline(online));
         }
         for (ClanStore.ClanView clan : clans.list()) {
             for (UUID member : clan.members().keySet()) {
-                String key = member.toString();
-                if (!players.has(key)) {
-                    players.add(key, describe(member, null));
+                if (!players.has(member.toString()) && !offlineTargets.contains(member)) {
+                    offlineTargets.add(member);
                 }
             }
         }
+
+        if (offlineTargets.isEmpty() || luckPerms == null) {
+            for (UUID uuid : offlineTargets) {
+                players.add(uuid.toString(), describeOffline(uuid, List.of()));
+            }
+            send(players);
+            return;
+        }
+
+        List<CompletableFuture<Void>> pending = new ArrayList<>();
+        for (UUID uuid : offlineTargets) {
+            List<String> held = new ArrayList<>();
+            List<CompletableFuture<Void>> checks = new ArrayList<>();
+            for (StaffTools.StaffTool tool : StaffTools.ALL) {
+                checks.add(
+                        luckPerms.hasPermission(uuid, tool.permission())
+                                .thenAccept(allowed -> {
+                                    if (allowed) {
+                                        synchronized (held) {
+                                            held.add(tool.key());
+                                        }
+                                    }
+                                })
+                );
+            }
+            pending.add(
+                    CompletableFuture.allOf(checks.toArray(CompletableFuture[]::new))
+                            .thenRun(() -> players.add(uuid.toString(), describeOffline(uuid, held)))
+            );
+        }
+
+        CompletableFuture.allOf(pending.toArray(CompletableFuture[]::new))
+                .thenRun(() -> plugin.getServer().getScheduler().runTask(plugin, () -> send(players)))
+                .exceptionally(error -> {
+                    plugin.getLogger().warning("Could not resolve offline staff permissions: " + error);
+                    plugin.getServer().getScheduler().runTask(plugin, () -> send(players));
+                    return null;
+                });
+    }
+
+    private void send(JsonObject players) {
         JsonObject snapshot = new JsonObject();
         snapshot.addProperty("generated_at", System.currentTimeMillis());
         snapshot.add("players", players);
         bridge.sendCapabilitySnapshot(snapshot);
     }
 
-    private JsonObject describe(UUID playerId, Player online) {
+    private JsonObject describeOnline(Player online) {
+        UUID playerId = online.getUniqueId();
+        JsonObject entry = clanFields(playerId);
+        JsonArray tools = new JsonArray();
+        for (StaffTools.StaffTool tool : StaffTools.ALL) {
+            if (online.hasPermission(tool.permission())) {
+                tools.add(tool.key());
+            }
+        }
+        entry.add("staff_tools", tools);
+        return entry;
+    }
+
+    private JsonObject describeOffline(UUID playerId, List<String> held) {
+        JsonObject entry = clanFields(playerId);
+        JsonArray tools = new JsonArray();
+        held.forEach(tools::add);
+        entry.add("staff_tools", tools);
+        return entry;
+    }
+
+    private JsonObject clanFields(UUID playerId) {
         JsonObject entry = new JsonObject();
         Optional<ClanStore.ClanView> clan = clans.clanOf(playerId);
         clan.ifPresent(view -> {
@@ -110,13 +159,6 @@ final class CapabilityService {
             entry.addProperty("clan_role", clanRole(view, playerId));
             entry.addProperty("clan_members", view.members().size());
         });
-        JsonArray tools = new JsonArray();
-        for (String[] tool : STAFF_TOOLS) {
-            if (holds(playerId, online, tool[1])) {
-                tools.add(tool[0]);
-            }
-        }
-        entry.add("staff_tools", tools);
         return entry;
     }
 
@@ -125,27 +167,5 @@ final class CapabilityService {
             return "leader";
         }
         return clan.staff().contains(playerId) ? "staff" : "member";
-    }
-
-    /**
-     * Offline players are checked through their effective permissions, so a moderator
-     * still sees their tools in Discord while they are not playing.
-     */
-    private boolean holds(UUID playerId, Player online, String permission) {
-        if (online != null) {
-            return online.hasPermission(permission);
-        }
-        try {
-            OfflinePlayer offline = Bukkit.getOfflinePlayer(playerId);
-            return offline.isOp() || permissionDefaultsTrue(permission);
-        } catch (RuntimeException exception) {
-            return false;
-        }
-    }
-
-    /** A permission every player holds is not worth hiding behind a rank. */
-    private boolean permissionDefaultsTrue(String permission) {
-        Permission registered = Bukkit.getPluginManager().getPermission(permission);
-        return registered != null && registered.getDefault().getValue(false);
     }
 }

@@ -164,6 +164,11 @@ final class GuideService implements CommandExecutor, TabCompleter {
         player.sendMessage(Component.text(
                 "Only what you can actually run is listed here.", NamedTextColor.DARK_GRAY
         ));
+        player.sendMessage(Component.text(
+                "Kick, mute, ban, tempban, unban, heal and broadcast also work from "
+                        + "Discord with /minecraft moderate.",
+                NamedTextColor.DARK_GRAY
+        ));
         footer(player);
     }
 
