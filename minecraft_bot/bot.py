@@ -799,6 +799,9 @@ class MinecraftAccessBot(commands.Bot):
             rank_colour=rank.colour if rank else 0,
             rank_weight=rank_weight,
             booster=is_booster(member_role_ids),
+            # Without a resolved member we do not know their Discord roles. Saying
+            # "no rank" would wipe their LuckPerms groups, including any set by hand.
+            rank_known=member is not None,
         )
 
     async def on_member_update(self, before: discord.Member, after: discord.Member) -> None:

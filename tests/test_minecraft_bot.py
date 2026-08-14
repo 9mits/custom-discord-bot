@@ -1022,6 +1022,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
             rank_colour=0,
             rank_weight=0,
             booster=False,
+            rank_known=False,
         )
 
     async def test_level_role_change_resyncs_all_linked_accounts(self):
@@ -1562,3 +1563,38 @@ class MinecraftBoardSelectRoutingTests(unittest.TestCase):
 
         self.assertEqual(pattern.fullmatch("mgx_board:clan")["scope"], "clan")
         self.assertEqual(pattern.fullmatch("mgx_board:individual")["scope"], "individual")
+
+
+class MinecraftRankSyncSafetyTests(unittest.IsolatedAsyncioTestCase):
+    """An unknown Discord member must never be read as "this player has no rank"."""
+
+    def _bridge(self):
+        from minecraft_bot.bridge import MinecraftBridgeServer
+
+        bridge = object.__new__(MinecraftBridgeServer)
+        bridge._peer_protocol_version = 5
+        # `connected` is a property derived from the socket.
+        bridge._socket = SimpleNamespace(closed=False)
+        bridge._send = AsyncMock()
+        return bridge
+
+    async def _payload(self, **kwargs):
+        bridge = self._bridge()
+        await bridge.send_player_profile(
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            level=0,
+            extra_hearts=0,
+            elite=False,
+            **kwargs,
+        )
+        return bridge._send.await_args.args[1]
+
+    async def test_rank_is_omitted_when_the_member_is_unknown(self):
+        payload = await self._payload(rank_group="", rank_known=False)
+
+        self.assertNotIn("rank_group", payload)
+
+    async def test_an_empty_rank_still_clears_when_the_member_is_known(self):
+        payload = await self._payload(rank_group="", rank_known=True)
+
+        self.assertEqual(payload["rank_group"], "")
