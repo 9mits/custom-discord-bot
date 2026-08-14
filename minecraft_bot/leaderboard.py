@@ -94,6 +94,20 @@ class HeadEmojiStore:
         for uuid in podium:
             if uuid not in missing:
                 registry[uuid]["last_podium"] = now.isoformat()
+        # Ask Discord for nothing when the guild has no room: the alternative is a
+        # guaranteed 400 for every podium player, every refresh, forever.
+        free_slots = guild.emoji_limit - len(guild.emojis)
+        if missing and free_slots <= 0:
+            logger.info(
+                "Guild %s is at its emoji limit (%s); skipping %s podium head(s).",
+                guild.id,
+                guild.emoji_limit,
+                len(missing),
+            )
+            missing = {}
+        elif len(missing) > free_slots:
+            # Take the ones we can fit rather than failing the whole batch.
+            missing = dict(list(missing.items())[:free_slots])
         if missing:
             # One session for the whole podium; opening one per head was wasteful.
             async with aiohttp.ClientSession(
@@ -140,9 +154,16 @@ class HeadEmojiStore:
                 image=image,
                 reason=f"{BRAND_NAME} leaderboard podium",
             )
-        except (discord.HTTPException, aiohttp.ClientError, OSError):
+        except discord.HTTPException as error:
             # A missing head is cosmetic; the row still renders with its placement.
-            logger.exception("Could not create a podium emoji for %s", username)
+            # Expected refusals are logged flat, without a traceback each refresh.
+            if error.code == 30008:
+                logger.info("No emoji slots left for %s's head.", username)
+            else:
+                logger.warning("Could not create a podium emoji for %s: %s", username, error)
+            return None
+        except (aiohttp.ClientError, OSError) as error:
+            logger.warning("Could not fetch %s's head image: %s", username, error)
             return None
 
     async def _reap(

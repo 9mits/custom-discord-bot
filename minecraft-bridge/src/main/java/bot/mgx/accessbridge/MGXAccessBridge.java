@@ -45,6 +45,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private LuckPermsService luckPermsService;
     private LeaderboardService leaderboardService;
     private PlayerSettingsStore playerSettings;
+    private WealthStore wealthStore;
 
     @Override
     public void onEnable() {
@@ -81,6 +82,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             playerSettings = new PlayerSettingsStore(
                     getDataFolder().toPath().resolve("player-settings.json")
             );
+            wealthStore = new WealthStore(getDataFolder().toPath().resolve("wealth.json"));
             identityStore = new DiscordIdentityStore(
                     getDataFolder().toPath().resolve("discord-identities.json")
             );
@@ -112,7 +114,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         PlayerStatsService statsService = new PlayerStatsService(
                 this,
                 getServer().getWorlds().get(0).getWorldFolder().toPath().resolve("stats"),
-                new java.util.concurrent.ConcurrentHashMap<>()
+                wealthStore
         );
         leaderboardService = new LeaderboardService(
                 this,

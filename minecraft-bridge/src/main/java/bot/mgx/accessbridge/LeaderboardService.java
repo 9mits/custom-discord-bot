@@ -66,6 +66,7 @@ final class LeaderboardService {
             stats.snapshotWealth(online);
             onlineNames.put(online.getUniqueId(), online.getName());
         }
+        stats.saveWealth();
         return onlineNames;
     }
 
