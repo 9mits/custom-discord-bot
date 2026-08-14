@@ -1649,9 +1649,10 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
 
         self.assertIn(
             "**Mysterious Girlfriend X Discord, in partnership with "
-            "r/MysteriousGirlfriendX, presents Mysterious SMP X.**",
+            "r/MysteriousGirlfriendX.**",
             description,
         )
+        self.assertNotIn("presents", description)
 
 
 class MinecraftInformationPanelTests(unittest.TestCase):
@@ -1663,7 +1664,7 @@ class MinecraftInformationPanelTests(unittest.TestCase):
     def test_overview_uses_the_logo_as_the_image_not_a_thumbnail(self):
         from minecraft_bot.presentation import LOGO_ATTACHMENT_URI
 
-        embed = self.information.overview_embed()
+        embed = self.information.overview_embed(0)
 
         self.assertEqual(embed.image.url, LOGO_ATTACHMENT_URI)
         self.assertIsNone(embed.thumbnail.url)
@@ -1673,8 +1674,8 @@ class MinecraftInformationPanelTests(unittest.TestCase):
 
         for key, (_label, builder) in self.information.PAGES.items():
             with self.subTest(page=key):
-                self.assertEqual(builder().footer.text, BRAND_NAME)
-        self.assertEqual(self.information.overview_embed().footer.text, BRAND_NAME)
+                self.assertEqual(builder(0).footer.text, BRAND_NAME)
+        self.assertEqual(self.information.overview_embed(0).footer.text, BRAND_NAME)
 
     def test_levels_page_mentions_every_milestone_role(self):
         from minecraft_bot.perks import LEVEL_ROLE_MILESTONES
@@ -1683,7 +1684,7 @@ class MinecraftInformationPanelTests(unittest.TestCase):
 
         for role_id, level in LEVEL_ROLE_MILESTONES:
             self.assertIn(f"<@&{role_id}>", description)
-            self.assertIn(f"Level {level}", description)
+            self.assertIn(f"level {level}", description.lower())
         self.assertIn(self.information.LEVELS_CHANNEL_URL, description)
 
     def test_levels_page_explains_how_levels_are_earned(self):
@@ -1708,3 +1709,34 @@ class MinecraftInformationPanelTests(unittest.TestCase):
             match = pattern.fullmatch(custom_id)
             self.assertIsNotNone(match, f"{custom_id} would not route back")
             self.assertIn(match["page"], self.information.PAGES)
+
+    def test_apply_channel_is_mentioned_when_known(self):
+        described = self.information.overview_embed(1234).description
+
+        self.assertIn("<#1234>", described)
+        self.assertNotIn("the application channel", described)
+
+    def test_apply_channel_falls_back_to_words_when_unset(self):
+        described = self.information.overview_embed(0).description
+
+        self.assertIn("the application channel", described)
+
+    def test_overview_states_both_editions_versions(self):
+        described = self.information.overview_embed(0).description
+
+        self.assertIn("Java:", described)
+        self.assertIn("Bedrock:", described)
+
+    def test_expired_applications_are_explained(self):
+        described = self.information.troubleshooting_embed(99).description
+
+        self.assertIn("expired", described)
+        self.assertIn("/minecraft account", described)
+        self.assertIn("<#99>", described)
+
+    def test_panel_no_longer_says_presents(self):
+        from minecraft_bot.presentation import application_embeds
+
+        self.assertNotIn("presents", self.information.overview_embed(0).description)
+        self.assertNotIn("presents", application_embeds()[0].description)
+        self.assertIn("in partnership with", application_embeds()[0].description)

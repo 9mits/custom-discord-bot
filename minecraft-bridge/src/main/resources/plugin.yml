@@ -16,7 +16,7 @@ commands:
     usage: /claninfo [name]
   guide:
     description: Open the Mysterious SMP X server guide.
-    usage: /guide [levels|clans|commands]
+    usage: /guide [levels|clans|commands|staff]
     aliases: [serverguide]
   perks:
     description: View Discord level milestones and Minecraft perks.
