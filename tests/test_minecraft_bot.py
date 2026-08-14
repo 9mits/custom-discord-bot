@@ -1652,3 +1652,59 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
             "r/MysteriousGirlfriendX, presents Mysterious SMP X.**",
             description,
         )
+
+
+class MinecraftInformationPanelTests(unittest.TestCase):
+    def setUp(self):
+        from minecraft_bot import information
+
+        self.information = information
+
+    def test_overview_uses_the_logo_as_the_image_not_a_thumbnail(self):
+        from minecraft_bot.presentation import LOGO_ATTACHMENT_URI
+
+        embed = self.information.overview_embed()
+
+        self.assertEqual(embed.image.url, LOGO_ATTACHMENT_URI)
+        self.assertIsNone(embed.thumbnail.url)
+
+    def test_every_page_follows_the_footer_rule(self):
+        from minecraft_bot.presentation import BRAND_NAME
+
+        for key, (_label, builder) in self.information.PAGES.items():
+            with self.subTest(page=key):
+                self.assertEqual(builder().footer.text, BRAND_NAME)
+        self.assertEqual(self.information.overview_embed().footer.text, BRAND_NAME)
+
+    def test_levels_page_mentions_every_milestone_role(self):
+        from minecraft_bot.perks import LEVEL_ROLE_MILESTONES
+
+        description = self.information.levels_embed().description
+
+        for role_id, level in LEVEL_ROLE_MILESTONES:
+            self.assertIn(f"<@&{role_id}>", description)
+            self.assertIn(f"Level {level}", description)
+        self.assertIn(self.information.LEVELS_CHANNEL_URL, description)
+
+    def test_levels_page_explains_how_levels_are_earned(self):
+        description = self.information.levels_embed().description
+
+        self.assertIn("chatting", description)
+        self.assertIn("voice", description)
+
+    def test_boosting_page_states_the_stacked_totals(self):
+        description = self.information.boosting_embed().description
+
+        self.assertIn("+10% damage", description)
+        self.assertIn("+25% damage", description)
+        self.assertIn("six extra hearts", description)
+
+    def test_buttons_route_back_to_their_page(self):
+        pattern = self.information.InformationButton.__discord_ui_compiled_template__
+        emitted = [item.custom_id for item in self.information.InformationView().children]
+
+        self.assertEqual(len(emitted), len(self.information.PAGES))
+        for custom_id in emitted:
+            match = pattern.fullmatch(custom_id)
+            self.assertIsNotNone(match, f"{custom_id} would not route back")
+            self.assertIn(match["page"], self.information.PAGES)

@@ -332,6 +332,29 @@ class MinecraftSetupAction(discord.ui.Button):
         if self.action == "addresses":
             await interaction.response.send_modal(MinecraftAddressModal(interaction, view))
             return
+        if self.action in {"information", "leaderboard"}:
+            channel = interaction.channel
+            if not isinstance(channel, discord.TextChannel):
+                await interaction.response.send_message(
+                    "Run this in the text channel where the message should live.",
+                    ephemeral=True,
+                )
+                return
+            await interaction.response.defer(ephemeral=True)
+            if self.action == "information":
+                problem = await view.bot.publish_information_panel(channel)
+                posted = "The server guide"
+            else:
+                from .leaderboard import CONFIG_CHANNEL, CONFIG_MESSAGE
+
+                await view.bot.data.set_config(CONFIG_CHANNEL, channel.id)
+                await view.bot.data.set_config(CONFIG_MESSAGE, None)
+                problem = await view.bot._refresh_leaderboard_message()
+                posted = "The leaderboard"
+            await interaction.followup.send(
+                problem or f"{posted} is now in {channel.mention}.", ephemeral=True
+            )
+            return
         if self.action == "refresh":
             await interaction.response.edit_message(
                 view=MinecraftSetupView(view.bot, view.requester_id, interaction.guild)
@@ -465,6 +488,20 @@ class MinecraftSetupView(discord.ui.LayoutView):
         )
         actions.add_item(MinecraftSetupAction("refresh", "Refresh", discord.ButtonStyle.secondary))
         container.add_item(actions)
+        container.add_item(
+            discord.ui.TextDisplay(
+                "**Server guide** and **leaderboard** are permanent messages. Each button "
+                "posts into the channel you run this from, and keeps that message updated."
+            )
+        )
+        panels = discord.ui.ActionRow()
+        panels.add_item(
+            MinecraftSetupAction("information", "Post Server Guide", discord.ButtonStyle.primary)
+        )
+        panels.add_item(
+            MinecraftSetupAction("leaderboard", "Post Leaderboard", discord.ButtonStyle.primary)
+        )
+        container.add_item(panels)
         container.add_item(discord.ui.Separator(visible=False))
         container.add_item(discord.ui.TextDisplay(f"-# {BRAND_NAME} — Minecraft access control"))
         self.add_item(container)
