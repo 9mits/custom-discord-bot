@@ -1947,7 +1947,7 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
             if line.startswith("**") and line[2].isdigit()
         ]
 
-        self.assertEqual(len(headings), 12)
+        self.assertEqual(len(headings), 13)
         for index in headings:
             with self.subTest(rule=lines[index]):
                 self.assertFalse(lines[index].startswith(">"), "quoting adds margins")
@@ -1963,6 +1963,23 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
 
         self.assertIn("removal from the server", description)
         self.assertIn("Harassment", description)
+
+    def test_rules_name_the_three_kinds_of_cheating(self):
+        # A bare list of banned mods reads as exhaustive, so a player judges an
+        # unfamiliar one against nothing. The categories are what they check.
+        from minecraft_bot.presentation import rules_embed
+
+        description = rules_embed().description
+
+        for category in (
+            "Shows what you could not see",
+            "Plays for you",
+            "Changes what your character can do",
+        ):
+            with self.subTest(category=category):
+                self.assertIn(category, description)
+        self.assertIn("Lunar Client", description)
+        self.assertIn("player radar turned off", description)
 
     def test_rules_do_not_restate_the_mod_catalogue(self):
         # The permitted mods live on the information panel. Listing them here
