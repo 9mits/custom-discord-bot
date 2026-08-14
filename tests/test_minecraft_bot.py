@@ -1962,6 +1962,24 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
         self.assertIn("removal from the server", description)
         self.assertIn("Harassment", description)
 
+    def test_rules_that_enumerate_use_bullets(self):
+        # Conditions buried in a sentence get skimmed past. Where a rule draws a
+        # line between two things, or lists several, it should show them.
+        from minecraft_bot.presentation import rules_embed
+
+        description = rules_embed().description
+
+        for lead, bullets in (
+            ("**2. Theft has limits**", ("**Fair** —", "**Griefing** —")),
+            ("**4. Keep PvP fair**", ("**Allowed** —", "**Not allowed** —")),
+            ("**7. Keep it in character**", ("**In character** —", "**Not** —")),
+            ("**11. One account per player**", ("- Evade a punishment",)),
+        ):
+            rule = description.split(lead, 1)[1].split("\n\n", 1)[0]
+            for bullet in bullets:
+                with self.subTest(rule=lead, bullet=bullet):
+                    self.assertIn(bullet, rule)
+
     def test_rules_name_the_three_kinds_of_cheating(self):
         # A bare list of banned mods reads as exhaustive, so a player judges an
         # unfamiliar one against nothing. The categories are what they check.
