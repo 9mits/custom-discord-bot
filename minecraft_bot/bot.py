@@ -50,6 +50,7 @@ from .presentation import (
     player_activity_embed,
     verification_log_embed,
     verified_embed,
+    application_card_files,
     live_status_embed,
 )
 from .settings import MinecraftSettings, SETTING_KEYS
@@ -408,7 +409,7 @@ class MinecraftAccessBot(commands.Bot):
                 try:
                     await remembered[0].edit(
                         **branded_edit(self._application_card_embed(application)),
-                        attachments=[],
+                        attachments=application_card_files(application),
                         view=None,
                     )
                     if application.status not in {

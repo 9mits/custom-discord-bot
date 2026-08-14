@@ -15,6 +15,7 @@ from .presentation import (
     branded_edit,
     branded_send,
     info_embed,
+    application_card_files,
     live_status_embed,
     rules_embed,
     rules_image_file,
@@ -367,7 +368,7 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
         )
         await edit_card(
             embed=live_status_embed(application, bot.settings),
-            attachments=[verification_image_file()],
+            attachments=application_card_files(application),
             view=LiveApplicationView(),
         )
 
