@@ -520,13 +520,15 @@ def mods_embed() -> discord.Embed:
     xaeros_link = mod_link("Xaero's Minimap")
     return _page(
         "Mods and Voice Chat",
-        "The rule: anything that changes how the game looks or runs is fine. "
-        "Anything that shows you what you could not have seen is not.",
+        "Mods that change how the game looks or runs are fine. Mods that show you "
+        "what you could not see, or play the game for you, are not.",
         [
             (
                 "Voice chat",
-                f"> {mod_link('Simple Voice Chat')} — hear players near you\n"
-                "> Install the build matching your Minecraft version",
+                f"> The server officially supports {mod_link('Simple Voice Chat')}, "
+                "which lets you talk to players standing near you.\n"
+                "> Install the version matching the Minecraft version you play on.\n"
+                "> Java only — see below for Bedrock.",
             ),
             (
                 "Examples of permitted mods on Java",
@@ -541,22 +543,27 @@ def mods_embed() -> discord.Embed:
             ),
             (
                 "Clients",
-                f"> {mod_link('Lunar Client')} and {mod_link('Feather')} are "
-                "fine, and bundle most of the above\n\n"
-                "A launcher does not make a banned module allowed.",
+                "> Custom Minecraft clients such as "
+                f"{mod_link('Lunar Client')} and {mod_link('Feather')} are "
+                "permitted, and come with most of the above already installed.",
             ),
             (
-                "Prohibited on every edition",
-                "> X-ray · freecam · baritone · tracers · kill aura · reach "
-                "modification\n\n"
-                "The server runs an anticheat, so this is checked rather than "
-                "merely asked for.",
+                "Not allowed on any edition",
+                "> **Seeing what is hidden** — X-ray, ore and cave finders, "
+                "freecam, tracers, player radar\n"
+                "> **Playing for you** — kill aura, aim assist, auto-clickers, "
+                "auto-walk\n"
+                "> **Changing what your character can do** — extra reach, speed, "
+                "flight, no fall damage\n\n"
+                "These are examples of each kind, not the full list.",
             ),
             (
                 "Bedrock",
-                "> No client mods, so none of the above applies\n"
-                "> Marketplace texture packs are fine\n"
-                "> For voice, use a Discord voice channel",
+                "> Bedrock cannot install mods at all, so nothing above applies "
+                "to you.\n"
+                "> **Simple Voice Chat does not work on Bedrock.** There is no "
+                "way to add it.\n"
+                "> Join a Discord voice channel instead.",
             ),
         ],
     )
@@ -573,8 +580,7 @@ def technical_embed(settings=None) -> discord.Embed:
                 f"> **[Paper](https://papermc.io)** {SERVER_VERSION} — the server\n"
                 "> **[Geyser](https://geysermc.org)** — lets Bedrock players in\n"
                 "> **[ViaVersion](https://modrinth.com/plugin/viaversion)** and "
-                "ViaBackwards — translate older Java clients\n\n"
-                "All run on our side. Nothing for you to install.",
+                "ViaBackwards — translate older Java clients",
             ),
             (
                 "Java Edition",
