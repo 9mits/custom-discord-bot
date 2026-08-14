@@ -2077,18 +2077,15 @@ class MinecraftInformationPanelTests(unittest.TestCase):
             self.assertIsNotNone(match, f"{custom_id} would not route back")
             self.assertIn(match["page"], self.information.PAGES)
 
-    def test_apply_channel_is_mentioned_when_known(self):
-        # The overview lives in a post-acceptance channel, so joining
-        # instructions belong only in the troubleshooting page.
-        described = self.embed_text(self.information.troubleshooting_embed(1234))
+    def test_no_page_walks_an_accepted_member_through_applying(self):
+        # Everyone reading this panel has already applied and been accepted, so
+        # application troubleshooting belongs upstream, not here.
+        for name, embed in self._every_embed():
+            with self.subTest(page=name):
+                described = self.embed_text(embed)
 
-        self.assertIn("<#1234>", described)
-        self.assertNotIn("the application channel", described)
-
-    def test_apply_channel_falls_back_to_words_when_unset(self):
-        described = self.embed_text(self.information.troubleshooting_embed(0))
-
-        self.assertIn("the application channel", described)
+                self.assertNotIn("the application channel", described)
+                self.assertNotIn("Continue Application", described)
 
     def test_overview_reads_as_a_post_acceptance_handbook(self):
         described = self.embed_text(self.information.overview_embed(0))
@@ -2249,12 +2246,6 @@ class MinecraftInformationPanelTests(unittest.TestCase):
                     self.assertFalse(field.inline)
                     self.assertLessEqual(len(field.value), 1024)
 
-    def test_expired_applications_are_explained(self):
-        described = self.embed_text(self.information.troubleshooting_embed(99))
-
-        self.assertIn("expire", described)
-        self.assertIn("/minecraft account", described)
-        self.assertIn("<#99>", described)
 
     def test_panel_no_longer_says_presents(self):
         from minecraft_bot.presentation import application_embeds

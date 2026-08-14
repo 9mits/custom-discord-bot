@@ -107,23 +107,8 @@ def _page(title: str, intro: str, sections: list[tuple[str, str]]) -> discord.Em
     return embed
 
 
-def _apply_here(settings) -> str:
-    """Points at the real channel when we know it, so nobody has to go hunting.
-
-    Accepts either the settings object or a bare channel id.
-    """
-    if isinstance(settings, int):
-        channel_id = settings
-    else:
-        channel_id = getattr(settings, "application_channel_id", 0) if settings else 0
-    return f"<#{channel_id}>" if channel_id else "the application channel"
-
-
 def _addresses(settings) -> tuple[str, str, str]:
-    """Java address, Bedrock address and Bedrock port, with honest fallbacks.
-
-    Shared so the overview and the versions page can never drift apart.
-    """
+    """Java address, Bedrock address and Bedrock port, with honest fallbacks."""
     java = getattr(settings, "java_address", None) or "ask staff for the address"
     bedrock = getattr(settings, "bedrock_address", None) or "ask staff for the address"
     port = getattr(settings, "bedrock_port", None) or "19132"
@@ -140,7 +125,7 @@ def overview_embed(settings=None) -> discord.Embed:
             (
                 "The server",
                 "> A survival Minecraft server where teamwork, competition, PvP, "
-                "building and peaceful survival all sit side by side.\n"
+                "building and peaceful survival all come together.\n"
                 "> \n"
                 "> Play it your way — team up, compete, fight, build, or simply "
                 "enjoy the world.\n"
@@ -618,54 +603,6 @@ def technical_embed(settings=None) -> discord.Embed:
     )
 
 
-def troubleshooting_embed(settings=None) -> discord.Embed:
-    return _page(
-        "Troubleshooting",
-        "Resolutions for the issues raised most often.",
-        [
-            (
-                "Expired applications",
-                f"> Press **Apply** again in {_apply_here(settings)}\n"
-                "> `/minecraft account` — see where it stopped\n"
-                "> \n"
-                "> *An application expires when a step is left unfinished. "
-                "Nothing is lost.*",
-            ),
-            (
-                "Disconnected on first join",
-                "> Meant to happen — that connection only proves the account is "
-                "yours, and never lets you into the world.",
-            ),
-            (
-                "Verified but no form submitted",
-                "> **Continue Application** in your direct messages\n"
-                f"> Or press **Apply** again in {_apply_here(settings)}\n"
-                "> \n"
-                "> *Either resumes where you stopped.*",
-            ),
-            (
-                "Wrong username submitted",
-                "> `/minecraft cancel`, or press **Apply** for **Cancel Pending "
-                "Verification**\n"
-                "> \n"
-                "> *Then apply again with the correct name.*",
-            ),
-            (
-                "No direct message received",
-                "> Enable direct messages from server members\n"
-                "> Then check `/minecraft account`\n"
-                "> \n"
-                "> *Anything undelivered is retried automatically.*",
-            ),
-            (
-                "Playing on both editions",
-                "> You can, but each account applies separately, since each one is "
-                "verified on its own.",
-            ),
-        ],
-    )
-
-
 PAGES: dict[str, tuple[str, Callable[[Optional[object]], discord.Embed]]] = {
     "commands": ("Commands", lambda _settings: commands_embed()),
     "clans": ("Clans", lambda _settings: clans_embed()),
@@ -673,7 +610,6 @@ PAGES: dict[str, tuple[str, Callable[[Optional[object]], discord.Embed]]] = {
     "boosting": ("Boosting", lambda _settings: boosting_embed()),
     "mods": ("Mods & Voice Chat", lambda _settings: mods_embed()),
     "versions": ("Server & Versions", technical_embed),
-    "help": ("Troubleshooting", troubleshooting_embed),
 }
 
 #: Categories shown as a second row of buttons on a page's own message. Keeping
