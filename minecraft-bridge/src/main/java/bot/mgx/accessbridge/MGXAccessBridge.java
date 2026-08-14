@@ -45,6 +45,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private LuckPermsService luckPermsService;
     private LeaderboardService leaderboardService;
     private CapabilityService capabilityService;
+    private ClanStore clanStore;
     private PlayerSettingsStore playerSettings;
     private WealthStore wealthStore;
 
@@ -68,7 +69,6 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         pending = new PendingVerificationCache();
         ProcessedActionStore processed;
         VerificationEventStore verificationEvents;
-        ClanStore clanStore;
         DiscordIdentityStore identityStore;
         try {
             Path resultFile = getDataFolder().toPath().resolve("processed-actions.properties");
@@ -202,6 +202,69 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     void republishCapabilities() {
         if (capabilityService != null) {
             getServer().getScheduler().runTask(this, capabilityService::publishNow);
+        }
+    }
+
+    /**
+     * Performs a clan action requested from Discord.
+     *
+     * <p>Only actions that do not need the player standing in the world are offered;
+     * anything positional stays in game. {@link ClanStore} decides whether the actor
+     * is allowed, so this is a thin dispatch rather than a second rulebook.
+     */
+    String runClanAction(UUID actor, String action, String argument) throws java.io.IOException {
+        java.util.Optional<ClanStore.ClanView> clan = clanStore.clanOf(actor);
+        switch (action) {
+            case "leave" -> {
+                String name = clanStore.leave(actor);
+                refreshClanAppearance();
+                republishCapabilities();
+                return "You left " + name + ".";
+            }
+            case "disband" -> {
+                String name = clanStore.disband(actor);
+                refreshClanAppearance();
+                republishCapabilities();
+                return name + " was disbanded.";
+            }
+            case "rename" -> {
+                ClanStore.ClanView renamed = clanStore.rename(actor, argument);
+                refreshClanAppearance();
+                republishCapabilities();
+                return "Your clan is now called " + renamed.name() + ".";
+            }
+            case "color" -> {
+                ClanStore.ClanView recoloured = clanStore.setThemeColor(actor, argument);
+                refreshClanAppearance();
+                return String.format("Clan colour set to #%06X.", recoloured.themeColor());
+            }
+            case "kick", "promote", "demote", "transfer" -> {
+                ClanStore.ClanView view = clan.orElseThrow(
+                        () -> new ClanStore.ClanException("You are not in a clan.")
+                );
+                UUID target = clanStore.findMember(view.id(), argument).orElseThrow(
+                        () -> new ClanStore.ClanException("No clan member has that name.")
+                );
+                String outcome = switch (action) {
+                    case "kick" -> clanStore.kick(actor, target) + " was removed from the clan.";
+                    case "promote" -> {
+                        clanStore.setStaff(actor, target, true);
+                        yield argument + " is now clan staff.";
+                    }
+                    case "demote" -> {
+                        clanStore.setStaff(actor, target, false);
+                        yield argument + " is no longer clan staff.";
+                    }
+                    default -> {
+                        clanStore.transfer(actor, target);
+                        yield argument + " now leads the clan.";
+                    }
+                };
+                refreshClanAppearance();
+                republishCapabilities();
+                return outcome;
+            }
+            default -> throw new ClanStore.ClanException("That clan action is not available here.");
         }
     }
 

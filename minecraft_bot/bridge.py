@@ -424,6 +424,25 @@ class MinecraftBridgeServer:
             return False
         return True
 
+    async def run_clan_action(
+        self,
+        *,
+        actor_uuid: str,
+        action: str,
+        argument: str = "",
+    ) -> None:
+        """Asks Paper to perform a clan action. It decides whether the actor may."""
+        await self._send(
+            "ACTION",
+            {
+                "action": "CLAN_ACTION",
+                "actor_uuid": str(actor_uuid),
+                "clan_action": str(action),
+                "argument": str(argument).strip()[:32],
+            },
+            idempotency_key=f"clan:{actor_uuid}:{secrets.token_hex(12)}",
+        )
+
     async def send_discord_chat(
         self,
         *,

@@ -1809,3 +1809,62 @@ class MinecraftCapabilityTests(unittest.TestCase):
         for action, (_label, roles) in self.capabilities.CLAN_ACTIONS.items():
             with self.subTest(action=action):
                 self.assertTrue(set(roles) <= {"leader", "staff", "member"})
+
+
+class MinecraftClanActionTests(unittest.IsolatedAsyncioTestCase):
+    """Discord may only ask for actions the server says the player's role allows."""
+
+    def _bot(self, *, role, connected=True):
+        bot = object.__new__(MinecraftAccessBot)
+        bot.data = SimpleNamespace(
+            list_accounts_for_user=AsyncMock(return_value=[{"minecraft_uuid": "u1"}])
+        )
+        bot.bridge = SimpleNamespace(
+            connected=connected,
+            latest_capabilities={
+                "players": {"u1": {"clan": "LUCKY", "clan_role": role, "staff_tools": []}}
+            },
+            run_clan_action=AsyncMock(),
+        )
+        return bot
+
+    async def test_a_leader_may_disband(self):
+        bot = self._bot(role="leader")
+
+        embed = await bot.run_clan_action(1, "disband", "")
+
+        bot.bridge.run_clan_action.assert_awaited_once()
+        self.assertEqual(embed.title, "Sent to the Server")
+
+    async def test_a_member_may_not_disband(self):
+        bot = self._bot(role="member")
+
+        embed = await bot.run_clan_action(1, "disband", "")
+
+        bot.bridge.run_clan_action.assert_not_awaited()
+        self.assertEqual(embed.title, "Not Allowed")
+
+    async def test_actions_needing_a_target_refuse_without_one(self):
+        bot = self._bot(role="leader")
+
+        embed = await bot.run_clan_action(1, "kick", "")
+
+        bot.bridge.run_clan_action.assert_not_awaited()
+        self.assertEqual(embed.title, "Missing Detail")
+
+    async def test_nothing_is_sent_while_the_server_is_offline(self):
+        bot = self._bot(role="leader", connected=False)
+
+        embed = await bot.run_clan_action(1, "disband", "")
+
+        bot.bridge.run_clan_action.assert_not_awaited()
+        self.assertEqual(embed.title, "Server Offline")
+
+    async def test_an_unlinked_user_is_told_to_link(self):
+        bot = self._bot(role="leader")
+        bot.data.list_accounts_for_user = AsyncMock(return_value=[])
+
+        embed = await bot.run_clan_action(1, "leave", "")
+
+        bot.bridge.run_clan_action.assert_not_awaited()
+        self.assertEqual(embed.title, "No Linked Account")

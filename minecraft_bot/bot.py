@@ -19,6 +19,7 @@ from .audit import (
     record_denial,
 )
 from .bridge import MinecraftBridgeServer
+from .capabilities import CLAN_ACTIONS
 from .config import MinecraftConfig
 from .data import MinecraftDataManager
 from .models import ApplicationStatus, BridgeAction, Edition, InvalidTransition, MinecraftApplication, OutboxRecord
@@ -1063,6 +1064,61 @@ class MinecraftAccessBot(commands.Bot):
     async def _before_leaderboard_refresh(self) -> None:
         await self.wait_until_ready()
 
+    async def run_clan_action(
+        self, discord_user_id: int, action: str, argument: str
+    ) -> discord.Embed:
+        """Requests a clan action for the caller's linked account.
+
+        The offered actions are filtered by the server's own report of their role, and
+        the server checks again before doing anything — a stale menu grants nothing.
+        """
+        from .capabilities import CLAN_ACTIONS, capabilities_for
+        from .presentation import info_embed
+
+        accounts = await self.data.list_accounts_for_user(discord_user_id)
+        if not accounts:
+            return info_embed(
+                "No Linked Account",
+                "> Link a Minecraft account before using clan commands.",
+                error=True,
+            )
+        if not self.bridge.connected:
+            return info_embed(
+                "Server Offline",
+                "> The Minecraft server is not reachable right now. Try again shortly.",
+                error=True,
+            )
+        needs_argument = action in {"kick", "promote", "demote", "transfer", "rename", "color"}
+        if needs_argument and not argument:
+            return info_embed(
+                "Missing Detail",
+                f"> `{action}` needs a player or value. Add one and run it again.",
+                error=True,
+            )
+
+        snapshot = getattr(self.bridge, "latest_capabilities", {}) or {}
+        for account in accounts:
+            uuid = str(account["minecraft_uuid"])
+            if not capabilities_for(snapshot, uuid).may(action):
+                continue
+            await self.bridge.run_clan_action(
+                actor_uuid=uuid, action=action, argument=argument
+            )
+            label = CLAN_ACTIONS[action][0].lower()
+            return info_embed(
+                "Sent to the Server",
+                f"> Asked the server to {label}."
+                + (f" (`{argument}`)" if argument else "")
+                + "\n> The server confirms in game, and refuses if the action is not allowed.",
+                success=True,
+            )
+        return info_embed(
+            "Not Allowed",
+            "> Your clan role does not allow that. Use `/minecraft clan` with no action "
+            "to see what you can do.",
+            error=True,
+        )
+
     async def build_capability_embed(self, discord_user_id: int, *, staff: bool) -> discord.Embed:
         """Shows only what the server says this player may do.
 
@@ -1480,10 +1536,35 @@ class MinecraftAccessBot(commands.Bot):
             name="clan",
             description="Your clan, and the actions your role allows.",
         )
-        async def clan(interaction: discord.Interaction) -> None:
+        @app_commands.describe(
+            action="Leave blank to see your clan and what you can do.",
+            player="The clan member to act on, for kick, promote, demote or transfer.",
+            value="The new name or colour, for rename or color.",
+        )
+        @app_commands.choices(
+            action=[
+                app_commands.Choice(name=label, value=key)
+                for key, (label, _roles) in CLAN_ACTIONS.items()
+            ]
+        )
+        async def clan(
+            interaction: discord.Interaction,
+            action: Optional[app_commands.Choice[str]] = None,
+            player: Optional[str] = None,
+            value: Optional[str] = None,
+        ) -> None:
             await interaction.response.defer(ephemeral=True)
+            if action is None:
+                await interaction.edit_original_response(
+                    embed=await self.build_capability_embed(interaction.user.id, staff=False)
+                )
+                return
             await interaction.edit_original_response(
-                embed=await self.build_capability_embed(interaction.user.id, staff=False)
+                embed=await self.run_clan_action(
+                    interaction.user.id,
+                    action.value,
+                    player or value or "",
+                )
             )
 
         @group.command(
