@@ -26,8 +26,8 @@ PODIUM = 3
 DISPLAY_ROWS = 5
 #: Head emojis are a reward, so they outlive a single bad week on the board.
 EMOJI_RETENTION_DAYS = 14
-#: Leaves the guild's remaining emoji slots for everything else.
-EMOJI_BUDGET = 20
+#: Only the default board mints heads, so this only has to cover a little turnover.
+EMOJI_BUDGET = 6
 EMOJI_PREFIX = "mgx_head_"
 #: Deleting emojis is rate-limited, so a backlog is cleared over several refreshes.
 EMOJI_CLEANUP_PER_PASS = 25
@@ -143,12 +143,17 @@ class HeadEmojiStore:
         return {uuid: entry["markdown"] for uuid, entry in registry.items() if entry.get("markdown")}
 
     def _podium_players(self, snapshot: dict[str, Any]) -> dict[str, str]:
+        """Only the default board mints heads.
+
+        Minting across all five boards meant up to fifteen emojis, churning as players
+        traded places. One board keeps it to three and makes the podium mean something.
+        Anyone who has a head still shows it wherever they place top three.
+        """
         players: dict[str, str] = {}
-        for board in TYPE_LABELS:
-            for row in _rows(snapshot, "individual", board)[:PODIUM]:
-                uuid = str(row.get("minecraft_uuid") or "")
-                if uuid:
-                    players.setdefault(uuid, str(row.get("username") or "player"))
+        for row in _rows(snapshot, "individual", DEFAULT_TYPE)[:PODIUM]:
+            uuid = str(row.get("minecraft_uuid") or "")
+            if uuid:
+                players.setdefault(uuid, str(row.get("username") or "player"))
         return players
 
     async def _create(
