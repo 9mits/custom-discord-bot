@@ -1918,6 +1918,32 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
 
         self.assertIn("**1. Do not grief**", description)
 
+    def test_rules_render_as_one_blockquote(self):
+        # A heading followed by its own quote opens a fresh quote block per rule,
+        # and Discord pads each one until the list sprawls off the screen.
+        from minecraft_bot.presentation import rules_embed
+
+        rules = [
+            line
+            for line in rules_embed().description.splitlines()
+            if line.strip() and line.lstrip(">").strip().startswith("**")
+            and line.lstrip(">").strip()[2].isdigit()
+        ]
+
+        self.assertEqual(len(rules), 7)
+        for line in rules:
+            with self.subTest(rule=line[:24]):
+                self.assertTrue(line.startswith("> "), f"{line[:30]!r} breaks the quote")
+
+    def test_rules_state_a_consequence(self):
+        # Rules with no stated consequence read as suggestions.
+        from minecraft_bot.presentation import rules_embed
+
+        description = rules_embed().description
+
+        self.assertIn("removal from the server", description)
+        self.assertIn("Harassment", description)
+
     def test_rules_do_not_restate_the_mod_catalogue(self):
         # The permitted mods live on the information panel. Listing them here
         # too meant two places to update and two chances to disagree.
