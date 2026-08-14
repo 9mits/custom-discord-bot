@@ -83,6 +83,24 @@ class StaffToolsTest {
     }
 
     @Test
+    void confirmationsReadAsSentencesNotCommands() {
+        assertEquals("mits has been kicked from the server.",
+                StaffTools.confirmation("kick", "mits", "Spamming", ""));
+        assertEquals("mits has been muted until further notice.",
+                StaffTools.confirmation("mute", "mits", "", ""));
+        assertEquals("mits has been muted for 10m.",
+                StaffTools.confirmation("mute", "mits", "", "10m"));
+        assertEquals("mits has been banned for 1d.",
+                StaffTools.confirmation("tempban", "mits", "", "1d"));
+        assertEquals("The ban on mits has been lifted.",
+                StaffTools.confirmation("unban", "mits", "", ""));
+        assertEquals("Announced to every online player: \"Event starting soon\"",
+                StaffTools.confirmation("broadcast", "", "Event starting soon", ""));
+        assertEquals("The action was completed on the server.",
+                StaffTools.confirmation("something-new", "mits", "", ""));
+    }
+
+    @Test
     void unknownKeysAreNotFound() {
         assertFalse(StaffTools.find("nonsense").isPresent());
     }

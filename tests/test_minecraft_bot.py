@@ -1864,7 +1864,7 @@ class MinecraftClanActionTests(unittest.IsolatedAsyncioTestCase):
         embed = await bot.run_clan_action(1, "disband", "")
 
         bot.bridge.run_clan_action.assert_awaited_once()
-        self.assertEqual(embed.title, "Done")
+        self.assertEqual(embed.title, "Clan Updated")
 
     async def test_a_refusal_from_the_server_is_shown_as_such(self):
         bot = self._bot(role="leader")
@@ -1872,7 +1872,7 @@ class MinecraftClanActionTests(unittest.IsolatedAsyncioTestCase):
 
         embed = await bot.run_clan_action(1, "disband", "")
 
-        self.assertEqual(embed.title, "Refused by the Server")
+        self.assertEqual(embed.title, "Clan Action Declined")
         self.assertIn("No clan has that name.", embed.description)
 
     async def test_a_member_may_not_disband(self):
@@ -2008,7 +2008,7 @@ class MinecraftStaffActionTests(unittest.IsolatedAsyncioTestCase):
         bot.bridge.run_staff_action.assert_awaited_once_with(
             actor_uuid="u1", tool="kick", target="mits", reason="", duration=""
         )
-        self.assertEqual(embed.title, "Done")
+        self.assertEqual(embed.title, "Action Completed")
 
     async def test_an_unheld_tool_is_refused_without_contacting_the_server(self):
         bot = self._bot(tools=[])
@@ -2052,7 +2052,7 @@ class MinecraftStaffActionTests(unittest.IsolatedAsyncioTestCase):
         )
 
         bot.bridge.run_staff_action.assert_awaited_once()
-        self.assertEqual(embed.title, "Done")
+        self.assertEqual(embed.title, "Action Completed")
 
     async def test_a_refusal_from_the_server_is_shown_as_such(self):
         bot = self._bot(tools=["kick"])
@@ -2062,7 +2062,7 @@ class MinecraftStaffActionTests(unittest.IsolatedAsyncioTestCase):
 
         embed = await bot.run_staff_action(1, "kick", target="mits", reason="", duration="")
 
-        self.assertEqual(embed.title, "Refused by the Server")
+        self.assertEqual(embed.title, "Action Declined")
         self.assertIn("not online", embed.description)
 
     async def test_nothing_is_sent_while_the_server_is_offline(self):
