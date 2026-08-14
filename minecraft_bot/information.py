@@ -117,9 +117,8 @@ def commands_embed() -> discord.Embed:
                 "homes are included\n"
                 "`/home [name]` — return to a saved home\n"
                 "`/delhome <name>` · `/renamehome <old> <new>` — manage your homes\n"
-                "`/spawn` — return to the world spawn\n"
                 "`/back` — return to your previous location\n"
-                "`/warp [name]` — travel to a staff-created warp",
+                "`/warp [name]` — list staff-created warps, or travel to one",
             ),
             (
                 "Teleport requests",

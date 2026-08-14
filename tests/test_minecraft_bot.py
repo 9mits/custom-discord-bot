@@ -1830,7 +1830,6 @@ class MinecraftInformationPanelTests(unittest.TestCase):
             "/sethome",
             "/home",
             "/delhome",
-            "/spawn",
             "/back",
             "/warp",
             "/tpa",
