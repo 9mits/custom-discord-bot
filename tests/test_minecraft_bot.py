@@ -2237,7 +2237,11 @@ class MinecraftInformationPanelTests(unittest.TestCase):
     def test_categories_stay_within_discord_limits(self):
         for name, embed in self._every_embed():
             with self.subTest(page=name):
-                self.assertGreaterEqual(len(embed.fields), 2)
+                if embed.fields:
+                    self.assertGreaterEqual(len(embed.fields), 2)
+                else:
+                    # A page may instead be a single document, as the rules are.
+                    self.assertGreater(len(embed.description or ""), 200)
                 for field in embed.fields:
                     self.assertFalse(field.inline)
                     self.assertLessEqual(len(field.value), 1024)
@@ -2265,14 +2269,41 @@ class MinecraftInformationPanelTests(unittest.TestCase):
 
     def test_pages_lay_sections_out_as_fields(self):
         # The panel's readability rests on fields, so a page collapsing back
-        # into one long description should fail loudly.
+        # into one long description should fail loudly. The rules are the one
+        # exception: that embed is a single document shared with the agreement.
         for key, (_label, builder) in self.information.PAGES.items():
+            if key == "rules":
+                continue
             with self.subTest(page=key):
                 embed = builder(0)
                 self.assertGreaterEqual(len(embed.fields), 2)
                 for field in embed.fields:
                     self.assertFalse(field.inline)
                     self.assertLessEqual(len(field.value), 1024)
+
+    def test_rules_page_shows_the_same_rules_as_the_application(self):
+        from minecraft_bot.presentation import rules_embed
+
+        panel = self.information.PAGES["rules"][1](0)
+
+        self.assertEqual(panel.description, rules_embed().description)
+        # The agreement wording belongs to the application flow, not to a
+        # reference page read by members who accepted months ago.
+        self.assertNotIn("I Agree", panel.description)
+
+    def test_pages_referencing_an_attachment_ship_the_file(self):
+        # An ephemeral reply cannot borrow the panel's attachments, so a page
+        # pointing at attachment:// must carry its own file or render broken.
+        for key, (_label, builder) in self.information.PAGES.items():
+            image = builder(0).image.url or ""
+            with self.subTest(page=key):
+                if image.startswith("attachment://"):
+                    self.assertIn(key, self.information.PAGE_FILES)
+                    handle = self.information.PAGE_FILES[key]()
+                    self.assertEqual(image, f"attachment://{handle.filename}")
+                    handle.close()
+                else:
+                    self.assertNotIn(key, self.information.PAGE_FILES)
 
 
     def test_panel_no_longer_says_presents(self):
