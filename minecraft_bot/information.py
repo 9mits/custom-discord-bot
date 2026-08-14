@@ -139,20 +139,30 @@ def overview_embed(settings=None) -> discord.Embed:
         [
             (
                 "The server",
-                "> A survival SMP with full Java and Bedrock crossplay — one world, "
-                "one community, whichever edition you own.\n"
-                "> Built around building, clans, teamwork, rivalry and lore.\n"
-                "> PvP is enabled, so raids and betrayals are part of the story. "
-                "Every block placed or broken is logged, so genuine griefing can "
-                "always be reverted.",
+                "> Mysterious SMP X is a survival server where Java and Bedrock "
+                "players share a single world, so it never matters which edition "
+                "you happen to own. What the server becomes is mostly up to the "
+                "people on it — the building, the clans that form around it, the "
+                "alliances and rivalries that follow, and the lore that grows out "
+                "of all of it.\n"
+                "> \n"
+                "> PvP is enabled, which means raids and the occasional betrayal "
+                "are part of the story rather than something staff step in to "
+                "prevent. Every block placed or broken is recorded, though, so if "
+                "a rivalry tips over into genuine griefing it can always be rolled "
+                "back.",
             ),
             (
                 "Client versions",
-                f"> **Java** — {JAVA_SUPPORTED_RANGE}, translated automatically.\n"
-                f"> Releases newer than **{SERVER_VERSION}** are blocked for "
-                "safety reasons.\n"
-                "> **Bedrock** — the current release, from phone, console, tablet "
-                "or Windows.",
+                f"> On **Java** you can join from anything between "
+                f"{JAVA_SUPPORTED_RANGE}, and the server translates older clients "
+                f"automatically. Releases newer than **{SERVER_VERSION}** are "
+                "blocked for safety reasons, so if your launcher has updated past "
+                "it you will need to add an older installation.\n"
+                "> \n"
+                "> On **Bedrock** simply keep the game up to date. Phones, "
+                "consoles, tablets and Windows all connect to the same world as "
+                "everyone else.",
             ),
             (
                 "Server address",
@@ -162,9 +172,11 @@ def overview_embed(settings=None) -> discord.Embed:
             ),
             (
                 "Getting started",
-                "> Open **Commands** for everything you can type.\n"
-                f"> Run `/sethome` once you find your spot — you get "
-                f"**{DEFAULT_HOME_LIMIT}**.",
+                "> The **Commands** button below lists everything you can type in "
+                "game, grouped by what it does. The one worth learning on your "
+                f"first evening is `/sethome`, which saves wherever you decide to "
+                f"settle — you can keep **{DEFAULT_HOME_LIMIT}** of them, and "
+                "`/home` brings you back from anywhere.",
             ),
         ],
     )
@@ -352,24 +364,27 @@ def clans_embed() -> discord.Embed:
         [
             (
                 "The rules that always apply",
-                "> Clan members **cannot damage each other** — melee or arrows, no "
-                "exceptions. This is permanent and nobody can switch it off.\n"
-                f"> A clan holds up to **{CLAN_MAX_MEMBERS} players**.\n"
-                "> Names are unique, and the name **is** the tag. There is no "
-                "separate tag to set.",
+                "> Clan members **cannot damage each other**, whether by melee or "
+                "by arrow. This is permanent and nobody, including the leader, can "
+                "switch it off — so a clan is a genuine commitment rather than a "
+                f"label. Each one holds up to **{CLAN_MAX_MEMBERS} players**.\n"
+                "> \n"
+                "> Clan names are unique across the server, and the name itself "
+                "**is** the tag you wear. There is no separate tag to configure.",
             ),
             (
                 "Ranks inside a clan",
-                "> **Leader** — one per clan, and the only one who can rename, "
-                "recolour, promote, demote, transfer or disband.\n"
-                "> **Staff** — can invite and kick members.\n"
-                "> **Member** — clan chat and the roster.",
+                "> Every clan has exactly one **leader**, who alone can rename it, "
+                "change its colour, promote and demote, hand it over or close it "
+                "down. Beneath them any number of **staff** can invite new players "
+                "and remove ordinary members, while **members** get clan chat and "
+                "the roster.",
             ),
             (
                 "Categories",
-                "> **Roles** — exactly what each rank may do\n"
-                "> **Joining** — invitations, expiry and full clans\n"
-                "> **Leaving** — departing, handing over and disbanding",
+                "> **Roles** covers exactly what each rank may do, **Joining** "
+                "explains invitations and what happens when a clan is full, and "
+                "**Leaving** deals with departing, handing over and disbanding.",
             ),
         ],
     )
@@ -403,8 +418,11 @@ def clans_roles_embed(settings=None) -> discord.Embed:
             (
                 "Who can remove whom",
                 "> Staff can kick ordinary members, but **only the leader can "
-                "remove another staff member**.\n"
-                "> The **leader cannot be kicked** by anyone, at all.",
+                "remove another staff member** — promoting somebody therefore "
+                "puts them beyond the reach of everyone except you. The "
+                "**leader cannot be kicked** by anyone at all, which is why "
+                "handing the clan over is a deliberate act rather than something "
+                "that can be done to you.",
             ),
         ],
     )
@@ -417,11 +435,11 @@ def clans_joining_embed(settings=None) -> discord.Embed:
         [
             (
                 "Getting invited",
-                "> A leader or clan staff runs `/clans invite <player>`.\n"
-                "> You must be **online** to receive it — offline players cannot be "
-                "invited.\n"
-                f"> An invite expires after **{CLAN_INVITE_EXPIRY_MINUTES} "
-                "minutes**.",
+                "> A leader or one of their staff runs `/clans invite <player>`, "
+                "and you must be **online** at that moment to receive it — there "
+                "is no way to invite somebody who has logged off. The invite then "
+                f"expires after **{CLAN_INVITE_EXPIRY_MINUTES} minutes**, so "
+                "answer it while you are still at your keyboard.",
             ),
             (
                 "Answering",
@@ -438,8 +456,10 @@ def clans_joining_embed(settings=None) -> discord.Embed:
             ),
             (
                 "When a clan is full",
-                f"> At **{CLAN_MAX_MEMBERS} players** no further invites can be "
-                "accepted until someone leaves or is removed.",
+                f"> Once a clan reaches **{CLAN_MAX_MEMBERS} players** no further "
+                "invites can be accepted, and an outstanding one will simply fail "
+                "when you try to use it. Somebody has to leave or be removed "
+                "before the clan can take anyone new.",
             ),
         ],
     )
@@ -452,25 +472,28 @@ def clans_leaving_embed(settings=None) -> discord.Embed:
         [
             (
                 "Members and staff",
-                "> `/clans leave` departs immediately. No confirmation is asked.\n"
-                "> You keep everything you own; only the tag goes.",
+                "> `/clans leave` takes effect immediately and asks for no "
+                "confirmation, so be sure before you run it. You keep everything "
+                "you own — only the tag and the damage immunity go with it.",
             ),
             (
                 "The leader cannot simply leave",
-                "> A leader must **transfer the clan or disband it** first. This "
-                "stops a clan being stranded with nobody able to run it.",
+                "> A leader has to **transfer the clan or disband it** before they "
+                "can go anywhere, which exists to stop a clan being stranded with "
+                "a roster full of people and nobody able to run it.",
             ),
             (
                 "Handing it over",
-                "> `/clans transfer <player>` makes another member the leader.\n"
-                "> You stay in the clan as **staff** — you are not removed — so you "
-                "can still invite and kick, but no longer rename, promote or "
-                "disband.",
+                "> `/clans transfer <player>` makes another member the leader in "
+                "your place. You are not removed in the process: you stay on as "
+                "**staff**, so you can still invite and kick, but renaming, "
+                "promoting and disbanding all pass to whoever you handed it to.",
             ),
             (
                 "Disbanding",
                 "> `/clans disband` closes the clan for **everyone at once**, not "
-                "just you. Leader only, and it cannot be undone.",
+                "merely for you, and there is no way to undo it afterwards. Only "
+                "the leader can do this.",
             ),
         ],
     )
@@ -494,29 +517,29 @@ def levels_embed() -> discord.Embed:
             ),
             (
                 "Reading that ladder",
-                f"> Reaching level 20 means you hold **{_hearts(3)}** in total, not "
-                "one.\n"
-                f"> Level 40 is the heart cap at **{_hearts(max_hearts)}**.\n"
-                f"> Level 50 adds **+{ELITE_DAMAGE_PERCENT}% damage** instead of a "
-                "sixth heart.",
+                f"> Reaching level 20 means you hold **{_hearts(3)}** in total "
+                "rather than one, because every milestone you passed on the way "
+                f"still counts. Level 40 is where the hearts stop, at "
+                f"**{_hearts(max_hearts)}**, and level 50 does not add a sixth — "
+                f"it gives **+{ELITE_DAMAGE_PERCENT}% damage** instead.",
             ),
             (
                 "Boosting stacks on top",
                 f"> Boosting the Discord server adds **+{BOOSTER_EXTRA_HEARTS} "
                 f"heart** and **+{BOOSTER_DAMAGE_PERCENT}% damage** on top of "
-                "whatever your level already gives.\n"
-                f"> Damage adds together rather than multiplying: level 50 "
-                f"(+{ELITE_DAMAGE_PERCENT}%) plus boosting "
-                f"(+{BOOSTER_DAMAGE_PERCENT}%) is **+{combined_damage}%**.\n"
-                f"> The maximum anyone can hold is **{_hearts(max_hearts + BOOSTER_EXTRA_HEARTS)}** "
-                f"and **+{combined_damage}% damage**.",
+                "whatever your level already gives you, rather than replacing any "
+                "of it. The two damage bonuses add together rather than "
+                f"multiplying, so a level 50 player who also boosts deals "
+                f"**+{combined_damage}% damage** — that plus "
+                f"**{_hearts(max_hearts + BOOSTER_EXTRA_HEARTS)}** is the most "
+                "anyone on the server can hold.",
             ),
             (
                 "Checking yours",
-                "> The sidebar shows your level, hearts and damage bonus while you "
-                "play.\n"
-                "> `/perks` displays them at any time.\n"
-                f"> How levelling works: {LEVELS_CHANNEL_URL}",
+                "> Your level, hearts and damage bonus sit on the sidebar while "
+                "you play, and `/perks` will print them at any time if you would "
+                f"rather read them properly. If you want the detail on how "
+                f"levelling itself works, it lives here: {LEVELS_CHANNEL_URL}",
             ),
         ],
     )
@@ -541,19 +564,22 @@ def boosting_embed() -> discord.Embed:
             ),
             (
                 "How it stacks with your level",
-                "> These are added to your level rewards, not instead of them.\n"
-                f"> Damage adds together rather than multiplying: level 50 "
-                f"(+{ELITE_DAMAGE_PERCENT}%) plus boosting "
-                f"(+{BOOSTER_DAMAGE_PERCENT}%) is **+{combined_damage}%**, not "
-                "+26.5%.\n"
-                f"> A level 50 booster therefore holds "
+                "> These are added to whatever your level already earned you, not "
+                "given instead of it. The two damage bonuses add together rather "
+                f"than multiplying, so level 50 (+{ELITE_DAMAGE_PERCENT}%) "
+                f"alongside boosting (+{BOOSTER_DAMAGE_PERCENT}%) comes to "
+                f"**+{combined_damage}%** and not +26.5%.\n"
+                "> \n"
+                f"> A level 50 player who boosts therefore holds "
                 f"**{_hearts(max_hearts + BOOSTER_EXTRA_HEARTS)}** and "
-                f"**+{combined_damage}% damage** — the highest possible.",
+                f"**+{combined_damage}% damage**, which is the highest anyone can "
+                "reach.",
             ),
             (
                 "If you stop boosting",
-                "> Only these three bonuses stop.\n"
-                "> Your level rewards, rank, clan and progress are untouched.",
+                "> Only these three bonuses go away. Your level rewards, your "
+                "rank, your clan and everything you have built are completely "
+                "untouched.",
             ),
         ],
     )
@@ -567,9 +593,10 @@ def mods_embed() -> discord.Embed:
         [
             (
                 "Voice chat",
-                f"> {mod_link('Simple Voice Chat')} carries proximity voice between "
-                "nearby players.\n"
-                "> Install the build matching your Minecraft version.",
+                f"> {mod_link('Simple Voice Chat')} carries proximity voice, so "
+                "you hear whoever is standing near you and nobody else. Install "
+                "the build that matches the Minecraft version you play on — the "
+                "download page lists one for each.",
             ),
             (
                 "Permitted on Java",
@@ -584,16 +611,20 @@ def mods_embed() -> discord.Embed:
             ),
             (
                 "Prohibited on every edition",
-                "> X-ray, freecam, baritone, tracers, kill aura, reach modification, "
-                "and anything else revealing what you could not observe yourself.\n"
-                "> The server runs an anticheat and logs all block activity.",
+                "> X-ray, freecam, baritone, tracers, kill aura and reach "
+                "modification are all banned, as is anything else that shows you "
+                "what you could not have seen or lets you do what you could not "
+                "have done unaided. The server runs an anticheat and logs every "
+                "block placed or broken, so this is checked rather than merely "
+                "asked for.",
             ),
             (
                 "Bedrock",
-                "> Client mods are unavailable, so voice chat, minimaps and "
-                "performance mods do not apply.\n"
-                "> Marketplace texture packs are permitted, being purely cosmetic.\n"
-                "> For voice, use a Discord voice channel.",
+                "> Bedrock does not support client mods at all, so voice chat, "
+                "minimaps and performance mods are simply unavailable there. "
+                "Marketplace texture packs are fine, since they only change how "
+                "the game looks. If you want to talk to people while you play, "
+                "join a Discord voice channel instead.",
             ),
         ],
     )
@@ -607,25 +638,28 @@ def technical_embed(settings=None) -> discord.Embed:
         [
             (
                 "Software",
-                f"> **[Paper](https://papermc.io)** {SERVER_VERSION}\n"
-                "> **[Geyser](https://geysermc.org)** provides Bedrock access\n"
-                "> **[ViaVersion](https://modrinth.com/plugin/viaversion)** with "
-                "ViaBackwards translates older Java clients\n\n"
-                "*All run server-side; none require installation.*",
+                f"> The server runs **[Paper](https://papermc.io)** "
+                f"{SERVER_VERSION}, with **[Geyser](https://geysermc.org)** "
+                "letting Bedrock players in and "
+                "**[ViaVersion](https://modrinth.com/plugin/viaversion)** "
+                "alongside ViaBackwards translating older Java clients down to "
+                "it. All three run on our side, so there is nothing for you to "
+                "install.",
             ),
             (
                 "Java Edition",
-                f"> Supported versions are **{JAVA_SUPPORTED_RANGE}**.\n"
-                f"> Newer releases are refused — if your launcher has moved past "
-                f"{SERVER_VERSION}, create a **{SERVER_VERSION}** entry under "
-                "**Installations**.\n\n"
+                f"> Any version from **{JAVA_SUPPORTED_RANGE}** will connect. "
+                f"Newer releases are refused, so if your launcher has moved past "
+                f"{SERVER_VERSION} you will need to create a **{SERVER_VERSION}** "
+                "entry under **Installations** and play on that instead.\n\n"
                 "Add the server under **Multiplayer → Add Server**:\n"
                 f"```text\n{java_address}\n```",
             ),
             (
                 "Bedrock Edition",
-                "> Join on the current release from phone, console, tablet or "
-                "Windows by adding an external server.\n\n"
+                "> Join on the current release from a phone, console, tablet or "
+                "Windows by adding an external server with both of the values "
+                "below.\n\n"
                 "**Address**\n"
                 f"```text\n{bedrock_address}\n```\n"
                 "**Port**\n"
@@ -642,35 +676,42 @@ def troubleshooting_embed(settings=None) -> discord.Embed:
         [
             (
                 "Expired applications",
-                "> An application expires when a step is not completed in time.\n"
-                f"> Nothing is lost — press **Apply** again in {_apply_here(settings)}, "
-                "or check `/minecraft account`.",
+                "> An application expires when one of its steps is left unfinished "
+                "for too long. Nothing is lost when that happens: press **Apply** "
+                f"again in {_apply_here(settings)}, or run `/minecraft account` "
+                "first if you would like to see exactly where it stopped.",
             ),
             (
                 "Disconnected on first join",
-                "> This is intended. The first connection verifies account ownership "
-                "only and never grants world access.",
+                "> That is meant to happen. Your first connection exists only to "
+                "prove the account is yours, and it never lets you into the world "
+                "regardless of whether anything went wrong.",
             ),
             (
                 "Verified but no form submitted",
-                "> Use **Continue Application** in your direct messages, or press "
-                f"**Apply** in {_apply_here(settings)} to resume where you stopped.",
+                "> Look for the **Continue Application** button in your direct "
+                f"messages, or press **Apply** again in {_apply_here(settings)}. "
+                "Either one picks up from where you stopped rather than starting "
+                "over.",
             ),
             (
                 "Incorrect username submitted",
-                "> Press **Apply** again to reveal **Cancel Pending Verification**, "
-                "or run `/minecraft cancel`, then reapply with the correct name.",
+                "> Press **Apply** again and it will offer you **Cancel Pending "
+                "Verification**, or run `/minecraft cancel` if you would rather do "
+                "it directly. Once cancelled, apply again with the correct name.",
             ),
             (
                 "No direct message received",
-                "> Enable direct messages from server members, then check "
-                "`/minecraft account`.\n"
-                "> Undelivered messages are retried automatically.",
+                "> Turn on direct messages from server members and then check "
+                "`/minecraft account`. Anything that failed to reach you is "
+                "retried automatically, so you should not need to ask for it "
+                "again.",
             ),
             (
                 "Playing on both editions",
-                "> Permitted. Each account applies separately, as each is verified "
-                "independently.",
+                "> You are welcome to. Each account has to apply separately, "
+                "because each one is verified on its own — there is no way to link "
+                "a second account to an application you have already finished.",
             ),
         ],
     )
