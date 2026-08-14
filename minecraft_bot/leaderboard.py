@@ -13,9 +13,8 @@ import discord
 from .presentation import (
     BRAND_NAME,
     FOOTER_ICON_URL,
-    MARK_ATTACHMENT_URI,
-    MINECRAFT_HEAD_URL,
-    brand_mark_file,
+    MARK_ICON_URL,
+    head_url,
 )
 
 logger = logging.getLogger(__name__)
@@ -26,14 +25,21 @@ PODIUM = 3
 DISPLAY_ROWS = 5
 #: Head emojis are a reward, so they outlive a single bad week on the board.
 EMOJI_RETENTION_DAYS = 14
-#: Only the default board mints heads, so this only has to cover a little turnover.
-EMOJI_BUDGET = 6
+#: Every individual board mints heads, so the ceiling is five boards times three
+#: places, plus room for the turnover that retention deliberately holds on to.
+EMOJI_BUDGET = 24
 EMOJI_PREFIX = "mgx_head_"
 #: Deleting emojis is rate-limited, so a backlog is cleared over several refreshes.
 EMOJI_CLEANUP_PER_PASS = 25
 
 #: The board everyone sees by default; the rest are a dropdown away.
 DEFAULT_TYPE = "wealth"
+
+#: Shown for clans that have not set an icon. The Discord CDN link originally
+#: proposed for this carried an ``ex=`` expiry stamp and had already decayed to a
+#: 250-byte placeholder, so the brand mark stands in until a permanent image is
+#: committed to ``assets/`` alongside the other artwork.
+CLAN_DEFAULT_ICON_URL = MARK_ICON_URL
 
 TYPE_LABELS: dict[str, str] = {
     "wealth": "Richest",
@@ -143,17 +149,19 @@ class HeadEmojiStore:
         return {uuid: entry["markdown"] for uuid, entry in registry.items() if entry.get("markdown")}
 
     def _podium_players(self, snapshot: dict[str, Any]) -> dict[str, str]:
-        """Only the default board mints heads.
+        """Every individual board mints heads for its own top three.
 
-        Minting across all five boards meant up to fifteen emojis, churning as players
-        traded places. One board keeps it to three and makes the podium mean something.
-        Anyone who has a head still shows it wherever they place top three.
+        Restricting this to the default board left the other four showing bare rows,
+        because a player topping Distance Walked usually is not also the richest.
+        The ceiling is five boards times three places, and heavy overlap in practice
+        keeps it well under that.
         """
         players: dict[str, str] = {}
-        for row in _rows(snapshot, "individual", DEFAULT_TYPE)[:PODIUM]:
-            uuid = str(row.get("minecraft_uuid") or "")
-            if uuid:
-                players.setdefault(uuid, str(row.get("username") or "player"))
+        for board in TYPE_LABELS:
+            for row in _rows(snapshot, "individual", board)[:PODIUM]:
+                uuid = str(row.get("minecraft_uuid") or "")
+                if uuid:
+                    players.setdefault(uuid, str(row.get("username") or "player"))
         return players
 
     async def _create(
@@ -164,7 +172,7 @@ class HeadEmojiStore:
         username: str,
     ) -> Optional[discord.Emoji]:
         try:
-            url = MINECRAFT_HEAD_URL.format(identifier=uuid)
+            url = head_url(uuid, username)
             async with session.get(url) as response:
                 if response.status != 200:
                     logger.warning("Head image for %s returned HTTP %s", username, response.status)
@@ -268,6 +276,23 @@ def _placement(index: int) -> str:
     return f"#{index + 1}"
 
 
+def _thumbnail(rows: list[dict[str, Any]], scope: str) -> str:
+    """Whoever tops *this* board, so each one is visibly about its own leader.
+
+    A remote URL rather than an attachment: the dropdown replies are ephemeral and
+    cannot carry a file, so attachment:// rendered nothing on four boards in five.
+    """
+    if not rows:
+        return MARK_ICON_URL
+    leader = rows[0]
+    if scope == "clan":
+        return str(leader.get("icon") or "").strip() or CLAN_DEFAULT_ICON_URL
+    uuid = str(leader.get("minecraft_uuid") or "")
+    if not uuid:
+        return MARK_ICON_URL
+    return head_url(uuid, str(leader.get("username") or ""))
+
+
 def build_embed(
     snapshot: dict[str, Any],
     *,
@@ -325,7 +350,7 @@ def build_embed(
     generated = snapshot.get("generated_at")
     if generated:
         embed.timestamp = datetime.fromtimestamp(int(generated) / 1000, tz=timezone.utc)
-    embed.set_thumbnail(url=MARK_ATTACHMENT_URI)
+    embed.set_thumbnail(url=_thumbnail(rows, scope))
     embed.set_footer(text=BRAND_NAME, icon_url=FOOTER_ICON_URL)
     return embed
 
@@ -389,6 +414,8 @@ def message_payload(
     linked: Optional[dict[str, str]] = None,
 ) -> dict[str, Any]:
     """The permanent message: both default boards side by side, plus the dropdowns."""
+    # No attachment: every thumbnail is a remote URL now, and an attached file that
+    # no embed references would render as a stray image under the message.
     return {
         "embeds": [
             build_embed(
@@ -396,7 +423,7 @@ def message_payload(
             ),
             build_embed(snapshot, scope="clan", board=DEFAULT_TYPE),
         ],
-        "attachments": [brand_mark_file()],
+        "attachments": [],
         "view": LeaderboardView(),
     }
 
