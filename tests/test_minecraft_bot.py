@@ -1800,9 +1800,23 @@ class MinecraftInformationPanelTests(unittest.TestCase):
 
         self.assertIn("Java", described)
         self.assertIn("Bedrock", described)
-        self.assertIn("1.20.6", described)
+        self.assertIn(self.information.SERVER_VERSION, described)
         self.assertNotIn("How to join", described)
         self.assertNotIn("Apply", described)
+
+    def test_pages_warn_that_newer_clients_are_refused(self):
+        # Clients above the server version bypass GrimAC, so they are blocked at
+        # the door; players have to be told before they hit the kick.
+        builders = (
+            ("overview", self.information.overview_embed),
+            ("versions", self.information.PAGES["versions"][1]),
+        )
+        for page, builder in builders:
+            with self.subTest(page=page):
+                described = self.embed_text(builder(0))
+
+                self.assertIn(self.information.JAVA_SUPPORTED_RANGE, described)
+                self.assertRegex(described, r"turned away|refused")
 
     def test_pages_lay_sections_out_as_fields(self):
         # The panel's readability rests on fields, so a page collapsing back

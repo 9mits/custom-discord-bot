@@ -100,7 +100,7 @@ Gson is shaded and relocated. Networking uses Java 21's built-in HTTP/WebSocket 
 ## Installing on GravelHost
 
 1. Stop the Paper server and back up the world and plugin directory.
-2. Confirm the server runs Paper 1.20.6 on Java 21 and that Floodgate and Geyser are already loading successfully.
+2. Confirm the server runs Paper 1.21.1 on Java 21 and that Floodgate and Geyser are already loading successfully.
 3. Upload `minecraft-bridge/build/libs/MGXAccessBridge.jar` to the server's `plugins/` directory.
 4. Start once to create `plugins/MGXAccessBridge/config.yml`, then stop the server.
 5. Set `server-id`, the public `wss://.../minecraft-bridge` URL, and the shared secret. Keep `allow-insecure-localhost: false`.
@@ -133,7 +133,7 @@ The durable outbox makes approval and revocation safe across disconnects. `APPRO
 Every online player receives a compact orange-led sidebar with clear profile and stats
 sections. It contains their name, highest Discord milestone, bonus hearts, optional
 level-50 power bonus, optional clan, kills, deaths, ping, and the configured footer.
-Clan and power rows are omitted when they do not apply. Paper 1.20.6's blank number
+Clan and power rows are omitted when they do not apply. Paper's blank number
 format hides the sidebar's internal score values.
 
 The dedicated Discord bot derives profiles from these exact milestone roles:

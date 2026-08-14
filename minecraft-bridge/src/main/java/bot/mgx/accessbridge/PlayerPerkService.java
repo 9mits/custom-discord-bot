@@ -1,5 +1,6 @@
 package bot.mgx.accessbridge;
 
+import org.bukkit.NamespacedKey;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.attribute.AttributeModifier;
@@ -11,9 +12,9 @@ import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityExhaustionEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 
-import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 final class PlayerPerkService implements Listener {
@@ -21,10 +22,9 @@ final class PlayerPerkService implements Listener {
     static final double BOOSTER_DAMAGE_BONUS = 0.10;
     /** Boosters lose hunger 10% more slowly, which is how the saturation perk is felt. */
     static final float BOOSTER_EXHAUSTION_MULTIPLIER = 0.90f;
-    private static final UUID HEART_MODIFIER_ID = UUID.nameUUIDFromBytes(
-            "mgx:discord-level-hearts".getBytes(StandardCharsets.UTF_8)
+    private static final NamespacedKey HEART_MODIFIER_KEY = Objects.requireNonNull(
+            NamespacedKey.fromString("mgx:discord_level_hearts")
     );
-    private static final String HEART_MODIFIER_NAME = "mgx_discord_level_hearts";
 
     private final Map<UUID, PlayerProfile> profiles = new HashMap<>();
 
@@ -38,14 +38,13 @@ final class PlayerPerkService implements Listener {
         if (health == null) {
             return;
         }
-        AttributeModifier current = health.getModifier(HEART_MODIFIER_ID);
+        AttributeModifier current = health.getModifier(HEART_MODIFIER_KEY);
         if (current != null) {
             health.removeModifier(current);
         }
         if (profile.totalExtraHearts() > 0) {
             health.addTransientModifier(new AttributeModifier(
-                    HEART_MODIFIER_ID,
-                    HEART_MODIFIER_NAME,
+                    HEART_MODIFIER_KEY,
                     profile.totalExtraHearts() * 2.0,
                     AttributeModifier.Operation.ADD_NUMBER
             ));
@@ -61,7 +60,7 @@ final class PlayerPerkService implements Listener {
             if (health == null) {
                 continue;
             }
-            AttributeModifier modifier = health.getModifier(HEART_MODIFIER_ID);
+            AttributeModifier modifier = health.getModifier(HEART_MODIFIER_KEY);
             if (modifier != null) {
                 health.removeModifier(modifier);
                 if (player.getHealth() > health.getValue()) {
