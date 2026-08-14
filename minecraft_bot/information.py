@@ -129,8 +129,6 @@ def _addresses(settings) -> tuple[str, str, str]:
 def overview_embed(settings=None) -> discord.Embed:
     # This message lives in a channel members only see after they are accepted,
     # so it reads as the server handbook — never as joining instructions.
-    # The Bedrock port belongs on the versions page; the front page stays short.
-    java_address, bedrock_address, _port = _addresses(settings)
     embed = _page(
         "Information",
         "Mysterious Girlfriend X Discord, in partnership with "
@@ -162,11 +160,6 @@ def overview_embed(settings=None) -> discord.Embed:
                 "> On **Bedrock** simply keep the game up to date. Phones, "
                 "consoles, tablets and Windows all connect to the same world as "
                 "everyone else.",
-            ),
-            (
-                "Server address",
-                f"**Java Edition**\n```text\n{java_address}\n```\n"
-                f"**Bedrock Edition**\n```text\n{bedrock_address}\n```",
             ),
         ],
     )
