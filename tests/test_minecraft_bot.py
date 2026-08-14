@@ -1821,21 +1821,35 @@ class MinecraftInformationPanelTests(unittest.TestCase):
     def test_panel_is_titled_information(self):
         self.assertEqual(self.information.overview_embed(0).title, "Information")
 
+    def _every_embed(self):
+        """Every page and every category within a page, as (name, embed)."""
+        for key, (_label, builder) in self.information.PAGES.items():
+            yield key, builder(0)
+        for page, sections in self.information.SECTIONS.items():
+            for key, (_label, builder) in sections.items():
+                yield f"{page}/{key}", builder(0)
+
     def test_commands_page_documents_the_everyday_essentials_commands(self):
         # These are the commands players reach for first; the panel shipped
         # without them once, which is worse than shipping no command list.
-        described = self.embed_text(self.information.commands_embed())
+        described = " ".join(
+            self.embed_text(embed)
+            for name, embed in self._every_embed()
+            if name.startswith("commands")
+        )
 
         for command in (
             "/sethome",
             "/home",
             "/delhome",
+            "/renamehome",
             "/back",
             "/warp",
             "/tpa",
             "/tpahere",
             "/tpaccept",
             "/tpdeny",
+            "/tptoggle",
             "/msg",
             "/mail",
             "/ignore",
@@ -1846,13 +1860,53 @@ class MinecraftInformationPanelTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertIn(command, described)
 
+    def test_panel_never_documents_staff_commands(self):
+        # Members read this panel; staff tooling belongs behind its own
+        # permission checks, not in a public directory of commands.
+        for name, embed in self._every_embed():
+            with self.subTest(page=name):
+                described = self.embed_text(embed).lower()
+                self.assertNotIn("/mcstaff", described)
+                self.assertNotIn("staff only", described)
+                self.assertNotIn("/co ", described)
+                self.assertNotIn("/vanish", described)
+
     def test_pages_are_stated_rather_than_asked(self):
         # The panel reads as documentation, so headings are statements. A stray
         # question mark means a section slipped back into FAQ voice.
-        for key, (_label, builder) in self.information.PAGES.items():
-            with self.subTest(page=key):
-                for field in builder(0).fields:
+        for name, embed in self._every_embed():
+            with self.subTest(page=name):
+                for field in embed.fields:
                     self.assertNotIn("?", field.name)
+
+    def test_categories_stay_within_discord_limits(self):
+        for name, embed in self._every_embed():
+            with self.subTest(page=name):
+                self.assertGreaterEqual(len(embed.fields), 2)
+                for field in embed.fields:
+                    self.assertFalse(field.inline)
+                    self.assertLessEqual(len(field.value), 1024)
+
+    def test_section_buttons_route_back_to_their_category(self):
+        pattern = self.information.SectionButton.__discord_ui_compiled_template__
+        for page, sections in self.information.SECTIONS.items():
+            view = self.information.SectionView(page)
+            emitted = [item.custom_id for item in view.children]
+
+            self.assertEqual(len(emitted), len(sections))
+            for custom_id in emitted:
+                match = pattern.fullmatch(custom_id)
+                self.assertIsNotNone(match, f"{custom_id} would not route back")
+                self.assertEqual(match["page"], page)
+                self.assertIn(match["section"], sections)
+
+    def test_pages_with_categories_ship_the_buttons(self):
+        # A page listing categories it does not attach buttons for would send
+        # members hunting for controls that are not there.
+        for page in self.information.SECTIONS:
+            with self.subTest(page=page):
+                self.assertIn(page, self.information.PAGES)
+                self.assertTrue(self.information.SectionView(page).children)
 
     def test_pages_lay_sections_out_as_fields(self):
         # The panel's readability rests on fields, so a page collapsing back
