@@ -343,32 +343,20 @@ def clans_embed() -> discord.Embed:
     return _page(
         "Clans",
         "A clan is a named group with a shared tag and colour, shown beside your "
-        "name in chat, above your head, and in the player list. Choose a category "
-        "below for the detail.",
+        "name in chat, above your head, and in the player list.",
         [
             (
-                "The rules that always apply",
-                "> Clan members **cannot damage each other**, whether by melee or "
-                "by arrow. This is permanent and nobody, including the leader, can "
-                "switch it off — so a clan is a genuine commitment rather than a "
-                f"label. Each one holds up to **{CLAN_MAX_MEMBERS} players**.\n"
-                "> \n"
-                "> Clan names are unique across the server, and the name itself "
-                "**is** the tag you wear. There is no separate tag to configure.",
+                "General information",
+                "> Members **cannot damage each other**\n"
+                f"> Up to **{CLAN_MAX_MEMBERS} members**\n"
+                "> Join by invite, or start your own with `/clans create`",
             ),
             (
-                "Ranks inside a clan",
-                "> Every clan has exactly one **leader**, who alone can rename it, "
-                "change its colour, promote and demote, hand it over or close it "
-                "down. Beneath them any number of **staff** can invite new players "
-                "and remove ordinary members, while **members** get clan chat and "
-                "the roster.",
-            ),
-            (
-                "Categories",
-                "> **Roles** covers exactly what each rank may do, **Joining** "
-                "explains invitations and what happens when a clan is full, and "
-                "**Leaving** deals with departing, handing over and disbanding.",
+                "Roles inside a clan",
+                "> **Member** — clan chat and the roster\n"
+                "> **Staff** — the above, plus invite, kick and the clan icon\n"
+                "> **Leader** — the above, plus rename, colour, promote, transfer "
+                "and disband",
             ),
         ],
     )
@@ -402,12 +390,10 @@ def clans_roles_embed(settings=None) -> discord.Embed:
             ),
             (
                 "Who can remove whom",
-                "> Staff can kick ordinary members, but **only the leader can "
-                "remove another staff member** — promoting somebody therefore "
-                "puts them beyond the reach of everyone except you. The "
-                "**leader cannot be kicked** by anyone at all, which is why "
-                "handing the clan over is a deliberate act rather than something "
-                "that can be done to you.",
+                "> Staff can kick members\n"
+                "> **Only the leader can remove** another staff member\n"
+                "> The **leader cannot be kicked** by anyone\n\n"
+                "Promoting somebody puts them beyond everyone's reach but yours.",
             ),
         ],
     )
@@ -420,31 +406,23 @@ def clans_joining_embed(settings=None) -> discord.Embed:
         [
             (
                 "Getting invited",
-                "> A leader or one of their staff runs `/clans invite <player>`, "
-                "and you must be **online** at that moment to receive it — there "
-                "is no way to invite somebody who has logged off. The invite then "
-                f"expires after **{CLAN_INVITE_EXPIRY_MINUTES} minutes**, so "
-                "answer it while you are still at your keyboard.",
-            ),
-            (
-                "Answering",
-                "> `/clans accept` — join the clan\n"
-                "> `/clans decline` — turn it down\n"
-                "> `/clans list` shows every clan currently on the server.",
+                "> A leader or staff runs `/clans invite <player>`\n"
+                "> You must be **online** to receive it\n"
+                f"> It expires after **{CLAN_INVITE_EXPIRY_MINUTES} minutes**\n\n"
+                "Answer with `/clans accept` or `/clans decline`.",
             ),
             (
                 "Starting your own",
-                "> `/clans create <name>` founds a clan and makes you its leader.\n"
-                "> The name must not already be taken.\n"
-                f"> Pick a colour with `/clans color`: "
-                f"{', '.join(CLAN_THEME_COLOURS)}.",
+                "> `/clans create <name>` — founds it and makes you leader\n"
+                "> The name must not already be taken\n"
+                "> `/clans list` — see what already exists\n\n"
+                f"Colours: {', '.join(CLAN_THEME_COLOURS)}.",
             ),
             (
                 "When a clan is full",
-                f"> Once a clan reaches **{CLAN_MAX_MEMBERS} players** no further "
-                "invites can be accepted, and an outstanding one will simply fail "
-                "when you try to use it. Somebody has to leave or be removed "
-                "before the clan can take anyone new.",
+                f"> At **{CLAN_MAX_MEMBERS} members** no further invites can be "
+                "accepted, and an outstanding one fails when used. Somebody has "
+                "to leave first.",
             ),
         ],
     )
@@ -457,28 +435,27 @@ def clans_leaving_embed(settings=None) -> discord.Embed:
         [
             (
                 "Members and staff",
-                "> `/clans leave` takes effect immediately and asks for no "
-                "confirmation, so be sure before you run it. You keep everything "
-                "you own — only the tag and the damage immunity go with it.",
+                "> `/clans leave` — immediate, no confirmation asked\n\n"
+                "You keep everything you own. Only the tag and the damage "
+                "immunity go with it.",
             ),
             (
                 "The leader cannot simply leave",
-                "> A leader has to **transfer the clan or disband it** before they "
-                "can go anywhere, which exists to stop a clan being stranded with "
-                "a roster full of people and nobody able to run it.",
+                "> **Transfer or disband first** — there is no other way out\n\n"
+                "This stops a clan being stranded with a full roster and nobody "
+                "able to run it.",
             ),
             (
                 "Handing it over",
-                "> `/clans transfer <player>` makes another member the leader in "
-                "your place. You are not removed in the process: you stay on as "
-                "**staff**, so you can still invite and kick, but renaming, "
-                "promoting and disbanding all pass to whoever you handed it to.",
+                "> `/clans transfer <player>` — they become leader\n"
+                "> You stay in the clan as **staff**, not removed\n\n"
+                "You keep invite and kick; renaming, promoting and disbanding "
+                "pass to them.",
             ),
             (
                 "Disbanding",
-                "> `/clans disband` closes the clan for **everyone at once**, not "
-                "merely for you, and there is no way to undo it afterwards. Only "
-                "the leader can do this.",
+                "> `/clans disband` — leader only, cannot be undone\n\n"
+                "It closes the clan for everyone at once, not just for you.",
             ),
         ],
     )
