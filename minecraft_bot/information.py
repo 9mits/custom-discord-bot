@@ -10,6 +10,7 @@ from .perks import LEVEL_ROLE_MILESTONES
 from .presentation import (
     BRAND_NAME,
     FOOTER_ICON_URL,
+    JAVA_SUPPORTED_RANGE,
     LOGO_ATTACHMENT_URI,
     SERVER_VERSION,
     brand_logo_file,
@@ -75,8 +76,10 @@ def overview_embed(settings=None) -> discord.Embed:
                 "Which version should I play on?",
                 f"The server runs **{SERVER_VERSION}**, so that version gives the "
                 "smoothest experience.\n\n"
-                "- **Java** — anything from 1.8 up to the latest release joins fine; "
-                "the server translates other versions automatically.\n"
+                f"- **Java** — anything from {JAVA_SUPPORTED_RANGE} joins fine; the "
+                "server translates older versions automatically. Releases newer "
+                f"than {SERVER_VERSION} are turned away, so set your launcher back "
+                "if it has updated past it.\n"
                 "- **Bedrock** — just keep the game updated. Phone, console, tablet "
                 "and Windows all work.\n"
                 "- Whichever edition you use, everyone plays together in one shared "
@@ -241,14 +244,15 @@ def technical_embed(settings=None) -> discord.Embed:
                 f"**[Paper](https://papermc.io)** {SERVER_VERSION}, with "
                 "**[Geyser](https://geysermc.org)** so Bedrock players can join, and "
                 "**[ViaVersion](https://modrinth.com/plugin/viaversion)** with "
-                "ViaBackwards so older and newer Java clients can too.\n\n"
+                "ViaBackwards so older Java clients can too.\n\n"
                 "These all run on the server — you never need to install them.",
             ),
             (
                 "Java Edition",
-                "Join on any version from 1.8 up to the latest release. "
-                f"**{SERVER_VERSION}** gives the smoothest experience; you can pick it "
-                "in the launcher under **Installations**.\n\n"
+                f"Join on any version from {JAVA_SUPPORTED_RANGE}. Newer releases "
+                f"are refused, so if your launcher has moved past {SERVER_VERSION}, "
+                f"add a **{SERVER_VERSION}** entry under **Installations** and play "
+                "on that.\n\n"
                 "Add the server in **Multiplayer → Add Server** with this address:\n"
                 f"```text\n{java_address}\n```",
             ),

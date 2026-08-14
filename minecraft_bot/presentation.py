@@ -41,11 +41,14 @@ MARK_ATTACHMENT_URI = f"attachment://{MARK_FILENAME}"
 MINECRAFT_HEAD_URL = "https://mc-heads.net/head/{identifier}/128.png"
 BEDROCK_NAME_HEAD_URL = "https://api.mcheads.org/head/.{identifier}/128"
 
-#: The version the Paper server itself runs. ViaVersion and ViaBackwards translate
-#: other Java clients, and Geyser handles Bedrock, so player-facing text should
-#: always pair this with the supported ranges below rather than stand alone.
-SERVER_VERSION = "1.20.6"
-JAVA_SUPPORTED_RANGE = "1.8 up to the latest release"
+#: The version the Paper server itself runs. ViaBackwards translates older Java
+#: clients down to it and Geyser handles Bedrock, so player-facing text should
+#: always pair this with the supported range below rather than stand alone.
+SERVER_VERSION = "1.21.1"
+#: Clients newer than the server are refused rather than translated up: GrimAC
+#: cannot police a session it only sees through ViaVersion's up-translation, so
+#: allowing them would leave the newest clients effectively unpoliced.
+JAVA_SUPPORTED_RANGE = f"1.8 up to {SERVER_VERSION}"
 
 #: Official download pages, used to hyperlink mod and version names in embeds.
 #: Only well-known official pages belong here — never guess a link.
