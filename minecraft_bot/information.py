@@ -1,4 +1,4 @@
-"""The server help centre: one message, one embed, buttons for each topic."""
+"""The server information panel: one message, one embed, buttons for each topic."""
 
 from __future__ import annotations
 
@@ -25,6 +25,14 @@ CONFIG_MESSAGE = "information_message_id"
 #: Where members read how Discord levelling works.
 LEVELS_CHANNEL_URL = "https://discord.com/channels/1476839721731620938/1476839722734190647"
 
+#: Homes granted to the default rank, matching `sethome-multiple.default` in the
+#: EssentialsX config. Documenting the wrong figure is worse than omitting it.
+DEFAULT_HOME_LIMIT = 3
+#: Seconds between teleports, and the stand-still delay before one completes.
+#: Both come from the EssentialsX config and are what players actually feel.
+TELEPORT_COOLDOWN_SECONDS = 30
+TELEPORT_WARMUP_SECONDS = 5
+
 
 def _role_mentions() -> str:
     return "\n".join(
@@ -39,7 +47,7 @@ def _embed(title: str, description: str) -> discord.Embed:
 
 
 def _page(title: str, intro: str, sections: list[tuple[str, str]]) -> discord.Embed:
-    """One help page: a short intro, then each section as its own embed field.
+    """One page: a short intro, then each section as its own embed field.
 
     Fields give every section a bold header and clear air around it, which reads
     far better than one long quoted description.
@@ -66,34 +74,30 @@ def overview_embed(settings=None) -> discord.Embed:
     # This message lives in a channel members only see after they are accepted,
     # so it reads as the server handbook — never as joining instructions.
     embed = _page(
-        "Mysterious SMP X — Help Centre",
-        "Mysterious Girlfriend X Discord, in partnership with r/MysteriousGirlfriendX.\n\n"
-        "Welcome in — your application made it through, and the world is yours to "
-        "explore. This channel is the server's help centre: each button below opens "
-        "a short guide to one part of the server.",
+        "Information",
+        "Mysterious Girlfriend X Discord, in partnership with "
+        "r/MysteriousGirlfriendX.\n\n"
+        "This panel documents how Mysterious SMP X works. Each button below opens "
+        "one section.",
         [
             (
-                "Which version should I play on?",
-                f"The server runs **{SERVER_VERSION}**, so that version gives the "
-                "smoothest experience.\n\n"
-                f"- **Java** — anything from {JAVA_SUPPORTED_RANGE} joins fine; the "
-                "server translates older versions automatically. Releases newer "
-                f"than {SERVER_VERSION} are turned away, so set your launcher back "
-                "if it has updated past it.\n"
-                "- **Bedrock** — just keep the game updated. Phone, console, tablet "
-                "and Windows all work.\n"
-                "- Whichever edition you use, everyone plays together in one shared "
-                "world.",
+                "The server",
+                "A survival world shared by Java and Bedrock players. PvP is enabled, "
+                "so raiding and rivalry are permitted; every block placed or broken is "
+                "logged, so griefing can be reverted and staff can intervene.",
             ),
             (
-                "What kind of server is this?",
-                "A survival server where the community writes its own stories. PvP is "
-                "on, so alliances, raids, rivalries and even betrayals are all part of "
-                "the fun — as long as everyone involved still gets to enjoy the game.\n\n"
-                "Your builds are safer than they look: every block placed or broken is "
-                "recorded, so genuine griefing can always be rolled back. And if a "
-                "conflict ever stops feeling like a story and starts feeling personal, "
-                "staff will step in to help.",
+                "Client versions",
+                f"The server runs **{SERVER_VERSION}**. Java clients from "
+                f"**{JAVA_SUPPORTED_RANGE}** are translated automatically; releases "
+                "newer than that are refused. Bedrock players join on the current "
+                "release from any device.",
+            ),
+            (
+                "Getting started",
+                f"Open **Commands** for the full command list. Set a home with "
+                f"`/sethome` as soon as you find your spot — you get "
+                f"**{DEFAULT_HOME_LIMIT}**.",
             ),
         ],
     )
@@ -101,38 +105,110 @@ def overview_embed(settings=None) -> discord.Embed:
     return embed
 
 
+def commands_embed() -> discord.Embed:
+    return _page(
+        "Commands",
+        "Every command available to players, grouped by purpose. Arguments in "
+        "`<>` are required; those in `[]` are optional.",
+        [
+            (
+                "Homes and travel",
+                f"`/sethome [name]` — save your location; **{DEFAULT_HOME_LIMIT}** "
+                "homes are included\n"
+                "`/home [name]` — return to a saved home\n"
+                "`/delhome <name>` · `/renamehome <old> <new>` — manage your homes\n"
+                "`/spawn` — return to the world spawn\n"
+                "`/back` — return to your previous location\n"
+                "`/warp [name]` — travel to a staff-created warp",
+            ),
+            (
+                "Teleport requests",
+                "`/tpa <player>` — ask to teleport to someone\n"
+                "`/tpahere <player>` — ask someone to teleport to you\n"
+                "`/tpaccept` · `/tpdeny` — answer a pending request\n"
+                "`/tpacancel` — withdraw your request\n"
+                "`/tptoggle` — stop receiving requests entirely\n\n"
+                f"Teleports wait **{TELEPORT_WARMUP_SECONDS} seconds** and cancel if "
+                f"you move or take damage, with **{TELEPORT_COOLDOWN_SECONDS} "
+                "seconds** between uses.",
+            ),
+            (
+                "Communication",
+                "`/msg <player> <message>` — send a private message\n"
+                "`/r <message>` — reply to the last message received\n"
+                "`/mail send <player> <message>` · `/mail read` — message offline players\n"
+                "`/ignore <player>` — mute someone privately\n"
+                "`/afk [reason]` — mark yourself away\n"
+                "`/me <action>` — emote in chat\n"
+                "`/helpop <message>` — contact online staff",
+            ),
+            (
+                "Clans",
+                "`/clans` — create, invite, chat and manage\n"
+                "`/claninfo [name]` — inspect any clan\n\n"
+                "Open the **Clans** section for the full breakdown.",
+            ),
+            (
+                "Your account and preferences",
+                "`/perks` — your level rewards and bonuses\n"
+                "`/settings` — what you see: clan tags, Discord chat, Discord names\n"
+                "`/discordnames` — whether others see your Discord name\n"
+                "`/playtime` — time spent on the server\n"
+                "`/guide` — the in-game guide",
+            ),
+            (
+                "Server information",
+                "`/list` — who is online\n"
+                "`/ping` — your connection latency\n"
+                "`/whitelisted [page]` — everyone with access\n"
+                "`/realname <name>` — look up a display name\n"
+                "`/rules` · `/motd` — server rules and welcome text\n"
+                "`/discord` — the community invite",
+            ),
+            (
+                "In Discord",
+                "`/minecraft account` — your application and linked account\n"
+                "`/minecraft whitelist` — everyone with access\n"
+                "`/minecraft clan view` — your clan and permitted actions\n"
+                "`/mcstaff …` — staff only; moderate without opening the game",
+            ),
+        ],
+    )
+
+
 def clans_embed() -> discord.Embed:
     return _page(
         "Clans",
-        "A clan is a group with a shared name, tag and colour. Your tag shows next "
-        "to your name in chat, above your head, and in the player list.",
+        "A clan is a named group with a shared tag and colour, shown beside your "
+        "name in chat, above your head, and in the player list.",
         [
             (
-                "Worth knowing",
-                "- Clan members cannot hurt each other. This is always on.\n"
-                "- The clan name is the tag — there is no separate one to set.\n"
+                "How clans behave",
+                "- Members cannot damage one another. This is permanent and cannot "
+                "be disabled.\n"
+                "- The clan name serves as the tag; there is no separate tag to set.\n"
                 "- Each clan has one leader, any number of staff, and its members.",
             ),
             (
-                "Everyday commands",
-                "`/clans create <name>` — start a clan and lead it\n"
-                "`/clans invite <player>` — invite someone\n"
-                "`/clans chat` — talk to just your clan\n"
-                "`/clans leave` — leave your clan",
-            ),
-            (
-                "If you run one",
-                "`/clans promote` · `/clans demote` — manage staff\n"
-                "`/clans rename` · `/clans color` — change name or colour\n"
-                "`/clans transfer <player>` — hand over the clan\n"
-                "`/clans kick <player>` — remove a member\n"
-                "`/clans disband` — close the clan",
-            ),
-            (
-                "Looking at other clans",
+                "Member commands",
+                "`/clans create <name>` — found a clan and lead it\n"
+                "`/clans invite <player>` — invite a player\n"
+                "`/clans chat` — speak to your clan only\n"
                 "`/clans list` — every clan on the server\n"
-                "`/claninfo [name]` — its leader, staff and members\n\n"
-                "*`/clans help` only shows what you can actually use right now.*",
+                "`/clans leave` — depart your clan",
+            ),
+            (
+                "Leader and staff commands",
+                "`/clans promote` · `/clans demote` — manage clan staff\n"
+                "`/clans rename` · `/clans color` — change name or colour\n"
+                "`/clans transfer <player>` — hand over leadership\n"
+                "`/clans kick <player>` — remove a member\n"
+                "`/clans disband` — dissolve the clan",
+            ),
+            (
+                "Inspecting clans",
+                "`/claninfo [name]` lists a clan's leader, staff and members.\n\n"
+                "*`/clans help` shows only what your role currently permits.*",
             ),
         ],
     )
@@ -141,26 +217,26 @@ def clans_embed() -> discord.Embed:
 def levels_embed() -> discord.Embed:
     return _page(
         "Levels and Perks",
-        "Your Discord level carries into Minecraft.",
+        "Discord activity determines your in-game bonuses. Nothing is purchased "
+        "or claimed.",
         [
             (
-                "How you level up",
-                "By taking part — chatting in text channels and talking in voice. "
-                "There is nothing to claim or buy; it happens as you join in.\n\n"
-                f"More detail: {LEVELS_CHANNEL_URL}",
+                "Earning levels",
+                "Levels accrue from participation: chatting in text channels and "
+                "speaking in voice channels.\n\n"
+                f"Full detail: {LEVELS_CHANNEL_URL}",
             ),
             ("Milestone roles", _role_mentions()),
             (
-                "What you get",
-                "Each milestone below 50 gives you **one extra heart**, up to "
-                "**five**.\n\n"
-                "**Level 50** does not give a sixth heart — it gives **+15% damage** "
-                "instead.",
+                "Rewards",
+                "Each milestone below 50 grants **one additional heart**, to a "
+                "maximum of **five**.\n\n"
+                "**Level 50** replaces the sixth heart with **+15% damage**.",
             ),
             (
-                "Seeing your perks",
-                "Your level, hearts and damage bonus are shown on the scoreboard at "
-                "the side of your screen. `/perks` shows them any time.",
+                "Reviewing your perks",
+                "Your level, hearts and damage bonus appear on the sidebar. `/perks` "
+                "displays them at any time.",
             ),
         ],
     )
@@ -169,20 +245,20 @@ def levels_embed() -> discord.Embed:
 def boosting_embed() -> discord.Embed:
     return _page(
         "Boosting",
-        "Boosting the Discord server gives you perks in game.",
+        "Boosting the Discord server grants additional in-game bonuses.",
         [
             (
-                "While you are boosting",
+                "While boosting",
                 "- **+10% damage**\n"
-                "- **+1 extra heart**, on top of what your level already gives you\n"
-                "- **Hunger drains 10% slower**",
+                "- **+1 heart**, in addition to your level rewards\n"
+                "- **Hunger drains 10% more slowly**",
             ),
             (
-                "They stack with your level perks",
-                "A level 50 player who also boosts has **+25% damage** and **six "
-                "extra hearts**.\n\n"
-                "If you stop boosting, the perks simply stop. Nothing else about your "
-                "account or your rank changes.",
+                "Stacking with levels",
+                "A level 50 player who also boosts receives **+25% damage** and "
+                "**six additional hearts**.\n\n"
+                "Ending a boost removes these bonuses only. Rank, clan and progress "
+                "are unaffected.",
             ),
         ],
     )
@@ -192,40 +268,38 @@ def mods_embed() -> discord.Embed:
     xaeros_link = mod_link("Xaero's Minimap")
     return _page(
         "Mods and Voice Chat",
-        "What you can install on your client, and what to leave out.",
+        "Client modifications permitted on Mysterious SMP X, and those that are not.",
         [
             (
-                "Voice chat — supported",
-                f"The server supports {mod_link('Simple Voice Chat')}, so you can "
-                "talk to players near you in game.\n\n"
-                "Install the mod version that matches the Minecraft version you play "
-                "on — the download page lists them all. Voice works best when your "
-                f"client runs **{SERVER_VERSION}**, the version the server runs.",
+                "Voice chat",
+                f"The server supports {mod_link('Simple Voice Chat')} for proximity "
+                "voice between nearby players.\n\n"
+                "Install the build matching your Minecraft version; the download page "
+                "lists each one.",
             ),
             (
-                "Allowed on Java",
+                "Permitted on Java",
                 f"**Performance** — {mod_link('Sodium')}, {mod_link('Lithium')}, "
                 f"{mod_link('OptiFine')}\n"
                 f"**Shaders** — {mod_link('Iris Shaders')}\n"
-                f"**Maps** — {xaeros_link} or {mod_link('JourneyMap')}, with cave "
-                "mapping and player radar turned off\n"
-                f"**Building** — {mod_link('Litematica')}, including its auto-build "
-                "printer\n"
-                f"**Comfort** — {mod_link('AppleSkin')} and similar quality-of-life "
-                "mods\n\n"
-                f"*Most of these run on the {mod_link('Fabric')} mod loader.*",
+                f"**Mapping** — {xaeros_link} or {mod_link('JourneyMap')}, with cave "
+                "mapping and player radar disabled\n"
+                f"**Building** — {mod_link('Litematica')}, including its printer\n"
+                f"**Quality of life** — {mod_link('AppleSkin')} and similar\n\n"
+                f"*Most require the {mod_link('Fabric')} loader.*",
             ),
             (
-                "Not allowed on any edition",
-                "X-ray, freecam, baritone, tracers, or anything that shows what you "
-                "could not see yourself.",
+                "Prohibited on every edition",
+                "X-ray, freecam, baritone, tracers, kill aura, reach modification, "
+                "and anything else revealing information you could not observe "
+                "yourself. The server runs an anticheat and logs all block activity.",
             ),
             (
-                "On Bedrock",
+                "Bedrock",
                 "Bedrock does not support client mods, so voice chat, minimaps and "
-                "performance mods are unavailable there. Marketplace texture packs "
-                "are fine because they are cosmetic only.\n\n"
-                "For voice, join a Discord voice channel instead.",
+                "performance mods are unavailable. Marketplace texture packs are "
+                "permitted, being purely cosmetic.\n\n"
+                "For voice, use a Discord voice channel.",
             ),
         ],
     )
@@ -237,29 +311,28 @@ def technical_embed(settings=None) -> discord.Embed:
     bedrock_port = getattr(settings, "bedrock_port", None) or "19132"
     return _page(
         "Server and Versions",
-        "What the server runs, and how to connect on each edition.",
+        "The software the server runs, and the connection details for each edition.",
         [
             (
-                "What the server runs",
+                "Software",
                 f"**[Paper](https://papermc.io)** {SERVER_VERSION}, with "
-                "**[Geyser](https://geysermc.org)** so Bedrock players can join, and "
+                "**[Geyser](https://geysermc.org)** providing Bedrock access and "
                 "**[ViaVersion](https://modrinth.com/plugin/viaversion)** with "
-                "ViaBackwards so older Java clients can too.\n\n"
-                "These all run on the server — you never need to install them.",
+                "ViaBackwards translating older Java clients.\n\n"
+                "All run server-side; none require installation.",
             ),
             (
                 "Java Edition",
-                f"Join on any version from {JAVA_SUPPORTED_RANGE}. Newer releases "
+                f"Supported versions are **{JAVA_SUPPORTED_RANGE}**. Newer releases "
                 f"are refused, so if your launcher has moved past {SERVER_VERSION}, "
-                f"add a **{SERVER_VERSION}** entry under **Installations** and play "
-                "on that.\n\n"
-                "Add the server in **Multiplayer → Add Server** with this address:\n"
+                f"create a **{SERVER_VERSION}** entry under **Installations**.\n\n"
+                "Add the server under **Multiplayer → Add Server**:\n"
                 f"```text\n{java_address}\n```",
             ),
             (
                 "Bedrock Edition",
-                "Join on the current release from phone, console, tablet or Windows. "
-                "Add an external server with both values below.\n\n"
+                "Join on the current release from phone, console, tablet or Windows "
+                "by adding an external server with both values below.\n\n"
                 "**Address**\n"
                 f"```text\n{bedrock_address}\n```\n"
                 "**Port**\n"
@@ -269,94 +342,57 @@ def technical_embed(settings=None) -> discord.Embed:
     )
 
 
-def commands_embed() -> discord.Embed:
-    return _page(
-        "Commands",
-        "The custom commands this server adds, in game and in Discord.",
-        [
-            (
-                "In Minecraft",
-                "`/guide` — the in-game guide and full command list\n"
-                "`/perks` — your level rewards\n"
-                "`/clans` — everything to do with clans\n"
-                "`/claninfo [name]` — look at any clan\n"
-                "`/whitelisted` — everyone with access and their Discord name\n"
-                "`/settings` — what **you** see: clan tags and Discord chat\n"
-                "`/discordnames` — whether others see **your** Discord name\n"
-                "`/discord` — the community invite",
-            ),
-            (
-                "In Discord",
-                "`/minecraft account` — your application and linked account\n"
-                "`/minecraft whitelist` — everyone with access and their Discord "
-                "account\n"
-                "`/minecraft clan view` — your clan and the actions your role allows\n"
-                "`/mcstaff tools` — staff only; the staff tools your permissions "
-                "grant\n"
-                "`/mcstaff kick`, `/mcstaff ban` and more — staff only; moderate "
-                "without opening the game\n"
-                "`/mcstaff broadcast` — staff only; announce a message in game",
-            ),
-            (
-                "Good to know",
-                "Settings only affect your own screen. Hiding clan tags hides them "
-                "for you; everyone else still sees them.",
-            ),
-        ],
-    )
-
-
 def troubleshooting_embed(settings=None) -> discord.Embed:
     return _page(
-        "Common Questions",
-        "Quick answers to the things people ask most.",
+        "Troubleshooting",
+        "Resolutions for the issues raised most often.",
         [
             (
-                "My application says expired",
-                "An application expires when a step is not finished in time: either "
-                "nobody joined the server to verify the account, or the written form "
-                "was never completed after verifying.\n\n"
-                f"Nothing is lost — just press **Apply** again in {_apply_here(settings)}. "
-                "You can check the current state any time with `/minecraft account`.",
+                "Expired applications",
+                "An application expires when a step is not completed in time — either "
+                "the account was never verified in game, or the written form was not "
+                "submitted afterwards.\n\n"
+                f"Nothing is lost. Press **Apply** again in {_apply_here(settings)}, "
+                "or check the current state with `/minecraft account`.",
             ),
             (
-                "I got kicked the first time I joined",
-                "That is meant to happen. The first connection only checks the "
-                "account is yours; it never lets you into the world.",
+                "Disconnected on first join",
+                "This is intended. The first connection verifies account ownership "
+                "only and never grants world access.",
             ),
             (
-                "I verified but have not filled out the form",
-                "Check your DMs for the **Continue Application** button, or press "
-                f"**Apply** in {_apply_here(settings)} — it continues where you left "
-                "off.",
+                "Verified but no form submitted",
+                "Use the **Continue Application** button in your direct messages, or "
+                f"press **Apply** in {_apply_here(settings)} to resume where you "
+                "stopped.",
             ),
             (
-                "I typed the wrong username",
+                "Incorrect username submitted",
                 "Press **Apply** again to reveal **Cancel Pending Verification**, or "
-                "run `/minecraft cancel`, then apply with the right one.",
+                "run `/minecraft cancel`, then reapply with the correct name.",
             ),
             (
-                "I did not get a DM",
-                "Turn on direct messages from server members, then check "
-                "`/minecraft account`. Anything that failed to send is retried.",
+                "No direct message received",
+                "Enable direct messages from server members, then check "
+                "`/minecraft account`. Undelivered messages are retried automatically.",
             ),
             (
-                "Can I play on Bedrock and Java?",
-                "Yes, but each account applies separately, because each one is "
-                "verified on its own.",
+                "Playing on both editions",
+                "Permitted. Each account applies separately, as each is verified "
+                "independently.",
             ),
         ],
     )
 
 
 PAGES: dict[str, tuple[str, Callable[[Optional[object]], discord.Embed]]] = {
+    "commands": ("Commands", lambda _settings: commands_embed()),
     "clans": ("Clans", lambda _settings: clans_embed()),
     "levels": ("Levels & Perks", lambda _settings: levels_embed()),
     "boosting": ("Boosting", lambda _settings: boosting_embed()),
     "mods": ("Mods & Voice Chat", lambda _settings: mods_embed()),
     "versions": ("Server & Versions", technical_embed),
-    "commands": ("Commands", lambda _settings: commands_embed()),
-    "help": ("Common Questions", troubleshooting_embed),
+    "help": ("Troubleshooting", troubleshooting_embed),
 }
 
 
@@ -364,7 +400,7 @@ class InformationButton(
     discord.ui.DynamicItem[discord.ui.Button],
     template=r"mgx_info:(?P<page>\w+)",
 ):
-    """Persistent so the help centre keeps working after a restart.
+    """Persistent so the panel keeps working after a restart.
 
     Answers privately, so one member reading a topic does not change the panel for
     everyone else looking at it.

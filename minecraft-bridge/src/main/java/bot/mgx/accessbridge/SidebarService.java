@@ -246,14 +246,17 @@ final class SidebarService {
         if (clan.isPresent()) {
             rendered = rendered.append(clanTag(clan.get()));
         }
+        // The row carries only what a viewer cannot get elsewhere: level already has
+        // its own sidebar row, and a Java client's device is always a desktop.
         rendered = rendered
                 .append(identities.tag(player.getUniqueId()))
                 .append(Component.text(player.getName(), NamedTextColor.WHITE))
                 .append(divider())
-                .append(Component.text("Lv" + profile.level(), NamedTextColor.AQUA))
-                .append(divider())
-                .append(Component.text(platform.edition(), editionColor(platform)))
-                .append(Component.text("·" + platform.device(), NamedTextColor.GRAY))
+                .append(Component.text(platform.edition(), editionColor(platform)));
+        if (platform.showsDevice()) {
+            rendered = rendered.append(Component.text("·" + platform.device(), NamedTextColor.GRAY));
+        }
+        rendered = rendered
                 .append(divider())
                 .append(Component.text(player.getPing() + "ms", pingColor(player.getPing())));
         player.playerListName(rendered);
