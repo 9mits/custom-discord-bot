@@ -44,6 +44,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private ChatRelayService chatRelayService;
     private LuckPermsService luckPermsService;
     private LeaderboardService leaderboardService;
+    private CapabilityService capabilityService;
     private PlayerSettingsStore playerSettings;
     private WealthStore wealthStore;
 
@@ -116,6 +117,12 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 getServer().getWorlds().get(0).getWorldFolder().toPath().resolve("stats"),
                 wealthStore
         );
+        capabilityService = new CapabilityService(
+                this,
+                bridgeClient,
+                clanStore,
+                bridgeConfig.leaderboardRefreshTicks()
+        );
         leaderboardService = new LeaderboardService(
                 this,
                 bridgeClient,
@@ -152,11 +159,15 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("settings").setTabCompleter(settingsService);
         sidebarService.start();
         leaderboardService.start();
+        capabilityService.start();
         bridgeClient.start();
     }
 
     @Override
     public void onDisable() {
+        if (capabilityService != null) {
+            capabilityService.stop();
+        }
         if (leaderboardService != null) {
             leaderboardService.stop();
         }
@@ -184,6 +195,13 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     void republishLeaderboard() {
         if (leaderboardService != null) {
             getServer().getScheduler().runTask(this, leaderboardService::publishNow);
+        }
+    }
+
+    /** Called when the bridge reconnects, so Discord is never left guessing. */
+    void republishCapabilities() {
+        if (capabilityService != null) {
+            getServer().getScheduler().runTask(this, capabilityService::publishNow);
         }
     }
 
