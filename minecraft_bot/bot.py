@@ -139,9 +139,10 @@ class MinecraftAccessBot(commands.Bot):
         self.add_view(LiveApplicationView())
         # Without this the leaderboard dropdowns have no handler, so Discord reports
         # that the bot did not respond in time.
+        from .information import InformationButton
         from .leaderboard import BoardSelect
 
-        self.add_dynamic_items(BoardSelect)
+        self.add_dynamic_items(BoardSelect, InformationButton)
         await self.bridge.start()
         self.application_maintenance.start()
         self.leaderboard_refresh.start()
@@ -1062,6 +1063,38 @@ class MinecraftAccessBot(commands.Bot):
     async def _before_leaderboard_refresh(self) -> None:
         await self.wait_until_ready()
 
+    async def publish_information_panel(self, channel: discord.TextChannel) -> Optional[str]:
+        """Posts or updates the guide. Returns a reason when it could not."""
+        from .information import CONFIG_CHANNEL, CONFIG_MESSAGE, message_payload
+
+        payload = message_payload()
+        await self.data.set_config(CONFIG_CHANNEL, channel.id)
+        message_id = await self.data.get_config(CONFIG_MESSAGE)
+        if message_id:
+            try:
+                message = await channel.fetch_message(int(message_id))
+                await message.edit(
+                    embed=payload["embed"],
+                    attachments=payload["attachments"],
+                    view=payload["view"],
+                )
+                return None
+            except discord.NotFound:
+                pass  # deleted; fall through and repost
+            except discord.HTTPException:
+                return "Discord refused the edit. Try again in a moment."
+        try:
+            posted = await channel.send(
+                embed=payload["embed"],
+                files=payload["attachments"],
+                view=payload["view"],
+            )
+        except discord.HTTPException:
+            logger.exception("Could not post the information panel")
+            return "I could not post there. Check my permissions in that channel."
+        await self.data.set_config(CONFIG_MESSAGE, posted.id)
+        return None
+
     async def _resolve_leaderboard_links(self, snapshot: dict) -> dict[str, str]:
         """Maps every ranked Minecraft UUID to its linked Discord id, once per refresh."""
         uuids: set[str] = set()
@@ -1376,6 +1409,26 @@ class MinecraftAccessBot(commands.Bot):
                     f"The leaderboard is now in {channel.mention} and refreshes every 5 minutes. "
                     "Standings fill in once the Minecraft server reports them."
                 )
+            )
+
+        @group.command(
+            name="information",
+            description="Post the server guide panel in a channel.",
+        )
+        @app_commands.describe(channel="Where the permanent guide should live.")
+        @app_commands.default_permissions(administrator=True)
+        async def information(
+            interaction: discord.Interaction, channel: discord.TextChannel
+        ) -> None:
+            if not await self.require_administrator(interaction):
+                return
+            await interaction.response.defer(ephemeral=True)
+            problem = await self.publish_information_panel(channel)
+            if problem:
+                await interaction.edit_original_response(content=problem)
+                return
+            await interaction.edit_original_response(
+                content=f"The server guide is now in {channel.mention}."
             )
 
         @group.command(
