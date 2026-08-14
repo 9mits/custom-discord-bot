@@ -121,6 +121,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 this,
                 bridgeClient,
                 clanStore,
+                luckPermsService,
                 bridgeConfig.leaderboardRefreshTicks()
         );
         leaderboardService = new LeaderboardService(
@@ -266,6 +267,71 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             }
             default -> throw new ClanStore.ClanException("That clan action is not available here.");
         }
+    }
+
+    /**
+     * Runs one staff tool on behalf of a Discord-originated request.
+     *
+     * <p>The payload's claim about who is asking is never trusted on its own: permission
+     * is re-checked here, through the player's live session if they are online or
+     * through LuckPerms' own storage if they are not — which is the normal case for a
+     * moderator acting from Discord. Only a tool with a remote command builder can run
+     * this way; the rest are investigative or need the actor standing in the world.
+     */
+    java.util.concurrent.CompletableFuture<String> runStaffAction(
+            UUID actor, String toolKey, String target, String reason, String duration
+    ) {
+        StaffTools.StaffTool tool = StaffTools.find(toolKey)
+                .orElseThrow(() -> new StaffActionException("That is not a recognised staff tool."));
+        StaffTools.RemoteCommand remote = tool.remote()
+                .orElseThrow(() -> new StaffActionException(
+                        "That tool has to be used in game, not from Discord."
+                ));
+
+        String safeTarget = StaffActionInput.sanitizeUsername(target);
+        String safeReason = StaffActionInput.sanitizeFreeText(reason, 200);
+        String safeDuration = StaffActionInput.sanitizeFreeText(duration, 20);
+        String command;
+        try {
+            command = remote.build(safeTarget, safeReason, safeDuration);
+        } catch (IllegalArgumentException exception) {
+            throw new StaffActionException(exception.getMessage());
+        }
+        String finalCommand = command;
+
+        return authorised(actor, tool.permission()).thenCompose(allowed -> {
+            if (!allowed) {
+                return java.util.concurrent.CompletableFuture.failedFuture(
+                        new StaffActionException("You do not have permission to do that.")
+                );
+            }
+            java.util.concurrent.CompletableFuture<String> dispatched =
+                    new java.util.concurrent.CompletableFuture<>();
+            getServer().getScheduler().runTask(this, () -> {
+                boolean ran = getServer().dispatchCommand(getServer().getConsoleSender(), finalCommand);
+                getLogger().info("Discord ran staff tool '" + toolKey + "' as " + actor);
+                dispatched.complete(ran
+                        ? "Ran on the server: /" + finalCommand
+                        : "The server did not recognise that command.");
+            });
+            return dispatched;
+        });
+    }
+
+    /**
+     * An online session's permissions are authoritative for that session; an offline
+     * player has none we can check without LuckPerms, so absent it, the action refuses
+     * rather than guessing.
+     */
+    private java.util.concurrent.CompletableFuture<Boolean> authorised(UUID actor, String permission) {
+        org.bukkit.entity.Player online = getServer().getPlayer(actor);
+        if (online != null) {
+            return java.util.concurrent.CompletableFuture.completedFuture(online.hasPermission(permission));
+        }
+        if (luckPermsService == null) {
+            return java.util.concurrent.CompletableFuture.completedFuture(false);
+        }
+        return luckPermsService.hasPermission(actor, permission);
     }
 
     void applyPlayerRank(UUID minecraftUuid, String rankGroup) {

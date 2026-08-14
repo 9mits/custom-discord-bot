@@ -242,6 +242,10 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                     plugin,
                     () -> executeClanAction(idempotencyKey, payload)
             );
+            case "STAFF_ACTION" -> Bukkit.getScheduler().runTask(
+                    plugin,
+                    () -> executeStaffAction(idempotencyKey, payload)
+            );
             case "APPROVE", "REVOKE", "KICK", "STATUS" -> Bukkit.getScheduler().runTask(
                     plugin,
                     () -> executeMainThreadAction(idempotencyKey, action, payload)
@@ -270,6 +274,42 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             // A refusal is a real answer for the player, not a bridge failure.
             recordAndSend(key, new ProcessedActionStore.Result(false, exception.getMessage()));
         } catch (RuntimeException | java.io.IOException exception) {
+            recordAndSend(key, new ProcessedActionStore.Result(false, safeError(exception)));
+        }
+    }
+
+    /**
+     * Runs a staff tool on the requester's behalf.
+     *
+     * <p>{@link MGXAccessBridge#runStaffAction} re-checks the actor's permission through
+     * LuckPerms before dispatching anything — the payload's own claim is never trusted.
+     * The check is async because it may need to load an offline player's data, so the
+     * result completes later rather than returning here.
+     */
+    private void executeStaffAction(String key, JsonObject payload) {
+        try {
+            UUID actor = UUID.fromString(payload.get("actor_uuid").getAsString());
+            String tool = payload.get("tool").getAsString();
+            String target = optionalString(payload, "target");
+            String reason = optionalString(payload, "reason");
+            String duration = optionalString(payload, "duration");
+            plugin.runStaffAction(actor, tool, target, reason, duration)
+                    .whenComplete((outcome, error) -> {
+                        if (error == null) {
+                            recordAndSend(key, new ProcessedActionStore.Result(true, outcome));
+                            return;
+                        }
+                        // CompletableFuture wraps async failures in CompletionException;
+                        // unwrap so a refusal is a clean message rather than a nested one.
+                        Throwable cause = error instanceof java.util.concurrent.CompletionException
+                                ? error.getCause()
+                                : error;
+                        String message = cause instanceof StaffActionException
+                                ? cause.getMessage()
+                                : safeError(cause);
+                        recordAndSend(key, new ProcessedActionStore.Result(false, message));
+                    });
+        } catch (RuntimeException exception) {
             recordAndSend(key, new ProcessedActionStore.Result(false, safeError(exception)));
         }
     }

@@ -51,6 +51,8 @@ COMMAND_RISK: Mapping[str, str] = {
     "minecraft revoke": RISK_DESTRUCTIVE,
     "minecraft unlink": RISK_DESTRUCTIVE,
     "minecraft cancel": RISK_DESTRUCTIVE,
+    "minecraft moderate": RISK_DESTRUCTIVE,
+    "minecraft clan": RISK_MODERATE,
     "minecraft retry": RISK_MODERATE,
     "minecraft setup": RISK_CONFIGURATION,
     "minecraft log-channel": RISK_CONFIGURATION,

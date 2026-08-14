@@ -1824,7 +1824,7 @@ class MinecraftClanActionTests(unittest.IsolatedAsyncioTestCase):
             latest_capabilities={
                 "players": {"u1": {"clan": "LUCKY", "clan_role": role, "staff_tools": []}}
             },
-            run_clan_action=AsyncMock(),
+            run_clan_action=AsyncMock(return_value=(True, "The clan was disbanded.")),
         )
         return bot
 
@@ -1834,7 +1834,16 @@ class MinecraftClanActionTests(unittest.IsolatedAsyncioTestCase):
         embed = await bot.run_clan_action(1, "disband", "")
 
         bot.bridge.run_clan_action.assert_awaited_once()
-        self.assertEqual(embed.title, "Sent to the Server")
+        self.assertEqual(embed.title, "Done")
+
+    async def test_a_refusal_from_the_server_is_shown_as_such(self):
+        bot = self._bot(role="leader")
+        bot.bridge.run_clan_action = AsyncMock(return_value=(False, "No clan has that name."))
+
+        embed = await bot.run_clan_action(1, "disband", "")
+
+        self.assertEqual(embed.title, "Refused by the Server")
+        self.assertIn("No clan has that name.", embed.description)
 
     async def test_a_member_may_not_disband(self):
         bot = self._bot(role="member")
@@ -1868,3 +1877,168 @@ class MinecraftClanActionTests(unittest.IsolatedAsyncioTestCase):
 
         bot.bridge.run_clan_action.assert_not_awaited()
         self.assertEqual(embed.title, "No Linked Account")
+
+
+class MinecraftBridgeAwaitedResultTests(unittest.IsolatedAsyncioTestCase):
+    """A clan or staff action needs the server's real answer, not just "it was sent"."""
+
+    def _bridge(self):
+        from minecraft_bot.bridge import MinecraftBridgeServer
+
+        bridge = object.__new__(MinecraftBridgeServer)
+        bridge._pending_results = {}
+        bridge._sent_this_connection = {}
+        bridge._socket = SimpleNamespace(closed=False)
+        bridge._send_lock = asyncio.Lock()
+        return bridge
+
+    async def test_a_matching_action_result_resolves_the_waiter(self):
+        bridge = self._bridge()
+        bridge._send = AsyncMock(
+            side_effect=lambda *a, **kw: setattr(bridge, "_sent_key", kw["idempotency_key"])
+        )
+
+        async def respond_shortly():
+            await asyncio.sleep(0)
+            await bridge._handle_message(
+                {
+                    "type": "ACTION_RESULT",
+                    "payload": {
+                        "action_idempotency_key": bridge._sent_key,
+                        "success": True,
+                        "error": "It worked.",
+                    },
+                    "idempotency_key": "irrelevant",
+                }
+            )
+
+        result, respond = await asyncio.gather(
+            bridge._send_awaiting_result("ACTION", {"action": "CLAN_ACTION"}),
+            respond_shortly(),
+        )
+
+        self.assertEqual(result, (True, "It worked."))
+
+    async def test_a_timeout_is_reported_rather_than_hanging(self):
+        bridge = self._bridge()
+        bridge._send = AsyncMock()
+
+        result = await bridge._send_awaiting_result(
+            "ACTION", {"action": "CLAN_ACTION"}, timeout=0.01
+        )
+
+        self.assertFalse(result[0])
+        self.assertIn("did not respond", result[1])
+
+    async def test_an_offline_bridge_refuses_immediately(self):
+        bridge = self._bridge()
+        bridge._send = AsyncMock(side_effect=ConnectionError("offline"))
+
+        result = await bridge._send_awaiting_result("ACTION", {"action": "CLAN_ACTION"})
+
+        self.assertEqual(result, (False, "The Minecraft bridge is offline."))
+        self.assertEqual(bridge._pending_results, {})
+
+    async def test_a_result_for_an_unknown_key_falls_through_without_raising(self):
+        bridge = self._bridge()
+        bridge.data = SimpleNamespace(
+            complete_outbox=AsyncMock(return_value=(None, None, False))
+        )
+
+        # No KeyError, no exception — a stray or duplicate ACTION_RESULT is inert.
+        await bridge._handle_message(
+            {
+                "type": "ACTION_RESULT",
+                "payload": {"action_idempotency_key": "never-registered", "success": True},
+                "idempotency_key": "irrelevant",
+            }
+        )
+
+
+class MinecraftStaffActionTests(unittest.IsolatedAsyncioTestCase):
+    """Discord may only ask for a tool the linked account's own LuckPerms permission grants."""
+
+    def _bot(self, *, tools, connected=True):
+        bot = object.__new__(MinecraftAccessBot)
+        bot.data = SimpleNamespace(
+            list_accounts_for_user=AsyncMock(return_value=[{"minecraft_uuid": "u1"}])
+        )
+        bot.bridge = SimpleNamespace(
+            connected=connected,
+            latest_capabilities={"players": {"u1": {"staff_tools": tools}}},
+            run_staff_action=AsyncMock(return_value=(True, "mits was kicked.")),
+        )
+        return bot
+
+    async def test_a_held_tool_is_sent(self):
+        bot = self._bot(tools=["kick"])
+
+        embed = await bot.run_staff_action(1, "kick", target="mits", reason="", duration="")
+
+        bot.bridge.run_staff_action.assert_awaited_once_with(
+            actor_uuid="u1", tool="kick", target="mits", reason="", duration=""
+        )
+        self.assertEqual(embed.title, "Done")
+
+    async def test_an_unheld_tool_is_refused_without_contacting_the_server(self):
+        bot = self._bot(tools=[])
+
+        embed = await bot.run_staff_action(1, "kick", target="mits", reason="", duration="")
+
+        bot.bridge.run_staff_action.assert_not_awaited()
+        self.assertEqual(embed.title, "Not Allowed")
+
+    async def test_a_tool_with_no_remote_command_is_refused(self):
+        bot = self._bot(tools=["inspect"])
+
+        embed = await bot.run_staff_action(1, "inspect", target="", reason="", duration="")
+
+        bot.bridge.run_staff_action.assert_not_awaited()
+        self.assertEqual(embed.title, "Not Available")
+
+    async def test_kick_requires_a_target(self):
+        bot = self._bot(tools=["kick"])
+
+        embed = await bot.run_staff_action(1, "kick", target="", reason="", duration="")
+
+        bot.bridge.run_staff_action.assert_not_awaited()
+        self.assertEqual(embed.title, "Missing Detail")
+
+    async def test_tempban_requires_a_duration(self):
+        bot = self._bot(tools=["tempban"])
+
+        embed = await bot.run_staff_action(
+            1, "tempban", target="mits", reason="", duration=""
+        )
+
+        bot.bridge.run_staff_action.assert_not_awaited()
+        self.assertEqual(embed.title, "Missing Detail")
+
+    async def test_broadcast_needs_a_reason_not_a_target(self):
+        bot = self._bot(tools=["broadcast"])
+
+        embed = await bot.run_staff_action(
+            1, "broadcast", target="", reason="Event starting", duration=""
+        )
+
+        bot.bridge.run_staff_action.assert_awaited_once()
+        self.assertEqual(embed.title, "Done")
+
+    async def test_a_refusal_from_the_server_is_shown_as_such(self):
+        bot = self._bot(tools=["kick"])
+        bot.bridge.run_staff_action = AsyncMock(
+            return_value=(False, "That player is not online.")
+        )
+
+        embed = await bot.run_staff_action(1, "kick", target="mits", reason="", duration="")
+
+        self.assertEqual(embed.title, "Refused by the Server")
+        self.assertIn("not online", embed.description)
+
+    async def test_nothing_is_sent_while_the_server_is_offline(self):
+        bot = self._bot(tools=["kick"], connected=False)
+
+        embed = await bot.run_staff_action(1, "kick", target="mits", reason="", duration="")
+
+        bot.bridge.run_staff_action.assert_not_awaited()
+        self.assertEqual(embed.title, "Server Offline")

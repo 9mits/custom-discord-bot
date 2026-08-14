@@ -54,6 +54,9 @@ class MinecraftBridgeServer:
         self.latest_leaderboard: dict[str, Any] = {}
         # Minecraft UUID -> clan standing and staff tools, pushed by Paper.
         self.latest_capabilities: dict[str, Any] = {}
+        # Idempotency key -> future, for actions awaiting a real outcome from Paper
+        # rather than the outbox flow application actions use.
+        self._pending_results: dict[str, asyncio.Future] = {}
         self._app = web.Application(client_max_size=1024 * 1024)
         self._app.router.add_get(config.bridge_path, self._websocket_handler)
         self._runner: Optional[web.AppRunner] = None
@@ -320,6 +323,14 @@ class MinecraftBridgeServer:
             action_key = str(payload.get("action_idempotency_key", ""))
             if not action_key:
                 raise ValueError("Action result omitted its idempotency key")
+            pending = self._pending_results.pop(action_key, None)
+            if pending is not None:
+                if not pending.done():
+                    pending.set_result(
+                        (bool(payload.get("success")), str(payload.get("error", "")))
+                    )
+                self._sent_this_connection.pop(action_key, None)
+                return
             if bool(payload.get("success")):
                 record, application, newly_processed = await self.data.complete_outbox(action_key)
                 if record is not None and newly_processed:
@@ -424,15 +435,46 @@ class MinecraftBridgeServer:
             return False
         return True
 
+    async def _send_awaiting_result(
+        self,
+        message_type: str,
+        payload: dict[str, Any],
+        *,
+        timeout: float = 10.0,
+    ) -> tuple[bool, str]:
+        """Sends an action and waits for Paper's own ACTION_RESULT, rather than a
+        generic "it was sent" message. Used where the caller needs to know whether
+        the thing actually happened — a ban that silently failed is worse than one
+        that visibly refuses.
+        """
+        key = f"{message_type.lower()}:{secrets.token_hex(12)}"
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future = loop.create_future()
+        self._pending_results[key] = future
+        try:
+            await self._send(message_type, payload, idempotency_key=key)
+        except ConnectionError:
+            self._pending_results.pop(key, None)
+            return False, "The Minecraft bridge is offline."
+        try:
+            success, message = await asyncio.wait_for(future, timeout=timeout)
+        except asyncio.TimeoutError:
+            self._pending_results.pop(key, None)
+            return False, "The server did not respond in time."
+        return success, message
+
     async def run_clan_action(
         self,
         *,
         actor_uuid: str,
         action: str,
         argument: str = "",
-    ) -> None:
-        """Asks Paper to perform a clan action. It decides whether the actor may."""
-        await self._send(
+    ) -> tuple[bool, str]:
+        """Asks Paper to perform a clan action and waits for its real outcome.
+
+        Paper decides whether the actor may — this never grants anything on its own.
+        """
+        return await self._send_awaiting_result(
             "ACTION",
             {
                 "action": "CLAN_ACTION",
@@ -440,7 +482,33 @@ class MinecraftBridgeServer:
                 "clan_action": str(action),
                 "argument": str(argument).strip()[:32],
             },
-            idempotency_key=f"clan:{actor_uuid}:{secrets.token_hex(12)}",
+        )
+
+    async def run_staff_action(
+        self,
+        *,
+        actor_uuid: str,
+        tool: str,
+        target: str = "",
+        reason: str = "",
+        duration: str = "",
+    ) -> tuple[bool, str]:
+        """Asks Paper to run a staff tool and waits for its real outcome.
+
+        Paper re-checks the actor's permission through LuckPerms before running
+        anything — this call carries the request, not the authority.
+        """
+        return await self._send_awaiting_result(
+            "ACTION",
+            {
+                "action": "STAFF_ACTION",
+                "actor_uuid": str(actor_uuid),
+                "tool": str(tool),
+                "target": str(target).strip()[:32],
+                "reason": str(reason).strip()[:200],
+                "duration": str(duration).strip()[:20],
+            },
+            timeout=15.0,
         )
 
     async def send_discord_chat(

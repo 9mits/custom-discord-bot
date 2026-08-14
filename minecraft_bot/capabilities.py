@@ -31,6 +31,20 @@ STAFF_TOOL_LABELS: dict[str, str] = {
     "unban": "Lift a ban",
 }
 
+#: Staff tools that can run from Discord as a fire-and-forget console command, with
+#: which arguments they need. Mirrors StaffTools.ALL in the plugin — the Java side is
+#: authoritative and re-checks the permission itself; this only decides what to offer
+#: and which fields to ask for before sending.
+REMOTE_STAFF_TOOLS: dict[str, dict[str, bool]] = {
+    "heal": {"needs_target": True, "needs_reason": False, "needs_duration": False},
+    "kick": {"needs_target": True, "needs_reason": False, "needs_duration": False},
+    "mute": {"needs_target": True, "needs_reason": False, "needs_duration": False},
+    "ban": {"needs_target": True, "needs_reason": False, "needs_duration": False},
+    "tempban": {"needs_target": True, "needs_reason": False, "needs_duration": True},
+    "unban": {"needs_target": True, "needs_reason": False, "needs_duration": False},
+    "broadcast": {"needs_target": False, "needs_reason": True, "needs_duration": False},
+}
+
 #: Clan actions and the roles allowed to use them, mirroring the plugin's own rules.
 CLAN_ACTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
     "invite": ("Invite a player", ("leader", "staff")),
@@ -81,6 +95,18 @@ class PlayerCapabilities:
     def available_staff_tools(self) -> list[tuple[str, str]]:
         held = set(self.staff_tools)
         return [(key, label) for key, label in STAFF_TOOL_LABELS.items() if key in held]
+
+    def available_remote_tools(self) -> list[tuple[str, str]]:
+        """Staff tools this player holds that can also be run from Discord."""
+        held = set(self.staff_tools)
+        return [
+            (key, STAFF_TOOL_LABELS[key])
+            for key in REMOTE_STAFF_TOOLS
+            if key in held
+        ]
+
+    def may_run_remotely(self, tool: str) -> bool:
+        return tool in REMOTE_STAFF_TOOLS and tool in self.staff_tools
 
 
 def capabilities_for(snapshot: dict[str, Any], minecraft_uuid: str) -> PlayerCapabilities:
