@@ -1333,12 +1333,50 @@ class MinecraftLeaderboardRenderTests(unittest.TestCase):
 
         self.assertEqual(embed.footer.text, self.leaderboard.BRAND_NAME)
 
-    def test_thumbnail_is_the_attached_x_mark(self):
-        from minecraft_bot.presentation import MARK_ATTACHMENT_URI, MARK_PATH
+    def test_thumbnail_is_the_leader_of_this_board(self):
+        # Each board is about whoever tops it, so the thumbnail follows the board
+        # rather than showing the same brand mark five times.
+        from minecraft_bot.presentation import head_url
 
         embed = self.leaderboard.build_embed(self.snapshot, scope="individual", board="wealth")
+        leader = self.snapshot["individual"]["wealth"][0]
 
-        self.assertEqual(embed.thumbnail.url, MARK_ATTACHMENT_URI)
+        self.assertEqual(
+            embed.thumbnail.url,
+            head_url(leader["minecraft_uuid"], leader.get("username", "")),
+        )
+
+    def test_thumbnail_is_a_remote_url_not_an_attachment(self):
+        # The dropdown replies are ephemeral and cannot carry a file, so an
+        # attachment:// thumbnail silently rendered nothing on those boards.
+        for scope in ("individual", "clan"):
+            with self.subTest(scope=scope):
+                embed = self.leaderboard.build_embed(
+                    self.snapshot, scope=scope, board="wealth"
+                )
+
+                self.assertTrue(embed.thumbnail.url.startswith("https://"))
+
+    def test_bedrock_heads_use_the_name_lookup(self):
+        # Floodgate UUIDs are zero-prefixed and unresolvable by the Java head
+        # service, so a Bedrock player on the podium previously got no head.
+        from minecraft_bot.presentation import head_url
+
+        bedrock = head_url("00000000-0000-0000-0009-01f9d1ebbeb2", ".Wv4mp")
+        java = head_url("5ebdc316-b5d6-4f32-8afb-330642f6ff2a", "MinimumOrc")
+
+        self.assertIn("Wv4mp", bedrock)
+        self.assertNotIn("00000000", bedrock)
+        self.assertIn("5ebdc316-b5d6-4f32-8afb-330642f6ff2a", java)
+
+    def test_thumbnail_falls_back_to_the_brand_when_a_board_is_empty(self):
+        from minecraft_bot.presentation import MARK_ICON_URL, MARK_PATH
+
+        embed = self.leaderboard.build_embed(
+            {"individual": {"wealth": []}}, scope="individual", board="wealth"
+        )
+
+        self.assertEqual(embed.thumbnail.url, MARK_ICON_URL)
         self.assertTrue(MARK_PATH.is_file(), "the mark asset must ship with the repo")
 
     def test_heads_are_shown_for_the_podium_only(self):
@@ -1577,14 +1615,16 @@ class MinecraftHeadPurgeTests(unittest.IsolatedAsyncioTestCase):
 
 
 class MinecraftPodiumScopeTests(unittest.TestCase):
-    """Heads are minted for one board only; fifteen emojis was too many."""
+    """Every individual board mints heads for its own top three."""
 
     def _store(self):
         from minecraft_bot.leaderboard import HeadEmojiStore
 
         return HeadEmojiStore(SimpleNamespace())
 
-    def test_only_the_default_board_mints_heads(self):
+    def test_every_individual_board_mints_its_own_podium(self):
+        # Topping Distance Walked rarely means topping Richest, so restricting
+        # this to one board left the other four showing bare rows.
         from minecraft_bot.leaderboard import DEFAULT_TYPE
 
         snapshot = {
@@ -1595,13 +1635,27 @@ class MinecraftPodiumScopeTests(unittest.TestCase):
                 "kills": [
                     {"minecraft_uuid": "killer", "username": "killer", "value": 9},
                 ],
+                "blocks_walked": [
+                    {"minecraft_uuid": "walker", "username": "walker", "value": 9},
+                ],
             }
         }
 
         podium = self._store()._podium_players(snapshot)
 
-        self.assertIn("rich", podium)
-        self.assertNotIn("killer", podium)
+        for uuid in ("rich", "killer", "walker"):
+            with self.subTest(uuid=uuid):
+                self.assertIn(uuid, podium)
+
+    def test_clan_rows_never_mint_player_heads(self):
+        from minecraft_bot.leaderboard import DEFAULT_TYPE
+
+        snapshot = {
+            "individual": {DEFAULT_TYPE: []},
+            "clan": {DEFAULT_TYPE: [{"clan": "Wolves", "value": 9}]},
+        }
+
+        self.assertEqual(self._store()._podium_players(snapshot), {})
 
     def test_no_more_than_three_are_minted(self):
         from minecraft_bot.leaderboard import DEFAULT_TYPE, PODIUM

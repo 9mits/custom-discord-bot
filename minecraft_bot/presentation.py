@@ -40,6 +40,26 @@ MARK_PATH = Path(__file__).resolve().parent.parent / "assets" / "minecraft" / MA
 MARK_ATTACHMENT_URI = f"attachment://{MARK_FILENAME}"
 MINECRAFT_HEAD_URL = "https://mc-heads.net/head/{identifier}/128.png"
 BEDROCK_NAME_HEAD_URL = "https://api.mcheads.org/head/.{identifier}/128"
+#: A remote copy of the mark, for embeds that are not sent with an attachment —
+#: an ephemeral reply cannot carry one, so attachment:// silently renders nothing.
+MARK_ICON_URL = (
+    "https://raw.githubusercontent.com/9mits/custom-discord-bot/main/"
+    f"assets/minecraft/{MARK_FILENAME}"
+)
+#: Floodgate hands Bedrock players a UUID whose first eight bytes are zero. The
+#: Java head services cannot resolve those, so they are looked up by name instead.
+_BEDROCK_UUID_PREFIX = "0" * 16
+
+
+def head_url(minecraft_uuid: str, username: str = "") -> str:
+    """The head image for a player, on either edition."""
+    compact = str(minecraft_uuid or "").replace("-", "").lower()
+    if compact.startswith(_BEDROCK_UUID_PREFIX):
+        # Geyser prefixes Bedrock gamertags with a dot, which the URL already has.
+        name = username[1:] if username.startswith(".") else username
+        if name:
+            return BEDROCK_NAME_HEAD_URL.format(identifier=quote(name, safe=""))
+    return MINECRAFT_HEAD_URL.format(identifier=quote(minecraft_uuid, safe=""))
 
 #: The version the Paper server itself runs. ViaBackwards translates older Java
 #: clients down to it and Geyser handles Bedrock, so player-facing text should
