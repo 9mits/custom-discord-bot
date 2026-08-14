@@ -1793,6 +1793,51 @@ class MinecraftInformationPanelTests(unittest.TestCase):
                 self.assertIn("6 extra hearts", described)
                 self.assertIn("stack", described.lower())
 
+    def test_clan_figures_match_the_plugin_that_enforces_them(self):
+        import re
+        from pathlib import Path
+
+        bridge = (
+            Path(__file__).resolve().parent.parent
+            / "minecraft-bridge/src/main/java/bot/mgx/accessbridge"
+        )
+        store = (bridge / "ClanStore.java").read_text()
+        service = (bridge / "ClanService.java").read_text()
+
+        members = re.search(r"MAX_MEMBERS = (\d+);", store)
+        self.assertIsNotNone(members, "MAX_MEMBERS vanished from ClanStore")
+        self.assertEqual(self.information.CLAN_MAX_MEMBERS, int(members.group(1)))
+
+        ttl = re.search(r"INVITE_TTL_MILLIS = (\d+) \* 60 \* 1000L;", store)
+        self.assertIsNotNone(ttl, "INVITE_TTL_MILLIS shape changed in ClanStore")
+        self.assertEqual(
+            self.information.CLAN_INVITE_EXPIRY_MINUTES, int(ttl.group(1))
+        )
+
+        colours = re.search(r"THEME_COLORS = List\.of\(\s*(.*?)\s*\);", service, re.S)
+        self.assertIsNotNone(colours, "THEME_COLORS vanished from ClanService")
+        self.assertEqual(
+            list(self.information.CLAN_THEME_COLOURS),
+            re.findall(r'"([a-z]+)"', colours.group(1)),
+        )
+
+    def test_clan_pages_state_the_rules_people_get_wrong(self):
+        described = " ".join(
+            self.embed_text(embed)
+            for name, embed in self._every_embed()
+            if name.startswith("clans")
+        )
+
+        # Each of these is a rule the plugin enforces with an error message, so a
+        # member who has not read it only discovers it by being refused.
+        self.assertIn("cannot damage each other", described)
+        self.assertIn(str(self.information.CLAN_MAX_MEMBERS), described)
+        self.assertIn(str(self.information.CLAN_INVITE_EXPIRY_MINUTES), described)
+        self.assertIn("online", described)
+        self.assertRegex(described, r"leader cannot be kicked")
+        self.assertRegex(described, r"only the leader can\s+remove")
+        self.assertIn("as **staff**", described)
+
     def test_perk_figures_match_the_plugin_that_applies_them(self):
         # The bridge is authoritative at runtime; copy quoting a stale figure is
         # worse than copy omitting it. Parse the Java rather than trusting memory.
