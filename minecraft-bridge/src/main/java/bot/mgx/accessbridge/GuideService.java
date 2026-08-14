@@ -20,7 +20,41 @@ import java.util.Locale;
 final class GuideService implements CommandExecutor, TabCompleter {
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private static final TextColor GOLD = TextColor.color(0xFFB52E);
-    private static final List<String> GUIDE_PAGES = List.of("levels", "clans", "commands");
+    private static final List<String> GUIDE_PAGES = List.of("levels", "clans", "commands", "staff");
+
+    /**
+     * Staff tools, each gated on the permission that actually runs it.
+     *
+     * <p>The guide asks LuckPerms rather than a rank name, so a player is shown exactly
+     * what they can run — no more, and nothing they would only be refused.
+     */
+    private static final List<StaffCommand> STAFF_COMMANDS = List.of(
+            new StaffCommand("/co inspect", "Toggle block inspection", "coreprotect.inspect"),
+            new StaffCommand("/co lookup", "Search block and container history", "coreprotect.lookup"),
+            new StaffCommand("/co rollback", "Undo damage in an area", "coreprotect.rollback"),
+            new StaffCommand("/co restore", "Redo a rollback you undid", "coreprotect.restore"),
+            new StaffCommand("/grim alerts", "Toggle anticheat alerts", "grim.alerts"),
+            new StaffCommand("/heal", "Restore a player's health", "essentials.heal"),
+            new StaffCommand("/feed", "Restore a player's hunger", "essentials.feed"),
+            new StaffCommand("/god", "Toggle invulnerability", "essentials.god"),
+            new StaffCommand("/invsee", "Look inside a player's inventory", "essentials.invsee"),
+            new StaffCommand("/vanish", "Become invisible to players", "essentials.vanish"),
+            new StaffCommand("/tp", "Teleport to a player", "essentials.tp"),
+            new StaffCommand("/tphere", "Bring a player to you", "essentials.tphere"),
+            new StaffCommand("/seen", "Check when a player was last online", "essentials.seen"),
+            new StaffCommand("/socialspy", "Watch private messages", "essentials.socialspy"),
+            new StaffCommand("/kick", "Remove a player from the server", "essentials.kick"),
+            new StaffCommand("/mute", "Stop a player chatting", "essentials.mute"),
+            new StaffCommand("/broadcast", "Announce to everyone", "essentials.broadcast"),
+            new StaffCommand("/fly", "Toggle flight", "essentials.fly"),
+            new StaffCommand("/gamemode", "Change game mode", "essentials.gamemode"),
+            new StaffCommand("/ban", "Ban a player", "essentials.ban"),
+            new StaffCommand("/tempban", "Ban a player for a set time", "essentials.tempban"),
+            new StaffCommand("/unban", "Lift a ban", "essentials.unban")
+    );
+
+    private record StaffCommand(String usage, String summary, String permission) {
+    }
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
@@ -39,6 +73,7 @@ final class GuideService implements CommandExecutor, TabCompleter {
             case "levels", "level", "perks" -> levels(player);
             case "clans", "clan" -> clans(player);
             case "commands", "command" -> commands(player);
+            case "staff", "mod" -> staff(player);
             case "discord" -> discord(player);
             default -> {
                 error(player, "Unknown guide page. Use /guide to see the available topics.");
@@ -54,6 +89,9 @@ final class GuideService implements CommandExecutor, TabCompleter {
         player.sendMessage(guideLink("/guide clans", "Clan creation, identity, and protection", GOLD));
         player.sendMessage(guideLink("/guide commands", "Useful custom server commands", NamedTextColor.GREEN));
         player.sendMessage(guideLink("/discord", "Community, support, and announcements", ORANGE));
+        if (STAFF_COMMANDS.stream().anyMatch(entry -> player.hasPermission(entry.permission()))) {
+            player.sendMessage(guideLink("/guide staff", "The staff tools you can use", GOLD));
+        }
         footer(player);
     }
 
@@ -105,6 +143,27 @@ final class GuideService implements CommandExecutor, TabCompleter {
         ));
         player.sendMessage(guideLink("/discord", "Open the community invite", ORANGE));
         player.sendMessage(guideLink("/guide", "Return to the main server guide", NamedTextColor.WHITE));
+        footer(player);
+    }
+
+    private static void staff(Player player) {
+        List<StaffCommand> available = STAFF_COMMANDS.stream()
+                .filter(entry -> player.hasPermission(entry.permission()))
+                .toList();
+        title(player, "STAFF COMMANDS");
+        if (available.isEmpty()) {
+            player.sendMessage(Component.text(
+                    "You do not have any staff commands.", NamedTextColor.GRAY
+            ));
+            footer(player);
+            return;
+        }
+        for (StaffCommand entry : available) {
+            player.sendMessage(guideLink(entry.usage(), entry.summary(), GOLD));
+        }
+        player.sendMessage(Component.text(
+                "Only what you can actually run is listed here.", NamedTextColor.DARK_GRAY
+        ));
         footer(player);
     }
 

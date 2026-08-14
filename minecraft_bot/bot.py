@@ -1067,7 +1067,7 @@ class MinecraftAccessBot(commands.Bot):
         """Posts or updates the guide. Returns a reason when it could not."""
         from .information import CONFIG_CHANNEL, CONFIG_MESSAGE, message_payload
 
-        payload = message_payload()
+        payload = message_payload(getattr(self.settings, "application_channel_id", 0))
         await self.data.set_config(CONFIG_CHANNEL, channel.id)
         message_id = await self.data.get_config(CONFIG_MESSAGE)
         if message_id:

@@ -160,8 +160,7 @@ def _panel_embed(title: str, description: str) -> discord.Embed:
 def application_embeds() -> list[discord.Embed]:
     welcome = _panel_embed(
         "Welcome to Mysterious SMP X",
-        "**Mysterious Girlfriend X Discord, in partnership with r/MysteriousGirlfriendX, "
-        "presents Mysterious SMP X.**\n\n"
+        "**Mysterious Girlfriend X Discord, in partnership with r/MysteriousGirlfriendX.**\n\n"
         "The official Minecraft SMP of the Mysterious Girlfriend X Discord community—a place "
         "to explore, build, battle, create stories, and enjoy the server together.\n\n"
         "> This is a private SMP, so every player applies and is reviewed before joining. "
