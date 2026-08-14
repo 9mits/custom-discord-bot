@@ -1775,21 +1775,26 @@ class MinecraftInformationPanelTests(unittest.TestCase):
             self.assertIn(match["page"], self.information.PAGES)
 
     def test_apply_channel_is_mentioned_when_known(self):
-        described = self.information.overview_embed(1234).description
+        # The overview lives in a post-acceptance channel, so joining
+        # instructions belong only in the troubleshooting page.
+        described = self.information.troubleshooting_embed(1234).description
 
         self.assertIn("<#1234>", described)
         self.assertNotIn("the application channel", described)
 
     def test_apply_channel_falls_back_to_words_when_unset(self):
-        described = self.information.overview_embed(0).description
+        described = self.information.troubleshooting_embed(0).description
 
         self.assertIn("the application channel", described)
 
-    def test_overview_states_both_editions_versions(self):
+    def test_overview_reads_as_a_post_acceptance_handbook(self):
         described = self.information.overview_embed(0).description
 
-        self.assertIn("Java:", described)
-        self.assertIn("Bedrock:", described)
+        self.assertIn("Java", described)
+        self.assertIn("Bedrock", described)
+        self.assertIn("1.20.6", described)
+        self.assertNotIn("How to join", described)
+        self.assertNotIn("Apply", described)
 
     def test_expired_applications_are_explained(self):
         described = self.information.troubleshooting_embed(99).description

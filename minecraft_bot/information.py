@@ -24,13 +24,6 @@ CONFIG_MESSAGE = "information_message_id"
 #: Where members read how Discord levelling works.
 LEVELS_CHANNEL_URL = "https://discord.com/channels/1476839721731620938/1476839722734190647"
 
-#: The server itself runs SERVER_VERSION. ViaVersion and ViaBackwards translate
-#: other Java clients, and Geyser lets Bedrock players in, so player-facing text
-#: pairs the native version with the supported ranges.
-JAVA_VERSIONS = f"any version from 1.8 up to the latest release — the server itself runs {SERVER_VERSION}"
-BEDROCK_VERSIONS = "the current Bedrock release, on phone, console, tablet or Windows"
-
-
 def _role_mentions() -> str:
     return "\n".join(
         f"> <@&{role_id}> — level {level}" for role_id, level in LEVEL_ROLE_MILESTONES
@@ -56,25 +49,30 @@ def _apply_here(settings) -> str:
 
 
 def overview_embed(settings=None) -> discord.Embed:
+    # This message lives in a channel members only see after they are accepted,
+    # so it reads as the server handbook — never as joining instructions.
     embed = _embed(
         "Mysterious SMP X — Help Centre",
         "Mysterious Girlfriend X Discord, in partnership with r/MysteriousGirlfriendX.\n\n"
-        "Everything you need to get started is here. Pick a topic below.\n\n"
-        "**How to join**\n"
-        f"> 1. Press **Apply** in {_apply_here(settings)} and accept the rules.\n"
-        "> 2. Type your Minecraft username or Xbox gamertag.\n"
-        "> 3. Join the server once so we know the account is yours. That first "
-        "connection is turned away on purpose — it only proves ownership.\n"
-        "> 4. Come back to Discord and fill out the short application form.\n"
-        "> 5. Staff review it, and you get the result in a DM either way.\n\n"
-        "**Which version do I need?**\n"
-        f"> **Java:** {JAVA_VERSIONS}.\n"
-        f"> **Bedrock:** {BEDROCK_VERSIONS}.\n"
-        "> Java and Bedrock players share one world and can play together.\n\n"
-        "**What kind of server is it?**\n"
-        "> Survival, and PvP is allowed. Raids, rivalries and betrayal are all part of it.\n"
-        "> Every block placed and broken is logged, so real griefing can be undone.\n"
-        "> Staff step in when something stops being a story and starts being harassment.",
+        "Welcome in — your application made it through, and the world is yours to "
+        "explore. This channel is the server's help centre: the buttons below open a "
+        "short guide to each part of the server.\n\n"
+        "**Which version should I play on?**\n"
+        f"> The server itself runs **{SERVER_VERSION}**, so that version gives the "
+        "smoothest experience.\n"
+        "> **On Java** you are not locked to it: anything from 1.8 up to the latest "
+        "release can join, because the server translates other versions automatically.\n"
+        "> **On Bedrock** just keep the game updated — the current release works from "
+        "phone, console, tablet or Windows.\n"
+        "> Whichever edition you use, everyone plays together in one shared world.\n\n"
+        "**What kind of server is this?**\n"
+        "> A survival server where the community writes its own stories. PvP is on, so "
+        "alliances, raids, rivalries and even betrayals are all part of the fun — as "
+        "long as everyone involved still gets to enjoy the game.\n"
+        "> Your builds are safer than they look: every block placed or broken is "
+        "recorded, so genuine griefing can always be rolled back.\n"
+        "> If a conflict ever stops feeling like a story and starts feeling personal, "
+        "staff will step in to help.",
     )
     embed.set_image(url=LOGO_ATTACHMENT_URI)
     return embed
