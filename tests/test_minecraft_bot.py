@@ -1463,3 +1463,35 @@ class MinecraftPodiumDuplicateTests(unittest.IsolatedAsyncioTestCase):
 
         duplicate.delete.assert_awaited_once()
         unrelated.delete.assert_not_awaited()
+
+
+class MinecraftHeadPurgeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_only_head_emojis_are_removed(self):
+        from minecraft_bot.leaderboard import purge_head_emojis
+
+        head = SimpleNamespace(name="mgx_head_mits", delete=AsyncMock())
+        other = SimpleNamespace(name="party_blob", delete=AsyncMock())
+        guild = SimpleNamespace(fetch_emojis=AsyncMock(return_value=[head, other]))
+
+        removed, failed = await purge_head_emojis(guild)
+
+        self.assertEqual((removed, failed), (1, 0))
+        head.delete.assert_awaited_once()
+        other.delete.assert_not_awaited()
+
+    async def test_failures_are_counted_not_raised(self):
+        import discord
+
+        from minecraft_bot.leaderboard import purge_head_emojis
+
+        stubborn = SimpleNamespace(
+            name="mgx_head_kai",
+            delete=AsyncMock(
+                side_effect=discord.HTTPException(Mock(status=500), "nope")
+            ),
+        )
+        guild = SimpleNamespace(fetch_emojis=AsyncMock(return_value=[stubborn]))
+
+        removed, failed = await purge_head_emojis(guild)
+
+        self.assertEqual((removed, failed), (0, 1))
