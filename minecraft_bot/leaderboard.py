@@ -29,6 +29,8 @@ EMOJI_RETENTION_DAYS = 14
 #: Leaves the guild's remaining emoji slots for everything else.
 EMOJI_BUDGET = 20
 EMOJI_PREFIX = "mgx_head_"
+#: Deleting emojis is rate-limited, so a backlog is cleared over several refreshes.
+EMOJI_CLEANUP_PER_PASS = 10
 
 #: The board everyone sees by default; the rest are a dropdown away.
 DEFAULT_TYPE = "wealth"
@@ -83,20 +85,34 @@ class HeadEmojiStore:
         now = datetime.now(timezone.utc)
         podium = self._podium_players(snapshot)
 
+        # Authoritative list rather than the gateway cache: a stale cache is what
+        # caused the same head to be created over and over.
+        try:
+            existing = {emoji.id: emoji for emoji in await guild.fetch_emojis()}
+        except discord.HTTPException:
+            logger.warning("Could not list guild emojis; leaving the podium heads alone.")
+            return {
+                uuid: entry["markdown"]
+                for uuid, entry in registry.items()
+                if entry.get("markdown")
+            }
+
+        registry = await self._forget_orphans(guild, registry, existing)
+
+        def live_emoji_id(uuid: str) -> int:
+            """The player's emoji id, or 0 when they have none Discord still knows about."""
+            emoji_id = int((registry.get(uuid) or {}).get("emoji_id", 0) or 0)
+            return emoji_id if emoji_id and emoji_id in existing else 0
+
         missing = {
-            uuid: username
-            for uuid, username in podium.items()
-            if not (
-                (entry := registry.get(uuid))
-                and guild.get_emoji(int(entry.get("emoji_id", 0) or 0)) is not None
-            )
+            uuid: username for uuid, username in podium.items() if not live_emoji_id(uuid)
         }
         for uuid in podium:
             if uuid not in missing:
                 registry[uuid]["last_podium"] = now.isoformat()
         # Ask Discord for nothing when the guild has no room: the alternative is a
         # guaranteed 400 for every podium player, every refresh, forever.
-        free_slots = guild.emoji_limit - len(guild.emojis)
+        free_slots = guild.emoji_limit - len(existing)
         if missing and free_slots <= 0:
             logger.info(
                 "Guild %s is at its emoji limit (%s); skipping %s podium head(s).",
@@ -122,7 +138,7 @@ class HeadEmojiStore:
                             "last_podium": now.isoformat(),
                         }
 
-        registry = await self._reap(guild, registry, now, keep=set(podium))
+        registry = await self._reap(guild, registry, now, keep=set(podium), existing=existing)
         await self._save(registry)
         return {uuid: entry["markdown"] for uuid, entry in registry.items() if entry.get("markdown")}
 
@@ -166,6 +182,41 @@ class HeadEmojiStore:
             logger.warning("Could not fetch %s's head image: %s", username, error)
             return None
 
+    async def _forget_orphans(
+        self,
+        guild: discord.Guild,
+        registry: dict[str, dict[str, Any]],
+        existing: dict[int, discord.Emoji],
+    ) -> dict[str, dict[str, Any]]:
+        """Deletes head emojis no registry entry owns.
+
+        A stale gateway cache previously caused the same head to be recreated on every
+        refresh, so a guild can be carrying hundreds of duplicates. Anything wearing the
+        prefix that this registry does not claim is one of those, and is removed.
+        """
+        owned = {
+            int(entry.get("emoji_id", 0) or 0)
+            for entry in registry.values()
+        }
+        orphans = [
+            emoji
+            for emoji_id, emoji in existing.items()
+            if emoji.name.startswith(EMOJI_PREFIX) and emoji_id not in owned
+        ]
+        for emoji in orphans[:EMOJI_CLEANUP_PER_PASS]:
+            try:
+                await emoji.delete(reason=f"{BRAND_NAME} duplicate podium head")
+                existing.pop(emoji.id, None)
+            except discord.HTTPException:
+                logger.warning("Could not remove duplicate podium emoji %s", emoji.name)
+        if orphans:
+            logger.info(
+                "Removed %s duplicate podium head(s); %s still to clear.",
+                min(len(orphans), EMOJI_CLEANUP_PER_PASS),
+                max(0, len(orphans) - EMOJI_CLEANUP_PER_PASS),
+            )
+        return registry
+
     async def _reap(
         self,
         guild: discord.Guild,
@@ -173,6 +224,7 @@ class HeadEmojiStore:
         now: datetime,
         *,
         keep: set[str],
+        existing: dict[int, discord.Emoji],
     ) -> dict[str, dict[str, Any]]:
         cutoff = now - timedelta(days=EMOJI_RETENTION_DAYS)
 
@@ -198,7 +250,7 @@ class HeadEmojiStore:
 
         for uuid in expired:
             entry = registry.pop(uuid, {})
-            emoji = guild.get_emoji(int(entry.get("emoji_id", 0) or 0))
+            emoji = existing.get(int(entry.get("emoji_id", 0) or 0))
             if emoji is not None:
                 try:
                     await emoji.delete(reason=f"{BRAND_NAME} leaderboard podium expired")
@@ -304,8 +356,12 @@ class BoardSelect(discord.ui.DynamicItem[discord.ui.Select], template=r"mgx_boar
         # Reuse the links the refresh loop already resolved rather than hitting the
         # database again for every dropdown interaction.
         linked = getattr(bot, "leaderboard_links", {}) or {}
+        # Heads belong on every board, not just the two on the permanent message.
+        heads = getattr(bot, "leaderboard_heads", {}) or {}
         await interaction.response.send_message(
-            embed=build_embed(snapshot, scope=self.scope, board=board, linked=linked),
+            embed=build_embed(
+                snapshot, scope=self.scope, board=board, heads=heads, linked=linked
+            ),
             ephemeral=True,
         )
 

@@ -1368,10 +1368,13 @@ class MinecraftPodiumEmojiCapacityTests(unittest.IsolatedAsyncioTestCase):
     """A guild at Discord's emoji cap must not be asked for more, every refresh."""
 
     def _guild(self, *, limit, used):
+        # Names avoid the head prefix so the orphan sweep leaves them alone.
+        existing = [SimpleNamespace(id=n + 1, name=f"other{n}") for n in range(used)]
         return SimpleNamespace(
             id=1,
             emoji_limit=limit,
-            emojis=[SimpleNamespace(id=n) for n in range(used)],
+            emojis=existing,
+            fetch_emojis=AsyncMock(return_value=existing),
             get_emoji=lambda _id: None,
         )
 
@@ -1409,3 +1412,54 @@ class MinecraftPodiumEmojiCapacityTests(unittest.IsolatedAsyncioTestCase):
         await store.sync(self._guild(limit=250, used=249), self._snapshot)
 
         self.assertEqual(store._create.await_count, 1)
+
+
+class MinecraftPodiumDuplicateTests(unittest.IsolatedAsyncioTestCase):
+    """The stale gateway cache used to make the bot recreate heads it already had."""
+
+    def _store(self, registry):
+        from minecraft_bot.leaderboard import HeadEmojiStore
+
+        bot = SimpleNamespace(
+            data=SimpleNamespace(
+                get_config=AsyncMock(return_value=registry), set_config=AsyncMock()
+            )
+        )
+        store = HeadEmojiStore(bot)
+        store._create = AsyncMock(return_value=None)
+        return store
+
+    async def test_an_existing_head_is_not_created_again(self):
+        registry = {"u0": {"emoji_id": 77, "markdown": "<:h:77>", "last_podium": "2026-08-14T00:00:00+00:00"}}
+        store = self._store(registry)
+        head = SimpleNamespace(id=77, name="mgx_head_p0", delete=AsyncMock())
+        guild = SimpleNamespace(
+            id=1,
+            emoji_limit=250,
+            emojis=[],
+            fetch_emojis=AsyncMock(return_value=[head]),
+            get_emoji=lambda _id: None,
+        )
+        snapshot = {"individual": {"wealth": [{"minecraft_uuid": "u0", "username": "p0", "value": 5}]}}
+
+        await store.sync(guild, snapshot)
+
+        store._create.assert_not_awaited()
+        head.delete.assert_not_awaited()
+
+    async def test_unowned_head_emojis_are_swept_up(self):
+        store = self._store({})
+        duplicate = SimpleNamespace(id=99, name="mgx_head_p0", delete=AsyncMock())
+        unrelated = SimpleNamespace(id=100, name="party_blob", delete=AsyncMock())
+        guild = SimpleNamespace(
+            id=1,
+            emoji_limit=250,
+            emojis=[],
+            fetch_emojis=AsyncMock(return_value=[duplicate, unrelated]),
+            get_emoji=lambda _id: None,
+        )
+
+        await store.sync(guild, {"individual": {}})
+
+        duplicate.delete.assert_awaited_once()
+        unrelated.delete.assert_not_awaited()

@@ -87,6 +87,9 @@ class MinecraftAccessBot(commands.Bot):
         intents.members = True
         intents.messages = True
         intents.message_content = True
+        # Without this the emoji cache never updates after startup, so freshly created
+        # podium heads look missing and get created again on every refresh.
+        intents.emojis_and_stickers = True
         super().__init__(
             command_prefix=commands.when_mentioned,
             intents=intents,
@@ -112,6 +115,8 @@ class MinecraftAccessBot(commands.Bot):
         # Minecraft UUID -> linked Discord id, refreshed with the leaderboard so the
         # dropdowns can render mentions without hitting the database again.
         self.leaderboard_links: dict[str, str] = {}
+        # Minecraft UUID -> podium head emoji, shared with the dropdown boards.
+        self.leaderboard_heads: dict[str, str] = {}
         self._application_messages: dict[int, tuple[discord.Message, float]] = {}
         self._background_tasks: set[asyncio.Task] = set()
         self._commands_synced = False
@@ -1080,6 +1085,7 @@ class MinecraftAccessBot(commands.Bot):
         heads: dict[str, str] = {}
         if channel.guild is not None:
             heads = await HeadEmojiStore(self).sync(channel.guild, snapshot)
+        self.leaderboard_heads = heads
         self.leaderboard_links = await self._resolve_leaderboard_links(snapshot)
         payload = message_payload(snapshot, heads, self.leaderboard_links)
 
