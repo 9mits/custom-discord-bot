@@ -86,7 +86,11 @@ def _milestone_rewards() -> str:
 
 
 def _embed(title: str, description: str) -> discord.Embed:
-    embed = discord.Embed(title=title, description=description, colour=THEME_COLOUR)
+    # A page whose fields speak for themselves passes no intro; sending an empty
+    # description leaves a blank line above the first field.
+    embed = discord.Embed(title=title, colour=THEME_COLOUR)
+    if description:
+        embed.description = description
     embed.set_footer(text=BRAND_NAME, icon_url=FOOTER_ICON_URL)
     return embed
 
@@ -131,35 +135,22 @@ def overview_embed(settings=None) -> discord.Embed:
     # so it reads as the server handbook — never as joining instructions.
     embed = _page(
         "Information",
-        "Mysterious Girlfriend X Discord, in partnership with "
-        "r/MysteriousGirlfriendX.\n\n"
-        "This panel documents how Mysterious SMP X works. Each button below opens "
-        "one section.",
+        "",
         [
             (
                 "The server",
-                "> Mysterious SMP X is a survival server where Java and Bedrock "
-                "players share a single world, so it never matters which edition "
-                "you happen to own. What the server becomes is mostly up to the "
-                "people on it — the building, the clans that form around it, the "
-                "alliances and rivalries that follow, and the lore that grows out "
-                "of all of it.\n"
-                "> \n"
-                "> PvP is enabled, which means raids and the occasional betrayal "
-                "are part of the story rather than something staff step in to "
-                "prevent.",
+                "A survival Minecraft server where teamwork, competition, PvP, "
+                "building and peaceful survival all sit side by side.\n\n"
+                "Play it your way — team up, compete, fight, build, or simply "
+                "enjoy the world.\n\n"
+                "> **Crossplay** — Java and Bedrock share one world",
             ),
             (
                 "Client versions",
-                f"> On **Java** you can join from anything between "
-                f"{JAVA_SUPPORTED_RANGE}, and the server translates older clients "
-                f"automatically. Releases newer than **{SERVER_VERSION}** are "
-                "blocked for safety reasons, so if your launcher has updated past "
-                "it you will need to add an older installation.\n"
-                "> \n"
-                "> On **Bedrock** simply keep the game up to date. Phones, "
-                "consoles, tablets and Windows all connect to the same world as "
-                "everyone else.",
+                f"> **Java** — {JAVA_SUPPORTED_RANGE}\n"
+                "> **Bedrock** — any current version\n\n"
+                f"The server runs **{SERVER_VERSION}**. Older Java clients are "
+                "translated automatically; newer ones are blocked.",
             ),
         ],
     )
