@@ -1362,3 +1362,50 @@ class MinecraftLeaderboardRestartTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNone(result)
         bot.data.set_config.assert_not_awaited()
+
+
+class MinecraftPodiumEmojiCapacityTests(unittest.IsolatedAsyncioTestCase):
+    """A guild at Discord's emoji cap must not be asked for more, every refresh."""
+
+    def _guild(self, *, limit, used):
+        return SimpleNamespace(
+            id=1,
+            emoji_limit=limit,
+            emojis=[SimpleNamespace(id=n) for n in range(used)],
+            get_emoji=lambda _id: None,
+        )
+
+    def _store(self):
+        from minecraft_bot.leaderboard import HeadEmojiStore
+
+        bot = SimpleNamespace(
+            data=SimpleNamespace(get_config=AsyncMock(return_value={}), set_config=AsyncMock())
+        )
+        store = HeadEmojiStore(bot)
+        store._create = AsyncMock(return_value=None)
+        return store
+
+    @property
+    def _snapshot(self):
+        return {
+            "individual": {
+                "wealth": [
+                    {"minecraft_uuid": f"u{n}", "username": f"p{n}", "value": 10 - n}
+                    for n in range(3)
+                ]
+            }
+        }
+
+    async def test_a_full_guild_is_never_asked_to_create(self):
+        store = self._store()
+
+        await store.sync(self._guild(limit=250, used=250), self._snapshot)
+
+        store._create.assert_not_awaited()
+
+    async def test_partial_room_creates_only_what_fits(self):
+        store = self._store()
+
+        await store.sync(self._guild(limit=250, used=249), self._snapshot)
+
+        self.assertEqual(store._create.await_count, 1)

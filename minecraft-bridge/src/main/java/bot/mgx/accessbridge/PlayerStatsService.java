@@ -34,12 +34,12 @@ final class PlayerStatsService {
 
     private final MGXAccessBridge plugin;
     private final Path statsDirectory;
-    private final Map<UUID, Long> wealthSnapshots;
+    private final WealthStore wealth;
 
-    PlayerStatsService(MGXAccessBridge plugin, Path statsDirectory, Map<UUID, Long> wealthSnapshots) {
+    PlayerStatsService(MGXAccessBridge plugin, Path statsDirectory, WealthStore wealth) {
         this.plugin = plugin;
         this.statsDirectory = statsDirectory;
-        this.wealthSnapshots = wealthSnapshots;
+        this.wealth = wealth;
     }
 
     /**
@@ -89,7 +89,7 @@ final class PlayerStatsService {
                     custom(stats, "minecraft:play_time"),
                     totalOf(stats, MINED),
                     custom(stats, "minecraft:walk_one_cm"),
-                    wealthSnapshots.getOrDefault(uuid, 0L)
+                    wealth.snapshots().getOrDefault(uuid, 0L)
             ));
         } catch (IOException | RuntimeException exception) {
             plugin.getLogger().warning(
@@ -140,7 +140,16 @@ final class PlayerStatsService {
         for (ItemStack armour : player.getInventory().getArmorContents()) {
             total += valueOf(armour);
         }
-        wealthSnapshots.put(player.getUniqueId(), total);
+        wealth.record(player.getUniqueId(), total);
+    }
+
+    /** Flushes measured wealth to disk; a no-op when nothing changed. */
+    void saveWealth() {
+        try {
+            wealth.saveIfChanged();
+        } catch (RuntimeException exception) {
+            plugin.getLogger().warning("Could not save player wealth: " + exception.getMessage());
+        }
     }
 
     private static long valueOf(Inventory inventory) {
