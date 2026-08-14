@@ -10,7 +10,7 @@ import statistics
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 import aiosqlite
 
@@ -624,13 +624,18 @@ class MinecraftDataManager:
         )
         return str(rows[0]["discord_user_id"]) if rows else None
 
-    async def owner_for_uuid(self, minecraft_uuid: str) -> Optional[str]:
-        """Linked Discord id for a Minecraft UUID, without needing to know the edition."""
+    async def owners_for_uuids(self, minecraft_uuids: Iterable[str]) -> dict[str, str]:
+        """Linked Discord ids for many UUIDs in one query rather than one each."""
+        unique = [str(value) for value in dict.fromkeys(minecraft_uuids) if value]
+        if not unique:
+            return {}
+        placeholders = ",".join("?" for _ in unique)
         rows = await self._connection().execute_fetchall(
-            "SELECT discord_user_id FROM minecraft_accounts WHERE minecraft_uuid=? LIMIT 1",
-            (str(minecraft_uuid),),
+            "SELECT minecraft_uuid, discord_user_id FROM minecraft_accounts "
+            f"WHERE minecraft_uuid IN ({placeholders})",
+            tuple(unique),
         )
-        return str(rows[0]["discord_user_id"]) if rows else None
+        return {str(row["minecraft_uuid"]): str(row["discord_user_id"]) for row in rows}
 
     async def list_pending_verifications(self) -> list[MinecraftApplication]:
         rows = await self._connection().execute_fetchall(

@@ -83,18 +83,30 @@ class HeadEmojiStore:
         now = datetime.now(timezone.utc)
         podium = self._podium_players(snapshot)
 
-        for uuid, username in podium.items():
-            entry = registry.get(uuid)
-            if entry and guild.get_emoji(int(entry.get("emoji_id", 0) or 0)) is not None:
-                entry["last_podium"] = now.isoformat()
-                continue
-            created = await self._create(guild, uuid, username)
-            if created is not None:
-                registry[uuid] = {
-                    "emoji_id": created.id,
-                    "markdown": str(created),
-                    "last_podium": now.isoformat(),
-                }
+        missing = {
+            uuid: username
+            for uuid, username in podium.items()
+            if not (
+                (entry := registry.get(uuid))
+                and guild.get_emoji(int(entry.get("emoji_id", 0) or 0)) is not None
+            )
+        }
+        for uuid in podium:
+            if uuid not in missing:
+                registry[uuid]["last_podium"] = now.isoformat()
+        if missing:
+            # One session for the whole podium; opening one per head was wasteful.
+            async with aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=15)
+            ) as session:
+                for uuid, username in missing.items():
+                    created = await self._create(session, guild, uuid, username)
+                    if created is not None:
+                        registry[uuid] = {
+                            "emoji_id": created.id,
+                            "markdown": str(created),
+                            "last_podium": now.isoformat(),
+                        }
 
         registry = await self._reap(guild, registry, now, keep=set(podium))
         await self._save(registry)
@@ -110,16 +122,19 @@ class HeadEmojiStore:
         return players
 
     async def _create(
-        self, guild: discord.Guild, uuid: str, username: str
+        self,
+        session: aiohttp.ClientSession,
+        guild: discord.Guild,
+        uuid: str,
+        username: str,
     ) -> Optional[discord.Emoji]:
         try:
-            async with aiohttp.ClientSession() as session:
-                url = MINECRAFT_HEAD_URL.format(identifier=uuid)
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as response:
-                    if response.status != 200:
-                        logger.warning("Head image for %s returned HTTP %s", username, response.status)
-                        return None
-                    image = await response.read()
+            url = MINECRAFT_HEAD_URL.format(identifier=uuid)
+            async with session.get(url) as response:
+                if response.status != 200:
+                    logger.warning("Head image for %s returned HTTP %s", username, response.status)
+                    return None
+                image = await response.read()
             return await guild.create_custom_emoji(
                 name=_emoji_name(username),
                 image=image,

@@ -14,7 +14,6 @@ import java.nio.file.StandardCopyOption;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -88,10 +87,6 @@ final class PlayerSettingsStore {
 
     synchronized boolean isEnabled(UUID playerId, Setting setting) {
         return !disabled.getOrDefault(playerId, EnumSet.noneOf(Setting.class)).contains(setting);
-    }
-
-    synchronized Set<Setting> disabledFor(UUID playerId) {
-        return EnumSet.copyOf(disabled.getOrDefault(playerId, EnumSet.noneOf(Setting.class)));
     }
 
     /** Flips one setting and returns its new state. */

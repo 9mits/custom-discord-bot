@@ -55,6 +55,20 @@ final class LeaderboardService {
         );
     }
 
+    /**
+     * Inventories may only be read on the main thread, so wealth is measured here and
+     * online names are captured here; everything after that is disk and JSON work that
+     * has no business blocking the server.
+     */
+    private Map<UUID, String> snapshotOnlinePlayers() {
+        Map<UUID, String> onlineNames = new HashMap<>();
+        for (Player online : plugin.getServer().getOnlinePlayers()) {
+            stats.snapshotWealth(online);
+            onlineNames.put(online.getUniqueId(), online.getName());
+        }
+        return onlineNames;
+    }
+
     void stop() {
         if (taskId >= 0) {
             plugin.getServer().getScheduler().cancelTask(taskId);
@@ -70,10 +84,15 @@ final class LeaderboardService {
     private void publish() {
         // Wealth only changes while someone is playing, so refresh the online players
         // first and let everyone else keep their last known figure.
-        for (Player online : plugin.getServer().getOnlinePlayers()) {
-            stats.snapshotWealth(online);
-        }
-        List<PlayerStats> everyone = stats.everyKnownPlayer();
+        Map<UUID, String> onlineNames = snapshotOnlinePlayers();
+        plugin.getServer().getScheduler().runTaskAsynchronously(
+                plugin,
+                () -> buildAndSend(onlineNames)
+        );
+    }
+
+    private void buildAndSend(Map<UUID, String> onlineNames) {
+        List<PlayerStats> everyone = stats.everyKnownPlayer(onlineNames);
         JsonObject snapshot = new JsonObject();
         snapshot.addProperty("generated_at", System.currentTimeMillis());
 
@@ -143,10 +162,5 @@ final class LeaderboardService {
             rows.add(row);
         }
         return rows;
-    }
-
-    /** Exposed so a UUID with no statistics file still resolves for tests. */
-    static UUID parseUuid(String raw) {
-        return UUID.fromString(raw);
     }
 }

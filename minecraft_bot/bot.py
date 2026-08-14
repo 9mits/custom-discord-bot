@@ -137,6 +137,7 @@ class MinecraftAccessBot(commands.Bot):
 
     async def close(self) -> None:
         self.application_maintenance.cancel()
+        self.leaderboard_refresh.cancel()
         await self.bridge.close()
         if self._background_tasks:
             _done, pending = await asyncio.wait(self._background_tasks, timeout=5)
@@ -1055,12 +1056,7 @@ class MinecraftAccessBot(commands.Bot):
                 uuid = str(row.get("minecraft_uuid") or "")
                 if uuid:
                     uuids.add(uuid)
-        links: dict[str, str] = {}
-        for uuid in uuids:
-            owner = await self.data.owner_for_uuid(uuid)
-            if owner:
-                links[uuid] = owner
-        return links
+        return await self.data.owners_for_uuids(uuids)
 
     async def _refresh_leaderboard_message(self) -> Optional[str]:
         """Posts or edits the permanent leaderboard. Returns a reason when it could not."""
