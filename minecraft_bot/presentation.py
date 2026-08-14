@@ -83,6 +83,8 @@ MOD_LINKS: dict[str, str] = {
     "Litematica": "https://modrinth.com/mod/litematica",
     "AppleSkin": "https://modrinth.com/mod/appleskin",
     "Fabric": "https://fabricmc.net/use/installer/",
+    "Lunar Client": "https://www.lunarclient.com",
+    "Feather": "https://feathermc.com",
     "Minecraft": "https://www.minecraft.net/download",
 }
 

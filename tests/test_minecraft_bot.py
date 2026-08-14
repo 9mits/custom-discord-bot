@@ -2129,7 +2129,8 @@ class MinecraftInformationPanelTests(unittest.TestCase):
 
         self.assertIn("```text\nplay.example.net\n```", described)
         self.assertIn("```text\nbedrock.example.net\n```", described)
-        self.assertIn("```text\n50549\n```", described)
+        # The port lives on the versions page only; the front page stays short.
+        self.assertNotIn("50549", described)
 
     def test_overview_and_versions_page_agree_on_addresses(self):
         class _Settings:
@@ -2142,10 +2143,11 @@ class MinecraftInformationPanelTests(unittest.TestCase):
         overview = self.embed_text(self.information.overview_embed(settings))
         versions = self.embed_text(self.information.technical_embed(settings))
 
-        for value in ("play.example.net", "bedrock.example.net", "50549"):
+        for value in ("play.example.net", "bedrock.example.net"):
             with self.subTest(value=value):
                 self.assertIn(value, overview)
                 self.assertIn(value, versions)
+        self.assertIn("50549", versions)
 
     def _every_embed(self):
         """Every page and every category within a page, as (name, embed)."""
