@@ -529,7 +529,9 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         bot.data.list_accounts_for_user.assert_not_awaited()
 
     async def test_modal_submission_replaces_the_original_ephemeral_rules_card(self):
-        application = SimpleNamespace(id=42)
+        # A freshly created application is awaiting verification, which is what
+        # decides whether the card carries the verify image.
+        application = SimpleNamespace(id=42, status=ApplicationStatus.PENDING_VERIFICATION)
         original_message = SimpleNamespace(id=9001)
         bot = SimpleNamespace(
             data=SimpleNamespace(create_application=AsyncMock(return_value=application)),
@@ -1610,3 +1612,43 @@ class MinecraftRankSyncSafetyTests(unittest.IsolatedAsyncioTestCase):
         payload = await self._payload(rank_group="", rank_known=True)
 
         self.assertEqual(payload["rank_group"], "")
+
+
+class MinecraftApplicationCardImageTests(unittest.TestCase):
+    """Editing with attachments=[] stripped the image the embed still pointed at."""
+
+    def test_pending_verification_keeps_its_image(self):
+        from minecraft_bot.presentation import (
+            VERIFY_FILENAME,
+            application_card_files,
+        )
+
+        files = application_card_files(
+            SimpleNamespace(status=ApplicationStatus.PENDING_VERIFICATION)
+        )
+
+        self.assertEqual([f.filename for f in files], [VERIFY_FILENAME])
+
+    def test_later_stages_carry_no_attachment(self):
+        from minecraft_bot.presentation import application_card_files
+
+        for status in (
+            ApplicationStatus.PENDING_REVIEW,
+            ApplicationStatus.APPROVED,
+            ApplicationStatus.DENIED,
+        ):
+            with self.subTest(status=status):
+                self.assertEqual(application_card_files(SimpleNamespace(status=status)), [])
+
+
+class MinecraftApplicationPanelTests(unittest.TestCase):
+    def test_welcome_embed_credits_the_partnership_in_bold(self):
+        from minecraft_bot.presentation import application_embeds
+
+        description = application_embeds()[0].description
+
+        self.assertIn(
+            "**Mysterious Girlfriend X Discord, in partnership with "
+            "r/MysteriousGirlfriendX, presents Mysterious SMP X.**",
+            description,
+        )

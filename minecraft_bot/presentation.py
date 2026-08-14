@@ -160,6 +160,8 @@ def _panel_embed(title: str, description: str) -> discord.Embed:
 def application_embeds() -> list[discord.Embed]:
     welcome = _panel_embed(
         "Welcome to Mysterious SMP X",
+        "**Mysterious Girlfriend X Discord, in partnership with r/MysteriousGirlfriendX, "
+        "presents Mysterious SMP X.**\n\n"
         "The official Minecraft SMP of the Mysterious Girlfriend X Discord community—a place "
         "to explore, build, battle, create stories, and enjoy the server together.\n\n"
         "> This is a private SMP, so every player applies and is reviewed before joining. "
@@ -330,6 +332,19 @@ def verification_embed(application: MinecraftApplication, settings) -> discord.E
     )
     embed.set_image(url=VERIFY_ATTACHMENT_URI)
     return embed
+
+
+def application_card_files(application: MinecraftApplication) -> list[discord.File]:
+    """Files the card's embed references, so an edit re-sends rather than strips them.
+
+    Editing a message with ``attachments=[]`` removes the upload while the embed still
+    points at ``attachment://``, which is what made the verify image vanish.
+    """
+    # Tolerates a partially built application: a missing status must not break the
+    # card, and no attachment is the safe answer.
+    if getattr(application, "status", None) is ApplicationStatus.PENDING_VERIFICATION:
+        return [verification_image_file()]
+    return []
 
 
 def live_status_embed(application: MinecraftApplication, settings) -> discord.Embed:
