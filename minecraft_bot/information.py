@@ -529,16 +529,15 @@ def mods_embed() -> discord.Embed:
                 "> Install the build matching your Minecraft version",
             ),
             (
-                "Permitted on Java",
+                "Examples of permitted mods on Java",
                 f"> **Performance** — {mod_link('Sodium')}, {mod_link('Lithium')}, "
                 f"{mod_link('OptiFine')}\n"
                 f"> **Shaders** — {mod_link('Iris Shaders')}\n"
                 f"> **Mapping** — {xaeros_link} or {mod_link('JourneyMap')}, with "
                 "cave mapping and player radar off\n"
                 f"> **Building** — {mod_link('Litematica')}, printer included\n"
-                f"> **Quality of life** — {mod_link('AppleSkin')} and similar\n\n"
-                f"Examples, not the whole list. Most need the "
-                f"{mod_link('Fabric')} loader.",
+                f"> **Quality of life** — {mod_link('AppleSkin')} and similar\n"
+                f"> **Loader** — most of these need {mod_link('Fabric')}",
             ),
             (
                 "Clients",
