@@ -247,54 +247,66 @@ def application_embeds() -> list[discord.Embed]:
     return [welcome, apply]
 
 
-def rules_embed(*, agreement: bool = False) -> discord.Embed:
-    introduction = (
-        "Read every rule below, then select **I Agree** to confirm that you "
-        "understand and accept them.\n\n"
-        if agreement
-        else "These rules apply to every Mysterious SMP X player.\n\n"
-    )
-    ending = (
-        "\n\n**Agreement** — "
-        "By selecting **I Agree** you confirm that you have read these rules, "
-        "will follow them, and accept that staff enforce them."
-        if agreement
-        else ""
-    )
-    # Plain lines, not a blockquote: Discord margins every line inside a quote,
-    # which pushed each heading a full line away from the rule it belongs to.
-    description = (
-        introduction
-        + "**1. Do not grief** — "
-        "Destroying or defacing another player's base, farms or builds is "
-        "prohibited. Damage caused during an agreed fight must be repaired in "
-        "full.\n\n"
-        "**2. Theft has limits** — Taking items is not automatically griefing:\n"
-        "- **Fair** — items taken during a declared conflict\n"
-        "- **Griefing** — emptying a player's storage, or stealing from anyone "
-        "with no part in the conflict\n\n"
-        "**3. Respect spawn and shared builds** — "
-        "Spawn, public farms and community projects are neutral ground. Do not "
-        "build over, claim, or dismantle anything others depend on.\n\n"
-        "**4. Keep PvP fair** — Combat is part of the server, but it has "
-        "limits:\n"
+#: Each rule as (heading, body). Held as data so the reference panel and the
+#: application agreement can never show different rules, and so tests can walk
+#: them without parsing prose.
+SERVER_RULES: tuple[tuple[str, str], ...] = (
+    (
+        "1. Do not grief",
+        "Destroying, defacing, burning or flooding another player's base, farm, "
+        "build or animals is prohibited — whether or not it is claimed, locked, "
+        "lit or occupied. A build that looks abandoned still belongs to someone. "
+        "Damage caused during an agreed fight must be repaired in full, by you, "
+        "before you log off.",
+    ),
+    (
+        "2. Theft has limits",
+        "- **Fair** — items taken from someone who is an active party to a "
+        "declared conflict\n"
+        "- **Griefing** — emptying storage, clearing shulkers or ender chests, or "
+        "taking from anyone with no part in the conflict\n\n"
+        "An unlocked chest is not an invitation, and being offline is not consent.",
+    ),
+    (
+        "3. Respect spawn and shared builds",
+        "Spawn, public farms, roads, portals and community projects are neutral "
+        "ground. Do not build over, claim, dismantle or place traps within them, "
+        "and do not fight at spawn regardless of who started it.",
+    ),
+    (
+        "4. Keep PvP fair",
         "- **Allowed** — fighting, ambushes and declared wars\n"
-        "- **Not allowed** — spawn-killing, combat logging, corpse camping, or "
-        "pursuing a player who has clearly disengaged\n\n"
-        "**5. Keep conflict proportional** — "
+        "- **Not allowed** — spawn-killing, corpse camping, killing the same "
+        "player on sight repeatedly, or pursuing someone who has clearly "
+        "disengaged\n\n"
+        "Logging out to escape a fight is treated as the death you avoided.",
+    ),
+    (
+        "5. Keep conflict proportional",
         "A prank or a stolen item never justifies destroying a base. Retaliation "
-        "must leave the other player a fair chance to respond.\n\n"
-        "**6. Respect other players** — "
-        "Harassment, slurs, discrimination, sexual content and threats are "
-        "prohibited everywhere on the server. These are acted on immediately and "
-        "are never excused as roleplay.\n\n"
-        "**7. Keep it in character** — What happens in Minecraft stays in "
-        "Minecraft. Conflict belongs to the story rather than to the people "
-        "playing, and never follows anyone into Discord or anywhere else:\n"
+        "must leave the other player a fair chance to respond, and must stop when "
+        "they disengage. Whether an escalation was proportional is judged by "
+        "staff, not by the person escalating.",
+    ),
+    (
+        "6. Respect other players",
+        "Harassment, slurs, discrimination, sexual content, threats and sharing "
+        "someone's personal information are prohibited everywhere — chat, signs, "
+        "books, item names and builds included. These are acted on immediately, "
+        "are never excused as roleplay, and do not require the target to complain "
+        "first.",
+    ),
+    (
+        "7. Keep it in character",
+        "What happens in Minecraft stays in Minecraft. Conflict belongs to the "
+        "story rather than to the people playing, and never follows anyone into "
+        "Discord or anywhere else.\n"
         "- **In character** — alliances, rivalries, betrayal\n"
         "- **Not** — real arguments, grudges carried outside the game, personal "
-        "attacks\n\n"
-        "**8. Do not cheat** — "
+        "attacks",
+    ),
+    (
+        "8. Do not cheat",
         "Hacked clients, duping and exploits are banned on sight. Whatever it is "
         "called, a modification is cheating if it does any of the following:\n"
         "- **Shows what you could not see** — X-ray, ore and cave finders, "
@@ -302,34 +314,79 @@ def rules_embed(*, agreement: bool = False) -> discord.Embed:
         "- **Plays for you** — kill aura, aim assist, auto-clickers, auto-walk\n"
         "- **Changes what your character can do** — extra reach, speed, flight, "
         "no fall damage\n\n"
-        "**9. Permitted mods and launchers** — Performance, shader, mapping, "
-        "building and quality-of-life mods are welcome, as are custom launchers "
-        "such as Lunar Client and Feather. Two conditions apply:\n"
+        "Not knowing what your client bundles is not a defence.",
+    ),
+    (
+        "9. Permitted mods and launchers",
+        "Performance, shader, mapping, building and quality-of-life mods are "
+        "welcome, as are custom launchers such as Lunar Client and Feather. Two "
+        "conditions apply:\n"
         "- Minimaps must have cave mapping and player radar turned off\n"
-        "- A launcher bundling anything from rule 8 does not make it "
-        "permitted\n\n"
-        "**10. Report exploits rather than using them** — "
-        "If you find a duplication bug or a way through a protection, tell "
-        "staff. Using it, or passing it to others, is treated as cheating.\n\n"
-        "**11. One account per player** — Alternate accounts are prohibited "
-        "when used to:\n"
-        "- Evade a punishment\n"
-        "- Bypass a whitelist decision\n"
-        "- Claim a second set of perks\n\n"
-        "**12. Protect the server** — "
-        "Lag machines, crash exploits, chunk bans and any other deliberate "
-        "strain on server stability are prohibited.\n\n"
-        "**13. Staff decisions are final** — "
-        "A loophole is not permission. Staff may intervene in any conflict that "
-        "stops being fair, and their ruling stands. Appeal in Discord, never in "
-        "game.\n\n"
-        "**Serious or repeated breaches result in removal from the server.**"
-        + ending
-    )
+        "- A launcher bundling anything from rule 8 does not make it permitted",
+    ),
+    (
+        "10. Report exploits rather than using them",
+        "If you find a duplication bug, a way through a protection, or anything "
+        "the server clearly did not intend, tell staff. Using it, profiting from "
+        "it before reporting it, or passing it to anyone else is treated as "
+        "cheating.",
+    ),
+    (
+        "11. Honour your trades",
+        "A deal is binding once both sides agree. Taking payment without "
+        "delivering, changing the terms afterwards, or inventing a trade to lure "
+        "someone somewhere is theft, and is handled as such.",
+    ),
+    (
+        "12. One account per player",
+        "Alternate accounts are prohibited when used to evade a punishment, "
+        "bypass a whitelist decision, or claim a second set of perks. Do not "
+        "share your account: anything done on it is your responsibility.",
+    ),
+    (
+        "13. Protect the server",
+        "Ordinary farms are fine. Lag machines, crash exploits, chunk bans and "
+        "anything else built or run to strain server stability are prohibited, "
+        "including work you did not realise would cause it once staff have asked "
+        "you to stop.",
+    ),
+    (
+        "14. Staff decisions are final",
+        "A loophole is not permission, and not having read a rule is not a "
+        "defence. If you are unsure whether something is allowed, ask before "
+        "doing it rather than afterwards. Staff may intervene in any conflict "
+        "that stops being fair, and their ruling stands. Appeal in Discord, never "
+        "in game.",
+    ),
+)
+
+ENFORCEMENT_NOTE = (
+    "Serious or repeated breaches result in removal from the server. Staff weigh "
+    "intent, history and the harm caused, and may act on any of the above without "
+    "waiting for a report."
+)
+
+
+def rules_embed(*, agreement: bool = False) -> discord.Embed:
+    # Fields rather than one description: each rule gets a heading Discord draws
+    # tightly above its own text, and the room to be specific enough to argue from.
     embed = info_embed(
         "Mysterious SMP X Rules & Agreement" if agreement else "Mysterious SMP X Rules",
-        description,
+        "Read every rule below, then select **I Agree** to confirm that you "
+        "understand and accept them."
+        if agreement
+        else "These rules apply to every Mysterious SMP X player.",
     )
+    for heading, body in SERVER_RULES:
+        embed.add_field(name=heading, value=body, inline=False)
+    embed.add_field(name="Enforcement", value=ENFORCEMENT_NOTE, inline=False)
+    if agreement:
+        embed.add_field(
+            name="Agreement",
+            value="By selecting **I Agree** you confirm that you have read these "
+            "rules, will follow them, and accept that staff enforce them.",
+            inline=False,
+        )
     embed.set_image(url=RULES_ATTACHMENT_URI)
     return embed
 

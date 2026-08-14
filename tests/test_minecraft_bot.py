@@ -1928,74 +1928,106 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
                 self.assertIn(paragraph, welcome)
                 self.assertIn(paragraph, panel)
 
+    def _rules_text(self, *, agreement=False):
+        from minecraft_bot.presentation import rules_embed
+
+        embed = rules_embed(agreement=agreement)
+        parts = [embed.description or ""]
+        for field in embed.fields:
+            parts += [field.name, field.value]
+        return "\n".join(parts)
+
+    def _rule(self, heading):
+        from minecraft_bot.presentation import rules_embed
+
+        for field in rules_embed().fields:
+            if field.name == heading:
+                return field.value
+        raise AssertionError(f"no rule named {heading!r}")
+
     def test_griefing_is_the_first_rule(self):
         from minecraft_bot.presentation import rules_embed
 
-        description = rules_embed().description
+        self.assertEqual(rules_embed().fields[0].name, "1. Do not grief")
 
-        self.assertIn("**1. Do not grief**", description)
+    def test_each_rule_is_its_own_field(self):
+        # A heading in the description gets its own paragraph margin and floats
+        # away from its rule. A field name is drawn tight above its value.
+        from minecraft_bot.presentation import SERVER_RULES, rules_embed
 
-    def test_each_rule_is_a_single_paragraph(self):
-        # Discord gives a line holding nothing but bold text its own paragraph
-        # margin, so a title on its own line always floats above its rule —
-        # inside a blockquote or not. Sharing the line is the only fix.
+        embed = rules_embed()
+        headings = [field.name for field in embed.fields]
+
+        self.assertEqual(headings[: len(SERVER_RULES)], [name for name, _ in SERVER_RULES])
+        for field in embed.fields:
+            with self.subTest(rule=field.name):
+                self.assertFalse(field.inline)
+                self.assertNotIn("**", field.name, "Discord bolds field names itself")
+                self.assertLessEqual(len(field.value), 1024)
+
+    def test_rules_fit_one_embed(self):
         from minecraft_bot.presentation import rules_embed
 
-        rules = [
-            line
-            for line in rules_embed().description.splitlines()
-            if line.startswith("**") and line[2].isdigit()
-        ]
+        embed = rules_embed(agreement=True)
+        total = (
+            len(embed.title)
+            + len(embed.description or "")
+            + sum(len(f.name) + len(f.value) for f in embed.fields)
+        )
 
-        self.assertEqual(len(rules), 13)
-        for line in rules:
-            with self.subTest(rule=line[:28]):
-                self.assertIn("** — ", line, "title is stranded on its own line")
-                self.assertGreater(len(line.split("** — ", 1)[1]), 40)
+        self.assertLessEqual(len(embed.fields), 25)
+        self.assertLessEqual(total, 6000)
+
+    def test_rules_do_not_restate_the_mod_catalogue(self):
+        # The permitted mods live on the information panel. Listing them here
+        # too meant two places to update and two chances to disagree.
+        described = self._rules_text()
+
+        for mod in ("Sodium", "Litematica", "JourneyMap", "OptiFine"):
+            with self.subTest(mod=mod):
+                self.assertNotIn(mod, described)
+
+    def test_agreement_variant_adds_the_undertaking(self):
+        plain = self._rules_text()
+        agreed = self._rules_text(agreement=True)
+
+        self.assertNotIn("I Agree", plain)
+        self.assertIn("Agreement", agreed)
+        self.assertIn("I Agree", agreed)
 
     def test_rules_state_a_consequence(self):
         # Rules with no stated consequence read as suggestions.
-        from minecraft_bot.presentation import rules_embed
+        described = self._rules_text()
 
-        description = rules_embed().description
-
-        self.assertIn("removal from the server", description)
-        self.assertIn("Harassment", description)
+        self.assertIn("removal from the server", described)
+        self.assertIn("Harassment", described)
 
     def test_in_game_conflict_is_walled_off_from_discord(self):
         # A rivalry that follows someone into Discord stops being a game, and
         # that is the moderation problem most likely to arrive with a crowd.
-        from minecraft_bot.presentation import rules_embed
+        rule = self._rule("7. Keep it in character")
 
-        description = rules_embed().description
-
-        self.assertIn("What happens in Minecraft stays in Minecraft", description)
-        self.assertIn("Discord", description.split("**7.", 1)[1].split("\n\n", 1)[0])
+        self.assertIn("What happens in Minecraft stays in Minecraft", rule)
+        self.assertIn("Discord", rule)
 
     def test_rules_that_enumerate_use_bullets(self):
         # Conditions buried in a sentence get skimmed past. Where a rule draws a
         # line between two things, or lists several, it should show them.
-        from minecraft_bot.presentation import rules_embed
-
-        description = rules_embed().description
-
-        for lead, bullets in (
-            ("**2. Theft has limits**", ("**Fair** —", "**Griefing** —")),
-            ("**4. Keep PvP fair**", ("**Allowed** —", "**Not allowed** —")),
-            ("**7. Keep it in character**", ("**In character** —", "**Not** —")),
-            ("**11. One account per player**", ("- Evade a punishment",)),
+        for heading, bullets in (
+            ("2. Theft has limits", ("**Fair** —", "**Griefing** —")),
+            ("4. Keep PvP fair", ("**Allowed** —", "**Not allowed** —")),
+            ("7. Keep it in character", ("**In character** —", "**Not** —")),
+            ("9. Permitted mods and launchers", ("- Minimaps must", "- A launcher")),
         ):
-            rule = description.split(lead, 1)[1].split("\n\n", 1)[0]
+            rule = self._rule(heading)
             for bullet in bullets:
-                with self.subTest(rule=lead, bullet=bullet):
+                with self.subTest(rule=heading, bullet=bullet):
                     self.assertIn(bullet, rule)
 
     def test_rules_name_the_three_kinds_of_cheating(self):
         # A bare list of banned mods reads as exhaustive, so a player judges an
         # unfamiliar one against nothing. The categories are what they check.
-        from minecraft_bot.presentation import rules_embed
-
-        description = rules_embed().description
+        described = self._rules_text()
 
         for category in (
             "Shows what you could not see",
@@ -2003,30 +2035,28 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
             "Changes what your character can do",
         ):
             with self.subTest(category=category):
-                self.assertIn(category, description)
-        self.assertIn("Lunar Client", description)
-        self.assertIn("player radar turned off", description)
+                self.assertIn(category, described)
+        self.assertIn("Lunar Client", described)
+        self.assertIn("player radar turned off", described)
 
-    def test_rules_do_not_restate_the_mod_catalogue(self):
-        # The permitted mods live on the information panel. Listing them here
-        # too meant two places to update and two chances to disagree.
-        from minecraft_bot.presentation import rules_embed
+    def test_rules_close_the_arguments_people_make(self):
+        # Each of these answers a defence a player would otherwise offer, and
+        # each was missing while the rules lived in one description.
+        described = self._rules_text()
 
-        description = rules_embed().description
-
-        for mod in ("Sodium", "Litematica", "JourneyMap", "OptiFine"):
-            with self.subTest(mod=mod):
-                self.assertNotIn(mod, description)
-
-    def test_agreement_variant_adds_the_undertaking(self):
-        from minecraft_bot.presentation import rules_embed
-
-        plain = rules_embed().description
-        agreed = rules_embed(agreement=True).description
-
-        self.assertNotIn("I Agree", plain)
-        self.assertIn("**Agreement**", agreed)
-        self.assertIn("I Agree", agreed)
+        for clause in (
+            "looks abandoned",           # "it was abandoned"
+            "not an invitation",         # "the chest was unlocked"
+            "being offline is not consent",
+            "regardless of who started it",
+            "the death you avoided",     # combat logging
+            "judged by staff",           # "it was proportional"
+            "never excused as roleplay",
+            "is not a defence",          # "I did not know"
+            "ask before doing it",
+        ):
+            with self.subTest(clause=clause):
+                self.assertIn(clause, described)
 
 
 class MinecraftInformationPanelTests(unittest.TestCase):
@@ -2358,11 +2388,8 @@ class MinecraftInformationPanelTests(unittest.TestCase):
 
     def test_pages_lay_sections_out_as_fields(self):
         # The panel's readability rests on fields, so a page collapsing back
-        # into one long description should fail loudly. The rules are the one
-        # exception: that embed is a single document shared with the agreement.
+        # into one long description should fail loudly.
         for key, (_label, builder) in self.information.PAGES.items():
-            if key == "rules":
-                continue
             with self.subTest(page=key):
                 embed = builder(0)
                 self.assertGreaterEqual(len(embed.fields), 2)
