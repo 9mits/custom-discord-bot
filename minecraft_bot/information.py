@@ -150,9 +150,10 @@ def overview_embed(settings=None) -> discord.Embed:
             (
                 "Client versions",
                 f"> **Java** — {JAVA_SUPPORTED_RANGE}\n"
-                "> **Bedrock** — any current version\n\n"
-                f"The server runs **{SERVER_VERSION}**. Anything newer is blocked; "
-                "anything older is translated automatically.",
+                "> **Bedrock** — any current version\n"
+                "> \n"
+                f"> The server runs **{SERVER_VERSION}**. Anything newer is "
+                "blocked; anything older is translated automatically.",
             ),
         ],
     )
@@ -294,8 +295,10 @@ def commands_clans_embed(settings=None) -> discord.Embed:
                 "Your clan's picture",
                 "> `/clans icon <url>` — shown beside your clan on the leaderboard\n"
                 "> `/clans icon clear` — back to the default\n"
-                "> Must end in `.png`, `.jpg`, `.gif` or `.webp`\n\n"
-                "Avoid Discord attachment links — they expire after about a day.",
+                "> Must end in `.png`, `.jpg`, `.gif` or `.webp`\n"
+                "> \n"
+                "> *Avoid Discord attachment links — they expire after about a "
+                "day.*",
             ),
         ],
     )
@@ -386,8 +389,10 @@ def clans_roles_embed(settings=None) -> discord.Embed:
                 "Who can remove whom",
                 "> Staff can kick members\n"
                 "> **Only the leader can remove** another staff member\n"
-                "> The **leader cannot be kicked** by anyone\n\n"
-                "Promoting somebody puts them beyond everyone's reach but yours.",
+                "> The **leader cannot be kicked** by anyone\n"
+                "> \n"
+                "> *Promoting somebody puts them beyond everyone's reach but "
+                "yours.*",
             ),
         ],
     )
@@ -402,15 +407,17 @@ def clans_joining_embed(settings=None) -> discord.Embed:
                 "Getting invited",
                 "> A leader or staff runs `/clans invite <player>`\n"
                 "> You must be **online** to receive it\n"
-                f"> It expires after **{CLAN_INVITE_EXPIRY_MINUTES} minutes**\n\n"
-                "Answer with `/clans accept` or `/clans decline`.",
+                f"> It expires after **{CLAN_INVITE_EXPIRY_MINUTES} minutes**\n"
+                "> \n"
+                "> Answer with `/clans accept` or `/clans decline`",
             ),
             (
                 "Starting your own",
                 "> `/clans create <name>` — founds it and makes you leader\n"
                 "> The name must not already be taken\n"
-                "> `/clans list` — see what already exists\n\n"
-                f"Colours: {', '.join(CLAN_THEME_COLOURS)}.",
+                "> `/clans list` — see what already exists\n"
+                "> \n"
+                f"> **Colours** — {', '.join(CLAN_THEME_COLOURS)}",
             ),
             (
                 "When a clan is full",
@@ -429,27 +436,31 @@ def clans_leaving_embed(settings=None) -> discord.Embed:
         [
             (
                 "Members and staff",
-                "> `/clans leave` — immediate, no confirmation asked\n\n"
-                "You keep everything you own. Only the tag and the damage "
-                "immunity go with it.",
+                "> `/clans leave` — immediate, no confirmation asked\n"
+                "> \n"
+                "> *You keep everything you own. Only the tag and the damage "
+                "immunity go with it.*",
             ),
             (
                 "The leader cannot simply leave",
-                "> **Transfer or disband first** — there is no other way out\n\n"
-                "This stops a clan being stranded with a full roster and nobody "
-                "able to run it.",
+                "> **Transfer or disband first** — there is no other way out\n"
+                "> \n"
+                "> *This stops a clan being stranded with a full roster and "
+                "nobody able to run it.*",
             ),
             (
                 "Handing it over",
                 "> `/clans transfer <player>` — they become leader\n"
-                "> You stay in the clan as **staff**, not removed\n\n"
-                "You keep invite and kick; renaming, promoting and disbanding "
-                "pass to them.",
+                "> You stay in the clan as **staff**, not removed\n"
+                "> \n"
+                "> *You keep invite and kick; renaming, promoting and disbanding "
+                "pass to them.*",
             ),
             (
                 "Disbanding",
-                "> `/clans disband` — leader only, cannot be undone\n\n"
-                "It closes the clan for everyone at once, not just for you.",
+                "> `/clans disband` — leader only, cannot be undone\n"
+                "> \n"
+                "> *It closes the clan for everyone at once, not just for you.*",
             ),
         ],
     )
@@ -476,7 +487,8 @@ def levels_embed() -> discord.Embed:
             ),
             (
                 "Checking yours",
-                "> `/perks` — or read them off the sidebar while you play\n"
+                "> `/perks` — your level, hearts and damage bonus\n"
+                "> The sidebar shows the same while you play\n"
                 f"> How levelling works: {LEVELS_CHANNEL_URL}",
             ),
         ],
@@ -528,7 +540,7 @@ def mods_embed() -> discord.Embed:
                 f"> The server officially supports {mod_link('Simple Voice Chat')}, "
                 "which lets you talk to players standing near you.\n"
                 "> Install the version matching the Minecraft version you play on.\n"
-                "> Java only — see below for Bedrock.",
+                "> **Java only — see below for Bedrock.**",
             ),
             (
                 "Examples of permitted mods on Java",
@@ -554,8 +566,9 @@ def mods_embed() -> discord.Embed:
                 "> **Playing for you** — kill aura, aim assist, auto-clickers, "
                 "auto-walk\n"
                 "> **Changing what your character can do** — extra reach, speed, "
-                "flight, no fall damage\n\n"
-                "These are examples of each kind, not the full list.",
+                "flight, no fall damage\n"
+                "> \n"
+                "> *Examples of each kind, not the full list.*",
             ),
             (
                 "Bedrock",
@@ -585,9 +598,9 @@ def technical_embed(settings=None) -> discord.Embed:
             (
                 "Java Edition",
                 f"> **{JAVA_SUPPORTED_RANGE}** — newer releases are refused\n"
-                f"> Past {SERVER_VERSION}? Add a **{SERVER_VERSION}** entry under "
-                "**Installations**\n\n"
-                "**Multiplayer → Add Server**\n"
+                f"> On something newer? Add a **{SERVER_VERSION}** entry under "
+                "**Installations** in the launcher\n\n"
+                "Add the server under **Multiplayer → Add Server**\n"
                 f"```text\n{java_address}\n```",
             ),
             (
@@ -611,9 +624,10 @@ def troubleshooting_embed(settings=None) -> discord.Embed:
             (
                 "Expired applications",
                 f"> Press **Apply** again in {_apply_here(settings)}\n"
-                "> `/minecraft account` — see where it stopped\n\n"
-                "An application expires when a step is left unfinished. Nothing "
-                "is lost.",
+                "> `/minecraft account` — see where it stopped\n"
+                "> \n"
+                "> *An application expires when a step is left unfinished. "
+                "Nothing is lost.*",
             ),
             (
                 "Disconnected on first join",
@@ -623,24 +637,27 @@ def troubleshooting_embed(settings=None) -> discord.Embed:
             (
                 "Verified but no form submitted",
                 "> **Continue Application** in your direct messages\n"
-                f"> Or press **Apply** again in {_apply_here(settings)}\n\n"
-                "Either resumes where you stopped.",
+                f"> Or press **Apply** again in {_apply_here(settings)}\n"
+                "> \n"
+                "> *Either resumes where you stopped.*",
             ),
             (
                 "Wrong username submitted",
                 "> `/minecraft cancel`, or press **Apply** for **Cancel Pending "
-                "Verification**\n\n"
-                "Then apply again with the correct name.",
+                "Verification**\n"
+                "> \n"
+                "> *Then apply again with the correct name.*",
             ),
             (
                 "No direct message received",
                 "> Enable direct messages from server members\n"
-                "> Then check `/minecraft account`\n\n"
-                "Anything undelivered is retried automatically.",
+                "> Then check `/minecraft account`\n"
+                "> \n"
+                "> *Anything undelivered is retried automatically.*",
             ),
             (
                 "Playing on both editions",
-                "> Welcome to — but each account applies separately, since each is "
+                "> You can, but each account applies separately, since each one is "
                 "verified on its own.",
             ),
         ],

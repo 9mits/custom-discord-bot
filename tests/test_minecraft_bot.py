@@ -2192,6 +2192,23 @@ class MinecraftInformationPanelTests(unittest.TestCase):
                 for field in embed.fields:
                     self.assertNotIn("?", field.name)
 
+    def test_notes_stay_inside_their_blockquote(self):
+        # Prose placed after a blank line below quoted rows renders detached from
+        # the field, reading as though it belongs to nothing. Notes go in the
+        # quote; only a code block may follow, since those cannot be quoted.
+        for name, embed in self._every_embed():
+            for field in embed.fields:
+                blocks = field.value.split("\n\n")
+                quoted = any(line.startswith(">") for line in blocks[0].splitlines())
+                for block in blocks[1:]:
+                    if not quoted:
+                        continue
+                    with self.subTest(page=name, field=field.name):
+                        self.assertTrue(
+                            block.startswith(">") or "```" in block,
+                            f"{name}/{field.name} strands {block[:40]!r}",
+                        )
+
     def test_categories_stay_within_discord_limits(self):
         for name, embed in self._every_embed():
             with self.subTest(page=name):
