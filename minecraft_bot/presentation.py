@@ -61,6 +61,17 @@ def head_url(minecraft_uuid: str, username: str = "") -> str:
             return BEDROCK_NAME_HEAD_URL.format(identifier=quote(name, safe=""))
     return MINECRAFT_HEAD_URL.format(identifier=quote(minecraft_uuid, safe=""))
 
+#: How the server is described, in the one place both panels read it from. The
+#: application panel and the information panel would otherwise pitch the server
+#: two different ways to the same person, before and after they joined.
+SERVER_TAGLINE_PARAGRAPHS = (
+    "The official Minecraft SMP of the Mysterious Girlfriend X community — a "
+    "survival server where teamwork, competition, PvP, building and peaceful "
+    "survival all come together.",
+    "Play it your way: team up, compete, fight, build, or simply enjoy the world.",
+)
+SERVER_TAGLINE = "\n\n".join(SERVER_TAGLINE_PARAGRAPHS)
+
 #: The version the Paper server itself runs. ViaBackwards translates older Java
 #: clients down to it and Geyser handles Bedrock, so player-facing text should
 #: always pair this with the supported range below rather than stand alone.
@@ -214,9 +225,7 @@ def application_embeds() -> list[discord.Embed]:
     welcome = _panel_embed(
         "Welcome to Mysterious SMP X",
         "**Mysterious Girlfriend X Discord, in partnership with r/MysteriousGirlfriendX.**\n\n"
-        "The official Minecraft SMP of the Mysterious Girlfriend X community — a "
-        "survival server for building, exploring, competing and creating stories "
-        "together.\n\n"
+        f"{SERVER_TAGLINE}\n\n"
         "> Mysterious SMP X is a private server, so every player applies and is "
         "reviewed before joining. Acceptance is intentionally straightforward: if "
         "you would like to play, you are encouraged to apply.",
@@ -228,16 +237,13 @@ def application_embeds() -> list[discord.Embed]:
         "**How it works**\n"
         "> **1.** Press **Apply** and accept the server rules.\n"
         "> **2.** Enter your exact Java username or Xbox gamertag.\n"
-        "> **3.** Join the Minecraft server once to verify the account. You will "
-        "be disconnected; that is expected.\n"
-        "> **4.** Return to Discord and complete a short application form.\n"
-        "> **5.** Staff review your application and send the outcome by direct "
-        "message.\n\n"
+        "> **3.** Join the server once to verify. You will be disconnected.\n"
+        "> **4.** Return to Discord and complete a short form.\n"
+        "> **5.** Staff review it and send the outcome by direct message.\n\n"
         "**Before you begin**\n"
-        "> Direct messages from server members must be enabled so the bot can "
-        "reach you.\n"
-        "> Entered the wrong username? Press **Apply** again for a private "
-        "cancellation option.",
+        "> Enable direct messages from server members so the bot can reach you.\n"
+        "> \n"
+        "> Entered the wrong username? Press **Apply** again to cancel privately.",
     )
     return [welcome, apply]
 

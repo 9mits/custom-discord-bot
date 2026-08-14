@@ -1911,6 +1911,23 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
         )
         self.assertNotIn("presents", description)
 
+    def test_both_panels_pitch_the_server_the_same_way(self):
+        # The same person reads the application panel before joining and the
+        # information panel after, so two descriptions meant two answers.
+        from minecraft_bot.presentation import (
+            SERVER_TAGLINE_PARAGRAPHS,
+            application_embeds,
+        )
+        from minecraft_bot import information
+
+        welcome = application_embeds()[0].description
+        panel = information.overview_embed(0).fields[0].value
+
+        for paragraph in SERVER_TAGLINE_PARAGRAPHS:
+            with self.subTest(paragraph=paragraph[:32]):
+                self.assertIn(paragraph, welcome)
+                self.assertIn(paragraph, panel)
+
     def test_griefing_is_the_first_rule(self):
         from minecraft_bot.presentation import rules_embed
 

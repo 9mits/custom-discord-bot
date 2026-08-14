@@ -25,6 +25,7 @@ from .presentation import (
     FOOTER_ICON_URL,
     JAVA_SUPPORTED_RANGE,
     LOGO_ATTACHMENT_URI,
+    SERVER_TAGLINE_PARAGRAPHS,
     SERVER_VERSION,
     brand_logo_file,
     mod_link,
@@ -126,13 +127,8 @@ def overview_embed(settings=None) -> discord.Embed:
         [
             (
                 "The server",
-                "> A survival Minecraft server where teamwork, competition, PvP, "
-                "building and peaceful survival all come together.\n"
-                "> \n"
-                "> Play it your way — team up, compete, fight, build, or simply "
-                "enjoy the world.\n"
-                "> \n"
-                "> **Crossplay** — Java and Bedrock share one world",
+                "\n> \n".join(f"> {line}" for line in SERVER_TAGLINE_PARAGRAPHS)
+                + "\n> \n> **Crossplay** — Java and Bedrock share one world",
             ),
             (
                 "Client versions",
