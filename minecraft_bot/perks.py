@@ -16,6 +16,14 @@ LEVEL_ROLE_MILESTONES = (
 )
 ELITE_ROLE_ID = LEVEL_ROLE_MILESTONES[-1][0]
 
+# Perk figures mirrored from PlayerPerkService in minecraft-bridge, which is what
+# actually applies them at runtime. They live here so player-facing copy quotes a
+# named constant rather than a typed-in number; tests assert the two still agree.
+ELITE_DAMAGE_PERCENT = 15
+BOOSTER_DAMAGE_PERCENT = 10
+BOOSTER_HUNGER_REDUCTION_PERCENT = 10
+BOOSTER_EXTRA_HEARTS = 1
+
 
 # Discord rank roles mapped to LuckPerms groups. Priority is NOT taken from this
 # tuple: rank_for_role_ids() honours the order it is given, and the bot passes a
