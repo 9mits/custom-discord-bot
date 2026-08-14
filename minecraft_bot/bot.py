@@ -1111,14 +1111,14 @@ class MinecraftAccessBot(commands.Bot):
                 else "The Minecraft server declined the request without details."
             )
             return info_embed(
-                "Done" if success else "Refused by the Server",
+                "Clan Updated" if success else "Clan Action Declined",
                 f"> {detail}",
                 success=success,
                 error=not success,
             )
         return info_embed(
             "Not Allowed",
-            "> Your clan role does not allow that. Use `/minecraft clan` with no action "
+            "> Your clan role does not allow that. Use `/minecraft clan view` "
             "to see what you can do.",
             error=True,
         )
@@ -1192,7 +1192,7 @@ class MinecraftAccessBot(commands.Bot):
                 else "The Minecraft server declined the request without details."
             )
             return info_embed(
-                "Done" if success else "Refused by the Server",
+                "Action Completed" if success else "Action Declined",
                 f"> {detail}",
                 success=success,
                 error=not success,

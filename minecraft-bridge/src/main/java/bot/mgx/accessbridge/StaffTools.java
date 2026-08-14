@@ -87,6 +87,25 @@ final class StaffTools {
     private StaffTools() {
     }
 
+    /**
+     * The sentence Discord shows the moderator once a tool has run. Written for a
+     * person, not a console — the raw dispatched command stays in the server log.
+     */
+    static String confirmation(String key, String target, String reason, String duration) {
+        return switch (key) {
+            case "heal" -> target + " has been healed.";
+            case "kick" -> target + " has been kicked from the server.";
+            case "mute" -> duration.isEmpty()
+                    ? target + " has been muted until further notice."
+                    : target + " has been muted for " + duration + ".";
+            case "ban" -> target + " has been permanently banned from the server.";
+            case "tempban" -> target + " has been banned for " + duration + ".";
+            case "unban" -> "The ban on " + target + " has been lifted.";
+            case "broadcast" -> "Announced to every online player: \"" + reason + "\"";
+            default -> "The action was completed on the server.";
+        };
+    }
+
     private static String suffix(String reason) {
         return reason.isEmpty() ? "" : " " + reason;
     }

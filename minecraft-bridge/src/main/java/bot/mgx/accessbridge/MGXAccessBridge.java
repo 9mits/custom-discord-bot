@@ -313,7 +313,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 boolean ran = getServer().dispatchCommand(getServer().getConsoleSender(), finalCommand);
                 getLogger().info("Discord ran staff tool '" + toolKey + "' as " + actor);
                 dispatched.complete(ran
-                        ? "Ran on the server: /" + finalCommand
+                        ? StaffTools.confirmation(toolKey, safeTarget, safeReason, safeDuration)
                         : "The server did not recognise that command.");
             });
             return dispatched;
