@@ -5,6 +5,14 @@ import java.util.Locale;
 record ClientPlatform(String edition, String device) {
     static final ClientPlatform JAVA = new ClientPlatform("JAVA", "PC");
 
+    /**
+     * Java clients are always desktop, so naming the device only tells the reader
+     * something on Bedrock, where it separates phone from console from tablet.
+     */
+    boolean showsDevice() {
+        return "BEDROCK".equals(edition);
+    }
+
     static ClientPlatform bedrock(String deviceOs) {
         String normalized = deviceOs == null ? "UNKNOWN" : deviceOs.toUpperCase(Locale.ROOT);
         String device = switch (normalized) {

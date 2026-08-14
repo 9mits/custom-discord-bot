@@ -1770,7 +1770,7 @@ class MinecraftInformationPanelTests(unittest.TestCase):
 
         self.assertIn("+10% damage", description)
         self.assertIn("+25% damage", description)
-        self.assertIn("six extra hearts", description)
+        self.assertIn("six additional hearts", description)
 
     def test_buttons_route_back_to_their_page(self):
         pattern = self.information.InformationButton.__discord_ui_compiled_template__
@@ -1818,6 +1818,43 @@ class MinecraftInformationPanelTests(unittest.TestCase):
                 self.assertIn(self.information.JAVA_SUPPORTED_RANGE, described)
                 self.assertRegex(described, r"turned away|refused")
 
+    def test_panel_is_titled_information(self):
+        self.assertEqual(self.information.overview_embed(0).title, "Information")
+
+    def test_commands_page_documents_the_everyday_essentials_commands(self):
+        # These are the commands players reach for first; the panel shipped
+        # without them once, which is worse than shipping no command list.
+        described = self.embed_text(self.information.commands_embed())
+
+        for command in (
+            "/sethome",
+            "/home",
+            "/delhome",
+            "/spawn",
+            "/back",
+            "/warp",
+            "/tpa",
+            "/tpahere",
+            "/tpaccept",
+            "/tpdeny",
+            "/msg",
+            "/mail",
+            "/ignore",
+            "/afk",
+            "/list",
+            "/ping",
+        ):
+            with self.subTest(command=command):
+                self.assertIn(command, described)
+
+    def test_pages_are_stated_rather_than_asked(self):
+        # The panel reads as documentation, so headings are statements. A stray
+        # question mark means a section slipped back into FAQ voice.
+        for key, (_label, builder) in self.information.PAGES.items():
+            with self.subTest(page=key):
+                for field in builder(0).fields:
+                    self.assertNotIn("?", field.name)
+
     def test_pages_lay_sections_out_as_fields(self):
         # The panel's readability rests on fields, so a page collapsing back
         # into one long description should fail loudly.
@@ -1832,7 +1869,7 @@ class MinecraftInformationPanelTests(unittest.TestCase):
     def test_expired_applications_are_explained(self):
         described = self.embed_text(self.information.troubleshooting_embed(99))
 
-        self.assertIn("expired", described)
+        self.assertIn("expire", described)
         self.assertIn("/minecraft account", described)
         self.assertIn("<#99>", described)
 
