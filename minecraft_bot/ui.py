@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 import discord
 
 from .models import (
@@ -75,6 +77,11 @@ class ApplyButton(discord.ui.Button):
             discord_user_id=interaction.user.id,
         )
         if active is not None:
+            if active.status is ApplicationStatus.PENDING_APPLICATION:
+                # The account is verified; pressing Apply continues straight into
+                # the written form rather than showing a status card first.
+                await interaction.response.send_modal(ApplicationQuestionsModal(active.id))
+                return
             pending_verification = active.status is ApplicationStatus.PENDING_VERIFICATION
             message = {
                 **branded_send(live_status_embed(active, bot.settings)),
@@ -252,6 +259,8 @@ class EditionSelectionView(discord.ui.View):
 
 
 class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Application"):
+    """Stage one: just the account name. The written form follows verification."""
+
     def __init__(
         self,
         fixed_edition: Edition | None = None,
@@ -278,24 +287,9 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
             min_length=1,
             max_length=16,
         )
-        self.why = discord.ui.TextInput(
-            label="Why do you want to join Mysterious SMP X?",
-            style=discord.TextStyle.paragraph,
-            min_length=10,
-            max_length=500,
-        )
-        self.about = discord.ui.TextInput(
-            label="What would you bring to the server?",
-            placeholder="Tell us a little about yourself.",
-            style=discord.TextStyle.paragraph,
-            min_length=10,
-            max_length=1000,
-        )
         if self.edition is not None:
             self.add_item(discord.ui.Label(text="Minecraft edition", component=self.edition))
         self.add_item(self.username)
-        self.add_item(self.why)
-        self.add_item(self.about)
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
         # A modal opened from a component can defer a message update. Editing
@@ -319,7 +313,6 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
                 discord_user_id=interaction.user.id,
                 edition=edition,
                 claimed_username=str(self.username),
-                answers={"why": str(self.why), "about": str(self.about)},
             )
         except DuplicateActiveApplication:
             active = await bot.data.get_active_application_for_user(
@@ -371,6 +364,109 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
             attachments=application_card_files(application),
             view=LiveApplicationView(),
         )
+
+
+class ApplicationQuestionsModal(discord.ui.Modal, title="Mysterious SMP X Application"):
+    """Stage two: the written form, opened only after the account is verified."""
+
+    why = discord.ui.TextInput(
+        label="Why do you want to join Mysterious SMP X?",
+        style=discord.TextStyle.paragraph,
+        min_length=10,
+        max_length=500,
+    )
+    about = discord.ui.TextInput(
+        label="What would you bring to the server?",
+        placeholder="Tell us a little about yourself.",
+        style=discord.TextStyle.paragraph,
+        min_length=10,
+        max_length=1000,
+    )
+
+    def __init__(self, application_id: int) -> None:
+        super().__init__(timeout=600, custom_id=f"minecraft:application:answers:{application_id}")
+        self.application_id = int(application_id)
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        bot = interaction.client
+        try:
+            application = await bot.data.submit_answers(
+                self.application_id,
+                interaction.user.id,
+                why=str(self.why),
+                about=str(self.about),
+            )
+        except InvalidTransition as exc:
+            await interaction.edit_original_response(
+                **branded_edit(info_embed("Application Not Submitted", f"> {exc}", error=True)),
+            )
+            return
+        except ValueError as exc:
+            await interaction.edit_original_response(
+                **branded_edit(info_embed("Application Invalid", f"> {exc}", error=True)),
+            )
+            return
+        bot.spawn_background_task(
+            bot.finish_answers_submission(application),
+            name=f"minecraft-answers:{application.id}",
+        )
+        await interaction.edit_original_response(
+            **branded_edit(live_status_embed(application, bot.settings)),
+            view=LiveApplicationView(),
+        )
+
+
+class ContinueApplicationButton(
+    discord.ui.DynamicItem[discord.ui.Button],
+    template=r"minecraft:application:continue",
+):
+    """Persistent button in the verification DM that opens the written form.
+
+    Registered as a dynamic item so it keeps working across restarts without a
+    stored per-message view.
+    """
+
+    def __init__(self, *, item: Optional[discord.ui.Button] = None) -> None:
+        super().__init__(
+            item
+            or discord.ui.Button(
+                label="Continue Application",
+                style=discord.ButtonStyle.primary,
+                custom_id="minecraft:application:continue",
+            )
+        )
+
+    @classmethod
+    async def from_custom_id(cls, interaction, item, match):  # type: ignore[override]
+        return cls(item=item)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        bot = interaction.client
+        active = await bot.data.get_active_application_for_user(
+            guild_id=bot.config.guild_id,
+            discord_user_id=interaction.user.id,
+        )
+        if active is None or active.status is not ApplicationStatus.PENDING_APPLICATION:
+            await interaction.response.send_message(
+                **branded_send(
+                    info_embed(
+                        "Nothing to Continue",
+                        "> There is no application waiting for its written form. "
+                        "Check `/minecraft account` for your current status.",
+                        error=True,
+                    )
+                ),
+                ephemeral=True,
+            )
+            return
+        await interaction.response.send_modal(ApplicationQuestionsModal(active.id))
+
+
+def continue_application_view() -> discord.ui.View:
+    view = discord.ui.View(timeout=None)
+    view.add_item(ContinueApplicationButton())
+    return view
 
 
 class SupportConfirmationView(discord.ui.View):

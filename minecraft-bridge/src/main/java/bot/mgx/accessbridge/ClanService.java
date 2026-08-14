@@ -361,15 +361,17 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         }
     }
 
+    /** Chat body text: deliberately neutral, never a LuckPerms rank colour. */
+    private static final TextColor CHAT_NAME_COLOUR = NamedTextColor.WHITE;
+    private static final TextColor CHAT_MESSAGE_COLOUR = TextColor.color(0xD6D6D6);
+
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPublicChat(AsyncChatEvent event) {
         Optional<ClanStore.ClanView> clan = store.clanOf(event.getPlayer().getUniqueId());
-        Optional<String> discordUsername = identities.visibleUsername(event.getPlayer().getUniqueId());
         PlayerProfile profile = perks.profile(event.getPlayer().getUniqueId());
-        if (clan.isEmpty() && discordUsername.isEmpty() && !profile.hasRankLabel()) {
-            return;
-        }
-        var originalRenderer = event.renderer();
+        // Every message is re-rendered, not just tagged ones: the vanilla renderer
+        // wraps names in <> and inherits whatever colours other plugins set, and the
+        // house style is a plain name and message regardless of rank.
         event.renderer((source, sourceDisplayName, message, viewer) -> {
             // Tags are the viewer's choice, so each player is rendered for separately.
             boolean showClan = !(viewer instanceof Player watcher)
@@ -379,7 +381,12 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 prefix = prefix.append(clanTag(clan.get()));
             }
             prefix = prefix.append(identities.tag(event.getPlayer().getUniqueId()));
-            return prefix.append(originalRenderer.render(source, sourceDisplayName, message, viewer));
+            return prefix
+                    .append(Component.text(source.getName(), CHAT_NAME_COLOUR)
+                            .decoration(TextDecoration.BOLD, false))
+                    .append(Component.text(": ", NamedTextColor.DARK_GRAY))
+                    .append(message.colorIfAbsent(CHAT_MESSAGE_COLOUR)
+                            .decoration(TextDecoration.BOLD, false));
         });
     }
 

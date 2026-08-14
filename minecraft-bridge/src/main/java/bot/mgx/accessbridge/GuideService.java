@@ -134,6 +134,7 @@ final class GuideService implements CommandExecutor, TabCompleter {
         title(player, "USEFUL COMMANDS");
         player.sendMessage(guideLink("/clan", "Open your available clan commands", GOLD));
         player.sendMessage(guideLink("/claninfo [name]", "Open a clan information card", NamedTextColor.AQUA));
+        player.sendMessage(guideLink("/whitelisted", "Everyone with access and their Discord name", NamedTextColor.YELLOW));
         player.sendMessage(guideLink("/perks", "View Discord level rewards", NamedTextColor.LIGHT_PURPLE));
         player.sendMessage(guideLink("/settings", "Choose what you see in chat and nametags", NamedTextColor.GREEN));
         player.sendMessage(guideLink(
@@ -165,8 +166,8 @@ final class GuideService implements CommandExecutor, TabCompleter {
                 "Only what you can actually run is listed here.", NamedTextColor.DARK_GRAY
         ));
         player.sendMessage(Component.text(
-                "Kick, mute, ban, tempban, unban and heal also work from Discord with "
-                        + "/minecraft moderate. Broadcast has its own /minecraft broadcast.",
+                "Kick, mute, ban, tempban, unban, heal and broadcast also work from "
+                        + "Discord with the /mcstaff commands.",
                 NamedTextColor.DARK_GRAY
         ));
         footer(player);

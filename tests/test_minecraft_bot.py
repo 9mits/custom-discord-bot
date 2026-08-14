@@ -45,6 +45,7 @@ from minecraft_bot.settings import MinecraftSettings
 from minecraft_bot.setup import MinecraftSetupView
 from minecraft_bot.ui import (
     AccountView,
+    ApplicationQuestionsModal,
     ApplyButton,
     CancelPendingConfirmationView,
     MinecraftControlView,
@@ -584,8 +585,6 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         modal = MinecraftApplicationModal(Edition.JAVA)
         modal.username._value = "PlayerOne"
-        modal.why._value = "I enjoy collaborative survival servers."
-        modal.about._value = "I build farms and help other players."
 
         with patch("minecraft_bot.ui.live_status_embed", return_value=info_embed("Application Received", "> Saved.")):
             await modal.on_submit(interaction)
@@ -598,6 +597,41 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kwargs["attachments"][0].filename, "mysterious_smp_x_verify.png")
         kwargs["attachments"][0].close()
         bot.remember_application_message.assert_called_once_with(42, original_message)
+        create_kwargs = bot.data.create_application.await_args.kwargs
+        # Stage one carries no written answers; the form follows verification.
+        self.assertNotIn("answers", create_kwargs)
+
+    async def test_questions_modal_submits_answers_and_finishes_the_application(self):
+        application = SimpleNamespace(id=42, status=ApplicationStatus.PENDING_REVIEW)
+        bot = SimpleNamespace(
+            data=SimpleNamespace(submit_answers=AsyncMock(return_value=application)),
+            settings=SimpleNamespace(),
+            finish_answers_submission=Mock(return_value=asyncio.sleep(0)),
+        )
+
+        def close_background_work(work, *, name):
+            work.close()
+
+        bot.spawn_background_task = Mock(side_effect=close_background_work)
+        interaction = SimpleNamespace(
+            client=bot,
+            user=SimpleNamespace(id=99),
+            response=SimpleNamespace(defer=AsyncMock()),
+            edit_original_response=AsyncMock(),
+        )
+        modal = ApplicationQuestionsModal(42)
+        modal.why._value = "I enjoy collaborative survival servers."
+        modal.about._value = "I build farms and help other players."
+
+        with patch("minecraft_bot.ui.live_status_embed", return_value=info_embed("Application Sent", "> Done.")):
+            await modal.on_submit(interaction)
+
+        submit_kwargs = bot.data.submit_answers.await_args
+        self.assertEqual(submit_kwargs.args, (42, 99))
+        self.assertEqual(submit_kwargs.kwargs["why"], "I enjoy collaborative survival servers.")
+        kwargs = interaction.edit_original_response.await_args.kwargs
+        self.assertEqual(kwargs["embed"].title, "Application Sent")
+        bot.spawn_background_task.assert_called_once()
 
     async def test_rules_button_attaches_the_rules_image(self):
         response = SimpleNamespace(send_message=AsyncMock())

@@ -552,6 +552,169 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(discarded, 1)
         self.assertEqual(await self.data.get_due_deliveries(now=1001), [])
 
+    async def create_unanswered(self, *, user_id=42, username="TestPlayer", now=1000):
+        return await self.data.create_application(
+            guild_id=10,
+            discord_user_id=user_id,
+            edition=Edition.JAVA,
+            claimed_username=username,
+            now=now,
+        )
+
+    async def test_verification_first_flow_waits_for_the_written_form(self):
+        application = await self.create_unanswered()
+        self.assertEqual(application.answers, {})
+
+        verified, changed = await self.data.record_verification(
+            application_id=application.id,
+            edition=Edition.JAVA,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            current_username="TestPlayer",
+            xuid=None,
+            event_idempotency_key="verify-first",
+            now=1010,
+        )
+
+        self.assertTrue(changed)
+        self.assertEqual(verified.status, ApplicationStatus.PENDING_APPLICATION)
+        # The deadline was extended so the applicant has days, not minutes.
+        self.assertGreater(verified.verification_expires_at, 1010 + 24 * 3600)
+        # Still the active application, so Apply continues rather than restarting.
+        active = await self.data.get_active_application_for_user(
+            guild_id=10, discord_user_id=42, now=1011
+        )
+        self.assertEqual(active.id, application.id)
+
+        submitted = await self.data.submit_answers(
+            application.id,
+            42,
+            why="I want to build with this community.",
+            about="I am a considerate builder who enjoys group projects.",
+            now=1020,
+        )
+        self.assertEqual(submitted.status, ApplicationStatus.PENDING_REVIEW)
+        self.assertEqual(
+            submitted.answers["why"], "I want to build with this community."
+        )
+
+    async def test_submit_answers_rejects_other_members_and_wrong_states(self):
+        application = await self.create_unanswered()
+        with self.assertRaisesRegex(InvalidTransition, "not waiting"):
+            await self.data.submit_answers(
+                application.id,
+                42,
+                why="Ten characters long answer.",
+                about="Another ten characters long answer.",
+                now=1005,
+            )
+        await self.data.record_verification(
+            application_id=application.id,
+            edition=Edition.JAVA,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            current_username="TestPlayer",
+            xuid=None,
+            event_idempotency_key="verify-guard",
+            now=1010,
+        )
+        with self.assertRaisesRegex(InvalidTransition, "another member"):
+            await self.data.submit_answers(
+                application.id,
+                43,
+                why="Ten characters long answer.",
+                about="Another ten characters long answer.",
+                now=1011,
+            )
+
+    async def test_unfinished_form_expires_and_does_not_block_reapplying(self):
+        application = await self.create_unanswered()
+        await self.data.record_verification(
+            application_id=application.id,
+            edition=Edition.JAVA,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            current_username="TestPlayer",
+            xuid=None,
+            event_idempotency_key="verify-expire",
+            now=1010,
+        )
+        deadline = (await self.data.get_application(application.id)).verification_expires_at
+
+        expired = await self.data.expire_pending(now=deadline + 1)
+        self.assertEqual([item.id for item in expired], [application.id])
+        self.assertEqual(
+            (await self.data.get_application(application.id)).status,
+            ApplicationStatus.EXPIRED,
+        )
+        with self.assertRaisesRegex(InvalidTransition, "expired"):
+            await self.data.submit_answers(
+                application.id,
+                42,
+                why="Ten characters long answer.",
+                about="Another ten characters long answer.",
+                now=deadline + 2,
+            )
+        # The same member can start over with the very same account.
+        replacement = await self.data.create_application(
+            guild_id=10,
+            discord_user_id=42,
+            edition=Edition.JAVA,
+            claimed_username="TestPlayer",
+            now=deadline + 10,
+        )
+        self.assertEqual(replacement.status, ApplicationStatus.PENDING_VERIFICATION)
+
+    async def test_whitelist_directory_lists_approved_players(self):
+        application = await self.create_pending()
+        await self.data.record_verification(
+            application_id=application.id,
+            edition=Edition.JAVA,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            current_username="TestPlayer",
+            xuid=None,
+            event_idempotency_key="verify-whitelist",
+            now=1010,
+        )
+        await self.data.queue_approval(application.id, 77, now=1020)
+        self.assertEqual(await self.data.list_whitelisted(), [])
+        await self.data.complete_outbox(
+            f"application:{application.id}:approve:123e4567-e89b-12d3-a456-426614174000"
+        )
+
+        rows = await self.data.list_whitelisted()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["username"], "TestPlayer")
+        self.assertEqual(rows[0]["edition"], "JAVA")
+        self.assertEqual(rows[0]["discord_user_id"], "42")
+
+    async def test_wipe_clears_everything_except_settings(self):
+        await self.data.set_config("application_channel_id", 123)
+        application = await self.create_pending()
+        await self.data.record_verification(
+            application_id=application.id,
+            edition=Edition.JAVA,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            current_username="TestPlayer",
+            xuid=None,
+            event_idempotency_key="verify-wipe",
+            now=1010,
+        )
+
+        counts = await self.data.wipe_all_data(actor_id=9)
+
+        self.assertEqual(counts["minecraft_applications"], 1)
+        self.assertEqual(counts["minecraft_accounts"], 1)
+        self.assertIsNone(await self.data.get_application(application.id))
+        self.assertEqual(await self.data.list_accounts_for_user(42), [])
+        self.assertEqual(await self.data.list_whitelisted(), [])
+        # Settings survive the wipe.
+        self.assertEqual(await self.data.get_config("application_channel_id"), 123)
+        # Paper is told to drop the whitelist entry and forget the application.
+        outbox = await self.data.get_outbox_batch()
+        actions = {(record.action, record.application_id) for record in outbox}
+        self.assertIn((BridgeAction.REVOKE, None), actions)
+        self.assertIn((BridgeAction.REMOVE_PENDING, None), actions)
+        revoke = next(r for r in outbox if r.action is BridgeAction.REVOKE)
+        self.assertEqual(revoke.payload["minecraft_uuid"], "123e4567-e89b-12d3-a456-426614174000")
+
 
 class MinecraftMigrationBackupTests(unittest.IsolatedAsyncioTestCase):
     async def test_existing_unversioned_database_is_backed_up_before_schema_creation(self):

@@ -21,6 +21,7 @@ class Edition(StrEnum):
 
 class ApplicationStatus(StrEnum):
     PENDING_VERIFICATION = "PENDING_VERIFICATION"
+    PENDING_APPLICATION = "PENDING_APPLICATION"
     PENDING_REVIEW = "PENDING_REVIEW"
     APPROVAL_QUEUED = "APPROVAL_QUEUED"
     APPROVED = "APPROVED"
@@ -41,6 +42,7 @@ class BridgeAction(StrEnum):
 
 ACTIVE_APPLICATION_STATUSES = (
     ApplicationStatus.PENDING_VERIFICATION,
+    ApplicationStatus.PENDING_APPLICATION,
     ApplicationStatus.PENDING_REVIEW,
     ApplicationStatus.APPROVAL_QUEUED,
 )

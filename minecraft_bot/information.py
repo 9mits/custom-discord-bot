@@ -11,7 +11,9 @@ from .presentation import (
     BRAND_NAME,
     FOOTER_ICON_URL,
     LOGO_ATTACHMENT_URI,
+    SERVER_VERSION,
     brand_logo_file,
+    mod_link,
 )
 
 THEME_COLOUR = discord.Color.from_rgb(255, 153, 0)
@@ -22,11 +24,11 @@ CONFIG_MESSAGE = "information_message_id"
 #: Where members read how Discord levelling works.
 LEVELS_CHANNEL_URL = "https://discord.com/channels/1476839721731620938/1476839722734190647"
 
-#: The server runs 1.20.6. ViaVersion and ViaBackwards translate other Java clients,
-#: and Geyser lets Bedrock players in, so this is deliberately about what a player
-#: needs to know rather than an exact protocol list.
-JAVA_VERSIONS = "1.8 and newer, including the latest release"
-BEDROCK_VERSIONS = "the current version, on phone, console, tablet or Windows"
+#: The server itself runs SERVER_VERSION. ViaVersion and ViaBackwards translate
+#: other Java clients, and Geyser lets Bedrock players in, so player-facing text
+#: pairs the native version with the supported ranges.
+JAVA_VERSIONS = f"any version from 1.8 up to the latest release — the server itself runs {SERVER_VERSION}"
+BEDROCK_VERSIONS = "the current Bedrock release, on phone, console, tablet or Windows"
 
 
 def _role_mentions() -> str:
@@ -41,25 +43,33 @@ def _embed(title: str, description: str) -> discord.Embed:
     return embed
 
 
-def _apply_here(application_channel_id: Optional[int]) -> str:
-    """Points at the real channel when we know it, so nobody has to go hunting."""
-    return f"<#{application_channel_id}>" if application_channel_id else "the application channel"
+def _apply_here(settings) -> str:
+    """Points at the real channel when we know it, so nobody has to go hunting.
+
+    Accepts either the settings object or a bare channel id.
+    """
+    if isinstance(settings, int):
+        channel_id = settings
+    else:
+        channel_id = getattr(settings, "application_channel_id", 0) if settings else 0
+    return f"<#{channel_id}>" if channel_id else "the application channel"
 
 
-def overview_embed(application_channel_id: Optional[int] = None) -> discord.Embed:
+def overview_embed(settings=None) -> discord.Embed:
     embed = _embed(
         "Mysterious SMP X — Help Centre",
         "Mysterious Girlfriend X Discord, in partnership with r/MysteriousGirlfriendX.\n\n"
         "Everything you need to get started is here. Pick a topic below.\n\n"
         "**How to join**\n"
-        f"> Apply in {_apply_here(application_channel_id)}.\n"
-        "> Type your username, answer two short questions, then join the server once so we "
-        "know the account is yours.\n"
-        "> That first connection is turned away on purpose — it only proves ownership.\n"
-        "> Staff review it after that, and you get the result in a DM either way.\n\n"
+        f"> 1. Press **Apply** in {_apply_here(settings)} and accept the rules.\n"
+        "> 2. Type your Minecraft username or Xbox gamertag.\n"
+        "> 3. Join the server once so we know the account is yours. That first "
+        "connection is turned away on purpose — it only proves ownership.\n"
+        "> 4. Come back to Discord and fill out the short application form.\n"
+        "> 5. Staff review it, and you get the result in a DM either way.\n\n"
         "**Which version do I need?**\n"
-        f"> **Java:** {JAVA_VERSIONS}\n"
-        f"> **Bedrock:** {BEDROCK_VERSIONS}\n"
+        f"> **Java:** {JAVA_VERSIONS}.\n"
+        f"> **Bedrock:** {BEDROCK_VERSIONS}.\n"
         "> Java and Bedrock players share one world and can play together.\n\n"
         "**What kind of server is it?**\n"
         "> Survival, and PvP is allowed. Raids, rivalries and betrayal are all part of it.\n"
@@ -130,6 +140,63 @@ def boosting_embed() -> discord.Embed:
     )
 
 
+def mods_embed() -> discord.Embed:
+    return _embed(
+        "Mods and Voice Chat",
+        "**Voice chat — supported**\n"
+        f"> The server supports {mod_link('Simple Voice Chat')}, so you can talk to players "
+        "near you in game.\n"
+        "> Install the mod version that matches the Minecraft version you play on — the "
+        "download page lists them all.\n"
+        f"> Voice works best when your client runs {SERVER_VERSION}, the version the server runs.\n\n"
+        "**Allowed on Java**\n"
+        f"> **Performance:** {mod_link('Sodium')}, {mod_link('Lithium')}, {mod_link('OptiFine')}\n"
+        f"> **Shaders:** {mod_link('Iris Shaders')}\n"
+        "> **Maps:** [Xaero's Minimap](https://modrinth.com/mod/xaeros-minimap) or "
+        f"{mod_link('JourneyMap')}, with cave mapping and player radar turned off\n"
+        f"> **Comfort:** {mod_link('AppleSkin')} and similar quality-of-life mods\n"
+        f"> Most of these run on the {mod_link('Fabric')} mod loader.\n\n"
+        "**Not allowed on any edition**\n"
+        "> X-ray, freecam, baritone or other automation, tracers, schematic auto-building, "
+        "or anything that shows what you could not see or do yourself.\n\n"
+        "**On Bedrock**\n"
+        "> Bedrock does not support client mods, so voice chat, minimaps and performance "
+        "mods are unavailable there. Marketplace texture packs are fine because they are "
+        "cosmetic only. For voice, join a Discord voice channel instead.",
+    )
+
+
+def technical_embed(settings=None) -> discord.Embed:
+    java_address = getattr(settings, "java_address", None) or "ask staff for the address"
+    bedrock_address = getattr(settings, "bedrock_address", None) or "ask staff for the address"
+    bedrock_port = getattr(settings, "bedrock_port", None) or "19132"
+    return _embed(
+        "Server and Versions",
+        f"**What the server runs**\n"
+        f"> [Paper](https://papermc.io) {SERVER_VERSION}, with "
+        "[Geyser](https://geysermc.org) so Bedrock players can join, and "
+        "[ViaVersion](https://modrinth.com/plugin/viaversion) with ViaBackwards so older "
+        "and newer Java clients can too. These all run on the server — you never need to "
+        "install them.\n\n"
+        "**Java Edition**\n"
+        f"> Join on any version from 1.8 up to the latest release. {SERVER_VERSION} gives the "
+        "smoothest experience; you can pick it in the launcher under **Installations**.\n"
+        "> Add the server in **Multiplayer → Add Server** with this address:\n"
+        f"```text\n{java_address}\n```\n"
+        "**Bedrock Edition**\n"
+        "> Join on the current release from phone, console, tablet or Windows. "
+        "Add an external server with both values:\n"
+        f"```text\n{bedrock_address}\n```\n"
+        f"```text\n{bedrock_port}\n```\n"
+        "**Behind the scenes**\n"
+        "> Java and Bedrock players share one world and one whitelist.\n"
+        "> Every block change is logged, so griefing can be rolled back.\n"
+        "> An anticheat watches for unfair clients.\n"
+        "> Your Discord rank, level perks and name carry into the game automatically.\n"
+        "> The Minecraft chat channel in Discord mirrors in-game chat both ways.",
+    )
+
+
 def commands_embed() -> discord.Embed:
     return _embed(
         "Commands",
@@ -138,12 +205,14 @@ def commands_embed() -> discord.Embed:
         "> `/perks` — your level rewards\n"
         "> `/clans` — everything to do with clans\n"
         "> `/claninfo [name]` — look at any clan\n"
+        "> `/whitelisted` — everyone with access and their Discord name\n"
         "> `/settings` — what **you** see: other players' clan tags, and Discord messages "
         "in chat\n"
         "> `/discordnames` — whether other people see **your** Discord name\n"
         "> `/discord` — the community invite\n\n"
         "**In Discord**\n"
         "> `/minecraft account` — your application and linked account\n"
+        "> `/minecraft whitelist` — everyone with access and their Discord account\n"
         "> `/minecraft clan view` — your clan and the actions your role allows\n"
         "> `/mcstaff tools` — staff only; the staff tools your permissions grant\n"
         "> `/mcstaff kick`, `/mcstaff ban` and more — staff only; moderate without "
@@ -154,17 +223,21 @@ def commands_embed() -> discord.Embed:
     )
 
 
-def troubleshooting_embed(application_channel_id: Optional[int] = None) -> discord.Embed:
+def troubleshooting_embed(settings=None) -> discord.Embed:
     return _embed(
         "Common Questions",
         "**My application says expired**\n"
-        "> Applications wait a limited time for you to connect and prove the account is "
-        "yours. If nobody connects in time it expires on its own.\n"
-        f"> Nothing is lost — just apply again in {_apply_here(application_channel_id)}.\n"
+        "> An application expires when a step is not finished in time: either nobody "
+        "joined the server to verify the account, or the written form was never completed "
+        "after verifying.\n"
+        f"> Nothing is lost — just press **Apply** again in {_apply_here(settings)}.\n"
         "> You can check the current state any time with `/minecraft account`.\n\n"
         "**I got kicked the first time I joined**\n"
         "> That is meant to happen. The first connection only checks the account is yours; "
         "it never lets you into the world.\n\n"
+        "**I verified but have not filled out the form**\n"
+        "> Check your DMs for the **Continue Application** button, or press **Apply** in "
+        f"{_apply_here(settings)} — it continues where you left off.\n\n"
         "**I typed the wrong username**\n"
         "> Press **Apply** again to reveal **Cancel Pending Verification**, or run "
         "`/minecraft cancel`, then apply with the right one.\n\n"
@@ -176,11 +249,13 @@ def troubleshooting_embed(application_channel_id: Optional[int] = None) -> disco
     )
 
 
-PAGES: dict[str, tuple[str, Callable[[Optional[int]], discord.Embed]]] = {
-    "clans": ("Clans", lambda _channel: clans_embed()),
-    "levels": ("Levels & Perks", lambda _channel: levels_embed()),
-    "boosting": ("Boosting", lambda _channel: boosting_embed()),
-    "commands": ("Commands", lambda _channel: commands_embed()),
+PAGES: dict[str, tuple[str, Callable[[Optional[object]], discord.Embed]]] = {
+    "clans": ("Clans", lambda _settings: clans_embed()),
+    "levels": ("Levels & Perks", lambda _settings: levels_embed()),
+    "boosting": ("Boosting", lambda _settings: boosting_embed()),
+    "mods": ("Mods & Voice Chat", lambda _settings: mods_embed()),
+    "versions": ("Server & Versions", technical_embed),
+    "commands": ("Commands", lambda _settings: commands_embed()),
     "help": ("Common Questions", troubleshooting_embed),
 }
 
@@ -219,8 +294,7 @@ class InformationButton(
             )
             return
         settings = getattr(interaction.client, "settings", None)
-        channel_id = getattr(settings, "application_channel_id", 0)
-        await interaction.response.send_message(embed=page[1](channel_id), ephemeral=True)
+        await interaction.response.send_message(embed=page[1](settings), ephemeral=True)
 
 
 class InformationView(discord.ui.View):
@@ -230,9 +304,9 @@ class InformationView(discord.ui.View):
             self.add_item(InformationButton(page))
 
 
-def message_payload(application_channel_id: Optional[int] = None) -> dict[str, object]:
+def message_payload(settings=None) -> dict[str, object]:
     return {
-        "embed": overview_embed(application_channel_id),
+        "embed": overview_embed(settings),
         "attachments": [brand_logo_file()],
         "view": InformationView(),
     }
