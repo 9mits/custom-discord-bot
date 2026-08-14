@@ -1346,6 +1346,51 @@ class MinecraftLeaderboardRenderTests(unittest.TestCase):
             head_url(leader["minecraft_uuid"], leader.get("username", "")),
         )
 
+    def test_clan_podium_rows_carry_their_icon(self):
+        from minecraft_bot.leaderboard import clan_key
+
+        snapshot = {
+            "clan": {
+                "wealth": [
+                    {"clan": "Wolves", "value": 9, "display": "9"},
+                    {"clan": "Ravens", "value": 8, "display": "8"},
+                    {"clan": "Foxes", "value": 7, "display": "7"},
+                    {"clan": "Bears", "value": 6, "display": "6"},
+                ]
+            }
+        }
+        icons = {
+            clan_key("Wolves"): "<:w:1>",
+            clan_key("Ravens"): "<:r:2>",
+            clan_key("Foxes"): "<:f:3>",
+            clan_key("Bears"): "<:b:4>",
+        }
+
+        described = self.leaderboard.build_embed(
+            snapshot, scope="clan", board="wealth", heads=icons
+        ).description
+
+        self.assertTrue(described.startswith("<:w:1> **#1 · Wolves**"))
+        self.assertIn("<:r:2>", described)
+        self.assertIn("<:f:3>", described)
+        # Fourth place is off the podium, so it stays plain like the players do.
+        self.assertNotIn("<:b:4>", described)
+
+    def test_clan_thumbnail_is_the_leading_clans_icon(self):
+        from minecraft_bot.leaderboard import CLAN_DEFAULT_ICON_URL
+
+        with_icon = self.leaderboard.build_embed(
+            {"clan": {"wealth": [{"clan": "Wolves", "icon": "https://example.com/w.png"}]}},
+            scope="clan",
+            board="wealth",
+        )
+        without = self.leaderboard.build_embed(
+            {"clan": {"wealth": [{"clan": "Ravens"}]}}, scope="clan", board="wealth"
+        )
+
+        self.assertEqual(with_icon.thumbnail.url, "https://example.com/w.png")
+        self.assertEqual(without.thumbnail.url, CLAN_DEFAULT_ICON_URL)
+
     def test_thumbnail_is_a_remote_url_not_an_attachment(self):
         # The dropdown replies are ephemeral and cannot carry a file, so an
         # attachment:// thumbnail silently rendered nothing on those boards.
@@ -1564,6 +1609,79 @@ class MinecraftPodiumDuplicateTests(unittest.IsolatedAsyncioTestCase):
         store._create.assert_not_awaited()
         head.delete.assert_not_awaited()
 
+    async def test_changing_a_clan_icon_remints_it(self):
+        # A clan keeps its key when it swaps picture, so without comparing the
+        # stored source the board would show the old image indefinitely.
+        from minecraft_bot.leaderboard import clan_key
+
+        store = self._store(
+            {
+                clan_key("Wolves"): {
+                    "emoji_id": 77,
+                    "markdown": "<:w:77>",
+                    "source": "https://example.com/old.png",
+                    "last_podium": "2026-08-14T00:00:00+00:00",
+                }
+            }
+        )
+        existing = SimpleNamespace(id=77, name="mgx_head_Wolves", delete=AsyncMock())
+        guild = SimpleNamespace(
+            id=1,
+            emoji_limit=250,
+            emojis=[],
+            fetch_emojis=AsyncMock(return_value=[existing]),
+            get_emoji=lambda _id: None,
+        )
+        snapshot = {
+            "individual": {},
+            "clan": {
+                "wealth": [
+                    {"clan": "Wolves", "icon": "https://example.com/new.png", "value": 9}
+                ]
+            },
+        }
+
+        await store.sync(guild, snapshot)
+
+        store._create.assert_awaited_once()
+        self.assertEqual(store._create.await_args.args[-1], "https://example.com/new.png")
+        existing.delete.assert_awaited_once()
+
+    async def test_an_unchanged_clan_icon_is_left_alone(self):
+        from minecraft_bot.leaderboard import clan_key
+
+        store = self._store(
+            {
+                clan_key("Wolves"): {
+                    "emoji_id": 77,
+                    "markdown": "<:w:77>",
+                    "source": "https://example.com/wolf.png",
+                    "last_podium": "2026-08-14T00:00:00+00:00",
+                }
+            }
+        )
+        existing = SimpleNamespace(id=77, name="mgx_head_Wolves", delete=AsyncMock())
+        guild = SimpleNamespace(
+            id=1,
+            emoji_limit=250,
+            emojis=[],
+            fetch_emojis=AsyncMock(return_value=[existing]),
+            get_emoji=lambda _id: None,
+        )
+        snapshot = {
+            "individual": {},
+            "clan": {
+                "wealth": [
+                    {"clan": "Wolves", "icon": "https://example.com/wolf.png", "value": 9}
+                ]
+            },
+        }
+
+        await store.sync(guild, snapshot)
+
+        store._create.assert_not_awaited()
+        existing.delete.assert_not_awaited()
+
     async def test_unowned_head_emojis_are_swept_up(self):
         store = self._store({})
         duplicate = SimpleNamespace(id=99, name="mgx_head_p0", delete=AsyncMock())
@@ -1646,6 +1764,27 @@ class MinecraftPodiumScopeTests(unittest.TestCase):
         for uuid in ("rich", "killer", "walker"):
             with self.subTest(uuid=uuid):
                 self.assertIn(uuid, podium)
+
+    def test_clan_podiums_mint_their_icons(self):
+        from minecraft_bot.leaderboard import CLAN_DEFAULT_ICON_URL, clan_key
+
+        snapshot = {
+            "individual": {},
+            "clan": {
+                "wealth": [
+                    {"clan": "Wolves", "icon": "https://example.com/wolf.png", "value": 9},
+                    {"clan": "Ravens", "value": 4},
+                ]
+            },
+        }
+
+        subjects = self._store()._podium_subjects(snapshot)
+
+        self.assertEqual(
+            subjects[clan_key("Wolves")], ("Wolves", "https://example.com/wolf.png")
+        )
+        # A clan that never set one still gets an emoji, so the podium stays even.
+        self.assertEqual(subjects[clan_key("Ravens")], ("Ravens", CLAN_DEFAULT_ICON_URL))
 
     def test_clan_rows_never_mint_player_heads(self):
         from minecraft_bot.leaderboard import DEFAULT_TYPE

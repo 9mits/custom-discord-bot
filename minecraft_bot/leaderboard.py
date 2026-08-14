@@ -25,9 +25,9 @@ PODIUM = 3
 DISPLAY_ROWS = 5
 #: Head emojis are a reward, so they outlive a single bad week on the board.
 EMOJI_RETENTION_DAYS = 14
-#: Every individual board mints heads, so the ceiling is five boards times three
-#: places, plus room for the turnover that retention deliberately holds on to.
-EMOJI_BUDGET = 24
+#: Five individual boards and three clan boards, three places each, plus room for
+#: the turnover that retention deliberately holds on to.
+EMOJI_BUDGET = 32
 EMOJI_PREFIX = "mgx_head_"
 #: Deleting emojis is rate-limited, so a backlog is cleared over several refreshes.
 EMOJI_CLEANUP_PER_PASS = 25
@@ -62,6 +62,11 @@ def _rows(snapshot: dict[str, Any], scope: str, board: str) -> list[dict[str, An
     return rows if isinstance(rows, list) else []
 
 
+def clan_key(name: str) -> str:
+    """Clan icons share the emoji registry with player heads, so they need a namespace."""
+    return f"clan:{name}"
+
+
 def _emoji_name(username: str) -> str:
     """Discord only accepts word characters, and caps emoji names at 32."""
     cleaned = re.sub(r"\W", "", username)[:20] or "player"
@@ -86,10 +91,13 @@ class HeadEmojiStore:
         await self.bot.data.set_config(CONFIG_EMOJIS, registry)
 
     async def sync(self, guild: discord.Guild, snapshot: dict[str, Any]) -> dict[str, str]:
-        """Ensures every current podium player has an emoji; returns uuid -> markdown."""
+        """Ensures every podium subject has an emoji; returns key -> markdown.
+
+        Keys are a player uuid, or ``clan:<name>`` for a clan icon.
+        """
         registry = await self._load()
         now = datetime.now(timezone.utc)
-        podium = self._podium_players(snapshot)
+        podium = self._podium_subjects(snapshot)
 
         # Authoritative list rather than the gateway cache: a stale cache is what
         # caused the same head to be created over and over.
@@ -98,24 +106,36 @@ class HeadEmojiStore:
         except discord.HTTPException:
             logger.warning("Could not list guild emojis; leaving the podium heads alone.")
             return {
-                uuid: entry["markdown"]
-                for uuid, entry in registry.items()
+                key: entry["markdown"]
+                for key, entry in registry.items()
                 if entry.get("markdown")
             }
 
         registry = await self._forget_orphans(guild, registry, existing)
 
-        def live_emoji_id(uuid: str) -> int:
-            """The player's emoji id, or 0 when they have none Discord still knows about."""
-            emoji_id = int((registry.get(uuid) or {}).get("emoji_id", 0) or 0)
-            return emoji_id if emoji_id and emoji_id in existing else 0
+        def is_current(key: str, source: str) -> bool:
+            """Whether Discord still holds an emoji minted from this exact image.
+
+            A clan that changes its icon keeps its key, so the stored source has to
+            be compared too or the old picture would stay on the board forever.
+            Entries saved before sources were recorded have none; those are left
+            alone rather than re-minted, since the emoji itself is still right.
+            """
+            entry = registry.get(key) or {}
+            emoji_id = int(entry.get("emoji_id", 0) or 0)
+            if not emoji_id or emoji_id not in existing:
+                return False
+            stored = str(entry.get("source") or "")
+            return not stored or stored == source
 
         missing = {
-            uuid: username for uuid, username in podium.items() if not live_emoji_id(uuid)
+            key: subject
+            for key, subject in podium.items()
+            if not is_current(key, subject[1])
         }
-        for uuid in podium:
-            if uuid not in missing:
-                registry[uuid]["last_podium"] = now.isoformat()
+        for key in podium:
+            if key not in missing:
+                registry[key]["last_podium"] = now.isoformat()
         # Ask Discord for nothing when the guild has no room: the alternative is a
         # guaranteed 400 for every podium player, every refresh, forever.
         free_slots = guild.emoji_limit - len(existing)
@@ -135,18 +155,53 @@ class HeadEmojiStore:
             async with aiohttp.ClientSession(
                 timeout=aiohttp.ClientTimeout(total=15)
             ) as session:
-                for uuid, username in missing.items():
-                    created = await self._create(session, guild, uuid, username)
+                for key, (label, source) in missing.items():
+                    # Replacing a clan's icon means retiring the emoji it used to have.
+                    await self._retire(registry.get(key), existing)
+                    created = await self._create(session, guild, label, source)
                     if created is not None:
-                        registry[uuid] = {
+                        registry[key] = {
                             "emoji_id": created.id,
                             "markdown": str(created),
+                            "source": source,
                             "last_podium": now.isoformat(),
                         }
 
         registry = await self._reap(guild, registry, now, keep=set(podium), existing=existing)
         await self._save(registry)
-        return {uuid: entry["markdown"] for uuid, entry in registry.items() if entry.get("markdown")}
+        return {key: entry["markdown"] for key, entry in registry.items() if entry.get("markdown")}
+
+    def _podium_subjects(self, snapshot: dict[str, Any]) -> dict[str, tuple[str, str]]:
+        """Everything that earns an emoji: key -> (label, image address)."""
+        subjects: dict[str, tuple[str, str]] = {
+            uuid: (username, head_url(uuid, username))
+            for uuid, username in self._podium_players(snapshot).items()
+        }
+        subjects.update(self._podium_clans(snapshot))
+        return subjects
+
+    def _podium_clans(self, snapshot: dict[str, Any]) -> dict[str, tuple[str, str]]:
+        """The top three of every clan board, keyed apart from player uuids."""
+        clans: dict[str, tuple[str, str]] = {}
+        for board in CLAN_TYPES:
+            for row in _rows(snapshot, "clan", board)[:PODIUM]:
+                name = str(row.get("clan") or "").strip()
+                if name:
+                    icon = str(row.get("icon") or "").strip() or CLAN_DEFAULT_ICON_URL
+                    clans.setdefault(clan_key(name), (name, icon))
+        return clans
+
+    async def _retire(
+        self, entry: Optional[dict[str, Any]], existing: dict[int, discord.Emoji]
+    ) -> None:
+        emoji = existing.get(int((entry or {}).get("emoji_id", 0) or 0))
+        if emoji is None:
+            return
+        try:
+            await emoji.delete(reason=f"{BRAND_NAME} leaderboard icon replaced")
+            existing.pop(emoji.id, None)
+        except discord.HTTPException:
+            logger.warning("Could not remove the replaced emoji %s", emoji.name)
 
     def _podium_players(self, snapshot: dict[str, Any]) -> dict[str, str]:
         """Every individual board mints heads for its own top three.
@@ -168,18 +223,17 @@ class HeadEmojiStore:
         self,
         session: aiohttp.ClientSession,
         guild: discord.Guild,
-        uuid: str,
-        username: str,
+        label: str,
+        url: str,
     ) -> Optional[discord.Emoji]:
         try:
-            url = head_url(uuid, username)
             async with session.get(url) as response:
                 if response.status != 200:
-                    logger.warning("Head image for %s returned HTTP %s", username, response.status)
+                    logger.warning("Image for %s returned HTTP %s", label, response.status)
                     return None
                 image = await response.read()
             return await guild.create_custom_emoji(
-                name=_emoji_name(username),
+                name=_emoji_name(label),
                 image=image,
                 reason=f"{BRAND_NAME} leaderboard podium",
             )
@@ -187,12 +241,12 @@ class HeadEmojiStore:
             # A missing head is cosmetic; the row still renders with its placement.
             # Expected refusals are logged flat, without a traceback each refresh.
             if error.code == 30008:
-                logger.info("No emoji slots left for %s's head.", username)
+                logger.info("No emoji slots left for %s.", label)
             else:
-                logger.warning("Could not create a podium emoji for %s: %s", username, error)
+                logger.warning("Could not create a podium emoji for %s: %s", label, error)
             return None
         except (aiohttp.ClientError, OSError) as error:
-            logger.warning("Could not fetch %s's head image: %s", username, error)
+            logger.warning("Could not fetch the image for %s: %s", label, error)
             return None
 
     async def _forget_orphans(
@@ -323,7 +377,7 @@ def build_embed(
                 name = str(row.get("clan") or "?")
                 members = row.get("members")
                 suffix = f" · {members} members" if members else ""
-                icon = ""
+                icon = heads.get(clan_key(name), "") if podium else ""
             else:
                 uuid = str(row.get("minecraft_uuid") or "")
                 # Identity reads clan, then Discord, then Minecraft — broadest first.
@@ -421,7 +475,7 @@ def message_payload(
             build_embed(
                 snapshot, scope="individual", board=DEFAULT_TYPE, heads=heads, linked=linked
             ),
-            build_embed(snapshot, scope="clan", board=DEFAULT_TYPE),
+            build_embed(snapshot, scope="clan", board=DEFAULT_TYPE, heads=heads),
         ],
         "attachments": [],
         "view": LeaderboardView(),

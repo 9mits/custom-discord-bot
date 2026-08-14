@@ -40,10 +40,10 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
             "help", "info", "list", "chat", "leave"
     );
     private static final List<String> STAFF_SUBCOMMANDS = List.of(
-            "help", "invite", "info", "list", "kick", "chat", "leave"
+            "help", "invite", "info", "list", "kick", "chat", "leave", "icon"
     );
     private static final List<String> LEADER_SUBCOMMANDS = List.of(
-            "help", "invite", "info", "list", "rename", "color", "promote", "demote",
+            "help", "invite", "info", "list", "rename", "color", "icon", "promote", "demote",
             "transfer", "kick", "chat", "disband"
     );
 
@@ -86,6 +86,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 case "list" -> list(player, args.length >= 2 ? args[1] : "1");
                 case "rename", "name" -> rename(player, remainder(args, 1));
                 case "color", "colour", "theme" -> color(player, remainder(args, 1));
+                case "icon", "logo" -> icon(player, remainder(args, 1));
                 case "promote" -> setStaff(player, remainder(args, 1), true);
                 case "demote" -> setStaff(player, remainder(args, 1), false);
                 case "transfer", "leader" -> transfer(player, remainder(args, 1));
@@ -211,6 +212,33 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         broadcast(clan, Component.text("The clan is now named " + clan.name() + ".", LIGHT_ORANGE));
     }
 
+    /**
+     * The icon is never drawn in game. It exists so the Discord clan leaderboard can
+     * show something other than a default beside the clans at the top of it.
+     */
+    private void icon(Player player, String requestedIcon) throws IOException {
+        if (requestedIcon.equalsIgnoreCase("clear") || requestedIcon.equalsIgnoreCase("reset")) {
+            ClanStore.ClanView cleared = store.clearIcon(player.getUniqueId());
+            broadcast(cleared, Component.text(
+                    "Clan icon removed; the default returns on the leaderboard.",
+                    NamedTextColor.GRAY
+            ));
+            return;
+        }
+        ClanStore.ClanView clan = store.setIcon(player.getUniqueId(), requestedIcon);
+        broadcast(clan, Component.text("Clan icon updated.", NamedTextColor.GRAY));
+        success(player, "It appears beside your clan on the Discord leaderboard.");
+        if (ClanIcon.isExpiringDiscordLink(clan.icon())) {
+            // Discord signs attachment links with an expiry, so this one will stop
+            // resolving in a day or so and the clan would silently lose its icon.
+            player.sendMessage(Component.text(
+                    "Warning: Discord attachment links expire after about a day. "
+                            + "Host the image somewhere permanent to keep it.",
+                    NamedTextColor.GOLD
+            ));
+        }
+    }
+
     private void color(Player player, String requestedColor) throws IOException {
         leaderClan(player);
         if (requestedColor.isBlank()) {
@@ -328,6 +356,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
             if (role == ClanStore.ClanRole.LEADER || role == ClanStore.ClanRole.STAFF) {
                 player.sendMessage(help("/clans invite <player>", "Invite an online player"));
                 player.sendMessage(help("/clans kick <player>", "Remove a clan member"));
+                player.sendMessage(help("/clans icon <url>", "Set your Discord leaderboard icon"));
             }
             if (role == ClanStore.ClanRole.LEADER) {
                 player.sendMessage(help("/clans rename <name>", "Change your clan name"));

@@ -319,6 +319,16 @@ def commands_clans_embed(settings=None) -> discord.Embed:
                 "> `/claninfo [name]` — a clan's leader, staff and members\n"
                 "> `/clans help` — only what your role currently permits",
             ),
+            (
+                "Your clan's picture",
+                "> `/clans icon <url>` sets the image shown beside your clan on the "
+                "Discord leaderboard, and `/clans icon clear` puts the default "
+                "back. Leaders and clan staff can both set it.\n"
+                "> \n"
+                "> It must be a direct address ending in `.png`, `.jpg`, `.gif` or "
+                "`.webp`. Avoid Discord attachment links: those expire after about "
+                "a day and your clan would quietly lose its picture.",
+            ),
         ],
     )
 
@@ -405,7 +415,8 @@ def clans_roles_embed(settings=None) -> discord.Embed:
                 "Staff",
                 "> Everything a member can, plus:\n"
                 "> `/clans invite <player>` — bring someone in\n"
-                "> `/clans kick <player>` — remove a **member**",
+                "> `/clans kick <player>` — remove a **member**\n"
+                "> `/clans icon <url>` — set the clan's leaderboard picture",
             ),
             (
                 "Leader",

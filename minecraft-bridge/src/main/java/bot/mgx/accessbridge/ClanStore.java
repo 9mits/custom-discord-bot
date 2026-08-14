@@ -41,7 +41,8 @@ final class ClanStore {
             int themeColor,
             UUID leader,
             Map<UUID, String> members,
-            Set<UUID> staff
+            Set<UUID> staff,
+            String icon
     ) {
         ClanRole roleOf(UUID playerId) {
             if (leader.equals(playerId)) {
@@ -65,6 +66,8 @@ final class ClanStore {
         String leader;
         Map<String, String> members = new LinkedHashMap<>();
         Set<String> staff = new LinkedHashSet<>();
+        /** Absent on clans saved before 2.27.0, and on any clan that never set one. */
+        String icon;
     }
 
     private static final class SavedInvite {
@@ -198,6 +201,28 @@ final class ClanStore {
             throw new ClanException("Your clan already uses that theme color.");
         }
         clan.themeColor = themeColor;
+        persist();
+        return view(clan);
+    }
+
+    /** Clan staff and the leader may set the icon; it only ever shows on the leaderboard. */
+    synchronized ClanView setIcon(UUID actor, String requestedIcon) throws IOException {
+        SavedClan clan = requireStaff(actor);
+        String icon = ClanIcon.normalize(requestedIcon);
+        if (icon.equals(clan.icon)) {
+            throw new ClanException("Your clan already uses that icon.");
+        }
+        clan.icon = icon;
+        persist();
+        return view(clan);
+    }
+
+    synchronized ClanView clearIcon(UUID actor) throws IOException {
+        SavedClan clan = requireStaff(actor);
+        if (clan.icon == null || clan.icon.isEmpty()) {
+            throw new ClanException("Your clan has no icon set.");
+        }
+        clan.icon = null;
         persist();
         return view(clan);
     }
@@ -498,7 +523,8 @@ final class ClanStore {
                 clan.themeColor,
                 UUID.fromString(clan.leader),
                 Map.copyOf(members),
-                Set.copyOf(staff)
+                Set.copyOf(staff),
+                clan.icon == null ? "" : clan.icon
         );
     }
 
