@@ -1740,3 +1740,72 @@ class MinecraftInformationPanelTests(unittest.TestCase):
         self.assertNotIn("presents", self.information.overview_embed(0).description)
         self.assertNotIn("presents", application_embeds()[0].description)
         self.assertIn("in partnership with", application_embeds()[0].description)
+
+
+class MinecraftCapabilityTests(unittest.TestCase):
+    """Discord must offer exactly what the server says a player may do."""
+
+    def setUp(self):
+        from minecraft_bot import capabilities
+
+        self.capabilities = capabilities
+        self.snapshot = {
+            "players": {
+                "leader-uuid": {
+                    "clan": "LUCKY",
+                    "clan_role": "leader",
+                    "clan_members": 4,
+                    "staff_tools": [],
+                },
+                "member-uuid": {
+                    "clan": "LUCKY",
+                    "clan_role": "member",
+                    "clan_members": 4,
+                    "staff_tools": [],
+                },
+                "mod-uuid": {"staff_tools": ["inspect", "kick"]},
+            }
+        }
+
+    def _caps(self, uuid):
+        return self.capabilities.capabilities_for(self.snapshot, uuid)
+
+    def test_a_leader_may_manage_the_clan(self):
+        caps = self._caps("leader-uuid")
+
+        self.assertTrue(caps.may("disband"))
+        self.assertTrue(caps.may("promote"))
+        self.assertTrue(caps.may("invite"))
+
+    def test_a_member_may_only_leave(self):
+        caps = self._caps("member-uuid")
+
+        self.assertEqual([a for a, _ in caps.available_clan_actions()], ["leave"])
+        self.assertFalse(caps.may("disband"))
+        self.assertFalse(caps.may("invite"))
+
+    def test_staff_tools_are_limited_to_those_held(self):
+        caps = self._caps("mod-uuid")
+
+        offered = [key for key, _label in caps.available_staff_tools()]
+        self.assertEqual(offered, ["inspect", "kick"])
+        self.assertNotIn("ban", offered)
+
+    def test_an_unknown_player_gets_nothing(self):
+        caps = self._caps("stranger")
+
+        self.assertFalse(caps.in_clan)
+        self.assertFalse(caps.is_staff)
+        self.assertEqual(caps.available_clan_actions(), [])
+        self.assertEqual(caps.available_staff_tools(), [])
+
+    def test_a_malformed_entry_is_treated_as_no_privileges(self):
+        caps = self.capabilities.capabilities_for({"players": {"x": "nonsense"}}, "x")
+
+        self.assertFalse(caps.in_clan)
+        self.assertFalse(caps.is_staff)
+
+    def test_every_clan_action_names_roles_that_exist(self):
+        for action, (_label, roles) in self.capabilities.CLAN_ACTIONS.items():
+            with self.subTest(action=action):
+                self.assertTrue(set(roles) <= {"leader", "staff", "member"})

@@ -1063,6 +1063,71 @@ class MinecraftAccessBot(commands.Bot):
     async def _before_leaderboard_refresh(self) -> None:
         await self.wait_until_ready()
 
+    async def build_capability_embed(self, discord_user_id: int, *, staff: bool) -> discord.Embed:
+        """Shows only what the server says this player may do.
+
+        Nothing here is a substitute for the server's own check — Paper re-checks the
+        permission when a command actually runs. This decides what is worth offering.
+        """
+        from .capabilities import capabilities_for
+        from .presentation import info_embed
+
+        accounts = await self.data.list_accounts_for_user(discord_user_id)
+        if not accounts:
+            return info_embed(
+                "No Linked Account",
+                "> Link a Minecraft account first. Apply from the application panel, "
+                "then check `/minecraft account`.",
+                error=True,
+            )
+        snapshot = getattr(self.bridge, "latest_capabilities", {}) or {}
+        if not snapshot:
+            return info_embed(
+                "Server Not Reachable",
+                "> The Minecraft server has not reported in yet. Try again shortly.",
+                error=True,
+            )
+
+        lines: list[str] = []
+        for account in accounts:
+            caps = capabilities_for(snapshot, str(account["minecraft_uuid"]))
+            if staff:
+                tools = caps.available_staff_tools()
+                if not tools:
+                    continue
+                lines.append("**In game you can:**")
+                lines.extend(f"> {label}" for _key, label in tools)
+            else:
+                if not caps.in_clan:
+                    continue
+                lines.append(
+                    f"**{caps.clan}** — you are the {caps.clan_role} "
+                    f"of {caps.clan_members} member(s)."
+                )
+                actions = caps.available_clan_actions()
+                if actions:
+                    lines.append("")
+                    lines.append("**Your role lets you:**")
+                    lines.extend(f"> `/clans {action}` — {label}" for action, label in actions)
+
+        if not lines:
+            if staff:
+                return info_embed(
+                    "No Staff Tools",
+                    "> Your account holds no Minecraft staff permissions.\n"
+                    "> Staff ranks come from your Discord role, so this updates on its own.",
+                )
+            return info_embed(
+                "No Clan",
+                "> You are not in a clan yet.\n"
+                "> Join one with an invite, or start your own with `/clans create <name>` "
+                "in game.",
+            )
+        return info_embed(
+            "Your Staff Tools" if staff else "Your Clan",
+            "\n".join(lines),
+        )
+
     async def publish_information_panel(self, channel: discord.TextChannel) -> Optional[str]:
         """Posts or updates the guide. Returns a reason when it could not."""
         from .information import CONFIG_CHANNEL, CONFIG_MESSAGE, message_payload
@@ -1409,6 +1474,26 @@ class MinecraftAccessBot(commands.Bot):
                     f"The leaderboard is now in {channel.mention} and refreshes every 5 minutes. "
                     "Standings fill in once the Minecraft server reports them."
                 )
+            )
+
+        @group.command(
+            name="clan",
+            description="Your clan, and the actions your role allows.",
+        )
+        async def clan(interaction: discord.Interaction) -> None:
+            await interaction.response.defer(ephemeral=True)
+            await interaction.edit_original_response(
+                embed=await self.build_capability_embed(interaction.user.id, staff=False)
+            )
+
+        @group.command(
+            name="staff",
+            description="The Minecraft staff tools your permissions allow.",
+        )
+        async def staff(interaction: discord.Interaction) -> None:
+            await interaction.response.defer(ephemeral=True)
+            await interaction.edit_original_response(
+                embed=await self.build_capability_embed(interaction.user.id, staff=True)
             )
 
         @group.command(

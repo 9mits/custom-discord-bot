@@ -52,6 +52,8 @@ class MinecraftBridgeServer:
         self.leaderboard_handler = leaderboard_handler
         # Newest standings pushed by Paper; the leaderboard message renders from this.
         self.latest_leaderboard: dict[str, Any] = {}
+        # Minecraft UUID -> clan standing and staff tools, pushed by Paper.
+        self.latest_capabilities: dict[str, Any] = {}
         self._app = web.Application(client_max_size=1024 * 1024)
         self._app.router.add_get(config.bridge_path, self._websocket_handler)
         self._runner: Optional[web.AppRunner] = None
@@ -301,6 +303,11 @@ class MinecraftBridgeServer:
                 {"event_idempotency_key": envelope["idempotency_key"]},
                 idempotency_key=envelope["idempotency_key"],
             )
+            return
+        if message_type == "CAPABILITY_SNAPSHOT":
+            # What each player may do, per LuckPerms. Newest wins; nothing to
+            # acknowledge because the next push replaces it.
+            self.latest_capabilities = payload
             return
         if message_type == "LEADERBOARD_SNAPSHOT":
             # Newest snapshot wins; there is nothing to acknowledge because a dropped

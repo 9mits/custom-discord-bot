@@ -168,6 +168,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                 // The bot holds standings in memory, so a restart leaves it with none.
                 // Republish at once rather than making it wait for the next interval.
                 plugin.republishLeaderboard();
+                plugin.republishCapabilities();
             }
             case "HEARTBEAT_ACK" -> {
                 // The signed response is sufficient proof of liveness.
@@ -525,6 +526,14 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             return;
         }
         sendRaw(protocol.create("LEADERBOARD_SNAPSHOT", UUID.randomUUID().toString(), snapshot));
+    }
+
+    /** Fire-and-forget like standings: the next push replaces anything dropped. */
+    void sendCapabilitySnapshot(JsonObject snapshot) {
+        if (!isConnected()) {
+            return;
+        }
+        sendRaw(protocol.create("CAPABILITY_SNAPSHOT", UUID.randomUUID().toString(), snapshot));
     }
 
     private void flushMinecraftChatOutbox() {
