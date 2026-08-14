@@ -1962,6 +1962,16 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
         self.assertIn("removal from the server", description)
         self.assertIn("Harassment", description)
 
+    def test_in_game_conflict_is_walled_off_from_discord(self):
+        # A rivalry that follows someone into Discord stops being a game, and
+        # that is the moderation problem most likely to arrive with a crowd.
+        from minecraft_bot.presentation import rules_embed
+
+        description = rules_embed().description
+
+        self.assertIn("What happens in Minecraft stays in Minecraft", description)
+        self.assertIn("Discord", description.split("**7.", 1)[1].split("\n\n", 1)[0])
+
     def test_rules_that_enumerate_use_bullets(self):
         # Conditions buried in a sentence get skimmed past. Where a rule draws a
         # line between two things, or lists several, it should show them.
