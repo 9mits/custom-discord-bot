@@ -1816,10 +1816,41 @@ class MinecraftInformationPanelTests(unittest.TestCase):
                 described = self.embed_text(builder(0))
 
                 self.assertIn(self.information.JAVA_SUPPORTED_RANGE, described)
-                self.assertRegex(described, r"turned away|refused")
+                self.assertRegex(described, r"turned away|refused|blocked")
 
     def test_panel_is_titled_information(self):
         self.assertEqual(self.information.overview_embed(0).title, "Information")
+
+    def test_overview_carries_both_connection_addresses(self):
+        # The address is the one thing a new member needs before anything else
+        # on the panel is useful, so it belongs on the front page, copyable.
+        class _Settings:
+            java_address = "play.example.net"
+            bedrock_address = "bedrock.example.net"
+            bedrock_port = 50549
+            application_channel_id = 0
+
+        described = self.embed_text(self.information.overview_embed(_Settings()))
+
+        self.assertIn("```text\nplay.example.net\n```", described)
+        self.assertIn("```text\nbedrock.example.net\n```", described)
+        self.assertIn("```text\n50549\n```", described)
+
+    def test_overview_and_versions_page_agree_on_addresses(self):
+        class _Settings:
+            java_address = "play.example.net"
+            bedrock_address = "bedrock.example.net"
+            bedrock_port = 50549
+            application_channel_id = 0
+
+        settings = _Settings()
+        overview = self.embed_text(self.information.overview_embed(settings))
+        versions = self.embed_text(self.information.technical_embed(settings))
+
+        for value in ("play.example.net", "bedrock.example.net", "50549"):
+            with self.subTest(value=value):
+                self.assertIn(value, overview)
+                self.assertIn(value, versions)
 
     def _every_embed(self):
         """Every page and every category within a page, as (name, embed)."""
