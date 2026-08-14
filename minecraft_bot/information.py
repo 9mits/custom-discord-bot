@@ -129,7 +129,8 @@ def _addresses(settings) -> tuple[str, str, str]:
 def overview_embed(settings=None) -> discord.Embed:
     # This message lives in a channel members only see after they are accepted,
     # so it reads as the server handbook — never as joining instructions.
-    java_address, bedrock_address, bedrock_port = _addresses(settings)
+    # The Bedrock port belongs on the versions page; the front page stays short.
+    java_address, bedrock_address, _port = _addresses(settings)
     embed = _page(
         "Information",
         "Mysterious Girlfriend X Discord, in partnership with "
@@ -148,9 +149,7 @@ def overview_embed(settings=None) -> discord.Embed:
                 "> \n"
                 "> PvP is enabled, which means raids and the occasional betrayal "
                 "are part of the story rather than something staff step in to "
-                "prevent. Every block placed or broken is recorded, though, so if "
-                "a rivalry tips over into genuine griefing it can always be rolled "
-                "back.",
+                "prevent.",
             ),
             (
                 "Client versions",
@@ -167,16 +166,7 @@ def overview_embed(settings=None) -> discord.Embed:
             (
                 "Server address",
                 f"**Java Edition**\n```text\n{java_address}\n```\n"
-                f"**Bedrock Edition**\n```text\n{bedrock_address}\n```\n"
-                f"**Bedrock port**\n```text\n{bedrock_port}\n```",
-            ),
-            (
-                "Getting started",
-                "> The **Commands** button below lists everything you can type in "
-                "game, grouped by what it does. The one worth learning on your "
-                f"first evening is `/sethome`, which saves wherever you decide to "
-                f"settle — you can keep **{DEFAULT_HOME_LIMIT}** of them, and "
-                "`/home` brings you back from anywhere.",
+                f"**Bedrock Edition**\n```text\n{bedrock_address}\n```",
             ),
         ],
     )
@@ -527,30 +517,18 @@ def levels_embed() -> discord.Embed:
                 "an extra on top — rewards build up as you climb.*",
             ),
             (
-                "Reading that ladder",
-                f"> Reaching level 20 means you hold **{_hearts(3)}** in total "
-                "rather than one, because every milestone you passed on the way "
-                f"still counts. Level 40 is where the hearts stop, at "
-                f"**{_hearts(max_hearts)}**, and level 50 does not add a sixth — "
-                f"it gives **+{ELITE_DAMAGE_PERCENT}% damage** instead.",
-            ),
-            (
-                "Boosting stacks on top",
-                f"> Boosting the Discord server adds **+{BOOSTER_EXTRA_HEARTS} "
-                f"heart** and **+{BOOSTER_DAMAGE_PERCENT}% damage** on top of "
-                "whatever your level already gives you, rather than replacing any "
-                "of it. The two damage bonuses add together rather than "
-                f"multiplying, so a level 50 player who also boosts deals "
-                f"**+{combined_damage}% damage** — that plus "
-                f"**{_hearts(max_hearts + BOOSTER_EXTRA_HEARTS)}** is the most "
-                "anyone on the server can hold.",
+                "It all stacks",
+                "Milestones add up as you climb, and boosting stacks on top of "
+                "them rather than replacing anything.\n\n"
+                f"> **Boosting** — +{BOOSTER_EXTRA_HEARTS} heart and "
+                f"+{BOOSTER_DAMAGE_PERCENT}% damage, on top of your level\n"
+                f"> **Maximum** — {_hearts(max_hearts + BOOSTER_EXTRA_HEARTS)} and "
+                f"+{combined_damage}% damage",
             ),
             (
                 "Checking yours",
-                "> Your level, hearts and damage bonus sit on the sidebar while "
-                "you play, and `/perks` will print them at any time if you would "
-                f"rather read them properly. If you want the detail on how "
-                f"levelling itself works, it lives here: {LEVELS_CHANNEL_URL}",
+                "The sidebar shows yours in game, or run `/perks` any time.\n\n"
+                f"> How levelling works: {LEVELS_CHANNEL_URL}",
             ),
         ],
     )
@@ -611,6 +589,9 @@ def mods_embed() -> discord.Embed:
             ),
             (
                 "Permitted on Java",
+                "Anything that changes how the game looks or runs, without telling "
+                "you something you could not have seen yourself. These are "
+                "examples rather than the whole list:\n\n"
                 f"> **Performance** — {mod_link('Sodium')}, {mod_link('Lithium')}, "
                 f"{mod_link('OptiFine')}\n"
                 f"> **Shaders** — {mod_link('Iris Shaders')}\n"
@@ -621,13 +602,20 @@ def mods_embed() -> discord.Embed:
                 f"*Most require the {mod_link('Fabric')} loader.*",
             ),
             (
+                "Clients",
+                f"Launchers like {mod_link('Lunar Client')} and "
+                f"{mod_link('Feather')} are fine, and bundle most of the "
+                "performance and quality-of-life mods above for you.\n\n"
+                "> Whatever the client bundles still has to follow the rules "
+                "below. A launcher does not make a banned module allowed.",
+            ),
+            (
                 "Prohibited on every edition",
-                "> X-ray, freecam, baritone, tracers, kill aura and reach "
-                "modification are all banned, as is anything else that shows you "
-                "what you could not have seen or lets you do what you could not "
-                "have done unaided. The server runs an anticheat and logs every "
-                "block placed or broken, so this is checked rather than merely "
-                "asked for.",
+                "Anything that shows you what you could not have seen, or does "
+                "what you could not have done unaided. The server runs an "
+                "anticheat, so this is checked rather than merely asked for.\n\n"
+                "> X-ray · freecam · baritone · tracers · kill aura · reach "
+                "modification",
             ),
             (
                 "Bedrock",
