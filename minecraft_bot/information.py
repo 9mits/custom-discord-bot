@@ -139,18 +139,20 @@ def overview_embed(settings=None) -> discord.Embed:
         [
             (
                 "The server",
-                "A survival Minecraft server where teamwork, competition, PvP, "
-                "building and peaceful survival all sit side by side.\n\n"
-                "Play it your way — team up, compete, fight, build, or simply "
-                "enjoy the world.\n\n"
+                "> A survival Minecraft server where teamwork, competition, PvP, "
+                "building and peaceful survival all sit side by side.\n"
+                "> \n"
+                "> Play it your way — team up, compete, fight, build, or simply "
+                "enjoy the world.\n"
+                "> \n"
                 "> **Crossplay** — Java and Bedrock share one world",
             ),
             (
                 "Client versions",
                 f"> **Java** — {JAVA_SUPPORTED_RANGE}\n"
                 "> **Bedrock** — any current version\n\n"
-                f"The server runs **{SERVER_VERSION}**. Older Java clients are "
-                "translated automatically; newer ones are blocked.",
+                f"The server runs **{SERVER_VERSION}**. Anything newer is blocked; "
+                "anything older is translated automatically.",
             ),
         ],
     )
@@ -161,23 +163,19 @@ def overview_embed(settings=None) -> discord.Embed:
 def commands_embed() -> discord.Embed:
     return _page(
         "Commands",
-        "Everything available to you in game. Choose a category below for the "
-        "full list.",
+        "Everything available to you in game.",
         [
             (
                 "Most used",
-                "> `/sethome` — save your current location\n"
-                "> `/home` — return to it\n"
+                "> `/sethome` · `/home` — save a spot and return to it\n"
                 "> `/tpa <player>` — ask to teleport to someone\n"
-                "> `/msg <player> <message>` — send a private message",
+                "> `/msg <player> <message>` — private message\n"
+                "> `/back` — return to where you were",
             ),
             (
-                "Categories",
-                "> **Homes & Travel** — saving and returning to locations\n"
-                "> **Teleports** — requests between players\n"
-                "> **Communication** — messages, mail and chat\n"
-                "> **Clans** — founding and running a clan\n"
-                "> **Account** — your perks, preferences and server details",
+                "Full list",
+                "> The buttons below cover homes and travel, teleports, "
+                "communication, clans, and your account.",
             ),
         ],
     )
@@ -202,9 +200,9 @@ def commands_homes_embed(settings=None) -> discord.Embed:
             ),
             (
                 "Worth knowing",
-                f"> You may keep **{DEFAULT_HOME_LIMIT} homes**.\n"
-                f"> Travel pauses **{TELEPORT_WARMUP_SECONDS} seconds** before it "
-                "completes, and cancels if you move or take damage.",
+                f"> **{DEFAULT_HOME_LIMIT} homes** included\n"
+                f"> Travel pauses **{TELEPORT_WARMUP_SECONDS} seconds**, and "
+                "cancels if you move or take damage",
             ),
         ],
     )
@@ -229,9 +227,9 @@ def commands_teleports_embed(settings=None) -> discord.Embed:
             ),
             (
                 "Timing",
-                f"> Teleports wait **{TELEPORT_WARMUP_SECONDS} seconds** and cancel "
-                "if you move or take damage.\n"
-                f"> There are **{TELEPORT_COOLDOWN_SECONDS} seconds** between uses.",
+                f"> **{TELEPORT_WARMUP_SECONDS} second** wait, cancelled if you "
+                "move or take damage\n"
+                f"> **{TELEPORT_COOLDOWN_SECONDS} seconds** between uses",
             ),
         ],
     )
@@ -258,8 +256,8 @@ def commands_chat_embed(settings=None) -> discord.Embed:
             ),
             (
                 "Needing help",
-                "> `/helpop <message>` — reach whoever is on duty.\n"
-                "> Use it for rule breaking or anything that needs intervention.",
+                "> `/helpop <message>` — reach whoever is on duty\n"
+                "> For rule breaking, or anything needing intervention",
             ),
         ],
     )
@@ -268,8 +266,7 @@ def commands_chat_embed(settings=None) -> discord.Embed:
 def commands_clans_embed(settings=None) -> discord.Embed:
     return _page(
         "Commands — Clans",
-        "Founding, joining and running a clan. Open the **Clans** section for how "
-        "they behave.",
+        "Founding, joining and running a clan.",
         [
             (
                 "Everyday",
@@ -295,13 +292,10 @@ def commands_clans_embed(settings=None) -> discord.Embed:
             ),
             (
                 "Your clan's picture",
-                "> `/clans icon <url>` sets the image shown beside your clan on the "
-                "Discord leaderboard, and `/clans icon clear` puts the default "
-                "back. Leaders and clan staff can both set it.\n"
-                "> \n"
-                "> It must be a direct address ending in `.png`, `.jpg`, `.gif` or "
-                "`.webp`. Avoid Discord attachment links: those expire after about "
-                "a day and your clan would quietly lose its picture.",
+                "> `/clans icon <url>` — shown beside your clan on the leaderboard\n"
+                "> `/clans icon clear` — back to the default\n"
+                "> Must end in `.png`, `.jpg`, `.gif` or `.webp`\n\n"
+                "Avoid Discord attachment links — they expire after about a day.",
             ),
         ],
     )
@@ -468,27 +462,21 @@ def levels_embed() -> discord.Embed:
     combined_damage = ELITE_DAMAGE_PERCENT + BOOSTER_DAMAGE_PERCENT
     return _page(
         "Levels and Perks",
-        "Chatting in text channels and talking in voice earns Discord levels, and "
-        "levels become permanent bonuses in Minecraft. Nothing is bought or claimed.",
+        "Chatting in text channels and talking in voice earns Discord levels, "
+        "which become permanent bonuses in Minecraft.",
         [
-            (
-                "What each milestone gives you",
-                _milestone_rewards()
-                + "\n\n*The figure beside each role is your **running total**, not "
-                "an extra on top — rewards build up as you climb.*",
-            ),
+            ("What each milestone gives you", _milestone_rewards()),
             (
                 "It all stacks",
-                "Milestones add up as you climb, and boosting stacks on top of "
-                "them rather than replacing anything.\n\n"
+                "> Milestones add up — the figure beside each role is your total\n"
                 f"> **Boosting** — +{BOOSTER_EXTRA_HEARTS} heart and "
-                f"+{BOOSTER_DAMAGE_PERCENT}% damage, on top of your level\n"
+                f"+{BOOSTER_DAMAGE_PERCENT}% damage on top of your level\n"
                 f"> **Maximum** — {_hearts(max_hearts + BOOSTER_EXTRA_HEARTS)} and "
                 f"+{combined_damage}% damage",
             ),
             (
                 "Checking yours",
-                "The sidebar shows yours in game, or run `/perks` any time.\n\n"
+                "> `/perks` — or read them off the sidebar while you play\n"
                 f"> How levelling works: {LEVELS_CHANNEL_URL}",
             ),
         ],
@@ -502,8 +490,7 @@ def boosting_embed() -> discord.Embed:
     combined_damage = ELITE_DAMAGE_PERCENT + BOOSTER_DAMAGE_PERCENT
     return _page(
         "Boosting",
-        "Boosting the Discord server adds bonuses on top of your level rewards. "
-        "It never replaces them.",
+        "Boosting the Discord server adds bonuses on top of your level rewards.",
         [
             (
                 "What boosting adds",
@@ -513,23 +500,17 @@ def boosting_embed() -> discord.Embed:
                 "slowly**",
             ),
             (
-                "How it stacks with your level",
-                "> These are added to whatever your level already earned you, not "
-                "given instead of it. The two damage bonuses add together rather "
-                f"than multiplying, so level 50 (+{ELITE_DAMAGE_PERCENT}%) "
-                f"alongside boosting (+{BOOSTER_DAMAGE_PERCENT}%) comes to "
-                f"**+{combined_damage}%** and not +26.5%.\n"
-                "> \n"
-                f"> A level 50 player who boosts therefore holds "
-                f"**{_hearts(max_hearts + BOOSTER_EXTRA_HEARTS)}** and "
-                f"**+{combined_damage}% damage**, which is the highest anyone can "
-                "reach.",
+                "How it stacks",
+                "> Added to your level rewards, never instead of them\n"
+                f"> Damage adds rather than multiplies — level 50 plus boosting "
+                f"is **+{combined_damage}%**\n"
+                f"> **Maximum** — {_hearts(max_hearts + BOOSTER_EXTRA_HEARTS)} and "
+                f"+{combined_damage}% damage",
             ),
             (
                 "If you stop boosting",
-                "> Only these three bonuses go away. Your level rewards, your "
-                "rank, your clan and everything you have built are completely "
-                "untouched.",
+                "> Only these three stop. Your level rewards, rank, clan and "
+                "everything you have built are untouched.",
             ),
         ],
     )
@@ -539,52 +520,44 @@ def mods_embed() -> discord.Embed:
     xaeros_link = mod_link("Xaero's Minimap")
     return _page(
         "Mods and Voice Chat",
-        "Client modifications permitted on Mysterious SMP X, and those that are not.",
+        "The rule: anything that changes how the game looks or runs is fine. "
+        "Anything that shows you what you could not have seen is not.",
         [
             (
                 "Voice chat",
-                f"> {mod_link('Simple Voice Chat')} carries proximity voice, so "
-                "you hear whoever is standing near you and nobody else. Install "
-                "the build that matches the Minecraft version you play on — the "
-                "download page lists one for each.",
+                f"> {mod_link('Simple Voice Chat')} — hear players near you\n"
+                "> Install the build matching your Minecraft version",
             ),
             (
                 "Permitted on Java",
-                "Anything that changes how the game looks or runs, without telling "
-                "you something you could not have seen yourself. These are "
-                "examples rather than the whole list:\n\n"
                 f"> **Performance** — {mod_link('Sodium')}, {mod_link('Lithium')}, "
                 f"{mod_link('OptiFine')}\n"
                 f"> **Shaders** — {mod_link('Iris Shaders')}\n"
                 f"> **Mapping** — {xaeros_link} or {mod_link('JourneyMap')}, with "
-                "cave mapping and player radar disabled\n"
-                f"> **Building** — {mod_link('Litematica')}, including its printer\n"
+                "cave mapping and player radar off\n"
+                f"> **Building** — {mod_link('Litematica')}, printer included\n"
                 f"> **Quality of life** — {mod_link('AppleSkin')} and similar\n\n"
-                f"*Most require the {mod_link('Fabric')} loader.*",
+                f"Examples, not the whole list. Most need the "
+                f"{mod_link('Fabric')} loader.",
             ),
             (
                 "Clients",
-                f"Launchers like {mod_link('Lunar Client')} and "
-                f"{mod_link('Feather')} are fine, and bundle most of the "
-                "performance and quality-of-life mods above for you.\n\n"
-                "> Whatever the client bundles still has to follow the rules "
-                "below. A launcher does not make a banned module allowed.",
+                f"> {mod_link('Lunar Client')} and {mod_link('Feather')} are "
+                "fine, and bundle most of the above\n\n"
+                "A launcher does not make a banned module allowed.",
             ),
             (
                 "Prohibited on every edition",
-                "Anything that shows you what you could not have seen, or does "
-                "what you could not have done unaided. The server runs an "
-                "anticheat, so this is checked rather than merely asked for.\n\n"
                 "> X-ray · freecam · baritone · tracers · kill aura · reach "
-                "modification",
+                "modification\n\n"
+                "The server runs an anticheat, so this is checked rather than "
+                "merely asked for.",
             ),
             (
                 "Bedrock",
-                "> Bedrock does not support client mods at all, so voice chat, "
-                "minimaps and performance mods are simply unavailable there. "
-                "Marketplace texture packs are fine, since they only change how "
-                "the game looks. If you want to talk to people while you play, "
-                "join a Discord voice channel instead.",
+                "> No client mods, so none of the above applies\n"
+                "> Marketplace texture packs are fine\n"
+                "> For voice, use a Discord voice channel",
             ),
         ],
     )
@@ -594,32 +567,28 @@ def technical_embed(settings=None) -> discord.Embed:
     java_address, bedrock_address, bedrock_port = _addresses(settings)
     return _page(
         "Server and Versions",
-        "The software the server runs, and the connection details for each edition.",
+        "What the server runs, and how to connect on each edition.",
         [
             (
                 "Software",
-                f"> The server runs **[Paper](https://papermc.io)** "
-                f"{SERVER_VERSION}, with **[Geyser](https://geysermc.org)** "
-                "letting Bedrock players in and "
-                "**[ViaVersion](https://modrinth.com/plugin/viaversion)** "
-                "alongside ViaBackwards translating older Java clients down to "
-                "it. All three run on our side, so there is nothing for you to "
-                "install.",
+                f"> **[Paper](https://papermc.io)** {SERVER_VERSION} — the server\n"
+                "> **[Geyser](https://geysermc.org)** — lets Bedrock players in\n"
+                "> **[ViaVersion](https://modrinth.com/plugin/viaversion)** and "
+                "ViaBackwards — translate older Java clients\n\n"
+                "All run on our side. Nothing for you to install.",
             ),
             (
                 "Java Edition",
-                f"> Any version from **{JAVA_SUPPORTED_RANGE}** will connect. "
-                f"Newer releases are refused, so if your launcher has moved past "
-                f"{SERVER_VERSION} you will need to create a **{SERVER_VERSION}** "
-                "entry under **Installations** and play on that instead.\n\n"
-                "Add the server under **Multiplayer → Add Server**:\n"
+                f"> **{JAVA_SUPPORTED_RANGE}** — newer releases are refused\n"
+                f"> Past {SERVER_VERSION}? Add a **{SERVER_VERSION}** entry under "
+                "**Installations**\n\n"
+                "**Multiplayer → Add Server**\n"
                 f"```text\n{java_address}\n```",
             ),
             (
                 "Bedrock Edition",
-                "> Join on the current release from a phone, console, tablet or "
-                "Windows by adding an external server with both of the values "
-                "below.\n\n"
+                "> Any current version, from phone, console, tablet or Windows\n"
+                "> Add it as an external server with both values below\n\n"
                 "**Address**\n"
                 f"```text\n{bedrock_address}\n```\n"
                 "**Port**\n"
@@ -636,42 +605,38 @@ def troubleshooting_embed(settings=None) -> discord.Embed:
         [
             (
                 "Expired applications",
-                "> An application expires when one of its steps is left unfinished "
-                "for too long. Nothing is lost when that happens: press **Apply** "
-                f"again in {_apply_here(settings)}, or run `/minecraft account` "
-                "first if you would like to see exactly where it stopped.",
+                f"> Press **Apply** again in {_apply_here(settings)}\n"
+                "> `/minecraft account` — see where it stopped\n\n"
+                "An application expires when a step is left unfinished. Nothing "
+                "is lost.",
             ),
             (
                 "Disconnected on first join",
-                "> That is meant to happen. Your first connection exists only to "
-                "prove the account is yours, and it never lets you into the world "
-                "regardless of whether anything went wrong.",
+                "> Meant to happen — that connection only proves the account is "
+                "yours, and never lets you into the world.",
             ),
             (
                 "Verified but no form submitted",
-                "> Look for the **Continue Application** button in your direct "
-                f"messages, or press **Apply** again in {_apply_here(settings)}. "
-                "Either one picks up from where you stopped rather than starting "
-                "over.",
+                "> **Continue Application** in your direct messages\n"
+                f"> Or press **Apply** again in {_apply_here(settings)}\n\n"
+                "Either resumes where you stopped.",
             ),
             (
-                "Incorrect username submitted",
-                "> Press **Apply** again and it will offer you **Cancel Pending "
-                "Verification**, or run `/minecraft cancel` if you would rather do "
-                "it directly. Once cancelled, apply again with the correct name.",
+                "Wrong username submitted",
+                "> `/minecraft cancel`, or press **Apply** for **Cancel Pending "
+                "Verification**\n\n"
+                "Then apply again with the correct name.",
             ),
             (
                 "No direct message received",
-                "> Turn on direct messages from server members and then check "
-                "`/minecraft account`. Anything that failed to reach you is "
-                "retried automatically, so you should not need to ask for it "
-                "again.",
+                "> Enable direct messages from server members\n"
+                "> Then check `/minecraft account`\n\n"
+                "Anything undelivered is retried automatically.",
             ),
             (
                 "Playing on both editions",
-                "> You are welcome to. Each account has to apply separately, "
-                "because each one is verified on its own — there is no way to link "
-                "a second account to an application you have already finished.",
+                "> Welcome to — but each account applies separately, since each is "
+                "verified on its own.",
             ),
         ],
     )
