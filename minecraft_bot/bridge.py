@@ -385,6 +385,7 @@ class MinecraftBridgeServer:
         rank_colour: int = 0,
         rank_weight: int = 0,
         booster: bool = False,
+        rank_known: bool = True,
     ) -> bool:
         """Apply an online player's Discord-derived perks on protocol v3 Paper."""
         if not self.supports_profile_sync:
@@ -397,8 +398,10 @@ class MinecraftBridgeServer:
             "elite": bool(elite),
             "discord_username": str(discord_username).strip()[:32],
         }
-        if self.supports_rank_sync:
+        if self.supports_rank_sync and rank_known:
             # Sent even when empty so the plugin can clear a rank the member lost.
+            # Omitted entirely when the member could not be resolved, which the plugin
+            # reads as "leave LuckPerms alone" rather than "remove their groups".
             payload["rank_group"] = str(rank_group).strip()[:32]
             payload["rank_label"] = str(rank_label).strip()[:16]
             payload["rank_colour"] = max(0, min(int(rank_colour), 0xFFFFFF))
