@@ -1911,6 +1911,34 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
         )
         self.assertNotIn("presents", description)
 
+    def test_griefing_is_the_first_rule(self):
+        from minecraft_bot.presentation import rules_embed
+
+        description = rules_embed().description
+
+        self.assertIn("**1. Do not grief**", description)
+
+    def test_rules_do_not_restate_the_mod_catalogue(self):
+        # The permitted mods live on the information panel. Listing them here
+        # too meant two places to update and two chances to disagree.
+        from minecraft_bot.presentation import rules_embed
+
+        description = rules_embed().description
+
+        for mod in ("Sodium", "Litematica", "JourneyMap", "OptiFine"):
+            with self.subTest(mod=mod):
+                self.assertNotIn(mod, description)
+
+    def test_agreement_variant_adds_the_undertaking(self):
+        from minecraft_bot.presentation import rules_embed
+
+        plain = rules_embed().description
+        agreed = rules_embed(agreement=True).description
+
+        self.assertNotIn("I Agree", plain)
+        self.assertIn("**Agreement**", agreed)
+        self.assertIn("I Agree", agreed)
+
 
 class MinecraftInformationPanelTests(unittest.TestCase):
     def setUp(self):

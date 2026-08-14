@@ -214,65 +214,75 @@ def application_embeds() -> list[discord.Embed]:
     welcome = _panel_embed(
         "Welcome to Mysterious SMP X",
         "**Mysterious Girlfriend X Discord, in partnership with r/MysteriousGirlfriendX.**\n\n"
-        "The official Minecraft SMP of the Mysterious Girlfriend X Discord community—a place "
-        "to explore, build, battle, create stories, and enjoy the server together.\n\n"
-        "> This is a private SMP, so every player applies and is reviewed before joining. "
-        "Acceptance is intentionally approachable: if you want to play, we encourage you to apply.",
+        "The official Minecraft SMP of the Mysterious Girlfriend X community — a "
+        "survival server for building, exploring, competing and creating stories "
+        "together.\n\n"
+        "> Mysterious SMP X is a private server, so every player applies and is "
+        "reviewed before joining. Acceptance is intentionally straightforward: if "
+        "you would like to play, you are encouraged to apply.",
     )
     welcome.set_image(url=LOGO_ATTACHMENT_URI)
     apply = _panel_embed(
         "Apply to Mysterious SMP X",
-        "Joining takes a few minutes and happens right here in Discord.\n\n"
+        "Applying takes a few minutes and is completed entirely within Discord.\n\n"
         "**How it works**\n"
-        "> 1. Press **Apply** and accept the server rules.\n"
-        "> 2. Enter your exact Java username or Xbox gamertag.\n"
-        "> 3. Join the Minecraft server once so we know the account is yours. "
-        "That first connection is turned away on purpose — it only proves ownership.\n"
-        "> 4. Come back to Discord and fill out a short application form.\n"
-        "> 5. Staff review it, and you get your result in a DM either way.\n\n"
-        "**Good to know**\n"
-        "- Keep Discord DMs from server members enabled so the bot can reach you.\n"
-        "- Entered the wrong username? Press **Apply** again for a private cancel option.",
+        "> **1.** Press **Apply** and accept the server rules.\n"
+        "> **2.** Enter your exact Java username or Xbox gamertag.\n"
+        "> **3.** Connect to the Minecraft server once so the account can be "
+        "verified. This first connection is refused deliberately; it confirms "
+        "ownership and nothing more.\n"
+        "> **4.** Return to Discord and complete a short application form.\n"
+        "> **5.** Staff review your application and send the outcome by direct "
+        "message.\n\n"
+        "**Before you begin**\n"
+        "> Direct messages from server members must be enabled so the bot can "
+        "reach you.\n"
+        "> Entered the wrong username? Press **Apply** again for a private "
+        "cancellation option.",
     )
     return [welcome, apply]
 
 
 def rules_embed(*, agreement: bool = False) -> discord.Embed:
     introduction = (
-        "> Read every rule below. Select **I Agree** to confirm that you understand and accept "
-        "them before opening the application form.\n\n"
+        "Read every rule below, then select **I Agree** to confirm that you "
+        "understand and accept them.\n\n"
         if agreement
-        else "> These rules apply to every Mysterious SMP X player.\n\n"
+        else "These rules apply to every Mysterious SMP X player.\n\n"
     )
     ending = (
-        "\n\n**Agreement**\nBy selecting **I Agree**, you confirm that you will follow these rules "
-        "and understand that serious or repeated violations may result in loss of access."
+        "\n\n**Agreement**\n"
+        "> By selecting **I Agree** you confirm that you will follow these rules, "
+        "and that serious or repeated violations may result in removal from the "
+        "server."
         if agreement
         else ""
     )
-    xaeros_link = mod_link("Xaero's Minimap")
     description = (
         introduction
-        + "1. **Protect player builds** — Griefing active bases, storage, farms, or meaningful builds is not allowed. "
-        "Minor damage during an agreed conflict must be repaired; lore is never permission to wipe someone's work.\n\n"
-        "2. **Play fairly** — No hacked clients, x-ray, duping, exploits, or unfair advantages.\n\n"
-        "3. **Keep client mods fair (Java)** — Mods that improve performance or comfort are welcome: "
-        f"{mod_link('Sodium')}, {mod_link('Lithium')}, {mod_link('Iris Shaders')}, {mod_link('OptiFine')}, "
-        f"{mod_link('AppleSkin')}, {mod_link('Simple Voice Chat')}, minimaps such as "
-        f"{xaeros_link} or {mod_link('JourneyMap')} "
-        f"(with cave mapping and player radar turned off), and {mod_link('Litematica')} for "
-        "schematic building, including its auto-build printer. Anything that shows what you "
-        "could not see yourself is not allowed: x-ray packs, freecam, baritone, and tracers.\n\n"
-        "4. **Keep PvP fair** — Fighting, ambushes, and declared wars are allowed. Spawn-killing, combat logging, "
-        "repeatedly targeting one player, or continuing after someone clearly disengages is not.\n\n"
-        "5. **Build lore together** — Alliances, rivalries, wars, traps, theft, and betrayals may be part of the story "
-        "when everyone involved still has a fair chance to play. Keep real arguments out of character.\n\n"
-        "6. **Use proportional conflict** — A prank or stolen item does not justify destroying a base. Escalate through "
-        "roleplay, leave evidence, and give other players a way to respond.\n\n"
-        "7. **Protect server stability** — No lag machines, crash exploits, chunk bans, or destructive abuse.\n\n"
-        "8. **Use common sense** — Loopholes do not excuse behavior that ruins the experience for others. Staff may "
-        "step in when a conflict stops being fun or fair.\n\n"
-        "**Have fun, create lore, and help make the server enjoyable for everyone.**"
+        + "**1. Do not grief**\n"
+        "> Do not destroy, steal from, or damage another player's base, storage "
+        "or farms. Damage caused during an agreed fight must be repaired.\n\n"
+        "**2. Play fairly**\n"
+        "> No hacked clients, X-ray, duping or exploits. A client mod is only "
+        "permitted if it cannot show you what you could not see yourself, or play "
+        "the game for you.\n\n"
+        "**3. Keep PvP fair**\n"
+        "> Fighting, ambushes and declared wars are allowed. Spawn-killing, "
+        "combat logging, and continuing after someone has clearly disengaged are "
+        "not.\n\n"
+        "**4. Keep conflict proportional**\n"
+        "> A prank or a stolen item does not justify destroying a base. Leave the "
+        "other player a way to respond.\n\n"
+        "**5. Keep it in character**\n"
+        "> Alliances, rivalries, theft and betrayal are all part of the story. "
+        "Keep genuine arguments out of it.\n\n"
+        "**6. Protect the server**\n"
+        "> No lag machines, crash exploits, chunk bans, or anything else that "
+        "threatens server stability.\n\n"
+        "**7. Use common sense**\n"
+        "> A loophole is not permission. Staff will step in when a conflict stops "
+        "being fair to everyone involved."
         + ending
     )
     embed = info_embed(
