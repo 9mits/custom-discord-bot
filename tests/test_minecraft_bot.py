@@ -1754,23 +1754,80 @@ class MinecraftInformationPanelTests(unittest.TestCase):
 
         description = self.embed_text(self.information.levels_embed())
 
-        for role_id, level in LEVEL_ROLE_MILESTONES:
+        # The mention already renders as "@Level 10", so restating the number
+        # beside it was noise; the reward goes there instead.
+        for role_id, _level in LEVEL_ROLE_MILESTONES:
             self.assertIn(f"<@&{role_id}>", description)
-            self.assertIn(f"level {level}", description.lower())
         self.assertIn(self.information.LEVELS_CHANNEL_URL, description)
 
     def test_levels_page_explains_how_levels_are_earned(self):
         description = self.embed_text(self.information.levels_embed())
 
-        self.assertIn("chatting", description)
+        self.assertIn("Chatting", description)
         self.assertIn("voice", description)
+
+    def test_milestone_ladder_shows_the_running_heart_total(self):
+        # "+1 heart" beside every rung reads as though they do not accumulate.
+        # The ladder shows what a member actually holds at each milestone.
+        from minecraft_bot.perks import LEVEL_ROLE_MILESTONES, profile_for_role_ids
+
+        described = self.embed_text(self.information.levels_embed())
+
+        for index, (role_id, level) in enumerate(LEVEL_ROLE_MILESTONES):
+            owned = [held for held, _m in LEVEL_ROLE_MILESTONES[: index + 1]]
+            expected = profile_for_role_ids(owned).extra_hearts
+            noun = "heart" if expected == 1 else "hearts"
+            with self.subTest(level=level):
+                self.assertIn(f"<@&{role_id}> — **{expected} extra {noun}**", described)
+
+    def test_stacking_is_stated_on_both_perk_pages(self):
+        # Members repeatedly misread these as alternatives rather than additive.
+        for name, builder in (
+            ("levels", self.information.levels_embed),
+            ("boosting", self.information.boosting_embed),
+        ):
+            with self.subTest(page=name):
+                described = self.embed_text(builder())
+
+                self.assertIn("+25% damage", described)
+                self.assertIn("6 extra hearts", described)
+                self.assertIn("stack", described.lower())
+
+    def test_perk_figures_match_the_plugin_that_applies_them(self):
+        # The bridge is authoritative at runtime; copy quoting a stale figure is
+        # worse than copy omitting it. Parse the Java rather than trusting memory.
+        import re
+        from pathlib import Path
+
+        from minecraft_bot import perks
+
+        source = (
+            Path(__file__).resolve().parent.parent
+            / "minecraft-bridge/src/main/java/bot/mgx/accessbridge/PlayerPerkService.java"
+        ).read_text()
+
+        def constant(name):
+            match = re.search(rf"{name} = ([0-9.]+)f?;", source)
+            self.assertIsNotNone(match, f"{name} vanished from PlayerPerkService")
+            return float(match.group(1))
+
+        self.assertEqual(
+            perks.ELITE_DAMAGE_PERCENT, round(constant("ELITE_DAMAGE_BONUS") * 100)
+        )
+        self.assertEqual(
+            perks.BOOSTER_DAMAGE_PERCENT, round(constant("BOOSTER_DAMAGE_BONUS") * 100)
+        )
+        self.assertEqual(
+            perks.BOOSTER_HUNGER_REDUCTION_PERCENT,
+            round((1 - constant("BOOSTER_EXHAUSTION_MULTIPLIER")) * 100),
+        )
 
     def test_boosting_page_states_the_stacked_totals(self):
         description = self.embed_text(self.information.boosting_embed())
 
         self.assertIn("+10% damage", description)
         self.assertIn("+25% damage", description)
-        self.assertIn("six additional hearts", description)
+        self.assertIn("6 extra hearts", description)
 
     def test_buttons_route_back_to_their_page(self):
         pattern = self.information.InformationButton.__discord_ui_compiled_template__

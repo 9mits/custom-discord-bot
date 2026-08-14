@@ -12,7 +12,14 @@ from typing import Callable, Optional
 
 import discord
 
-from .perks import LEVEL_ROLE_MILESTONES
+from .perks import (
+    BOOSTER_DAMAGE_PERCENT,
+    BOOSTER_EXTRA_HEARTS,
+    BOOSTER_HUNGER_REDUCTION_PERCENT,
+    ELITE_DAMAGE_PERCENT,
+    LEVEL_ROLE_MILESTONES,
+    profile_for_role_ids,
+)
 from .presentation import (
     BRAND_NAME,
     FOOTER_ICON_URL,
@@ -40,10 +47,25 @@ TELEPORT_COOLDOWN_SECONDS = 30
 TELEPORT_WARMUP_SECONDS = 5
 
 
-def _role_mentions() -> str:
-    return "\n".join(
-        f"> <@&{role_id}> — level {level}" for role_id, level in LEVEL_ROLE_MILESTONES
-    )
+def _hearts(count: int) -> str:
+    return f"{count} extra heart" if count == 1 else f"{count} extra hearts"
+
+
+def _milestone_rewards() -> str:
+    """The ladder, showing the running total a member holds at each milestone.
+
+    Derived by asking the real perk function what each rung grants, so the copy
+    cannot drift from what the bridge actually applies.
+    """
+    lines = []
+    for index, (role_id, _level) in enumerate(LEVEL_ROLE_MILESTONES):
+        owned = [held for held, _milestone in LEVEL_ROLE_MILESTONES[: index + 1]]
+        profile = profile_for_role_ids(owned)
+        reward = f"**{_hearts(profile.extra_hearts)}**"
+        if profile.elite:
+            reward += f" and **+{ELITE_DAMAGE_PERCENT}% damage**"
+        lines.append(f"> <@&{role_id}> — {reward}")
+    return "\n".join(lines)
 
 
 def _embed(title: str, description: str) -> discord.Embed:
@@ -330,50 +352,83 @@ def clans_embed() -> discord.Embed:
 
 
 def levels_embed() -> discord.Embed:
+    max_hearts = profile_for_role_ids(
+        [role_id for role_id, _level in LEVEL_ROLE_MILESTONES]
+    ).extra_hearts
+    combined_damage = ELITE_DAMAGE_PERCENT + BOOSTER_DAMAGE_PERCENT
     return _page(
         "Levels and Perks",
-        "Discord activity determines your in-game bonuses. Nothing is purchased "
-        "or claimed.",
+        "Chatting in text channels and talking in voice earns Discord levels, and "
+        "levels become permanent bonuses in Minecraft. Nothing is bought or claimed.",
         [
             (
-                "Earning levels",
-                "> Levels accrue from participation: chatting in text channels and "
-                "speaking in voice channels.\n"
-                f"> Full detail: {LEVELS_CHANNEL_URL}",
-            ),
-            ("Milestone roles", _role_mentions()),
-            (
-                "Rewards",
-                "> Each milestone below 50 grants **one additional heart**, to a "
-                "maximum of **five**.\n"
-                "> **Level 50** replaces the sixth heart with **+15% damage**.",
+                "What each milestone gives you",
+                _milestone_rewards()
+                + "\n\n*The figure beside each role is your **running total**, not "
+                "an extra on top — rewards build up as you climb.*",
             ),
             (
-                "Reviewing your perks",
-                "> Your level, hearts and damage bonus appear on the sidebar.\n"
-                "> `/perks` displays them at any time.",
+                "Reading that ladder",
+                f"> Reaching level 20 means you hold **{_hearts(3)}** in total, not "
+                "one.\n"
+                f"> Level 40 is the heart cap at **{_hearts(max_hearts)}**.\n"
+                f"> Level 50 adds **+{ELITE_DAMAGE_PERCENT}% damage** instead of a "
+                "sixth heart.",
+            ),
+            (
+                "Boosting stacks on top",
+                f"> Boosting the Discord server adds **+{BOOSTER_EXTRA_HEARTS} "
+                f"heart** and **+{BOOSTER_DAMAGE_PERCENT}% damage** on top of "
+                "whatever your level already gives.\n"
+                f"> Damage adds together rather than multiplying: level 50 "
+                f"(+{ELITE_DAMAGE_PERCENT}%) plus boosting "
+                f"(+{BOOSTER_DAMAGE_PERCENT}%) is **+{combined_damage}%**.\n"
+                f"> The maximum anyone can hold is **{_hearts(max_hearts + BOOSTER_EXTRA_HEARTS)}** "
+                f"and **+{combined_damage}% damage**.",
+            ),
+            (
+                "Checking yours",
+                "> The sidebar shows your level, hearts and damage bonus while you "
+                "play.\n"
+                "> `/perks` displays them at any time.\n"
+                f"> How levelling works: {LEVELS_CHANNEL_URL}",
             ),
         ],
     )
 
 
 def boosting_embed() -> discord.Embed:
+    max_hearts = profile_for_role_ids(
+        [role_id for role_id, _level in LEVEL_ROLE_MILESTONES]
+    ).extra_hearts
+    combined_damage = ELITE_DAMAGE_PERCENT + BOOSTER_DAMAGE_PERCENT
     return _page(
         "Boosting",
-        "Boosting the Discord server grants additional in-game bonuses.",
+        "Boosting the Discord server adds bonuses on top of your level rewards. "
+        "It never replaces them.",
         [
             (
-                "While boosting",
-                "> **+10% damage**\n"
-                "> **+1 heart**, in addition to your level rewards\n"
-                "> **Hunger drains 10% more slowly**",
+                "What boosting adds",
+                f"> **+{BOOSTER_EXTRA_HEARTS} extra heart**\n"
+                f"> **+{BOOSTER_DAMAGE_PERCENT}% damage**\n"
+                f"> **Hunger drains {BOOSTER_HUNGER_REDUCTION_PERCENT}% more "
+                "slowly**",
             ),
             (
-                "Stacking with levels",
-                "> A level 50 player who also boosts receives **+25% damage** and "
-                "**six additional hearts**.\n"
-                "> Ending a boost removes these bonuses only. Rank, clan and "
-                "progress are unaffected.",
+                "How it stacks with your level",
+                "> These are added to your level rewards, not instead of them.\n"
+                f"> Damage adds together rather than multiplying: level 50 "
+                f"(+{ELITE_DAMAGE_PERCENT}%) plus boosting "
+                f"(+{BOOSTER_DAMAGE_PERCENT}%) is **+{combined_damage}%**, not "
+                "+26.5%.\n"
+                f"> A level 50 booster therefore holds "
+                f"**{_hearts(max_hearts + BOOSTER_EXTRA_HEARTS)}** and "
+                f"**+{combined_damage}% damage** — the highest possible.",
+            ),
+            (
+                "If you stop boosting",
+                "> Only these three bonuses stop.\n"
+                "> Your level rewards, rank, clan and progress are untouched.",
             ),
         ],
     )
