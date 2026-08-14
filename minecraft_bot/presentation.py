@@ -57,6 +57,7 @@ MOD_LINKS: dict[str, str] = {
     "OptiFine": "https://optifine.net/downloads",
     "Xaero's Minimap": "https://modrinth.com/mod/xaeros-minimap",
     "JourneyMap": "https://modrinth.com/mod/journeymap",
+    "Litematica": "https://modrinth.com/mod/litematica",
     "AppleSkin": "https://modrinth.com/mod/appleskin",
     "Fabric": "https://fabricmc.net/use/installer/",
     "Minecraft": "https://www.minecraft.net/download",
@@ -64,9 +65,9 @@ MOD_LINKS: dict[str, str] = {
 
 
 def mod_link(name: str) -> str:
-    """The mod name as a Discord hyperlink to its official download page."""
+    """The mod name as a bold Discord hyperlink to its official download page."""
     url = MOD_LINKS.get(name)
-    return f"[{name}]({url})" if url else name
+    return f"**[{name}]({url})**" if url else name
 
 
 def _safe(value: object, limit: int = 1000) -> str:
@@ -232,11 +233,11 @@ def rules_embed(*, agreement: bool = False) -> discord.Embed:
         "2. **Play fairly** — No hacked clients, x-ray, duping, exploits, or unfair advantages.\n\n"
         "3. **Keep client mods fair (Java)** — Mods that improve performance or comfort are welcome: "
         f"{mod_link('Sodium')}, {mod_link('Lithium')}, {mod_link('Iris Shaders')}, {mod_link('OptiFine')}, "
-        f"{mod_link('AppleSkin')}, {mod_link('Simple Voice Chat')}, and minimaps such as "
+        f"{mod_link('AppleSkin')}, {mod_link('Simple Voice Chat')}, minimaps such as "
         f"{xaeros_link} or {mod_link('JourneyMap')} "
-        "(with cave mapping and player radar turned off). Anything that shows what you could not "
-        "see or do yourself is not allowed: x-ray packs, freecam, baritone or other automation, "
-        "tracers, and schematic auto-building.\n\n"
+        f"(with cave mapping and player radar turned off), and {mod_link('Litematica')} for "
+        "schematic building, including its auto-build printer. Anything that shows what you "
+        "could not see yourself is not allowed: x-ray packs, freecam, baritone, and tracers.\n\n"
         "4. **Keep PvP fair** — Fighting, ambushes, and declared wars are allowed. Spawn-killing, combat logging, "
         "repeatedly targeting one player, or continuing after someone clearly disengages is not.\n\n"
         "5. **Build lore together** — Alliances, rivalries, wars, traps, theft, and betrayals may be part of the story "

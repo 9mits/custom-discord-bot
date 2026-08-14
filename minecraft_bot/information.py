@@ -141,6 +141,7 @@ def boosting_embed() -> discord.Embed:
 
 
 def mods_embed() -> discord.Embed:
+    xaeros_link = mod_link("Xaero's Minimap")
     return _embed(
         "Mods and Voice Chat",
         "**Voice chat — supported**\n"
@@ -152,13 +153,14 @@ def mods_embed() -> discord.Embed:
         "**Allowed on Java**\n"
         f"> **Performance:** {mod_link('Sodium')}, {mod_link('Lithium')}, {mod_link('OptiFine')}\n"
         f"> **Shaders:** {mod_link('Iris Shaders')}\n"
-        "> **Maps:** [Xaero's Minimap](https://modrinth.com/mod/xaeros-minimap) or "
+        f"> **Maps:** {xaeros_link} or "
         f"{mod_link('JourneyMap')}, with cave mapping and player radar turned off\n"
+        f"> **Building:** {mod_link('Litematica')}, including its auto-build printer\n"
         f"> **Comfort:** {mod_link('AppleSkin')} and similar quality-of-life mods\n"
         f"> Most of these run on the {mod_link('Fabric')} mod loader.\n\n"
         "**Not allowed on any edition**\n"
-        "> X-ray, freecam, baritone or other automation, tracers, schematic auto-building, "
-        "or anything that shows what you could not see or do yourself.\n\n"
+        "> X-ray, freecam, baritone, tracers, or anything that shows what you could not "
+        "see yourself.\n\n"
         "**On Bedrock**\n"
         "> Bedrock does not support client mods, so voice chat, minimaps and performance "
         "mods are unavailable there. Marketplace texture packs are fine because they are "
@@ -173,9 +175,9 @@ def technical_embed(settings=None) -> discord.Embed:
     return _embed(
         "Server and Versions",
         f"**What the server runs**\n"
-        f"> [Paper](https://papermc.io) {SERVER_VERSION}, with "
-        "[Geyser](https://geysermc.org) so Bedrock players can join, and "
-        "[ViaVersion](https://modrinth.com/plugin/viaversion) with ViaBackwards so older "
+        f"> **[Paper](https://papermc.io)** {SERVER_VERSION}, with "
+        "**[Geyser](https://geysermc.org)** so Bedrock players can join, and "
+        "**[ViaVersion](https://modrinth.com/plugin/viaversion)** with ViaBackwards so older "
         "and newer Java clients can too. These all run on the server — you never need to "
         "install them.\n\n"
         "**Java Edition**\n"
@@ -187,13 +189,7 @@ def technical_embed(settings=None) -> discord.Embed:
         "> Join on the current release from phone, console, tablet or Windows. "
         "Add an external server with both values:\n"
         f"```text\n{bedrock_address}\n```\n"
-        f"```text\n{bedrock_port}\n```\n"
-        "**Behind the scenes**\n"
-        "> Java and Bedrock players share one world and one whitelist.\n"
-        "> Every block change is logged, so griefing can be rolled back.\n"
-        "> An anticheat watches for unfair clients.\n"
-        "> Your Discord rank, level perks and name carry into the game automatically.\n"
-        "> The Minecraft chat channel in Discord mirrors in-game chat both ways.",
+        f"```text\n{bedrock_port}\n```",
     )
 
 
