@@ -1495,3 +1495,45 @@ class MinecraftHeadPurgeTests(unittest.IsolatedAsyncioTestCase):
         removed, failed = await purge_head_emojis(guild)
 
         self.assertEqual((removed, failed), (0, 1))
+
+
+class MinecraftPodiumScopeTests(unittest.TestCase):
+    """Heads are minted for one board only; fifteen emojis was too many."""
+
+    def _store(self):
+        from minecraft_bot.leaderboard import HeadEmojiStore
+
+        return HeadEmojiStore(SimpleNamespace())
+
+    def test_only_the_default_board_mints_heads(self):
+        from minecraft_bot.leaderboard import DEFAULT_TYPE
+
+        snapshot = {
+            "individual": {
+                DEFAULT_TYPE: [
+                    {"minecraft_uuid": "rich", "username": "rich", "value": 9},
+                ],
+                "kills": [
+                    {"minecraft_uuid": "killer", "username": "killer", "value": 9},
+                ],
+            }
+        }
+
+        podium = self._store()._podium_players(snapshot)
+
+        self.assertIn("rich", podium)
+        self.assertNotIn("killer", podium)
+
+    def test_no_more_than_three_are_minted(self):
+        from minecraft_bot.leaderboard import DEFAULT_TYPE, PODIUM
+
+        snapshot = {
+            "individual": {
+                DEFAULT_TYPE: [
+                    {"minecraft_uuid": f"u{n}", "username": f"p{n}", "value": 10 - n}
+                    for n in range(8)
+                ]
+            }
+        }
+
+        self.assertEqual(len(self._store()._podium_players(snapshot)), PODIUM)
