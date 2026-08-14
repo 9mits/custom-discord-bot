@@ -27,9 +27,10 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
      * Advertised in the HELLO handshake. The bot gates each capability on this
      * number, so it must be raised whenever the plugin learns to handle a new
      * field. Keep in step with the *_PROTOCOL_VERSION constants in
-     * {@code minecraft_bot/bridge.py}. 5 added the SYNC_PROFILE rank fields.
+     * {@code minecraft_bot/bridge.py}. 5 added the SYNC_PROFILE rank fields;
+     * 6 added the SYNC_WHITELIST directory snapshot.
      */
-    static final int PROTOCOL_VERSION = 5;
+    static final int PROTOCOL_VERSION = 6;
 
     private final MGXAccessBridge plugin;
     private final BridgeConfig config;
@@ -218,6 +219,12 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             );
             return;
         }
+        if (action.equals("SYNC_WHITELIST")) {
+            // Fire-and-forget like SYNC_PROFILE: the next snapshot replaces this
+            // one, so there is nothing to deduplicate.
+            executeWhitelistSync(idempotencyKey, payload);
+            return;
+        }
         Optional<ProcessedActionStore.Result> existing = processedActions.get(idempotencyKey);
         if (existing.isPresent()) {
             sendActionResult(idempotencyKey, existing.get());
@@ -342,6 +349,27 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             if (online != null) {
                 plugin.applyPlayerProfile(online, profile);
             }
+            sendActionResult(key, new ProcessedActionStore.Result(true, ""));
+        } catch (RuntimeException exception) {
+            sendActionResult(key, new ProcessedActionStore.Result(false, safeError(exception)));
+        }
+    }
+
+    private void executeWhitelistSync(String key, JsonObject payload) {
+        try {
+            ArrayList<WhitelistDirectory.Entry> entries = new ArrayList<>();
+            JsonArray players = payload.getAsJsonArray("players");
+            if (players != null) {
+                for (JsonElement element : players) {
+                    JsonObject player = element.getAsJsonObject();
+                    entries.add(new WhitelistDirectory.Entry(
+                            optionalString(player, "username"),
+                            optionalString(player, "edition"),
+                            optionalString(player, "discord_username")
+                    ));
+                }
+            }
+            plugin.applyWhitelistDirectory(entries);
             sendActionResult(key, new ProcessedActionStore.Result(true, ""));
         } catch (RuntimeException exception) {
             sendActionResult(key, new ProcessedActionStore.Result(false, safeError(exception)));

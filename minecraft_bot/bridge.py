@@ -23,7 +23,8 @@ AUTO_EDITION_PROTOCOL_VERSION = 2
 PROFILE_SYNC_PROTOCOL_VERSION = 3
 CHAT_SYNC_PROTOCOL_VERSION = 4
 RANK_SYNC_PROTOCOL_VERSION = 5
-CURRENT_PROTOCOL_VERSION = RANK_SYNC_PROTOCOL_VERSION
+WHITELIST_SYNC_PROTOCOL_VERSION = 6
+CURRENT_PROTOCOL_VERSION = WHITELIST_SYNC_PROTOCOL_VERSION
 
 VerificationHandler = Callable[..., Awaitable[None]]
 ActionResultHandler = Callable[[OutboxRecord, Optional[Any]], Awaitable[None]]
@@ -42,6 +43,7 @@ class MinecraftBridgeServer:
         player_event_handler: PlayerEventHandler,
         chat_message_handler: Optional[ChatMessageHandler] = None,
         leaderboard_handler: Optional[Callable[[dict[str, Any]], Awaitable[None]]] = None,
+        connected_handler: Optional[Callable[[], Awaitable[None]]] = None,
     ) -> None:
         self.config = config
         self.data = data
@@ -50,6 +52,7 @@ class MinecraftBridgeServer:
         self.player_event_handler = player_event_handler
         self.chat_message_handler = chat_message_handler
         self.leaderboard_handler = leaderboard_handler
+        self.connected_handler = connected_handler
         # Newest standings pushed by Paper; the leaderboard message renders from this.
         self.latest_leaderboard: dict[str, Any] = {}
         # Minecraft UUID -> clan standing and staff tools, pushed by Paper.
@@ -98,6 +101,10 @@ class MinecraftBridgeServer:
     @property
     def supports_rank_sync(self) -> bool:
         return self.connected and self._peer_protocol_version >= RANK_SYNC_PROTOCOL_VERSION
+
+    @property
+    def supports_whitelist_sync(self) -> bool:
+        return self.connected and self._peer_protocol_version >= WHITELIST_SYNC_PROTOCOL_VERSION
 
     async def start(self) -> None:
         ssl_context = None
@@ -205,6 +212,11 @@ class MinecraftBridgeServer:
             )
             await self.send_full_pending_sync()
             await self.dispatch_outbox()
+            if self.connected_handler is not None:
+                try:
+                    await self.connected_handler()
+                except Exception:
+                    logger.exception("Bridge connected-handler failed")
 
             async for message in socket:
                 if message.type is WSMsgType.TEXT:
@@ -515,6 +527,36 @@ class MinecraftBridgeServer:
             },
             timeout=15.0,
         )
+
+    async def send_whitelist_snapshot(self, players: list[dict[str, Any]]) -> bool:
+        """Pushes the whitelist directory so the in-game /whitelisted command works.
+
+        Fire-and-forget like the leaderboard: a dropped snapshot is replaced by the
+        next push, so there is no outbox behind it.
+        """
+        if not self.supports_whitelist_sync:
+            return False
+        payload = {
+            "action": "SYNC_WHITELIST",
+            "players": [
+                {
+                    "username": str(player.get("username", ""))[:32],
+                    "edition": str(player.get("edition", ""))[:16],
+                    "minecraft_uuid": str(player.get("minecraft_uuid", ""))[:64],
+                    "discord_username": str(player.get("discord_username", ""))[:32],
+                }
+                for player in players[:500]
+            ],
+        }
+        try:
+            await self._send(
+                "ACTION",
+                payload,
+                idempotency_key=f"whitelist:{secrets.token_hex(12)}",
+            )
+        except ConnectionError:
+            return False
+        return True
 
     async def send_discord_chat(
         self,

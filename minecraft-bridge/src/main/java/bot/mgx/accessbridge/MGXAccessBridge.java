@@ -21,17 +21,18 @@ import java.util.concurrent.ScheduledExecutorService;
 public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private static final Component VERIFIED_MESSAGE = Component.text(
             "Minecraft account verified!\n\n"
-                    + "Your application has been sent to the moderators.\n"
-                    + "You will receive a Discord notification when it is reviewed."
+                    + "One step left: return to Discord and fill out the short application form.\n"
+                    + "Check your Discord DMs for the Continue Application button."
     );
     private static final Component VERIFICATION_HELP_MESSAGE = Component.text(
             "No active verification matched this account.\n\n"
                     + "Check the username and expiry shown on your Discord Minecraft card, then try again."
     );
     private static final Component APPLICATION_ALREADY_SENT_MESSAGE = Component.text(
-            "Your application has already been sent.\n\n"
-                    + "Your Minecraft account is verified and staff are reviewing it.\n"
-                    + "Please wait for your result in Discord before trying to join again."
+            "Your Minecraft account is already verified.\n\n"
+                    + "If you have not finished the written application, use the Continue Application\n"
+                    + "button in your Discord DMs. Staff review it once it is submitted, and you\n"
+                    + "will be let in as soon as they approve it."
     );
 
     private ScheduledExecutorService networkExecutor;
@@ -48,6 +49,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private ClanStore clanStore;
     private PlayerSettingsStore playerSettings;
     private WealthStore wealthStore;
+    private final WhitelistDirectory whitelistDirectory = new WhitelistDirectory();
 
     @Override
     public void onEnable() {
@@ -141,7 +143,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 || getCommand("perks") == null
                 || getCommand("discord") == null
                 || getCommand("discordnames") == null
-                || getCommand("settings") == null) {
+                || getCommand("settings") == null
+                || getCommand("whitelisted") == null) {
             getLogger().severe("A required Minecraft command is missing from plugin.yml.");
             getServer().getPluginManager().disablePlugin(this);
             return;
@@ -158,6 +161,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         PlayerSettingsService settingsService = new PlayerSettingsService(this, playerSettings);
         getCommand("settings").setExecutor(settingsService);
         getCommand("settings").setTabCompleter(settingsService);
+        WhitelistDirectoryService whitelistService = new WhitelistDirectoryService(whitelistDirectory);
+        getCommand("whitelisted").setExecutor(whitelistService);
+        getCommand("whitelisted").setTabCompleter(whitelistService);
         sidebarService.start();
         leaderboardService.start();
         capabilityService.start();
@@ -352,6 +358,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         if (identityService != null) {
             identityService.sync(minecraftUuid, discordUsername);
         }
+    }
+
+    void applyWhitelistDirectory(java.util.List<WhitelistDirectory.Entry> entries) {
+        whitelistDirectory.replace(entries);
     }
 
     void broadcastDiscordChat(

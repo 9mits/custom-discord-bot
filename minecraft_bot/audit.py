@@ -73,6 +73,7 @@ COMMAND_RISK: Mapping[str, str] = {
     "mcadmin log-channel": RISK_CONFIGURATION,
     "mcadmin chat-channel": RISK_CONFIGURATION,
     "mcadmin leaderboard": RISK_CONFIGURATION,
+    "mcadmin wipe": RISK_DESTRUCTIVE,
 }
 
 # Review-panel controls that change a member's access. Matched against the view or
@@ -88,9 +89,9 @@ _UI_NAME_SUFFIXES = ("Button", "Select", "Modal", "View", "Container")
 # modal are navigation within one workflow. The application lifecycle has its
 # own detailed submission, verification, and decision logs, so logging these
 # clicks as separate commands only creates misleading duplicates.
-_ROUTINE_APPLICATION_ITEMS = {"ApplyButton", "RulesButton", "EditionSelection"}
+_ROUTINE_APPLICATION_ITEMS = {"ApplyButton", "RulesButton", "EditionSelection", "ContinueApplicationButton"}
 _ROUTINE_APPLICATION_VIEWS = {"RulesAgreementView"}
-_ROUTINE_APPLICATION_MODALS = {"MinecraftApplicationModal"}
+_ROUTINE_APPLICATION_MODALS = {"MinecraftApplicationModal", "ApplicationQuestionsModal"}
 
 
 @dataclass(frozen=True)

@@ -33,6 +33,10 @@ commands:
     description: Change what you see in chat, nametags and the player list.
     usage: /settings [clan_tags|discord_chat|discord_names]
     aliases: [mysettings, prefs]
+  whitelisted:
+    description: List everyone with whitelist access and their Discord name.
+    usage: /whitelisted [page]
+    aliases: [whitelistlist]
 permissions:
   mgx.clans:
     description: Allows players to use the clan system.

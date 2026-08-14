@@ -81,6 +81,55 @@ class RateLimiter:
         return True
 
 
+class WipeConfirmationModal(discord.ui.Modal, title="Wipe All Minecraft Data"):
+    confirmation = discord.ui.TextInput(
+        label="Type WIPE to confirm",
+        placeholder="This deletes every application and whitelist record.",
+        min_length=1,
+        max_length=10,
+    )
+
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        bot = interaction.client
+        if not bot.is_owner_member(interaction.user):
+            await interaction.response.send_message(
+                **branded_send(
+                    info_embed(
+                        "Owner Access Required",
+                        "> Only the server owner can wipe Minecraft data.",
+                        error=True,
+                    )
+                ),
+                ephemeral=True,
+            )
+            return
+        if str(self.confirmation).strip() != "WIPE":
+            await interaction.response.send_message(
+                **branded_send(
+                    info_embed(
+                        "Wipe Not Confirmed",
+                        "> Nothing was deleted. Type exactly `WIPE` to confirm.",
+                        error=True,
+                    )
+                ),
+                ephemeral=True,
+            )
+            return
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        counts = await bot.execute_data_wipe(interaction.user)
+        summary = (
+            f"> **{counts.get('minecraft_applications', 0)}** application(s), "
+            f"**{counts.get('minecraft_accounts', 0)}** linked account(s), and every queue, "
+            "audit, and log record were deleted. Settings were kept.\n\n"
+            f"**Approved-member roles removed:** {counts.get('member_roles_removed', 0)}\n"
+            "The Minecraft server clears its whitelist as soon as the queued removals reach it. "
+            "Old review and log messages already posted in Discord stay where they are."
+        )
+        await interaction.edit_original_response(
+            **branded_edit(info_embed("Minecraft Data Wiped", summary, success=True))
+        )
+
+
 class MinecraftAccessBot(commands.Bot):
     def __init__(self, config: MinecraftConfig) -> None:
         intents = discord.Intents.none()
@@ -102,6 +151,9 @@ class MinecraftAccessBot(commands.Bot):
         self.settings = MinecraftSettings.from_sources(config, {})
         self._settings_lock = asyncio.Lock()
         self._live_card_lock = asyncio.Lock()
+        # Serializes first-time review posts so a verification handler and the
+        # 30-second maintenance sweep cannot both post the same review embed.
+        self._review_post_lock = asyncio.Lock()
         self.data = MinecraftDataManager(config.database_path)
         self.bridge = MinecraftBridgeServer(
             config,
@@ -110,6 +162,7 @@ class MinecraftAccessBot(commands.Bot):
             action_result_handler=self.handle_bridge_action_result,
             player_event_handler=self.handle_player_event,
             chat_message_handler=self.handle_minecraft_chat,
+            connected_handler=self.handle_bridge_connected,
         )
         self.apply_rate_limit = RateLimiter(5)
         self.status_rate_limit = RateLimiter(10)
@@ -143,8 +196,9 @@ class MinecraftAccessBot(commands.Bot):
         # that the bot did not respond in time.
         from .information import InformationButton
         from .leaderboard import BoardSelect
+        from .ui import ContinueApplicationButton
 
-        self.add_dynamic_items(BoardSelect, InformationButton)
+        self.add_dynamic_items(BoardSelect, InformationButton, ContinueApplicationButton)
         await self.bridge.start()
         self.application_maintenance.start()
         self.leaderboard_refresh.start()
@@ -233,6 +287,16 @@ class MinecraftAccessBot(commands.Bot):
     def is_administrator(member: discord.Member | discord.User) -> bool:
         permissions = getattr(member, "guild_permissions", None)
         return bool(permissions is not None and permissions.administrator)
+
+    def is_owner_member(self, member: discord.Member | discord.User) -> bool:
+        """The server owner, or a member holding a role literally named Owner."""
+        guild = self.get_guild(self.config.guild_id)
+        if guild is not None and int(member.id) == int(guild.owner_id or 0):
+            return True
+        return any(
+            str(getattr(role, "name", "")).strip().casefold() == "owner"
+            for role in getattr(member, "roles", ())
+        )
 
     async def require_moderator(self, interaction: discord.Interaction) -> bool:
         if self.is_moderator(interaction.user):
@@ -409,14 +473,22 @@ class MinecraftAccessBot(commands.Bot):
             if remembered[1] <= time.monotonic():
                 self._application_messages.pop(application.id, None)
             else:
+                from .ui import continue_application_view
+
+                card_view = (
+                    continue_application_view()
+                    if application.status is ApplicationStatus.PENDING_APPLICATION
+                    else None
+                )
                 try:
                     await remembered[0].edit(
                         **branded_edit(self._application_card_embed(application)),
                         attachments=application_card_files(application),
-                        view=None,
+                        view=card_view,
                     )
                     if application.status not in {
                         ApplicationStatus.PENDING_VERIFICATION,
+                        ApplicationStatus.PENDING_APPLICATION,
                         ApplicationStatus.PENDING_REVIEW,
                         ApplicationStatus.APPROVAL_QUEUED,
                     }:
@@ -434,6 +506,7 @@ class MinecraftAccessBot(commands.Bot):
                 application = current
             notifications: list[str] = []
             if application.status in {
+                ApplicationStatus.PENDING_APPLICATION,
                 ApplicationStatus.PENDING_REVIEW,
                 ApplicationStatus.APPROVAL_QUEUED,
                 ApplicationStatus.APPROVED,
@@ -484,11 +557,20 @@ class MinecraftAccessBot(commands.Bot):
                     user = await self.fetch_user(int(application.discord_user_id))
             if user is None:
                 raise RuntimeError("Discord user unavailable")
+            from .ui import continue_application_view
+
+            extras: dict[str, object] = {}
+            if (
+                notification == "verification"
+                and application.status is ApplicationStatus.PENDING_APPLICATION
+            ):
+                extras["view"] = continue_application_view()
             icon = brand_icon_file()
             try:
                 message = await user.send(
                     **branded_send(application_dm_embed(application, self.settings, notification)),
                     file=icon,
+                    **extras,
                 )
             finally:
                 icon.close()
@@ -558,11 +640,112 @@ class MinecraftAccessBot(commands.Bot):
         ] or ["No linked Minecraft accounts yet."]
         latest = applications[0] if applications else None
         status = latest.status.value.replace("_", " ").title() if latest else "No application"
+        panel_hint = (
+            f"<#{self.settings.application_channel_id}>"
+            if self.settings.application_channel_id
+            else "the application channel"
+        )
+        status_note = ""
+        if latest is not None and latest.status is ApplicationStatus.EXPIRED:
+            reason = (
+                "nobody joined the Minecraft server in time to verify the account"
+                if not latest.verified_at
+                else "the written form was not finished in time"
+            )
+            status_note = (
+                f"\n> **Application Expired** means it timed out: {reason}. "
+                f"Nothing is lost — press **Apply** in {panel_hint} to start again."
+            )
+        elif latest is not None and latest.status is ApplicationStatus.PENDING_APPLICATION:
+            status_note = (
+                "\n> Your account is verified. Finish the written form by pressing "
+                f"**Apply** in {panel_hint} — it continues where you left off."
+            )
         return info_embed(
             "Your Minecraft Account",
             "> One private place for your application and linked accounts.\n\n"
-            f"**Application**\n{status}\n\n**Linked Accounts**\n" + "\n".join(account_lines),
+            f"**Application**\n{status}{status_note}\n\n**Linked Accounts**\n" + "\n".join(account_lines),
         )
+
+    async def build_whitelist_embed(self) -> discord.Embed:
+        rows = await self.data.list_whitelisted()
+        if not rows:
+            return info_embed(
+                "Whitelisted Players",
+                "> Nobody is whitelisted yet. Approved applications appear here automatically.",
+            )
+        sections: list[str] = []
+        for edition, label in (("JAVA", "Java"), ("BEDROCK", "Bedrock")):
+            lines = [
+                f"> `{row['username']}` — <@{row['discord_user_id']}>"
+                for row in rows
+                if row["edition"] == edition
+            ]
+            if lines:
+                sections.append(f"**{label} · {len(lines)}**\n" + "\n".join(lines))
+        description = (
+            f"> **{len(rows)}** player(s) currently have whitelist access, each shown with "
+            "their linked Discord account.\n\n" + "\n\n".join(sections)
+        )
+        if len(description) > 3900:
+            description = description[:3900] + "\n> …and more. Ask staff for the full list."
+        return info_embed("Whitelisted Players", description)
+
+    async def publish_whitelist_snapshot(self) -> None:
+        """Pushes the whitelist directory to Paper so /whitelisted works in game."""
+        if not self.bridge.supports_whitelist_sync:
+            return
+        rows = await self.data.list_whitelisted(limit=500)
+        guild = self.get_guild(self.config.guild_id)
+        players = []
+        for row in rows:
+            try:
+                member_id = int(row["discord_user_id"])
+            except (TypeError, ValueError):
+                member_id = 0
+            user = guild.get_member(member_id) if guild is not None and member_id else None
+            user = user or (self.get_user(member_id) if member_id else None)
+            players.append(
+                {
+                    "username": row["username"],
+                    "edition": row["edition"],
+                    "minecraft_uuid": row["minecraft_uuid"],
+                    "discord_username": getattr(user, "name", ""),
+                }
+            )
+        await self.bridge.send_whitelist_snapshot(players)
+
+    async def handle_bridge_connected(self) -> None:
+        try:
+            await self.publish_whitelist_snapshot()
+        except Exception:
+            logger.exception("Could not publish the whitelist snapshot on connect")
+
+    async def execute_data_wipe(self, actor: discord.Member | discord.User) -> dict[str, int]:
+        """Clears every application and whitelist record while keeping settings.
+
+        The queued REVOKE and REMOVE_PENDING actions written by the data layer make
+        Paper drop its whitelist entries too; the empty pending sync and whitelist
+        snapshot bring its caches in line immediately when it is connected.
+        """
+        counts = await self.data.wipe_all_data(actor.id)
+        self._application_messages = {}
+        self.leaderboard_links = {}
+        guild = self.get_guild(self.config.guild_id)
+        role = guild.get_role(self.settings.member_role_id) if guild is not None else None
+        removed_roles = 0
+        if role is not None:
+            for member in list(role.members):
+                with suppress(discord.Forbidden, discord.HTTPException):
+                    await member.remove_roles(role, reason="Minecraft data wipe")
+                    removed_roles += 1
+        counts["member_roles_removed"] = removed_roles
+        if self.bridge.connected:
+            with suppress(ConnectionError):
+                await self.bridge.send_full_pending_sync()
+            await self.bridge.dispatch_outbox()
+            await self.publish_whitelist_snapshot()
+        return counts
 
     async def build_diagnostics_embed(self, guild: Optional[discord.Guild]) -> discord.Embed:
         from .setup import configuration_findings
@@ -915,42 +1098,69 @@ class MinecraftAccessBot(commands.Bot):
         changed: bool,
     ) -> None:
         if not changed:
-            if application.review_message_id is None:
+            # Reviews exist only once the written form is in; a duplicate
+            # verification event must not create one early.
+            if (
+                application.status is ApplicationStatus.PENDING_REVIEW
+                and application.review_message_id is None
+            ):
                 with suppress(Exception):
                     await self.post_or_update_review(application)
             if application.status_message_id is None:
                 await self.update_live_card(application)
             return
-        try:
-            await self.post_or_update_review(application)
-        except Exception:
-            logger.exception("Could not publish review for Minecraft application %s", application.id)
+        if application.status is ApplicationStatus.PENDING_REVIEW:
+            try:
+                await self.post_or_update_review(application)
+            except Exception:
+                logger.exception("Could not publish review for Minecraft application %s", application.id)
         await self._send_configured_log(
             self.settings.verification_log_channel_id,
             verification_log_embed(application),
         )
         await self.update_live_card(application)
 
+    async def finish_answers_submission(self, application: MinecraftApplication) -> None:
+        """The written form arrived: the application is now ready for staff."""
+        try:
+            await self.post_or_update_review(application)
+        except Exception:
+            logger.exception("Could not publish review for Minecraft application %s", application.id)
+        await self.log_application_submission(application)
+        await self.update_live_card(application, create_if_missing=False)
+        if self.bridge.connected:
+            await self.bridge.dispatch_outbox()
+
     async def post_or_update_review(self, application: MinecraftApplication) -> None:
         if application.review_message_id:
             await self.update_review_message(application)
             return
-        channel = await self._configured_channel(self.settings.review_channel_id)
-        if channel is None or not hasattr(channel, "send"):
-            logger.error("Review channel unavailable for Minecraft application %s", application.id)
-            return
-        guild = await self._configured_guild()
-        member = guild.get_member(int(application.discord_user_id)) if guild else None
-        user = member or self.get_user(int(application.discord_user_id))
-        if user is None:
-            with suppress(discord.NotFound, discord.HTTPException):
-                user = await self.fetch_user(int(application.discord_user_id))
-        message = await channel.send(
-            **branded_send(review_embed(application, user=user, member=member)),
-            view=ReviewView(disabled=application.status is not ApplicationStatus.PENDING_REVIEW),
-            allowed_mentions=discord.AllowedMentions.none(),
-        )
-        await self.data.set_review_message(application.id, channel.id, message.id)
+        # Single-flight: the verification handler, the answers handler, and the
+        # maintenance sweep can all decide to post the first review at the same
+        # time. Re-reading inside the lock turns the losers into edits.
+        async with self._review_post_lock:
+            current = await self.data.get_application(application.id)
+            if current is not None:
+                application = current
+            if application.review_message_id:
+                await self.update_review_message(application)
+                return
+            channel = await self._configured_channel(self.settings.review_channel_id)
+            if channel is None or not hasattr(channel, "send"):
+                logger.error("Review channel unavailable for Minecraft application %s", application.id)
+                return
+            guild = await self._configured_guild()
+            member = guild.get_member(int(application.discord_user_id)) if guild else None
+            user = member or self.get_user(int(application.discord_user_id))
+            if user is None:
+                with suppress(discord.NotFound, discord.HTTPException):
+                    user = await self.fetch_user(int(application.discord_user_id))
+            message = await channel.send(
+                **branded_send(review_embed(application, user=user, member=member)),
+                view=ReviewView(disabled=application.status is not ApplicationStatus.PENDING_REVIEW),
+                allowed_mentions=discord.AllowedMentions.none(),
+            )
+            await self.data.set_review_message(application.id, channel.id, message.id)
 
     async def update_review_message(self, application: MinecraftApplication) -> None:
         if not application.review_channel_id or not application.review_message_id:
@@ -1021,6 +1231,9 @@ class MinecraftAccessBot(commands.Bot):
         except Exception:
             logger.exception("Review-message finalization failed for application %s", application.id)
         await self.update_live_card(application)
+        if record.action in {BridgeAction.APPROVE, BridgeAction.REVOKE}:
+            with suppress(Exception):
+                await self.publish_whitelist_snapshot()
 
     async def _finish_approval(self, application: MinecraftApplication) -> None:
         guild = await self._configured_guild()
@@ -1060,6 +1273,12 @@ class MinecraftAccessBot(commands.Bot):
             await self._refresh_leaderboard_message()
         except Exception:
             logger.exception("Leaderboard refresh failed; retrying on the next interval")
+        try:
+            # Same cadence keeps Paper's /whitelisted directory fresh even when a
+            # push after an approval was missed.
+            await self.publish_whitelist_snapshot()
+        except Exception:
+            logger.exception("Whitelist snapshot refresh failed; retrying on the next interval")
 
     @leaderboard_refresh.before_loop
     async def _before_leaderboard_refresh(self) -> None:
@@ -1273,7 +1492,7 @@ class MinecraftAccessBot(commands.Bot):
         """Posts or updates the guide. Returns a reason when it could not."""
         from .information import CONFIG_CHANNEL, CONFIG_MESSAGE, message_payload
 
-        payload = message_payload(getattr(self.settings, "application_channel_id", 0))
+        payload = message_payload(self.settings)
         await self.data.set_config(CONFIG_CHANNEL, channel.id)
         message_id = await self.data.get_config(CONFIG_MESSAGE)
         if message_id:
@@ -1864,6 +2083,35 @@ class MinecraftAccessBot(commands.Bot):
                 view=AccountView(interaction.user.id),
             )
 
+        @group.command(
+            name="whitelist",
+            description="See everyone with whitelist access and their linked Discord account.",
+        )
+        async def whitelist(interaction: discord.Interaction) -> None:
+            await interaction.response.defer(ephemeral=True)
+            await interaction.edit_original_response(
+                **branded_edit(await self.build_whitelist_embed())
+            )
+
+        @admin_group.command(
+            name="wipe",
+            description="Owner only: delete every application and whitelist record, keeping settings.",
+        )
+        async def wipe(interaction: discord.Interaction) -> None:
+            if not self.is_owner_member(interaction.user):
+                await interaction.response.send_message(
+                    **branded_send(
+                        info_embed(
+                            "Owner Access Required",
+                            "> Only the server owner (or a member with the Owner role) can wipe Minecraft data.",
+                            error=True,
+                        )
+                    ),
+                    ephemeral=True,
+                )
+                return
+            await interaction.response.send_modal(WipeConfirmationModal())
+
         @staff_group.command(name="status", description="Show Minecraft bridge and queue health.")
         async def status(interaction: discord.Interaction) -> None:
             if not await self.require_moderator(interaction):
@@ -2271,6 +2519,7 @@ class MinecraftAccessBot(commands.Bot):
                 "`/minecraft help` — this list",
                 "`/minecraft account` — your application and linked account",
                 "`/minecraft server` — server address and how to connect",
+                "`/minecraft whitelist` — everyone with access and their Discord account",
                 "`/minecraft clan view` — your clan and the actions your role allows",
                 "`/minecraft cancel` — cancel your own pending verification",
             ]
@@ -2328,7 +2577,8 @@ class MinecraftAccessBot(commands.Bot):
                         "`/mcadmin leaderboard` — choose the leaderboard channel\n"
                         "`/mcadmin log-channel` — choose the Activity and Important log channels\n"
                         "`/mcadmin chat-channel` — two-way Minecraft chat sync\n"
-                        "`/mcadmin cleanheads` — remove leaderboard head emoji"
+                        "`/mcadmin cleanheads` — remove leaderboard head emoji\n"
+                        "`/mcadmin wipe` — owner only; delete all application and whitelist data"
                     ),
                     inline=False,
                 )

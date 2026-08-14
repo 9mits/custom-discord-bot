@@ -41,6 +41,33 @@ MARK_ATTACHMENT_URI = f"attachment://{MARK_FILENAME}"
 MINECRAFT_HEAD_URL = "https://mc-heads.net/head/{identifier}/128.png"
 BEDROCK_NAME_HEAD_URL = "https://api.mcheads.org/head/.{identifier}/128"
 
+#: The version the Paper server itself runs. ViaVersion and ViaBackwards translate
+#: other Java clients, and Geyser handles Bedrock, so player-facing text should
+#: always pair this with the supported ranges below rather than stand alone.
+SERVER_VERSION = "1.20.6"
+JAVA_SUPPORTED_RANGE = "1.8 up to the latest release"
+
+#: Official download pages, used to hyperlink mod and version names in embeds.
+#: Only well-known official pages belong here — never guess a link.
+MOD_LINKS: dict[str, str] = {
+    "Simple Voice Chat": "https://modrinth.com/plugin/simple-voice-chat",
+    "Sodium": "https://modrinth.com/mod/sodium",
+    "Lithium": "https://modrinth.com/mod/lithium",
+    "Iris Shaders": "https://modrinth.com/mod/iris",
+    "OptiFine": "https://optifine.net/downloads",
+    "Xaero's Minimap": "https://modrinth.com/mod/xaeros-minimap",
+    "JourneyMap": "https://modrinth.com/mod/journeymap",
+    "AppleSkin": "https://modrinth.com/mod/appleskin",
+    "Fabric": "https://fabricmc.net/use/installer/",
+    "Minecraft": "https://www.minecraft.net/download",
+}
+
+
+def mod_link(name: str) -> str:
+    """The mod name as a Discord hyperlink to its official download page."""
+    url = MOD_LINKS.get(name)
+    return f"[{name}]({url})" if url else name
+
 
 def _safe(value: object, limit: int = 1000) -> str:
     text = discord.utils.escape_markdown(str(value or "Not provided"), as_needed=True)
@@ -169,12 +196,17 @@ def application_embeds() -> list[discord.Embed]:
     welcome.set_image(url=LOGO_ATTACHMENT_URI)
     apply = _panel_embed(
         "Apply to Mysterious SMP X",
-        "Apply entirely through Discord, verify ownership with one Minecraft connection, "
-        "and receive your result privately. Verification never grants early access to the world.\n\n"
-        "**Before you begin**\n"
-        "- Enter your exact Java username or Xbox gamertag.\n"
-        "- Keep Discord DMs enabled so the bot can send status updates.\n"
-        "- Entered the wrong username? Press **Apply** again for a private cancellation option.",
+        "Joining takes a few minutes and happens right here in Discord.\n\n"
+        "**How it works**\n"
+        "> 1. Press **Apply** and accept the server rules.\n"
+        "> 2. Enter your exact Java username or Xbox gamertag.\n"
+        "> 3. Join the Minecraft server once so we know the account is yours. "
+        "That first connection is turned away on purpose — it only proves ownership.\n"
+        "> 4. Come back to Discord and fill out a short application form.\n"
+        "> 5. Staff review it, and you get your result in a DM either way.\n\n"
+        "**Good to know**\n"
+        "- Keep Discord DMs from server members enabled so the bot can reach you.\n"
+        "- Entered the wrong username? Press **Apply** again for a private cancel option.",
     )
     return [welcome, apply]
 
@@ -192,19 +224,27 @@ def rules_embed(*, agreement: bool = False) -> discord.Embed:
         if agreement
         else ""
     )
+    xaeros_link = mod_link("Xaero's Minimap")
     description = (
         introduction
         + "1. **Protect player builds** — Griefing active bases, storage, farms, or meaningful builds is not allowed. "
         "Minor damage during an agreed conflict must be repaired; lore is never permission to wipe someone's work.\n\n"
         "2. **Play fairly** — No hacked clients, x-ray, duping, exploits, or unfair advantages.\n\n"
-        "3. **Keep PvP fair** — Fighting, ambushes, and declared wars are allowed. Spawn-killing, combat logging, "
+        "3. **Keep client mods fair (Java)** — Mods that improve performance or comfort are welcome: "
+        f"{mod_link('Sodium')}, {mod_link('Lithium')}, {mod_link('Iris Shaders')}, {mod_link('OptiFine')}, "
+        f"{mod_link('AppleSkin')}, {mod_link('Simple Voice Chat')}, and minimaps such as "
+        f"{xaeros_link} or {mod_link('JourneyMap')} "
+        "(with cave mapping and player radar turned off). Anything that shows what you could not "
+        "see or do yourself is not allowed: x-ray packs, freecam, baritone or other automation, "
+        "tracers, and schematic auto-building.\n\n"
+        "4. **Keep PvP fair** — Fighting, ambushes, and declared wars are allowed. Spawn-killing, combat logging, "
         "repeatedly targeting one player, or continuing after someone clearly disengages is not.\n\n"
-        "4. **Build lore together** — Alliances, rivalries, wars, traps, theft, and betrayals may be part of the story "
+        "5. **Build lore together** — Alliances, rivalries, wars, traps, theft, and betrayals may be part of the story "
         "when everyone involved still has a fair chance to play. Keep real arguments out of character.\n\n"
-        "5. **Use proportional conflict** — A prank or stolen item does not justify destroying a base. Escalate through "
+        "6. **Use proportional conflict** — A prank or stolen item does not justify destroying a base. Escalate through "
         "roleplay, leave evidence, and give other players a way to respond.\n\n"
-        "6. **Protect server stability** — No lag machines, crash exploits, chunk bans, or destructive abuse.\n\n"
-        "7. **Use common sense** — Loopholes do not excuse behavior that ruins the experience for others. Staff may "
+        "7. **Protect server stability** — No lag machines, crash exploits, chunk bans, or destructive abuse.\n\n"
+        "8. **Use common sense** — Loopholes do not excuse behavior that ruins the experience for others. Staff may "
         "step in when a conflict stops being fun or fair.\n\n"
         "**Have fun, create lore, and help make the server enjoyable for everyone.**"
         + ending
@@ -318,14 +358,15 @@ def verification_embed(application: MinecraftApplication, settings) -> discord.E
         )
     embed = info_embed(
         "Verify Your Minecraft Account",
-        "> Your application is ready for Minecraft ownership verification.\n\n"
+        "> First step: show us the account is really yours.\n\n"
         f"{connection}\n\n"
         f"**Complete before:** {discord.utils.format_dt(expires_at, 'R')}\n\n"
         "**What happens next**\n"
         "1. Add the server using the details above.\n"
         f"2. Connect once with the account named `{_safe(application.claimed_username, 100)}`.\n"
-        "3. The first connection is intentionally declined after the account is verified.\n"
-        "4. Your application is then sent to staff automatically.\n\n"
+        "3. That first connection is turned away on purpose — it only proves ownership.\n"
+        "4. Then come back to Discord and fill out the short application form. "
+        "A DM with a button will be waiting for you.\n\n"
         "**Wrong username?** Press **Apply** again on the application panel to reveal the private "
         "**Cancel Pending Verification** option, or run `/minecraft cancel`, then apply again.",
     )
@@ -360,6 +401,15 @@ def live_status_embed(application: MinecraftApplication, settings) -> discord.Em
             f"Connect once as `{_safe(application.claimed_username, 100)}` before "
             f"{discord.utils.format_dt(expiry, 'R')}. {edition_note}"
         )
+    elif status is ApplicationStatus.PENDING_APPLICATION:
+        expiry = datetime.fromtimestamp(application.verification_expires_at, timezone.utc)
+        connection = ""
+        next_action = (
+            f"Your account `{_safe(application.verified_username or application.claimed_username, 100)}` "
+            "is verified. One step left: fill out the short application form. "
+            "Press **Continue Application** below, or press **Apply** on the application panel. "
+            f"Please finish before {discord.utils.format_dt(expiry, 'R')} or the application expires."
+        )
     elif status is ApplicationStatus.PENDING_REVIEW:
         connection = ""
         next_action = (
@@ -378,7 +428,13 @@ def live_status_embed(application: MinecraftApplication, settings) -> discord.Em
         next_action = application.applicant_reason or "The application was not approved. Get help if you need clarification."
     elif status is ApplicationStatus.EXPIRED:
         connection = ""
-        next_action = "The verification window expired. Start a new application when you are ready."
+        next_action = (
+            "This application expired because nobody joined the Minecraft server in time to "
+            "verify the account. Nothing is lost — press **Apply** on the application panel to start again."
+            if not application.verified_at
+            else "This application expired because the written form was not finished in time. "
+            "Nothing is lost — press **Apply** on the application panel to start again."
+        )
     elif status is ApplicationStatus.CANCELLED:
         connection = ""
         next_action = "This application was cancelled. You may apply again."
@@ -397,7 +453,21 @@ def live_status_embed(application: MinecraftApplication, settings) -> discord.Em
     return embed
 
 
-def verified_embed(application: MinecraftApplication) -> discord.Embed:
+def verified_embed(application: MinecraftApplication, settings=None) -> discord.Embed:
+    if application.status is ApplicationStatus.PENDING_APPLICATION:
+        deadline = datetime.fromtimestamp(application.verification_expires_at, timezone.utc)
+        channel_id = getattr(settings, "application_channel_id", 0) if settings else 0
+        panel_hint = f"<#{channel_id}>" if channel_id else "the application channel"
+        return info_embed(
+            "Account Verified — One Step Left",
+            "> Your Minecraft account is verified. Now tell us a little about yourself.\n\n"
+            f"**Verified account**\n{application.edition.value.title()} · "
+            f"`{_safe(application.verified_username, 100)}`\n\n"
+            "**Finish your application**\n"
+            "> Press **Continue Application** below and answer two short questions.\n"
+            f"> You can also press **Apply** in {panel_hint} — it continues where you left off.\n"
+            f"> Please finish before {discord.utils.format_dt(deadline, 'R')}, or the application expires.",
+        )
     return info_embed(
         "Account Verified — Application Sent",
         "> Your Minecraft account was verified and your application has been sent!\n\n"
@@ -441,7 +511,7 @@ def application_dm_embed(
     notification: str,
 ) -> discord.Embed:
     if notification == "verification":
-        embed = verified_embed(application)
+        embed = verified_embed(application, settings)
     elif notification == "decision" and application.status is ApplicationStatus.APPROVED:
         embed = approval_embed(settings)
         embed.colour = SUCCESS_COLOUR
@@ -456,9 +526,14 @@ def application_dm_embed(
 
 def application_log_embed(application: MinecraftApplication) -> discord.Embed:
     expires_at = datetime.fromtimestamp(application.verification_expires_at, timezone.utc)
+    has_answers = bool(application.answers)
     embed = info_embed(
-        f"Application Submitted #{application.id}",
-        f"> <@{application.discord_user_id}> entered the Minecraft verification stage.",
+        f"Application Submitted #{application.id}"
+        if has_answers
+        else f"Application Started #{application.id}",
+        f"> <@{application.discord_user_id}> completed the written application form."
+        if has_answers
+        else f"> <@{application.discord_user_id}> entered the Minecraft verification stage.",
     )
     embed.add_field(
         name="Edition",
@@ -467,24 +542,33 @@ def application_log_embed(application: MinecraftApplication) -> discord.Embed:
     )
     embed.add_field(
         name="Claimed Username",
-        value=f"`{_safe(application.claimed_username, 100)}`",
+        value=f"`{_safe(application.verified_username or application.claimed_username, 100)}`",
         inline=True,
     )
-    embed.add_field(
-        name="Verification Expires",
-        value=discord.utils.format_dt(expires_at, "R"),
-        inline=True,
-    )
-    embed.add_field(
-        name="Why They Want to Join",
-        value=_safe(application.answers.get("why"), 1000),
-        inline=False,
-    )
-    embed.add_field(
-        name="What They Would Bring",
-        value=_safe(application.answers.get("about"), 1000),
-        inline=False,
-    )
+    if has_answers and application.verified_at:
+        verified_at = datetime.fromtimestamp(application.verified_at, timezone.utc)
+        embed.add_field(
+            name="Account Verified",
+            value=discord.utils.format_dt(verified_at, "R"),
+            inline=True,
+        )
+    else:
+        embed.add_field(
+            name="Verification Expires",
+            value=discord.utils.format_dt(expires_at, "R"),
+            inline=True,
+        )
+    if has_answers:
+        embed.add_field(
+            name="Why They Want to Join",
+            value=_safe(application.answers.get("why"), 1000),
+            inline=False,
+        )
+        embed.add_field(
+            name="What They Would Bring",
+            value=_safe(application.answers.get("about"), 1000),
+            inline=False,
+        )
     embed.add_field(
         name="Applicant",
         value=f"<@{application.discord_user_id}> · `{application.discord_user_id}`",
