@@ -2179,13 +2179,26 @@ class MinecraftInformationPanelTests(unittest.TestCase):
             parts.append(f"{field.name}\n{field.value}")
         return "\n".join(parts)
 
-    def test_overview_uses_the_logo_as_the_image_not_a_thumbnail(self):
-        from minecraft_bot.presentation import LOGO_ATTACHMENT_URI
+    def test_overview_carries_both_marks_it_references(self):
+        # The logo runs wide beneath the panel; the question mark sits in the
+        # corner, the same one the application panel uses for its own reading.
+        # An attachment:// URI only resolves against the message its file was
+        # uploaded with, so a missed file renders as blank space with no error.
+        from minecraft_bot.presentation import ABOUT_ATTACHMENT_URI, LOGO_ATTACHMENT_URI
 
         embed = self.information.overview_embed(0)
+        payload = self.information.message_payload(0)
+        try:
+            filenames = [file.filename for file in payload["attachments"]]
+        finally:
+            for file in payload["attachments"]:
+                file.close()
 
         self.assertEqual(embed.image.url, LOGO_ATTACHMENT_URI)
-        self.assertIsNone(embed.thumbnail.url)
+        self.assertEqual(embed.thumbnail.url, ABOUT_ATTACHMENT_URI)
+        for uri in (LOGO_ATTACHMENT_URI, ABOUT_ATTACHMENT_URI):
+            with self.subTest(uri=uri):
+                self.assertIn(uri.removeprefix("attachment://"), filenames)
 
     def test_every_page_follows_the_footer_rule(self):
         from minecraft_bot.presentation import BRAND_NAME
