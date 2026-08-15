@@ -1921,7 +1921,7 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
         from minecraft_bot import information
 
         welcome = application_embeds()[0].description
-        panel = information.overview_embed(0).fields[0].value
+        panel = information.overview_embed(0).description
 
         for paragraph in SERVER_TAGLINE_PARAGRAPHS:
             with self.subTest(paragraph=paragraph[:32]):
