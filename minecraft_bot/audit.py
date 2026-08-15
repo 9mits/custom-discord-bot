@@ -35,6 +35,8 @@ OPTION_VALUE_LIMIT = 200
 SOURCE_COMMAND = "command"
 SOURCE_COMPONENT = "component"
 SOURCE_MODAL = "modal"
+#: Something a player did in game, reported over the bridge rather than by an interaction.
+SOURCE_SERVER = "server"
 
 OUTCOME_SUCCESS = "success"
 OUTCOME_FAILED = "failed"
@@ -75,6 +77,56 @@ COMMAND_RISK: Mapping[str, str] = {
     "mcadmin leaderboard": RISK_CONFIGURATION,
     "mcadmin wipe": RISK_DESTRUCTIVE,
 }
+
+# In-game actions reported over the bridge. Everything absent is routine, which is the
+# common case: founding a clan or donating to one belongs in the activity log, not in
+# the quieter important log beside revocations and bans.
+SERVER_EVENT_RISK: Mapping[str, str] = {
+    "clan_disband": RISK_DESTRUCTIVE,
+    "data_reset": RISK_DESTRUCTIVE,
+    "rank_hold": RISK_CONFIGURATION,
+    "rank_release": RISK_CONFIGURATION,
+    "clan_kick": RISK_MODERATE,
+    "clan_transfer": RISK_MODERATE,
+    "clan_promote": RISK_MODERATE,
+    "clan_demote": RISK_MODERATE,
+    "clan_upgrade": RISK_MODERATE,
+    "clan_roster_buy": RISK_MODERATE,
+}
+
+# Titles for the events Paper reports. Anything unmapped falls back to its own name,
+# so a new event type logs sensibly before this table catches up with it.
+SERVER_EVENT_TITLES: Mapping[str, str] = {
+    "clan_create": "Clan Founded",
+    "clan_disband": "Clan Disbanded",
+    "clan_rename": "Clan Renamed",
+    "clan_color": "Clan Colour Changed",
+    "clan_invite": "Clan Invite Sent",
+    "clan_join": "Clan Joined",
+    "clan_leave": "Clan Left",
+    "clan_kick": "Clan Member Removed",
+    "clan_promote": "Clan Staff Promoted",
+    "clan_demote": "Clan Staff Demoted",
+    "clan_transfer": "Clan Leadership Transferred",
+    "clan_donate": "Clan Donation",
+    "clan_upgrade": "Clan Level Bought",
+    "clan_roster_buy": "Clan Roster Slot Bought",
+    "rank_hold": "Rank Sync Held",
+    "rank_release": "Rank Sync Released",
+    "data_reset": "Server Data Reset",
+}
+
+
+def server_event_risk(event: str) -> str:
+    return SERVER_EVENT_RISK.get(str(event).strip().casefold(), RISK_READ_ONLY)
+
+
+def server_event_title(event: str) -> str:
+    key = str(event).strip().casefold()
+    mapped = SERVER_EVENT_TITLES.get(key)
+    if mapped:
+        return f"Minecraft {mapped}"
+    return f"Minecraft {key.replace('_', ' ').title()}" if key else "Minecraft Server Action"
 
 # Review-panel controls that change a member's access. Matched against the view or
 # item class name so button clicks are tiered like the equivalent command.
@@ -370,6 +422,78 @@ def build_action_embed(record: CommandAuditRecord) -> discord.Embed:
             failure += f"\nReference: `{record.correlation_id}`"
         embed.add_field(name="Failure", value=truncate(failure, 1024), inline=False)
     return embed
+
+
+def build_server_event_embed(
+    record: CommandAuditRecord,
+    *,
+    minecraft_username: str,
+    summary: str,
+) -> discord.Embed:
+    """Renders an in-game action for the activity log.
+
+    Kept apart from :func:`build_action_embed` because the two describe different
+    things: that one reports whether the bot processed a Discord interaction, this one
+    reports what a player did on the server. The server sends the sentence already
+    written, so this only frames it.
+    """
+    embed = info_embed(
+        server_event_title(record.command),
+        f"> {truncate(summary, 3000)}" if summary else "> A player acted on the Minecraft server.",
+    )
+    actor = minecraft_username or record.user_label or "Unknown player"
+    if record.user_id:
+        actor = f"{actor} — <@{record.user_id}>"
+    embed.add_field(name="Player", value=truncate(actor, 1024), inline=True)
+    embed.add_field(name="Source", value="In game", inline=True)
+    embed.add_field(
+        name="Category",
+        value=str(record.risk).replace("_", " ").title(),
+        inline=True,
+    )
+    if record.options:
+        details = "\n".join(
+            f"**{str(name).replace('_', ' ').title()}:** {value}"
+            for name, value in record.options
+        )
+        embed.add_field(name="Details", value=truncate(details, 1024), inline=False)
+    embed.add_field(name="When", value=f"<t:{record.created_at}:f>", inline=False)
+    return embed
+
+
+async def deliver_server_event(
+    client: Any,
+    record: CommandAuditRecord,
+    *,
+    minecraft_uuid: str,
+    minecraft_username: str,
+    summary: str,
+) -> None:
+    """Persists an in-game action and writes it to the activity log.
+
+    Best-effort in the same way command auditing is: a logging failure must never take
+    the bridge connection down with it.
+    """
+    try:
+        await _persist(client, record)
+    except Exception:
+        logger.exception("Could not persist Minecraft server event %s", record.command)
+
+    settings = getattr(client, "settings", None)
+    if settings is None:
+        return
+    activity_channel = int(getattr(settings, "command_log_channel_id", 0) or 0)
+    important_channel = int(getattr(settings, "critical_log_channel_id", 0) or 0)
+    channel_id = (important_channel or activity_channel) if record.important else activity_channel
+    if not channel_id:
+        return
+
+    embed = build_server_event_embed(
+        record, minecraft_username=minecraft_username, summary=summary
+    )
+    if minecraft_uuid:
+        embed.set_thumbnail(url=MINECRAFT_HEAD_URL.format(identifier=quote(minecraft_uuid, safe="")))
+    await _send(client, channel_id, embed)
 
 
 def format_record(record: CommandAuditRecord) -> str:

@@ -43,6 +43,19 @@ final class MenuPaging {
         return Math.min(firstIndex(page, total, perPage) + perPage, total);
     }
 
+    /**
+     * The middle of a board's last row, which is where Back always sits.
+     *
+     * <p>Derived from the size rather than fixed. A hard-coded slot 49 was written into
+     * the 27-slot clan card, which is out of range: the write threw and took the whole
+     * screen with it, so Back appeared to work on the big boards and do nothing on the
+     * small ones. Clamped rather than trusted, since a caller passing a tiny inventory
+     * should get a usable slot instead of an exception.
+     */
+    static int backSlot(int size) {
+        return Math.max(0, size - 5);
+    }
+
     static boolean hasPrevious(int page, int total, int perPage) {
         return clampPage(page, total, perPage) > 1;
     }

@@ -37,7 +37,14 @@ commands:
     description: List everyone with whitelist access and their Discord name.
     usage: /whitelisted [page]
     aliases: [whitelistlist]
+  mgxadmin:
+    description: Hold players out of Discord rank sync, and reset accumulated data.
+    usage: /mgxadmin <ranks|reset>
+    permission: mgxaccessbridge.admin
 permissions:
   mgx.clans:
     description: Allows players to use the clan system.
     default: true
+  mgxaccessbridge.admin:
+    description: Allows rank holds and administrative data resets.
+    default: op

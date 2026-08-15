@@ -205,7 +205,7 @@ final class PlayerMenuService implements Listener {
     }
 
     private Inventory create(Menu.Kind kind, int page, int size, String title) {
-        Menu menu = new Menu(kind, null, page);
+        Menu menu = new Menu(kind, null, page, null);
         Inventory inventory = Bukkit.createInventory(menu, size, Component.text(title, ORANGE));
         menu.attach(inventory);
         return inventory;

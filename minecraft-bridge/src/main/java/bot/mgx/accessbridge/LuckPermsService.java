@@ -18,6 +18,12 @@ import java.util.logging.Level;
  * <p>Only groups in {@link #MANAGED_GROUPS} are ever added or removed, so permissions
  * assigned by hand in LuckPerms survive a sync. That list must stay in step with
  * {@code RANK_ROLES} in {@code minecraft_bot/perks.py}.
+ *
+ * <p>Within those groups, sync removes only the one it granted itself, recorded in
+ * {@link RankSyncStore}. Clearing every managed group meant a rank set by hand — an
+ * owner given in game rather than through Discord — was wiped by the next sync, since
+ * Discord's answer for that player is "no rank". A player put on hold is skipped
+ * entirely, which is the way to keep a rank Discord will never agree with.
  */
 final class LuckPermsService {
     static final Set<String> MANAGED_GROUPS = Set.of(
@@ -34,14 +40,16 @@ final class LuckPermsService {
 
     private final MGXAccessBridge plugin;
     private final LuckPerms luckPerms;
+    private final RankSyncStore rankSync;
 
-    private LuckPermsService(MGXAccessBridge plugin, LuckPerms luckPerms) {
+    private LuckPermsService(MGXAccessBridge plugin, LuckPerms luckPerms, RankSyncStore rankSync) {
         this.plugin = plugin;
         this.luckPerms = luckPerms;
+        this.rankSync = rankSync;
     }
 
     /** Returns null when LuckPerms is not installed, which keeps it an optional dependency. */
-    static LuckPermsService createIfAvailable(MGXAccessBridge plugin) {
+    static LuckPermsService createIfAvailable(MGXAccessBridge plugin, RankSyncStore rankSync) {
         try {
             RegisteredServiceProvider<LuckPerms> provider =
                     Bukkit.getServicesManager().getRegistration(LuckPerms.class);
@@ -50,7 +58,7 @@ final class LuckPermsService {
                 return null;
             }
             plugin.getLogger().info("LuckPerms detected; Discord rank sync is active.");
-            return new LuckPermsService(plugin, provider.getProvider());
+            return new LuckPermsService(plugin, provider.getProvider(), rankSync);
         } catch (NoClassDefFoundError | RuntimeException exception) {
             plugin.getLogger().info("LuckPerms was not found; Discord rank sync is inactive.");
             return null;
@@ -78,9 +86,9 @@ final class LuckPermsService {
     }
 
     /**
-     * Applies {@code group} to the player, removing any other managed group.
-     * An empty group clears every managed group, which is what happens when a
-     * member loses their Discord rank role.
+     * Applies {@code group} to the player, giving up only the group sync itself last
+     * granted. An empty group withdraws that grant, which is what happens when a member
+     * loses their Discord rank role; groups set by hand are left where they are.
      */
     void applyRank(UUID minecraftUuid, String group) {
         String desired = group == null ? "" : group.trim();
@@ -88,7 +96,16 @@ final class LuckPermsService {
             plugin.getLogger().warning("Ignoring unknown Discord rank group: " + desired);
             return;
         }
-        luckPerms.getUserManager().modifyUser(minecraftUuid, user -> mutate(user, desired))
+        if (rankSync.isHeld(minecraftUuid)) {
+            return;
+        }
+        String previous = rankSync.appliedRank(minecraftUuid).orElse("");
+        if (previous.equals(desired)) {
+            // Re-adding an unchanged grant would churn the LuckPerms file on every join.
+            return;
+        }
+        luckPerms.getUserManager().modifyUser(minecraftUuid, user -> mutate(user, previous, desired))
+                .thenRun(() -> rankSync.recordApplied(minecraftUuid, desired))
                 .exceptionally(throwable -> {
                     plugin.getLogger().log(
                             Level.WARNING,
@@ -99,14 +116,16 @@ final class LuckPermsService {
                 });
     }
 
-    private void mutate(User user, String desired) {
-        user.data().clear(node -> {
-            if (node.getType() != NodeType.INHERITANCE) {
-                return false;
-            }
-            String name = NodeType.INHERITANCE.cast(node).getGroupName();
-            return MANAGED_GROUPS.contains(name) && !name.equals(desired);
-        });
+    private void mutate(User user, String previous, String desired) {
+        if (!previous.isEmpty()) {
+            user.data().clear(node -> {
+                if (node.getType() != NodeType.INHERITANCE) {
+                    return false;
+                }
+                String name = NodeType.INHERITANCE.cast(node).getGroupName();
+                return name.equals(previous) && !name.equals(desired);
+            });
+        }
         if (!desired.isEmpty()) {
             user.data().add(InheritanceNode.builder(desired).build());
         }

@@ -47,6 +47,15 @@ final class WealthStore {
         return wealth;
     }
 
+    /** Forgets every recorded figure, so the wealth board starts from nothing again. */
+    int clearAll() {
+        int cleared = wealth.size();
+        wealth.clear();
+        dirty = true;
+        saveIfChanged();
+        return cleared;
+    }
+
     void record(UUID playerId, long value) {
         Long previous = wealth.put(playerId, Math.max(0L, value));
         if (previous == null || previous != value) {

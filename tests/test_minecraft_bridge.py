@@ -42,6 +42,7 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.result_handler = AsyncMock()
         self.player_event_handler = AsyncMock()
         self.chat_message_handler = AsyncMock()
+        self.server_event_handler = AsyncMock()
         self.server = MinecraftBridgeServer(
             self.config,
             self.data,
@@ -49,6 +50,7 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
             action_result_handler=self.result_handler,
             player_event_handler=self.player_event_handler,
             chat_message_handler=self.chat_message_handler,
+            server_event_handler=self.server_event_handler,
         )
         await self.server.start()
         socket = self.server._site._server.sockets[0]
@@ -323,6 +325,84 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         finally:
             await secure_server.close()
 
+    async def test_protocol_v7_forwards_a_server_event_and_acknowledges_it(self):
+        socket = await self.session.ws_connect(
+            f"http://127.0.0.1:{self.port}/minecraft-bridge"
+        )
+        await socket.send_json(create_envelope(
+            self.secret,
+            "HELLO",
+            {"server_id": "mysterious-smp-x", "protocol_version": 7},
+            idempotency_key="hello-v7-events",
+        ))
+        await socket.receive_json()
+        await socket.receive_json()
+        self.assertTrue(self.server.supports_server_events)
+
+        await socket.send_json(create_envelope(
+            self.secret,
+            "SERVER_EVENT",
+            {
+                "event": "clan_donate",
+                "category": "clan",
+                "actor_uuid": "123e4567-e89b-12d3-a456-426614174000",
+                "actor_name": "TestPlayer",
+                "summary": "Donated 4,096 to MGX",
+                "details": {"clan": "MGX", "value": "4,096"},
+                "occurred_at": 1750000000,
+            },
+            idempotency_key="server-event-1",
+        ))
+
+        acknowledgement = await socket.receive_json()
+
+        self.assertEqual(acknowledgement["type"], "SERVER_EVENT_ACK")
+        self.server_event_handler.assert_awaited_once()
+        forwarded = self.server_event_handler.await_args.kwargs
+        self.assertEqual(forwarded["event"], "clan_donate")
+        self.assertEqual(forwarded["actor_name"], "TestPlayer")
+        self.assertEqual(forwarded["details"]["clan"], "MGX")
+        self.assertEqual(forwarded["event_idempotency_key"], "server-event-1")
+        await socket.close()
+
+    async def test_a_v6_plugin_is_not_offered_server_events(self):
+        # An older plugin must keep working rather than being cut off, so the bot has
+        # to notice it cannot report in-game actions instead of assuming it can.
+        socket = await self.session.ws_connect(
+            f"http://127.0.0.1:{self.port}/minecraft-bridge"
+        )
+        await socket.send_json(create_envelope(
+            self.secret,
+            "HELLO",
+            {"server_id": "mysterious-smp-x", "protocol_version": 6},
+            idempotency_key="hello-v6-events",
+        ))
+        await socket.receive_json()
+        await socket.receive_json()
+
+        self.assertFalse(self.server.supports_server_events)
+        self.assertTrue(self.server.supports_whitelist_sync)
+        await socket.close()
+
+    def test_the_plugin_advertises_the_protocol_version_the_bot_expects(self):
+        # The plugin gates SERVER_EVENT on its own constant. If the two drift, in-game
+        # actions silently stop reaching the activity log with nothing logged about it.
+        import re
+        from pathlib import Path
+
+        from minecraft_bot.bridge import CURRENT_PROTOCOL_VERSION
+
+        source = (
+            Path(__file__).resolve().parent.parent
+            / "minecraft-bridge/src/main/java/bot/mgx/accessbridge/BridgeClient.java"
+        ).read_text()
+        declared = re.search(r"PROTOCOL_VERSION = (\d+);", source)
+
+        self.assertIsNotNone(declared, "PROTOCOL_VERSION vanished from BridgeClient")
+        self.assertEqual(CURRENT_PROTOCOL_VERSION, int(declared.group(1)))
+
+
+
 
 class MinecraftBridgeDispatchTests(unittest.IsolatedAsyncioTestCase):
     async def test_outbox_delivery_batches_sent_status_updates(self):
@@ -358,7 +438,6 @@ class MinecraftBridgeDispatchTests(unittest.IsolatedAsyncioTestCase):
 
         data.mark_outbox_sent_batch.assert_awaited_once_with([1, 2])
         self.assertEqual(server._socket.send_json.await_count, 2)
-
 
 if __name__ == "__main__":
     unittest.main()
