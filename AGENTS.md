@@ -196,10 +196,14 @@ Read the relevant file when you touch an area; these are the non-obvious points.
   controls which is sent, mirroring `rank_known` for LuckPerms groups.
 - **Maintenance mode** (`/mcadmin maintenance`) is a pre-launch hold, not a
   whitelist change: applications, verification and acceptance all carry on, and
-  Paper refuses the login instead. It is enforced in the plugin, at
-  `EventPriority.LOW`, and only against a login the server was going to allow —
-  a `KICK_WHITELIST` result is left untouched so verification still works
-  against a closed server. Paper persists the flag itself, because it accepts
+  Paper refuses the login instead. Enforced in the plugin at
+  `EventPriority.HIGHEST`, judged on the **final** login result: Floodgate
+  re-allows Bedrock players after the vanilla whitelist has refused them, so a
+  handler reading the result earlier sees `KICK_WHITELIST`, leaves it alone, and
+  lets Floodgate wave them through the hold. A `KICK_WHITELIST` result is still
+  left untouched, so verification works against a closed server. A join handler
+  kicks anyone who reaches the world regardless, since the login refusal depends
+  on other plugins leaving the result alone. Paper persists the flag itself, because it accepts
   logins before the bridge connects; the bot restates it on connect so Discord
   stays the authority.
 - **Resetting data is two commands, one per side.** `/mgxadmin reset all
