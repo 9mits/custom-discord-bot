@@ -918,20 +918,12 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             [item.label for item in apply.kwargs["view"].children], ["Apply"]
         )
-        # The guide carries the pre-join reading and nothing that only matters
-        # after somebody has been accepted.
+        # The guide carries the information panel's pages, minus the one that
+        # needs an account the applicant does not have yet.
+        from minecraft_bot.information import PAGES
+
         guide_ids = {item.custom_id for item in guide.kwargs["view"].children}
-        self.assertEqual(
-            guide_ids,
-            {
-                "mgx_about:clans",
-                "mgx_about:travel",
-                "mgx_about:levels",
-                "mgx_about:social",
-                "mgx_about:world",
-                "mgx_about:rules",
-            },
-        )
+        self.assertEqual(guide_ids, {f"mgx_info:{page}" for page in PAGES})
         for call in channel.send.await_args_list:
             for file in call.kwargs["files"]:
                 file.close()
@@ -2918,140 +2910,36 @@ class QuoteFormattingTests(unittest.TestCase):
                             )
 
 
-class AboutPanelTests(unittest.TestCase):
-    """The application channel explains; the information panel teaches.
+class ApplicationGuideButtonTests(unittest.TestCase):
+    """Before You Apply shows the information panel's own pages.
 
-    Somebody reading these pages cannot join yet, so a command is no use to them
-    and a page full of them reads as homework rather than an invitation.
+    One set of pages behind both surfaces, so a change to a page reaches
+    applicants and members alike instead of drifting between two copies.
     """
 
-    def pages(self):
-        from minecraft_bot.about import ABOUT_PAGES
+    def test_every_information_page_is_offered(self):
+        from minecraft_bot.information import PAGES
+        from minecraft_bot.presentation import application_guide_view
 
-        settings = SimpleNamespace(
-            java_address="java.example",
-            bedrock_address="bedrock.example",
-            bedrock_port=19132,
-            application_channel_id=5,
-        )
-        return {key: builder(settings) for key, (_label, builder) in ABOUT_PAGES.items()}
+        offered = {
+            item.custom_id.split(":", 1)[1]
+            for item in application_guide_view().children
+        }
 
-    def text_of(self, embed):
-        return " ".join(
-            [embed.title or "", embed.description or ""]
-            + [f"{field.name} {field.value}" for field in embed.fields]
-        )
+        self.assertEqual(offered, set(PAGES))
 
-    def test_no_explainer_page_names_a_command(self):
-        from minecraft_bot.presentation import (
-            application_apply_embed,
-            application_guide_embed,
-            application_welcome_embed,
-        )
-
-        embeds = list(self.pages().values()) + [
-            application_welcome_embed(),
-            application_guide_embed(),
-            application_apply_embed(),
-        ]
-
-        for embed in embeds:
-            with self.subTest(embed=embed.title):
-                self.assertNotRegex(self.text_of(embed), r"`/[a-z]")
-
-    def test_pages_are_laid_out_as_points_rather_than_paragraphs(self):
-        """Each point is a sentence or two under a heading — not a wall, not a stub.
-
-        The lower bound matters as much as the upper one: clipping these to
-        fragments reads as terse rather than considered.
-        """
-        import re
-
-        for key, embed in self.pages().items():
-            if key == "rules":
-                # A shared legal document; it is prose on purpose.
-                continue
-            with self.subTest(page=key):
-                self.assertLessEqual(len(embed.description or ""), 160)
-                points = [
-                    field
-                    for field in embed.fields
-                    if not field.value.startswith("http")
-                ]
-                self.assertGreaterEqual(len(points), 3, "too few points to be a page")
-                for field in points:
-                    # Full width, not side by side: three columns wrapped every few
-                    # words, which read worse than the paragraph they replaced.
-                    self.assertFalse(field.inline, f"{field.name} is in a column")
-                    # Measure what a reader sees, not the markdown behind a link.
-                    rendered = re.sub(r"\]\([^)]*\)", "]", field.value)
-                    self.assertLessEqual(
-                        len(rendered), 170, f"{field.name} has grown into a paragraph"
-                    )
-                    self.assertGreaterEqual(
-                        len(rendered), 30, f"{field.name} is clipped to a fragment"
-                    )
-                    self.assertTrue(
-                        rendered.rstrip().endswith("."),
-                        f"{field.name} should read as a sentence",
-                    )
-                    self.assertLessEqual(len(field.name), 26)
-                    # One point, one thought: stacked bullets are the old wall.
-                    self.assertNotIn("\n", field.value, f"{field.name} spans lines")
-
-    def test_the_mechanics_people_ask_about_are_explained(self):
-        pages = self.pages()
-
-        clans = self.text_of(pages["clans"]).lower()
-        self.assertIn("clan", clans)
-        # Anchored on the mechanic's own name rather than a sentence about it.
-        # Pinning a phrasing failed twice on rewordings that kept the meaning, while
-        # a page that dropped no-friendly-fire entirely would still have passed.
-        self.assertRegex(clans, r"no friendly fire")
-
-        travel = self.text_of(pages["travel"]).lower()
-        for mechanic in ("home", "teleport", "warp"):
-            with self.subTest(mechanic=mechanic):
-                self.assertIn(mechanic, travel)
-
-        levels = self.text_of(pages["levels"]).lower()
-        self.assertIn("heart", levels)
-        self.assertIn("boost", levels)
-
-    def test_figures_are_quoted_from_what_the_game_enforces(self):
-        # Copy that promises a level or a roster size the server does not offer is
-        # worse than copy that omits the number.
-        from minecraft_bot import clans as clan_rules
-        from minecraft_bot.information import CLAN_MAX_MEMBERS, DEFAULT_HOME_LIMIT
-
-        clans_text = self.text_of(self.pages()["clans"])
-        travel_text = self.text_of(self.pages()["travel"])
-
-        self.assertIn(str(clan_rules.MAX_PUBLIC_LEVEL), clans_text)
-        self.assertIn(str(clan_rules.STARTING_MEMBER_SLOTS), clans_text)
-        self.assertIn(str(CLAN_MAX_MEMBERS), clans_text)
-        self.assertIn(str(DEFAULT_HOME_LIMIT), travel_text)
-
-    def test_the_secret_clan_level_is_never_advertised(self):
-        from minecraft_bot import clans as clan_rules
-
-        self.assertNotIn(str(clan_rules.SECRET_LEVEL), self.text_of(self.pages()["clans"]))
-
-    def test_rules_are_the_one_page_shared_with_the_information_panel(self):
-        # Applicants agree to the rules as part of applying, so a second copy could
-        # only drift from the one staff actually enforce.
-        from minecraft_bot.about import ABOUT_PAGES
-        from minecraft_bot.presentation import rules_embed
-
-        self.assertEqual(ABOUT_PAGES["rules"][1](None).title, rules_embed().title)
-
-    def test_every_button_has_a_page_behind_it(self):
-        from minecraft_bot.about import ABOUT_PAGES
+    def test_linking_an_edition_is_not_offered_to_applicants(self):
+        # It needs an account they do not have yet.
         from minecraft_bot.presentation import application_guide_view
 
         for item in application_guide_view().children:
             with self.subTest(button=item.custom_id):
-                self.assertIn(item.custom_id.split(":", 1)[1], ABOUT_PAGES)
+                self.assertFalse(item.custom_id.startswith("mgx_info_link:"))
+
+    def test_the_buttons_survive_a_restart(self):
+        from minecraft_bot.presentation import application_guide_view
+
+        self.assertTrue(application_guide_view().is_persistent())
 
 
 class ApplicationCardReplacementTests(unittest.IsolatedAsyncioTestCase):

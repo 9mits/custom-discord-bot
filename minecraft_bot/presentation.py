@@ -517,16 +517,19 @@ def application_panel() -> discord.ui.View:
 
 
 def application_guide_view() -> discord.ui.View:
-    """One button per explainer page.
+    """The information panel's own buttons, so both surfaces show the same pages.
 
-    Imported inside the function because `about` reads its embeds back out of this
-    module, and importing it at module scope would close the loop.
+    Everything except Link Your Other Edition, which needs an account that an
+    applicant does not have yet.
+
+    Imported inside the function because `information` reads its embeds back out
+    of this module, and importing it at module scope would close the loop.
     """
-    from .about import ABOUT_PAGES, AboutButton
+    from .information import PAGES, InformationButton
 
     view = discord.ui.View(timeout=None)
-    for page in ABOUT_PAGES:
-        view.add_item(AboutButton(page))
+    for page in PAGES:
+        view.add_item(InformationButton(page))
     return view
 
 
