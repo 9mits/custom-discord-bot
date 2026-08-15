@@ -108,7 +108,7 @@ class ClanStoreTest {
 
         assertThrows(ClanStore.ClanException.class, () -> store.leave(leader));
 
-        assertEquals("PERM", store.disband(leader));
+        assertEquals("PERM", store.disband(leader).name());
         assertTrue(store.clanOf(leader).isEmpty());
         assertTrue(store.list().isEmpty());
     }
@@ -223,5 +223,203 @@ class ClanStoreTest {
         assertEquals("LUCKY", migrated.name());
         assertEquals(ClanStore.DEFAULT_THEME_COLOR, migrated.themeColor());
         assertFalse(Files.readString(path).contains("\"tag\""));
+    }
+
+    @Test
+    void clansSavedBeforeUpgradesLoadUnranked() throws Exception {
+        // Clans written by 2.27.0 carry neither field; they must read as a level 0
+        // clan with an empty vault rather than failing the whole file to load.
+        Path path = temporaryDirectory.resolve("clans.json");
+        UUID leader = UUID.randomUUID();
+        Files.writeString(path, """
+                {
+                  "version": 1,
+                  "clans": [{
+                    "id": "%s",
+                    "name": "OLDER",
+                    "themeColor": 16750848,
+                    "leader": "%s",
+                    "members": {"%s": "Leader"},
+                    "staff": []
+                  }],
+                  "invites": {}
+                }
+                """.formatted(UUID.randomUUID(), leader, leader));
+
+        ClanStore.ClanView clan = new ClanStore(path).clanOf(leader).orElseThrow();
+
+        assertEquals(0, clan.level());
+        assertTrue(clan.vault().isEmpty());
+        assertTrue(clan.perks().isNone());
+    }
+
+    @Test
+    void anyMemberBanksButOnlyTheLeaderSpends() throws Exception {
+        Path path = temporaryDirectory.resolve("clans.json");
+        ClanStore store = new ClanStore(path);
+        UUID leader = UUID.randomUUID();
+        UUID member = UUID.randomUUID();
+        store.create(leader, "Leader", "VAULT");
+        store.invite(leader, member, "Member", 1_000);
+        store.accept(member, "Member", 1_001);
+
+        store.deposit(member, "DIAMOND", 20);
+        ClanStore.ClanView banked = store.deposit(leader, "diamond", 10);
+
+        assertEquals(30, banked.vault().get("DIAMOND"));
+        assertThrows(ClanStore.ClanException.class, () -> store.upgrade(member));
+        assertThrows(ClanStore.ClanException.class, () -> store.withdraw(member, "DIAMOND", 1));
+
+        ClanStore.ClanView upgraded = store.upgrade(leader);
+
+        assertEquals(1, upgraded.level());
+        // The price is debited, not merely checked.
+        assertTrue(upgraded.vault().isEmpty());
+        assertEquals(1, new ClanStore(path).clanOf(member).orElseThrow().level());
+    }
+
+    @Test
+    void anUpgradeIsRefusedWhileTheVaultIsShort() throws Exception {
+        ClanStore store = new ClanStore(temporaryDirectory.resolve("clans.json"));
+        UUID leader = UUID.randomUUID();
+        store.create(leader, "Leader", "SHORT");
+        store.deposit(leader, "DIAMOND", 29);
+
+        ClanStore.ClanException refused =
+                assertThrows(ClanStore.ClanException.class, () -> store.upgrade(leader));
+
+        assertTrue(refused.getMessage().contains("1x Diamond"), refused.getMessage());
+        // Nothing was taken on the way to being refused.
+        assertEquals(29, store.clanOf(leader).orElseThrow().vault().get("DIAMOND"));
+        assertEquals(0, store.clanOf(leader).orElseThrow().level());
+    }
+
+    @Test
+    void theVaultHoldsUpgradeMaterialsOnly() throws Exception {
+        ClanStore store = new ClanStore(temporaryDirectory.resolve("clans.json"));
+        UUID leader = UUID.randomUUID();
+        store.create(leader, "Leader", "ONLY");
+
+        assertThrows(ClanStore.ClanException.class, () -> store.deposit(leader, "DIRT", 64));
+        assertThrows(ClanStore.ClanException.class, () -> store.deposit(leader, "DIAMOND", 0));
+        assertThrows(ClanStore.ClanException.class, () -> store.deposit(leader, "DIAMOND", -5));
+    }
+
+    @Test
+    void withdrawingReturnsExactlyWhatWasBanked() throws Exception {
+        ClanStore store = new ClanStore(temporaryDirectory.resolve("clans.json"));
+        UUID leader = UUID.randomUUID();
+        store.create(leader, "Leader", "BACK");
+        store.deposit(leader, "DIAMOND", 10);
+
+        assertThrows(ClanStore.ClanException.class, () -> store.withdraw(leader, "DIAMOND", 11));
+        assertThrows(ClanStore.ClanException.class, () -> store.withdraw(leader, "NETHER_STAR", 1));
+
+        assertEquals(6, store.withdraw(leader, "DIAMOND", 4).vault().get("DIAMOND"));
+        // Emptying a material drops it rather than leaving a zero behind.
+        assertTrue(store.withdraw(leader, "DIAMOND", 6).vault().isEmpty());
+    }
+
+    @Test
+    void disbandingHandsTheVaultBack() throws Exception {
+        ClanStore store = new ClanStore(temporaryDirectory.resolve("clans.json"));
+        UUID leader = UUID.randomUUID();
+        store.create(leader, "Leader", "GONE");
+        store.deposit(leader, "DIAMOND", 12);
+
+        ClanStore.ClanView disbanded = store.disband(leader);
+
+        assertEquals(12, disbanded.vault().get("DIAMOND"));
+        assertTrue(store.clanOf(leader).isEmpty());
+    }
+
+    @Test
+    void onlyOneClanEverHoldsTheSecretLevel() throws Exception {
+        ClanStore store = new ClanStore(temporaryDirectory.resolve("clans.json"));
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        store.create(first, "First", "ONEUP");
+        store.create(second, "Second", "TWOUP");
+
+        climbToTop(store, first);
+        climbToTop(store, second);
+
+        assertEquals(ClanLevel.SECRET_LEVEL, store.clanOf(first).orElseThrow().level());
+        assertEquals(ClanLevel.MAX_PUBLIC_LEVEL, store.clanOf(second).orElseThrow().level());
+
+        store.deposit(second, "DRAGON_EGG", 1);
+        ClanStore.ClanException refused =
+                assertThrows(ClanStore.ClanException.class, () -> store.upgrade(second));
+        assertTrue(refused.getMessage().contains("Only one"), refused.getMessage());
+    }
+
+    @Test
+    void aSecondSecretLevelClanIsRejectedOnLoad() throws Exception {
+        Path path = temporaryDirectory.resolve("clans.json");
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        Files.writeString(path, """
+                {
+                  "version": 1,
+                  "clans": [
+                    {"id": "%s", "name": "ONEUP", "themeColor": 16750848, "level": 6,
+                     "leader": "%s", "members": {"%s": "One"}, "staff": []},
+                    {"id": "%s", "name": "TWOUP", "themeColor": 16750848, "level": 6,
+                     "leader": "%s", "members": {"%s": "Two"}, "staff": []}
+                  ],
+                  "invites": {}
+                }
+                """.formatted(
+                UUID.randomUUID(), first, first,
+                UUID.randomUUID(), second, second));
+
+        assertThrows(java.io.IOException.class, () -> new ClanStore(path));
+    }
+
+    @Test
+    void impossibleLevelsAndVaultsAreRejectedOnLoad() throws Exception {
+        UUID leader = UUID.randomUUID();
+
+        assertThrows(java.io.IOException.class, () -> new ClanStore(
+                writeClan(temporaryDirectory.resolve("high.json"), leader, "\"level\": 9,")));
+        assertThrows(java.io.IOException.class, () -> new ClanStore(
+                writeClan(temporaryDirectory.resolve("negative.json"), leader,
+                        "\"vault\": {\"DIAMOND\": -1},")));
+        assertThrows(java.io.IOException.class, () -> new ClanStore(
+                writeClan(temporaryDirectory.resolve("junk.json"), leader,
+                        "\"vault\": {\"DIRT\": 64},")));
+    }
+
+    private Path writeClan(Path path, UUID leader, String extraFields) throws Exception {
+        Files.writeString(path, """
+                {
+                  "version": 1,
+                  "clans": [{
+                    "id": "%s",
+                    "name": "BROKE",
+                    "themeColor": 16750848,
+                    %s
+                    "leader": "%s",
+                    "members": {"%s": "Leader"},
+                    "staff": []
+                  }],
+                  "invites": {}
+                }
+                """.formatted(UUID.randomUUID(), extraFields, leader, leader));
+        return path;
+    }
+
+    /** Buys every level in turn, banking exactly what each one asks for. */
+    private void climbToTop(ClanStore store, UUID leader) throws Exception {
+        for (int level = 1; level <= ClanLevel.SECRET_LEVEL; level++) {
+            for (ClanLevel.Cost cost : ClanLevel.costOf(level)) {
+                store.deposit(leader, cost.material(), cost.amount());
+            }
+            try {
+                store.upgrade(leader);
+            } catch (ClanStore.ClanException taken) {
+                return;
+            }
+        }
     }
 }

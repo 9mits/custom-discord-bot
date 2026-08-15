@@ -49,7 +49,7 @@ final class PlayerSettingsService implements CommandExecutor, TabCompleter {
         }
         try {
             boolean enabled = store.toggle(player.getUniqueId(), setting);
-            plugin.refreshClanAppearance();
+            plugin.refreshClans();
             player.sendMessage(Component.text(setting.label() + " ", NamedTextColor.WHITE)
                     .append(enabled
                             ? Component.text("shown", NamedTextColor.GREEN, TextDecoration.BOLD)

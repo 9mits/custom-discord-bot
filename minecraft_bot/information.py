@@ -12,6 +12,7 @@ from typing import Callable, Optional
 
 import discord
 
+from . import clans
 from .perks import (
     BOOSTER_DAMAGE_PERCENT,
     BOOSTER_EXTRA_HEARTS,
@@ -258,6 +259,7 @@ def commands_clans_embed(settings=None) -> discord.Embed:
                 "> `/clans invite <player>` — invite an online player\n"
                 "> `/clans chat` — speak to your clan only\n"
                 "> `/clans list` — every clan on the server\n"
+                "> `/clans vault` · `/clans deposit` — the clan vault\n"
                 "> `/clans leave` — depart your clan",
             ),
             (
@@ -266,6 +268,7 @@ def commands_clans_embed(settings=None) -> discord.Embed:
                 "> `/clans rename` · `/clans color` — change name or colour\n"
                 "> `/clans transfer <player>` — hand over leadership\n"
                 "> `/clans kick <player>` — remove a member\n"
+                "> `/clans upgrade` · `/clans withdraw` — spend the clan vault\n"
                 "> `/clans disband` — dissolve the clan",
             ),
             (
@@ -328,6 +331,8 @@ def clans_embed() -> discord.Embed:
                 "General information",
                 "> Members **cannot damage each other**\n"
                 f"> Up to **{CLAN_MAX_MEMBERS} members**\n"
+                f"> **{clans.MAX_PUBLIC_LEVEL} levels** to earn, each granting perks "
+                "to every member\n"
                 "> Join by invite, or start your own with `/clans create`",
             ),
             (
@@ -336,6 +341,49 @@ def clans_embed() -> discord.Embed:
                 "> **Staff** — the above, plus invite, kick and the clan icon\n"
                 "> **Leader** — the above, plus rename, colour, promote, transfer "
                 "and disband",
+            ),
+        ],
+    )
+
+
+def clans_levels_embed(settings=None) -> discord.Embed:
+    """The upgrade ladder.
+
+    Enumerates :data:`clans.PUBLIC_LEVELS` rather than every key in the table, so the
+    level that stays hidden until a clan has bought everything else cannot leak into
+    the panel by someone extending the ladder later.
+    """
+    ladder = []
+    for level in clans.PUBLIC_LEVELS:
+        perks = clans.perks_for(level)
+        ladder.append((
+            f"Level {level}  {clans.badge(level)}",
+            f"> Costs {clans.described_cost(level)}\n"
+            + "\n".join(f"> {line}" for line in perks.described()),
+        ))
+    return _page(
+        "Clans — Levels",
+        "A clan climbs by banking materials and spending them. Every perk applies to "
+        "**everyone in the clan**, and stacks on top of the perks your Discord level "
+        "already gives you.",
+        [
+            (
+                "The clan vault",
+                "> `/clans deposit [amount]` — bank the materials you are holding\n"
+                "> `/clans vault` — what is banked, and what the next level needs\n"
+                "> `/clans withdraw <material> [amount]` — leader only\n"
+                "> `/clans upgrade` — leader only; spends the vault\n"
+                "> \n"
+                "> Any member can deposit. A deposit is a contribution to the clan, "
+                "not savings you can take back — only the leader withdraws.",
+            ),
+            *ladder,
+            (
+                "Keeping the perks",
+                "> Perks last exactly as long as your membership. Leave the clan or "
+                "get kicked and they stop at once.\n"
+                "> Stars beside a clan tag show its level, so you can read it at a "
+                "glance in chat, the player list and above someone's head.",
             ),
         ],
     )
@@ -627,6 +675,7 @@ SECTIONS: dict[str, dict[str, tuple[str, Callable[[Optional[object]], discord.Em
         "account": ("Account", commands_account_embed),
     },
     "clans": {
+        "levels": ("Levels", clans_levels_embed),
         "roles": ("Roles", clans_roles_embed),
         "joining": ("Joining", clans_joining_embed),
         "leaving": ("Leaving", clans_leaving_embed),

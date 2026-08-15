@@ -401,7 +401,15 @@ final class SidebarService {
     }
 
     private static Component clanTag(ClanStore.ClanView clan) {
-        return Component.text("[" + clan.name() + "] ", clanColor(clan), TextDecoration.BOLD);
+        Component tag = Component.text("[" + clan.name() + "] ", clanColor(clan), TextDecoration.BOLD);
+        if (clan.level() <= 0) {
+            return tag;
+        }
+        return tag.append(Component.text(
+                        ClanLevel.badge(clan.level()),
+                        TextColor.color(ClanLevel.badgeColor(clan.level())),
+                        TextDecoration.BOLD))
+                .append(Component.text(" "));
     }
 
     private static Component divider() {
