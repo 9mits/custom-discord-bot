@@ -2337,13 +2337,23 @@ class MinecraftInformationPanelTests(unittest.TestCase):
     def test_clan_roster_page_prices_every_slot(self):
         from minecraft_bot import clans
 
-        described = self.embed_text(self.information.clans_members_embed())
+        embed = self.information.clans_members_embed()
+        described = self.embed_text(embed)
 
         self.assertIn(str(clans.STARTING_MEMBER_SLOTS), described)
+        # Every slot from the start to the cap is its own purchase, and the page has
+        # to price all of them — grouped by material, but none of them missing.
+        self.assertEqual(
+            list(range(clans.STARTING_MEMBER_SLOTS + 1, clans.MAX_MEMBER_SLOTS + 1)),
+            [slots for slots, _material, _amount in clans.MEMBER_TIERS],
+        )
         for slots, material, amount in clans.MEMBER_TIERS:
             with self.subTest(slots=slots):
-                self.assertIn(f"{slots} members", described)
-                self.assertIn(f"{amount}x {clans.readable_material(material)}", described)
+                self.assertIn(f"**{slots}** — {amount}", described)
+                self.assertIn(clans.readable_material(material), described)
+        # Twenty-two rungs must not become twenty-two fields; Discord caps them at 25
+        # and the page would read as a wall long before that.
+        self.assertLessEqual(len(embed.fields), 6)
 
     def test_no_clan_page_still_offers_a_way_to_take_donations_back(self):
         # Withdrawing is gone from the plugin. Copy that still advertises it would
