@@ -40,15 +40,16 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
             "help", "create", "accept", "decline", "info", "list"
     );
     private static final List<String> MEMBER_SUBCOMMANDS = List.of(
-            "help", "info", "list", "chat", "leave", "menu", "donate", "balance", "donors"
+            "help", "info", "list", "members", "chat", "leave", "menu", "donate", "balance", "donors"
     );
     private static final List<String> STAFF_SUBCOMMANDS = List.of(
-            "help", "invite", "info", "list", "kick", "chat", "leave", "icon",
+            "help", "invite", "info", "list", "members", "kick", "chat", "leave", "icon",
             "menu", "donate", "balance", "donors"
     );
     private static final List<String> LEADER_SUBCOMMANDS = List.of(
             "help", "invite", "info", "list", "rename", "color", "icon", "promote", "demote",
-            "transfer", "kick", "chat", "disband", "menu", "donate", "balance", "donors", "upgrade"
+            "transfer", "kick", "chat", "disband", "menu", "donate", "balance", "donors", "upgrade",
+            "members"
     );
 
     private final MGXAccessBridge plugin;
@@ -92,8 +93,10 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 case "invite", "add" -> invite(player, remainder(args, 1));
                 case "accept", "join" -> accept(player);
                 case "decline" -> decline(player);
-                case "info" -> info(player, remainder(args, infoAlias ? 0 : 1));
-                case "list" -> list(player, args.length >= 2 ? args[1] : "1");
+                case "info" -> menus.openInfo(player, remainder(args, infoAlias ? 0 : 1));
+                case "members", "roster" -> menus.openMembers(
+                        player, ownClan(player).id(), page(args, 1));
+                case "list" -> menus.openList(player, page(args, 1));
                 case "rename", "name" -> rename(player, remainder(args, 1));
                 case "color", "colour", "theme" -> color(player, remainder(args, 1));
                 case "icon", "logo" -> icon(player, remainder(args, 1));
@@ -163,59 +166,15 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         success(player, "Declined the clan invite.");
     }
 
-    private void info(Player player, String requestedName) {
-        Optional<ClanStore.ClanView> found = requestedName.isBlank()
-                ? store.clanOf(player.getUniqueId())
-                : store.findClan(requestedName);
-        ClanStore.ClanView clan = found.orElseThrow(() -> new ClanStore.ClanException(
-                requestedName.isBlank() ? "You are not in a clan." : "No clan has that name."
-        ));
-        String leader = clan.members().getOrDefault(clan.leader(), "Unknown");
-        List<String> staff = clan.staff().stream().map(clan.members()::get).sorted().toList();
-        List<String> members = clan.members().entrySet().stream()
-                .filter(entry -> !entry.getKey().equals(clan.leader()) && !clan.staff().contains(entry.getKey()))
-                .map(java.util.Map.Entry::getValue).sorted().toList();
-        long online = clan.members().keySet().stream().filter(id -> Bukkit.getPlayer(id) != null).count();
-        TextColor theme = clanColor(clan);
-        player.sendMessage(divider(theme));
-        player.sendMessage(Component.text("        [" + clan.name() + "]", theme, TextDecoration.BOLD));
-        player.sendMessage(Component.text(" "));
-        player.sendMessage(label("LEADER", leader));
-        player.sendMessage(label("ONLINE", online + "/" + clan.members().size()));
-        player.sendMessage(label("ROSTER", clan.members().size() + "/" + clan.memberSlots()));
-        player.sendMessage(label("LEVEL", clan.level() == 0 ? "Unranked" : "Level " + clan.level()));
-        player.sendMessage(label("BALANCE", String.format("%,d", clan.balance())));
-        player.sendMessage(label(
-                "THEME",
-                Component.text(String.format("#%06X", clan.themeColor()), theme)
-        ));
-        player.sendMessage(Component.text(" "));
-        player.sendMessage(label("STAFF", staff.isEmpty() ? "None" : String.join(", ", staff)));
-        player.sendMessage(label("MEMBERS", members.isEmpty() ? "None" : String.join(", ", members)));
-        player.sendMessage(divider(theme));
-    }
-
-    private void list(Player player, String requestedPage) {
-        int page;
+    /** A page argument, defaulting to the first and never below it. */
+    private static int page(String[] args, int index) {
+        if (args.length <= index) {
+            return 1;
+        }
         try {
-            page = Integer.parseInt(requestedPage);
+            return Math.max(1, Integer.parseInt(args[index]));
         } catch (NumberFormatException exception) {
             throw new ClanStore.ClanException("The page must be a number.");
-        }
-        List<ClanStore.ClanView> clans = store.list();
-        int pages = Math.max(1, (clans.size() + 7) / 8);
-        if (page < 1 || page > pages) {
-            throw new ClanStore.ClanException("Choose a page from 1 to " + pages + ".");
-        }
-        player.sendMessage(prefix().append(Component.text(
-                "Directory " + page + "/" + pages, NamedTextColor.WHITE, TextDecoration.BOLD
-        )));
-        clans.stream().skip((long) (page - 1) * 8).limit(8).forEach(clan ->
-                player.sendMessage(Component.text("  [" + clan.name() + "]", clanColor(clan), TextDecoration.BOLD)
-                        .append(Component.text("  " + clan.members().size() + " members", NamedTextColor.GRAY)))
-        );
-        if (clans.isEmpty()) {
-            player.sendMessage(Component.text("  No clans have been created yet.", NamedTextColor.GRAY));
         }
     }
 
@@ -551,6 +510,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
             case "remove" -> "kick";
             case "vault", "bank" -> "balance";
             case "contributors" -> "donors";
+            case "roster" -> "members";
             case "levelup" -> "upgrade";
             default -> action;
         };
@@ -583,22 +543,9 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         return Component.text("CLANS » ", ORANGE, TextDecoration.BOLD);
     }
 
-    private static Component label(String label, String value) {
-        return Component.text(label + ": ", NamedTextColor.GRAY)
-                .append(Component.text(value, NamedTextColor.WHITE));
-    }
-
-    private static Component label(String label, Component value) {
-        return Component.text(label + ": ", NamedTextColor.GRAY).append(value);
-    }
-
     private static Component help(String command, String description) {
         return Component.text("  " + command, LIGHT_ORANGE)
                 .append(Component.text(" — " + description, NamedTextColor.GRAY));
-    }
-
-    private static Component divider(TextColor color) {
-        return Component.text("━━━━━━━━━━━━━━━━━━━━━━━━", color);
     }
 
     private static TextColor clanColor(ClanStore.ClanView clan) {

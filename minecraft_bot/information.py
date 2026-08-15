@@ -261,7 +261,8 @@ def commands_clans_embed(settings=None) -> discord.Embed:
                 "> `/clans invite <player>` — invite an online player\n"
                 "> `/clans chat` — speak to your clan only\n"
                 "> `/clans list` — every clan on the server\n"
-                "> `/clans donate` · `/clans balance` — give to the clan\n"
+                "> `/clans` — the clan menu: donate, balance, members, upgrades\n"
+                "> `/clans members` — the roster, with everyone's Discord name\n"
                 "> `/clans leave` — depart your clan",
             ),
             (
@@ -275,7 +276,7 @@ def commands_clans_embed(settings=None) -> discord.Embed:
             ),
             (
                 "Inspecting",
-                "> `/claninfo [name]` — a clan's leader, staff and members\n"
+                "> `/claninfo [name]` — any clan's card, and its roster\n"
                 "> `/clans help` — only what your role currently permits",
             ),
             (
@@ -299,7 +300,8 @@ def commands_account_embed(settings=None) -> discord.Embed:
             (
                 "Your account",
                 "> `/perks` — your level rewards and bonuses\n"
-                "> `/settings` — clan tags, Discord chat and Discord names\n"
+                "> `/settings` — a panel of toggles: clan tags, Discord chat, "
+                "and whether others see your Discord name\n"
                 "> `/discordnames` — whether others see your Discord name\n"
                 "> `/playtime` — time spent on the server",
             ),
@@ -375,6 +377,7 @@ def clans_levels_embed(settings=None) -> discord.Embed:
                 "> `/clans` — open the clan menu\n"
                 "> `/clans donate` — opens a window; drop in anything valuable, then "
                 "close it\n"
+                "> `/clans members` — every member, their role and Discord name\n"
                 "> `/clans balance` — what the clan is holding and what it is worth\n"
                 "> `/clans donors` — who has given what, largest first\n"
                 "> `/clans upgrade` — leader only; spends the balance\n"

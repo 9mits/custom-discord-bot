@@ -24,10 +24,12 @@ final class PlayerSettingsService implements CommandExecutor, TabCompleter {
 
     private final MGXAccessBridge plugin;
     private final PlayerSettingsStore store;
+    private final PlayerMenuService menus;
 
-    PlayerSettingsService(MGXAccessBridge plugin, PlayerSettingsStore store) {
+    PlayerSettingsService(MGXAccessBridge plugin, PlayerSettingsStore store, PlayerMenuService menus) {
         this.plugin = plugin;
         this.store = store;
+        this.menus = menus;
     }
 
     @Override
@@ -37,7 +39,9 @@ final class PlayerSettingsService implements CommandExecutor, TabCompleter {
             return true;
         }
         if (args.length == 0) {
-            showPanel(player);
+            // The menu is the panel now; the named-setting form below stays for
+            // anyone who prefers typing, and for tab completion.
+            menus.openSettings(player);
             return true;
         }
         PlayerSettingsStore.Setting setting = PlayerSettingsStore.Setting.fromKey(args[0]).orElse(null);
@@ -61,34 +65,6 @@ final class PlayerSettingsService implements CommandExecutor, TabCompleter {
             ));
         }
         return true;
-    }
-
-    private void showPanel(Player player) {
-        player.sendMessage(Component.text("      YOUR SETTINGS", ORANGE, TextDecoration.BOLD));
-        player.sendMessage(Component.empty());
-        for (PlayerSettingsStore.Setting setting : PlayerSettingsStore.Setting.values()) {
-            boolean enabled = store.isEnabled(player.getUniqueId(), setting);
-            player.sendMessage(Component.text(" » ", GOLD)
-                    .append(Component.text(setting.label() + ": ", NamedTextColor.WHITE))
-                    .append(enabled
-                            ? Component.text("SHOWN", NamedTextColor.GREEN, TextDecoration.BOLD)
-                            : Component.text("HIDDEN", NamedTextColor.RED, TextDecoration.BOLD))
-                    .append(Component.text("  [change]", NamedTextColor.DARK_GRAY)
-                            .clickEvent(ClickEvent.runCommand("/settings " + setting.key()))
-                            .hoverEvent(HoverEvent.showText(
-                                    Component.text(setting.description(), NamedTextColor.GRAY)
-                            ))));
-        }
-        player.sendMessage(Component.empty());
-        player.sendMessage(Component.text(
-                " Click a setting to change it. It applies only to you.", NamedTextColor.GRAY
-        ));
-        player.sendMessage(Component.text(" Use ", NamedTextColor.DARK_GRAY)
-                .append(Component.text("/discordnames", GOLD))
-                .append(Component.text(
-                        " to control whether others see your own Discord name.",
-                        NamedTextColor.DARK_GRAY
-                )));
     }
 
     @Override

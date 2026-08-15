@@ -48,6 +48,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private CapabilityService capabilityService;
     private ClanStore clanStore;
     private ClanMenuService clanMenuService;
+    private PlayerMenuService playerMenuService;
     private PlayerSettingsStore playerSettings;
     private WealthStore wealthStore;
     private final WhitelistDirectory whitelistDirectory = new WhitelistDirectory();
@@ -99,11 +100,14 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         perkService = new PlayerPerkService();
         luckPermsService = LuckPermsService.createIfAvailable(this);
         identityService = new DiscordIdentityService(this, identityStore);
-        clanMenuService = new ClanMenuService(this, clanStore);
+        clanMenuService = new ClanMenuService(this, clanStore, identityService);
+        playerMenuService = new PlayerMenuService(
+                this, playerSettings, identityService, whitelistDirectory
+        );
         ClanService clanService = new ClanService(
                 this, clanStore, identityService, perkService, playerSettings, clanMenuService
         );
-        GuideService guideService = new GuideService();
+        GuideService guideService = new GuideService(playerMenuService);
         sidebarService = new SidebarService(
                 this,
                 perkService,
@@ -141,6 +145,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(perkService, this);
         getServer().getPluginManager().registerEvents(clanService, this);
         getServer().getPluginManager().registerEvents(clanMenuService, this);
+        getServer().getPluginManager().registerEvents(playerMenuService, this);
         getServer().getPluginManager().registerEvents(chatRelayService, this);
         if (getCommand("clans") == null
                 || getCommand("claninfo") == null
@@ -163,10 +168,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("perks").setExecutor(guideService);
         getCommand("discord").setExecutor(guideService);
         getCommand("discordnames").setExecutor(identityService);
-        PlayerSettingsService settingsService = new PlayerSettingsService(this, playerSettings);
+        PlayerSettingsService settingsService = new PlayerSettingsService(this, playerSettings, playerMenuService);
         getCommand("settings").setExecutor(settingsService);
         getCommand("settings").setTabCompleter(settingsService);
-        WhitelistDirectoryService whitelistService = new WhitelistDirectoryService(whitelistDirectory);
+        WhitelistDirectoryService whitelistService = new WhitelistDirectoryService(whitelistDirectory, playerMenuService);
         getCommand("whitelisted").setExecutor(whitelistService);
         getCommand("whitelisted").setTabCompleter(whitelistService);
         sidebarService.start();

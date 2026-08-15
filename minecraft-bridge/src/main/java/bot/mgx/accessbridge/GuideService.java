@@ -18,6 +18,12 @@ import java.util.List;
 import java.util.Locale;
 
 final class GuideService implements CommandExecutor, TabCompleter {
+    private final PlayerMenuService menus;
+
+    GuideService(PlayerMenuService menus) {
+        this.menus = menus;
+    }
+
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private static final TextColor GOLD = TextColor.color(0xFFB52E);
     private static final List<String> GUIDE_PAGES = List.of("levels", "clans", "commands", "staff");
@@ -63,6 +69,10 @@ final class GuideService implements CommandExecutor, TabCompleter {
             return true;
         }
 
+        if (command.getName().equalsIgnoreCase("perks")) {
+            menus.openPerks(player);
+            return true;
+        }
         String page = switch (command.getName().toLowerCase(Locale.ROOT)) {
             case "perks" -> "levels";
             case "discord" -> "discord";
@@ -106,7 +116,8 @@ final class GuideService implements CommandExecutor, TabCompleter {
         player.sendMessage(milestone(20, "+3 total bonus hearts"));
         player.sendMessage(milestone(30, "+4 total bonus hearts"));
         player.sendMessage(milestone(40, "+5 total bonus hearts"));
-        player.sendMessage(milestone(50, "+5% direct combat damage; no additional heart"));
+        player.sendMessage(milestone(50, "+" + Math.round(PlayerPerkService.ELITE_DAMAGE_BONUS * 100)
+                + "% direct combat damage; no additional heart"));
         player.sendMessage(Component.empty());
         player.sendMessage(body("Your active level, hearts, and level-50 power appear on the scoreboard."));
         footer(player);
