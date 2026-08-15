@@ -3213,14 +3213,23 @@ class ApplicationCardViewTests(unittest.IsolatedAsyncioTestCase):
             for child in view.children
         ]
 
-    def test_help_survives_on_every_status_that_is_still_in_flight(self):
+    def test_help_is_offered_on_the_step_somebody_can_get_stuck_on(self):
+        # Verification is where a mistyped username or a connection that will not
+        # go through leaves somebody unable to continue.
+        self.assertIn(
+            "Get Help",
+            self.labels(application_card_view(ApplicationStatus.PENDING_VERIFICATION)),
+        )
+
+    def test_help_is_not_offered_once_there_is_nothing_left_to_do(self):
+        # Waiting on staff is not a problem to be helped with, and a Get Help
+        # button there only invites a ticket that says "waiting".
         for status in (
-            ApplicationStatus.PENDING_VERIFICATION,
             ApplicationStatus.PENDING_REVIEW,
             ApplicationStatus.APPROVAL_QUEUED,
         ):
             with self.subTest(status=status):
-                self.assertIn("Get Help", self.labels(application_card_view(status)))
+                self.assertNotIn("Get Help", self.labels(application_card_view(status)))
 
     def test_a_verified_applicant_is_offered_the_written_form(self):
         labels = self.labels(application_card_view(ApplicationStatus.PENDING_APPLICATION))
@@ -3252,15 +3261,15 @@ class ApplicationCardViewTests(unittest.IsolatedAsyncioTestCase):
                 with self.subTest(status=status):
                     self.assertIsNone(view.timeout, f"{status} view must be persistent")
 
-    async def test_refreshing_a_card_keeps_the_help_button(self):
-        # The regression itself: the modal draws the card, the background refresh
-        # redraws it, and Get Help has to survive the second draw.
+    async def test_refreshing_a_card_keeps_its_controls(self):
+        # The original regression: the modal draws the card, the background refresh
+        # redraws it, and the controls have to survive the second draw.
         bot = object.__new__(MinecraftAccessBot)
         bot._application_messages = {}
         bot._live_card_lock = asyncio.Lock()
         application = SimpleNamespace(
             id=7,
-            status=ApplicationStatus.PENDING_REVIEW,
+            status=ApplicationStatus.PENDING_VERIFICATION,
             discord_user_id="99",
             verified_username="PlayerOne",
             claimed_username="PlayerOne",
