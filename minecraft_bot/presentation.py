@@ -241,11 +241,13 @@ def quote_block(text: str) -> str:
     The quote bar is what separates one section from the next visually; without
     it a page of headings and paragraphs runs together into a wall.
 
-    Two rules that are easy to get wrong. A blank line inside a quote ends it, so
-    blank lines are quoted too and the block stays whole. And a fenced code block
-    cannot be quoted — the fence markers and the content both end up inside the
-    quote and Discord prints the markers literally — so any value containing one
-    is left exactly as it is.
+    Three rules that are easy to get wrong. A blank line inside a quote ends it, so
+    blank lines are quoted too and the block stays whole. That marker has to be
+    "> " and not ">": Discord only starts a quote on the bracket *and a space*, so
+    a bare one is printed as a literal > in the middle of the block. And a fenced
+    code block cannot be quoted — the fence markers and the content both end up
+    inside the quote and Discord prints the markers literally — so any value
+    containing one is left exactly as it is.
     """
     body = str(text)
     if "```" in body:
@@ -254,7 +256,7 @@ def quote_block(text: str) -> str:
     for line in body.splitlines():
         stripped = line.strip()
         if not stripped:
-            lines.append(">")
+            lines.append("> ")
         elif stripped.startswith(">"):
             lines.append(line)
         else:

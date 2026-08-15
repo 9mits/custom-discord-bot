@@ -2763,6 +2763,48 @@ class MinecraftInformationPanelTests(unittest.TestCase):
         self.assertIn("in partnership with", application_welcome_embed().description)
 
 
+class LinkEditionPromptTests(unittest.IsolatedAsyncioTestCase):
+    """Somebody with no linked account is the least likely to hold the channel."""
+
+    def _bot(self, *, can_view):
+        bot = object.__new__(MinecraftAccessBot)
+        bot.config = SimpleNamespace(guild_id=1)
+        bot.settings = SimpleNamespace(application_channel_id=4242)
+        bot.data = SimpleNamespace(
+            list_accounts_for_user=AsyncMock(return_value=[]),
+            list_applications_for_user=AsyncMock(return_value=[]),
+        )
+        member = SimpleNamespace(id=99)
+        channel = SimpleNamespace(
+            permissions_for=Mock(return_value=SimpleNamespace(view_channel=can_view))
+        )
+        bot.get_guild = Mock(return_value=SimpleNamespace(get_member=Mock(return_value=member)))
+        bot.get_channel = Mock(return_value=channel)
+        return bot
+
+    async def test_the_channel_is_named_when_they_can_open_it(self):
+        embed, view = await self._bot(can_view=True).build_link_edition_prompt(99)
+
+        self.assertIn("<#4242>", embed.description)
+        self.assertIsNone(view)
+
+    async def test_no_dead_link_when_they_cannot_see_the_channel(self):
+        # Pointing somebody at a channel they lack permission for renders as an
+        # unclickable dead end and tells them nothing.
+        embed, _view = await self._bot(can_view=False).build_link_edition_prompt(99)
+
+        self.assertNotIn("<#4242>", embed.description)
+        self.assertIn("application panel", embed.description)
+
+    async def test_an_unresolvable_member_gets_no_channel_either(self):
+        bot = self._bot(can_view=True)
+        bot.get_guild = Mock(return_value=SimpleNamespace(get_member=Mock(return_value=None)))
+
+        embed, _view = await bot.build_link_edition_prompt(99)
+
+        self.assertNotIn("<#4242>", embed.description)
+
+
 class QuoteFormattingTests(unittest.TestCase):
     """The quote bar is what stops a page of headings running together."""
 
@@ -2781,7 +2823,17 @@ class QuoteFormattingTests(unittest.TestCase):
         # two and putting a bar round only half of it.
         from minecraft_bot.presentation import quote_block
 
-        self.assertEqual(quote_block("One\n\nTwo"), "> One\n>\n> Two")
+        self.assertEqual(quote_block("One\n\nTwo"), "> One\n> \n> Two")
+
+    def test_a_blank_line_keeps_the_space_after_its_bracket(self):
+        # Discord starts a quote on "> ", bracket and space. A bare ">" is not
+        # markup at all and is printed as a literal > in the middle of the block,
+        # which is exactly how it looked on the live panel.
+        from minecraft_bot.presentation import quote_block
+
+        for line in quote_block("One\n\nTwo").splitlines():
+            with self.subTest(line=line):
+                self.assertTrue(line.startswith("> "))
 
     def test_a_value_holding_a_code_block_is_untouched(self):
         # Quoting a fence puts the markers inside the quote, and Discord then
@@ -2820,6 +2872,10 @@ class QuoteFormattingTests(unittest.TestCase):
                 for field in embed.fields:
                     if "```" in field.value:
                         continue  # addresses must stay copyable
+                    if field.inline:
+                        # A quote bar in a narrow column wraps the text to a couple
+                        # of words a line; the bar is for full-width blocks.
+                        continue
                     for line in field.value.splitlines():
                         if line.strip():
                             self.assertTrue(
