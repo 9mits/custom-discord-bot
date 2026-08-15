@@ -2480,9 +2480,11 @@ class MinecraftInformationPanelTests(unittest.TestCase):
         self.assertNotIn("How to join", described)
         self.assertNotIn("Apply", described)
 
-    def test_pages_warn_that_newer_clients_are_refused(self):
-        # Clients above the server version bypass GrimAC, so they are blocked at
-        # the door; players have to be told before they hit the kick.
+    def test_pages_do_not_claim_newer_clients_are_refused(self):
+        # The client cap was removed on 2026-08-15: it could not be applied to Java
+        # alone, because Geyser injects Bedrock players at the newest Java protocol,
+        # so it was turning away every mobile player too. Copy still telling people
+        # to downgrade their launcher would send them to fix a problem that is gone.
         builders = (
             ("overview", self.information.overview_embed),
             ("versions", self.information.PAGES["versions"][1]),
@@ -2492,7 +2494,15 @@ class MinecraftInformationPanelTests(unittest.TestCase):
                 described = self.embed_text(builder(0))
 
                 self.assertIn(self.information.JAVA_SUPPORTED_RANGE, described)
-                self.assertRegex(described, r"turned away|refused|blocked")
+                self.assertNotRegex(described, r"(?i)turned away|refused|are blocked")
+
+    def test_the_supported_range_has_no_upper_bound(self):
+        # Anything of the form "up to <version>" is the shape the old cap took, and
+        # would be wrong the moment Minecraft ships another release.
+        from minecraft_bot import presentation
+
+        self.assertNotRegex(presentation.JAVA_SUPPORTED_RANGE, r"(?i)up to")
+        self.assertNotIn(presentation.SERVER_VERSION, presentation.JAVA_SUPPORTED_RANGE)
 
     def test_panel_is_titled_information(self):
         self.assertEqual(self.information.overview_embed(0).title, "Information")
