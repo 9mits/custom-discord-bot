@@ -2368,43 +2368,41 @@ class MinecraftInformationPanelTests(unittest.TestCase):
         # A clan with nothing left to buy is the one case that may see it.
         self.assertIn(clans.SECRET_LEVEL, clans.visible_levels(clans.MAX_PUBLIC_LEVEL))
 
-    def test_clan_levels_page_prices_every_public_level(self):
+    def test_clan_levels_page_publishes_no_prices_or_perk_figures(self):
+        # The upgrade menu quotes the next level in game, at the moment it matters.
+        # Printing the whole ladder here turned an ambition into a shopping list.
         from minecraft_bot import clans
 
         described = self.embed_text(self.information.clans_levels_embed())
 
         for level in clans.PUBLIC_LEVELS:
             with self.subTest(level=level):
-                self.assertIn(f"Level {level}", described)
-                self.assertIn(clans.badge(level), described)
+                self.assertNotIn(f"Level {level}", described)
                 for material, amount in clans.cost_of(level):
-                    self.assertIn(f"{amount}x {clans.readable_material(material)}", described)
-        # Perks are worthless to a player who does not know they end with membership.
+                    self.assertNotIn(
+                        f"{amount}x {clans.readable_material(material)}", described
+                    )
+        # No per-level perk figures either, which is the other half of the table.
+        self.assertNotRegex(described, r"\+\d")
+        # What is left still has to warn about the rules people resent finding late.
         self.assertRegex(described, r"(?i)leave the clan or get kicked")
-        # Donations being one way is the rule people will be angriest to discover late.
         self.assertRegex(described, r"(?i)one way")
         self.assertRegex(described, r"(?i)disbanding the clan destroys the balance")
 
-    def test_clan_roster_page_prices_every_slot(self):
+    def test_clan_roster_page_publishes_no_slot_prices(self):
         from minecraft_bot import clans
 
         embed = self.information.clans_members_embed()
         described = self.embed_text(embed)
 
-        self.assertIn(str(clans.STARTING_MEMBER_SLOTS), described)
-        # Every slot from the start to the cap is its own purchase, and the page has
-        # to price all of them — grouped by material, but none of them missing.
-        self.assertEqual(
-            list(range(clans.STARTING_MEMBER_SLOTS + 1, clans.MAX_MEMBER_SLOTS + 1)),
-            [slots for slots, _material, _amount in clans.MEMBER_TIERS],
-        )
         for slots, material, amount in clans.MEMBER_TIERS:
             with self.subTest(slots=slots):
-                self.assertIn(f"**{slots}** — {amount}", described)
-                self.assertIn(clans.readable_material(material), described)
-        # Twenty-two rungs must not become twenty-two fields; Discord caps them at 25
-        # and the page would read as a wall long before that.
-        self.assertLessEqual(len(embed.fields), 6)
+                self.assertNotIn(f"**{slots}** — {amount}", described)
+        self.assertNotIn("Slots priced in", described)
+        # The limits are not prices: where a roster starts and where it stops are
+        # what someone needs to plan around.
+        self.assertIn(str(clans.STARTING_MEMBER_SLOTS), described)
+        self.assertIn(str(clans.MAX_MEMBER_SLOTS), described)
 
     def test_no_clan_page_still_offers_a_way_to_take_donations_back(self):
         # Withdrawing is gone from the plugin. Copy that still advertises it would
