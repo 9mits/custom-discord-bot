@@ -22,10 +22,14 @@ final class MenuItems {
     static final int BOARD_SIZE = 54;
     static final int PER_PAGE = 45;
     static final int PREVIOUS_SLOT = 45;
-    static final int BACK_SLOT = 49;
     static final int NEXT_SLOT = 53;
 
     private MenuItems() {
+    }
+
+    /** Where Back sits on a board of this size. The arithmetic lives in {@link MenuPaging}. */
+    static int backSlot(int size) {
+        return MenuPaging.backSlot(size);
     }
 
     static ItemStack button(Material material, String name, String... lore) {
@@ -72,8 +76,13 @@ final class MenuItems {
             inventory.setItem(NEXT_SLOT, button(Material.ARROW, "Next page"));
         }
         if (withBack) {
-            inventory.setItem(BACK_SLOT, button(Material.BARRIER, "Back"));
+            back(inventory);
         }
+    }
+
+    /** Draws Back in the one place every screen keeps it. */
+    static void back(Inventory inventory) {
+        inventory.setItem(backSlot(inventory.getSize()), button(Material.BARRIER, "Back"));
     }
 
     static String pagedTitle(String label, int page, int total) {

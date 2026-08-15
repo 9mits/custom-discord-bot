@@ -24,12 +24,14 @@ PROFILE_SYNC_PROTOCOL_VERSION = 3
 CHAT_SYNC_PROTOCOL_VERSION = 4
 RANK_SYNC_PROTOCOL_VERSION = 5
 WHITELIST_SYNC_PROTOCOL_VERSION = 6
-CURRENT_PROTOCOL_VERSION = WHITELIST_SYNC_PROTOCOL_VERSION
+SERVER_EVENT_PROTOCOL_VERSION = 7
+CURRENT_PROTOCOL_VERSION = SERVER_EVENT_PROTOCOL_VERSION
 
 VerificationHandler = Callable[..., Awaitable[None]]
 ActionResultHandler = Callable[[OutboxRecord, Optional[Any]], Awaitable[None]]
 PlayerEventHandler = Callable[..., Awaitable[None]]
 ChatMessageHandler = Callable[..., Awaitable[None]]
+ServerEventHandler = Callable[..., Awaitable[None]]
 
 
 class MinecraftBridgeServer:
@@ -44,6 +46,7 @@ class MinecraftBridgeServer:
         chat_message_handler: Optional[ChatMessageHandler] = None,
         leaderboard_handler: Optional[Callable[[dict[str, Any]], Awaitable[None]]] = None,
         connected_handler: Optional[Callable[[], Awaitable[None]]] = None,
+        server_event_handler: Optional[ServerEventHandler] = None,
     ) -> None:
         self.config = config
         self.data = data
@@ -53,6 +56,7 @@ class MinecraftBridgeServer:
         self.chat_message_handler = chat_message_handler
         self.leaderboard_handler = leaderboard_handler
         self.connected_handler = connected_handler
+        self.server_event_handler = server_event_handler
         # Newest standings pushed by Paper; the leaderboard message renders from this.
         self.latest_leaderboard: dict[str, Any] = {}
         # Minecraft UUID -> clan standing and staff tools, pushed by Paper.
@@ -101,6 +105,10 @@ class MinecraftBridgeServer:
     @property
     def supports_rank_sync(self) -> bool:
         return self.connected and self._peer_protocol_version >= RANK_SYNC_PROTOCOL_VERSION
+
+    @property
+    def supports_server_events(self) -> bool:
+        return self.connected and self._peer_protocol_version >= SERVER_EVENT_PROTOCOL_VERSION
 
     @property
     def supports_whitelist_sync(self) -> bool:
@@ -315,6 +323,27 @@ class MinecraftBridgeServer:
                 )
             await self._send(
                 "MINECRAFT_CHAT_ACK",
+                {"event_idempotency_key": envelope["idempotency_key"]},
+                idempotency_key=envelope["idempotency_key"],
+            )
+            return
+        if message_type == "SERVER_EVENT":
+            # Something a player did in game rather than through Discord. Acked only
+            # after the handler runs, so an event dropped mid-write is resent rather
+            # than silently lost from the activity log.
+            if self.server_event_handler is not None:
+                await self.server_event_handler(
+                    event=str(payload.get("event") or ""),
+                    category=str(payload.get("category") or "server"),
+                    actor_uuid=str(payload.get("actor_uuid") or ""),
+                    actor_name=str(payload.get("actor_name") or ""),
+                    summary=str(payload.get("summary") or ""),
+                    details=dict(payload.get("details") or {}),
+                    occurred_at=int(payload.get("occurred_at") or time.time()),
+                    event_idempotency_key=envelope["idempotency_key"],
+                )
+            await self._send(
+                "SERVER_EVENT_ACK",
                 {"event_idempotency_key": envelope["idempotency_key"]},
                 idempotency_key=envelope["idempotency_key"],
             )

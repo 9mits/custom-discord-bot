@@ -6,17 +6,23 @@ import asyncio
 import logging
 import time
 from contextlib import suppress
-from typing import Awaitable, Optional
+from typing import Any, Awaitable, Optional
 
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
 
 from .audit import (
+    SOURCE_SERVER,
+    CommandAuditRecord,
     MinecraftCommandTree,
+    OPTION_VALUE_LIMIT,
     build_command_log_embed as command_log_embed,
+    deliver_server_event,
     install_component_audit,
     record_denial,
+    server_event_risk,
+    truncate as truncate_audit_value,
 )
 from . import clans
 from .bridge import MinecraftBridgeServer
@@ -170,6 +176,7 @@ class MinecraftAccessBot(commands.Bot):
             player_event_handler=self.handle_player_event,
             chat_message_handler=self.handle_minecraft_chat,
             connected_handler=self.handle_bridge_connected,
+            server_event_handler=self.handle_server_event,
         )
         self.apply_rate_limit = RateLimiter(5)
         self.status_rate_limit = RateLimiter(10)
@@ -897,6 +904,54 @@ class MinecraftAccessBot(commands.Bot):
                 ),
             ),
             name="minecraft-player-log",
+        )
+
+    async def handle_server_event(
+        self,
+        *,
+        event: str,
+        category: str,
+        actor_uuid: str,
+        actor_name: str,
+        summary: str,
+        details: dict[str, Any],
+        occurred_at: int,
+        event_idempotency_key: str,
+    ) -> None:
+        """Writes something a player did in game to the Discord activity log.
+
+        The counterpart to the interaction auditing in `audit.py`: that covers what
+        staff and members do through Discord, this covers the same kinds of action —
+        founding a clan, donating to one, buying an upgrade — taken on the server,
+        which previously left no record anywhere.
+        """
+        claimed = await self.data.claim_bridge_event(event_idempotency_key, "SERVER_EVENT")
+        if not claimed or not event:
+            return
+        owners = await self.data.owners_for_uuids([actor_uuid] if actor_uuid else [])
+        try:
+            discord_user_id = int(owners.get(str(actor_uuid), 0) or 0)
+        except (TypeError, ValueError):
+            discord_user_id = 0
+        record = CommandAuditRecord(
+            source=SOURCE_SERVER,
+            command=str(event),
+            user_id=discord_user_id,
+            user_label=str(actor_name or actor_uuid or "Unknown player"),
+            options=tuple(
+                (str(name), truncate_audit_value(value, OPTION_VALUE_LIMIT))
+                for name, value in details.items()
+            ),
+            risk=server_event_risk(event),
+            correlation_id=str(category or "server"),
+            created_at=int(occurred_at),
+        )
+        await deliver_server_event(
+            self,
+            record,
+            minecraft_uuid=str(actor_uuid or ""),
+            minecraft_username=str(actor_name or ""),
+            summary=str(summary or ""),
         )
 
     async def on_message(self, message: discord.Message) -> None:
@@ -2678,6 +2733,18 @@ class MinecraftAccessBot(commands.Bot):
                         "`/mcadmin chat-channel` — two-way Minecraft chat sync\n"
                         "`/mcadmin cleanheads` — remove leaderboard head emoji\n"
                         "`/mcadmin wipe` — owner only; delete all application and whitelist data"
+                    ),
+                    inline=False,
+                )
+                embed.add_field(
+                    name="In Game (server console or an operator)",
+                    value=(
+                        "`/mgxadmin ranks hold <player>` — keep a LuckPerms group set by "
+                        "hand, so Discord rank sync stops undoing it\n"
+                        "`/mgxadmin ranks release <player>` — hand them back to rank sync\n"
+                        "`/mgxadmin reset <scope...> confirm` — clear statistics, "
+                        "advancements, inventories, clans or balances; the world and "
+                        "everything built in it is never touched"
                     ),
                     inline=False,
                 )

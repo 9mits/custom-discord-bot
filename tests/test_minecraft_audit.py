@@ -11,13 +11,18 @@ from minecraft_bot.audit import (
     OUTCOME_FAILED,
     OUTCOME_SUCCESS,
     REDACTED,
+    RISK_CONFIGURATION,
     RISK_DESTRUCTIVE,
+    RISK_MODERATE,
     RISK_READ_ONLY,
+    SOURCE_SERVER,
     CommandAuditRecord,
     build_command_log_embed,
     build_important_embed,
     build_record,
+    build_server_event_embed,
     command_name_for,
+    deliver_server_event,
     component_label,
     component_risk,
     deliver,
@@ -28,6 +33,8 @@ from minecraft_bot.audit import (
     resolve_target_id,
     risk_for,
     schedule_delivery,
+    server_event_risk,
+    server_event_title,
 )
 from minecraft_bot.data import MinecraftDataManager
 from minecraft_bot.models import Edition
@@ -378,6 +385,154 @@ class ScheduledDeliveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(release.is_set())
         release.set()
         await asyncio.sleep(0)
+
+
+def make_server_record(*, event="clan_donate", risk=None, details=(), user_id=0):
+    return CommandAuditRecord(
+        source=SOURCE_SERVER,
+        command=event,
+        user_id=user_id,
+        user_label="TestPlayer",
+        options=tuple(details),
+        risk=server_event_risk(event) if risk is None else risk,
+        correlation_id="clan",
+        created_at=1_750_000_000,
+    )
+
+
+class ServerEventClassificationTests(unittest.TestCase):
+    def test_founding_and_donating_are_routine_activity(self):
+        # These belong in the activity log. Promoting them into the important channel
+        # would bury revocations and bans under ordinary clan traffic.
+        self.assertEqual(server_event_risk("clan_create"), RISK_READ_ONLY)
+        self.assertEqual(server_event_risk("clan_donate"), RISK_READ_ONLY)
+        self.assertEqual(server_event_risk("clan_join"), RISK_READ_ONLY)
+
+    def test_destroying_data_is_important(self):
+        self.assertEqual(server_event_risk("clan_disband"), RISK_DESTRUCTIVE)
+        self.assertEqual(server_event_risk("data_reset"), RISK_DESTRUCTIVE)
+
+    def test_membership_and_rank_changes_are_tiered_between_the_two(self):
+        self.assertEqual(server_event_risk("clan_kick"), RISK_MODERATE)
+        self.assertEqual(server_event_risk("rank_hold"), RISK_CONFIGURATION)
+
+    def test_an_unknown_event_is_treated_as_routine(self):
+        self.assertEqual(server_event_risk("something_new"), RISK_READ_ONLY)
+
+    def test_titles_are_readable_and_fall_back_gracefully(self):
+        self.assertEqual(server_event_title("clan_donate"), "Minecraft Clan Donation")
+        self.assertEqual(server_event_title("brand_new_thing"), "Minecraft Brand New Thing")
+        self.assertEqual(server_event_title(""), "Minecraft Server Action")
+
+
+class ServerEventRenderingTests(unittest.TestCase):
+    def described(self, embed):
+        parts = [embed.title or "", embed.description or ""]
+        parts.extend(f"{field.name} {field.value}" for field in embed.fields)
+        return "\n".join(parts)
+
+    def test_the_summary_the_server_wrote_is_what_is_shown(self):
+        embed = build_server_event_embed(
+            make_server_record(details=[("clan", "MGX"), ("value", "4,096")]),
+            minecraft_username="TestPlayer",
+            summary="Donated 4,096 to MGX",
+        )
+
+        described = self.described(embed)
+
+        self.assertIn("Minecraft Clan Donation", described)
+        self.assertIn("Donated 4,096 to MGX", described)
+        self.assertIn("MGX", described)
+        self.assertIn("4,096", described)
+        self.assertIn("In game", described)
+
+    def test_a_linked_player_is_shown_as_a_mention_beside_their_username(self):
+        embed = build_server_event_embed(
+            make_server_record(user_id=4242),
+            minecraft_username="TestPlayer",
+            summary="Founded the clan MGX",
+        )
+
+        self.assertIn("TestPlayer", self.described(embed))
+        self.assertIn("<@4242>", self.described(embed))
+
+    def test_an_unlinked_player_still_renders_without_a_dangling_mention(self):
+        embed = build_server_event_embed(
+            make_server_record(user_id=0),
+            minecraft_username="TestPlayer",
+            summary="Founded the clan MGX",
+        )
+
+        described = self.described(embed)
+
+        self.assertIn("TestPlayer", described)
+        self.assertNotIn("<@", described)
+
+
+class ServerEventDeliveryTests(unittest.TestCase):
+    def _client(self, *, command_channel=0, important_channel=0):
+        return SimpleNamespace(
+            settings=SimpleNamespace(
+                command_log_channel_id=command_channel,
+                critical_log_channel_id=important_channel,
+            ),
+            data=SimpleNamespace(record_command_log=AsyncMock(return_value=1)),
+            _send_configured_log=AsyncMock(),
+        )
+
+    def _deliver(self, client, record):
+        asyncio.run(deliver_server_event(
+            client,
+            record,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            minecraft_username="TestPlayer",
+            summary="Donated 4,096 to MGX",
+        ))
+
+    def test_a_routine_in_game_action_reaches_the_activity_log(self):
+        client = self._client(command_channel=10, important_channel=20)
+
+        self._deliver(client, make_server_record())
+
+        self.assertEqual(
+            [call.args[0] for call in client._send_configured_log.await_args_list], [10]
+        )
+
+    def test_a_destructive_in_game_action_reaches_the_important_log(self):
+        client = self._client(command_channel=10, important_channel=20)
+
+        self._deliver(client, make_server_record(event="clan_disband"))
+
+        self.assertEqual(
+            [call.args[0] for call in client._send_configured_log.await_args_list], [20]
+        )
+
+    def test_in_game_actions_are_persisted_to_the_command_log(self):
+        client = self._client(command_channel=10)
+
+        self._deliver(client, make_server_record())
+
+        client.data.record_command_log.assert_awaited_once()
+        persisted = client.data.record_command_log.await_args.args[0]
+        self.assertEqual(persisted.source, SOURCE_SERVER)
+        self.assertEqual(persisted.command, "clan_donate")
+
+    def test_nothing_is_sent_when_no_activity_log_is_configured(self):
+        client = self._client()
+
+        self._deliver(client, make_server_record())
+
+        self.assertEqual(client._send_configured_log.await_count, 0)
+
+    def test_a_logging_failure_does_not_escape(self):
+        # Auditing is best-effort: a broken log channel must never take the bridge
+        # connection down with it.
+        client = self._client(command_channel=10)
+        client._send_configured_log = AsyncMock(side_effect=RuntimeError("channel exploded"))
+
+        self._deliver(client, make_server_record())
+
+        self.assertEqual(client._send_configured_log.await_count, 1)
 
 
 class SettingsTests(unittest.TestCase):

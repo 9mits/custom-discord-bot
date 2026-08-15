@@ -72,4 +72,29 @@ class MenuPagingTest {
         assertEquals(0, MenuPaging.firstIndex(2, 50, 0));
         assertEquals(0, MenuPaging.lastIndex(2, 50, 0));
     }
+
+    @Test
+    void backAlwaysLandsInsideTheBoardItIsDrawnOn() {
+        // The clan card is 27 slots and once had Back hard-coded at 49. Writing there
+        // threw, so the whole screen failed to open and Back looked broken on exactly
+        // the screens that led to it.
+        for (int size : new int[] {9, 18, 27, 36, 45, 54}) {
+            int slot = MenuPaging.backSlot(size);
+
+            assertTrue(slot >= 0, "back slot below zero for size " + size);
+            assertTrue(slot < size, "back slot outside a board of size " + size);
+        }
+    }
+
+    @Test
+    void backSitsInTheMiddleOfTheLastRow() {
+        assertEquals(22, MenuPaging.backSlot(27));
+        assertEquals(49, MenuPaging.backSlot(54));
+    }
+
+    @Test
+    void anAbsurdlySmallBoardStillYieldsAUsableSlot() {
+        assertEquals(0, MenuPaging.backSlot(1));
+        assertEquals(0, MenuPaging.backSlot(0));
+    }
 }

@@ -28,9 +28,10 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
      * number, so it must be raised whenever the plugin learns to handle a new
      * field. Keep in step with the *_PROTOCOL_VERSION constants in
      * {@code minecraft_bot/bridge.py}. 5 added the SYNC_PROFILE rank fields;
-     * 6 added the SYNC_WHITELIST directory snapshot.
+     * 6 added the SYNC_WHITELIST directory snapshot; 7 added SERVER_EVENT, which
+     * reports in-game actions to the Discord activity log.
      */
-    static final int PROTOCOL_VERSION = 6;
+    static final int PROTOCOL_VERSION = 7;
 
     private final MGXAccessBridge plugin;
     private final BridgeConfig config;
@@ -43,6 +44,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
     private final VerifiedApplicationStore verifiedApplications;
     private final ConcurrentHashMap<String, PlayerActivity> playerActivityOutbox = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, JsonObject> minecraftChatOutbox = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, JsonObject> serverEventOutbox = new ConcurrentHashMap<>();
     private final StringBuilder inbound = new StringBuilder();
     private final AtomicBoolean connecting = new AtomicBoolean(false);
 
@@ -166,6 +168,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                 flushVerificationOutbox();
                 flushPlayerActivityOutbox();
                 flushMinecraftChatOutbox();
+                flushServerEventOutbox();
                 // The bot holds standings in memory, so a restart leaves it with none.
                 // Republish at once rather than making it wait for the next interval.
                 plugin.republishLeaderboard();
@@ -188,6 +191,10 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             case "MINECRAFT_CHAT_ACK" -> {
                 String key = payload.get("event_idempotency_key").getAsString();
                 minecraftChatOutbox.remove(key);
+            }
+            case "SERVER_EVENT_ACK" -> {
+                String key = payload.get("event_idempotency_key").getAsString();
+                serverEventOutbox.remove(key);
             }
             case "ACTION" -> processAction(envelope.get("idempotency_key").getAsString(), payload);
             default -> {
@@ -639,6 +646,30 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         }
     }
 
+    /**
+     * Reports something a player did in game so it reaches the Discord activity log.
+     *
+     * <p>Outboxed rather than fire-and-forget: an audit line that vanishes because the
+     * bot happened to be restarting is worse than one that arrives late. The cap is
+     * generous but finite, so a long outage cannot grow the heap without bound.
+     */
+    void queueServerEvent(ServerEvent event) {
+        if (serverEventOutbox.size() >= 5_000) {
+            serverEventOutbox.keySet().stream().findFirst().ifPresent(serverEventOutbox::remove);
+        }
+        String key = "server-event:" + UUID.randomUUID();
+        serverEventOutbox.put(key, event.toPayload());
+        if (isConnected()) {
+            sendRaw(protocol.create("SERVER_EVENT", key, serverEventOutbox.get(key)));
+        }
+    }
+
+    private void flushServerEventOutbox() {
+        for (Map.Entry<String, JsonObject> entry : serverEventOutbox.entrySet()) {
+            sendRaw(protocol.create("SERVER_EVENT", entry.getKey(), entry.getValue()));
+        }
+    }
+
     private void recordAndSend(String key, ProcessedActionStore.Result result) {
         processedActions.put(key, result).whenComplete((ignored, error) -> {
             if (error != null) {
@@ -669,6 +700,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         flushVerificationOutbox();
         flushPlayerActivityOutbox();
         flushMinecraftChatOutbox();
+        flushServerEventOutbox();
         JsonObject payload = new JsonObject();
         payload.addProperty("server_id", config.serverId());
         payload.addProperty("pending_count", pending.size());

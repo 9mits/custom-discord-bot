@@ -529,4 +529,36 @@ class ClanStoreTest {
             }
         }
     }
+
+    @Test
+    void clearingRemovesEveryClanAndOutstandingInvite() throws Exception {
+        // The season reset. Unlike disband this refunds nothing and asks nobody, so it
+        // has to leave the store genuinely empty rather than merely unreachable.
+        Path path = temporaryDirectory.resolve("clans.json");
+        UUID leader = UUID.randomUUID();
+        UUID invited = UUID.randomUUID();
+        ClanStore store = new ClanStore(path);
+        store.create(leader, "Leader", "EMBER");
+        store.create(UUID.randomUUID(), "Other", "FLAME");
+        store.invite(leader, invited, "Invited", 1_000);
+
+        assertEquals(2, store.clearAll());
+
+        ClanStore reloaded = new ClanStore(path);
+        assertTrue(reloaded.list().isEmpty());
+        assertTrue(reloaded.clanOf(leader).isEmpty());
+        // The invite went with the clan, so accepting it cannot resurrect anything.
+        assertThrows(
+                ClanStore.ClanException.class,
+                () -> reloaded.accept(invited, "Invited", 1_002)
+        );
+    }
+
+    @Test
+    void clearingAnEmptyStoreIsHarmless() throws Exception {
+        ClanStore store = new ClanStore(temporaryDirectory.resolve("empty-clans.json"));
+
+        assertEquals(0, store.clearAll());
+        assertTrue(store.list().isEmpty());
+    }
 }

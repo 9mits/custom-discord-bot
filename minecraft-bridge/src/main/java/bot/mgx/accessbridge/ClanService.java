@@ -95,7 +95,8 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 case "decline" -> decline(player);
                 case "info" -> menus.openInfo(player, remainder(args, infoAlias ? 0 : 1));
                 case "members", "roster" -> menus.openMembers(
-                        player, ownClan(player).id(), page(args, 1));
+                        player, ownClan(player).id(), page(args, 1),
+                        Menu.Destination.of(Menu.Kind.CLAN_HUB));
                 case "list" -> menus.openList(player, page(args, 1));
                 case "rename", "name" -> rename(player, remainder(args, 1));
                 case "color", "colour", "theme" -> color(player, remainder(args, 1));
@@ -132,6 +133,9 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         }
         ClanStore.ClanView clan = store.create(player.getUniqueId(), player.getName(), name);
         plugin.refreshClans();
+        report(player, "clan_create", "Founded the clan " + clan.name())
+                .detail("clan", clan.name())
+                .record();
         success(player, "Created [" + clan.name() + "]. You are its leader.");
     }
 
@@ -146,6 +150,10 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         }
         store.invite(player.getUniqueId(), target.getUniqueId(), target.getName(), System.currentTimeMillis());
         ClanStore.ClanView clan = store.clanOf(player.getUniqueId()).orElseThrow();
+        report(player, "clan_invite", "Invited " + target.getName() + " to " + clan.name())
+                .detail("clan", clan.name())
+                .detail("target", target.getName())
+                .record();
         success(player, "Invited " + target.getName() + " to " + clan.name() + ".");
         target.sendMessage(prefix().append(Component.text(
                 player.getName() + " invited you to " + clan.name() + ". Use /clans accept within five minutes.",
@@ -158,6 +166,10 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 player.getUniqueId(), player.getName(), System.currentTimeMillis()
         );
         plugin.refreshClans();
+        report(player, "clan_join", "Joined the clan " + clan.name())
+                .detail("clan", clan.name())
+                .detail("members", clan.members().size() + "/" + clan.memberSlots())
+                .record();
         broadcast(clan, Component.text(player.getName() + " joined the clan.", LIGHT_ORANGE));
     }
 
@@ -179,12 +191,16 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void rename(Player player, String name) throws IOException {
-        leaderClan(player);
+        String previousName = leaderClan(player).name();
         if (name.isBlank()) {
             throw new ClanStore.ClanException("Usage: /clans rename <new name>");
         }
         ClanStore.ClanView clan = store.rename(player.getUniqueId(), name);
         plugin.refreshClans();
+        report(player, "clan_rename", "Renamed " + previousName + " to " + clan.name())
+                .detail("clan", clan.name())
+                .detail("previous", previousName)
+                .record();
         broadcast(clan, Component.text("The clan is now named " + clan.name() + ".", LIGHT_ORANGE));
     }
 
@@ -225,6 +241,10 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 resolveThemeColor(requestedColor)
         );
         plugin.refreshClans();
+        report(player, "clan_color", "Set the " + clan.name() + " theme colour")
+                .detail("clan", clan.name())
+                .detail("colour", String.format("#%06X", clan.themeColor()))
+                .record();
         TextColor theme = clanColor(clan);
         broadcast(clan, Component.text("Clan theme changed to ", NamedTextColor.GRAY)
                 .append(Component.text(String.format("#%06X", clan.themeColor()), theme)));
@@ -240,6 +260,11 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         UUID target = member(clan, targetName);
         ClanStore.ClanView updated = store.setStaff(player.getUniqueId(), target, promoted);
         String name = updated.members().get(target);
+        report(player, promoted ? "clan_promote" : "clan_demote",
+                (promoted ? "Promoted " : "Demoted ") + name + " in " + updated.name())
+                .detail("clan", updated.name())
+                .detail("target", name)
+                .record();
         broadcast(updated, Component.text(
                 name + (promoted ? " is now clan staff." : " is no longer clan staff."),
                 LIGHT_ORANGE
@@ -253,6 +278,11 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         }
         UUID target = member(clan, targetName);
         ClanStore.ClanView updated = store.transfer(player.getUniqueId(), target);
+        report(player, "clan_transfer",
+                "Handed " + updated.name() + " to " + updated.members().get(target))
+                .detail("clan", updated.name())
+                .detail("target", updated.members().get(target))
+                .record();
         broadcast(updated, Component.text(
                 updated.members().get(target) + " is now the clan leader.", LIGHT_ORANGE
         ));
@@ -266,6 +296,10 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         UUID target = member(clan, targetName);
         String removedName = store.kick(player.getUniqueId(), target);
         plugin.refreshClans();
+        report(player, "clan_kick", "Removed " + removedName + " from " + clan.name())
+                .detail("clan", clan.name())
+                .detail("target", removedName)
+                .record();
         success(player, "Removed " + removedName + " from " + clan.name() + ".");
         Player online = Bukkit.getPlayer(target);
         if (online != null) {
@@ -276,6 +310,8 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     private void leave(Player player) throws IOException {
         String clanName = store.leave(player.getUniqueId());
         plugin.refreshClans();
+        report(player, "clan_leave", "Left the clan " + clanName).detail("clan", clanName)
+                .record();
         success(player, "You left " + clanName + ".");
     }
 
@@ -316,6 +352,11 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         }
         store.disband(player.getUniqueId());
         plugin.refreshClans();
+        report(player, "clan_disband", "Disbanded the clan " + clan.name())
+                .detail("clan", clan.name())
+                .detail("balance", clan.balance())
+                .detail("members", String.valueOf(clan.members().size()))
+                .record();
         for (UUID memberId : clan.members().keySet()) {
             Player online = Bukkit.getPlayer(memberId);
             if (online != null) {
@@ -529,6 +570,20 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 online.sendMessage(rendered);
             }
         }
+    }
+
+    /**
+     * Reports a clan action to the Discord activity log.
+     *
+     * <p>Only actions taken in game come through here. The same action requested from
+     * Discord is audited by the bot at the point of the command, so reporting it again
+     * would log it twice.
+     */
+    private ServerEvent.Builder report(Player actor, String event, String summary) {
+        return ServerEvent.of(
+                event, ServerEvent.CATEGORY_CLAN, actor.getUniqueId(), actor.getName(),
+                plugin::recordServerEvent
+        ).summary(summary);
     }
 
     private static void success(Player player, String message) {

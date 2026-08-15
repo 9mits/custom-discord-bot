@@ -51,6 +51,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private PlayerMenuService playerMenuService;
     private PlayerSettingsStore playerSettings;
     private WealthStore wealthStore;
+    private RankSyncStore rankSyncStore;
     private final WhitelistDirectory whitelistDirectory = new WhitelistDirectory();
 
     @Override
@@ -88,6 +89,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                     getDataFolder().toPath().resolve("player-settings.json")
             );
             wealthStore = new WealthStore(getDataFolder().toPath().resolve("wealth.json"));
+            rankSyncStore = new RankSyncStore(getDataFolder().toPath().resolve("rank-sync.json"));
             identityStore = new DiscordIdentityStore(
                     getDataFolder().toPath().resolve("discord-identities.json")
             );
@@ -98,7 +100,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             return;
         }
         perkService = new PlayerPerkService();
-        luckPermsService = LuckPermsService.createIfAvailable(this);
+        luckPermsService = LuckPermsService.createIfAvailable(this, rankSyncStore);
         identityService = new DiscordIdentityService(this, identityStore);
         clanMenuService = new ClanMenuService(this, clanStore, identityService);
         playerMenuService = new PlayerMenuService(
@@ -154,6 +156,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 || getCommand("discord") == null
                 || getCommand("discordnames") == null
                 || getCommand("settings") == null
+                || getCommand("mgxadmin") == null
                 || getCommand("whitelisted") == null) {
             getLogger().severe("A required Minecraft command is missing from plugin.yml.");
             getServer().getPluginManager().disablePlugin(this);
@@ -174,6 +177,19 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         WhitelistDirectoryService whitelistService = new WhitelistDirectoryService(whitelistDirectory, playerMenuService);
         getCommand("whitelisted").setExecutor(whitelistService);
         getCommand("whitelisted").setTabCompleter(whitelistService);
+        AdminCommandService adminService = new AdminCommandService(
+                this,
+                rankSyncStore,
+                new ServerDataResetService(
+                        this,
+                        clanStore,
+                        wealthStore,
+                        rankSyncStore,
+                        getServer().getWorlds().get(0).getWorldFolder().toPath()
+                )
+        );
+        getCommand("mgxadmin").setExecutor(adminService);
+        getCommand("mgxadmin").setTabCompleter(adminService);
         sidebarService.start();
         leaderboardService.start();
         capabilityService.start();
@@ -369,6 +385,23 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     void applyPlayerRank(UUID minecraftUuid, String rankGroup) {
         if (luckPermsService != null) {
             luckPermsService.applyRank(minecraftUuid, rankGroup);
+        }
+    }
+
+    /**
+     * Reports an in-game action to the Discord activity log.
+     *
+     * <p>Routed through the plugin rather than handed the bridge directly, because the
+     * services that raise events are built before the bridge client is and would
+     * otherwise all need a late setter.
+     *
+     * <p>Actions that arrive <em>from</em> Discord are deliberately not reported here:
+     * the bot already audits its own commands, and logging them again would double
+     * every entry.
+     */
+    void recordServerEvent(ServerEvent event) {
+        if (bridgeClient != null && event != null) {
+            bridgeClient.queueServerEvent(event);
         }
     }
 

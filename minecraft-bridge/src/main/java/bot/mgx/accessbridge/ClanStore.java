@@ -149,6 +149,24 @@ final class ClanStore {
         return view(clan);
     }
 
+    /**
+     * Deletes every clan, vault, donation ledger and outstanding invite.
+     *
+     * <p>For starting the season over after testing. Unlike {@link #disband(UUID)} this
+     * asks nobody's permission and refunds nothing, so it is reachable only from the
+     * administrative reset.
+     *
+     * @return how many clans were removed
+     */
+    synchronized int clearAll() throws IOException {
+        int removed = state.clans.size();
+        state.clans.clear();
+        state.invites.clear();
+        memberIndex.clear();
+        persist();
+        return removed;
+    }
+
     synchronized Optional<ClanView> clanOf(UUID playerId) {
         SavedClan clan = memberIndex.get(playerId);
         return clan == null ? Optional.empty() : Optional.of(view(clan));

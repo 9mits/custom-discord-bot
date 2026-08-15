@@ -177,6 +177,17 @@ Read the relevant file when you touch an area; these are the non-obvious points.
   JSON snapshot of its own stats into a shared `project_stats/` folder (one file
   per bot user id, refreshed by `project_stats_task` every 5 min); `/about` sums
   all snapshots. `project_stats.py` imports only stdlib + discord — never `cogs/`.
+- **Minecraft bridge protocol:** `BridgeClient.PROTOCOL_VERSION` (Java) and the
+  `*_PROTOCOL_VERSION` constants in `minecraft_bot/bridge.py` must move together;
+  a test parses the Java and fails if they drift. Each capability is gated on the
+  peer's advertised number so an older plugin keeps working. v7 added
+  `SERVER_EVENT`, which reports in-game actions to the Discord activity log —
+  actions arriving *from* Discord are audited by the bot instead, so the plugin
+  must not report those or every entry doubles.
+- **Discord rank sync:** `LuckPermsService` removes only the group it recorded
+  granting in `RankSyncStore`, so a group set by hand in LuckPerms survives a
+  sync. `/mgxadmin ranks hold <player>` takes a player out of sync entirely,
+  which is how someone gets a rank Discord will never agree with.
 - **Deps:** `pip install -r requirements.txt` (discord.py>=2.6, aiohttp>=3.13,
   aiosqlite>=0.22, python-dotenv).
 
