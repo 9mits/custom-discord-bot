@@ -352,24 +352,18 @@ def clans_embed() -> discord.Embed:
 
 
 def clans_levels_embed(settings=None) -> discord.Embed:
-    """The upgrade ladder.
+    """How levelling a clan works, without publishing the ladder.
 
-    Enumerates :data:`clans.PUBLIC_LEVELS` rather than every key in the table, so the
-    level that stays hidden until a clan has bought everything else cannot leak into
-    the panel by someone extending the ladder later.
+    The costs and the perks each level grants are deliberately not listed. The clan
+    upgrade menu in game already shows a clan exactly what its next level costs and
+    what it would give, at the moment that is worth knowing — printing the whole
+    table here turned an ambition into a shopping list.
     """
-    ladder = []
-    for level in clans.PUBLIC_LEVELS:
-        perks = clans.perks_for(level)
-        ladder.append((
-            f"Level {level}  {clans.badge(level)}",
-            f"> Costs {clans.described_cost(level)}\n"
-            + "\n".join(f"> {line}" for line in perks.described()),
-        ))
     return _page(
         "Clans — Levels",
-        "A clan climbs on what its members donate. Every perk applies to **everyone "
-        "in the clan**, and stacks on top of the perks your Discord level already "
+        f"A clan climbs on what its members donate, through "
+        f"**{clans.MAX_PUBLIC_LEVEL} levels**. Every perk applies to **everyone in "
+        "the clan**, and stacks on top of the perks your Discord level already "
         "gives you.",
         [
             (
@@ -385,7 +379,14 @@ def clans_levels_embed(settings=None) -> discord.Embed:
                 "> **Donations are one way.** Nobody can take items back out, and "
                 "disbanding the clan destroys the balance with it.",
             ),
-            *ladder,
+            (
+                "What the levels give",
+                "> Extra hearts, and bonuses to strength, saturation, digging "
+                "speed, resistance and speed — every one of them shared by the "
+                "whole clan.\n"
+                "> The upgrade menu shows what your next level costs and what it "
+                "grants. Find out how far you can get.",
+            ),
             (
                 "Keeping the perks",
                 "> Perks last exactly as long as your membership. Leave the clan or "
@@ -399,38 +400,24 @@ def clans_levels_embed(settings=None) -> discord.Embed:
 
 
 def clans_members_embed(settings=None) -> discord.Embed:
-    """The roster ladder, which is the other thing a balance buys."""
-    # Twenty-two rungs would be twenty-two fields, which overruns what an embed can
-    # hold and reads as a wall besides. Grouped by material instead, which is also
-    # how the cost actually escalates.
-    grouped: dict[str, list[str]] = {}
-    for slots, material, amount in clans.MEMBER_TIERS:
-        grouped.setdefault(material, []).append(f"**{slots}** — {amount}")
-    rungs = [
-        (
-            f"Slots priced in {clans.readable_material(material)}",
-            "> " + "  ·  ".join(entries),
-        )
-        for material, entries in grouped.items()
-    ]
+    """The roster ladder, minus the prices — the upgrade menu quotes those in game.
+
+    A single document rather than fields: with the price table gone there is one
+    thing left to say, and a lone field reads as a page that lost something.
+    """
     return _page(
         "Clans — Roster",
         f"A new clan holds **{clans.STARTING_MEMBER_SLOTS} members**. Room for more "
-        "is bought from the clan balance, the same way levels are.",
-        [
-            (
-                "How it works",
-                "> `/clans upgrade` — leader only; the roster track sits beside the "
-                "level track\n"
-                "> **One member at a time**, so the next slot is always in reach\n"
-                f"> Every slot up to **{clans.MAX_MEMBER_SLOTS}** has to be earned\n"
-                "> Invites are refused once the roster is full\n"
-                "> \n"
-                "> Read as **roster size — cost**. The first few are pocket change; "
-                "the last ones are not.",
-            ),
-            *rungs,
-        ],
+        "is bought from the clan balance, the same way levels are.\n\n"
+        "> `/clans upgrade` — leader only; the roster track sits beside the level "
+        "track\n"
+        "> **One member at a time**, so the next slot is always in reach\n"
+        f"> Every slot up to **{clans.MAX_MEMBER_SLOTS}** has to be earned\n"
+        "> Invites are refused once the roster is full\n"
+        "> \n"
+        "> Each slot costs more than the last. The menu quotes the next one when "
+        "you open it.",
+        [],
     )
 
 
