@@ -258,6 +258,35 @@ class EditionSelectionView(discord.ui.View):
         self.add_item(EditionSelection(requester_id))
 
 
+class LinkEditionView(discord.ui.View):
+    """The ephemeral step before the link modal.
+
+    The modal edits its original response, so it has to be opened from a private
+    card — opening it straight from the public information panel would edit that
+    panel for everybody.
+    """
+
+    def __init__(self, requester_id: int, edition: Edition) -> None:
+        super().__init__(timeout=300)
+        self.requester_id = int(requester_id)
+        self.edition = edition
+        self.start.label = f"Link {edition.value.title()}"
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.user.id == self.requester_id:
+            return True
+        await interaction.response.send_message(
+            "This belongs to another member.", ephemeral=True
+        )
+        return False
+
+    @discord.ui.button(label="Link", style=discord.ButtonStyle.success)
+    async def start(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        await interaction.response.send_modal(
+            MinecraftApplicationModal(self.edition)
+        )
+
+
 class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Application"):
     """Stage one: just the account name. The written form follows verification."""
 
@@ -555,6 +584,13 @@ class AccountView(discord.ui.View):
         await interaction.response.edit_message(
             **branded_edit(await interaction.client.build_account_embed(interaction.user.id)),
             view=self,
+        )
+
+    @discord.ui.button(label="Link Other Edition", style=discord.ButtonStyle.primary)
+    async def link_other(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        embed, view = await interaction.client.build_link_edition_prompt(interaction.user.id)
+        await interaction.response.send_message(
+            **branded_send(embed), view=view, ephemeral=True
         )
 
     @discord.ui.button(label="Cancel Verification", style=discord.ButtonStyle.danger)

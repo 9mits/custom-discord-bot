@@ -163,7 +163,7 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         )
         self.assertEqual(
             {item.label for item in AccountView(123).children},
-            {"Refresh", "Cancel Verification"},
+            {"Refresh", "Link Other Edition", "Cancel Verification"},
         )
         panel_custom_ids = {
             component["custom_id"]
@@ -2414,6 +2414,26 @@ class MinecraftInformationPanelTests(unittest.TestCase):
             round((1 - constant("BOOSTER_EXHAUSTION_MULTIPLIER")) * 100),
         )
 
+    def test_members_are_never_offered_a_way_to_unlink(self):
+        # Linking only ever adds. Unlinking is a staff action through /mcstaff
+        # unlink, and a member-facing button would let someone shed an account to
+        # dodge whatever is attached to it.
+        from minecraft_bot.ui import AccountView
+
+        labels = {str(item.label) for item in AccountView(123).children}
+        for label in labels:
+            self.assertNotIn("unlink", label.casefold())
+
+        panel = {
+            str(item.custom_id)
+            for item in self.information.InformationView().children
+        }
+        for custom_id in panel:
+            self.assertNotIn("unlink", custom_id.casefold())
+
+        described = " ".join(self.embed_text(embed) for _name, embed in self._every_embed())
+        self.assertNotIn("unlink", described.casefold())
+
     def test_in_game_perk_copy_quotes_no_figure_of_its_own(self):
         # /perks told players "+5% direct combat damage" for months while the plugin
         # applied 15%, because the copy restated the number by hand. Nothing that
@@ -2453,13 +2473,17 @@ class MinecraftInformationPanelTests(unittest.TestCase):
 
     def test_buttons_route_back_to_their_page(self):
         pattern = self.information.InformationButton.__discord_ui_compiled_template__
+        link_pattern = self.information.LinkEditionButton.__discord_ui_compiled_template__
         emitted = [item.custom_id for item in self.information.InformationView().children]
 
-        self.assertEqual(len(emitted), len(self.information.PAGES))
-        for custom_id in emitted:
-            match = pattern.fullmatch(custom_id)
-            self.assertIsNotNone(match, f"{custom_id} would not route back")
-            self.assertIn(match["page"], self.information.PAGES)
+        # Every page, plus the link action, and nothing that routes nowhere.
+        pages = [custom_id for custom_id in emitted if pattern.fullmatch(custom_id)]
+        links = [custom_id for custom_id in emitted if link_pattern.fullmatch(custom_id)]
+        self.assertEqual(len(pages), len(self.information.PAGES))
+        self.assertEqual(len(links), 1)
+        self.assertEqual(len(emitted), len(pages) + len(links))
+        for custom_id in pages:
+            self.assertIn(pattern.fullmatch(custom_id)["page"], self.information.PAGES)
 
     def test_no_page_walks_an_accepted_member_through_applying(self):
         # Everyone reading this panel has already applied and been accepted, so

@@ -739,5 +739,171 @@ class MinecraftMigrationBackupTests(unittest.IsolatedAsyncioTestCase):
                 backup.close()
 
 
+class SecondEditionLinkTests(unittest.IsolatedAsyncioTestCase):
+    """Linking the other edition once a member is already accepted."""
+
+    async def asyncSetUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.data = MinecraftDataManager(Path(self.directory.name) / "minecraft.db")
+        await self.data.open()
+
+    async def asyncTearDown(self):
+        await self.data.close()
+        self.directory.cleanup()
+
+    async def _approve_java(self, *, user_id=42, username="TestPlayer", now=1000):
+        """Takes a member all the way to approved Java access."""
+        application = await self.data.create_application(
+            guild_id=10,
+            discord_user_id=user_id,
+            edition=Edition.JAVA,
+            claimed_username=username,
+            answers={
+                "why": "I want to build with this community.",
+                "about": "I am a considerate builder who enjoys group projects.",
+            },
+            now=now,
+        )
+        await self.data.record_verification(
+            application_id=application.id,
+            edition=Edition.JAVA,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            current_username=username,
+            xuid=None,
+            event_idempotency_key=f"verify-java-{user_id}",
+            now=now + 10,
+        )
+        await self.data.queue_approval(application.id, 99, now=now + 20)
+        approval = next(
+            record
+            for record in await self.data.get_outbox_batch()
+            if record.action is BridgeAction.APPROVE
+        )
+        await self.data.complete_outbox(approval.idempotency_key)
+        return application
+
+    async def _verify_bedrock(self, *, user_id=42, gamertag="Test Gamer", now=2000):
+        application = await self.data.create_application(
+            guild_id=10,
+            discord_user_id=user_id,
+            edition=Edition.BEDROCK,
+            claimed_username=gamertag,
+            now=now,
+        )
+        verified, _changed = await self.data.record_verification(
+            application_id=application.id,
+            edition=Edition.BEDROCK,
+            minecraft_uuid="223e4567-e89b-12d3-a456-426614174000",
+            current_username=gamertag,
+            xuid="2535400000000000",
+            event_idempotency_key=f"verify-bedrock-{user_id}-{now}",
+            now=now + 10,
+        )
+        return verified
+
+    async def test_an_accepted_member_links_the_other_edition_without_a_second_review(self):
+        await self._approve_java()
+
+        verified = await self._verify_bedrock()
+
+        # Straight past the written form and the review queue: the person was vetted
+        # already, and verification is the only new fact.
+        self.assertEqual(verified.status, ApplicationStatus.APPROVAL_QUEUED)
+        self.assertIsNone(verified.reviewed_by)
+
+        approvals = [
+            record
+            for record in await self.data.get_outbox_batch()
+            if record.action is BridgeAction.APPROVE
+            and record.application_id == verified.id
+        ]
+        self.assertEqual(len(approvals), 1)
+
+        await self.data.complete_outbox(approvals[0].idempotency_key)
+        final = await self.data.get_application(verified.id)
+        self.assertEqual(final.status, ApplicationStatus.APPROVED)
+
+        # Both editions are now linked, and both carry whitelist access.
+        accounts = {row["edition"] for row in await self.data.list_accounts_for_user(42)}
+        self.assertEqual({"JAVA", "BEDROCK"}, accounts)
+        self.assertEqual(2, len(await self.data.list_whitelisted()))
+
+    async def test_the_auto_approval_records_no_moderator(self):
+        # Naming the bot as the reviewer would be a lie in the staff log; the audit
+        # has to say plainly that nobody reviewed it.
+        await self._approve_java()
+        verified = await self._verify_bedrock()
+
+        actions = [row["action"] for row in await self.data.audit_rows(verified.id)]
+        self.assertIn("LINK_AUTO_APPROVED", actions)
+        self.assertNotIn("APPROVAL_QUEUED", actions)
+
+        entry = next(
+            row
+            for row in await self.data.audit_rows(verified.id)
+            if row["action"] == "LINK_AUTO_APPROVED"
+        )
+        self.assertIsNone(entry["actor_discord_id"])
+        self.assertEqual(entry["target_discord_id"], "42")
+
+    async def test_a_first_application_still_waits_for_the_form(self):
+        # The guard is "already holds approved access", not "used the link button" —
+        # so this cannot become a way to skip review on a first application.
+        application = await self.data.create_application(
+            guild_id=10,
+            discord_user_id=77,
+            edition=Edition.JAVA,
+            claimed_username="Newcomer",
+            now=1000,
+        )
+        verified, _ = await self.data.record_verification(
+            application_id=application.id,
+            edition=Edition.JAVA,
+            minecraft_uuid="323e4567-e89b-12d3-a456-426614174000",
+            current_username="Newcomer",
+            xuid=None,
+            event_idempotency_key="verify-newcomer",
+            now=1010,
+        )
+
+        self.assertEqual(verified.status, ApplicationStatus.PENDING_APPLICATION)
+        self.assertEqual([], [
+            record
+            for record in await self.data.get_outbox_batch()
+            if record.action is BridgeAction.APPROVE
+        ])
+
+    async def test_a_revoked_member_goes_through_the_full_application(self):
+        approved = await self._approve_java(user_id=55, username="WasHere")
+        await self.data.unlink_account(55, Edition.JAVA, 99, "Revoked for cause")
+        revoke = next(
+            record
+            for record in await self.data.get_outbox_batch()
+            if record.action is BridgeAction.REVOKE
+        )
+        await self.data.complete_outbox(revoke.idempotency_key)
+        self.assertEqual(
+            (await self.data.get_application(approved.id)).status,
+            ApplicationStatus.REVOKED,
+        )
+
+        verified = await self._verify_bedrock(user_id=55, gamertag="Was Here", now=3000)
+
+        # No approved row left, so they are a stranger again.
+        self.assertEqual(verified.status, ApplicationStatus.PENDING_APPLICATION)
+
+    async def test_the_one_per_edition_ceiling_is_unchanged(self):
+        await self._approve_java()
+
+        with self.assertRaises(AccountEditionAlreadyLinked):
+            await self.data.create_application(
+                guild_id=10,
+                discord_user_id=42,
+                edition=Edition.JAVA,
+                claimed_username="SomeoneElse",
+                now=5000,
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

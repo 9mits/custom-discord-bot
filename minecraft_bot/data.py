@@ -841,17 +841,37 @@ class MinecraftDataManager:
                     if linked_xuid and linked_xuid[0]["discord_user_id"] != application.discord_user_id:
                         raise InvalidTransition("Floodgate XUID is linked to another Discord member")
 
+                # A member who already holds approved access is linking their other
+                # edition. The written form and the review exist to vet the person,
+                # which staff have already done; verification is the only new fact,
+                # and it has just happened. Anyone without approved access — never
+                # accepted, denied, or revoked — still gets the full application.
+                already_approved = await db.execute_fetchall(
+                    "SELECT 1 FROM minecraft_applications WHERE discord_user_id=? AND guild_id=? "
+                    "AND status=? AND id<>? LIMIT 1",
+                    (
+                        application.discord_user_id,
+                        application.guild_id,
+                        ApplicationStatus.APPROVED.value,
+                        application.id,
+                    ),
+                )
+                auto_link = bool(already_approved)
+
                 # Applications created without written answers (the normal flow now)
                 # move to PENDING_APPLICATION and wait for the form; legacy records
                 # that already carry answers go straight to staff review.
-                next_status = (
-                    ApplicationStatus.PENDING_REVIEW
-                    if application.answers
-                    else ApplicationStatus.PENDING_APPLICATION
-                )
+                if auto_link:
+                    next_status = ApplicationStatus.APPROVAL_QUEUED
+                else:
+                    next_status = (
+                        ApplicationStatus.PENDING_REVIEW
+                        if application.answers
+                        else ApplicationStatus.PENDING_APPLICATION
+                    )
                 next_deadline = (
                     application.verification_expires_at
-                    if application.answers
+                    if application.answers or auto_link
                     else current + ANSWERS_WINDOW_SECONDS
                 )
                 await db.execute(
@@ -904,6 +924,31 @@ class MinecraftDataManager:
                     application_id=application.id,
                     timestamp=current,
                 )
+                if auto_link:
+                    # The same queue a staff approval uses, so whitelisting, retries
+                    # and the outbox behave identically. reviewed_by stays null:
+                    # recording the bot as the moderator would be a lie in the log.
+                    await self._queue(
+                        db,
+                        BridgeAction.APPROVE,
+                        {
+                            "application_id": application.id,
+                            "edition": edition.value,
+                            "minecraft_uuid": minecraft_uuid,
+                            "verified_username": current_username,
+                        },
+                        idempotency_key=f"application:{application.id}:approve:{minecraft_uuid}",
+                        application_id=application.id,
+                        timestamp=current,
+                    )
+                    await self._audit(
+                        db,
+                        "LINK_AUTO_APPROVED",
+                        application_id=application.id,
+                        target_id=application.discord_user_id,
+                        payload={"edition": edition.value, "username": current_username},
+                        timestamp=current,
+                    )
                 await self._audit(
                     db,
                     "VERIFICATION_ACCEPTED",
