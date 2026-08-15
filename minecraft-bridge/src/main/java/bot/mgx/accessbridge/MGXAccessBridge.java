@@ -47,6 +47,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private LeaderboardService leaderboardService;
     private CapabilityService capabilityService;
     private ClanStore clanStore;
+    private ClanMenuService clanMenuService;
     private PlayerSettingsStore playerSettings;
     private WealthStore wealthStore;
     private final WhitelistDirectory whitelistDirectory = new WhitelistDirectory();
@@ -98,7 +99,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         perkService = new PlayerPerkService();
         luckPermsService = LuckPermsService.createIfAvailable(this);
         identityService = new DiscordIdentityService(this, identityStore);
-        ClanService clanService = new ClanService(this, clanStore, identityService, perkService, playerSettings);
+        clanMenuService = new ClanMenuService(this, clanStore);
+        ClanService clanService = new ClanService(
+                this, clanStore, identityService, perkService, playerSettings, clanMenuService
+        );
         GuideService guideService = new GuideService();
         sidebarService = new SidebarService(
                 this,
@@ -136,6 +140,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(perkService, this);
         getServer().getPluginManager().registerEvents(clanService, this);
+        getServer().getPluginManager().registerEvents(clanMenuService, this);
         getServer().getPluginManager().registerEvents(chatRelayService, this);
         if (getCommand("clans") == null
                 || getCommand("claninfo") == null
@@ -172,6 +177,11 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
+        if (clanMenuService != null) {
+            // Items sitting in an open donation window exist only in that inventory
+            // object. Closing banks them; not closing loses them.
+            clanMenuService.closeAll();
+        }
         if (capabilityService != null) {
             capabilityService.stop();
         }

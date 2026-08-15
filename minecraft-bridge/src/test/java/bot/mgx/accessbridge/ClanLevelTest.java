@@ -48,24 +48,92 @@ class ClanLevelTest {
             assertFalse(ClanLevel.costOf(level).isEmpty(), "level " + level + " is free");
             for (ClanLevel.Cost cost : ClanLevel.costOf(level)) {
                 assertTrue(cost.amount() > 0, "level " + level + " asks for no items");
-                assertTrue(ClanLevel.isDepositable(cost.material()),
-                        cost.material() + " cannot be banked, so the level is unbuyable");
+                assertTrue(ClanLevel.isDonatable(cost.material()),
+                        cost.material() + " cannot be donated, so the level is unbuyable");
             }
+        }
+        for (ClanLevel.MemberTier tier : ClanLevel.MEMBER_TIERS) {
+            assertTrue(ClanLevel.isDonatable(tier.cost().material()),
+                    tier.cost().material() + " cannot be donated, so the slot is unbuyable");
         }
     }
 
     @Test
-    void badgesAreOneStarPerLevelAndDistinctlyColoured() {
-        assertEquals("★", ClanLevel.badge(1));
-        assertEquals("★★★★★", ClanLevel.badge(ClanLevel.MAX_PUBLIC_LEVEL));
-        for (int level = 1; level <= ClanLevel.MAX_PUBLIC_LEVEL; level++) {
-            assertEquals(level, ClanLevel.badge(level).codePointCount(0, ClanLevel.badge(level).length()));
-            assertNotEquals(ClanLevel.badgeColor(level - 1), ClanLevel.badgeColor(level),
-                    "level " + level + " looks identical to the level below it");
+    void theBadgeIsOneGlyphRecolouredRatherThanAGrowingRow() {
+        // A row of stars sits in front of every chat line, so the level is carried by
+        // colour instead. Colour is then the only thing telling levels apart, which is
+        // why every one of them has to differ.
+        for (int level = 1; level <= ClanLevel.SECRET_LEVEL; level++) {
+            String badge = ClanLevel.badge(level);
+            assertEquals(1, badge.codePointCount(0, badge.length()),
+                    "level " + level + " badge is not a single glyph");
         }
-        // The secret level is marked apart rather than by star count.
+        for (int level = 1; level <= ClanLevel.SECRET_LEVEL; level++) {
+            for (int other = level + 1; other <= ClanLevel.SECRET_LEVEL; other++) {
+                assertNotEquals(ClanLevel.badgeColor(level), ClanLevel.badgeColor(other),
+                        "levels " + level + " and " + other + " are the same colour");
+            }
+        }
+        // The secret level also takes its own glyph: two purples are not far enough
+        // apart to read as different at a glance.
         assertNotEquals(ClanLevel.badge(ClanLevel.MAX_PUBLIC_LEVEL),
                 ClanLevel.badge(ClanLevel.SECRET_LEVEL));
+    }
+
+    @Test
+    void theRosterLadderOnlyEverGetsDearer() {
+        int previous = 0;
+        for (ClanLevel.MemberTier tier : ClanLevel.MEMBER_TIERS) {
+            int price = WealthValues.valueOf(tier.cost().material()) * tier.cost().amount();
+            assertTrue(price > previous,
+                    "the " + tier.slots() + "-slot tier is no dearer than the one before it");
+            previous = price;
+        }
+    }
+
+    @Test
+    void theRosterLadderStartsAtThreeAndEndsAtThirtyNetheriteIngots() {
+        assertEquals(3, ClanLevel.STARTING_MEMBER_SLOTS);
+        assertEquals(25, ClanLevel.maxMemberSlots());
+
+        ClanLevel.MemberTier last = ClanLevel.MEMBER_TIERS.get(ClanLevel.MEMBER_TIERS.size() - 1);
+        assertEquals("NETHERITE_INGOT", last.cost().material());
+        assertEquals(30, last.cost().amount());
+
+        // Diamonds then netherite, and nothing else.
+        for (ClanLevel.MemberTier tier : ClanLevel.MEMBER_TIERS) {
+            assertTrue(tier.cost().material().startsWith("DIAMOND")
+                            || tier.cost().material().startsWith("NETHERITE"),
+                    tier.cost().material() + " is neither diamond nor netherite");
+        }
+    }
+
+    @Test
+    void slotsAndTiersRoundTrip() {
+        assertEquals(ClanLevel.STARTING_MEMBER_SLOTS, ClanLevel.slotsAfter(0));
+        assertEquals(0, ClanLevel.tiersBoughtFor(ClanLevel.STARTING_MEMBER_SLOTS));
+        for (int bought = 1; bought <= ClanLevel.MEMBER_TIERS.size(); bought++) {
+            int slots = ClanLevel.slotsAfter(bought);
+            assertEquals(bought, ClanLevel.tiersBoughtFor(slots), "round trip at " + bought);
+            assertTrue(ClanLevel.isValidSlotCount(slots));
+        }
+        assertTrue(ClanLevel.nextMemberTier(ClanLevel.MEMBER_TIERS.size()).isEmpty());
+        assertFalse(ClanLevel.isValidSlotCount(4));
+    }
+
+    @Test
+    void oldClansKeepEveryoneTheyAlreadyHold() {
+        // Clans predating the ladder ran under a flat 25-player cap. Migrating them
+        // down to 3 would strand members who are already inside.
+        assertEquals(3, ClanLevel.smallestSlotCountHolding(1));
+        assertEquals(3, ClanLevel.smallestSlotCountHolding(3));
+        assertEquals(5, ClanLevel.smallestSlotCountHolding(4));
+        assertEquals(8, ClanLevel.smallestSlotCountHolding(7));
+        assertEquals(25, ClanLevel.smallestSlotCountHolding(25));
+        for (int members = 1; members <= 25; members++) {
+            assertTrue(ClanLevel.smallestSlotCountHolding(members) >= members,
+                    members + " members would not fit");
+        }
     }
 
     @Test
@@ -99,12 +167,14 @@ class ClanLevelTest {
     }
 
     @Test
-    void theVaultRefusesAnythingNoUpgradeAsksFor() {
-        assertTrue(ClanLevel.isDepositable("DIAMOND"));
-        assertTrue(ClanLevel.isDepositable("diamond"));
-        assertFalse(ClanLevel.isDepositable("DIRT"));
-        assertFalse(ClanLevel.isDepositable(""));
-        assertFalse(ClanLevel.isDepositable(null));
+    void theVaultTakesAnythingWorthSomething() {
+        assertTrue(ClanLevel.isDonatable("DIAMOND"));
+        assertTrue(ClanLevel.isDonatable("diamond"));
+        // Not an upgrade material, but it has a value, so it builds the balance.
+        assertTrue(ClanLevel.isDonatable("ELYTRA"));
+        assertFalse(ClanLevel.isDonatable("DIRT"));
+        assertFalse(ClanLevel.isDonatable(""));
+        assertFalse(ClanLevel.isDonatable(null));
     }
 
     @Test

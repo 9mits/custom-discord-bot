@@ -1469,17 +1469,28 @@ class MinecraftAccessBot(commands.Bot):
                 )
                 lines.append("")
                 lines.append(f"**{clans.describe(caps.clan_level)}**")
+                lines.append(f"> Balance **{caps.clan_balance:,}**")
+                slots = caps.clan_member_slots or clans.STARTING_MEMBER_SLOTS
+                lines.append(f"> Roster **{caps.clan_members}/{slots}**")
                 held = clans.perks_for(caps.clan_level)
                 if held.is_none():
-                    lines.append("> No clan perks yet. Upgrade with `/clans upgrade` in game.")
+                    lines.append("> No clan perks yet")
                 else:
                     lines.extend(f"> {line}" for line in held.described())
+                lines.append("")
+                lines.append("**Next**")
                 following = clans.next_level(caps.clan_level)
                 if following is not None:
-                    lines.append("")
-                    lines.append(f"**Next — level {following}**")
-                    lines.append(f"> Costs {clans.described_cost(following)}")
-                    lines.append("> Bank materials with `/clans deposit` in game.")
+                    lines.append(f"> Level {following} — {clans.described_cost(following)}")
+                roster = clans.next_member_tier(slots)
+                if roster is not None:
+                    lines.append(
+                        f"> {roster[0]} members — {clans.described_member_cost(roster)}"
+                    )
+                if following is None and roster is None:
+                    lines.append("> Everything is bought.")
+                else:
+                    lines.append("> Give items with `/clans donate` in game.")
                 actions = caps.available_clan_actions()
                 if actions:
                     lines.append("")

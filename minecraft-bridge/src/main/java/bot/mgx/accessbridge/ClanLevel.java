@@ -2,9 +2,8 @@ package bot.mgx.accessbridge;
 
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
+import java.util.Optional;
 
 /**
  * The clan upgrade ladder: what each level costs, what it grants, and how it is badged.
@@ -74,23 +73,40 @@ final class ClanLevel {
             6, List.of(new Cost("DRAGON_EGG", 1))
     );
 
-    /**
-     * What the vault accepts. Restricting it to the upgrade materials keeps clans.json
-     * small and stops the vault becoming general storage.
-     */
-    static final Set<String> DEPOSITABLE = COSTS.values().stream()
-            .flatMap(List::stream)
-            .map(Cost::material)
-            .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    /** A clan's roster before it buys any of {@link #MEMBER_TIERS}. */
+    static final int STARTING_MEMBER_SLOTS = 3;
 
-    /** One star per level, so the level reads without anyone printing "LEVEL 3". */
+    /**
+     * Roster upgrades as (slots, price). Diamonds then netherite, each step dearer
+     * than the last by {@link WealthValues} — a test holds that ordering, since a
+     * cheaper later tier would let a clan skip the ladder.
+     */
+    static final List<MemberTier> MEMBER_TIERS = List.of(
+            new MemberTier(5, new Cost("DIAMOND", 32)),
+            new MemberTier(8, new Cost("DIAMOND_BLOCK", 8)),
+            new MemberTier(12, new Cost("NETHERITE_INGOT", 12)),
+            new MemberTier(16, new Cost("NETHERITE_INGOT", 18)),
+            new MemberTier(20, new Cost("NETHERITE_INGOT", 24)),
+            new MemberTier(25, new Cost("NETHERITE_INGOT", 30))
+    );
+
+    /** One rung of the roster ladder. */
+    record MemberTier(int slots, Cost cost) {
+    }
+
+    /**
+     * One star the whole way up, recoloured rather than repeated: a growing row of
+     * stars sits in front of every chat line and clutters chat and the player list.
+     * The secret level takes a different glyph because two purples are not far enough
+     * apart to read as different on their own.
+     */
     private static final Map<Integer, String> BADGES = Map.of(
             0, "",
             1, "★",
-            2, "★★",
-            3, "★★★",
-            4, "★★★★",
-            5, "★★★★★",
+            2, "★",
+            3, "★",
+            4, "★",
+            5, "★",
             6, "✦"
     );
 
@@ -142,31 +158,73 @@ final class ClanLevel {
         return !isSecret(level) || current >= MAX_PUBLIC_LEVEL;
     }
 
-    static boolean isDepositable(String material) {
-        return DEPOSITABLE.contains(normalizeMaterial(material));
+    /** The vault takes anything worth something, which is what gives it a balance. */
+    static boolean isDonatable(String material) {
+        return WealthValues.isValuable(material);
     }
 
     static String normalizeMaterial(String material) {
-        return material == null ? "" : material.trim().toUpperCase(Locale.ROOT);
+        return WealthValues.normalize(material);
     }
 
-    /** "Diamond Block" from "DIAMOND_BLOCK", for messages meant to be read. */
     static String readableMaterial(String material) {
-        String normalized = normalizeMaterial(material);
-        if (normalized.isEmpty()) {
-            return "";
+        return WealthValues.readable(material);
+    }
+
+    /** Slots a clan holds after buying {@code bought} rungs of the roster ladder. */
+    static int slotsAfter(int bought) {
+        if (bought <= 0) {
+            return STARTING_MEMBER_SLOTS;
         }
-        StringBuilder readable = new StringBuilder();
-        for (String word : normalized.split("_")) {
-            if (word.isEmpty()) {
-                continue;
-            }
-            if (readable.length() > 0) {
-                readable.append(' ');
-            }
-            readable.append(word.charAt(0)).append(word.substring(1).toLowerCase(Locale.ROOT));
+        int capped = Math.min(bought, MEMBER_TIERS.size());
+        return MEMBER_TIERS.get(capped - 1).slots();
+    }
+
+    /** The rung {@code bought} rungs in, or empty at the top of the ladder. */
+    static Optional<MemberTier> nextMemberTier(int bought) {
+        return bought < 0 || bought >= MEMBER_TIERS.size()
+                ? Optional.empty()
+                : Optional.of(MEMBER_TIERS.get(bought));
+    }
+
+    static int maxMemberSlots() {
+        return MEMBER_TIERS.get(MEMBER_TIERS.size() - 1).slots();
+    }
+
+    /** Whether a saved roster size is one this ladder can actually produce. */
+    static boolean isValidSlotCount(int slots) {
+        if (slots == STARTING_MEMBER_SLOTS) {
+            return true;
         }
-        return readable.toString();
+        return MEMBER_TIERS.stream().anyMatch(tier -> tier.slots() == slots);
+    }
+
+    /**
+     * The smallest roster size on this ladder that still holds {@code members}.
+     *
+     * <p>Used to migrate clans built under the old flat cap: dropping them to the
+     * starting size would strand members who are already in them.
+     */
+    static int smallestSlotCountHolding(int members) {
+        if (members <= STARTING_MEMBER_SLOTS) {
+            return STARTING_MEMBER_SLOTS;
+        }
+        for (MemberTier tier : MEMBER_TIERS) {
+            if (tier.slots() >= members) {
+                return tier.slots();
+            }
+        }
+        return maxMemberSlots();
+    }
+
+    /** How many rungs a clan has bought, read back from its saved roster size. */
+    static int tiersBoughtFor(int slots) {
+        for (int index = MEMBER_TIERS.size() - 1; index >= 0; index--) {
+            if (MEMBER_TIERS.get(index).slots() == slots) {
+                return index + 1;
+            }
+        }
+        return 0;
     }
 
     /**
@@ -174,8 +232,13 @@ final class ClanLevel {
      * the upgrade is affordable.
      */
     static Map<String, Integer> shortfall(Map<String, Integer> vault, int level) {
+        return shortfall(vault, costOf(level));
+    }
+
+    /** What {@code vault} still lacks to cover {@code costs}, in cost order. */
+    static Map<String, Integer> shortfall(Map<String, Integer> vault, List<Cost> costs) {
         LinkedHashMap<String, Integer> missing = new LinkedHashMap<>();
-        for (Cost cost : costOf(level)) {
+        for (Cost cost : costs) {
             int held = vault == null ? 0 : vault.getOrDefault(cost.material(), 0);
             if (held < cost.amount()) {
                 missing.put(cost.material(), cost.amount() - held);
