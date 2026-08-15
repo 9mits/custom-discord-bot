@@ -35,6 +35,12 @@ RULES_ATTACHMENT_URI = f"attachment://{RULES_FILENAME}"
 VERIFY_FILENAME = "mysterious_smp_x_verify.png"
 VERIFY_PATH = Path(__file__).resolve().parent.parent / "assets" / "minecraft" / VERIFY_FILENAME
 VERIFY_ATTACHMENT_URI = f"attachment://{VERIFY_FILENAME}"
+ABOUT_FILENAME = "mysterious_smp_x_about.png"
+ABOUT_PATH = Path(__file__).resolve().parent.parent / "assets" / "minecraft" / ABOUT_FILENAME
+ABOUT_ATTACHMENT_URI = f"attachment://{ABOUT_FILENAME}"
+APPLY_FILENAME = "mysterious_smp_x_apply.png"
+APPLY_PATH = Path(__file__).resolve().parent.parent / "assets" / "minecraft" / APPLY_FILENAME
+APPLY_ATTACHMENT_URI = f"attachment://{APPLY_FILENAME}"
 MARK_FILENAME = "mysterious_smp_x_mark.png"
 MARK_PATH = Path(__file__).resolve().parent.parent / "assets" / "minecraft" / MARK_FILENAME
 MARK_ATTACHMENT_URI = f"attachment://{MARK_FILENAME}"
@@ -177,6 +183,22 @@ def rules_image_file() -> discord.File:
     )
 
 
+def about_image_file() -> discord.File:
+    return discord.File(
+        ABOUT_PATH,
+        filename=ABOUT_FILENAME,
+        description=f"{BRAND_NAME} information mark",
+    )
+
+
+def apply_image_file() -> discord.File:
+    return discord.File(
+        APPLY_PATH,
+        filename=APPLY_FILENAME,
+        description=f"{BRAND_NAME} application mark",
+    )
+
+
 def verification_image_file() -> discord.File:
     return discord.File(
         VERIFY_PATH,
@@ -295,12 +317,13 @@ def application_guide_embed() -> discord.Embed:
         ),
         inline=False,
     )
+    embed.set_thumbnail(url=ABOUT_ATTACHMENT_URI)
     return embed
 
 
 def application_apply_embed() -> discord.Embed:
     """The step-by-step, kept on its own message so the button stands alone."""
-    return _panel_embed(
+    embed = _panel_embed(
         "Apply to Mysterious SMP X",
         "Applying takes a few minutes and is completed entirely within Discord.\n\n"
         "**How it works**\n"
@@ -313,6 +336,8 @@ def application_apply_embed() -> discord.Embed:
         "> Enable direct messages from server members so the bot can reach you.\n"
         "> Entered the wrong username? Press **Apply** again to cancel privately.",
     )
+    embed.set_thumbnail(url=APPLY_ATTACHMENT_URI)
+    return embed
 
 
 #: Each rule as (heading, body). Held as data so the reference panel and the
