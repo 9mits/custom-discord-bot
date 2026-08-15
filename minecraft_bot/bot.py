@@ -21,7 +21,7 @@ from .audit import (
 from . import clans
 from .bridge import MinecraftBridgeServer
 from .config import MinecraftConfig
-from .data import MinecraftDataManager
+from .data import ACTIVE_APPLICATION_STATUSES, MinecraftDataManager
 from .models import ApplicationStatus, BridgeAction, Edition, InvalidTransition, MinecraftApplication, OutboxRecord
 from .perks import (
     BOOSTER_ROLE_ID,
@@ -55,7 +55,13 @@ from .presentation import (
     live_status_embed,
 )
 from .settings import MinecraftSettings, SETTING_KEYS
-from .ui import AccountView, LiveApplicationView, MinecraftControlView, ReviewView
+from .ui import (
+    AccountView,
+    LinkEditionView,
+    LiveApplicationView,
+    MinecraftControlView,
+    ReviewView,
+)
 
 
 logger = logging.getLogger("MinecraftAccessBot")
@@ -195,12 +201,16 @@ class MinecraftAccessBot(commands.Bot):
         self.add_view(LiveApplicationView())
         # Without this the leaderboard dropdowns have no handler, so Discord reports
         # that the bot did not respond in time.
-        from .information import InformationButton, SectionButton
+        from .information import InformationButton, LinkEditionButton, SectionButton
         from .leaderboard import BoardSelect
         from .ui import ContinueApplicationButton
 
         self.add_dynamic_items(
-            BoardSelect, InformationButton, SectionButton, ContinueApplicationButton
+            BoardSelect,
+            InformationButton,
+            LinkEditionButton,
+            SectionButton,
+            ContinueApplicationButton,
         )
         await self.bridge.start()
         self.application_maintenance.start()
@@ -631,6 +641,68 @@ class MinecraftAccessBot(commands.Bot):
                     await self.data.fail_delivery(delivery.id, "Destination unavailable", delivery.attempts)
             except Exception as exc:
                 await self.data.fail_delivery(delivery.id, type(exc).__name__, delivery.attempts)
+
+    async def build_link_edition_prompt(
+        self, user_id: int | str
+    ) -> tuple[discord.Embed, Optional[discord.ui.View]]:
+        """The card offering to link whichever edition a member is missing.
+
+        Reads their real state rather than assuming, so the same button answers
+        correctly whether they hold one edition, both, or none. Linking only ever
+        adds; unlinking stays a staff action.
+        """
+        accounts, applications = await asyncio.gather(
+            self.data.list_accounts_for_user(user_id),
+            self.data.list_applications_for_user(user_id, limit=1),
+        )
+        linked = {str(row["edition"]).upper() for row in accounts}
+        panel_hint = (
+            f"<#{self.settings.application_channel_id}>"
+            if self.settings.application_channel_id
+            else "the application channel"
+        )
+        if not linked:
+            return (
+                info_embed(
+                    "No Linked Account Yet",
+                    "> Linking a second edition is for members who already play here.\n\n"
+                    f"Press **Apply** in {panel_hint} to get your first account set up.",
+                ),
+                None,
+            )
+        if len(linked) >= len(Edition):
+            return (
+                info_embed(
+                    "Both Editions Linked",
+                    "> You already have a Java and a Bedrock account linked.\n\n"
+                    "Ask staff if one of them needs changing.",
+                ),
+                None,
+            )
+        latest = applications[0] if applications else None
+        if latest is not None and latest.status in ACTIVE_APPLICATION_STATUSES:
+            return (
+                info_embed(
+                    "Application Already Active",
+                    "> You already have an application in progress, so a second one "
+                    "cannot start yet.\n\n"
+                    "Finish or cancel it first — `/minecraft account` shows where it is.",
+                    error=True,
+                ),
+                None,
+            )
+        missing = next(edition for edition in Edition if edition.value not in linked)
+        return (
+            info_embed(
+                f"Link Your {missing.value.title()} Account",
+                f"> You are already accepted, so this only needs you to prove the "
+                f"{missing.value.title()} account is yours.\n\n"
+                "**1.** Press the button and enter the exact account name.\n"
+                "**2.** Join the server once with it. You will be disconnected.\n"
+                "**3.** That is it — no form, no waiting for staff.",
+            ),
+            LinkEditionView(user_id, missing),
+        )
 
     async def build_account_embed(self, user_id: int | str) -> discord.Embed:
         accounts, applications = await asyncio.gather(

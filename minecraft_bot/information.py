@@ -821,11 +821,47 @@ class SectionView(discord.ui.View):
             self.add_item(SectionButton(page, section))
 
 
+class LinkEditionButton(
+    discord.ui.DynamicItem[discord.ui.Button],
+    template=r"mgx_info_link:(?P<scope>\w+)",
+):
+    """Starts linking whichever edition the member does not have yet.
+
+    An action rather than a page, so it stays out of :data:`PAGES`. It answers
+    privately — the reply depends on who pressed it, and the panel is shared.
+    """
+
+    def __init__(self, *, item: Optional[discord.ui.Button] = None) -> None:
+        super().__init__(
+            item
+            or discord.ui.Button(
+                label="Link Your Other Edition",
+                style=discord.ButtonStyle.primary,
+                custom_id="mgx_info_link:self",
+            )
+        )
+
+    @classmethod
+    async def from_custom_id(cls, interaction, item, match):  # type: ignore[override]
+        return cls(item=item)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        builder = getattr(interaction.client, "build_link_edition_prompt", None)
+        if builder is None:
+            await interaction.response.send_message(
+                "Account linking is unavailable right now.", ephemeral=True
+            )
+            return
+        embed, view = await builder(interaction.user.id)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+
 class InformationView(discord.ui.View):
     def __init__(self) -> None:
         super().__init__(timeout=None)
         for page in PAGES:
             self.add_item(InformationButton(page))
+        self.add_item(LinkEditionButton())
 
 
 def message_payload(settings=None) -> dict[str, object]:
