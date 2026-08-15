@@ -22,6 +22,7 @@ from .perks import (
     profile_for_role_ids,
 )
 from .presentation import (
+    ABOUT_ATTACHMENT_URI,
     BRAND_NAME,
     FOOTER_ICON_URL,
     JAVA_SUPPORTED_RANGE,
@@ -29,6 +30,7 @@ from .presentation import (
     SERVER_FEATURES,
     SERVER_TAGLINE_PARAGRAPHS,
     SERVER_VERSION,
+    about_image_file,
     brand_logo_file,
     mod_link,
     rules_embed,
@@ -143,6 +145,9 @@ def overview_embed(settings=None) -> discord.Embed:
         inline=False,
     )
     embed.set_image(url=LOGO_ATTACHMENT_URI)
+    # The same mark the application panel uses for its own reading, which is what
+    # makes the two read as one system rather than two separate handbooks.
+    embed.set_thumbnail(url=ABOUT_ATTACHMENT_URI)
     return embed
 
 
@@ -854,6 +859,8 @@ class InformationView(discord.ui.View):
 def message_payload(settings=None) -> dict[str, object]:
     return {
         "embed": overview_embed(settings),
-        "attachments": [brand_logo_file()],
+        # Both marks ride along: an attachment:// URI only resolves against the
+        # message its file was uploaded with, and this embed references two.
+        "attachments": [brand_logo_file(), about_image_file()],
         "view": InformationView(),
     }
