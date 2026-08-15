@@ -587,10 +587,11 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         # Stage one carries no written answers; the form follows verification.
         self.assertNotIn("answers", create_kwargs)
 
-    async def test_questions_modal_submits_answers_and_finishes_the_application(self):
-        application = SimpleNamespace(id=42, status=ApplicationStatus.PENDING_REVIEW)
+    def _questions_interaction(self, application, *, fails=None):
         bot = SimpleNamespace(
-            data=SimpleNamespace(submit_answers=AsyncMock(return_value=application)),
+            data=SimpleNamespace(
+                submit_answers=AsyncMock(return_value=application, side_effect=fails)
+            ),
             settings=SimpleNamespace(),
             finish_answers_submission=Mock(return_value=asyncio.sleep(0)),
             replace_application_card=AsyncMock(),
@@ -600,17 +601,25 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
             work.close()
 
         bot.spawn_background_task = Mock(side_effect=close_background_work)
-        submitted_card = SimpleNamespace(id=4242)
-        interaction = SimpleNamespace(
+        return SimpleNamespace(
             client=bot,
             user=SimpleNamespace(id=99),
             response=SimpleNamespace(defer=AsyncMock()),
             edit_original_response=AsyncMock(),
-            original_response=AsyncMock(return_value=submitted_card),
+            followup=SimpleNamespace(send=AsyncMock()),
+            original_response=AsyncMock(return_value=SimpleNamespace(id=4242)),
         )
-        modal = ApplicationQuestionsModal(42)
+
+    def _answered(self, modal):
         modal.why._value = "I enjoy collaborative survival servers."
         modal.about._value = "I build farms and help other players."
+        return modal
+
+    async def test_questions_modal_submits_answers_and_finishes_the_application(self):
+        application = SimpleNamespace(id=42, status=ApplicationStatus.PENDING_REVIEW)
+        interaction = self._questions_interaction(application)
+        bot = interaction.client
+        modal = self._answered(ApplicationQuestionsModal(42))
 
         with patch("minecraft_bot.ui.live_status_embed", return_value=info_embed("Application Sent", "> Done.")):
             await modal.on_submit(interaction)
@@ -621,9 +630,62 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         kwargs = interaction.edit_original_response.await_args.kwargs
         self.assertEqual(kwargs["embed"].title, "Application Sent")
         bot.spawn_background_task.assert_called_once()
-        # The reply becomes the one card, retiring the one the applicant opened the
-        # form from, so submitting does not leave two cards updating in parallel.
-        bot.replace_application_card.assert_awaited_once_with(42, submitted_card)
+        # Opened from the public panel, so the reply becomes the one card and
+        # retires whichever one the applicant already had.
+        bot.replace_application_card.assert_awaited_once_with(
+            42, await interaction.original_response()
+        )
+
+    async def test_answering_from_the_card_rewrites_it_instead_of_replying(self):
+        # The card the Continue Application button sits on is the message this
+        # interaction may update. Answering into a fresh reply left two identical
+        # "Application Sent" cards on screen and then deleted the older one from
+        # under the applicant.
+        application = SimpleNamespace(id=42, status=ApplicationStatus.PENDING_REVIEW)
+        interaction = self._questions_interaction(application)
+        modal = self._answered(ApplicationQuestionsModal(42, edits_card=True))
+
+        with patch("minecraft_bot.ui.live_status_embed", return_value=info_embed("Application Sent", "> Done.")):
+            await modal.on_submit(interaction)
+
+        # A bare defer is a message *update*; thinking=True would post a new reply.
+        interaction.response.defer.assert_awaited_once_with()
+        interaction.followup.send.assert_not_awaited()
+        self.assertEqual(
+            interaction.edit_original_response.await_args.kwargs["embed"].title,
+            "Application Sent",
+        )
+
+    async def test_a_refusal_from_the_card_leaves_the_card_standing(self):
+        # Overwriting the card with the error would strip Continue Application and
+        # leave no way to try again.
+        interaction = self._questions_interaction(
+            None, fails=InvalidTransition("This application is no longer open.")
+        )
+        modal = self._answered(ApplicationQuestionsModal(42, edits_card=True))
+
+        await modal.on_submit(interaction)
+
+        interaction.edit_original_response.assert_not_awaited()
+        kwargs = interaction.followup.send.await_args.kwargs
+        self.assertEqual(kwargs["embed"].title, "Application Not Submitted")
+        self.assertTrue(kwargs["ephemeral"])
+        interaction.client.replace_application_card.assert_not_awaited()
+
+    async def test_a_refusal_from_the_panel_answers_in_the_reply_it_already_made(self):
+        interaction = self._questions_interaction(
+            None, fails=InvalidTransition("This application is no longer open.")
+        )
+        modal = self._answered(ApplicationQuestionsModal(42))
+
+        await modal.on_submit(interaction)
+
+        interaction.response.defer.assert_awaited_once_with(ephemeral=True, thinking=True)
+        interaction.followup.send.assert_not_awaited()
+        self.assertEqual(
+            interaction.edit_original_response.await_args.kwargs["embed"].title,
+            "Application Not Submitted",
+        )
 
     async def test_submission_does_not_dm_a_pending_verification_card(self):
         bot = object.__new__(MinecraftAccessBot)
@@ -634,6 +696,24 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
 
         await bot.finish_application_submission(application)
 
+        bot.log_application_submission.assert_awaited_once_with(application)
+        bot.update_live_card.assert_not_awaited()
+
+    async def test_finishing_the_answers_leaves_the_card_to_the_modal(self):
+        # The modal has already drawn the card from the same application. Redrawing
+        # it here edited the same message twice, and when the form was opened from
+        # the public panel it rewrote the card that was about to be retired — which
+        # is what made one submission look like it was answered twice.
+        bot = object.__new__(MinecraftAccessBot)
+        bot.post_or_update_review = AsyncMock()
+        bot.log_application_submission = AsyncMock()
+        bot.update_live_card = AsyncMock()
+        bot.bridge = SimpleNamespace(connected=False)
+        application = SimpleNamespace(id=1, status=ApplicationStatus.PENDING_REVIEW)
+
+        await bot.finish_answers_submission(application)
+
+        bot.post_or_update_review.assert_awaited_once_with(application)
         bot.log_application_submission.assert_awaited_once_with(application)
         bot.update_live_card.assert_not_awaited()
 
@@ -2812,11 +2892,13 @@ class MaintenanceModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(delivered)
         self.assertTrue(bot.settings.maintenance_mode)
 
-    def test_an_approved_member_is_told_the_server_is_shut(self):
+    def test_the_approval_reads_the_same_whether_or_not_the_server_is_held(self):
+        # The hold used to have its own approval wording, which promised "you will
+        # be notified here as soon as it opens" — and nothing ever sent that. A DM
+        # cannot track a flag that may be lifted a minute later, so the server
+        # states its own closure on the kick screen instead.
         from minecraft_bot.presentation import approval_embed
 
-        # Real-looking addresses: a one-letter host matches inside ordinary words
-        # and would make the "no addresses" assertion below pass for free.
         addresses = dict(
             java_address="play.example.net",
             bedrock_address="bedrock.example.net",
@@ -2825,14 +2907,11 @@ class MaintenanceModeTests(unittest.IsolatedAsyncioTestCase):
         closed = approval_embed(SimpleNamespace(maintenance_mode=True, **addresses))
         opened = approval_embed(SimpleNamespace(maintenance_mode=False, **addresses))
 
-        self.assertIn("has not opened yet", closed.description)
-        # No addresses while it is held shut: they would only invite a connection
-        # the server is going to refuse.
+        self.assertEqual(closed.description, opened.description)
+        self.assertIn("access is now active", opened.description)
         for address in ("play.example.net", "bedrock.example.net", "19132"):
             with self.subTest(address=address):
-                self.assertNotIn(address, closed.description)
-                self.assertIn(address, opened.description)
-        self.assertIn("access is now active", opened.description)
+                self.assertIn(address, closed.description)
 
 
 class LinkEditionPromptTests(unittest.IsolatedAsyncioTestCase):
@@ -3263,14 +3342,21 @@ class ApplicationCardCopyTests(unittest.TestCase):
         self.assertIn("", lines)
         self.assertTrue(lines[lines.index("") + 1].startswith("> The application expires"))
 
-    def test_a_held_server_never_invites_an_approved_member_to_join(self):
-        embed = live_status_embed(
+    def test_the_card_does_not_branch_on_the_maintenance_hold(self):
+        # A card is edited in place for as long as its token lives and then frozen,
+        # so a hold it mentioned would be reported as current long after it was
+        # lifted. The server says so itself, on the kick screen, when it is true.
+        held = live_status_embed(
             self._application(ApplicationStatus.APPROVED),
             self._settings(maintenance_mode=True),
         )
+        open_server = live_status_embed(
+            self._application(ApplicationStatus.APPROVED),
+            self._settings(maintenance_mode=False),
+        )
 
-        self.assertIn("has not opened yet", self._text(embed))
-        self.assertNotIn("play.example.net", self._text(embed))
+        self.assertEqual(self._text(held), self._text(open_server))
+        self.assertIn("play.example.net", self._text(held))
 
     def test_every_status_renders(self):
         for status in ApplicationStatus:
@@ -3418,6 +3504,7 @@ class LiveCardCancelButtonTests(unittest.IsolatedAsyncioTestCase):
             user=SimpleNamespace(id=99),
             response=SimpleNamespace(defer=AsyncMock()),
             edit_original_response=AsyncMock(),
+            followup=SimpleNamespace(send=AsyncMock()),
         )
 
     def _button(self):
@@ -3438,22 +3525,38 @@ class LiveCardCancelButtonTests(unittest.IsolatedAsyncioTestCase):
         embed = interaction.edit_original_response.await_args.kwargs["embed"]
         self.assertEqual(embed.title, "Verification Cancelled")
 
+    async def test_the_cancelled_card_keeps_no_controls_or_screenshot(self):
+        # Cancelling drops the card out of the refresh table, so whatever is left on
+        # screen here is final: a live Cancel button on it would go nowhere.
+        interaction = self._interaction()
+
+        await self._button().callback(interaction)
+
+        kwargs = interaction.edit_original_response.await_args.kwargs
+        self.assertIsNone(kwargs["view"])
+        self.assertEqual(kwargs["attachments"], [])
+
     async def test_nothing_to_cancel_is_reported_rather_than_raised(self):
         interaction = self._interaction(fails=True)
 
         await self._button().callback(interaction)
 
-        embed = interaction.edit_original_response.await_args.kwargs["embed"]
-        self.assertEqual(embed.title, "Nothing to Cancel")
+        # Nothing was cancelled, so the card still describes something real and is
+        # left alone; the refusal arrives beside it.
+        interaction.edit_original_response.assert_not_awaited()
+        kwargs = interaction.followup.send.await_args.kwargs
+        self.assertEqual(kwargs["embed"].title, "Nothing to Cancel")
+        self.assertTrue(kwargs["ephemeral"])
 
-    async def test_it_answers_privately(self):
-        # The card can be reopened from the public panel, so a reply that was not
-        # ephemeral would announce somebody cancelling to the whole channel.
+    async def test_the_outcome_replaces_the_card_instead_of_answering_beside_it(self):
+        # A thinking reply would leave two messages: the dead verification card and
+        # a separate note saying it had been cancelled.
         interaction = self._interaction()
 
         await self._button().callback(interaction)
 
-        interaction.response.defer.assert_awaited_once_with(ephemeral=True, thinking=True)
+        interaction.response.defer.assert_awaited_once_with()
+        interaction.followup.send.assert_not_awaited()
 
 
 class ApplicationCardViewTests(unittest.IsolatedAsyncioTestCase):
@@ -3844,3 +3947,99 @@ class MinecraftStaffActionTests(unittest.IsolatedAsyncioTestCase):
 
         bot.bridge.run_staff_action.assert_not_awaited()
         self.assertEqual(embed.title, "Server Offline")
+
+
+class MinecraftSetupDashboardOutcomeTests(unittest.IsolatedAsyncioTestCase):
+    """Where the setup dashboard writes the outcome of one of its own buttons.
+
+    Never onto the dashboard: it is a Components V2 message, and Discord refuses
+    to put an embed on one. Doing so failed the interaction outright, and would
+    have replaced the dashboard with a one-line confirmation had it worked.
+    """
+
+    def _bot(self):
+        return SimpleNamespace(
+            settings=MinecraftSettings(),
+            bridge=SimpleNamespace(connected=True),
+            is_administrator=lambda _member: True,
+            update_settings=AsyncMock(),
+            post_application_panel=AsyncMock(
+                return_value=SimpleNamespace(
+                    channel=SimpleNamespace(mention="#applications")
+                )
+            ),
+        )
+
+    def _interaction(self, bot):
+        return SimpleNamespace(
+            client=bot,
+            guild=None,
+            user=SimpleNamespace(id=123),
+            response=SimpleNamespace(defer=AsyncMock(), send_message=AsyncMock()),
+            edit_original_response=AsyncMock(),
+            followup=SimpleNamespace(send=AsyncMock()),
+        )
+
+    async def test_saved_addresses_refresh_the_dashboard_and_confirm_beside_it(self):
+        from minecraft_bot.setup import MinecraftAddressModal, MinecraftSetupView
+
+        bot = self._bot()
+        modal = MinecraftAddressModal(MinecraftSetupView(bot, 123, None))
+        modal.java_address._value = "play.example.net:25565"
+        modal.bedrock_address._value = "bedrock.example.net"
+        modal.bedrock_port._value = "19132"
+        interaction = self._interaction(bot)
+
+        await modal.on_submit(interaction)
+
+        bot.update_settings.assert_awaited_once()
+        # A bare defer is a message update, so the edit lands on the dashboard.
+        interaction.response.defer.assert_awaited_once_with()
+        edit = interaction.edit_original_response.await_args.kwargs
+        self.assertIsInstance(edit["view"], MinecraftSetupView)
+        self.assertNotIn("embed", edit)
+        confirmation = interaction.followup.send.await_args.kwargs
+        self.assertEqual(confirmation["embed"].title, "Addresses Updated")
+        self.assertTrue(confirmation["ephemeral"])
+
+    async def test_posting_the_panel_answers_beside_the_dashboard(self):
+        from minecraft_bot import setup as setup_module
+
+        bot = self._bot()
+        button = setup_module.MinecraftSetupAction(
+            "post", "Post Application Panel", discord.ButtonStyle.success
+        )
+        button._view = setup_module.MinecraftSetupView(bot, 123, None)
+        interaction = self._interaction(bot)
+
+        with patch.object(setup_module, "configuration_findings", return_value=[]):
+            await button.callback(interaction)
+
+        bot.post_application_panel.assert_awaited_once()
+        edit = interaction.edit_original_response.await_args.kwargs
+        self.assertIsInstance(edit["view"], setup_module.MinecraftSetupView)
+        self.assertNotIn("embed", edit)
+        confirmation = interaction.followup.send.await_args.kwargs
+        self.assertEqual(confirmation["embed"].title, "Application Panel Ready")
+        self.assertTrue(confirmation["ephemeral"])
+
+    async def test_a_panel_that_could_not_be_posted_leaves_the_dashboard_alone(self):
+        from minecraft_bot import setup as setup_module
+
+        bot = self._bot()
+        bot.post_application_panel = AsyncMock(
+            side_effect=RuntimeError("The application channel is not set.")
+        )
+        button = setup_module.MinecraftSetupAction(
+            "post", "Post Application Panel", discord.ButtonStyle.success
+        )
+        button._view = setup_module.MinecraftSetupView(bot, 123, None)
+        interaction = self._interaction(bot)
+
+        with patch.object(setup_module, "configuration_findings", return_value=[]):
+            await button.callback(interaction)
+
+        interaction.edit_original_response.assert_not_awaited()
+        self.assertEqual(
+            interaction.followup.send.await_args.kwargs["embed"].title, "Panel Not Posted"
+        )

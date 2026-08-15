@@ -22,7 +22,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private static final Component VERIFIED_MESSAGE = Component.text(
             "Minecraft account verified!\n\n"
                     + "One step left: return to Discord and fill out the short application form.\n"
-                    + "Check your Discord DMs for the Continue Application button."
+                    + "Press Continue Application on your Minecraft application card."
     );
     private static final Component VERIFICATION_HELP_MESSAGE = Component.text(
             "No active verification matched this account.\n\n"
@@ -30,17 +30,15 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     );
     private static final Component APPLICATION_ALREADY_SENT_MESSAGE = Component.text(
             "Your Minecraft account is already verified.\n\n"
-                    + "If you have not finished the written application, use the Continue Application\n"
-                    + "button in your Discord DMs. Staff review it once it is submitted, and you\n"
-                    + "will be let in as soon as they approve it."
+                    + "If you have not finished the written application, press Continue Application\n"
+                    + "on your Minecraft application card in Discord. Staff review it once it is\n"
+                    + "submitted, and you will be let in as soon as they approve it."
     );
 
-    /** Staff keep their way in while the server is held closed. */
-    private static final String MAINTENANCE_BYPASS = "mgxaccessbridge.maintenance.bypass";
     private static final Component MAINTENANCE_MESSAGE = Component.text(
-            "Mysterious SMP X is not open yet.\n\n"
-                    + "Your account is verified and your place is kept. You will be told\n"
-                    + "in Discord the moment the server opens."
+            "Mysterious SMP X is not open right now.\n\n"
+                    + "The server is closed for maintenance and nobody can join. Nothing is\n"
+                    + "wrong with your account — check Discord to find out when it opens."
     );
 
     private ScheduledExecutorService networkExecutor;
@@ -416,9 +414,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         getServer().getScheduler().runTask(this, () -> {
             for (org.bukkit.entity.Player player : getServer().getOnlinePlayers()) {
-                if (!player.hasPermission(MAINTENANCE_BYPASS)) {
-                    player.kick(MAINTENANCE_MESSAGE);
-                }
+                player.kick(MAINTENANCE_MESSAGE);
             }
         });
     }
@@ -500,31 +496,61 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
     }
 
-    /** Whether this player may pass a maintenance hold. */
-    private boolean bypassesMaintenance(org.bukkit.entity.Player player) {
-        return maintenanceStore == null
-                || !maintenanceStore.enabled()
-                || player.hasPermission(MAINTENANCE_BYPASS);
+    /**
+     * Whether the server is closed to everybody.
+     *
+     * <p>Maintenance is a closure, not a permission: while it is on nobody joins —
+     * not staff, not operators, not somebody already whitelisted, on either edition.
+     * There is deliberately no bypass, because a bypass that quietly covers every
+     * operator is how a hold looks enabled and lets people in anyway. Discord turns
+     * it off again; if the bot cannot be reached, delete
+     * {@code plugins/MGXAccessBridge/maintenance.flag} and restart.
+     */
+    private boolean maintenanceHeld() {
+        return maintenanceStore != null && maintenanceStore.enabled();
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onPlayerLogin(PlayerLoginEvent event) {
-        // Maintenance is judged on the *final* result, which is why it lives here
-        // rather than in an earlier handler of its own. A Bedrock player is refused
-        // by the vanilla whitelist first and re-allowed by Floodgate afterwards, so
-        // anything reading the result early sees KICK_WHITELIST, leaves it alone,
-        // and lets Floodgate wave them straight through the hold.
-        if (event.getResult() == PlayerLoginEvent.Result.ALLOWED) {
-            if (!bypassesMaintenance(event.getPlayer())) {
-                getLogger().info("Refused " + event.getPlayer().getName()
-                        + ": the server is held closed for maintenance.");
-                event.disallow(PlayerLoginEvent.Result.KICK_OTHER, MAINTENANCE_MESSAGE);
-            }
+        PlayerLoginEvent.Result result = event.getResult();
+        // A ban or a full server is somebody else's refusal and carries a more
+        // useful message than ours. They are not getting in either way.
+        if (result != PlayerLoginEvent.Result.ALLOWED
+                && result != PlayerLoginEvent.Result.KICK_WHITELIST) {
             return;
         }
-        if (event.getResult() != PlayerLoginEvent.Result.KICK_WHITELIST) {
+
+        // Verification runs before the hold is applied, and never needed the login
+        // to succeed: an applicant is turned away whether the server is open or
+        // closed, and only the wording differs. That is what lets a held server
+        // still verify accounts.
+        Component verdict = result == PlayerLoginEvent.Result.KICK_WHITELIST
+                ? handleVerification(event)
+                : null;
+
+        if (!maintenanceHeld()) {
             return;
         }
+        if (result == PlayerLoginEvent.Result.ALLOWED) {
+            getLogger().info("Refused " + event.getPlayer().getName()
+                    + ": the server is closed for maintenance.");
+        }
+        // Rewriting the result to KICK_OTHER is what makes the hold hold. Floodgate
+        // re-allows Bedrock players by looking for KICK_WHITELIST, so leaving that
+        // result in place let every Bedrock login walk straight through.
+        event.disallow(
+                PlayerLoginEvent.Result.KICK_OTHER,
+                verdict != null ? verdict : MAINTENANCE_MESSAGE
+        );
+    }
+
+    /**
+     * Matches a whitelist-refused login against the pending verifications.
+     *
+     * @return the message this login has earned, or null when there was nothing to
+     *         say — which leaves the refusal exactly as it was found.
+     */
+    private Component handleVerification(PlayerLoginEvent event) {
         UUID uuid = event.getPlayer().getUniqueId();
         FloodgatePlayer floodgatePlayer;
         try {
@@ -532,7 +558,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         } catch (RuntimeException exception) {
             getLogger().warning("Floodgate lookup failed during account verification: "
                     + exception.getClass().getSimpleName());
-            return;
+            return null;
         }
 
         MinecraftEdition edition;
@@ -547,42 +573,41 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             actualUsername = event.getPlayer().getName();
         }
 
+        Component message;
         Optional<PendingVerification> match = pending.match(edition, actualUsername);
         if (match.isEmpty()) {
-            event.kickMessage(
-                    verifiedApplications.find(uuid).isPresent()
-                            ? APPLICATION_ALREADY_SENT_MESSAGE
-                            : VERIFICATION_HELP_MESSAGE
+            message = verifiedApplications.find(uuid).isPresent()
+                    ? APPLICATION_ALREADY_SENT_MESSAGE
+                    : VERIFICATION_HELP_MESSAGE;
+        } else if (bridgeClient.queueVerification(match.get(), edition, uuid, actualUsername, xuid)) {
+            message = VERIFIED_MESSAGE;
+        } else {
+            message = Component.text(
+                    "Verification is temporarily unavailable. Your application is safe; "
+                            + "please try again shortly."
             );
-            return;
         }
-        if (!bridgeClient.queueVerification(match.get(), edition, uuid, actualUsername, xuid)) {
-            event.kickMessage(Component.text(
-                    "Verification is temporarily unavailable. Your application is safe; please try again shortly."
-            ));
-            return;
-        }
-
-        // Preserve KICK_WHITELIST. Only the text changes; bans, full-server and
-        // every other login rejection result were returned above untouched.
-        event.kickMessage(VERIFIED_MESSAGE);
+        // Only the text changes here. The KICK_WHITELIST result is preserved so that
+        // an open server keeps behaving exactly as it did; the caller decides
+        // separately whether a maintenance hold overrides it.
+        event.kickMessage(message);
+        return message;
     }
 
     /**
      * Last line of the maintenance hold.
      *
      * <p>The login refusal is the polite path, but it depends on every other plugin
-     * leaving the result alone after this one has read it. Floodgate rewrites it for
-     * Bedrock players, so a hold that only refused logins was one plugin away from
-     * being silently open. Anybody who reaches the world anyway is removed here.
+     * leaving the result alone after this one has read it. Anybody who reaches the
+     * world anyway is removed here.
      */
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.HIGHEST)
     public void onMaintenanceJoin(PlayerJoinEvent event) {
-        if (bypassesMaintenance(event.getPlayer())) {
+        if (!maintenanceHeld()) {
             return;
         }
         getLogger().warning("Removed " + event.getPlayer().getName()
-                + " after login: the server is held closed for maintenance.");
+                + " after login: the server is closed for maintenance.");
         event.getPlayer().kick(MAINTENANCE_MESSAGE);
     }
 

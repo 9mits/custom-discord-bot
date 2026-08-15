@@ -1337,13 +1337,19 @@ class MinecraftAccessBot(commands.Bot):
         await self.update_live_card(application)
 
     async def finish_answers_submission(self, application: MinecraftApplication) -> None:
-        """The written form arrived: the application is now ready for staff."""
+        """The written form arrived: the application is now ready for staff.
+
+        Deliberately does not redraw the card. The modal that calls this has already
+        drawn it from the same application, so refreshing here only edited the same
+        message a second time — and when the form was opened from the public panel it
+        rewrote the card that was about to be retired, which is what made a submission
+        look like it was answered twice.
+        """
         try:
             await self.post_or_update_review(application)
         except Exception:
             logger.exception("Could not publish review for Minecraft application %s", application.id)
         await self.log_application_submission(application)
-        await self.update_live_card(application, create_if_missing=False)
         if self.bridge.connected:
             await self.bridge.dispatch_outbox()
 
@@ -1888,6 +1894,9 @@ class MinecraftAccessBot(commands.Bot):
             name="Service",
             value=(
                 f"**Bridge:** {'Connected' if self.bridge.connected else 'Offline'}\n"
+                # The hold turns nobody away in Discord, so without this a moderator
+                # wondering why no one can join has nothing to read.
+                f"**Server:** {'Held closed' if self.settings.maintenance_mode else 'Open'}\n"
                 f"**Setup:** {'Ready' if not findings else 'Needs attention'}\n"
                 f"**Heartbeat:** {heartbeat}"
             ),
@@ -2343,8 +2352,9 @@ class MinecraftAccessBot(commands.Bot):
                             "Maintenance Mode",
                             f"> The server is currently **{state}**.\n\n"
                             "Choose an option to change it. While the server is held "
-                            "closed, applications, verification and acceptance all "
-                            "carry on as normal — only playing is blocked.",
+                            "closed nobody can join, staff included. Applications, "
+                            "verification and acceptance all carry on as normal — "
+                            "only playing is blocked.",
                         )
                     )
                 )
@@ -2355,9 +2365,9 @@ class MinecraftAccessBot(commands.Bot):
                 summary = (
                     "> The server is now **held closed**.\n\n"
                     "Members can still apply, join once to verify, and be accepted. "
-                    "Nobody can actually play until you open it, and anyone online "
-                    "was disconnected.\n"
-                    "Staff with the bypass permission are unaffected."
+                    "Nobody can play until you open it again — not staff, not "
+                    "operators, on either edition — and anyone online was "
+                    "disconnected."
                 )
             else:
                 summary = (
