@@ -1931,13 +1931,10 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
     def test_welcome_showcases_what_the_server_offers(self):
         # Someone reading this is deciding whether the server suits them, which
         # they cannot tell from atmosphere alone.
-        from minecraft_bot.presentation import application_embeds
+        from minecraft_bot.presentation import SERVER_FEATURES, application_embeds
 
-        showcase = next(
-            field.value
-            for field in application_embeds()[0].fields
-            if field.name == "What you can do here"
-        )
+        welcome = application_embeds()[0].description
+        described = dict(SERVER_FEATURES)
 
         for feature in (
             "Clans",
@@ -1948,7 +1945,10 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
             "Crossplay",
         ):
             with self.subTest(feature=feature):
-                self.assertIn(feature, showcase)
+                self.assertIn(feature, described)
+                # Each feature names itself in bold above its own quoted line,
+                # so the showcase needs no header of its own.
+                self.assertIn(f"**{feature}**\n> {described[feature]}", welcome)
 
     def test_welcome_only_advertises_commands_that_exist(self):
         # /spawn was once documented on a server that had never installed it.
@@ -1958,8 +1958,9 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
         from minecraft_bot import information
         from minecraft_bot.presentation import application_embeds
 
-        advertised = set()
-        for field in application_embeds()[0].fields:
+        welcome = application_embeds()[0]
+        advertised = set(re.findall(r"`(/[a-z]+)`", welcome.description or ""))
+        for field in welcome.fields:
             advertised.update(re.findall(r"`(/[a-z]+)`", field.value))
 
         documented = []

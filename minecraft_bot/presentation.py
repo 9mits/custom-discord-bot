@@ -221,29 +221,32 @@ def _panel_embed(title: str, description: str) -> discord.Embed:
     return embed
 
 
+#: Each feature as (name, one line on what it is). Someone reading this is
+#: deciding whether the server suits them, so it lists what is actually here
+#: rather than describing the atmosphere twice. How any of it works belongs in
+#: the information panel they get after acceptance.
+SERVER_FEATURES: tuple[tuple[str, str], ...] = (
+    ("Clans", "Your own name, tag and colour, with no friendly fire"),
+    ("Levels", "Chatting in Discord earns permanent extra hearts and damage"),
+    ("Homes and travel", "Save your spots and teleport to friends"),
+    ("Voice chat", "Proximity voice with whoever is standing near you"),
+    ("Leaderboards", "Richest, kills, playtime, blocks mined and distance walked"),
+    ("Crossplay", "Java and Bedrock in one shared world"),
+)
+
+
+def _feature_showcase() -> str:
+    return "\n".join(f"**{name}**\n> {line}" for name, line in SERVER_FEATURES)
+
+
 def application_embeds() -> list[discord.Embed]:
+    # The showcase sits in the description rather than a field so it carries no
+    # header — the features name themselves.
     welcome = _panel_embed(
         "Welcome to Mysterious SMP X",
         "**Mysterious Girlfriend X Discord, in partnership with r/MysteriousGirlfriendX.**\n\n"
-        f"{SERVER_TAGLINE}",
-    )
-    # Someone reading this is deciding whether the server suits them, so it lists
-    # what is actually here rather than describing the atmosphere twice. How any
-    # of it works belongs in the information panel they get after acceptance.
-    welcome.add_field(
-        name="What you can do here",
-        value=(
-            "> **Clans** — your own name, tag and colour, with no friendly fire\n"
-            "> **Levels** — chatting in Discord earns permanent extra hearts "
-            "and damage\n"
-            "> **Homes and travel** — save your spots and teleport to friends\n"
-            "> **Voice chat** — proximity voice with whoever is standing near "
-            "you\n"
-            "> **Leaderboards** — richest, kills, playtime, blocks mined and "
-            "distance walked\n"
-            "> **Crossplay** — Java and Bedrock in one shared world"
-        ),
-        inline=False,
+        f"{SERVER_TAGLINE}\n\n"
+        f"{_feature_showcase()}",
     )
     welcome.add_field(
         name="Joining",
