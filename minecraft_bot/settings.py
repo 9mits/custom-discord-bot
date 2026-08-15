@@ -25,9 +25,23 @@ SETTING_KEYS = (
     "java_address",
     "bedrock_address",
     "bedrock_port",
+    "maintenance_mode",
 )
 
 _HOST = re.compile(r"^(?:[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?|\[[0-9A-Fa-f:]+\])$")
+
+
+def _as_bool(value: Any) -> bool:
+    """Reads a stored flag back as a bool.
+
+    Settings round-trip through SQLite as text, so a stored False comes back as
+    the string "False" — which is truthy. Anything not clearly on reads as off,
+    because the safe failure for a maintenance hold is a server that lets people
+    in, not one that silently locks everybody out.
+    """
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().casefold() in {"1", "true", "yes", "on"}
 
 
 def _positive_int(value: Any, default: int = 0) -> int:
@@ -104,6 +118,9 @@ class MinecraftSettings:
     java_address: str = DEFAULT_JAVA_ADDRESS
     bedrock_address: str = DEFAULT_BEDROCK_ADDRESS
     bedrock_port: int = DEFAULT_BEDROCK_PORT
+    #: Pre-launch hold. Applications, verification and acceptance all continue;
+    #: the server itself refuses to let anybody in until this is lifted.
+    maintenance_mode: bool = False
 
     @classmethod
     def from_sources(cls, bootstrap_config, stored: Mapping[str, Any]) -> "MinecraftSettings":
@@ -145,6 +162,7 @@ class MinecraftSettings:
             java_address=java_address,
             bedrock_address=bedrock_address,
             bedrock_port=bedrock_port,
+            maintenance_mode=_as_bool(stored_or("maintenance_mode", False)),
         )
 
     def with_updates(self, **updates: Any) -> "MinecraftSettings":
@@ -179,6 +197,8 @@ class MinecraftSettings:
             normalized["bedrock_address"] = normalize_bedrock_address(normalized["bedrock_address"])
         if "bedrock_port" in normalized:
             normalized["bedrock_port"] = normalize_port(normalized["bedrock_port"])
+        if "maintenance_mode" in normalized:
+            normalized["maintenance_mode"] = _as_bool(normalized["maintenance_mode"])
         candidate = replace(self, **normalized)
         if (
             candidate.application_channel_id

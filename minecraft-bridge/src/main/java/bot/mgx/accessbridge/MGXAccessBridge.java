@@ -35,6 +35,14 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                     + "will be let in as soon as they approve it."
     );
 
+    /** Staff keep their way in while the server is held closed. */
+    private static final String MAINTENANCE_BYPASS = "mgxaccessbridge.maintenance.bypass";
+    private static final Component MAINTENANCE_MESSAGE = Component.text(
+            "Mysterious SMP X is not open yet.\n\n"
+                    + "Your account is verified and your place is kept. You will be told\n"
+                    + "in Discord the moment the server opens."
+    );
+
     private ScheduledExecutorService networkExecutor;
     private BridgeClient bridgeClient;
     private PendingVerificationCache pending;
@@ -52,6 +60,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private PlayerSettingsStore playerSettings;
     private WealthStore wealthStore;
     private RankSyncStore rankSyncStore;
+    private MaintenanceStore maintenanceStore;
     private final WhitelistDirectory whitelistDirectory = new WhitelistDirectory();
 
     @Override
@@ -90,6 +99,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             );
             wealthStore = new WealthStore(getDataFolder().toPath().resolve("wealth.json"));
             rankSyncStore = new RankSyncStore(getDataFolder().toPath().resolve("rank-sync.json"));
+            maintenanceStore = new MaintenanceStore(
+                    getDataFolder().toPath().resolve("maintenance.flag")
+            );
             identityStore = new DiscordIdentityStore(
                     getDataFolder().toPath().resolve("discord-identities.json")
             );
@@ -390,6 +402,27 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         return luckPermsService.hasPermission(actor, permission);
     }
 
+    /**
+     * Opens or closes the server. Anyone already on is kicked when it closes,
+     * since holding it shut only for new logins leaves whoever was online playing.
+     */
+    void setMaintenance(boolean enabled) {
+        if (maintenanceStore == null || !maintenanceStore.set(enabled)) {
+            return;
+        }
+        getLogger().warning("Maintenance mode " + (enabled ? "enabled" : "disabled") + " from Discord.");
+        if (!enabled) {
+            return;
+        }
+        getServer().getScheduler().runTask(this, () -> {
+            for (org.bukkit.entity.Player player : getServer().getOnlinePlayers()) {
+                if (!player.hasPermission(MAINTENANCE_BYPASS)) {
+                    player.kick(MAINTENANCE_MESSAGE);
+                }
+            }
+        });
+    }
+
     void applyPlayerRank(UUID minecraftUuid, String rankGroup) {
         if (luckPermsService != null) {
             luckPermsService.applyRank(minecraftUuid, rankGroup);
@@ -465,6 +498,26 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                     attachmentUrl
             );
         }
+    }
+
+    /**
+     * Holds the server closed before launch.
+     *
+     * <p>Runs at LOW so the verification handler below still sees an untouched
+     * KICK_WHITELIST, and only ever refuses a login the server was otherwise going
+     * to allow. That is what lets somebody verify an account against a closed
+     * server: they are not whitelisted, so they are refused before this is
+     * consulted, and that refusal is what becomes their verification.
+     */
+    @EventHandler(priority = EventPriority.LOW, ignoreCancelled = false)
+    public void onMaintenanceLogin(PlayerLoginEvent event) {
+        if (event.getResult() != PlayerLoginEvent.Result.ALLOWED
+                || maintenanceStore == null
+                || !maintenanceStore.enabled()
+                || event.getPlayer().hasPermission(MAINTENANCE_BYPASS)) {
+            return;
+        }
+        event.disallow(PlayerLoginEvent.Result.KICK_OTHER, MAINTENANCE_MESSAGE);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)

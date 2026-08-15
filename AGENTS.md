@@ -194,6 +194,14 @@ Read the relevant file when you touch an area; these are the non-obvious points.
   it alone. Never collapse the last two — clearing on any empty value drops
   every player's name the first time a Discord lookup fails. `link_known`
   controls which is sent, mirroring `rank_known` for LuckPerms groups.
+- **Maintenance mode** (`/mcadmin maintenance`) is a pre-launch hold, not a
+  whitelist change: applications, verification and acceptance all carry on, and
+  Paper refuses the login instead. It is enforced in the plugin, at
+  `EventPriority.LOW`, and only against a login the server was going to allow —
+  a `KICK_WHITELIST` result is left untouched so verification still works
+  against a closed server. Paper persists the flag itself, because it accepts
+  logins before the bridge connects; the bot restates it on connect so Discord
+  stays the authority.
 - **Resetting data is two commands, one per side.** `/mgxadmin reset all
   confirm` (in game) clears what Paper keeps; `/mcadmin wipe` (Discord, owner
   only) clears the bot's SQLite. Neither can reach the other's data, so a full

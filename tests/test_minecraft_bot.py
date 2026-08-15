@@ -2755,6 +2755,72 @@ class MinecraftInformationPanelTests(unittest.TestCase):
         self.assertIn("in partnership with", application_welcome_embed().description)
 
 
+class MaintenanceModeTests(unittest.IsolatedAsyncioTestCase):
+    """A pre-launch hold: everything except actually playing carries on."""
+
+    def _bot(self, *, enabled=False, delivered=True):
+        bot = object.__new__(MinecraftAccessBot)
+        bot.settings = SimpleNamespace(maintenance_mode=enabled)
+        bot.bridge = SimpleNamespace(send_maintenance=AsyncMock(return_value=delivered))
+
+        async def update(**updates):
+            bot.settings = SimpleNamespace(**{**vars(bot.settings), **updates})
+            return bot.settings
+
+        bot.update_settings = update
+        return bot
+
+    async def test_closing_saves_the_setting_and_tells_paper(self):
+        bot = self._bot()
+
+        changed, delivered = await bot.set_maintenance_mode(True)
+
+        self.assertTrue(changed)
+        self.assertTrue(delivered)
+        self.assertTrue(bot.settings.maintenance_mode)
+        bot.bridge.send_maintenance.assert_awaited_once_with(True)
+
+    async def test_setting_it_again_still_tells_paper(self):
+        # Paper is the thing that enforces it, so a repeat is how an operator
+        # recovers from a plugin that missed the first one.
+        bot = self._bot(enabled=True)
+
+        changed, delivered = await bot.set_maintenance_mode(True)
+
+        self.assertFalse(changed)
+        self.assertTrue(delivered)
+        bot.bridge.send_maintenance.assert_awaited_once_with(True)
+
+    async def test_an_undeliverable_change_is_still_saved(self):
+        # The bridge restates it on connect, so the setting must survive being
+        # made while Paper is down.
+        bot = self._bot(delivered=False)
+
+        changed, delivered = await bot.set_maintenance_mode(True)
+
+        self.assertTrue(changed)
+        self.assertFalse(delivered)
+        self.assertTrue(bot.settings.maintenance_mode)
+
+    def test_an_approved_member_is_told_the_server_is_shut(self):
+        from minecraft_bot.presentation import approval_embed
+
+        closed = approval_embed(SimpleNamespace(maintenance_mode=True))
+        opened = approval_embed(
+            SimpleNamespace(
+                maintenance_mode=False,
+                java_address="j",
+                bedrock_address="b",
+                bedrock_port=1,
+            )
+        )
+
+        self.assertIn("not open yet", closed.description)
+        # And no addresses, which would only invite a login that gets refused.
+        self.assertNotIn("j", closed.description.split("**")[0])
+        self.assertIn("access is now active", opened.description)
+
+
 class LinkEditionPromptTests(unittest.IsolatedAsyncioTestCase):
     """The information panel is the only surface an accepted member can reach.
 

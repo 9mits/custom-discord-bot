@@ -25,7 +25,8 @@ CHAT_SYNC_PROTOCOL_VERSION = 4
 RANK_SYNC_PROTOCOL_VERSION = 5
 WHITELIST_SYNC_PROTOCOL_VERSION = 6
 SERVER_EVENT_PROTOCOL_VERSION = 7
-CURRENT_PROTOCOL_VERSION = SERVER_EVENT_PROTOCOL_VERSION
+MAINTENANCE_PROTOCOL_VERSION = 8
+CURRENT_PROTOCOL_VERSION = MAINTENANCE_PROTOCOL_VERSION
 
 VerificationHandler = Callable[..., Awaitable[None]]
 ActionResultHandler = Callable[[OutboxRecord, Optional[Any]], Awaitable[None]]
@@ -109,6 +110,10 @@ class MinecraftBridgeServer:
     @property
     def supports_server_events(self) -> bool:
         return self.connected and self._peer_protocol_version >= SERVER_EVENT_PROTOCOL_VERSION
+
+    @property
+    def supports_maintenance(self) -> bool:
+        return self.connected and self._peer_protocol_version >= MAINTENANCE_PROTOCOL_VERSION
 
     @property
     def supports_whitelist_sync(self) -> bool:
@@ -562,6 +567,26 @@ class MinecraftBridgeServer:
             },
             timeout=15.0,
         )
+
+    async def send_maintenance(self, enabled: bool) -> bool:
+        """Opens or closes the server to everyone who is not exempt.
+
+        Verification is unaffected: a player joining to verify is refused by the
+        whitelist before this is consulted, and that refusal is what the plugin
+        turns into a verification. So a closed server still lets people prove an
+        account, which is the whole point of holding it closed before launch.
+        """
+        if not self.supports_maintenance:
+            return False
+        try:
+            await self._send(
+                "ACTION",
+                {"action": "SET_MAINTENANCE", "enabled": bool(enabled)},
+                idempotency_key=f"maintenance:{secrets.token_hex(12)}",
+            )
+        except ConnectionError:
+            return False
+        return True
 
     async def send_whitelist_snapshot(self, players: list[dict[str, Any]]) -> bool:
         """Pushes the whitelist directory so the in-game /whitelisted command works.

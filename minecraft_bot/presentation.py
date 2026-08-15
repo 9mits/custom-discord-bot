@@ -725,8 +725,15 @@ def live_status_embed(application: MinecraftApplication, settings) -> discord.Em
         summary = "> Approved. Access is being applied to the server now."
         next_action = "This takes a moment. You will get a DM when it is ready."
     elif status is ApplicationStatus.APPROVED:
-        summary = "> Access is active. Join whenever you like."
-        show_connection = True
+        if getattr(settings, "maintenance_mode", False):
+            summary = "> You are accepted. The server is not open yet."
+            next_action = (
+                "You cannot join until it opens, even though you are accepted. "
+                "You will be told the moment it does."
+            )
+        else:
+            summary = "> Access is active. Join whenever you like."
+            show_connection = True
     elif status is ApplicationStatus.DENIED:
         summary = "> Staff did not approve this application."
         next_action = application.applicant_reason or "No public reason was given."
@@ -792,6 +799,17 @@ def denial_embed(application: MinecraftApplication) -> discord.Embed:
 
 
 def approval_embed(settings) -> discord.Embed:
+    # Telling somebody their access is active while the server is holding every
+    # login would read as a broken promise the moment they tried it.
+    if getattr(settings, "maintenance_mode", False):
+        return info_embed(
+            "Minecraft Application Approved",
+            "> Your application was approved and your place is kept.\n\n"
+            "**The server is not open yet.** You cannot join until it opens, even "
+            "though you are accepted — nothing is wrong with your account.\n\n"
+            "You will be told here the moment it opens.",
+            success=True,
+        )
     return info_embed(
         "Minecraft Application Approved",
         "> Your application was approved and Minecraft access is now active.\n\n"
