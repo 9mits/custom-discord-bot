@@ -25,6 +25,7 @@ from .presentation import (
     FOOTER_ICON_URL,
     JAVA_SUPPORTED_RANGE,
     LOGO_ATTACHMENT_URI,
+    SERVER_FEATURES,
     SERVER_TAGLINE_PARAGRAPHS,
     SERVER_VERSION,
     brand_logo_file,
@@ -121,24 +122,22 @@ def _addresses(settings) -> tuple[str, str, str]:
 def overview_embed(settings=None) -> discord.Embed:
     # This message lives in a channel members only see after they are accepted,
     # so it reads as the server handbook — never as joining instructions.
-    embed = _page(
-        "Information",
-        "",
-        [
-            (
-                "The server",
-                "\n> \n".join(f"> {line}" for line in SERVER_TAGLINE_PARAGRAPHS)
-                + "\n> \n> **Crossplay** — Java and Bedrock share one world",
-            ),
-            (
-                "Client versions",
-                f"> **Java** — {JAVA_SUPPORTED_RANGE}\n"
-                "> **Bedrock** — any current version\n"
-                "> \n"
-                f"> The server runs **{SERVER_VERSION}**. Anything newer is "
-                "blocked; anything older is translated automatically.",
-            ),
-        ],
+    embed = _embed("Information", "\n\n".join(SERVER_TAGLINE_PARAGRAPHS))
+    # Columns, matching the welcome panel. Each feature names itself, which
+    # retires the old "The server" section: its crossplay line is now one of
+    # these, and its tagline is the description above.
+    for name, line in SERVER_FEATURES:
+        embed.add_field(name=name, value=line, inline=True)
+    embed.add_field(
+        name="Client versions",
+        value=(
+            f"> **Java** — {JAVA_SUPPORTED_RANGE}\n"
+            "> **Bedrock** — any current version\n"
+            "> \n"
+            f"> The server runs **{SERVER_VERSION}**. Anything newer is "
+            "blocked; anything older is translated automatically."
+        ),
+        inline=False,
     )
     embed.set_image(url=LOGO_ATTACHMENT_URI)
     return embed
