@@ -2829,9 +2829,10 @@ class AboutPanelTests(unittest.TestCase):
 
         clans = self.text_of(pages["clans"]).lower()
         self.assertIn("clan", clans)
-        # The fact, not one phrasing of it: rewording the copy should not fail here,
-        # but dropping no-friendly-fire from the pitch should.
-        self.assertRegex(clans, r"cannot (hurt|damage|harm) each other")
+        # Anchored on the mechanic's own name rather than a sentence about it.
+        # Pinning a phrasing failed twice on rewordings that kept the meaning, while
+        # a page that dropped no-friendly-fire entirely would still have passed.
+        self.assertRegex(clans, r"no friendly fire")
 
         travel = self.text_of(pages["travel"]).lower()
         for mechanic in ("home", "teleport", "warp"):
