@@ -86,6 +86,22 @@ final class LuckPermsService {
     }
 
     /**
+     * Sync check against a user LuckPerms already has in memory. Returns false
+     * when they are not loaded — fail closed for a bypass, never guess.
+     *
+     * <p>Bukkit {@code Player#hasPermission} is not used for the maintenance
+     * hold: Floodgate players can report true for {@code default: op} nodes
+     * before their attachments exist, which is how a nobody walked through.
+     */
+    boolean hasLoadedPermission(UUID playerId, String permission) {
+        User user = luckPerms.getUserManager().getUser(playerId);
+        if (user == null) {
+            return false;
+        }
+        return user.getCachedData().getPermissionData().checkPermission(permission).asBoolean();
+    }
+
+    /**
      * Applies {@code group} to the player, giving up only the group sync itself last
      * granted. An empty group withdraws that grant, which is what happens when a member
      * loses their Discord rank role; groups set by hand are left where they are.

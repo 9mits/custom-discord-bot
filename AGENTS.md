@@ -209,16 +209,20 @@ Read the relevant file when you touch an area; these are the non-obvious points.
   Nothing in Discord branches on the flag; the plugin states the closure on its
   own kick screen, where it is true at the moment it is read. Applications,
   verification and acceptance all carry on regardless.
-  Enforced in three places, because Floodgate's 1.21 path does not honour a
-  `PlayerLoginEvent` refusal the way Java does: `onPlayerPreLogin`
+  Enforced in three event places plus a 1-second sweep of whoever is online,
+  because Floodgate's 1.21 path does not honour a `PlayerLoginEvent` refusal the
+  way Java does and Geyser can skip those events entirely: `onPlayerPreLogin`
   (`AsyncPlayerPreLoginEvent` at `HIGHEST`) is what Floodgate actually consults
   before starting client verification; `onPlayerLogin` at `HIGHEST` still rewrites
   the result to `KICK_OTHER` after Floodgate has re-allowed whitelisted Bedrock
   players, and a `MONITOR` pass undoes a later re-allow; a join handler then kicks
   anyone who reaches the world, with delayed retries, because Geyser drops a kick
   issued during `PlayerJoinEvent` while the Bedrock client is still spawning.
-  That last path is what let a never-seen default Bedrock account — no op, no
-  whitelist, no permission — walk through a hold that already blocked Java.
+  The sweep is what actually keeps the world empty — a never-seen default Bedrock
+  account (no op, no permission) walked through every event-only hold, and
+  Bukkit `hasPermission` must not be the bypass check: Floodgate players can
+  report true for `default: op` nodes before attachments exist. Use `isOp()` and
+  LuckPerms' loaded user only.
   Verification is matched **before** the hold is applied and never needed the
   login to succeed — an applicant is turned away either way and only the wording
   differs — which is what lets a closed server still verify accounts. Leaving

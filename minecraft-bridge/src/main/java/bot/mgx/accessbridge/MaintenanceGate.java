@@ -21,6 +21,9 @@ final class MaintenanceGate {
      */
     static final long[] JOIN_KICK_TICKS = {0L, 1L, 5L, 20L, 40L};
 
+    /** How often to sweep online players while the hold is on. */
+    static final long SWEEP_PERIOD_TICKS = 20L;
+
     private MaintenanceGate() {
     }
 
