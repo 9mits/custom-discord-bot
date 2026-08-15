@@ -2791,6 +2791,26 @@ class AboutPanelTests(unittest.TestCase):
             with self.subTest(embed=embed.title):
                 self.assertNotRegex(self.text_of(embed), r"`/[a-z]")
 
+    def test_pages_stay_scannable_rather_than_becoming_walls(self):
+        # These are skimmed by somebody deciding whether to apply, not studied.
+        # Long values defeat the columns and turn the page back into prose.
+        import re
+
+        for key, embed in self.pages().items():
+            if key == "rules":
+                # A shared legal document; it is prose on purpose.
+                continue
+            with self.subTest(page=key):
+                self.assertLessEqual(len(embed.description or ""), 120)
+                columns = [field for field in embed.fields if field.inline]
+                self.assertGreaterEqual(len(columns), 3, "too few points to form columns")
+                for field in columns:
+                    # Measure what a reader sees, not the markdown behind a link.
+                    rendered = re.sub(r"\]\([^)]*\)", "]", field.value)
+                    self.assertLessEqual(len(rendered), 70, f"{field.name} is a paragraph")
+                    self.assertLessEqual(len(field.name), 24)
+                    self.assertNotIn("\n", field.value, f"{field.name} spans lines")
+
     def test_the_mechanics_people_ask_about_are_explained(self):
         pages = self.pages()
 
