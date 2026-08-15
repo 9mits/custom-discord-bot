@@ -11,7 +11,12 @@ import discord
 
 from minecraft_bot.bot import MinecraftAccessBot, RateLimiter
 from minecraft_bot.config import MinecraftConfig
-from minecraft_bot.models import ApplicationStatus, Edition, MinecraftApplication
+from minecraft_bot.models import (
+    ApplicationStatus,
+    Edition,
+    InvalidTransition,
+    MinecraftApplication,
+)
 from minecraft_bot.presentation import (
     BRAND_NAME,
     ERROR_COLOUR,
@@ -162,7 +167,7 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertTrue(live.is_persistent())
         self.assertEqual(
             {item.custom_id for item in live.children},
-            {"minecraft:live:help"},
+            {"minecraft:live:help", "minecraft:live:cancel"},
         )
         self.assertEqual(
             {item.label for item in AccountView(123).children},
@@ -975,7 +980,12 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         response.send_message.assert_awaited_once()
         kwargs = response.send_message.await_args.kwargs
         self.assertTrue(kwargs["ephemeral"])
-        self.assertIsInstance(kwargs["view"], CancelPendingConfirmationView)
+        # Both controls, not a cancel-only view: reopening the card through Apply
+        # used to silently drop Get Help.
+        self.assertEqual(
+            [item.label for item in kwargs["view"].children],
+            ["Cancel Pending Verification", "Get Help"],
+        )
         self.assertEqual(kwargs["embed"].image.url, VERIFY_ATTACHMENT_URI)
         self.assertEqual(kwargs["file"].filename, "mysterious_smp_x_verify.png")
         kwargs["file"].close()
@@ -3055,12 +3065,12 @@ class ApplyButtonExistingApplicationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kwargs["embed"].title, "Application Sent")
         self.assertIsNone(kwargs["view"])
 
-    async def test_a_pending_verification_still_offers_cancelling(self):
+    async def test_a_pending_verification_offers_cancelling_and_help(self):
         kwargs = await self._card(ApplicationStatus.PENDING_VERIFICATION)
 
         self.assertEqual(
             [item.label for item in kwargs["view"].children],
-            ["Cancel Pending Verification"],
+            ["Cancel Pending Verification", "Get Help"],
         )
 
 
@@ -3385,6 +3395,65 @@ class ApplicationCardReplacementTests(unittest.IsolatedAsyncioTestCase):
         await bot.replace_application_card(7, new)
 
         self.assertIs(bot._application_messages[7][0], new)
+
+
+class LiveCardCancelButtonTests(unittest.IsolatedAsyncioTestCase):
+    """The cancel button on the verification card.
+
+    Persistent, so it acts on whoever presses it rather than on a member id
+    captured when the card was drawn — a captured id would be wrong after a
+    restart, and the card outlives the interaction that made it.
+    """
+
+    def _interaction(self, *, fails=False):
+        cancel = AsyncMock(
+            side_effect=InvalidTransition("No pending verification") if fails else None
+        )
+        return SimpleNamespace(
+            client=SimpleNamespace(
+                cancel_pending_verification=cancel,
+                config=SimpleNamespace(guild_id=10),
+            ),
+            guild_id=10,
+            user=SimpleNamespace(id=99),
+            response=SimpleNamespace(defer=AsyncMock()),
+            edit_original_response=AsyncMock(),
+        )
+
+    def _button(self):
+        return next(
+            item
+            for item in LiveApplicationView().children
+            if item.custom_id == "minecraft:live:cancel"
+        )
+
+    async def test_it_cancels_the_verification_of_whoever_pressed_it(self):
+        interaction = self._interaction()
+
+        await self._button().callback(interaction)
+
+        interaction.client.cancel_pending_verification.assert_awaited_once_with(
+            guild_id=10, discord_user_id=99
+        )
+        embed = interaction.edit_original_response.await_args.kwargs["embed"]
+        self.assertEqual(embed.title, "Verification Cancelled")
+
+    async def test_nothing_to_cancel_is_reported_rather_than_raised(self):
+        interaction = self._interaction(fails=True)
+
+        await self._button().callback(interaction)
+
+        embed = interaction.edit_original_response.await_args.kwargs["embed"]
+        self.assertEqual(embed.title, "Nothing to Cancel")
+
+    async def test_it_answers_privately(self):
+        # The card can be reopened from the public panel, so a reply that was not
+        # ephemeral would announce somebody cancelling to the whole channel.
+        interaction = self._interaction()
+
+        await self._button().callback(interaction)
+
+        interaction.response.defer.assert_awaited_once_with(ephemeral=True, thinking=True)
 
 
 class ApplicationCardViewTests(unittest.IsolatedAsyncioTestCase):
