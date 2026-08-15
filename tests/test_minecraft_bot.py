@@ -2764,45 +2764,79 @@ class MinecraftInformationPanelTests(unittest.TestCase):
 
 
 class LinkEditionPromptTests(unittest.IsolatedAsyncioTestCase):
-    """Somebody with no linked account is the least likely to hold the channel."""
+    """The information panel is the only surface an accepted member can reach.
 
-    def _bot(self, *, can_view):
+    They lose the application channel on acceptance, so anything this card sends
+    them elsewhere for is somewhere they cannot go.
+    """
+
+    def _bot(self, *, accounts=(), applications=()):
         bot = object.__new__(MinecraftAccessBot)
         bot.config = SimpleNamespace(guild_id=1)
         bot.settings = SimpleNamespace(application_channel_id=4242)
         bot.data = SimpleNamespace(
-            list_accounts_for_user=AsyncMock(return_value=[]),
-            list_applications_for_user=AsyncMock(return_value=[]),
+            list_accounts_for_user=AsyncMock(return_value=list(accounts)),
+            list_applications_for_user=AsyncMock(return_value=list(applications)),
         )
-        member = SimpleNamespace(id=99)
-        channel = SimpleNamespace(
-            permissions_for=Mock(return_value=SimpleNamespace(view_channel=can_view))
-        )
-        bot.get_guild = Mock(return_value=SimpleNamespace(get_member=Mock(return_value=member)))
-        bot.get_channel = Mock(return_value=channel)
         return bot
 
-    async def test_the_channel_is_named_when_they_can_open_it(self):
-        embed, view = await self._bot(can_view=True).build_link_edition_prompt(99)
+    async def test_a_member_with_nothing_linked_can_link_from_here(self):
+        embed, view = await self._bot().build_link_edition_prompt(99)
 
-        self.assertIn("<#4242>", embed.description)
+        # Both editions offered, because nothing is linked to infer from.
+        self.assertEqual(
+            [item.label for item in view.children], ["Link Java", "Link Bedrock"]
+        )
+        # And no channel to go to, because they cannot open it.
+        self.assertNotIn("<#4242>", embed.description)
+
+    async def test_a_member_missing_one_edition_is_offered_only_that_one(self):
+        bot = self._bot(accounts=[{"edition": "JAVA"}])
+
+        _embed, view = await bot.build_link_edition_prompt(99)
+
+        self.assertEqual([item.label for item in view.children], ["Link Bedrock"])
+
+    async def test_a_member_with_both_editions_is_offered_nothing(self):
+        bot = self._bot(accounts=[{"edition": "JAVA"}, {"edition": "BEDROCK"}])
+
+        embed, view = await bot.build_link_edition_prompt(99)
+
         self.assertIsNone(view)
+        self.assertEqual(embed.title, "Both Editions Linked")
 
-    async def test_no_dead_link_when_they_cannot_see_the_channel(self):
-        # Pointing somebody at a channel they lack permission for renders as an
-        # unclickable dead end and tells them nothing.
-        embed, _view = await self._bot(can_view=False).build_link_edition_prompt(99)
+    async def test_an_application_already_running_blocks_a_second_one(self):
+        # This guard has to sit in front of both offers. With nothing linked and an
+        # application already in flight, offering the link flow would start a second.
+        for accounts in ([], [{"edition": "JAVA"}]):
+            with self.subTest(accounts=accounts):
+                bot = self._bot(
+                    accounts=accounts,
+                    applications=[
+                        SimpleNamespace(status=ApplicationStatus.PENDING_REVIEW)
+                    ],
+                )
 
-        self.assertNotIn("<#4242>", embed.description)
-        self.assertIn("application panel", embed.description)
+                embed, view = await bot.build_link_edition_prompt(99)
 
-    async def test_an_unresolvable_member_gets_no_channel_either(self):
-        bot = self._bot(can_view=True)
-        bot.get_guild = Mock(return_value=SimpleNamespace(get_member=Mock(return_value=None)))
+                self.assertIsNone(view)
+                self.assertEqual(embed.title, "Application Already Active")
 
-        embed, _view = await bot.build_link_edition_prompt(99)
+    def test_linking_without_approval_still_needs_the_full_application(self):
+        """The safety net behind offering this to anyone who presses it.
 
-        self.assertNotIn("<#4242>", embed.description)
+        `record_verification` links an account outright only for a member who
+        already holds an approved application. Everybody else lands in the normal
+        flow, so the panel cannot become a way around staff review.
+        """
+        from pathlib import Path
+
+        source = (
+            Path(__file__).resolve().parent.parent / "minecraft_bot" / "data.py"
+        ).read_text()
+
+        self.assertIn("auto_link = bool(already_approved)", source)
+        self.assertIn("ApplicationStatus.APPROVED.value", source)
 
 
 class QuoteFormattingTests(unittest.TestCase):
