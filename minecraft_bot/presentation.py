@@ -235,12 +235,37 @@ def _connection_blocks(settings) -> str:
     )
 
 
+def quote_block(text: str) -> str:
+    """Renders a block of copy as a Discord quote.
+
+    The quote bar is what separates one section from the next visually; without
+    it a page of headings and paragraphs runs together into a wall.
+
+    Two rules that are easy to get wrong. A blank line inside a quote ends it, so
+    blank lines are quoted too and the block stays whole. And a fenced code block
+    cannot be quoted — the fence markers and the content both end up inside the
+    quote and Discord prints the markers literally — so any value containing one
+    is left exactly as it is.
+    """
+    body = str(text)
+    if "```" in body:
+        return body
+    lines = []
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            lines.append(">")
+        elif stripped.startswith(">"):
+            lines.append(line)
+        else:
+            lines.append(f"> {line}")
+    return "\n".join(lines)
+
+
 def _panel_embed(title: str, description: str) -> discord.Embed:
-    embed = discord.Embed(
-        title=title,
-        description=description,
-        colour=THEME_COLOUR,
-    )
+    embed = discord.Embed(title=title, colour=THEME_COLOUR)
+    if description:
+        embed.description = description
     embed.set_footer(text=BRAND_NAME, icon_url=FOOTER_ICON_URL)
     return embed
 
@@ -294,11 +319,7 @@ def application_guide_embed() -> discord.Embed:
     buttons live in `about.py` and never name a command, because a command is no use
     to somebody who cannot join yet.
     """
-    embed = _panel_embed(
-        "Before You Apply",
-        "What playing here is actually like. Every button answers privately, so "
-        "nothing fills the channel.",
-    )
+    embed = _panel_embed("Before You Apply", "")
     embed.add_field(
         name="Can I play on my version?",
         value=(
@@ -457,16 +478,22 @@ ENFORCEMENT_NOTE = (
 def rules_embed(*, agreement: bool = False) -> discord.Embed:
     # Fields rather than one description: each rule gets a heading Discord draws
     # tightly above its own text, and the room to be specific enough to argue from.
+    # Quoted at the call site rather than in info_embed, which every status and
+    # error message in the bot also goes through.
     embed = info_embed(
         "Mysterious SMP X Rules & Agreement" if agreement else "Mysterious SMP X Rules",
-        "Read every rule below, then select **I Agree** to confirm that you "
-        "understand and accept them."
-        if agreement
-        else "These rules apply to every Mysterious SMP X player.",
+        quote_block(
+            "Read every rule below, then select **I Agree** to confirm that you "
+            "understand and accept them."
+            if agreement
+            else "These rules apply to every Mysterious SMP X player."
+        ),
     )
     for heading, body in SERVER_RULES:
-        embed.add_field(name=heading, value=body, inline=False)
-    embed.add_field(name="Enforcement", value=ENFORCEMENT_NOTE, inline=False)
+        embed.add_field(name=heading, value=quote_block(body), inline=False)
+    embed.add_field(
+        name="Enforcement", value=quote_block(ENFORCEMENT_NOTE), inline=False
+    )
     if agreement:
         embed.add_field(
             name="Agreement",
