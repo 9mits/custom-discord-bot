@@ -188,6 +188,18 @@ Read the relevant file when you touch an area; these are the non-obvious points.
   granting in `RankSyncStore`, so a group set by hand in LuckPerms survives a
   sync. `/mgxadmin ranks hold <player>` takes a player out of sync entirely,
   which is how someone gets a rank Discord will never agree with.
+- **`discord_username` in SYNC_PROFILE is three-valued.** Present and non-empty
+  sets the name; present and empty means "no linked account" and makes the
+  plugin *forget* the cached one; absent means "could not determine" and leaves
+  it alone. Never collapse the last two — clearing on any empty value drops
+  every player's name the first time a Discord lookup fails. `link_known`
+  controls which is sent, mirroring `rank_known` for LuckPerms groups.
+- **Resetting data is two commands, one per side.** `/mgxadmin reset all
+  confirm` (in game) clears what Paper keeps; `/mcadmin wipe` (Discord, owner
+  only) clears the bot's SQLite. Neither can reach the other's data, so a full
+  reset needs both. The reset never opens the world, and deliberately keeps
+  `ops.json`, bans, and rank holds — clearing ops would lock the operator out of
+  the command itself.
 - **Deps:** `pip install -r requirements.txt` (discord.py>=2.6, aiohttp>=3.13,
   aiosqlite>=0.22, python-dotenv).
 

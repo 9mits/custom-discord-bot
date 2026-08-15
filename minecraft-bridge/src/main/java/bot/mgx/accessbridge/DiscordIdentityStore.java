@@ -64,6 +64,43 @@ final class DiscordIdentityStore {
         persistOrRollback(minecraftUuid, previous);
     }
 
+    /**
+     * Forgets one player's linked name, for when the bot reports they have no link.
+     *
+     * @return true when something was actually removed
+     */
+    synchronized boolean clear(UUID minecraftUuid) {
+        Identity previous = identities.remove(minecraftUuid);
+        if (previous == null) {
+            return false;
+        }
+        try {
+            persist();
+        } catch (IOException exception) {
+            identities.put(minecraftUuid, previous);
+            throw new UncheckedIOException(exception);
+        }
+        return true;
+    }
+
+    /** Forgets every linked name. Discord usernames are the one piece of personal
+     * data this plugin stores, so a reset that left them behind would not be one. */
+    synchronized int clearAll() {
+        int cleared = identities.size();
+        if (cleared == 0) {
+            return 0;
+        }
+        LinkedHashMap<UUID, Identity> previous = new LinkedHashMap<>(identities);
+        identities.clear();
+        try {
+            persist();
+        } catch (IOException exception) {
+            identities.putAll(previous);
+            throw new UncheckedIOException(exception);
+        }
+        return cleared;
+    }
+
     synchronized Optional<String> visibleUsername(UUID minecraftUuid) {
         Identity identity = identities.get(minecraftUuid);
         if (identity == null || !identity.visible()) {

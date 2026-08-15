@@ -28,6 +28,23 @@ final class DiscordIdentityService implements CommandExecutor {
         plugin.refreshClans();
     }
 
+    /**
+     * Forgets a linked name. Called when the bot reports no linked account, which
+     * happens after an unlink or a data wipe — the name would otherwise sit in chat
+     * and nametags indefinitely with nothing on the Discord side backing it.
+     */
+    void forget(UUID minecraftUuid) {
+        try {
+            if (store.clear(minecraftUuid)) {
+                plugin.refreshClans();
+            }
+        } catch (UncheckedIOException exception) {
+            plugin.getLogger().warning(
+                    "Could not forget a linked Discord name: " + exception.getMessage()
+            );
+        }
+    }
+
     Optional<String> visibleUsername(UUID minecraftUuid) {
         return store.visibleUsername(minecraftUuid);
     }

@@ -1119,6 +1119,11 @@ class MinecraftAccessBot(commands.Bot):
             # Without a resolved member we do not know their Discord roles. Saying
             # "no rank" would wipe their LuckPerms groups, including any set by hand.
             rank_known=member is not None,
+            # No linked account at all is knowledge: the plugin should forget the name
+            # it cached, which is what leaves a wiped member's Discord name showing in
+            # game. A link we know about but could not resolve to a user is not — the
+            # empty name there would be a failed lookup, not an absent account.
+            link_known=discord_user_id is None or linked_user is not None,
         )
 
     async def on_member_update(self, before: discord.Member, after: discord.Member) -> None:
@@ -2742,9 +2747,13 @@ class MinecraftAccessBot(commands.Bot):
                         "`/mgxadmin ranks hold <player>` — keep a LuckPerms group set by "
                         "hand, so Discord rank sync stops undoing it\n"
                         "`/mgxadmin ranks release <player>` — hand them back to rank sync\n"
-                        "`/mgxadmin reset <scope...> confirm` — clear statistics, "
-                        "advancements, inventories, clans or balances; the world and "
-                        "everything built in it is never touched"
+                        "`/mgxadmin reset all confirm` — clear every trace: statistics "
+                        "and death counts, advancements, inventories, clans and "
+                        "balances, linked Discord names, settings, verification and "
+                        "the whitelist. The world and everything built in it, "
+                        "operators, bans and rank holds are kept.\n"
+                        "Run `/mcadmin wipe` here as well — the two sides keep "
+                        "separate data and neither can clear the other."
                     ),
                     inline=False,
                 )

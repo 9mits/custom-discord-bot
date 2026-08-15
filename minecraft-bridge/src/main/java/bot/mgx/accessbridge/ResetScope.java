@@ -26,7 +26,17 @@ enum ResetScope {
     /** Every clan, its vault balance and its donation ledger. */
     CLANS("clans", "every clan, clan balance and donation record"),
     /** Recorded wealth, which is the one leaderboard figure the server does not keep. */
-    WEALTH("wealth", "recorded wealth for the leaderboard");
+    WEALTH("wealth", "recorded wealth for the leaderboard"),
+    /** Linked Discord usernames — the only personal data the plugin keeps. */
+    IDENTITIES("identities", "linked Discord names shown beside Minecraft names"),
+    /** Per-player display toggles, so everyone returns to the defaults. */
+    SETTINGS("settings", "per-player chat, nametag and Discord-name toggles"),
+    /** What Discord rank sync recorded granting. Deliberate holds are kept. */
+    RANKS("ranks", "the record of which groups rank sync granted (holds are kept)"),
+    /** Verification and whitelist state, so nobody reads as already verified. */
+    ACCESS("access", "verified applications, queued verifications and the whitelist"),
+    /** The server's own record of every name that has ever joined. */
+    USERCACHE("usercache", "the server's cache of who has ever joined");
 
     private final String key;
     private final String description;
@@ -47,6 +57,16 @@ enum ResetScope {
     /** Whether this scope needs the player's own data file removed when they are offline. */
     boolean isPlayerData() {
         return this == STATS || this == ADVANCEMENTS || this == INVENTORIES;
+    }
+
+    /**
+     * Whether clearing this scope locks players out until they apply again.
+     *
+     * <p>Called out separately in the confirmation, because it is the one consequence
+     * that is not obvious from the scope name and not recoverable by waiting.
+     */
+    boolean revokesAccess() {
+        return this == ACCESS;
     }
 
     static List<String> keys() {

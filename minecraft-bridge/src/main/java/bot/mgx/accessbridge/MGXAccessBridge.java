@@ -185,7 +185,15 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                         clanStore,
                         wealthStore,
                         rankSyncStore,
-                        getServer().getWorlds().get(0).getWorldFolder().toPath()
+                        identityStore,
+                        playerSettings,
+                        verifiedApplications,
+                        verificationEvents,
+                        processed,
+                        getServer().getWorlds().get(0).getWorldFolder().toPath(),
+                        // Where the worlds live is also where whitelist.json and
+                        // usercache.json sit, which is what the reset needs.
+                        getServer().getWorldContainer().toPath()
                 )
         );
         getCommand("mgxadmin").setExecutor(adminService);
@@ -427,6 +435,13 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     void applyDiscordIdentity(UUID minecraftUuid, String discordUsername) {
         if (identityService != null) {
             identityService.sync(minecraftUuid, discordUsername);
+        }
+    }
+
+    /** Drops a cached Discord name once the bot reports the account is not linked. */
+    void forgetDiscordIdentity(UUID minecraftUuid) {
+        if (identityService != null) {
+            identityService.forget(minecraftUuid);
         }
     }
 

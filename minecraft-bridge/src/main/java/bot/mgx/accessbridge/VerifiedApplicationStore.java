@@ -69,6 +69,23 @@ final class VerifiedApplicationStore {
         }
     }
 
+    /** Forgets every verified application, so nobody reads as already verified. */
+    synchronized int clearAll() {
+        int cleared = applications.size();
+        if (cleared == 0) {
+            return 0;
+        }
+        LinkedHashMap<Long, VerifiedApplication> previous = new LinkedHashMap<>(applications);
+        applications.clear();
+        try {
+            persist();
+        } catch (IOException exception) {
+            applications.putAll(previous);
+            throw new UncheckedIOException(exception);
+        }
+        return cleared;
+    }
+
     private void persistOrRollback(long applicationId, VerifiedApplication previous) {
         try {
             persist();

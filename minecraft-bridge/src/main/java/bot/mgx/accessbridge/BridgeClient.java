@@ -350,8 +350,18 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                 plugin.applyPlayerRank(minecraftUuid, profile.rankGroup());
             }
             Player online = Bukkit.getPlayer(minecraftUuid);
+            // Present-and-empty means the bot knows this player has no linked account,
+            // so the cached name is stale and must go. The field is omitted entirely
+            // when the bot could not work out the link state, which is why absence and
+            // emptiness cannot be treated the same: clearing on a failed lookup would
+            // drop everyone's name the first time Discord was slow.
             if (payload.has("discord_username")) {
-                plugin.applyDiscordIdentity(minecraftUuid, payload.get("discord_username").getAsString());
+                String username = payload.get("discord_username").getAsString();
+                if (username.isBlank()) {
+                    plugin.forgetDiscordIdentity(minecraftUuid);
+                } else {
+                    plugin.applyDiscordIdentity(minecraftUuid, username);
+                }
             }
             if (online != null) {
                 plugin.applyPlayerProfile(online, profile);
