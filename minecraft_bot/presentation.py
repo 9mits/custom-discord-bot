@@ -656,6 +656,13 @@ def application_card_files(application: MinecraftApplication) -> list[discord.Fi
     return []
 
 
+def _relative(timestamp: int) -> str:
+    """A deadline as Discord's own relative time, for use inside a sentence."""
+    return discord.utils.format_dt(
+        datetime.fromtimestamp(int(timestamp), timezone.utc), "R"
+    )
+
+
 def _add_connection_fields(embed: discord.Embed, settings, edition=None) -> None:
     """Server addresses as their own fields, one per edition.
 
@@ -700,28 +707,27 @@ def live_status_embed(application: MinecraftApplication, settings) -> discord.Em
     username = _safe(application.verified_username or application.claimed_username, 100)
     edition = application.edition.value.title()
 
-    show_deadline = False
     show_connection = False
     if status is ApplicationStatus.PENDING_VERIFICATION:
+        # The deadline reads as part of the sentence rather than as a field of its
+        # own. Discord renders it as "in 3 days", which only sits naturally after a
+        # verb — "expires in 3 days" — and never under a heading like "Finish by".
+        expires = _relative(application.verification_expires_at)
+        edition_note = "" if application.auto_detect_edition else f" on {edition}"
         title = "Verify Your Account"
         body = (
-            f"Join the server once as `{username}` to prove the account is yours.\n"
-            "You will be disconnected straight away — that is how it confirms."
-            if application.auto_detect_edition
-            else f"Join the server once as `{username}` on {edition} to prove the "
-            "account is yours.\nYou will be disconnected straight away — that is "
-            "how it confirms."
+            f"Join the server once as `{username}`{edition_note} to prove the "
+            "account is yours. You will be disconnected straight away — that is "
+            f"how it confirms.\n\nThis expires {expires}."
         )
-        show_deadline = True
         show_connection = True
     elif status is ApplicationStatus.PENDING_APPLICATION:
         title = "Account Verified"
         body = (
-            f"`{username}` is yours — that part is done.\n"
-            "One short form left. Press **Continue Application** below and answer "
-            "two questions."
+            f"Your account `{username}` is verified. Press **Continue Application** "
+            "below to answer two short questions and finish.\n\n"
+            f"The application expires {_relative(application.verification_expires_at)}."
         )
-        show_deadline = True
     elif status is ApplicationStatus.PENDING_REVIEW:
         title = "Application Sent"
         body = (
@@ -767,15 +773,6 @@ def live_status_embed(application: MinecraftApplication, settings) -> discord.Em
         body = "This Minecraft access record is no longer active."
 
     embed = info_embed(title, quote_block(body))
-    if show_deadline:
-        # Only read where one exists: the later states have no deadline, and asking
-        # for one there would couple the card to a field it does not use.
-        deadline = datetime.fromtimestamp(application.verification_expires_at, timezone.utc)
-        embed.add_field(
-            name="Finish by",
-            value=discord.utils.format_dt(deadline, "R"),
-            inline=False,
-        )
     if show_connection:
         _add_connection_fields(
             embed,

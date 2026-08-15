@@ -3058,10 +3058,23 @@ class ApplicationCardCopyTests(unittest.TestCase):
             self._application(ApplicationStatus.APPROVED), self._settings()
         )
 
-        self.assertIn("Finish by", {field.name for field in verify.fields})
         self.assertIn("play.example.net", self._text(verify))
         self.assertIn("`7saori`", verify.description)
         self.assertIn("play.example.net", self._text(approved))
+
+    def test_a_deadline_reads_as_part_of_the_sentence(self):
+        # Discord renders it as "in 3 days", which sits naturally after a verb and
+        # badly under a heading. Both timed screens say it inline and neither
+        # carries a field for it.
+        for status in (
+            ApplicationStatus.PENDING_VERIFICATION,
+            ApplicationStatus.PENDING_APPLICATION,
+        ):
+            with self.subTest(status=status):
+                embed = live_status_embed(self._application(status), self._settings())
+
+                self.assertRegex(embed.description, r"expires <t:\d+:R>\.")
+                self.assertNotIn("Finish by", {field.name for field in embed.fields})
 
     def test_a_held_server_never_invites_an_approved_member_to_join(self):
         embed = live_status_embed(
