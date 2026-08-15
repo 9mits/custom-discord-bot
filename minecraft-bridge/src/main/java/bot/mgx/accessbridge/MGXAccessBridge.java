@@ -4,6 +4,7 @@ import net.kyori.adventure.text.Component;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.event.player.AsyncPlayerPreLoginEvent;
 import org.bukkit.event.player.PlayerLoginEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
@@ -60,6 +61,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private WealthStore wealthStore;
     private RankSyncStore rankSyncStore;
     private MaintenanceStore maintenanceStore;
+    private BukkitTask maintenanceSweep;
     private final WhitelistDirectory whitelistDirectory = new WhitelistDirectory();
 
     @Override
@@ -213,6 +215,15 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         leaderboardService.start();
         capabilityService.start();
         bridgeClient.start();
+        if (maintenanceHeld()) {
+            getLogger().warning("Maintenance hold is active.");
+        }
+        // Event-based kicks are the polite path. Geyser can skip those events
+        // and drop a kick issued during spawn, so a sweep is what actually
+        // keeps a held server empty.
+        maintenanceSweep = getServer().getScheduler().runTaskTimer(
+                this, this::sweepMaintenance, MaintenanceGate.SWEEP_PERIOD_TICKS, MaintenanceGate.SWEEP_PERIOD_TICKS
+        );
     }
 
     @Override
@@ -236,6 +247,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         if (bridgeClient != null) {
             bridgeClient.close();
+        }
+        if (maintenanceSweep != null) {
+            maintenanceSweep.cancel();
+            maintenanceSweep = null;
         }
         if (networkExecutor != null) {
             networkExecutor.shutdownNow();
@@ -515,7 +530,15 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     }
 
     private boolean bypassesMaintenance(org.bukkit.entity.Player player) {
-        return player.isOp() || player.hasPermission(AdminCommandService.PERMISSION);
+        // Do not ask Bukkit hasPermission. Floodgate players can report true
+        // for default:op nodes before attachments exist, which is how a
+        // never-seen Bedrock account walked through a hold that already
+        // blocked Java.
+        if (player.isOp()) {
+            return true;
+        }
+        return luckPermsService != null
+                && luckPermsService.hasLoadedPermission(player.getUniqueId(), AdminCommandService.PERMISSION);
     }
 
     /**
@@ -550,6 +573,20 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             return;
         }
         player.kick(MAINTENANCE_MESSAGE);
+    }
+
+    private void sweepMaintenance() {
+        if (!maintenanceHeld()) {
+            return;
+        }
+        for (org.bukkit.entity.Player player : getServer().getOnlinePlayers()) {
+            if (bypassesMaintenance(player)) {
+                continue;
+            }
+            getLogger().warning("Sweep removed " + player.getName()
+                    + ": the server is closed for maintenance.");
+            player.kick(MAINTENANCE_MESSAGE);
+        }
     }
 
     /**
@@ -714,12 +751,21 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
      */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onMaintenanceJoin(PlayerJoinEvent event) {
-        if (!MaintenanceGate.shouldRefuse(maintenanceHeld(), bypassesMaintenance(event.getPlayer()))) {
+        org.bukkit.entity.Player player = event.getPlayer();
+        boolean held = maintenanceHeld();
+        boolean bypass = bypassesMaintenance(player);
+        if (held) {
+            getLogger().info("Join " + player.getName()
+                    + " uuid=" + player.getUniqueId()
+                    + " op=" + player.isOp()
+                    + " bypass=" + bypass);
+        }
+        if (!MaintenanceGate.shouldRefuse(held, bypass)) {
             return;
         }
-        getLogger().warning("Removed " + event.getPlayer().getName()
+        getLogger().warning("Removed " + player.getName()
                 + " after login: the server is closed for maintenance.");
-        scheduleMaintenanceKick(event.getPlayer());
+        scheduleMaintenanceKick(player);
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)

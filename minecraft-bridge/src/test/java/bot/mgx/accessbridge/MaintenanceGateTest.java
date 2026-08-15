@@ -2,6 +2,7 @@ package bot.mgx.accessbridge;
 
 import org.junit.jupiter.api.Test;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -42,5 +43,10 @@ class MaintenanceGateTest {
             last = delay;
         }
         assertTrue(last >= 20L);
+    }
+
+    @Test
+    void aHeldServerSweepsEverySecond() {
+        assertEquals(20L, MaintenanceGate.SWEEP_PERIOD_TICKS);
     }
 }
