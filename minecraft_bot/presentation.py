@@ -290,8 +290,10 @@ def application_welcome_embed() -> discord.Embed:
     """What the server is. The first thing anybody sees, so it sells nothing else."""
     welcome = _panel_embed(
         "Welcome to Mysterious SMP X",
+        # The partnership line stays unquoted so it reads as a header above the
+        # quote rather than the first line of it.
         "**Mysterious Girlfriend X Discord, in partnership with r/MysteriousGirlfriendX.**\n\n"
-        f"{SERVER_TAGLINE}",
+        + quote_block(SERVER_TAGLINE),
     )
     # Inline fields lay the features out in columns, matching the Contact Staff
     # panel. Each feature names itself, so the showcase needs no header of its

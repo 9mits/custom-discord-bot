@@ -2976,6 +2976,32 @@ class QuoteFormattingTests(unittest.TestCase):
                             )
 
 
+class WelcomePanelTests(unittest.TestCase):
+    def test_the_tagline_is_quoted_and_stays_one_block(self):
+        # Both paragraphs under one bar. The blank line between them has to be
+        # quoted too, or Discord ends the quote and only the first is inside it.
+        from minecraft_bot.presentation import (
+            SERVER_TAGLINE_PARAGRAPHS,
+            application_welcome_embed,
+        )
+
+        lines = application_welcome_embed().description.splitlines()
+        quoted = [line for line in lines if line.startswith(">")]
+
+        for paragraph in SERVER_TAGLINE_PARAGRAPHS:
+            with self.subTest(paragraph=paragraph[:30]):
+                self.assertIn(f"> {paragraph}", quoted)
+        self.assertEqual(len(quoted), len(SERVER_TAGLINE_PARAGRAPHS) * 2 - 1)
+
+    def test_the_partnership_line_reads_as_a_header_above_the_quote(self):
+        from minecraft_bot.presentation import application_welcome_embed
+
+        first = application_welcome_embed().description.splitlines()[0]
+
+        self.assertFalse(first.startswith(">"))
+        self.assertIn("in partnership with", first)
+
+
 class ApplicationGuideButtonTests(unittest.TestCase):
     """Before You Apply shows the information panel's own pages.
 
