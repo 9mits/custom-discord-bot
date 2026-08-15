@@ -22,6 +22,8 @@ from minecraft_bot.presentation import (
     FOOTER_PATH,
     LOGO_PATH,
     RULES_ATTACHMENT_URI,
+    ABOUT_PATH,
+    APPLY_PATH,
     RULES_PATH,
     SUCCESS_COLOUR,
     THEME_COLOUR,
@@ -201,6 +203,8 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertTrue(FOOTER_PATH.is_file())
         self.assertTrue(RULES_PATH.is_file())
         self.assertTrue(VERIFY_PATH.is_file())
+        self.assertTrue(ABOUT_PATH.is_file(), "the Before You Apply mark must ship with the repo")
+        self.assertTrue(APPLY_PATH.is_file(), "the Apply mark must ship with the repo")
 
     def test_minecraft_brand_assets_stay_lightweight(self):
         self.assertLess(LOGO_PATH.stat().st_size, 500_000)
@@ -208,6 +212,8 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertLess(FOOTER_PATH.stat().st_size, 25_000)
         self.assertLess(RULES_PATH.stat().st_size, 1_000_000)
         self.assertLess(VERIFY_PATH.stat().st_size, 1_000_000)
+        self.assertLess(ABOUT_PATH.stat().st_size, 1_000_000)
+        self.assertLess(APPLY_PATH.stat().st_size, 1_000_000)
 
     def test_verification_instructions_are_copyable_and_edition_specific(self):
         application = MinecraftApplication(
@@ -898,6 +904,16 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         await bot.post_application_panel()
 
         welcome, guide, apply = channel.send.await_args_list
+        # An attachment:// thumbnail only renders if its file rides along on the
+        # same message, so each panel carries its own.
+        self.assertEqual(
+            [file.filename for file in guide.kwargs["files"]],
+            ["mysterious_smp_x_about.png"],
+        )
+        self.assertEqual(
+            [file.filename for file in apply.kwargs["files"]],
+            ["mysterious_smp_x_apply.png"],
+        )
         self.assertIsNone(welcome.kwargs["view"])
         self.assertEqual(
             [item.label for item in apply.kwargs["view"].children], ["Apply"]

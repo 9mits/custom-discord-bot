@@ -41,11 +41,13 @@ from .presentation import (
     BRAND_NAME,
     FOOTER_ICON_URL,
     MINECRAFT_HEAD_URL,
+    about_image_file,
     application_apply_embed,
     application_guide_embed,
     application_guide_view,
     application_panel,
     application_welcome_embed,
+    apply_image_file,
     application_panel_files,
     application_dm_embed,
     application_log_embed,
@@ -1191,8 +1193,18 @@ class MinecraftAccessBot(commands.Bot):
                 None,
                 application_panel_files(),
             ),
-            ("application_guide_message_id", application_guide_embed(), application_guide_view(), []),
-            ("application_panel_message_id", application_apply_embed(), application_panel(), []),
+            (
+                "application_guide_message_id",
+                application_guide_embed(),
+                application_guide_view(),
+                [about_image_file()],
+            ),
+            (
+                "application_panel_message_id",
+                application_apply_embed(),
+                application_panel(),
+                [apply_image_file()],
+            ),
         )
         existing = {key: await fetch_saved_message(key) for key, *_ in parts}
         banner = await fetch_saved_message("application_banner_message_id")
