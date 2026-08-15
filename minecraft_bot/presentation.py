@@ -656,10 +656,6 @@ def application_card_files(application: MinecraftApplication) -> list[discord.Fi
     return []
 
 
-def _status_label(status: ApplicationStatus) -> str:
-    return status.value.replace("_", " ").title()
-
-
 def _add_connection_fields(embed: discord.Embed, settings, edition=None) -> None:
     """Server addresses as their own fields, one per edition.
 
@@ -691,89 +687,95 @@ def _add_connection_fields(embed: discord.Embed, settings, edition=None) -> None
 def live_status_embed(application: MinecraftApplication, settings) -> discord.Embed:
     """The applicant's own card, rewritten in place as the application moves.
 
-    Laid out as fields rather than one long description. The card is read at a
-    glance — "where am I, and what do I do next" — and a paragraph made the
-    applicant hunt for both.
+    The title says where they are and the body says what happens next. Nothing
+    else: the status and the account were shown as their own fields, which asked
+    somebody to read a form to learn one sentence of news. The application number
+    goes with them — it identifies the record to staff, not to the person waiting
+    on it.
+
+    Only the two screens with something to act on carry more: a deadline where
+    one can run out, and the server addresses where they have to connect.
     """
     status = application.status
     username = _safe(application.verified_username or application.claimed_username, 100)
+    edition = application.edition.value.title()
 
-    summary = ""
-    next_action = ""
     show_deadline = False
     show_connection = False
     if status is ApplicationStatus.PENDING_VERIFICATION:
-        summary = "> Join the Minecraft server once to prove the account is yours."
-        next_action = (
-            f"Log in as `{username}` using the address for your edition below. "
-            "You will be disconnected with a confirmation — that is expected."
+        title = "Verify Your Account"
+        body = (
+            f"Join the server once as `{username}` to prove the account is yours.\n"
+            "You will be disconnected straight away — that is how it confirms."
             if application.auto_detect_edition
-            else f"Log in as `{username}` using the {application.edition.value.title()} "
-            "address below. You will be disconnected with a confirmation — that is expected."
+            else f"Join the server once as `{username}` on {edition} to prove the "
+            "account is yours.\nYou will be disconnected straight away — that is "
+            "how it confirms."
         )
         show_deadline = True
         show_connection = True
     elif status is ApplicationStatus.PENDING_APPLICATION:
-        summary = "> Your account is verified. One short form left."
-        next_action = (
-            "Press **Continue Application** below and answer two questions. "
-            "**Apply** on the application panel picks up where you left off."
+        title = "Account Verified"
+        body = (
+            f"`{username}` is yours — that part is done.\n"
+            "One short form left. Press **Continue Application** below and answer "
+            "two questions."
         )
         show_deadline = True
     elif status is ApplicationStatus.PENDING_REVIEW:
-        summary = "> Sent to staff. Nothing else for you to do."
-        next_action = "You will get a DM as soon as staff decide."
+        title = "Application Sent"
+        body = (
+            "Your application is with the staff team and there is nothing else for "
+            "you to do.\n\n"
+            "Keep your DMs open — the decision comes as a direct message."
+        )
     elif status is ApplicationStatus.APPROVAL_QUEUED:
-        summary = "> Approved. Access is being applied to the server now."
-        next_action = "This takes a moment. You will get a DM when it is ready."
+        title = "Approved — Setting Up"
+        body = (
+            "Staff approved you. Your access is being set up on the server now.\n\n"
+            "It only takes a moment, and you will get a DM when it is ready."
+        )
     elif status is ApplicationStatus.APPROVED:
         if getattr(settings, "maintenance_mode", False):
-            summary = "> You are accepted. The server is not open yet."
-            next_action = (
-                "You cannot join until it opens, even though you are accepted. "
-                "You will be told the moment it does."
+            title = "Accepted — Not Open Yet"
+            body = (
+                "You are accepted and your place is kept.\n\n"
+                "The server is not open yet, so you cannot join even though you were "
+                "approved. You will be told the moment it opens."
             )
         else:
-            summary = "> Access is active. Join whenever you like."
+            title = "You Are In"
+            body = "Your access is active. Join whenever you like."
             show_connection = True
     elif status is ApplicationStatus.DENIED:
-        summary = "> Staff did not approve this application."
-        next_action = application.applicant_reason or "No public reason was given."
+        title = "Application Not Approved"
+        body = application.applicant_reason or "No public reason was given."
     elif status is ApplicationStatus.EXPIRED:
-        summary = "> This application ran out of time."
-        next_action = (
-            "Nobody joined the server in time to verify the account. Press **Apply** "
-            "on the application panel to start again — nothing is lost."
+        title = "Application Expired"
+        body = (
+            "Nobody joined the server in time to verify the account.\n\n"
+            "Nothing is lost — press **Apply** on the application panel to start again."
             if not application.verified_at
-            else "The written form was not finished in time. Press **Apply** on the "
-            "application panel to start again — nothing is lost."
+            else "The written form was not finished in time.\n\n"
+            "Nothing is lost — press **Apply** on the application panel to start again."
         )
     elif status is ApplicationStatus.CANCELLED:
-        summary = "> This application was cancelled."
-        next_action = "Press **Apply** on the application panel whenever you want to try again."
+        title = "Application Cancelled"
+        body = "Press **Apply** on the application panel whenever you want to try again."
     else:
-        summary = "> This Minecraft access record is no longer active."
+        title = "Access Ended"
+        body = "This Minecraft access record is no longer active."
 
-    embed = info_embed("Your Minecraft Application", summary)
-    embed.add_field(
-        name="Status", value=f"#{application.id} · {_status_label(status)}", inline=True
-    )
-    embed.add_field(
-        name="Account",
-        value=f"{application.edition.value.title()} · `{username}`",
-        inline=True,
-    )
+    embed = info_embed(title, quote_block(body))
     if show_deadline:
-        # Only read when it is shown: the later states have no deadline, and asking
+        # Only read where one exists: the later states have no deadline, and asking
         # for one there would couple the card to a field it does not use.
         deadline = datetime.fromtimestamp(application.verification_expires_at, timezone.utc)
         embed.add_field(
             name="Finish by",
             value=discord.utils.format_dt(deadline, "R"),
-            inline=True,
+            inline=False,
         )
-    if next_action:
-        embed.add_field(name="What to do next", value=next_action, inline=False)
     if show_connection:
         _add_connection_fields(
             embed,
