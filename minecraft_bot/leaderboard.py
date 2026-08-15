@@ -36,12 +36,6 @@ EMOJI_CLEANUP_PER_PASS = 25
 #: The board everyone sees by default; the rest are a dropdown away.
 DEFAULT_TYPE = "wealth"
 
-#: Shown for clans that have not set an icon. The Discord CDN link originally
-#: proposed for this carried an ``ex=`` expiry stamp and had already decayed to a
-#: 250-byte placeholder, so the brand mark stands in until a permanent image is
-#: committed to ``assets/`` alongside the other artwork.
-CLAN_DEFAULT_ICON_URL = MARK_ICON_URL
-
 TYPE_LABELS: dict[str, str] = {
     "wealth": "Richest",
     "kills": "Most Kills",
@@ -61,11 +55,6 @@ def _rows(snapshot: dict[str, Any], scope: str, board: str) -> list[dict[str, An
     section = snapshot.get(scope) or {}
     rows = section.get(board) or []
     return rows if isinstance(rows, list) else []
-
-
-def clan_key(name: str) -> str:
-    """Clan icons share the emoji registry with player heads, so they need a namespace."""
-    return f"clan:{name}"
 
 
 def _emoji_name(username: str) -> str:
@@ -94,7 +83,7 @@ class HeadEmojiStore:
     async def sync(self, guild: discord.Guild, snapshot: dict[str, Any]) -> dict[str, str]:
         """Ensures every podium subject has an emoji; returns key -> markdown.
 
-        Keys are a player uuid, or ``clan:<name>`` for a clan icon.
+        Keys are a player uuid.
         """
         registry = await self._load()
         now = datetime.now(timezone.utc)
@@ -117,10 +106,11 @@ class HeadEmojiStore:
         def is_current(key: str, source: str) -> bool:
             """Whether Discord still holds an emoji minted from this exact image.
 
-            A clan that changes its icon keeps its key, so the stored source has to
-            be compared too or the old picture would stay on the board forever.
-            Entries saved before sources were recorded have none; those are left
-            alone rather than re-minted, since the emoji itself is still right.
+            A Bedrock player who changes their gamertag keeps their uuid key, so
+            the stored source has to be compared too or the old head would stay on
+            the board forever. Entries saved before sources were recorded have
+            none; those are left alone rather than re-minted, since the emoji
+            itself is still right.
             """
             entry = registry.get(key) or {}
             emoji_id = int(entry.get("emoji_id", 0) or 0)
@@ -157,7 +147,8 @@ class HeadEmojiStore:
                 timeout=aiohttp.ClientTimeout(total=15)
             ) as session:
                 for key, (label, source) in missing.items():
-                    # Replacing a clan's icon means retiring the emoji it used to have.
+                    # A changed source (a Bedrock gamertag change) retires the old
+                    # emoji before the new one is minted.
                     await self._retire(registry.get(key), existing)
                     created = await self._create(session, guild, label, source)
                     if created is not None:
@@ -174,23 +165,10 @@ class HeadEmojiStore:
 
     def _podium_subjects(self, snapshot: dict[str, Any]) -> dict[str, tuple[str, str]]:
         """Everything that earns an emoji: key -> (label, image address)."""
-        subjects: dict[str, tuple[str, str]] = {
+        return {
             uuid: (username, head_url(uuid, username))
             for uuid, username in self._podium_players(snapshot).items()
         }
-        subjects.update(self._podium_clans(snapshot))
-        return subjects
-
-    def _podium_clans(self, snapshot: dict[str, Any]) -> dict[str, tuple[str, str]]:
-        """The top three of every clan board, keyed apart from player uuids."""
-        clans: dict[str, tuple[str, str]] = {}
-        for board in CLAN_TYPES:
-            for row in _rows(snapshot, "clan", board)[:PODIUM]:
-                name = str(row.get("clan") or "").strip()
-                if name:
-                    icon = str(row.get("icon") or "").strip() or CLAN_DEFAULT_ICON_URL
-                    clans.setdefault(clan_key(name), (name, icon))
-        return clans
 
     async def _retire(
         self, entry: Optional[dict[str, Any]], existing: dict[int, discord.Emoji]
@@ -199,7 +177,7 @@ class HeadEmojiStore:
         if emoji is None:
             return
         try:
-            await emoji.delete(reason=f"{BRAND_NAME} leaderboard icon replaced")
+            await emoji.delete(reason=f"{BRAND_NAME} leaderboard head replaced")
             existing.pop(emoji.id, None)
         except discord.HTTPException:
             logger.warning("Could not remove the replaced emoji %s", emoji.name)
@@ -331,8 +309,11 @@ def _placement(index: int) -> str:
     return f"#{index + 1}"
 
 
-def _thumbnail(rows: list[dict[str, Any]], scope: str) -> str:
+def _thumbnail(rows: list[dict[str, Any]]) -> str:
     """Whoever tops *this* board, so each one is visibly about its own leader.
+
+    Clan boards fall through to the brand mark: a clan row carries no
+    ``minecraft_uuid``, and clans have no picture of their own to show instead.
 
     A remote URL rather than an attachment: the dropdown replies are ephemeral and
     cannot carry a file, so attachment:// rendered nothing on four boards in five.
@@ -340,8 +321,6 @@ def _thumbnail(rows: list[dict[str, Any]], scope: str) -> str:
     if not rows:
         return MARK_ICON_URL
     leader = rows[0]
-    if scope == "clan":
-        return str(leader.get("icon") or "").strip() or CLAN_DEFAULT_ICON_URL
     uuid = str(leader.get("minecraft_uuid") or "")
     if not uuid:
         return MARK_ICON_URL
@@ -386,7 +365,8 @@ def build_embed(
                 name = clans.tag(clan_name, int(row.get("level", 0) or 0))
                 members = row.get("members")
                 suffix = f" · {members} members" if members else ""
-                icon = heads.get(clan_key(clan_name), "") if podium else ""
+                # Clans have no picture of their own; only players carry a head.
+                icon = ""
             else:
                 uuid = str(row.get("minecraft_uuid") or "")
                 # Identity reads clan, then Discord, then Minecraft — broadest first.
@@ -413,7 +393,7 @@ def build_embed(
     generated = snapshot.get("generated_at")
     if generated:
         embed.timestamp = datetime.fromtimestamp(int(generated) / 1000, tz=timezone.utc)
-    embed.set_thumbnail(url=_thumbnail(rows, scope))
+    embed.set_thumbnail(url=_thumbnail(rows))
     embed.set_footer(text=BRAND_NAME, icon_url=FOOTER_ICON_URL)
     return embed
 

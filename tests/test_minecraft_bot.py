@@ -1479,40 +1479,33 @@ class MinecraftLeaderboardRenderTests(unittest.TestCase):
             head_url(leader["minecraft_uuid"], leader.get("username", "")),
         )
 
-    def test_clan_podium_rows_carry_their_icon(self):
-        from minecraft_bot.leaderboard import clan_key
-
+    def test_clan_podium_rows_carry_no_icon(self):
+        # Clans have no picture of their own; only players carry a head emoji, so a
+        # clan board never prefixes its rows the way an individual board does —
+        # even a stray registry entry must not leak onto one.
         snapshot = {
             "clan": {
                 "wealth": [
                     {"clan": "Wolves", "value": 9, "display": "9"},
                     {"clan": "Ravens", "value": 8, "display": "8"},
-                    {"clan": "Foxes", "value": 7, "display": "7"},
-                    {"clan": "Bears", "value": 6, "display": "6"},
                 ]
             }
         }
-        icons = {
-            clan_key("Wolves"): "<:w:1>",
-            clan_key("Ravens"): "<:r:2>",
-            clan_key("Foxes"): "<:f:3>",
-            clan_key("Bears"): "<:b:4>",
-        }
 
         described = self.leaderboard.build_embed(
-            snapshot, scope="clan", board="wealth", heads=icons
+            snapshot, scope="clan", board="wealth", heads={"u1": "<:w:1>"}
         ).description
 
-        self.assertIn("<:w:1> **#1 · [Wolves]**", described)
-        self.assertIn("<:r:2>", described)
-        self.assertIn("<:f:3>", described)
-        # Fourth place is off the podium, so it stays plain like the players do.
-        self.assertNotIn("<:b:4>", described)
+        self.assertIn("**#1 · [Wolves]**", described)
+        self.assertNotIn("<:w:1>", described)
 
-    def test_clan_thumbnail_is_the_leading_clans_icon(self):
-        from minecraft_bot.leaderboard import CLAN_DEFAULT_ICON_URL
+    def test_clan_thumbnail_is_always_the_brand_mark(self):
+        # Clans have no picture of their own, so every clan board shows the same
+        # brand mark regardless of the row — including a stray "icon" key an old
+        # payload might still carry before every Paper server is redeployed.
+        from minecraft_bot.presentation import MARK_ICON_URL
 
-        with_icon = self.leaderboard.build_embed(
+        with_stray_icon = self.leaderboard.build_embed(
             {"clan": {"wealth": [{"clan": "Wolves", "icon": "https://example.com/w.png"}]}},
             scope="clan",
             board="wealth",
@@ -1521,8 +1514,8 @@ class MinecraftLeaderboardRenderTests(unittest.TestCase):
             {"clan": {"wealth": [{"clan": "Ravens"}]}}, scope="clan", board="wealth"
         )
 
-        self.assertEqual(with_icon.thumbnail.url, "https://example.com/w.png")
-        self.assertEqual(without.thumbnail.url, CLAN_DEFAULT_ICON_URL)
+        self.assertEqual(with_stray_icon.thumbnail.url, MARK_ICON_URL)
+        self.assertEqual(without.thumbnail.url, MARK_ICON_URL)
 
     def test_thumbnail_is_a_remote_url_not_an_attachment(self):
         # The dropdown replies are ephemeral and cannot carry a file, so an
@@ -1742,22 +1735,20 @@ class MinecraftPodiumDuplicateTests(unittest.IsolatedAsyncioTestCase):
         store._create.assert_not_awaited()
         head.delete.assert_not_awaited()
 
-    async def test_changing_a_clan_icon_remints_it(self):
-        # A clan keeps its key when it swaps picture, so without comparing the
-        # stored source the board would show the old image indefinitely.
-        from minecraft_bot.leaderboard import clan_key
-
+    async def test_a_changed_source_remints_the_head(self):
+        # A renamed Bedrock player keeps their uuid key, so without comparing the
+        # stored source the board would show their old name's head indefinitely.
         store = self._store(
             {
-                clan_key("Wolves"): {
+                "u1": {
                     "emoji_id": 77,
                     "markdown": "<:w:77>",
-                    "source": "https://example.com/old.png",
+                    "source": "https://example.com/old-name.png",
                     "last_podium": "2026-08-14T00:00:00+00:00",
                 }
             }
         )
-        existing = SimpleNamespace(id=77, name="mgx_head_Wolves", delete=AsyncMock())
+        existing = SimpleNamespace(id=77, name="mgx_head_oldname", delete=AsyncMock())
         guild = SimpleNamespace(
             id=1,
             emoji_limit=250,
@@ -1766,34 +1757,33 @@ class MinecraftPodiumDuplicateTests(unittest.IsolatedAsyncioTestCase):
             get_emoji=lambda _id: None,
         )
         snapshot = {
-            "individual": {},
-            "clan": {
-                "wealth": [
-                    {"clan": "Wolves", "icon": "https://example.com/new.png", "value": 9}
-                ]
-            },
+            "individual": {
+                "wealth": [{"minecraft_uuid": "u1", "username": "newname", "value": 9}]
+            }
         }
 
-        await store.sync(guild, snapshot)
+        with patch(
+            "minecraft_bot.leaderboard.head_url",
+            return_value="https://example.com/new-name.png",
+        ):
+            await store.sync(guild, snapshot)
 
         store._create.assert_awaited_once()
-        self.assertEqual(store._create.await_args.args[-1], "https://example.com/new.png")
+        self.assertEqual(store._create.await_args.args[-1], "https://example.com/new-name.png")
         existing.delete.assert_awaited_once()
 
-    async def test_an_unchanged_clan_icon_is_left_alone(self):
-        from minecraft_bot.leaderboard import clan_key
-
+    async def test_an_unchanged_source_is_left_alone(self):
         store = self._store(
             {
-                clan_key("Wolves"): {
+                "u1": {
                     "emoji_id": 77,
                     "markdown": "<:w:77>",
-                    "source": "https://example.com/wolf.png",
+                    "source": "https://example.com/name.png",
                     "last_podium": "2026-08-14T00:00:00+00:00",
                 }
             }
         )
-        existing = SimpleNamespace(id=77, name="mgx_head_Wolves", delete=AsyncMock())
+        existing = SimpleNamespace(id=77, name="mgx_head_name", delete=AsyncMock())
         guild = SimpleNamespace(
             id=1,
             emoji_limit=250,
@@ -1802,15 +1792,16 @@ class MinecraftPodiumDuplicateTests(unittest.IsolatedAsyncioTestCase):
             get_emoji=lambda _id: None,
         )
         snapshot = {
-            "individual": {},
-            "clan": {
-                "wealth": [
-                    {"clan": "Wolves", "icon": "https://example.com/wolf.png", "value": 9}
-                ]
-            },
+            "individual": {
+                "wealth": [{"minecraft_uuid": "u1", "username": "name", "value": 9}]
+            }
         }
 
-        await store.sync(guild, snapshot)
+        with patch(
+            "minecraft_bot.leaderboard.head_url",
+            return_value="https://example.com/name.png",
+        ):
+            await store.sync(guild, snapshot)
 
         store._create.assert_not_awaited()
         existing.delete.assert_not_awaited()
@@ -1898,14 +1889,14 @@ class MinecraftPodiumScopeTests(unittest.TestCase):
             with self.subTest(uuid=uuid):
                 self.assertIn(uuid, podium)
 
-    def test_clan_podiums_mint_their_icons(self):
-        from minecraft_bot.leaderboard import CLAN_DEFAULT_ICON_URL, clan_key
-
+    def test_clan_rows_never_mint_podium_subjects(self):
+        # Clans have no picture of their own, so nothing about a clan board should
+        # ever reach the emoji-minting pipeline.
         snapshot = {
             "individual": {},
             "clan": {
                 "wealth": [
-                    {"clan": "Wolves", "icon": "https://example.com/wolf.png", "value": 9},
+                    {"clan": "Wolves", "value": 9},
                     {"clan": "Ravens", "value": 4},
                 ]
             },
@@ -1913,11 +1904,7 @@ class MinecraftPodiumScopeTests(unittest.TestCase):
 
         subjects = self._store()._podium_subjects(snapshot)
 
-        self.assertEqual(
-            subjects[clan_key("Wolves")], ("Wolves", "https://example.com/wolf.png")
-        )
-        # A clan that never set one still gets an emoji, so the podium stays even.
-        self.assertEqual(subjects[clan_key("Ravens")], ("Ravens", CLAN_DEFAULT_ICON_URL))
+        self.assertEqual(subjects, {})
 
     def test_clan_rows_never_mint_player_heads(self):
         from minecraft_bot.leaderboard import DEFAULT_TYPE
