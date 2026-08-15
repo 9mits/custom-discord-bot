@@ -59,38 +59,37 @@ def _page(title: str, intro: str, points: list[tuple[str, str]]) -> discord.Embe
 def clans_about_embed(_settings=None) -> discord.Embed:
     return _page(
         "Clans",
-        "A clan is a team you join with other players. Its name and colour appear "
-        "beside yours in chat, above your head and in the player list.",
+        "A clan is a team you join with other players. Its name and colour show in "
+        "chat, above your head and in the player list.",
         [
             (
-                "No friendly fire",
-                "Attacks between clan members do nothing, so you can fight beside "
-                "your own team without hitting them by accident.",
+                "No Friendly Fire",
+                "Clan members cannot damage each other, so you can fight next to "
+                "your own team without hitting them.",
             ),
             (
-                "Private clan chat",
-                "A separate chat that only your clan sees, so you can plan without "
-                "the whole server reading it.",
+                "Clan Chat",
+                "A private chat channel that only your own clan can see.",
             ),
             (
-                "A shared bank",
-                "Members hand valuable items to the clan through a menu. What they "
-                "are worth becomes the clan's balance.",
+                "Clan Balance",
+                "A one-way deposit system where members put in items and ores. "
+                "Nothing can be taken back out once it is in.",
             ),
             (
-                f"{clans.MAX_PUBLIC_LEVEL} levels to buy",
-                "The clan spends that balance on levels. Each one permanently "
-                "strengthens every member — more health, damage and speed.",
+                "Clan Levels",
+                f"Spend the balance to buy up to {clans.MAX_PUBLIC_LEVEL} levels. "
+                "Each one permanently raises every member's health, damage and speed.",
             ),
             (
-                "A roster that grows",
-                f"A new clan holds {clans.STARTING_MEMBER_SLOTS} players. More "
-                f"seats are bought the same way, up to {CLAN_MAX_MEMBERS}.",
+                "Clan Roster",
+                f"A clan starts with {clans.STARTING_MEMBER_SLOTS} seats and buys "
+                f"more with its balance, up to {CLAN_MAX_MEMBERS} members.",
             ),
             (
-                "Something to compete for",
-                "Clans are ranked against each other by wealth and activity on a "
-                "leaderboard of their own.",
+                "Clan Leaderboard",
+                "Clans are ranked against each other by wealth, so the balance is "
+                "worth building up.",
             ),
         ],
     )
@@ -99,38 +98,38 @@ def clans_about_embed(_settings=None) -> discord.Embed:
 def travel_about_embed(_settings=None) -> discord.Embed:
     return _page(
         "Homes, Travel & Warps",
-        "The world is far too large to walk across every time, so the server gives "
-        "you ways to teleport around it.",
+        "The world is far too large to walk across, so there are several ways to "
+        "teleport around it.",
         [
             (
-                f"{DEFAULT_HOME_LIMIT} homes to save",
-                f"Name up to {DEFAULT_HOME_LIMIT} spots — your base, a farm, a mine "
-                "— and teleport straight back to any of them from anywhere.",
+                "Homes",
+                f"Save up to {DEFAULT_HOME_LIMIT} locations and teleport to them "
+                "from anywhere. Set them at your base, a farm, or a mine.",
             ),
             (
-                "Teleporting to a player",
-                "Send someone a request to teleport to them, or to bring them to "
-                "you. Nothing happens until they accept it.",
+                "Teleport Requests",
+                "Ask a player to let you teleport to them, or to come to you. "
+                "Nothing happens until they accept.",
             ),
             (
-                "Public warps",
-                "Named places anyone can teleport to, such as spawn and the builds "
-                "the whole server shares.",
+                "Warps",
+                "Public locations that anyone can teleport to, such as spawn and "
+                "shared community builds.",
             ),
             (
-                "Return where you were",
-                "After any teleport you can jump straight back to the spot you left, "
-                "so a trip is never one way.",
+                "Return Teleport",
+                "Teleport back to wherever you were before your last one, so a trip "
+                "is never one way.",
             ),
             (
-                "Left alone when you want",
-                "Teleport requests can be switched off, and nobody can arrive beside "
-                "you without your say-so.",
+                "Do Not Disturb",
+                "Switch teleport requests off and nobody can appear beside you or "
+                "pull you to them.",
             ),
             (
-                "Not an escape route",
-                "Every teleport makes you stand still for a moment first, and is "
-                "cancelled if you move or take damage.",
+                "Teleport Delay",
+                "Every teleport makes you stand still for a few seconds and cancels "
+                "if you move or take damage, so it cannot be used to escape a fight.",
             ),
         ],
     )
@@ -139,39 +138,38 @@ def travel_about_embed(_settings=None) -> discord.Embed:
 def progression_about_embed(_settings=None) -> discord.Embed:
     embed = _page(
         "Levels & Rewards",
-        "Being part of the community here is rewarded in game. These are Discord "
-        "levels, earned by talking — not Minecraft experience points.",
+        "These are Discord levels, earned by talking in this server — not Minecraft "
+        "experience points.",
         [
             (
-                "Extra hearts",
-                "Chatting in this Discord raises your level, and passing a milestone "
-                "permanently adds hearts to your health bar in game.",
+                "Extra Hearts",
+                "Passing a Discord level milestone permanently adds hearts to your "
+                "health bar in Minecraft.",
             ),
             (
-                f"+{ELITE_DAMAGE_PERCENT}% damage",
-                "Reaching the highest milestone also makes every hit you land in "
-                "Minecraft harder.",
+                "Elite Damage",
+                f"The top milestone adds +{ELITE_DAMAGE_PERCENT}% damage to every "
+                "hit you land.",
             ),
             (
-                "Boosting the server",
-                f"Boosting this Discord adds +{BOOSTER_EXTRA_HEARTS} heart, "
+                "Booster Perks",
+                f"Boosting this Discord gives +{BOOSTER_EXTRA_HEARTS} heart, "
                 f"+{BOOSTER_DAMAGE_PERCENT}% damage and slower hunger on top of "
                 "your level.",
             ),
             (
-                "Everything stacks",
-                "Your Discord level, your boost and your clan's level all add "
-                "together on the same character.",
+                "Stacking",
+                "Your Discord level, your booster perks and your clan level all "
+                "apply to the same character at once.",
             ),
             (
-                "Yours to keep",
-                "Dying costs you nothing here — these bonuses are permanent once "
-                "earned.",
+                "Permanent",
+                "Every bonus is yours for good. Dying does not take any of it away.",
             ),
             (
                 "Leaderboards",
-                "The server tracks wealth, kills, playtime, blocks mined and "
-                "distance walked, for players and for clans.",
+                "Rankings for wealth, kills, playtime, blocks mined and distance "
+                "walked, for both players and clans.",
             ),
         ],
     )
@@ -184,38 +182,37 @@ def progression_about_embed(_settings=None) -> discord.Embed:
 def social_about_embed(_settings=None) -> discord.Embed:
     return _page(
         "Talking & Voice",
-        "Minecraft and this Discord are joined together, so you are never talking "
-        "to an empty room.",
+        "Minecraft and this Discord are wired together, so a conversation carries "
+        "between them.",
         [
             (
-                "Proximity voice chat",
-                f"With {mod_link('Simple Voice Chat')} installed you can speak "
-                "aloud to players near you, and hear them fade as they walk off.",
+                "Proximity Voice Chat",
+                f"Install {mod_link('Simple Voice Chat')} and you can talk out loud "
+                "to players near you, fading out as they walk away.",
             ),
             (
-                "Chat that carries over",
-                "What is said in Minecraft appears in a Discord channel, and "
-                "replies there appear in game.",
+                "Discord Chat Sync",
+                "Minecraft chat appears in a Discord channel, and messages sent "
+                "there appear in game.",
             ),
             (
-                "Private messages",
-                "Message any other player who is online, without the rest of the "
-                "server seeing it.",
+                "Private Messages",
+                "Message any player who is online without the rest of the server "
+                "seeing it.",
             ),
             (
-                "Mail for absent players",
-                "Leave a message for someone offline and it is waiting for them "
+                "Mail",
+                "Send a message to a player who is offline. They receive it the "
                 "next time they log in.",
             ),
             (
-                "Your Discord name",
-                "Choose whether your Discord username is shown beside your "
-                "Minecraft one, or kept private.",
+                "Discord Name Display",
+                "Choose whether your Discord username shows next to your Minecraft "
+                "name in game.",
             ),
             (
-                "Staff within reach",
-                "Whoever is on duty can be called from inside the game if something "
-                "needs sorting out.",
+                "Staff Help",
+                "Call whoever is on duty from inside the game when you need them.",
             ),
         ],
     )
@@ -232,24 +229,24 @@ def world_about_embed(_settings=None) -> discord.Embed:
                 "Java and Bedrock play together in the same world.",
             ),
             (
-                "PvP with limits",
-                "Players can fight each other, but only within rules that say when "
-                "it is fair and when it is not.",
+                "PvP",
+                "You can fight other players, within rules that set out when it is "
+                "fair and when it is not.",
             ),
             (
-                "Your build is safe",
-                "Breaking into or destroying somebody else's base, or emptying "
-                "their chests, is not allowed here.",
+                "Grief Protection",
+                "Breaking into or destroying somebody's base, or emptying their "
+                "chests, is not allowed.",
             ),
             (
-                "Neutral ground",
-                "Spawn, public farms and community projects belong to everyone and "
+                "Neutral Zones",
+                "Spawn, public farms and community builds belong to everyone and "
                 "are left alone.",
             ),
             (
-                "A sensible mod policy",
-                "Mods that improve how the game looks or runs are fine. Ones that "
-                "reveal ores through walls or play for you are not.",
+                "Mod Policy",
+                "Performance and visual mods are fine. X-ray, cheats and anything "
+                "that plays the game for you are not.",
             ),
         ],
     )
