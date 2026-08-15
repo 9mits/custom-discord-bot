@@ -39,13 +39,15 @@ from .presentation import (
 
 
 def _page(title: str, intro: str, points: list[tuple[str, str]]) -> discord.Embed:
-    """One page: a single line of intro, then short labelled points in columns.
+    """One page: a line of intro, then labelled points laid out in columns.
 
     Inline fields, unlike the information panel's stacked ones. Somebody deciding
-    whether to apply is skimming, not studying: three short columns per row can be
-    taken in at a glance, where the same content as prose is a wall they bounce off.
-    Keep each point to a label and a line — if one needs a paragraph, it belongs in
-    the information panel instead.
+    whether to apply is skimming rather than studying, and a heading above each
+    point lets them find the one they care about.
+
+    Each point is a sentence or two under its own heading — long enough to read
+    properly, short enough that the column does not become the paragraph the
+    layout was meant to break up.
     """
     embed = discord.Embed(title=title, description=intro, colour=THEME_COLOUR)
     for name, value in points:
@@ -57,20 +59,37 @@ def _page(title: str, intro: str, points: list[tuple[str, str]]) -> discord.Embe
 def clans_about_embed(_settings=None) -> discord.Embed:
     return _page(
         "Clans",
-        "A group of players under one name, with a tag and colour on everyone in it.",
+        "A clan is a group of players under one name, with a shared tag and colour "
+        "shown beside everyone in it.",
         [
-            ("No friendly fire", "Members cannot hurt each other."),
-            ("Clan chat", "Private to your own members."),
-            ("Shared vault", "Everyone donates into it."),
             (
-                f"{clans.MAX_PUBLIC_LEVEL} levels",
-                "Bought with the vault. Perks reach every member.",
+                "No friendly fire",
+                "Members cannot damage each other, so you can fight alongside your "
+                "own side without holding back.",
             ),
             (
-                f"Roster {clans.STARTING_MEMBER_SLOTS} → {CLAN_MAX_MEMBERS}",
-                "Seats are earned one at a time.",
+                "Private clan chat",
+                "Every clan has a channel only its own members can see.",
             ),
-            ("Ranked", "Clans compete on their own leaderboard."),
+            (
+                "A shared vault",
+                "Members pool valuable materials into one balance that the clan "
+                "spends together.",
+            ),
+            (
+                f"{clans.MAX_PUBLIC_LEVEL} levels to climb",
+                "Each level is bought from the vault, and its perks reach every "
+                "member of the clan at once.",
+            ),
+            (
+                "A roster that grows",
+                f"Clans start with {clans.STARTING_MEMBER_SLOTS} seats and can be "
+                f"expanded to {CLAN_MAX_MEMBERS}, one at a time.",
+            ),
+            (
+                "Something to compete for",
+                "Clans are ranked against each other on a leaderboard of their own.",
+            ),
         ],
     )
 
@@ -78,14 +97,38 @@ def clans_about_embed(_settings=None) -> discord.Embed:
 def travel_about_embed(_settings=None) -> discord.Embed:
     return _page(
         "Homes, Travel & Warps",
-        "The map is large. You are not meant to walk it every time.",
+        "The world is large and shared, so getting around it is part of how the "
+        "server is set up.",
         [
-            (f"{DEFAULT_HOME_LIMIT} homes", "Save your places, return any time."),
-            ("Teleports", "To other players, if they agree."),
-            ("Warps", "Public destinations staff set up."),
-            ("Retrace", "Get back to where you just were."),
-            ("Do not disturb", "Turn requests off when you want quiet."),
-            ("No escape hatch", "Travel cancels if you move or take damage."),
+            (
+                f"{DEFAULT_HOME_LIMIT} saved homes",
+                "Mark the places that matter to you and return to any of them "
+                "whenever you like.",
+            ),
+            (
+                "Teleporting to players",
+                "Ask to join another player, or invite them to you. Both sides have "
+                "to agree first.",
+            ),
+            (
+                "Public warps",
+                "Staff maintain shortcuts to spawn and the other places everyone "
+                "uses.",
+            ),
+            (
+                "Retracing your steps",
+                "You can return to wherever you were standing before your last "
+                "journey.",
+            ),
+            (
+                "Left alone when you want",
+                "Teleport requests can be turned off entirely.",
+            ),
+            (
+                "Not an escape route",
+                "Travelling is cancelled if you move or take damage, so it cannot "
+                "be used to flee a fight.",
+            ),
         ],
     )
 
@@ -93,35 +136,78 @@ def travel_about_embed(_settings=None) -> discord.Embed:
 def progression_about_embed(_settings=None) -> discord.Embed:
     embed = _page(
         "Levels & Rewards",
-        "Time spent with the community is worth something in game.",
+        "Time spent with the community counts for something in game.",
         [
-            ("Extra hearts", "Earned by talking here in Discord."),
-            (f"+{ELITE_DAMAGE_PERCENT}% damage", "Waiting at the top level."),
             (
-                "Boosting",
-                f"+{BOOSTER_EXTRA_HEARTS} heart, +{BOOSTER_DAMAGE_PERCENT}% damage, "
-                "slower hunger.",
+                "Extra hearts",
+                "Talking here in Discord earns levels, and each milestone adds "
+                "permanent health in Minecraft.",
             ),
-            ("It all stacks", "Your level, your boost and your clan add up."),
-            ("Permanent", "Dying does not take any of it away."),
-            ("Leaderboards", "Wealth, kills, playtime, blocks, distance."),
+            (
+                f"+{ELITE_DAMAGE_PERCENT}% damage",
+                "The highest milestone also increases the damage you deal in "
+                "combat.",
+            ),
+            (
+                "Boosting the server",
+                f"Boosters receive +{BOOSTER_EXTRA_HEARTS} heart, "
+                f"+{BOOSTER_DAMAGE_PERCENT}% damage and slower hunger on top of "
+                "their level.",
+            ),
+            (
+                "Everything stacks",
+                "Your own level, your boost and your clan's level all add together.",
+            ),
+            (
+                "Yours to keep",
+                "None of it is lost when you die.",
+            ),
+            (
+                "Leaderboards",
+                "Wealth, kills, playtime, blocks mined and distance walked are all "
+                "tracked.",
+            ),
         ],
     )
-    embed.add_field(name="Where it is earned", value=LEVELS_CHANNEL_URL, inline=False)
+    embed.add_field(
+        name="Where levels are earned", value=LEVELS_CHANNEL_URL, inline=False
+    )
     return embed
 
 
 def social_about_embed(_settings=None) -> discord.Embed:
     return _page(
         "Talking & Voice",
-        "Most of what happens here starts with people talking to each other.",
+        "Most of what happens on the server starts with people talking to each "
+        "other.",
         [
-            ("Proximity voice", f"{mod_link('Simple Voice Chat')} — hear whoever is near you."),
-            ("Linked chat", "Minecraft and Discord share a channel."),
-            ("Private messages", "To anyone else online."),
-            ("Mail", "Waits for players who are offline."),
-            ("Your Discord name", "Show it beside your username, or hide it."),
-            ("Staff on call", "Reachable from inside the game."),
+            (
+                "Proximity voice chat",
+                f"{mod_link('Simple Voice Chat')} lets you speak to whoever is "
+                "standing near you.",
+            ),
+            (
+                "Chat linked to Discord",
+                "In-game chat and a Discord channel carry each other, so nobody is "
+                "left out of the conversation.",
+            ),
+            (
+                "Private messages",
+                "You can message any other player who is online.",
+            ),
+            (
+                "Mail for absent players",
+                "Leave a message and it waits until they next log in.",
+            ),
+            (
+                "Your Discord name",
+                "Show it beside your Minecraft username, or keep it hidden — the "
+                "choice is yours.",
+            ),
+            (
+                "Staff within reach",
+                "Whoever is on duty can be contacted without leaving the game.",
+            ),
         ],
     )
 
@@ -129,14 +215,36 @@ def social_about_embed(_settings=None) -> discord.Embed:
 def world_about_embed(_settings=None) -> discord.Embed:
     return _page(
         "The World & Playing Fair",
-        "One survival world, shared by everyone, kept worth playing in.",
+        "One survival world, shared by everyone and kept in a state worth playing "
+        "in.",
         [
-            ("Crossplay", "Java and Bedrock in the same world."),
-            ("PvP", "Allowed, with rules around it."),
-            ("No griefing", "Builds and storage are off limits."),
-            ("Neutral ground", "Spawn, public farms, community builds."),
-            ("Anti-cheat", "Running at all times."),
-            ("Mods", "Looks and performance yes. Seeing through walls, no."),
+            (
+                "Java and Bedrock together",
+                "Everyone shares the same world regardless of what they play on.",
+            ),
+            (
+                "PvP with limits",
+                "Fighting is part of the server, and the rules set out where it "
+                "stops.",
+            ),
+            (
+                "Builds are protected",
+                "Griefing someone's base, or emptying the storage of anyone with no "
+                "part in a fight, is not allowed.",
+            ),
+            (
+                "Neutral ground",
+                "Spawn, public farms and community projects belong to everybody.",
+            ),
+            (
+                "Kept honest",
+                "Anti-cheat runs on the server at all times.",
+            ),
+            (
+                "A sensible mod policy",
+                "Mods that improve how the game looks or runs are welcome; those "
+                "that show you what you should not see are not.",
+            ),
         ],
     )
 

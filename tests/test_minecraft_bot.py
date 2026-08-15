@@ -2791,9 +2791,12 @@ class AboutPanelTests(unittest.TestCase):
             with self.subTest(embed=embed.title):
                 self.assertNotRegex(self.text_of(embed), r"`/[a-z]")
 
-    def test_pages_stay_scannable_rather_than_becoming_walls(self):
-        # These are skimmed by somebody deciding whether to apply, not studied.
-        # Long values defeat the columns and turn the page back into prose.
+    def test_pages_are_laid_out_as_points_rather_than_paragraphs(self):
+        """Each point is a sentence or two under a heading — not a wall, not a stub.
+
+        The lower bound matters as much as the upper one: clipping these to
+        fragments reads as terse rather than considered.
+        """
         import re
 
         for key, embed in self.pages().items():
@@ -2801,14 +2804,24 @@ class AboutPanelTests(unittest.TestCase):
                 # A shared legal document; it is prose on purpose.
                 continue
             with self.subTest(page=key):
-                self.assertLessEqual(len(embed.description or ""), 120)
+                self.assertLessEqual(len(embed.description or ""), 160)
                 columns = [field for field in embed.fields if field.inline]
                 self.assertGreaterEqual(len(columns), 3, "too few points to form columns")
                 for field in columns:
                     # Measure what a reader sees, not the markdown behind a link.
                     rendered = re.sub(r"\]\([^)]*\)", "]", field.value)
-                    self.assertLessEqual(len(rendered), 70, f"{field.name} is a paragraph")
-                    self.assertLessEqual(len(field.name), 24)
+                    self.assertLessEqual(
+                        len(rendered), 170, f"{field.name} has grown into a paragraph"
+                    )
+                    self.assertGreaterEqual(
+                        len(rendered), 30, f"{field.name} is clipped to a fragment"
+                    )
+                    self.assertTrue(
+                        rendered.rstrip().endswith("."),
+                        f"{field.name} should read as a sentence",
+                    )
+                    self.assertLessEqual(len(field.name), 26)
+                    # One point, one thought: stacked bullets are the old wall.
                     self.assertNotIn("\n", field.value, f"{field.name} spans lines")
 
     def test_the_mechanics_people_ask_about_are_explained(self):
@@ -2816,7 +2829,9 @@ class AboutPanelTests(unittest.TestCase):
 
         clans = self.text_of(pages["clans"]).lower()
         self.assertIn("clan", clans)
-        self.assertIn("cannot hurt each other", clans)
+        # The fact, not one phrasing of it: rewording the copy should not fail here,
+        # but dropping no-friendly-fire from the pitch should.
+        self.assertRegex(clans, r"cannot (hurt|damage|harm) each other")
 
         travel = self.text_of(pages["travel"]).lower()
         for mechanic in ("home", "teleport", "warp"):
