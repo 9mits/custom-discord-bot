@@ -2976,6 +2976,110 @@ class QuoteFormattingTests(unittest.TestCase):
                             )
 
 
+class ApplicationCardCopyTests(unittest.TestCase):
+    """The card answers one question: where am I, and what happens next."""
+
+    def _application(self, status, **overrides):
+        fields = dict(
+            id=29,
+            guild_id="1",
+            discord_user_id="9",
+            edition=Edition.JAVA,
+            claimed_username="7saori",
+            normalized_username="7saori",
+            answers={},
+            status=status,
+            verification_expires_at=2_000_000_000,
+            verified_username="7saori",
+            created_at=1,
+            updated_at=1,
+        )
+        fields.update(overrides)
+        return MinecraftApplication(**fields)
+
+    def _settings(self, **overrides):
+        base = dict(
+            java_address="play.example.net",
+            bedrock_address="bedrock.example.net",
+            bedrock_port=19132,
+            maintenance_mode=False,
+        )
+        base.update(overrides)
+        return SimpleNamespace(**base)
+
+    def _text(self, embed):
+        return " ".join(
+            [embed.title or "", embed.description or ""]
+            + [f"{field.name} {field.value}" for field in embed.fields]
+        )
+
+    def test_the_application_number_is_never_shown_to_the_applicant(self):
+        # It identifies the record to staff, not to the person waiting on it.
+        for status in ApplicationStatus:
+            with self.subTest(status=status):
+                embed = live_status_embed(self._application(status), self._settings())
+                self.assertNotIn("#29", self._text(embed))
+
+    def test_status_and_account_are_not_fields_of_their_own(self):
+        for status in ApplicationStatus:
+            with self.subTest(status=status):
+                embed = live_status_embed(self._application(status), self._settings())
+                names = {field.name for field in embed.fields}
+                self.assertNotIn("Status", names)
+                self.assertNotIn("Account", names)
+
+    def test_the_title_says_where_they_are(self):
+        expected = {
+            ApplicationStatus.PENDING_VERIFICATION: "Verify Your Account",
+            ApplicationStatus.PENDING_APPLICATION: "Account Verified",
+            ApplicationStatus.PENDING_REVIEW: "Application Sent",
+            ApplicationStatus.APPROVED: "You Are In",
+        }
+        for status, title in expected.items():
+            with self.subTest(status=status):
+                embed = live_status_embed(self._application(status), self._settings())
+                self.assertEqual(embed.title, title)
+
+    def test_waiting_on_staff_says_to_watch_for_a_dm(self):
+        embed = live_status_embed(
+            self._application(ApplicationStatus.PENDING_REVIEW), self._settings()
+        )
+
+        self.assertIn("DMs", embed.description)
+        self.assertRegex(embed.description, r"(?i)nothing else")
+
+    def test_the_two_screens_with_something_to_do_still_carry_it(self):
+        # A deadline where one can run out, and an address where they must connect.
+        # Trimming those away would make the card tidy and useless.
+        verify = live_status_embed(
+            self._application(ApplicationStatus.PENDING_VERIFICATION), self._settings()
+        )
+        approved = live_status_embed(
+            self._application(ApplicationStatus.APPROVED), self._settings()
+        )
+
+        self.assertIn("Finish by", {field.name for field in verify.fields})
+        self.assertIn("play.example.net", self._text(verify))
+        self.assertIn("`7saori`", verify.description)
+        self.assertIn("play.example.net", self._text(approved))
+
+    def test_a_held_server_never_invites_an_approved_member_to_join(self):
+        embed = live_status_embed(
+            self._application(ApplicationStatus.APPROVED),
+            self._settings(maintenance_mode=True),
+        )
+
+        self.assertIn("not open yet", self._text(embed))
+        self.assertNotIn("play.example.net", self._text(embed))
+
+    def test_every_status_renders(self):
+        for status in ApplicationStatus:
+            with self.subTest(status=status):
+                embed = live_status_embed(self._application(status), self._settings())
+                self.assertTrue(embed.title)
+                self.assertTrue(embed.description.startswith(">"))
+
+
 class WelcomePanelTests(unittest.TestCase):
     def test_the_tagline_is_quoted_and_stays_one_block(self):
         # Both paragraphs under one bar. The blank line between them has to be
