@@ -2976,6 +2976,70 @@ class QuoteFormattingTests(unittest.TestCase):
                             )
 
 
+class ApplyButtonExistingApplicationTests(unittest.IsolatedAsyncioTestCase):
+    """Pressing Apply with an application already running reprints its card.
+
+    This path used to build its own controls, which is how a Get Help button kept
+    appearing on the submitted card after being removed everywhere else. Every
+    surface asks application_card_view now.
+    """
+
+    async def _card(self, status):
+        bot = SimpleNamespace(
+            config=SimpleNamespace(guild_id=10),
+            settings=SimpleNamespace(
+                application_channel_id=20,
+                java_address="j",
+                bedrock_address="b",
+                bedrock_port=1,
+                maintenance_mode=False,
+            ),
+            data=SimpleNamespace(
+                get_active_application_for_user=AsyncMock(
+                    return_value=SimpleNamespace(
+                        id=1,
+                        status=status,
+                        edition=Edition.JAVA,
+                        claimed_username="PlayerOne",
+                        verified_username="PlayerOne",
+                        verification_expires_at=2_000_000_000,
+                        auto_detect_edition=False,
+                        applicant_reason=None,
+                        verified_at=None,
+                    )
+                ),
+                get_config=AsyncMock(return_value="30"),
+            ),
+        )
+        response = SimpleNamespace(send_message=AsyncMock(), send_modal=AsyncMock())
+        interaction = SimpleNamespace(
+            client=bot,
+            guild_id=10,
+            channel_id=20,
+            message=SimpleNamespace(id=30),
+            user=SimpleNamespace(id=99),
+            response=response,
+        )
+
+        await ApplyButton().callback(interaction)
+
+        return response.send_message.await_args.kwargs
+
+    async def test_a_submitted_application_is_reprinted_without_help(self):
+        kwargs = await self._card(ApplicationStatus.PENDING_REVIEW)
+
+        self.assertEqual(kwargs["embed"].title, "Application Sent")
+        self.assertIsNone(kwargs["view"])
+
+    async def test_a_pending_verification_still_offers_cancelling(self):
+        kwargs = await self._card(ApplicationStatus.PENDING_VERIFICATION)
+
+        self.assertEqual(
+            [item.label for item in kwargs["view"].children],
+            ["Cancel Pending Verification"],
+        )
+
+
 class ApplicationCardCopyTests(unittest.TestCase):
     """The card answers one question: where am I, and what happens next."""
 
@@ -3046,7 +3110,12 @@ class ApplicationCardCopyTests(unittest.TestCase):
         )
 
         self.assertIn("DMs", embed.description)
-        self.assertRegex(embed.description, r"(?i)nothing else")
+        # Two lines under one bar with no gap between them: the blank line that
+        # was there split the bar and read as a missing sentence.
+        self.assertEqual(
+            [line.startswith("> ") for line in embed.description.splitlines()],
+            [True, True],
+        )
 
     def test_the_two_screens_with_something_to_do_still_carry_it(self):
         # A deadline where one can run out, and an address where they must connect.
@@ -3075,6 +3144,18 @@ class ApplicationCardCopyTests(unittest.TestCase):
 
                 self.assertRegex(embed.description, r"expires <t:\d+:R>\.")
                 self.assertNotIn("Finish by", {field.name for field in embed.fields})
+
+    def test_the_verified_card_sets_its_deadline_apart(self):
+        # A real blank line, not a quoted one: it is meant to break the bar so the
+        # deadline reads as its own note rather than a third sentence.
+        embed = live_status_embed(
+            self._application(ApplicationStatus.PENDING_APPLICATION), self._settings()
+        )
+
+        lines = embed.description.splitlines()
+
+        self.assertIn("", lines)
+        self.assertTrue(lines[lines.index("") + 1].startswith("> The application expires"))
 
     def test_a_held_server_never_invites_an_approved_member_to_join(self):
         embed = live_status_embed(

@@ -85,10 +85,13 @@ class ApplyButton(discord.ui.Button):
             pending_verification = active.status is ApplicationStatus.PENDING_VERIFICATION
             message = {
                 **branded_send(live_status_embed(active, bot.settings)),
+                # Same controls the card gets anywhere else. Deciding them here
+                # too is how a Get Help button survived being removed from the
+                # submitted card: this path never asked.
                 "view": (
                     CancelPendingConfirmationView(interaction.user.id)
                     if pending_verification
-                    else LiveApplicationView()
+                    else application_card_view(active.status)
                 ),
                 "ephemeral": True,
             }
