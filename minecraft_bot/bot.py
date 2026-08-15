@@ -113,7 +113,7 @@ class WipeConfirmationModal(discord.ui.Modal, title="Wipe All Minecraft Data"):
                 **branded_send(
                     info_embed(
                         "Owner Access Required",
-                        "> Only the server owner can wipe Minecraft data.",
+                        "> Only the server owner may wipe Minecraft data.",
                         error=True,
                     )
                 ),
@@ -125,7 +125,8 @@ class WipeConfirmationModal(discord.ui.Modal, title="Wipe All Minecraft Data"):
                 **branded_send(
                     info_embed(
                         "Wipe Not Confirmed",
-                        "> Nothing was deleted. Type exactly `WIPE` to confirm.",
+                        "> No data was deleted.\n"
+                        "> Type exactly `WIPE` to confirm.",
                         error=True,
                     )
                 ),
@@ -663,6 +664,22 @@ class MinecraftAccessBot(commands.Bot):
             except Exception as exc:
                 await self.data.fail_delivery(delivery.id, type(exc).__name__, delivery.attempts)
 
+    #: The linking steps, written once because the same three apply whether a member
+    #: is adding a second edition or their first account.
+    _LINK_STEPS = (
+        "\n> **1.** Press the button below and enter your exact account name.\n"
+        "> **2.** Join the server once using that account. You will be disconnected "
+        "automatically.\n"
+        "> **3.** Your account is now verified."
+    )
+    #: Added only when the member holds no approved application. Promising instant
+    #: access to somebody who has never been accepted would be untrue: verification
+    #: sends them to the written form and a staff review instead.
+    _LINK_REVIEW_NOTE = (
+        "> A short application form follows, and staff review it before access is "
+        "granted."
+    )
+
     async def build_link_edition_prompt(
         self, user_id: int | str
     ) -> tuple[discord.Embed, Optional[discord.ui.View]]:
@@ -672,17 +689,22 @@ class MinecraftAccessBot(commands.Bot):
         correctly whether they hold one edition, both, or none. Linking only ever
         adds; unlinking stays a staff action.
         """
-        accounts, applications = await asyncio.gather(
+        accounts, applications, approved = await asyncio.gather(
             self.data.list_accounts_for_user(user_id),
             self.data.list_applications_for_user(user_id, limit=1),
+            # Asked rather than inferred from holding a linked account. The two
+            # come apart: an account can be linked without approval, and a member
+            # approved before a data wipe holds neither.
+            self.data.has_approved_application(user_id),
         )
         linked = {str(row["edition"]).upper() for row in accounts}
         if len(linked) >= len(Edition):
             return (
                 info_embed(
                     "Both Editions Linked",
-                    "> You already have a Java and a Bedrock account linked.\n\n"
-                    "Ask staff if one of them needs changing.",
+                    "> A Java account and a Bedrock account are both linked to "
+                    "you.\n"
+                    "> Please contact staff if either of them needs changing.",
                 ),
                 None,
             )
@@ -691,9 +713,10 @@ class MinecraftAccessBot(commands.Bot):
             return (
                 info_embed(
                     "Application Already Active",
-                    "> You already have an application in progress, so a second one "
-                    "cannot start yet.\n\n"
-                    "Finish or cancel it first — `/minecraft account` shows where it is.",
+                    "> An application of yours is already in progress, so a second "
+                    "one cannot be started.\n"
+                    "> Complete or cancel it first. Use `/minecraft account` to "
+                    "review its status.",
                     error=True,
                 ),
                 None,
@@ -708,12 +731,10 @@ class MinecraftAccessBot(commands.Bot):
             return (
                 info_embed(
                     "Link Your Minecraft Account",
-                    "> No Minecraft account is linked to you yet. Pick the edition "
-                    "you play on and prove the account is yours.\n\n"
-                    "**1.** Press the button and enter the exact account name.\n"
-                    "**2.** Join the server once with it. You will be disconnected.\n"
-                    "**3.** Already accepted here? That is it. If not, a short form "
-                    "follows and staff review it.",
+                    "> No Minecraft account is linked to your Discord account yet. "
+                    "Select the edition you play on to begin.\n"
+                    + self._LINK_STEPS
+                    + ("" if approved else "\n\n" + self._LINK_REVIEW_NOTE),
                 ),
                 LinkEditionView(user_id, *Edition),
             )
@@ -721,11 +742,8 @@ class MinecraftAccessBot(commands.Bot):
         return (
             info_embed(
                 f"Link Your {missing.value.title()} Account",
-                f"> You are already accepted, so this only needs you to prove the "
-                f"{missing.value.title()} account is yours.\n\n"
-                "**1.** Press the button and enter the exact account name.\n"
-                "**2.** Join the server once with it. You will be disconnected.\n"
-                "**3.** That is it — no form, no waiting for staff.",
+                self._LINK_STEPS.lstrip("\n")
+                + ("" if approved else "\n\n" + self._LINK_REVIEW_NOTE),
             ),
             LinkEditionView(user_id, missing),
         )
@@ -1503,7 +1521,8 @@ class MinecraftAccessBot(commands.Bot):
         if not self.bridge.connected:
             return info_embed(
                 "Server Offline",
-                "> The Minecraft server is not reachable right now. Try again shortly.",
+                "> The Minecraft server is not currently reachable.\n"
+                "> Please try again shortly.",
                 error=True,
             )
         needs_argument = action in {"kick", "promote", "demote", "transfer", "rename", "color"}
@@ -1569,7 +1588,8 @@ class MinecraftAccessBot(commands.Bot):
         if not self.bridge.connected:
             return info_embed(
                 "Server Offline",
-                "> The Minecraft server is not reachable right now. Try again shortly.",
+                "> The Minecraft server is not currently reachable.\n"
+                "> Please try again shortly.",
                 error=True,
             )
         needs = REMOTE_STAFF_TOOLS.get(tool)
@@ -1642,7 +1662,8 @@ class MinecraftAccessBot(commands.Bot):
         if not snapshot:
             return info_embed(
                 "Server Not Reachable",
-                "> The Minecraft server has not reported in yet. Try again shortly.",
+                "> The Minecraft server has not reported in yet.\n"
+                "> Please try again shortly.",
                 error=True,
             )
 
@@ -2388,7 +2409,8 @@ class MinecraftAccessBot(commands.Bot):
                     **branded_send(
                         info_embed(
                             "Owner Access Required",
-                            "> Only the server owner (or a member with the Owner role) can wipe Minecraft data.",
+                            "> Only the server owner, or a member holding the "
+                            "Owner role, may wipe Minecraft data.",
                             error=True,
                         )
                     ),
@@ -2405,8 +2427,10 @@ class MinecraftAccessBot(commands.Bot):
                 await interaction.response.send_message(
                     **branded_send(
                         info_embed(
-                            "Status Recently Requested",
-                            "> Please wait a few seconds before requesting runtime status again.",
+                            "Please Wait",
+                            "> Runtime status was requested moments ago.\n"
+                            "> Please wait a few seconds before requesting it "
+                            "again.",
                         )
                     ),
                     ephemeral=True,

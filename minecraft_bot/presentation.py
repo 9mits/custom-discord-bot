@@ -716,9 +716,11 @@ def live_status_embed(application: MinecraftApplication, settings) -> discord.Em
         edition_note = "" if application.auto_detect_edition else f" on {edition}"
         title = "Verify Your Account"
         body = (
-            f"Join the server once as `{username}`{edition_note} to prove the "
-            "account is yours. You will be disconnected straight away — that is "
-            f"how it confirms.\n\nThis expires {expires}."
+            f"> Join the server once using `{username}`{edition_note}. You will be "
+            "disconnected automatically, which confirms the account is yours.\n"
+            "> The server address is below.\n"
+            "\n"
+            f"> Verification expires {expires}."
         )
         show_connection = True
     elif status is ApplicationStatus.PENDING_APPLICATION:
@@ -741,41 +743,55 @@ def live_status_embed(application: MinecraftApplication, settings) -> discord.Em
             "send your results there!"
         )
     elif status is ApplicationStatus.APPROVAL_QUEUED:
-        title = "Approved — Setting Up"
+        title = "Application Approved"
         body = (
-            "Staff approved you. Your access is being set up on the server now.\n\n"
-            "It only takes a moment, and you will get a DM when it is ready."
+            "> Your application has been approved by the staff!\n"
+            "> Your access is being applied to the server now. You will receive a "
+            "direct message once it is ready."
         )
     elif status is ApplicationStatus.APPROVED:
         if getattr(settings, "maintenance_mode", False):
-            title = "Accepted — Not Open Yet"
+            title = "Application Approved"
             body = (
-                "You are accepted and your place is kept.\n\n"
-                "The server is not open yet, so you cannot join even though you were "
-                "approved. You will be told the moment it opens."
+                "> Your application has been approved and your place is reserved.\n"
+                "> The server has not opened yet, so it cannot be joined for now.\n"
+                "\n"
+                "> You will be notified here as soon as it opens."
             )
         else:
-            title = "You Are In"
-            body = "Your access is active. Join whenever you like."
+            title = "Access Granted"
+            body = (
+                "> Your access is active and the server is open.\n"
+                "> Connect using the address for your edition below."
+            )
             show_connection = True
     elif status is ApplicationStatus.DENIED:
-        title = "Application Not Approved"
-        body = application.applicant_reason or "No public reason was given."
+        title = "Application Declined"
+        reason = application.applicant_reason or "No reason was provided."
+        body = (
+            "> Your application has been reviewed and was not approved.\n"
+            f"> **Reason:** {reason}"
+        )
     elif status is ApplicationStatus.EXPIRED:
         title = "Application Expired"
-        body = (
-            "Nobody joined the server in time to verify the account.\n\n"
-            "Nothing is lost — press **Apply** on the application panel to start again."
+        cause = (
+            "the account was not verified in time"
             if not application.verified_at
-            else "The written form was not finished in time.\n\n"
-            "Nothing is lost — press **Apply** on the application panel to start again."
+            else "the application form was not completed in time"
+        )
+        body = (
+            f"> Your application has expired, as {cause}.\n"
+            "> Press **Apply** on the application panel to submit a new one."
         )
     elif status is ApplicationStatus.CANCELLED:
         title = "Application Cancelled"
-        body = "Press **Apply** on the application panel whenever you want to try again."
+        body = (
+            "> Your application has been cancelled.\n"
+            "> Press **Apply** on the application panel to submit a new one."
+        )
     else:
         title = "Access Ended"
-        body = "This Minecraft access record is no longer active."
+        body = "> This Minecraft access record is no longer active."
 
     # A body that carries its own quote markers decides its own layout, including
     # where the bar deliberately breaks. Everything else is quoted wholesale.
@@ -797,11 +813,13 @@ def denial_embed(application: MinecraftApplication) -> discord.Embed:
         1000,
     ).replace("\n", "\n> ")
     return info_embed(
-        "Minecraft Application Denied",
-        "> Staff completed the review of your Minecraft application.\n\n"
-        f"**Decision reason**\n> {reason}\n\n"
-        "If you need clarification, contact the server team through the normal support channel. "
-        "Do not submit repeated applications unless staff ask you to reapply.",
+        "Application Declined",
+        "> Your Minecraft application has been reviewed and was not approved.\n"
+        f"> **Reason:** {reason}\n"
+        "\n"
+        "> Please contact the server team through the support channel if you "
+        "require clarification.\n"
+        "> Do not submit another application unless staff invite you to reapply.",
         error=True,
     )
 
@@ -811,21 +829,23 @@ def approval_embed(settings) -> discord.Embed:
     # login would read as a broken promise the moment they tried it.
     if getattr(settings, "maintenance_mode", False):
         return info_embed(
-            "Minecraft Application Approved",
-            "> Your application was approved and your place is kept.\n\n"
-            "**The server is not open yet.** You cannot join until it opens, even "
-            "though you are accepted — nothing is wrong with your account.\n\n"
-            "You will be told here the moment it opens.",
+            "Application Approved",
+            "> Your Minecraft application has been approved and your place is "
+            "reserved.\n"
+            "> The server has not opened yet, so it cannot be joined for now. "
+            "There is nothing wrong with your account.\n"
+            "\n"
+            "> You will be notified here as soon as it opens.",
             success=True,
         )
     return info_embed(
-        "Minecraft Application Approved",
-        "> Your application was approved and Minecraft access is now active.\n\n"
-        + _connection_blocks(settings)
-        + "\n\n**Before joining**\n"
-        "- Use the address for your Minecraft edition.\n"
-        "- Join with the same account you verified.\n"
-        "- Keep this message for quick access later.",
+        "Application Approved",
+        "> Your Minecraft application has been approved and your access is now "
+        "active.\n"
+        "> Connect using the address for your edition below, with the same account "
+        "you verified.\n"
+        "\n"
+        + _connection_blocks(settings),
         success=True,
     )
 
