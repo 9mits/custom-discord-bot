@@ -1933,8 +1933,12 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
         # they cannot tell from atmosphere alone.
         from minecraft_bot.presentation import SERVER_FEATURES, application_embeds
 
-        welcome = application_embeds()[0].description
         described = dict(SERVER_FEATURES)
+        shown = {
+            field.name: field
+            for field in application_embeds()[0].fields
+            if field.name in described
+        }
 
         for feature in (
             "Clans",
@@ -1945,10 +1949,11 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
             "Crossplay",
         ):
             with self.subTest(feature=feature):
-                self.assertIn(feature, described)
-                # Each feature names itself in bold above its own quoted line,
-                # so the showcase needs no header of its own.
-                self.assertIn(f"**{feature}**\n> {described[feature]}", welcome)
+                self.assertIn(feature, shown)
+                self.assertEqual(described[feature], shown[feature].value)
+                # Columns, like the Contact Staff panel — one feature per field
+                # with its own name, so the showcase needs no header.
+                self.assertTrue(shown[feature].inline)
 
     def test_welcome_only_advertises_commands_that_exist(self):
         # /spawn was once documented on a server that had never installed it.
