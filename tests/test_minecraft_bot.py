@@ -1,5 +1,6 @@
 import asyncio
 import os
+import time
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -45,6 +46,7 @@ from minecraft_bot.settings import MinecraftSettings
 from minecraft_bot.setup import MinecraftSetupView
 from minecraft_bot.ui import (
     AccountView,
+    application_card_view,
     ApplicationQuestionsModal,
     ApplyButton,
     CancelPendingConfirmationView,
@@ -2733,6 +2735,85 @@ class MinecraftInformationPanelTests(unittest.TestCase):
         self.assertNotIn("presents", self.embed_text(self.information.overview_embed(0)))
         self.assertNotIn("presents", application_embeds()[0].description)
         self.assertIn("in partnership with", application_embeds()[0].description)
+
+
+class ApplicationCardViewTests(unittest.IsolatedAsyncioTestCase):
+    """The card is drawn by the modal and redrawn by a background refresh.
+
+    They have to agree. When they did not, Get Help was drawn and then stripped a
+    moment later, which looked like the button flickering and disappearing.
+    """
+
+    def labels(self, view):
+        if view is None:
+            return []
+        # A DynamicItem wraps the real button, so the label is one level down.
+        return [
+            getattr(child, "label", None) or getattr(getattr(child, "item", None), "label", None)
+            for child in view.children
+        ]
+
+    def test_help_survives_on_every_status_that_is_still_in_flight(self):
+        for status in (
+            ApplicationStatus.PENDING_VERIFICATION,
+            ApplicationStatus.PENDING_REVIEW,
+            ApplicationStatus.APPROVAL_QUEUED,
+        ):
+            with self.subTest(status=status):
+                self.assertIn("Get Help", self.labels(application_card_view(status)))
+
+    def test_a_verified_applicant_is_offered_the_written_form(self):
+        labels = self.labels(application_card_view(ApplicationStatus.PENDING_APPLICATION))
+
+        self.assertTrue(any("Continue" in str(label) for label in labels), labels)
+
+    def test_finished_applications_carry_no_controls(self):
+        for status in (
+            ApplicationStatus.APPROVED,
+            ApplicationStatus.DENIED,
+            ApplicationStatus.EXPIRED,
+            ApplicationStatus.CANCELLED,
+            ApplicationStatus.REVOKED,
+        ):
+            with self.subTest(status=status):
+                self.assertIsNone(application_card_view(status))
+
+    def test_every_status_is_handled(self):
+        for status in ApplicationStatus:
+            with self.subTest(status=status):
+                application_card_view(status)
+
+    def test_card_views_persist_so_a_refresh_can_reattach_them(self):
+        # update_live_card re-attaches these long after the interaction that made the
+        # card. A view with a timeout would be dead by then.
+        for status in ApplicationStatus:
+            view = application_card_view(status)
+            if view is not None:
+                with self.subTest(status=status):
+                    self.assertIsNone(view.timeout, f"{status} view must be persistent")
+
+    async def test_refreshing_a_card_keeps_the_help_button(self):
+        # The regression itself: the modal draws the card, the background refresh
+        # redraws it, and Get Help has to survive the second draw.
+        bot = object.__new__(MinecraftAccessBot)
+        bot._application_messages = {}
+        bot._live_card_lock = asyncio.Lock()
+        application = SimpleNamespace(
+            id=7,
+            status=ApplicationStatus.PENDING_REVIEW,
+            discord_user_id="99",
+            verified_username="PlayerOne",
+            claimed_username="PlayerOne",
+            edition=Edition.JAVA,
+        )
+        message = SimpleNamespace(edit=AsyncMock())
+        bot._application_messages[7] = (message, time.monotonic() + 600)
+        bot._application_card_embed = lambda _application: discord.Embed(title="card")
+
+        await bot.update_live_card(application, create_if_missing=False)
+
+        message.edit.assert_awaited_once()
+        self.assertIn("Get Help", self.labels(message.edit.await_args.kwargs["view"]))
 
 
 class MinecraftCapabilityTests(unittest.TestCase):

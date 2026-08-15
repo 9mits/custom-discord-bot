@@ -391,7 +391,7 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
         await edit_card(
             embed=live_status_embed(application, bot.settings),
             attachments=application_card_files(application),
-            view=LiveApplicationView(),
+            view=application_card_view(application.status),
         )
 
 
@@ -442,7 +442,7 @@ class ApplicationQuestionsModal(discord.ui.Modal, title="Mysterious SMP X Applic
         )
         await interaction.edit_original_response(
             **branded_edit(live_status_embed(application, bot.settings)),
-            view=LiveApplicationView(),
+            view=application_card_view(application.status),
         )
 
 
@@ -566,6 +566,33 @@ class LiveApplicationView(discord.ui.View):
                 view=SupportConfirmationView(application.id, interaction.user.id),
                 ephemeral=True,
             )
+
+
+def application_card_view(status: ApplicationStatus) -> Optional[discord.ui.View]:
+    """The controls that belong on a live application card at this status.
+
+    The card is drawn from two directions: the modal that submits the application
+    edits it straight away, and the background task that follows refreshes it a
+    moment later through ``update_live_card``. Both have to reach the same answer.
+    They used to decide separately, and the refresh only knew about the continue
+    button — so Get Help was drawn by the modal and then stripped by the refresh a
+    second later, which read as the button flickering and vanishing.
+
+    Only persistent views belong here. A card is refreshed long after the
+    interaction that made it, and a timeout-bound view re-attached from a
+    background edit would be dead on arrival.
+    """
+    if status is ApplicationStatus.PENDING_APPLICATION:
+        return continue_application_view()
+    if status in {
+        ApplicationStatus.PENDING_VERIFICATION,
+        ApplicationStatus.PENDING_REVIEW,
+        ApplicationStatus.APPROVAL_QUEUED,
+    }:
+        return LiveApplicationView()
+    # Approved, denied, expired, cancelled and revoked are final: there is nothing
+    # left to do from the card.
+    return None
 
 
 class AccountView(discord.ui.View):

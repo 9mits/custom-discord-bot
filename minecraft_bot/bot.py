@@ -493,13 +493,12 @@ class MinecraftAccessBot(commands.Bot):
             if remembered[1] <= time.monotonic():
                 self._application_messages.pop(application.id, None)
             else:
-                from .ui import continue_application_view
+                from .ui import application_card_view
 
-                card_view = (
-                    continue_application_view()
-                    if application.status is ApplicationStatus.PENDING_APPLICATION
-                    else None
-                )
+                # Same answer the modal that drew this card reached. Deciding it
+                # separately here is what made Get Help flash and vanish: the card
+                # was drawn with it, then refreshed a moment later without it.
+                card_view = application_card_view(application.status)
                 try:
                     await remembered[0].edit(
                         **branded_edit(self._application_card_embed(application)),
