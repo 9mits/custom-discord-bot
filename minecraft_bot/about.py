@@ -39,19 +39,19 @@ from .presentation import (
 
 
 def _page(title: str, intro: str, points: list[tuple[str, str]]) -> discord.Embed:
-    """One page: a line of intro, then labelled points laid out in columns.
+    """One page: a line of intro, then each point stacked at full width.
 
-    Inline fields, unlike the information panel's stacked ones. Somebody deciding
-    whether to apply is skimming rather than studying, and a heading above each
-    point lets them find the one they care about.
+    Full width rather than side by side. Three columns squeezed each sentence into
+    a narrow strip that wrapped every few words, which was harder to read than the
+    paragraph it replaced — the headings did the work of breaking the page up, not
+    the columns.
 
-    Each point is a sentence or two under its own heading — long enough to read
-    properly, short enough that the column does not become the paragraph the
-    layout was meant to break up.
+    Each point is a sentence or two under its own heading: long enough to read
+    properly, short enough that it never becomes a wall again.
     """
     embed = discord.Embed(title=title, description=intro, colour=THEME_COLOUR)
     for name, value in points:
-        embed.add_field(name=name, value=value, inline=True)
+        embed.add_field(name=name, value=value, inline=False)
     embed.set_footer(text=BRAND_NAME, icon_url=FOOTER_ICON_URL)
     return embed
 
@@ -120,11 +120,6 @@ def travel_about_embed(_settings=None) -> discord.Embed:
                 "Return Teleport",
                 "Teleport back to wherever you were before your last one, so a trip "
                 "is never one way.",
-            ),
-            (
-                "Do Not Disturb",
-                "Switch teleport requests off and nobody can appear beside you or "
-                "pull you to them.",
             ),
             (
                 "Teleport Delay",
@@ -204,15 +199,6 @@ def social_about_embed(_settings=None) -> discord.Embed:
                 "Mail",
                 "Send a message to a player who is offline. They receive it the "
                 "next time they log in.",
-            ),
-            (
-                "Discord Name Display",
-                "Choose whether your Discord username shows next to your Minecraft "
-                "name in game.",
-            ),
-            (
-                "Staff Help",
-                "Call whoever is on duty from inside the game when you need them.",
             ),
         ],
     )
