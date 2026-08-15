@@ -19,9 +19,11 @@ final class WhitelistDirectoryService implements CommandExecutor, TabCompleter {
     private static final int PAGE_SIZE = 10;
 
     private final WhitelistDirectory directory;
+    private final PlayerMenuService menus;
 
-    WhitelistDirectoryService(WhitelistDirectory directory) {
+    WhitelistDirectoryService(WhitelistDirectory directory, PlayerMenuService menus) {
         this.directory = directory;
+        this.menus = menus;
     }
 
     @Override
@@ -33,6 +35,19 @@ final class WhitelistDirectoryService implements CommandExecutor, TabCompleter {
             ));
             return true;
         }
+        if (sender instanceof org.bukkit.entity.Player player) {
+            int page = 1;
+            if (args.length >= 1) {
+                try {
+                    page = Math.max(1, Integer.parseInt(args[0]));
+                } catch (NumberFormatException ignored) {
+                    page = 1;
+                }
+            }
+            menus.openWhitelist(player, page);
+            return true;
+        }
+        // Console has no inventory, so it keeps the text listing.
         List<WhitelistDirectory.Entry> entries = directory.entries();
         if (entries.isEmpty()) {
             sender.sendMessage(Component.text("Nobody is whitelisted yet.", NamedTextColor.GRAY));

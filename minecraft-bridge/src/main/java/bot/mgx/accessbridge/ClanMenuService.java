@@ -2,7 +2,6 @@ package bot.mgx.accessbridge;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
-import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
@@ -15,7 +14,6 @@ import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.ItemMeta;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -25,59 +23,69 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import static bot.mgx.accessbridge.MenuItems.BACK_SLOT;
+import static bot.mgx.accessbridge.MenuItems.BOARD_SIZE;
+import static bot.mgx.accessbridge.MenuItems.NEXT_SLOT;
+import static bot.mgx.accessbridge.MenuItems.ORANGE;
+import static bot.mgx.accessbridge.MenuItems.PER_PAGE;
+import static bot.mgx.accessbridge.MenuItems.PREVIOUS_SLOT;
+import static bot.mgx.accessbridge.MenuItems.button;
+import static bot.mgx.accessbridge.MenuItems.head;
+
 /**
- * The clan screens. Container menus render through Geyser, so Bedrock players get
- * these too.
+ * The clan screens. Container menus render as native UI on Bedrock through Geyser,
+ * so these work on mobile as well as desktop.
  *
- * <p>Everything decided here is read from {@link ClanLevel} and {@link ClanStore};
- * this class only draws and dispatches, because Bukkit-bound code cannot be unit
- * tested in this project.
+ * <p>Everything decided here is read from {@link ClanLevel}, {@link ClanStore} and
+ * {@link MenuPaging}; this class only draws and dispatches, because Bukkit-bound code
+ * cannot be unit tested in this project.
  */
 final class ClanMenuService implements Listener {
-    private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private static final int HUB_SIZE = 27;
-    private static final int BOARD_SIZE = 54;
-    /** Slot layout for the hub, chosen so the row reads left to right. */
-    private static final int HUB_DONATE = 11;
-    private static final int HUB_BALANCE = 12;
-    private static final int HUB_UPGRADE = 14;
-    private static final int HUB_DONORS = 15;
-    /** Upgrade board: the level track on the left, the roster track on the right. */
+    private static final int HUB_DONATE = 10;
+    private static final int HUB_BALANCE = 11;
+    private static final int HUB_INFO = 12;
+    private static final int HUB_MEMBERS = 14;
+    private static final int HUB_UPGRADE = 15;
+    private static final int HUB_DONORS = 16;
     private static final int UPGRADE_LEVEL = 20;
     private static final int UPGRADE_MEMBERS = 24;
-    private static final int BACK_SLOT = 49;
+    private static final int INFO_MEMBERS = 31;
 
     private final MGXAccessBridge plugin;
     private final ClanStore store;
+    private final DiscordIdentityService identities;
 
-    ClanMenuService(MGXAccessBridge plugin, ClanStore store) {
+    ClanMenuService(MGXAccessBridge plugin, ClanStore store, DiscordIdentityService identities) {
         this.plugin = plugin;
         this.store = store;
+        this.identities = identities;
     }
 
     void openHub(Player player) {
-        ClanStore.ClanView clan = requireClan(player);
-        Inventory inventory = create(ClanMenu.Kind.HUB, clan, HUB_SIZE, "Clan  " + clan.name());
+        ClanStore.ClanView clan = requireOwnClan(player);
+        Inventory inventory = create(Menu.Kind.CLAN_HUB, clan.id(), 1, HUB_SIZE, "Clan  " + clan.name());
         inventory.setItem(HUB_DONATE, button(Material.CHEST, "Donate",
-                "Give items to the clan.",
-                "Donations cannot be taken back."));
+                "Give items to the clan.", "Donations cannot be taken back."));
         inventory.setItem(HUB_BALANCE, button(Material.GOLD_INGOT, "Balance",
-                "Worth " + String.format("%,d", clan.balance()) + ".",
-                "See what the clan is holding."));
+                "Worth " + String.format("%,d", clan.balance()) + "."));
+        inventory.setItem(HUB_INFO, button(Material.BOOK, "Clan info",
+                describeLevel(clan.level()), "Leader, roster and theme."));
+        inventory.setItem(HUB_MEMBERS, head(clan.leader(), "Members",
+                List.of(clan.members().size() + "/" + clan.memberSlots() + " members.")));
         inventory.setItem(HUB_UPGRADE, button(Material.NETHER_STAR, "Upgrades",
                 describeLevel(clan.level()),
                 clan.members().size() + "/" + clan.memberSlots() + " members."));
-        inventory.setItem(HUB_DONORS, button(Material.PLAYER_HEAD, "Donors",
-                "Who has given what.",
-                "Largest first."));
+        inventory.setItem(HUB_DONORS, button(Material.EMERALD, "Donors",
+                "Who has given what.", "Largest first."));
         player.openInventory(inventory);
     }
 
     void openDonate(Player player) {
-        ClanStore.ClanView clan = requireClan(player);
+        ClanStore.ClanView clan = requireOwnClan(player);
         // Deliberately empty: whatever is inside when the window closes is banked.
         Inventory inventory = create(
-                ClanMenu.Kind.DONATE, clan, BOARD_SIZE, "Donate to " + clan.name()
+                Menu.Kind.CLAN_DONATE, clan.id(), 1, BOARD_SIZE, "Donate to " + clan.name()
         );
         player.openInventory(inventory);
         player.sendMessage(prefix().append(Component.text(
@@ -86,15 +94,100 @@ final class ClanMenuService implements Listener {
         )));
     }
 
-    void openBalance(Player player) {
-        ClanStore.ClanView clan = requireClan(player);
+    /** The clan card. Works for any clan, not only the viewer's own. */
+    void openInfo(Player player, ClanStore.ClanView clan) {
         Inventory inventory = create(
-                ClanMenu.Kind.BALANCE, clan, BOARD_SIZE,
+                Menu.Kind.CLAN_INFO, clan.id(), 1, HUB_SIZE, "Clan  " + clan.name()
+        );
+        String leader = clan.members().getOrDefault(clan.leader(), "Unknown");
+        long online = clan.members().keySet().stream().filter(id -> Bukkit.getPlayer(id) != null).count();
+        inventory.setItem(11, head(clan.leader(), "Leader", List.of(leader)));
+        inventory.setItem(12, button(Material.NETHER_STAR, "Level",
+                describeLevel(clan.level()),
+                "Balance " + String.format("%,d", clan.balance()) + "."));
+        inventory.setItem(13, button(Material.WHITE_BANNER, "Theme",
+                String.format("#%06X", clan.themeColor())));
+        inventory.setItem(14, button(Material.CLOCK, "Online",
+                online + " of " + clan.members().size() + " here now."));
+        inventory.setItem(INFO_MEMBERS, head(clan.leader(), "Members",
+                List.of(clan.members().size() + "/" + clan.memberSlots() + " — click to see them.")));
+        player.openInventory(inventory);
+    }
+
+    void openInfo(Player player, String requestedName) {
+        openInfo(player, lookup(player, requestedName));
+    }
+
+    /** Every member, with the Discord name each of them chose to show. */
+    void openMembers(Player player, UUID clanId, int page) {
+        ClanStore.ClanView clan = requireClan(clanId);
+        List<Map.Entry<UUID, String>> roster = new ArrayList<>(clan.members().entrySet());
+        roster.sort((left, right) -> {
+            int byRole = rank(clan, left.getKey()) - rank(clan, right.getKey());
+            return byRole != 0 ? byRole : left.getValue().compareToIgnoreCase(right.getValue());
+        });
+        Inventory inventory = create(
+                Menu.Kind.CLAN_MEMBERS, clan.id(), page, BOARD_SIZE,
+                MenuItems.pagedTitle(clan.name() + " members", page, roster.size())
+        );
+        int first = MenuPaging.firstIndex(page, roster.size(), PER_PAGE);
+        int last = MenuPaging.lastIndex(page, roster.size(), PER_PAGE);
+        for (int index = first; index < last; index++) {
+            Map.Entry<UUID, String> member = roster.get(index);
+            List<String> lore = new ArrayList<>();
+            lore.add(roleName(clan, member.getKey()));
+            // Honours each player's own visibility choice, so this cannot surface a
+            // Discord name somebody has hidden.
+            identities.visibleUsername(member.getKey())
+                    .ifPresent(username -> lore.add("@" + username));
+            lore.add(Bukkit.getPlayer(member.getKey()) != null ? "Online now" : "Offline");
+            long given = clan.donations().getOrDefault(member.getKey(), 0L);
+            if (given > 0) {
+                lore.add("Donated " + String.format("%,d", given) + " in all.");
+            }
+            inventory.setItem(index - first, head(member.getKey(), member.getValue(), lore));
+        }
+        MenuItems.paginate(inventory, page, roster.size(), true);
+        player.openInventory(inventory);
+    }
+
+    /** The clan directory. */
+    void openList(Player player, int page) {
+        List<ClanStore.ClanView> clans = store.list();
+        Inventory inventory = create(
+                Menu.Kind.CLAN_LIST, null, page, BOARD_SIZE,
+                MenuItems.pagedTitle("Clans", page, clans.size())
+        );
+        int first = MenuPaging.firstIndex(page, clans.size(), PER_PAGE);
+        int last = MenuPaging.lastIndex(page, clans.size(), PER_PAGE);
+        for (int index = first; index < last; index++) {
+            ClanStore.ClanView clan = clans.get(index);
+            inventory.setItem(index - first, head(clan.leader(),
+                    clan.name() + "  " + ClanLevel.badge(clan.level()),
+                    List.of(
+                            describeLevel(clan.level()),
+                            clan.members().size() + "/" + clan.memberSlots() + " members.",
+                            "Balance " + String.format("%,d", clan.balance()) + ".",
+                            "Click to open."
+                    )));
+        }
+        if (clans.isEmpty()) {
+            inventory.setItem(22, button(Material.BARRIER, "No clans yet",
+                    "Found one with /clans create <name>."));
+        }
+        MenuItems.paginate(inventory, page, clans.size(), false);
+        player.openInventory(inventory);
+    }
+
+    void openBalance(Player player) {
+        ClanStore.ClanView clan = requireOwnClan(player);
+        Inventory inventory = create(
+                Menu.Kind.CLAN_BALANCE, clan.id(), 1, BOARD_SIZE,
                 "Balance  " + String.format("%,d", clan.balance())
         );
         int slot = 0;
         for (Map.Entry<String, Integer> entry : clan.vault().entrySet()) {
-            if (slot >= BACK_SLOT) {
+            if (slot >= PER_PAGE) {
                 break;
             }
             Material material = Material.matchMaterial(entry.getKey());
@@ -112,38 +205,40 @@ final class ClanMenuService implements Listener {
             inventory.setItem(22, button(Material.BARRIER, "Nothing donated yet",
                     "Use Donate to start the clan off."));
         }
-        inventory.setItem(BACK_SLOT, button(Material.ARROW, "Back"));
+        inventory.setItem(BACK_SLOT, button(Material.BARRIER, "Back"));
         player.openInventory(inventory);
     }
 
     void openDonors(Player player) {
-        ClanStore.ClanView clan = requireClan(player);
-        Inventory inventory = create(ClanMenu.Kind.DONORS, clan, BOARD_SIZE, "Donors  " + clan.name());
-        int slot = 0;
-        for (Map.Entry<UUID, Long> donor : clan.rankedDonors()) {
-            if (slot >= BACK_SLOT) {
-                break;
-            }
+        ClanStore.ClanView clan = requireOwnClan(player);
+        List<Map.Entry<UUID, Long>> ranked = clan.rankedDonors();
+        Inventory inventory = create(
+                Menu.Kind.CLAN_DONORS, clan.id(), 1, BOARD_SIZE,
+                MenuItems.pagedTitle("Donors", 1, ranked.size())
+        );
+        int shown = Math.min(ranked.size(), PER_PAGE);
+        for (int index = 0; index < shown; index++) {
+            Map.Entry<UUID, Long> donor = ranked.get(index);
             String name = clan.members().getOrDefault(donor.getKey(), "Former member");
-            inventory.setItem(slot, button(Material.PLAYER_HEAD,
-                    "#" + (slot + 1) + "  " + name,
-                    "Donated " + String.format("%,d", donor.getValue()) + " in all."));
-            slot++;
+            inventory.setItem(index, head(donor.getKey(), "#" + (index + 1) + "  " + name,
+                    List.of("Donated " + String.format("%,d", donor.getValue()) + " in all.")));
         }
-        if (slot == 0) {
+        if (ranked.isEmpty()) {
             inventory.setItem(22, button(Material.BARRIER, "No donations yet",
                     "Be the first to give something."));
         }
-        inventory.setItem(BACK_SLOT, button(Material.ARROW, "Back"));
+        inventory.setItem(BACK_SLOT, button(Material.BARRIER, "Back"));
         player.openInventory(inventory);
     }
 
     void openUpgrade(Player player) {
-        ClanStore.ClanView clan = requireClan(player);
-        Inventory inventory = create(ClanMenu.Kind.UPGRADE, clan, BOARD_SIZE, "Upgrades  " + clan.name());
+        ClanStore.ClanView clan = requireOwnClan(player);
+        Inventory inventory = create(
+                Menu.Kind.CLAN_UPGRADE, clan.id(), 1, BOARD_SIZE, "Upgrades  " + clan.name()
+        );
         inventory.setItem(UPGRADE_LEVEL, levelButton(clan));
         inventory.setItem(UPGRADE_MEMBERS, memberButton(clan));
-        inventory.setItem(BACK_SLOT, button(Material.ARROW, "Back"));
+        inventory.setItem(BACK_SLOT, button(Material.BARRIER, "Back"));
         player.openInventory(inventory);
     }
 
@@ -159,13 +254,10 @@ final class ClanMenuService implements Listener {
         lore.add("Next: level " + next.get());
         addCostLines(lore, clan, ClanLevel.costOf(next.get()));
         lore.add("");
-        for (String line : perkLines(ClanLevel.perksFor(next.get()))) {
-            lore.add(line);
-        }
+        lore.addAll(perkLines(ClanLevel.perksFor(next.get())));
         lore.add("");
         lore.add(ClanLevel.shortfall(clan.vault(), next.get()).isEmpty()
-                ? "Click to buy."
-                : "The vault is short.");
+                ? "Click to buy." : "The vault is short.");
         return button(Material.NETHER_STAR, "Clan level", lore);
     }
 
@@ -182,8 +274,7 @@ final class ClanMenuService implements Listener {
         addCostLines(lore, clan, List.of(next.get().cost()));
         lore.add("");
         lore.add(ClanLevel.shortfall(clan.vault(), List.of(next.get().cost())).isEmpty()
-                ? "Click to buy."
-                : "The vault is short.");
+                ? "Click to buy." : "The vault is short.");
         return button(Material.PLAYER_HEAD, "Roster size", lore);
     }
 
@@ -199,11 +290,12 @@ final class ClanMenuService implements Listener {
 
     @EventHandler(priority = EventPriority.NORMAL)
     public void onClick(InventoryClickEvent event) {
-        if (!(event.getInventory().getHolder() instanceof ClanMenu menu)
-                || !(event.getWhoClicked() instanceof Player player)) {
+        if (!(event.getInventory().getHolder() instanceof Menu menu)
+                || !(event.getWhoClicked() instanceof Player player)
+                || !isClanMenu(menu)) {
             return;
         }
-        if (menu.kind() == ClanMenu.Kind.DONATE) {
+        if (menu.kind().acceptsItems()) {
             return; // a real container: the player is meant to move items into it
         }
         event.setCancelled(true);
@@ -220,18 +312,40 @@ final class ClanMenuService implements Listener {
         }
     }
 
-    private void dispatch(Player player, ClanMenu menu, int slot) throws IOException {
+    private void dispatch(Player player, Menu menu, int slot) throws IOException {
         switch (menu.kind()) {
-            case HUB -> {
+            case CLAN_HUB -> {
                 switch (slot) {
                     case HUB_DONATE -> openDonate(player);
                     case HUB_BALANCE -> openBalance(player);
+                    case HUB_INFO -> openInfo(player, requireOwnClan(player));
+                    case HUB_MEMBERS -> openMembers(player, menu.subject(), 1);
                     case HUB_UPGRADE -> openUpgrade(player);
                     case HUB_DONORS -> openDonors(player);
                     default -> { }
                 }
             }
-            case UPGRADE -> {
+            case CLAN_INFO -> {
+                if (slot == INFO_MEMBERS) {
+                    openMembers(player, menu.subject(), 1);
+                }
+            }
+            case CLAN_MEMBERS -> {
+                switch (slot) {
+                    case PREVIOUS_SLOT -> openMembers(player, menu.subject(), menu.page() - 1);
+                    case NEXT_SLOT -> openMembers(player, menu.subject(), menu.page() + 1);
+                    case BACK_SLOT -> openInfo(player, requireClan(menu.subject()));
+                    default -> { }
+                }
+            }
+            case CLAN_LIST -> {
+                switch (slot) {
+                    case PREVIOUS_SLOT -> openList(player, menu.page() - 1);
+                    case NEXT_SLOT -> openList(player, menu.page() + 1);
+                    default -> openClanAt(player, menu.page(), slot);
+                }
+            }
+            case CLAN_UPGRADE -> {
                 switch (slot) {
                     case UPGRADE_LEVEL -> buyLevel(player);
                     case UPGRADE_MEMBERS -> buyMembers(player);
@@ -239,7 +353,7 @@ final class ClanMenuService implements Listener {
                     default -> { }
                 }
             }
-            case BALANCE, DONORS -> {
+            case CLAN_BALANCE, CLAN_DONORS -> {
                 if (slot == BACK_SLOT) {
                     openHub(player);
                 }
@@ -248,12 +362,19 @@ final class ClanMenuService implements Listener {
         }
     }
 
+    private void openClanAt(Player player, int page, int slot) {
+        List<ClanStore.ClanView> clans = store.list();
+        int index = MenuPaging.firstIndex(page, clans.size(), PER_PAGE) + slot;
+        if (slot >= 0 && slot < PER_PAGE && index < clans.size()) {
+            openInfo(player, clans.get(index));
+        }
+    }
+
     private void buyLevel(Player player) throws IOException {
         ClanStore.ClanView upgraded = store.upgrade(player.getUniqueId());
         plugin.refreshClans();
         announce(upgraded, Component.text(
-                "The clan reached level " + upgraded.level() + "!", ORANGE
-        ));
+                "The clan reached level " + upgraded.level() + "!", ORANGE));
         for (String line : perkLines(upgraded.perks())) {
             announce(upgraded, Component.text("  " + line, NamedTextColor.WHITE));
         }
@@ -264,15 +385,15 @@ final class ClanMenuService implements Listener {
         ClanStore.ClanView upgraded = store.upgradeMembers(player.getUniqueId());
         plugin.refreshClans();
         announce(upgraded, Component.text(
-                "The clan can now hold " + upgraded.memberSlots() + " members.", ORANGE
-        ));
+                "The clan can now hold " + upgraded.memberSlots() + " members.", ORANGE));
         openUpgrade(player);
     }
 
     @EventHandler(priority = EventPriority.NORMAL)
     public void onDrag(InventoryDragEvent event) {
-        if (event.getInventory().getHolder() instanceof ClanMenu menu
-                && menu.kind() != ClanMenu.Kind.DONATE) {
+        if (event.getInventory().getHolder() instanceof Menu menu
+                && isClanMenu(menu)
+                && !menu.kind().acceptsItems()) {
             event.setCancelled(true);
         }
     }
@@ -285,8 +406,8 @@ final class ClanMenuService implements Listener {
      */
     @EventHandler(priority = EventPriority.MONITOR)
     public void onClose(InventoryCloseEvent event) {
-        if (!(event.getInventory().getHolder() instanceof ClanMenu menu)
-                || menu.kind() != ClanMenu.Kind.DONATE
+        if (!(event.getInventory().getHolder() instanceof Menu menu)
+                || menu.kind() != Menu.Kind.CLAN_DONATE
                 || !(event.getPlayer() instanceof Player player)) {
             return;
         }
@@ -318,67 +439,91 @@ final class ClanMenuService implements Listener {
             ClanStore.ClanView clan = store.clanOf(player.getUniqueId()).orElseThrow();
             announce(clan, Component.text(
                     player.getName() + " donated " + String.format("%,d", value)
-                            + " to the clan.", ORANGE
-            ));
-        } catch (ClanStore.ClanException exception) {
-            // The clan went away mid-window; hand everything straight back.
-            offered.forEach((material, amount) -> {
-                Material resolved = Material.matchMaterial(material);
-                if (resolved != null) {
-                    give(player, new ItemStack(resolved, amount));
-                }
-            });
-            error(player, exception.getMessage());
-        } catch (IOException exception) {
-            plugin.getLogger().severe("Could not bank a clan donation: " + exception.getMessage());
-            offered.forEach((material, amount) -> {
-                Material resolved = Material.matchMaterial(material);
-                if (resolved != null) {
-                    give(player, new ItemStack(resolved, amount));
-                }
-            });
-            error(player, "That could not be saved, so nothing was taken. Try again shortly.");
+                            + " to the clan.", ORANGE));
+        } catch (ClanStore.ClanException | IOException failure) {
+            // Nothing was banked, so nothing may be kept: hand it all straight back.
+            returnAll(player, offered);
+            error(player, failure instanceof ClanStore.ClanException
+                    ? failure.getMessage()
+                    : "That could not be saved, so nothing was taken. Try again shortly.");
+            if (failure instanceof IOException) {
+                plugin.getLogger().severe("Could not bank a clan donation: " + failure.getMessage());
+            }
         }
+    }
+
+    private static void returnAll(Player player, Map<String, Integer> offered) {
+        offered.forEach((material, amount) -> {
+            Material resolved = Material.matchMaterial(material);
+            if (resolved == null) {
+                return;
+            }
+            int remaining = amount;
+            while (remaining > 0) {
+                int stack = Math.min(remaining, resolved.getMaxStackSize());
+                give(player, new ItemStack(resolved, stack));
+                remaining -= stack;
+            }
+        });
     }
 
     /** Closes every open clan screen, so a shutdown never eats a pending donation. */
     void closeAll() {
         for (Player player : Bukkit.getOnlinePlayers()) {
-            if (player.getOpenInventory().getTopInventory().getHolder() instanceof ClanMenu) {
+            if (player.getOpenInventory().getTopInventory().getHolder() instanceof Menu menu
+                    && isClanMenu(menu)) {
                 player.closeInventory();
             }
         }
     }
 
-    private ClanStore.ClanView requireClan(Player player) {
+    private static boolean isClanMenu(Menu menu) {
+        return menu.kind().name().startsWith("CLAN_");
+    }
+
+    private ClanStore.ClanView requireOwnClan(Player player) {
         return store.clanOf(player.getUniqueId())
                 .orElseThrow(() -> new ClanStore.ClanException("You are not in a clan."));
     }
 
-    private Inventory create(ClanMenu.Kind kind, ClanStore.ClanView clan, int size, String title) {
-        ClanMenu menu = new ClanMenu(kind, clan.id());
+    private ClanStore.ClanView requireClan(UUID clanId) {
+        return store.list().stream()
+                .filter(clan -> clan.id().equals(clanId))
+                .findFirst()
+                .orElseThrow(() -> new ClanStore.ClanException("That clan no longer exists."));
+    }
+
+    private ClanStore.ClanView lookup(Player player, String requestedName) {
+        return (requestedName == null || requestedName.isBlank()
+                ? store.clanOf(player.getUniqueId())
+                : store.findClan(requestedName))
+                .orElseThrow(() -> new ClanStore.ClanException(
+                        requestedName == null || requestedName.isBlank()
+                                ? "You are not in a clan."
+                                : "No clan has that name."));
+    }
+
+    private static int rank(ClanStore.ClanView clan, UUID playerId) {
+        return switch (clan.roleOf(playerId)) {
+            case LEADER -> 0;
+            case STAFF -> 1;
+            case MEMBER -> 2;
+        };
+    }
+
+    private static String roleName(ClanStore.ClanView clan, UUID playerId) {
+        return switch (clan.roleOf(playerId)) {
+            case LEADER -> "Leader";
+            case STAFF -> "Clan staff";
+            case MEMBER -> "Member";
+        };
+    }
+
+    private Inventory create(Menu.Kind kind, UUID subject, int page, int size, String title) {
+        Menu menu = new Menu(kind, subject, page);
         Inventory inventory = Bukkit.createInventory(menu, size, Component.text(title, ORANGE));
         menu.attach(inventory);
         return inventory;
-    }
-
-    private static ItemStack button(Material material, String name, String... lore) {
-        return button(material, name, List.of(lore));
-    }
-
-    private static ItemStack button(Material material, String name, List<String> lore) {
-        ItemStack item = new ItemStack(material);
-        ItemMeta meta = item.getItemMeta();
-        if (meta != null) {
-            meta.displayName(Component.text(name, ORANGE, TextDecoration.BOLD)
-                    .decoration(TextDecoration.ITALIC, false));
-            meta.lore(lore.stream()
-                    .map(line -> (Component) Component.text(line, NamedTextColor.GRAY)
-                            .decoration(TextDecoration.ITALIC, false))
-                    .toList());
-            item.setItemMeta(meta);
-        }
-        return item;
     }
 
     private static void give(Player player, ItemStack item) {

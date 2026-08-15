@@ -2414,6 +2414,36 @@ class MinecraftInformationPanelTests(unittest.TestCase):
             round((1 - constant("BOOSTER_EXHAUSTION_MULTIPLIER")) * 100),
         )
 
+    def test_in_game_perk_copy_quotes_no_figure_of_its_own(self):
+        # /perks told players "+5% direct combat damage" for months while the plugin
+        # applied 15%, because the copy restated the number by hand. Nothing that
+        # players read may hard-code a percentage the code owns.
+        import re
+        from pathlib import Path
+
+        bridge = (
+            Path(__file__).resolve().parent.parent
+            / "minecraft-bridge/src/main/java/bot/mgx/accessbridge"
+        )
+        for name in ("GuideService.java", "PlayerMenuService.java"):
+            source = (bridge / name).read_text()
+            with self.subTest(source=name):
+                # A percentage in a player-facing string, rather than derived from
+                # PlayerPerkService, is exactly the bug that got shipped.
+                literal = re.findall(r'"[^"]*?\+\d+%[^"]*?"', source)
+                self.assertEqual(
+                    [],
+                    literal,
+                    f"{name} hard-codes a perk percentage; derive it from "
+                    "PlayerPerkService instead",
+                )
+                if "ELITE_DAMAGE_BONUS" in source:
+                    self.assertIn(
+                        "PlayerPerkService.ELITE_DAMAGE_BONUS",
+                        source,
+                        f"{name} should read the bonus from the class that applies it",
+                    )
+
     def test_boosting_page_states_the_stacked_totals(self):
         description = self.embed_text(self.information.boosting_embed())
 

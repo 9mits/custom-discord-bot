@@ -38,6 +38,23 @@ final class DiscordIdentityService implements CommandExecutor {
                 .orElse(Component.empty());
     }
 
+    /**
+     * Whether this player is showing their linked name. A player with no linked
+     * account reads as hidden, which is what the settings pane should show them.
+     */
+    boolean isVisible(UUID minecraftUuid) {
+        return store.identity(minecraftUuid)
+                .map(DiscordIdentityStore.Identity::visible)
+                .orElse(false);
+    }
+
+    /** Flips the setting, for the settings menu; {@code /discordnames} narrates it. */
+    DiscordIdentityStore.Identity toggleVisibility(UUID minecraftUuid) {
+        DiscordIdentityStore.Identity identity = store.toggle(minecraftUuid);
+        plugin.refreshClans();
+        return identity;
+    }
+
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!(sender instanceof Player player)) {
