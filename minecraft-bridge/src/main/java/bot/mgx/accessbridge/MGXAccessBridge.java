@@ -195,7 +195,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     void applyPlayerProfile(org.bukkit.entity.Player player, PlayerProfile profile) {
         perkService.apply(player, profile);
         sidebarService.refresh(player);
-        refreshClanAppearance();
+        refreshClans();
     }
 
     /** Called when the bridge reconnects, so the bot is never left without standings. */
@@ -224,25 +224,34 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         switch (action) {
             case "leave" -> {
                 String name = clanStore.leave(actor);
-                refreshClanAppearance();
+                refreshClans();
                 republishCapabilities();
                 return "You left " + name + ".";
             }
             case "disband" -> {
-                String name = clanStore.disband(actor);
-                refreshClanAppearance();
+                // Disbanding refunds the vault, and Discord cannot hand anyone items.
+                // Refusing beats destroying what members contributed.
+                boolean holdsVault = clan.map(view -> !view.vault().isEmpty()).orElse(false);
+                if (holdsVault) {
+                    throw new ClanStore.ClanException(
+                            "Your clan vault still holds materials. Disband in game with "
+                                    + "/clans disband confirm so they are returned to you."
+                    );
+                }
+                ClanStore.ClanView disbanded = clanStore.disband(actor);
+                refreshClans();
                 republishCapabilities();
-                return name + " was disbanded.";
+                return disbanded.name() + " was disbanded.";
             }
             case "rename" -> {
                 ClanStore.ClanView renamed = clanStore.rename(actor, argument);
-                refreshClanAppearance();
+                refreshClans();
                 republishCapabilities();
                 return "Your clan is now called " + renamed.name() + ".";
             }
             case "color" -> {
                 ClanStore.ClanView recoloured = clanStore.setThemeColor(actor, argument);
-                refreshClanAppearance();
+                refreshClans();
                 return String.format("Clan colour set to #%06X.", recoloured.themeColor());
             }
             case "kick", "promote", "demote", "transfer" -> {
@@ -267,7 +276,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                         yield argument + " now leads the clan.";
                     }
                 };
-                refreshClanAppearance();
+                refreshClans();
                 republishCapabilities();
                 return outcome;
             }
@@ -348,9 +357,22 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
     }
 
-    void refreshClanAppearance() {
+    /**
+     * Re-reads clan state for everyone online: tags, and the perks their clan level
+     * grants. Every membership change already routes through here, which is what makes
+     * clan perks membership-scoped — a player who leaves or is kicked is recomputed at
+     * level 0 on the same tick and loses the boost immediately.
+     */
+    void refreshClans() {
         if (sidebarService != null) {
             sidebarService.refreshAll();
+        }
+        if (perkService != null && clanStore != null) {
+            for (org.bukkit.entity.Player player : getServer().getOnlinePlayers()) {
+                perkService.applyClan(player, clanStore.clanOf(player.getUniqueId())
+                        .map(ClanStore.ClanView::perks)
+                        .orElse(ClanLevel.Perks.NONE));
+            }
         }
     }
 

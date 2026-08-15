@@ -25,7 +25,7 @@ final class DiscordIdentityService implements CommandExecutor {
 
     void sync(UUID minecraftUuid, String discordUsername) {
         store.sync(minecraftUuid, discordUsername);
-        plugin.refreshClanAppearance();
+        plugin.refreshClans();
     }
 
     Optional<String> visibleUsername(UUID minecraftUuid) {
@@ -46,7 +46,7 @@ final class DiscordIdentityService implements CommandExecutor {
         }
         try {
             DiscordIdentityStore.Identity identity = store.toggle(player.getUniqueId());
-            plugin.refreshClanAppearance();
+            plugin.refreshClans();
             player.sendMessage(Component.text("━━━━━━━━━━━━━━━━━━━━━━━━", BLURPLE));
             player.sendMessage(Component.text("DISCORD NAME", BLURPLE, TextDecoration.BOLD));
             if (identity.visible()) {

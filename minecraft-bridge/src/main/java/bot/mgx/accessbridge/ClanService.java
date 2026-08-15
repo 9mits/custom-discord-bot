@@ -5,12 +5,14 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
+import org.bukkit.Material;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
+import org.bukkit.inventory.ItemStack;
 import io.papermc.paper.event.player.AsyncChatEvent;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -24,6 +26,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -37,14 +40,14 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
             "help", "create", "accept", "decline", "info", "list"
     );
     private static final List<String> MEMBER_SUBCOMMANDS = List.of(
-            "help", "info", "list", "chat", "leave"
+            "help", "info", "list", "chat", "leave", "vault", "deposit"
     );
     private static final List<String> STAFF_SUBCOMMANDS = List.of(
-            "help", "invite", "info", "list", "kick", "chat", "leave", "icon"
+            "help", "invite", "info", "list", "kick", "chat", "leave", "icon", "vault", "deposit"
     );
     private static final List<String> LEADER_SUBCOMMANDS = List.of(
             "help", "invite", "info", "list", "rename", "color", "icon", "promote", "demote",
-            "transfer", "kick", "chat", "disband"
+            "transfer", "kick", "chat", "disband", "vault", "deposit", "withdraw", "upgrade"
     );
 
     private final MGXAccessBridge plugin;
@@ -93,6 +96,10 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 case "kick", "remove" -> kick(player, remainder(args, 1));
                 case "leave" -> leave(player);
                 case "chat" -> chat(player, remainder(args, 1));
+                case "vault", "bank" -> vault(player);
+                case "deposit" -> deposit(player, args.length >= 2 ? args[1] : "");
+                case "withdraw" -> withdraw(player, remainder(args, 1));
+                case "upgrade", "levelup" -> upgrade(player, args.length >= 2 ? args[1] : "");
                 case "disband" -> disband(player, args.length >= 2 ? args[1] : "");
                 default -> throw new ClanStore.ClanException("Unknown subcommand. Use /clans help.");
             }
@@ -113,7 +120,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
             throw new ClanStore.ClanException("Usage: /clans create <name>");
         }
         ClanStore.ClanView clan = store.create(player.getUniqueId(), player.getName(), name);
-        plugin.refreshClanAppearance();
+        plugin.refreshClans();
         success(player, "Created [" + clan.name() + "]. You are its leader.");
     }
 
@@ -139,7 +146,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         ClanStore.ClanView clan = store.accept(
                 player.getUniqueId(), player.getName(), System.currentTimeMillis()
         );
-        plugin.refreshClanAppearance();
+        plugin.refreshClans();
         broadcast(clan, Component.text(player.getName() + " joined the clan.", LIGHT_ORANGE));
     }
 
@@ -208,7 +215,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
             throw new ClanStore.ClanException("Usage: /clans rename <new name>");
         }
         ClanStore.ClanView clan = store.rename(player.getUniqueId(), name);
-        plugin.refreshClanAppearance();
+        plugin.refreshClans();
         broadcast(clan, Component.text("The clan is now named " + clan.name() + ".", LIGHT_ORANGE));
     }
 
@@ -248,7 +255,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 player.getUniqueId(),
                 resolveThemeColor(requestedColor)
         );
-        plugin.refreshClanAppearance();
+        plugin.refreshClans();
         TextColor theme = clanColor(clan);
         broadcast(clan, Component.text("Clan theme changed to ", NamedTextColor.GRAY)
                 .append(Component.text(String.format("#%06X", clan.themeColor()), theme)));
@@ -289,7 +296,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         }
         UUID target = member(clan, targetName);
         String removedName = store.kick(player.getUniqueId(), target);
-        plugin.refreshClanAppearance();
+        plugin.refreshClans();
         success(player, "Removed " + removedName + " from " + clan.name() + ".");
         Player online = Bukkit.getPlayer(target);
         if (online != null) {
@@ -299,7 +306,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
 
     private void leave(Player player) throws IOException {
         String clanName = store.leave(player.getUniqueId());
-        plugin.refreshClanAppearance();
+        plugin.refreshClans();
         success(player, "You left " + clanName + ".");
     }
 
@@ -329,10 +336,23 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     private void disband(Player player, String confirmation) throws IOException {
         ClanStore.ClanView clan = leaderClan(player);
         if (!confirmation.equalsIgnoreCase("confirm")) {
+            if (!clan.vault().isEmpty()) {
+                success(player, "The clan vault will be returned to you.");
+            }
             throw new ClanStore.ClanException("This removes the clan permanently. Use /clans disband confirm.");
         }
-        store.disband(player.getUniqueId());
-        plugin.refreshClanAppearance();
+        ClanStore.ClanView disbanded = store.disband(player.getUniqueId());
+        // Members contributed these; destroying them on disband would be a support ticket.
+        disbanded.vault().forEach((material, amount) -> {
+            Material resolved = Material.matchMaterial(material);
+            if (resolved != null) {
+                give(player, resolved, amount);
+            }
+        });
+        if (!disbanded.vault().isEmpty()) {
+            success(player, "The clan vault was returned to you.");
+        }
+        plugin.refreshClans();
         for (UUID memberId : clan.members().keySet()) {
             Player online = Bukkit.getPlayer(memberId);
             if (online != null) {
@@ -340,6 +360,198 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                         clan.name() + " was disbanded.", NamedTextColor.WHITE
                 )));
             }
+        }
+    }
+
+    private void vault(Player player) {
+        ClanStore.ClanView clan = ownClan(player);
+        TextColor theme = clanColor(clan);
+        player.sendMessage(divider(theme));
+        player.sendMessage(Component.text("        [" + clan.name() + "] ", theme, TextDecoration.BOLD)
+                .append(badge(clan)));
+        player.sendMessage(Component.text(" "));
+        player.sendMessage(label("LEVEL", describeLevel(clan.level())));
+        player.sendMessage(Component.text(" "));
+        if (clan.vault().isEmpty()) {
+            player.sendMessage(Component.text("  The vault is empty.", NamedTextColor.GRAY));
+        } else {
+            clan.vault().forEach((material, amount) -> player.sendMessage(
+                    Component.text("  " + amount + "x ", NamedTextColor.WHITE)
+                            .append(Component.text(
+                                    ClanLevel.readableMaterial(material), LIGHT_ORANGE
+                            ))
+            ));
+        }
+        player.sendMessage(Component.text(" "));
+        sendNextLevelCost(player, clan);
+        player.sendMessage(divider(theme));
+    }
+
+    private void deposit(Player player, String requestedAmount) throws IOException {
+        ClanStore.ClanView clan = ownClan(player);
+        ItemStack held = player.getInventory().getItemInMainHand();
+        if (held.getType().isAir()) {
+            throw new ClanStore.ClanException("Hold the materials you want to deposit.");
+        }
+        String material = held.getType().name();
+        if (!ClanLevel.isDepositable(material)) {
+            throw new ClanStore.ClanException(
+                    ClanLevel.readableMaterial(material) + " is not a clan upgrade material."
+            );
+        }
+        int amount = held.getAmount();
+        if (!requestedAmount.isBlank()) {
+            try {
+                amount = Integer.parseInt(requestedAmount);
+            } catch (NumberFormatException exception) {
+                throw new ClanStore.ClanException("The amount must be a number.");
+            }
+            if (amount < 1 || amount > held.getAmount()) {
+                throw new ClanStore.ClanException(
+                        "You are holding " + held.getAmount() + "x "
+                                + ClanLevel.readableMaterial(material) + "."
+                );
+            }
+        }
+        // Bank first, then take: a failed save must not cost anyone their items.
+        ClanStore.ClanView updated = store.deposit(player.getUniqueId(), material, amount);
+        held.setAmount(held.getAmount() - amount);
+        broadcast(updated, Component.text(
+                player.getName() + " deposited " + amount + "x "
+                        + ClanLevel.readableMaterial(material) + " into the clan vault.",
+                LIGHT_ORANGE
+        ));
+        sendNextLevelCost(player, updated);
+    }
+
+    private void withdraw(Player player, String arguments) throws IOException {
+        ownClan(player);
+        String[] parts = arguments.trim().split("\\s+");
+        if (arguments.isBlank()) {
+            throw new ClanStore.ClanException("Usage: /clans withdraw <material> [amount]");
+        }
+        String material = ClanLevel.normalizeMaterial(parts[0]);
+        Material resolved = Material.matchMaterial(material);
+        if (resolved == null) {
+            throw new ClanStore.ClanException("No material is called " + parts[0] + ".");
+        }
+        int amount = 1;
+        if (parts.length >= 2) {
+            try {
+                amount = Integer.parseInt(parts[1]);
+            } catch (NumberFormatException exception) {
+                throw new ClanStore.ClanException("The amount must be a number.");
+            }
+        }
+        ClanStore.ClanView updated = store.withdraw(player.getUniqueId(), material, amount);
+        give(player, resolved, amount);
+        success(player, "Withdrew " + amount + "x " + ClanLevel.readableMaterial(material) + ".");
+        sendNextLevelCost(player, updated);
+    }
+
+    private void upgrade(Player player, String confirmation) throws IOException {
+        ClanStore.ClanView clan = leaderClan(player);
+        Optional<Integer> next = clan.nextLevel();
+        if (next.isEmpty()) {
+            throw new ClanStore.ClanException("Your clan is already at the highest level.");
+        }
+        if (!confirmation.equalsIgnoreCase("confirm")) {
+            TextColor theme = clanColor(clan);
+            player.sendMessage(divider(theme));
+            player.sendMessage(Component.text("        CLAN UPGRADE", theme, TextDecoration.BOLD));
+            player.sendMessage(Component.text(" "));
+            player.sendMessage(label("NOW", describeLevel(clan.level())));
+            player.sendMessage(label("NEXT", describeLevel(next.get())));
+            player.sendMessage(Component.text(" "));
+            sendNextLevelCost(player, clan);
+            player.sendMessage(Component.text(" "));
+            player.sendMessage(Component.text("  Grants at that level:", NamedTextColor.GRAY));
+            for (String line : perkLines(ClanLevel.perksFor(next.get()))) {
+                player.sendMessage(Component.text("  " + line, NamedTextColor.WHITE));
+            }
+            player.sendMessage(Component.text(" "));
+            player.sendMessage(Component.text(
+                    "  Spends the clan vault. Use /clans upgrade confirm.", NamedTextColor.GRAY
+            ));
+            player.sendMessage(divider(theme));
+            return;
+        }
+        ClanStore.ClanView upgraded = store.upgrade(player.getUniqueId());
+        plugin.refreshClans();
+        broadcast(upgraded, Component.text(
+                "The clan reached level " + upgraded.level() + "! ", LIGHT_ORANGE
+        ).append(badge(upgraded)));
+        for (String line : perkLines(upgraded.perks())) {
+            broadcast(upgraded, Component.text("  " + line, NamedTextColor.WHITE));
+        }
+    }
+
+    /** What the next level costs and what the vault still lacks, or silence at the top. */
+    private void sendNextLevelCost(Player player, ClanStore.ClanView clan) {
+        Optional<Integer> next = clan.nextLevel();
+        if (next.isEmpty()) {
+            player.sendMessage(Component.text(
+                    "  Your clan is at the highest level.", NamedTextColor.GRAY
+            ));
+            return;
+        }
+        int level = next.get();
+        player.sendMessage(Component.text("  Level " + level + " costs:", NamedTextColor.GRAY));
+        Map<String, Integer> missing = ClanLevel.shortfall(clan.vault(), level);
+        for (ClanLevel.Cost cost : ClanLevel.costOf(level)) {
+            int held = clan.vault().getOrDefault(cost.material(), 0);
+            boolean covered = !missing.containsKey(cost.material());
+            player.sendMessage(Component.text("  " + Math.min(held, cost.amount())
+                            + "/" + cost.amount() + " ",
+                            covered ? NamedTextColor.GREEN : NamedTextColor.RED)
+                    .append(Component.text(
+                            ClanLevel.readableMaterial(cost.material()), NamedTextColor.WHITE
+                    )));
+        }
+        if (missing.isEmpty()) {
+            player.sendMessage(Component.text(
+                    "  The vault covers it. The leader can /clans upgrade confirm.",
+                    NamedTextColor.GREEN
+            ));
+        }
+    }
+
+    private static List<String> perkLines(ClanLevel.Perks perks) {
+        if (perks.isNone()) {
+            return List.of("No perks yet.");
+        }
+        List<String> lines = new ArrayList<>();
+        if (perks.extraHearts() > 0) {
+            lines.add("+" + perks.extraHearts()
+                    + (perks.extraHearts() == 1 ? " extra heart" : " extra hearts"));
+        }
+        addPercent(lines, perks.strength(), "strength");
+        addPercent(lines, perks.saturation(), "saturation");
+        addPercent(lines, perks.diggingSpeed(), "digging speed");
+        addPercent(lines, perks.resistance(), "resistance");
+        addPercent(lines, perks.speed(), "speed");
+        return lines;
+    }
+
+    private static void addPercent(List<String> lines, double fraction, String label) {
+        if (fraction > 0) {
+            lines.add("+" + Math.round(fraction * 100) + "% " + label);
+        }
+    }
+
+    private static String describeLevel(int level) {
+        return level == 0 ? "Unranked" : "Level " + level;
+    }
+
+    /** Puts items in the player's inventory, dropping whatever will not fit. */
+    private static void give(Player player, Material material, int amount) {
+        int remaining = amount;
+        while (remaining > 0) {
+            int stack = Math.min(remaining, material.getMaxStackSize());
+            ItemStack items = new ItemStack(material, stack);
+            player.getInventory().addItem(items).values().forEach(overflow ->
+                    player.getWorld().dropItemNaturally(player.getLocation(), overflow));
+            remaining -= stack;
         }
     }
 
@@ -353,6 +565,12 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         player.sendMessage(help("/clans info [name] | list [page]", "Browse clans"));
         if (current.isPresent()) {
             ClanStore.ClanRole role = current.get().roleOf(player.getUniqueId());
+            player.sendMessage(help("/clans vault", "The clan vault and the next level"));
+            player.sendMessage(help("/clans deposit [amount]", "Bank the materials you hold"));
+            if (role == ClanStore.ClanRole.LEADER) {
+                player.sendMessage(help("/clans withdraw <material> [amount]", "Take from the vault"));
+                player.sendMessage(help("/clans upgrade", "Spend the vault on the next level"));
+            }
             if (role == ClanStore.ClanRole.LEADER || role == ClanStore.ClanRole.STAFF) {
                 player.sendMessage(help("/clans invite <player>", "Invite an online player"));
                 player.sendMessage(help("/clans kick <player>", "Remove a clan member"));
@@ -423,7 +641,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     public void onPlayerJoin(PlayerJoinEvent event) {
         try {
             store.touchPlayerName(event.getPlayer().getUniqueId(), event.getPlayer().getName());
-            plugin.refreshClanAppearance();
+            plugin.refreshClans();
         } catch (IOException exception) {
             plugin.getLogger().warning("Could not update a clan member name: " + exception.getMessage());
         }
@@ -465,6 +683,18 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         }
         if (action.equals("disband")) {
             return partial(args[1], List.of("confirm"));
+        }
+        if (action.equals("upgrade") || action.equals("levelup")) {
+            return partial(args[1], List.of("confirm"));
+        }
+        if (action.equals("withdraw")) {
+            // Only what this clan actually banked, so the list never hints at a
+            // material the player has not seen.
+            return store.clanOf(player.getUniqueId())
+                    .map(clan -> partial(args[1], clan.vault().keySet().stream()
+                            .map(material -> material.toLowerCase(Locale.ROOT))
+                            .toList()))
+                    .orElse(List.of());
         }
         return List.of();
     }
@@ -519,6 +749,8 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
             case "colour", "theme" -> "color";
             case "leader" -> "transfer";
             case "remove" -> "kick";
+            case "bank" -> "vault";
+            case "levelup" -> "upgrade";
             default -> action;
         };
     }
@@ -573,7 +805,20 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private static Component clanTag(ClanStore.ClanView clan) {
-        return Component.text("[" + clan.name() + "] ", clanColor(clan), TextDecoration.BOLD);
+        Component tag = Component.text("[" + clan.name() + "] ", clanColor(clan), TextDecoration.BOLD);
+        if (clan.level() <= 0) {
+            return tag;
+        }
+        return tag.append(badge(clan)).append(Component.text(" "));
+    }
+
+    /** The stars that stand in for writing the clan's level beside every name. */
+    private static Component badge(ClanStore.ClanView clan) {
+        return Component.text(
+                ClanLevel.badge(clan.level()),
+                TextColor.color(ClanLevel.badgeColor(clan.level())),
+                TextDecoration.BOLD
+        );
     }
 
     private static String resolveThemeColor(String requestedColor) {

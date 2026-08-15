@@ -10,6 +10,7 @@ from typing import Any, Iterable, Optional
 import aiohttp
 import discord
 
+from . import clans
 from .presentation import (
     BRAND_NAME,
     FOOTER_ICON_URL,
@@ -374,10 +375,11 @@ def build_embed(
             podium = index < PODIUM
             value = str(row.get("display", row.get("value", 0)))
             if scope == "clan":
-                name = str(row.get("clan") or "?")
+                clan_name = str(row.get("clan") or "?")
+                name = clans.tag(clan_name, int(row.get("level", 0) or 0))
                 members = row.get("members")
                 suffix = f" · {members} members" if members else ""
-                icon = heads.get(clan_key(name), "") if podium else ""
+                icon = heads.get(clan_key(clan_name), "") if podium else ""
             else:
                 uuid = str(row.get("minecraft_uuid") or "")
                 # Identity reads clan, then Discord, then Minecraft — broadest first.

@@ -1370,7 +1370,7 @@ class MinecraftLeaderboardRenderTests(unittest.TestCase):
             snapshot, scope="clan", board="wealth", heads=icons
         ).description
 
-        self.assertTrue(described.startswith("<:w:1> **#1 · Wolves**"))
+        self.assertTrue(described.startswith("<:w:1> **#1 · [Wolves]**"))
         self.assertIn("<:r:2>", described)
         self.assertIn("<:f:3>", described)
         # Fourth place is off the podium, so it stays plain like the players do.
@@ -2215,6 +2215,101 @@ class MinecraftInformationPanelTests(unittest.TestCase):
             list(self.information.CLAN_THEME_COLOURS),
             re.findall(r'"([a-z]+)"', colours.group(1)),
         )
+
+    def test_clan_ladder_matches_the_plugin_that_enforces_it(self):
+        # ClanLevel.java is authoritative at runtime. Copy quoting a cost or a perk
+        # the plugin will not honour sends players to bank the wrong materials.
+        import re
+        from pathlib import Path
+
+        from minecraft_bot import clans
+
+        source = (
+            Path(__file__).resolve().parent.parent
+            / "minecraft-bridge/src/main/java/bot/mgx/accessbridge/ClanLevel.java"
+        ).read_text()
+
+        for name, expected in (
+            ("MAX_PUBLIC_LEVEL", clans.MAX_PUBLIC_LEVEL),
+            ("SECRET_LEVEL", clans.SECRET_LEVEL),
+        ):
+            match = re.search(rf"int {name} = (\d+);", source)
+            self.assertIsNotNone(match, f"{name} vanished from ClanLevel")
+            self.assertEqual(expected, int(match.group(1)))
+
+        perks = re.findall(
+            r"(\d+), new Perks\((\d+), ([0-9.]+), ([0-9.]+), ([0-9.]+), ([0-9.]+), ([0-9.]+)\)",
+            source,
+        )
+        self.assertEqual(clans.SECRET_LEVEL, len(perks), "the perk table changed shape")
+        for level, hearts, strength, saturation, digging, resistance, speed in perks:
+            with self.subTest(level=level):
+                mirrored = clans.perks_for(int(level))
+                self.assertEqual(int(hearts), mirrored.extra_hearts)
+                self.assertEqual(round(float(strength) * 100), mirrored.strength)
+                self.assertEqual(round(float(saturation) * 100), mirrored.saturation)
+                self.assertEqual(round(float(digging) * 100), mirrored.digging_speed)
+                self.assertEqual(round(float(resistance) * 100), mirrored.resistance)
+                self.assertEqual(round(float(speed) * 100), mirrored.speed)
+
+        costs = re.search(r"COSTS = Map\.of\((.*?)\n    \);", source, re.S)
+        self.assertIsNotNone(costs, "COSTS vanished from ClanLevel")
+        # Split on the level markers rather than matching each entry, so a cost list
+        # spilling over several lines does not need its own pattern.
+        parts = re.split(r"\n\s+(\d+), List\.of\(", costs.group(1))
+        priced = {
+            int(level): [
+                (material, int(amount))
+                for material, amount in re.findall(r'new Cost\("([A-Z_]+)", (\d+)\)', body)
+            ]
+            for level, body in zip(parts[1::2], parts[2::2])
+        }
+        self.assertEqual(
+            set(range(1, clans.SECRET_LEVEL + 1)),
+            set(priced),
+            "the levels ClanLevel prices changed",
+        )
+        for level, expected in priced.items():
+            with self.subTest(level=level):
+                self.assertEqual(expected, [tuple(cost) for cost in clans.cost_of(level)])
+
+        for level in range(0, clans.SECRET_LEVEL + 1):
+            badge = re.search(rf"\n            {level}, \"(.*?)\"", source)
+            if badge is not None:
+                with self.subTest(badge=level):
+                    self.assertEqual(badge.group(1), clans.badge(level))
+
+    def test_the_secret_clan_level_is_never_advertised(self):
+        # The whole point of level 6 is that a clan learns of it only after buying
+        # everything else. A copy edit that names it anywhere undoes that silently.
+        from minecraft_bot import clans
+
+        described = " ".join(self.embed_text(embed) for _name, embed in self._every_embed())
+
+        self.assertNotIn("Dragon Egg", described)
+        self.assertNotIn("DRAGON_EGG", described)
+        self.assertNotIn(f"Level {clans.SECRET_LEVEL}", described)
+        self.assertNotIn(clans.badge(clans.SECRET_LEVEL), described)
+        # And it is absent from the tuple every player-facing surface enumerates.
+        self.assertNotIn(clans.SECRET_LEVEL, clans.PUBLIC_LEVELS)
+        self.assertNotIn(clans.SECRET_LEVEL, clans.visible_levels(0))
+        self.assertNotIn(clans.SECRET_LEVEL, clans.visible_levels(clans.MAX_PUBLIC_LEVEL - 1))
+        # A clan with nothing left to buy is the one case that may see it.
+        self.assertIn(clans.SECRET_LEVEL, clans.visible_levels(clans.MAX_PUBLIC_LEVEL))
+
+    def test_clan_levels_page_prices_every_public_level(self):
+        from minecraft_bot import clans
+
+        described = self.embed_text(self.information.clans_levels_embed())
+
+        for level in clans.PUBLIC_LEVELS:
+            with self.subTest(level=level):
+                self.assertIn(f"Level {level}", described)
+                self.assertIn(clans.badge(level), described)
+                for material, amount in clans.cost_of(level):
+                    self.assertIn(f"{amount}x {clans.readable_material(material)}", described)
+        # Perks are worthless to a player who does not know they end with membership.
+        self.assertRegex(described, r"(?i)leave the clan or get kicked")
 
     def test_clan_pages_state_the_rules_people_get_wrong(self):
         described = " ".join(

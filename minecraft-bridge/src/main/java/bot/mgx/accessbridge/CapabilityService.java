@@ -158,6 +158,7 @@ final class CapabilityService {
             entry.addProperty("clan_colour", view.themeColor());
             entry.addProperty("clan_role", clanRole(view, playerId));
             entry.addProperty("clan_members", view.members().size());
+            entry.addProperty("clan_level", view.level());
         });
         return entry;
     }

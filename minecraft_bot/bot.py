@@ -18,6 +18,7 @@ from .audit import (
     install_component_audit,
     record_denial,
 )
+from . import clans
 from .bridge import MinecraftBridgeServer
 from .config import MinecraftConfig
 from .data import MinecraftDataManager
@@ -1463,9 +1464,22 @@ class MinecraftAccessBot(commands.Bot):
                 if not caps.in_clan:
                     continue
                 lines.append(
-                    f"**{caps.clan}** — you are the {caps.clan_role} "
-                    f"of {caps.clan_members} member(s)."
+                    f"**{clans.tag(caps.clan, caps.clan_level)}** — you are the "
+                    f"{caps.clan_role} of {caps.clan_members} member(s)."
                 )
+                lines.append("")
+                lines.append(f"**{clans.describe(caps.clan_level)}**")
+                held = clans.perks_for(caps.clan_level)
+                if held.is_none():
+                    lines.append("> No clan perks yet. Upgrade with `/clans upgrade` in game.")
+                else:
+                    lines.extend(f"> {line}" for line in held.described())
+                following = clans.next_level(caps.clan_level)
+                if following is not None:
+                    lines.append("")
+                    lines.append(f"**Next — level {following}**")
+                    lines.append(f"> Costs {clans.described_cost(following)}")
+                    lines.append("> Bank materials with `/clans deposit` in game.")
                 actions = caps.available_clan_actions()
                 if actions:
                     lines.append("")

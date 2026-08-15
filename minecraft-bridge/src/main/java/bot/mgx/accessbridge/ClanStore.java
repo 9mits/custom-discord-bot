@@ -42,13 +42,24 @@ final class ClanStore {
             UUID leader,
             Map<UUID, String> members,
             Set<UUID> staff,
-            String icon
+            String icon,
+            int level,
+            Map<String, Integer> vault
     ) {
         ClanRole roleOf(UUID playerId) {
             if (leader.equals(playerId)) {
                 return ClanRole.LEADER;
             }
             return staff.contains(playerId) ? ClanRole.STAFF : ClanRole.MEMBER;
+        }
+
+        ClanLevel.Perks perks() {
+            return ClanLevel.perksFor(level);
+        }
+
+        /** The level this clan would buy next, or empty when it holds the last one. */
+        Optional<Integer> nextLevel() {
+            return level >= ClanLevel.SECRET_LEVEL ? Optional.empty() : Optional.of(level + 1);
         }
     }
 
@@ -68,6 +79,10 @@ final class ClanStore {
         Set<String> staff = new LinkedHashSet<>();
         /** Absent on clans saved before 2.27.0, and on any clan that never set one. */
         String icon;
+        /** Absent on clans saved before 2.28.0, which read back as an unupgraded clan. */
+        Integer level;
+        /** Material name to amount. Absent before 2.28.0; only upgrade materials appear. */
+        Map<String, Integer> vault;
     }
 
     private static final class SavedInvite {
@@ -227,6 +242,99 @@ final class ClanStore {
         return view(clan);
     }
 
+    /**
+     * Adds to the clan vault. Any member may contribute; only the leader spends it,
+     * so a deposit is a contribution to the clan rather than personal savings.
+     */
+    synchronized ClanView deposit(UUID actor, String material, int amount) throws IOException {
+        SavedClan clan = requireClanForMember(actor);
+        String normalized = ClanLevel.normalizeMaterial(material);
+        if (!ClanLevel.isDepositable(normalized)) {
+            throw new ClanException("The clan vault only holds clan upgrade materials.");
+        }
+        if (amount <= 0) {
+            throw new ClanException("Deposit at least one item.");
+        }
+        if (clan.vault == null) {
+            clan.vault = new LinkedHashMap<>();
+        }
+        clan.vault.merge(normalized, amount, Integer::sum);
+        persist();
+        return view(clan);
+    }
+
+    /** Leader-only, so a mistaken deposit can be reversed without a second clan. */
+    synchronized ClanView withdraw(UUID actor, String material, int amount) throws IOException {
+        SavedClan clan = requireLeader(actor);
+        String normalized = ClanLevel.normalizeMaterial(material);
+        if (amount <= 0) {
+            throw new ClanException("Withdraw at least one item.");
+        }
+        int held = clan.vault == null ? 0 : clan.vault.getOrDefault(normalized, 0);
+        if (held <= 0) {
+            throw new ClanException("The clan vault holds no "
+                    + ClanLevel.readableMaterial(normalized) + ".");
+        }
+        if (held < amount) {
+            throw new ClanException("The clan vault only holds " + held + "x "
+                    + ClanLevel.readableMaterial(normalized) + ".");
+        }
+        if (held == amount) {
+            clan.vault.remove(normalized);
+        } else {
+            clan.vault.put(normalized, held - amount);
+        }
+        persist();
+        return view(clan);
+    }
+
+    /**
+     * Spends the vault on the next level. Checked and debited in one persisted step so
+     * a clan cannot be charged for an upgrade it does not receive.
+     */
+    synchronized ClanView upgrade(UUID actor) throws IOException {
+        SavedClan clan = requireLeader(actor);
+        int current = levelOf(clan);
+        if (current >= ClanLevel.SECRET_LEVEL) {
+            throw new ClanException("Your clan is already at the highest level.");
+        }
+        int next = current + 1;
+        if (ClanLevel.isSecret(next) && holdsSecretLevel(clan)) {
+            throw new ClanException("Another clan already holds that level. Only one ever can.");
+        }
+        Map<String, Integer> missing = ClanLevel.shortfall(clan.vault, next);
+        if (!missing.isEmpty()) {
+            throw new ClanException("The clan vault is short: " + describe(missing) + ".");
+        }
+        for (ClanLevel.Cost cost : ClanLevel.costOf(next)) {
+            int remaining = clan.vault.getOrDefault(cost.material(), 0) - cost.amount();
+            if (remaining > 0) {
+                clan.vault.put(cost.material(), remaining);
+            } else {
+                clan.vault.remove(cost.material());
+            }
+        }
+        clan.level = next;
+        persist();
+        return view(clan);
+    }
+
+    /** Whether a clan other than {@code exclude} already holds the secret level. */
+    private boolean holdsSecretLevel(SavedClan exclude) {
+        return state.clans.stream()
+                .anyMatch(clan -> clan != exclude && levelOf(clan) >= ClanLevel.SECRET_LEVEL);
+    }
+
+    private static String describe(Map<String, Integer> materials) {
+        return materials.entrySet().stream()
+                .map(entry -> entry.getValue() + "x " + ClanLevel.readableMaterial(entry.getKey()))
+                .collect(java.util.stream.Collectors.joining(", "));
+    }
+
+    private static int levelOf(SavedClan clan) {
+        return clan.level == null ? 0 : clan.level;
+    }
+
     synchronized ClanView setStaff(UUID actor, UUID target, boolean promoted) throws IOException {
         SavedClan clan = requireLeader(actor);
         requireMember(clan, target);
@@ -293,9 +401,13 @@ final class ClanStore {
         return name;
     }
 
-    synchronized String disband(UUID actor) throws IOException {
+    /**
+     * Disbands the clan and hands back what its vault held, so a disband never
+     * silently destroys materials members contributed. The caller returns them.
+     */
+    synchronized ClanView disband(UUID actor) throws IOException {
         SavedClan clan = requireLeader(actor);
-        String name = clan.name;
+        ClanView disbanded = view(clan);
         UUID clanId = UUID.fromString(clan.id);
         state.clans.remove(clan);
         for (String memberId : clan.members.keySet()) {
@@ -303,7 +415,7 @@ final class ClanStore {
         }
         state.invites.entrySet().removeIf(entry -> entry.getValue().clanId.equals(clanId.toString()));
         persist();
-        return name;
+        return disbanded;
     }
 
     synchronized Optional<UUID> findMember(UUID clanId, String playerName) {
@@ -357,6 +469,7 @@ final class ClanStore {
         Set<String> names = new LinkedHashSet<>();
         Set<UUID> clanIds = new LinkedHashSet<>();
         boolean migrated = false;
+        boolean secretLevelTaken = false;
         try {
             for (SavedClan clan : state.clans) {
                 UUID clanId = UUID.fromString(clan.id);
@@ -389,6 +502,25 @@ final class ClanStore {
                 }
                 if (clan.members.isEmpty() || clan.members.size() > MAX_MEMBERS) {
                     throw new IOException("Clan member counts must be between 1 and " + MAX_MEMBERS);
+                }
+                if (clan.level != null && !ClanLevel.isValid(clan.level)) {
+                    throw new IOException("Clan levels must be between 0 and " + ClanLevel.SECRET_LEVEL);
+                }
+                if (levelOf(clan) >= ClanLevel.SECRET_LEVEL) {
+                    if (secretLevelTaken) {
+                        throw new IOException("Only one clan may hold the highest level");
+                    }
+                    secretLevelTaken = true;
+                }
+                if (clan.vault != null) {
+                    for (Map.Entry<String, Integer> entry : clan.vault.entrySet()) {
+                        if (!ClanLevel.isDepositable(entry.getKey())) {
+                            throw new IOException("The clan vault holds a material it cannot accept");
+                        }
+                        if (entry.getValue() == null || entry.getValue() < 0) {
+                            throw new IOException("Clan vault amounts cannot be negative");
+                        }
+                    }
                 }
                 if (clan.staff == null) {
                     clan.staff = new LinkedHashSet<>();
@@ -524,7 +656,9 @@ final class ClanStore {
                 UUID.fromString(clan.leader),
                 Map.copyOf(members),
                 Set.copyOf(staff),
-                clan.icon == null ? "" : clan.icon
+                clan.icon == null ? "" : clan.icon,
+                levelOf(clan),
+                clan.vault == null ? Map.of() : Map.copyOf(clan.vault)
         );
     }
 
