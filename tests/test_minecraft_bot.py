@@ -2805,9 +2805,16 @@ class AboutPanelTests(unittest.TestCase):
                 continue
             with self.subTest(page=key):
                 self.assertLessEqual(len(embed.description or ""), 160)
-                columns = [field for field in embed.fields if field.inline]
-                self.assertGreaterEqual(len(columns), 3, "too few points to form columns")
-                for field in columns:
+                points = [
+                    field
+                    for field in embed.fields
+                    if not field.value.startswith("http")
+                ]
+                self.assertGreaterEqual(len(points), 3, "too few points to be a page")
+                for field in points:
+                    # Full width, not side by side: three columns wrapped every few
+                    # words, which read worse than the paragraph they replaced.
+                    self.assertFalse(field.inline, f"{field.name} is in a column")
                     # Measure what a reader sees, not the markdown behind a link.
                     rendered = re.sub(r"\]\([^)]*\)", "]", field.value)
                     self.assertLessEqual(
