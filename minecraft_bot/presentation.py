@@ -542,94 +542,126 @@ def application_card_files(application: MinecraftApplication) -> list[discord.Fi
     return []
 
 
+def _status_label(status: ApplicationStatus) -> str:
+    return status.value.replace("_", " ").title()
+
+
+def _add_connection_fields(embed: discord.Embed, settings, edition=None) -> None:
+    """Server addresses as their own fields, one per edition.
+
+    Fields rather than more description text: an address is the one thing someone
+    has to copy exactly, and it is far easier to find under its own heading than
+    part-way down a paragraph.
+    """
+    if edition is None or edition.value == "JAVA":
+        embed.add_field(
+            name="Java — PC/Mac",
+            value=(
+                "Multiplayer → Add Server\n"
+                f"```text\n{settings.java_address}\n```"
+            ),
+            inline=True,
+        )
+    if edition is None or edition.value == "BEDROCK":
+        embed.add_field(
+            name="Bedrock — mobile, console, Windows",
+            value=(
+                "Servers → Add Server\n"
+                f"```text\n{settings.bedrock_address}\n```"
+                f"```text\nPort {settings.bedrock_port}\n```"
+            ),
+            inline=True,
+        )
+
+
 def live_status_embed(application: MinecraftApplication, settings) -> discord.Embed:
+    """The applicant's own card, rewritten in place as the application moves.
+
+    Laid out as fields rather than one long description. The card is read at a
+    glance — "where am I, and what do I do next" — and a paragraph made the
+    applicant hunt for both.
+    """
     status = application.status
+    username = _safe(application.verified_username or application.claimed_username, 100)
+
+    summary = ""
+    next_action = ""
+    show_deadline = False
+    show_connection = False
     if status is ApplicationStatus.PENDING_VERIFICATION:
-        expiry = datetime.fromtimestamp(application.verification_expires_at, timezone.utc)
-        connection = _connection_blocks(settings)
-        edition_note = (
-            "The server identifies Java or Bedrock automatically."
+        summary = "> Join the Minecraft server once to prove the account is yours."
+        next_action = (
+            f"Log in as `{username}` using the address for your edition below. "
+            "You will be disconnected with a confirmation — that is expected."
             if application.auto_detect_edition
-            else f"Use the {application.edition.value.title()} connection details."
+            else f"Log in as `{username}` using the {application.edition.value.title()} "
+            "address below. You will be disconnected with a confirmation — that is expected."
         )
-        next_action = (
-            f"Connect once as `{_safe(application.claimed_username, 100)}` before "
-            f"{discord.utils.format_dt(expiry, 'R')}. {edition_note}"
-        )
+        show_deadline = True
+        show_connection = True
     elif status is ApplicationStatus.PENDING_APPLICATION:
-        expiry = datetime.fromtimestamp(application.verification_expires_at, timezone.utc)
-        connection = ""
+        summary = "> Your account is verified. One short form left."
         next_action = (
-            f"Your account `{_safe(application.verified_username or application.claimed_username, 100)}` "
-            "is verified. One step left: fill out the short application form. "
-            "Press **Continue Application** below, or press **Apply** on the application panel. "
-            f"Please finish before {discord.utils.format_dt(expiry, 'R')} or the application expires."
+            "Press **Continue Application** below and answer two questions. "
+            "**Apply** on the application panel picks up where you left off."
         )
+        show_deadline = True
     elif status is ApplicationStatus.PENDING_REVIEW:
-        connection = ""
-        next_action = (
-            f"Your application has already been sent with the verified account "
-            f"`{_safe(application.verified_username or application.claimed_username, 100)}`. "
-            "Please wait for a staff decision; no further action is needed."
-        )
+        summary = "> Sent to staff. Nothing else for you to do."
+        next_action = "You will get a DM as soon as staff decide."
     elif status is ApplicationStatus.APPROVAL_QUEUED:
-        connection = ""
-        next_action = "Approval is being applied to the Minecraft server automatically."
+        summary = "> Approved. Access is being applied to the server now."
+        next_action = "This takes a moment. You will get a DM when it is ready."
     elif status is ApplicationStatus.APPROVED:
-        connection = _connection_blocks(settings)
-        next_action = "Access is active. Use the server details below whenever you want to join."
+        summary = "> Access is active. Join whenever you like."
+        show_connection = True
     elif status is ApplicationStatus.DENIED:
-        connection = ""
-        next_action = application.applicant_reason or "The application was not approved. Get help if you need clarification."
+        summary = "> Staff did not approve this application."
+        next_action = application.applicant_reason or "No public reason was given."
     elif status is ApplicationStatus.EXPIRED:
-        connection = ""
+        summary = "> This application ran out of time."
         next_action = (
-            "This application expired because nobody joined the Minecraft server in time to "
-            "verify the account. Nothing is lost — press **Apply** on the application panel to start again."
+            "Nobody joined the server in time to verify the account. Press **Apply** "
+            "on the application panel to start again — nothing is lost."
             if not application.verified_at
-            else "This application expired because the written form was not finished in time. "
-            "Nothing is lost — press **Apply** on the application panel to start again."
+            else "The written form was not finished in time. Press **Apply** on the "
+            "application panel to start again — nothing is lost."
         )
     elif status is ApplicationStatus.CANCELLED:
-        connection = ""
-        next_action = "This application was cancelled. You may apply again."
+        summary = "> This application was cancelled."
+        next_action = "Press **Apply** on the application panel whenever you want to try again."
     else:
-        connection = ""
-        next_action = "This Minecraft access record is no longer active."
-    description = (
-        f"> Application **#{application.id}** · {status.value.replace('_', ' ').title()}\n\n"
-        f"**What happens now**\n{next_action}"
+        summary = "> This Minecraft access record is no longer active."
+
+    embed = info_embed("Your Minecraft Application", summary)
+    embed.add_field(
+        name="Status", value=f"#{application.id} · {_status_label(status)}", inline=True
     )
-    if connection:
-        description += f"\n\n{connection}"
-    embed = info_embed("Your Minecraft Application", description)
+    embed.add_field(
+        name="Account",
+        value=f"{application.edition.value.title()} · `{username}`",
+        inline=True,
+    )
+    if show_deadline:
+        # Only read when it is shown: the later states have no deadline, and asking
+        # for one there would couple the card to a field it does not use.
+        deadline = datetime.fromtimestamp(application.verification_expires_at, timezone.utc)
+        embed.add_field(
+            name="Finish by",
+            value=discord.utils.format_dt(deadline, "R"),
+            inline=True,
+        )
+    if next_action:
+        embed.add_field(name="What to do next", value=next_action, inline=False)
+    if show_connection:
+        _add_connection_fields(
+            embed,
+            settings,
+            None if application.auto_detect_edition else application.edition,
+        )
     if status is ApplicationStatus.PENDING_VERIFICATION:
         embed.set_image(url=VERIFY_ATTACHMENT_URI)
     return embed
-
-
-def verified_embed(application: MinecraftApplication, settings=None) -> discord.Embed:
-    if application.status is ApplicationStatus.PENDING_APPLICATION:
-        deadline = datetime.fromtimestamp(application.verification_expires_at, timezone.utc)
-        channel_id = getattr(settings, "application_channel_id", 0) if settings else 0
-        panel_hint = f"<#{channel_id}>" if channel_id else "the application channel"
-        return info_embed(
-            "Account Verified — One Step Left",
-            "> Your Minecraft account is verified. Now tell us a little about yourself.\n\n"
-            f"**Verified account**\n{application.edition.value.title()} · "
-            f"`{_safe(application.verified_username, 100)}`\n\n"
-            "**Finish your application**\n"
-            "> Press **Continue Application** below and answer two short questions.\n"
-            f"> You can also press **Apply** in {panel_hint} — it continues where you left off.\n"
-            f"> Please finish before {discord.utils.format_dt(deadline, 'R')}, or the application expires.",
-        )
-    return info_embed(
-        "Account Verified — Application Sent",
-        "> Your Minecraft account was verified and your application has been sent!\n\n"
-        f"**Verified account**\n{application.edition.value.title()} · "
-        f"`{_safe(application.verified_username, 100)}`\n\n"
-        "Staff will review your application. No further action is needed.",
-    )
 
 
 def denial_embed(application: MinecraftApplication) -> discord.Embed:
@@ -665,9 +697,7 @@ def application_dm_embed(
     settings,
     notification: str,
 ) -> discord.Embed:
-    if notification == "verification":
-        embed = verified_embed(application, settings)
-    elif notification == "decision" and application.status is ApplicationStatus.APPROVED:
+    if notification == "decision" and application.status is ApplicationStatus.APPROVED:
         embed = approval_embed(settings)
         embed.colour = SUCCESS_COLOUR
     elif notification == "decision" and application.status is ApplicationStatus.DENIED:
