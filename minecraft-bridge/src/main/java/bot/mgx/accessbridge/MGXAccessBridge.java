@@ -401,8 +401,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     }
 
     /**
-     * Opens or closes the server. Anyone already on is kicked when it closes,
-     * since holding it shut only for new logins leaves whoever was online playing.
+     * Opens or closes the server. Anyone already on who is not exempt is kicked
+     * when it closes, since holding it shut only for new logins leaves whoever was
+     * online playing.
      */
     void setMaintenance(boolean enabled) {
         if (maintenanceStore == null || !maintenanceStore.set(enabled)) {
@@ -414,7 +415,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         getServer().getScheduler().runTask(this, () -> {
             for (org.bukkit.entity.Player player : getServer().getOnlinePlayers()) {
-                player.kick(MAINTENANCE_MESSAGE);
+                if (!bypassesMaintenance(player)) {
+                    player.kick(MAINTENANCE_MESSAGE);
+                }
             }
         });
     }
@@ -497,17 +500,23 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     }
 
     /**
-     * Whether the server is closed to everybody.
+     * Whether the server is closed to everybody who is not exempt.
      *
-     * <p>Maintenance is a closure, not a permission: while it is on nobody joins —
-     * not staff, not operators, not somebody already whitelisted, on either edition.
-     * There is deliberately no bypass, because a bypass that quietly covers every
-     * operator is how a hold looks enabled and lets people in anyway. Discord turns
-     * it off again; if the bot cannot be reached, delete
-     * {@code plugins/MGXAccessBridge/maintenance.flag} and restart.
+     * <p>Exempt means holds {@link AdminCommandService#PERMISSION} — the same tier
+     * that already gates {@code /mgxadmin} — rather than a permission invented just
+     * for this. A dedicated {@code maintenance.bypass} node existed once and
+     * defaulted to {@code op}, which is what let every operator, including whoever
+     * was testing the hold, through it without anyone granting anything. Reusing an
+     * already-visible, already-audited permission means there is nothing left that
+     * grants access silently: an operator gets in because they are an operator, and
+     * anyone else needs {@code mgxaccessbridge.admin} explicitly set in LuckPerms.
      */
     private boolean maintenanceHeld() {
         return maintenanceStore != null && maintenanceStore.enabled();
+    }
+
+    private boolean bypassesMaintenance(org.bukkit.entity.Player player) {
+        return player.hasPermission(AdminCommandService.PERMISSION);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
@@ -528,7 +537,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 ? handleVerification(event)
                 : null;
 
-        if (!maintenanceHeld()) {
+        if (!maintenanceHeld() || bypassesMaintenance(event.getPlayer())) {
             return;
         }
         if (result == PlayerLoginEvent.Result.ALLOWED) {
@@ -603,7 +612,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
      */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onMaintenanceJoin(PlayerJoinEvent event) {
-        if (!maintenanceHeld()) {
+        if (!maintenanceHeld() || bypassesMaintenance(event.getPlayer())) {
             return;
         }
         getLogger().warning("Removed " + event.getPlayer().getName()

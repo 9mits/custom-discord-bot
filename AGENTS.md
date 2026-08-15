@@ -194,13 +194,21 @@ Read the relevant file when you touch an area; these are the non-obvious points.
   it alone. Never collapse the last two — clearing on any empty value drops
   every player's name the first time a Discord lookup fails. `link_known`
   controls which is sent, mirroring `rank_known` for LuckPerms groups.
-- **Maintenance mode** (`/mcadmin maintenance`) closes the server to everybody —
-  staff, operators and already-whitelisted players, Java and Bedrock alike. There
-  is deliberately **no bypass permission**: one that defaulted to `op` covered
-  every operator silently, so the hold looked enabled while the people testing it
-  walked straight in. Nothing in Discord branches on the flag either; the plugin
-  states the closure on its own kick screen, where it is true at the moment it is
-  read. Applications, verification and acceptance all carry on regardless.
+- **Maintenance mode** (`/mcadmin maintenance`) closes the server to everybody
+  except operators and staff holding `mgxaccessbridge.admin` — already-whitelisted
+  regular players are turned away on both editions. The exemption deliberately
+  reuses `mgxaccessbridge.admin`, the same permission that already gates
+  `/mgxadmin`, instead of a maintenance-only node: a dedicated
+  `maintenance.bypass` permission existed once and defaulted to `op`, which
+  covered every operator without anyone consciously granting it, so the hold
+  looked enabled while the people testing it walked straight in. Reusing an
+  already-audited permission means access is never silent — an operator gets in
+  because they are an operator, and anyone else needs `mgxaccessbridge.admin` set
+  explicitly in LuckPerms. `bypassesMaintenance` gates the login refusal, the join
+  handler, and the kick of anyone already online when the hold is enabled.
+  Nothing in Discord branches on the flag; the plugin states the closure on its
+  own kick screen, where it is true at the moment it is read. Applications,
+  verification and acceptance all carry on regardless.
   Enforced in `MGXAccessBridge.onPlayerLogin` at `EventPriority.HIGHEST`, which
   runs after Floodgate has re-allowed whitelisted Bedrock players. Verification is
   matched **before** the hold is applied and never needed the login to succeed —
