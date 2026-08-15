@@ -723,17 +723,22 @@ def live_status_embed(application: MinecraftApplication, settings) -> discord.Em
         show_connection = True
     elif status is ApplicationStatus.PENDING_APPLICATION:
         title = "Account Verified"
+        # Written out with its own quote markers rather than through quote_block,
+        # because the blank line before the deadline is meant to break the bar and
+        # set that sentence apart. Quoting it would join the two into one block.
         body = (
-            f"Your account `{username}` is verified. Press **Continue Application** "
-            "below to answer two short questions and finish.\n\n"
-            f"The application expires {_relative(application.verification_expires_at)}."
+            f"> Your account `{username}` has been verified.\n"
+            "> Press **Continue Application** below to proceed with the "
+            "application.\n"
+            "\n"
+            f"> The application expires {_relative(application.verification_expires_at)}."
         )
     elif status is ApplicationStatus.PENDING_REVIEW:
         title = "Application Sent"
         body = (
-            "Your application is with the staff team and there is nothing else for "
-            "you to do.\n\n"
-            "Keep your DMs open — the decision comes as a direct message."
+            "> Your application has been sent to the staff!\n"
+            "> They will review it soon. Please keep your DMs open, as we will "
+            "send your results there!"
         )
     elif status is ApplicationStatus.APPROVAL_QUEUED:
         title = "Approved — Setting Up"
@@ -772,7 +777,9 @@ def live_status_embed(application: MinecraftApplication, settings) -> discord.Em
         title = "Access Ended"
         body = "This Minecraft access record is no longer active."
 
-    embed = info_embed(title, quote_block(body))
+    # A body that carries its own quote markers decides its own layout, including
+    # where the bar deliberately breaks. Everything else is quoted wholesale.
+    embed = info_embed(title, body if body.startswith(">") else quote_block(body))
     if show_connection:
         _add_connection_fields(
             embed,
