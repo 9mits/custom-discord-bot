@@ -2763,6 +2763,71 @@ class MinecraftInformationPanelTests(unittest.TestCase):
         self.assertIn("in partnership with", application_welcome_embed().description)
 
 
+class QuoteFormattingTests(unittest.TestCase):
+    """The quote bar is what stops a page of headings running together."""
+
+    def test_plain_lines_are_quoted(self):
+        from minecraft_bot.presentation import quote_block
+
+        self.assertEqual(quote_block("One\nTwo"), "> One\n> Two")
+
+    def test_already_quoted_lines_are_left_alone(self):
+        from minecraft_bot.presentation import quote_block
+
+        self.assertEqual(quote_block("> One\nTwo"), "> One\n> Two")
+
+    def test_blank_lines_are_quoted_so_the_block_stays_whole(self):
+        # An unquoted blank line ends a Discord quote, splitting one section into
+        # two and putting a bar round only half of it.
+        from minecraft_bot.presentation import quote_block
+
+        self.assertEqual(quote_block("One\n\nTwo"), "> One\n>\n> Two")
+
+    def test_a_value_holding_a_code_block_is_untouched(self):
+        # Quoting a fence puts the markers inside the quote, and Discord then
+        # prints them literally instead of drawing the block — which is how server
+        # addresses would stop being copyable.
+        from minecraft_bot.presentation import quote_block
+
+        value = "Add the server\n```text\nplay.example.net\n```"
+
+        self.assertEqual(quote_block(value), value)
+
+    def test_every_information_page_is_quoted_wherever_it_safely_can_be(self):
+        from types import SimpleNamespace
+
+        from minecraft_bot import information
+
+        settings = SimpleNamespace(
+            java_address="play.example.net",
+            bedrock_address="bedrock.example.net",
+            bedrock_port=19132,
+            application_channel_id=5,
+        )
+        embeds = [("overview", information.overview_embed(settings))]
+        embeds += [(key, builder(settings)) for key, (_l, builder) in information.PAGES.items()]
+        for page, sections in information.SECTIONS.items():
+            embeds += [
+                (f"{page}/{key}", builder(settings))
+                for key, (_l, builder) in sections.items()
+            ]
+
+        for name, embed in embeds:
+            with self.subTest(page=name):
+                for line in (embed.description or "").splitlines():
+                    if line.strip():
+                        self.assertTrue(line.startswith(">"), f"{name} intro unquoted")
+                for field in embed.fields:
+                    if "```" in field.value:
+                        continue  # addresses must stay copyable
+                    for line in field.value.splitlines():
+                        if line.strip():
+                            self.assertTrue(
+                                line.startswith(">"),
+                                f"{name} / {field.name} is unquoted",
+                            )
+
+
 class AboutPanelTests(unittest.TestCase):
     """The application channel explains; the information panel teaches.
 

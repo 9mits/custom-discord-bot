@@ -33,6 +33,7 @@ from .presentation import (
     about_image_file,
     brand_logo_file,
     mod_link,
+    quote_block,
     rules_embed,
     rules_image_file,
 )
@@ -99,7 +100,7 @@ def _embed(title: str, description: str) -> discord.Embed:
     # description leaves a blank line above the first field.
     embed = discord.Embed(title=title, colour=THEME_COLOUR)
     if description:
-        embed.description = description
+        embed.description = quote_block(description)
     embed.set_footer(text=BRAND_NAME, icon_url=FOOTER_ICON_URL)
     return embed
 
@@ -112,7 +113,7 @@ def _page(title: str, intro: str, sections: list[tuple[str, str]]) -> discord.Em
     """
     embed = _embed(title, intro)
     for name, value in sections:
-        embed.add_field(name=name, value=value, inline=False)
+        embed.add_field(name=name, value=quote_block(value), inline=False)
     return embed
 
 
@@ -132,7 +133,7 @@ def overview_embed(settings=None) -> discord.Embed:
     # retires the old "The server" section: its crossplay line is now one of
     # these, and its tagline is the description above.
     for name, line in SERVER_FEATURES:
-        embed.add_field(name=name, value=line, inline=True)
+        embed.add_field(name=name, value=quote_block(line), inline=True)
     embed.add_field(
         name="Client versions",
         value=(
