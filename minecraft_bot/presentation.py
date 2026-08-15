@@ -235,19 +235,17 @@ SERVER_FEATURES: tuple[tuple[str, str], ...] = (
 )
 
 
-def _feature_showcase() -> str:
-    return "\n".join(f"**{name}**\n> {line}" for name, line in SERVER_FEATURES)
-
-
 def application_embeds() -> list[discord.Embed]:
-    # The showcase sits in the description rather than a field so it carries no
-    # header — the features name themselves.
     welcome = _panel_embed(
         "Welcome to Mysterious SMP X",
         "**Mysterious Girlfriend X Discord, in partnership with r/MysteriousGirlfriendX.**\n\n"
-        f"{SERVER_TAGLINE}\n\n"
-        f"{_feature_showcase()}",
+        f"{SERVER_TAGLINE}",
     )
+    # Inline fields lay the features out in columns, matching the Contact Staff
+    # panel. Each feature names itself, so the showcase needs no header of its
+    # own; keep the lines short enough not to wrap into a tall column.
+    for name, line in SERVER_FEATURES:
+        welcome.add_field(name=name, value=line, inline=True)
     welcome.add_field(
         name="Joining",
         value=(
