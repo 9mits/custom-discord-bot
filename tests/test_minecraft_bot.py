@@ -27,7 +27,8 @@ from minecraft_bot.presentation import (
     THEME_COLOUR,
     VERIFY_ATTACHMENT_URI,
     VERIFY_PATH,
-    application_embeds,
+    application_apply_embed,
+    application_welcome_embed,
     application_log_embed,
     application_panel,
     application_panel_files,
@@ -53,7 +54,6 @@ from minecraft_bot.ui import (
     MinecraftApplicationModal,
     LiveApplicationView,
     ReviewView,
-    RulesButton,
     RulesAgreementView,
 )
 
@@ -172,18 +172,16 @@ class MinecraftBotPolicyTests(unittest.TestCase):
             for component in child.get("components", [])
             if "custom_id" in component
         }
-        self.assertEqual(
-            panel_custom_ids,
-            {"minecraft:application:apply", "minecraft:application:rules"},
-        )
-        embeds = application_embeds()
-        self.assertEqual(len(embeds), 2)
-        self.assertEqual(embeds[0].title, "Welcome to Mysterious SMP X")
-        self.assertEqual(embeds[1].title, "Apply to Mysterious SMP X")
-        self.assertEqual(embeds[0].image.url, LOGO_ATTACHMENT_URI)
-        self.assertEqual(embeds[0].footer.text, BRAND_NAME)
-        self.assertIsNone(embeds[1].image.url)
-        self.assertEqual(embeds[1].footer.icon_url, FOOTER_ICON_URL)
+        # Apply stands alone on its own message; the reading is a separate one.
+        self.assertEqual(panel_custom_ids, {"minecraft:application:apply"})
+        welcome = application_welcome_embed()
+        apply = application_apply_embed()
+        self.assertEqual(welcome.title, "Welcome to Mysterious SMP X")
+        self.assertEqual(apply.title, "Apply to Mysterious SMP X")
+        self.assertEqual(welcome.image.url, LOGO_ATTACHMENT_URI)
+        self.assertEqual(welcome.footer.text, BRAND_NAME)
+        self.assertIsNone(apply.image.url)
+        self.assertEqual(apply.footer.icon_url, FOOTER_ICON_URL)
         files = application_panel_files()
         self.assertEqual([item.filename for item in files], ["mysterious_smp_x_logo.png"])
         for item in files:
@@ -616,28 +614,6 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         # form from, so submitting does not leave two cards updating in parallel.
         bot.replace_application_card.assert_awaited_once_with(42, submitted_card)
 
-    async def test_rules_button_attaches_the_rules_image(self):
-        response = SimpleNamespace(send_message=AsyncMock())
-        bot = SimpleNamespace(
-            config=SimpleNamespace(guild_id=10),
-            settings=SimpleNamespace(application_channel_id=20),
-            data=SimpleNamespace(get_config=AsyncMock(return_value="30")),
-        )
-        interaction = SimpleNamespace(
-            client=bot,
-            guild_id=10,
-            channel_id=20,
-            message=SimpleNamespace(id=30),
-            response=response,
-        )
-
-        await RulesButton().callback(interaction)
-
-        kwargs = response.send_message.await_args.kwargs
-        self.assertEqual(kwargs["embed"].image.url, RULES_ATTACHMENT_URI)
-        self.assertEqual(kwargs["file"].filename, "mysterious_smp_x_rules.png")
-        kwargs["file"].close()
-
     async def test_submission_does_not_dm_a_pending_verification_card(self):
         bot = object.__new__(MinecraftAccessBot)
         bot.log_application_submission = AsyncMock()
@@ -867,9 +843,11 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         user.send.assert_awaited_once()
         bot.data.set_decision_message.assert_awaited_once_with(1, 50, 60)
 
-    async def test_application_panel_has_no_public_banner_message(self):
-        panel = SimpleNamespace(id=101)
-        channel = SimpleNamespace(send=AsyncMock(return_value=panel))
+    async def test_the_application_channel_is_published_as_three_messages(self):
+        # One message carries one set of buttons, so the reading and the Apply
+        # button have to be separate messages to sit apart.
+        sent = [SimpleNamespace(id=101), SimpleNamespace(id=102), SimpleNamespace(id=103)]
+        channel = SimpleNamespace(send=AsyncMock(side_effect=sent))
         bot = object.__new__(MinecraftAccessBot)
         bot.settings = SimpleNamespace(application_channel_id=20)
         bot._configured_channel = AsyncMock(return_value=channel)
@@ -880,19 +858,65 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
 
         result = await bot.post_application_panel()
 
-        self.assertIs(result, panel)
-        channel.send.assert_awaited_once()
-        call = channel.send.await_args
-        self.assertNotIn("file", call.kwargs)
-        self.assertEqual(len(call.kwargs["embeds"]), 2)
+        self.assertEqual(channel.send.await_count, 3)
+        titles = [call.kwargs["embed"].title for call in channel.send.await_args_list]
+        self.assertEqual(
+            titles,
+            [
+                "Welcome to Mysterious SMP X",
+                "Before You Apply",
+                "Apply to Mysterious SMP X",
+            ],
+        )
+        # Apply is returned and tracked, because that is the message a press is
+        # validated against.
+        self.assertIs(result, sent[2])
         bot.data.set_configs.assert_awaited_once_with(
             {
                 "application_banner_message_id": "",
-                "application_panel_message_id": "101",
+                "application_welcome_message_id": "101",
+                "application_guide_message_id": "102",
+                "application_panel_message_id": "103",
             }
         )
-        for file in call.kwargs["files"]:
-            file.close()
+        for call in channel.send.await_args_list:
+            self.assertNotIn("file", call.kwargs)
+            for file in call.kwargs["files"]:
+                file.close()
+
+    async def test_only_the_apply_message_carries_the_apply_button(self):
+        sent = [SimpleNamespace(id=101), SimpleNamespace(id=102), SimpleNamespace(id=103)]
+        channel = SimpleNamespace(send=AsyncMock(side_effect=sent))
+        bot = object.__new__(MinecraftAccessBot)
+        bot.settings = SimpleNamespace(application_channel_id=20)
+        bot._configured_channel = AsyncMock(return_value=channel)
+        bot.data = SimpleNamespace(
+            get_config=AsyncMock(return_value=None),
+            set_configs=AsyncMock(),
+        )
+
+        await bot.post_application_panel()
+
+        welcome, guide, apply = channel.send.await_args_list
+        self.assertIsNone(welcome.kwargs["view"])
+        self.assertEqual(
+            [item.label for item in apply.kwargs["view"].children], ["Apply"]
+        )
+        # The guide carries the pre-join reading and nothing that only matters
+        # after somebody has been accepted.
+        guide_ids = {item.custom_id for item in guide.kwargs["view"].children}
+        self.assertEqual(
+            guide_ids,
+            {
+                "mgx_info:rules",
+                "mgx_info:versions",
+                "mgx_info:mods",
+                "mgx_info:boosting",
+            },
+        )
+        for call in channel.send.await_args_list:
+            for file in call.kwargs["files"]:
+                file.close()
 
     async def test_apply_reveals_cancel_only_for_pending_verification(self):
         application = MinecraftApplication(
@@ -1909,9 +1933,9 @@ class MinecraftApplicationCardImageTests(unittest.TestCase):
 
 class MinecraftApplicationPanelTests(unittest.TestCase):
     def test_welcome_embed_credits_the_partnership_in_bold(self):
-        from minecraft_bot.presentation import application_embeds
+        from minecraft_bot.presentation import application_welcome_embed
 
-        description = application_embeds()[0].description
+        description = application_welcome_embed().description
 
         self.assertIn(
             "**Mysterious Girlfriend X Discord, in partnership with "
@@ -1925,11 +1949,11 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
         # information panel after, so two descriptions meant two answers.
         from minecraft_bot.presentation import (
             SERVER_TAGLINE_PARAGRAPHS,
-            application_embeds,
+            application_welcome_embed,
         )
         from minecraft_bot import information
 
-        welcome = application_embeds()[0].description
+        welcome = application_welcome_embed().description
         panel = information.overview_embed(0).description
 
         for paragraph in SERVER_TAGLINE_PARAGRAPHS:
@@ -1940,12 +1964,12 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
     def test_welcome_showcases_what_the_server_offers(self):
         # Someone reading this is deciding whether the server suits them, which
         # they cannot tell from atmosphere alone.
-        from minecraft_bot.presentation import SERVER_FEATURES, application_embeds
+        from minecraft_bot.presentation import SERVER_FEATURES, application_welcome_embed
 
         described = dict(SERVER_FEATURES)
         shown = {
             field.name: field
-            for field in application_embeds()[0].fields
+            for field in application_welcome_embed().fields
             if field.name in described
         }
 
@@ -1970,9 +1994,9 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
         import re
 
         from minecraft_bot import information
-        from minecraft_bot.presentation import application_embeds
+        from minecraft_bot.presentation import application_welcome_embed
 
-        welcome = application_embeds()[0]
+        welcome = application_welcome_embed()
         advertised = set(re.findall(r"`(/[a-z]+)`", welcome.description or ""))
         for field in welcome.fields:
             advertised.update(re.findall(r"`(/[a-z]+)`", field.value))
@@ -2703,11 +2727,80 @@ class MinecraftInformationPanelTests(unittest.TestCase):
 
 
     def test_panel_no_longer_says_presents(self):
-        from minecraft_bot.presentation import application_embeds
+        from minecraft_bot.presentation import application_welcome_embed
 
         self.assertNotIn("presents", self.embed_text(self.information.overview_embed(0)))
-        self.assertNotIn("presents", application_embeds()[0].description)
-        self.assertIn("in partnership with", application_embeds()[0].description)
+        self.assertNotIn("presents", application_welcome_embed().description)
+        self.assertIn("in partnership with", application_welcome_embed().description)
+
+
+class PreJoinInformationTests(unittest.TestCase):
+    """The application channel is read by people who cannot join yet.
+
+    Anything that only means something once somebody is playing belongs in the
+    information panel they get after acceptance, not in front of an applicant.
+    """
+
+    def test_every_pre_join_page_is_a_real_information_page(self):
+        from minecraft_bot.information import PAGES, PRE_JOIN_PAGES
+
+        for page in PRE_JOIN_PAGES:
+            with self.subTest(page=page):
+                self.assertIn(page, PAGES)
+
+    def test_the_in_game_pages_are_deliberately_left_out(self):
+        from minecraft_bot.information import PRE_JOIN_PAGES
+
+        # Commands and clan management are how to play, not whether to apply.
+        self.assertNotIn("commands", PRE_JOIN_PAGES)
+        self.assertNotIn("clans", PRE_JOIN_PAGES)
+        # Levels reads well but its page tells you to run /perks.
+        self.assertNotIn("levels", PRE_JOIN_PAGES)
+
+    def test_the_applicant_panel_never_shows_a_slash_command(self):
+        from minecraft_bot.information import PAGES, PRE_JOIN_PAGES
+        from minecraft_bot.presentation import (
+            application_apply_embed,
+            application_guide_embed,
+            application_welcome_embed,
+        )
+
+        settings = SimpleNamespace(
+            java_address="java.example",
+            bedrock_address="bedrock.example",
+            bedrock_port=19132,
+            application_channel_id=5,
+        )
+        embeds = [
+            application_welcome_embed(),
+            application_guide_embed(),
+            application_apply_embed(),
+        ]
+        embeds.extend(PAGES[page][1](settings) for page in PRE_JOIN_PAGES)
+
+        for embed in embeds:
+            text = " ".join(
+                [embed.title or "", embed.description or ""]
+                + [f"{field.name} {field.value}" for field in embed.fields]
+            )
+            with self.subTest(embed=embed.title):
+                # "/home", "/clans", "/tpa" and friends: nothing an applicant can
+                # run before they are accepted.
+                self.assertNotRegex(text, r"`/[a-z]")
+
+    def test_the_guide_answers_the_questions_asked_before_applying(self):
+        from minecraft_bot.presentation import (
+            JAVA_SUPPORTED_RANGE,
+            SERVER_VERSION,
+            application_guide_embed,
+        )
+
+        embed = application_guide_embed()
+        text = " ".join(f"{field.name} {field.value}" for field in embed.fields)
+
+        self.assertIn(JAVA_SUPPORTED_RANGE, text)
+        self.assertIn(SERVER_VERSION, text)
+        self.assertIn("rules", text.lower())
 
 
 class ApplicationCardReplacementTests(unittest.IsolatedAsyncioTestCase):

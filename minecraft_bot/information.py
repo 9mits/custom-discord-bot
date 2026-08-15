@@ -693,6 +693,18 @@ def technical_embed(settings=None) -> discord.Embed:
     )
 
 
+#: The pages that answer a question somebody has *before* they apply, in the order
+#: the application panel shows them.
+#:
+#: Everything else in :data:`PAGES` — the slash commands, clan management, the
+#: account tools — only means anything once somebody is playing. Putting those in
+#: front of an applicant asks them to read a manual for a server they have not been
+#: accepted to yet.
+#: "levels" is deliberately absent even though it sells the server well: its embed
+#: tells you to run /perks, and a test fails if any page here names a command.
+#: The welcome panel still advertises levels as a feature.
+PRE_JOIN_PAGES: tuple[str, ...] = ("rules", "versions", "mods", "boosting")
+
 PAGES: dict[str, tuple[str, Callable[[Optional[object]], discord.Embed]]] = {
     "commands": ("Commands", lambda _settings: commands_embed()),
     "clans": ("Clans", lambda _settings: clans_embed()),

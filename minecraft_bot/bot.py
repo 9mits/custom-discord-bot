@@ -41,8 +41,11 @@ from .presentation import (
     BRAND_NAME,
     FOOTER_ICON_URL,
     MINECRAFT_HEAD_URL,
+    application_apply_embed,
+    application_guide_embed,
+    application_guide_view,
     application_panel,
-    application_embeds,
+    application_welcome_embed,
     application_panel_files,
     application_dm_embed,
     application_log_embed,
@@ -1157,6 +1160,14 @@ class MinecraftAccessBot(commands.Bot):
             await self.sync_player_profile(str(account["minecraft_uuid"]), after.id)
 
     async def post_application_panel(self) -> discord.Message:
+        """Publishes the application channel as three messages.
+
+        Split because one message carries one set of buttons, and the reading and
+        the Apply button want to be apart: what the server is, what to know before
+        deciding, and then the single button that starts an application. The Apply
+        message keeps the `application_panel_message_id` key, because that is the
+        one `_validate_application_panel` checks a press against.
+        """
         channel = await self._configured_channel(self.settings.application_channel_id)
         if channel is None or not hasattr(channel, "send"):
             raise RuntimeError("The configured Minecraft application channel is unavailable")
@@ -1170,47 +1181,50 @@ class MinecraftAccessBot(commands.Bot):
             except (discord.NotFound, discord.Forbidden, discord.HTTPException, AttributeError):
                 return None
 
-        banner = await fetch_saved_message("application_banner_message_id")
-        panel = await fetch_saved_message("application_panel_message_id")
-        panel_uses_v2 = bool(
-            panel is not None
-            and getattr(getattr(panel, "flags", None), "components_v2", False)
+        # (config key, embed, view, files) in the order they are posted.
+        parts = (
+            (
+                "application_welcome_message_id",
+                application_welcome_embed(),
+                None,
+                application_panel_files(),
+            ),
+            ("application_guide_message_id", application_guide_embed(), application_guide_view(), []),
+            ("application_panel_message_id", application_apply_embed(), application_panel(), []),
         )
-        if panel is not None and not panel_uses_v2:
-            if banner is not None:
-                with suppress(discord.NotFound, discord.Forbidden, discord.HTTPException):
-                    await banner.delete()
-            await panel.edit(
-                content=None,
-                embeds=application_embeds(),
-                attachments=application_panel_files(),
-                view=application_panel(),
-            )
-            await self.data.set_configs(
-                {
-                    "application_banner_message_id": "",
-                    "application_panel_message_id": str(panel.id),
-                }
-            )
-            return panel
+        existing = {key: await fetch_saved_message(key) for key, *_ in parts}
+        banner = await fetch_saved_message("application_banner_message_id")
 
-        for old_message in (banner, panel):
+        # Components V2 messages cannot be edited back into plain embeds, and a
+        # missing part would leave the channel half-published, so either every
+        # message is edited in place or the whole panel is reposted.
+        reusable = all(
+            message is not None
+            and not getattr(getattr(message, "flags", None), "components_v2", False)
+            for message in existing.values()
+        )
+        if reusable and banner is None:
+            for key, embed, view, files in parts:
+                await existing[key].edit(
+                    content=None, embeds=[embed], attachments=files, view=view
+                )
+            return existing["application_panel_message_id"]
+
+        for old_message in (banner, *existing.values()):
             if old_message is not None:
                 with suppress(discord.NotFound, discord.Forbidden, discord.HTTPException):
                     await old_message.delete()
 
-        panel = await channel.send(
-            embeds=application_embeds(),
-            files=application_panel_files(),
-            view=application_panel(),
-        )
+        posted: dict[str, discord.Message] = {}
+        for key, embed, view, files in parts:
+            posted[key] = await channel.send(embed=embed, files=files, view=view)
         await self.data.set_configs(
             {
                 "application_banner_message_id": "",
-                "application_panel_message_id": str(panel.id),
+                **{key: str(message.id) for key, message in posted.items()},
             }
         )
-        return panel
+        return posted["application_panel_message_id"]
 
     async def handle_bridge_verification(
         self,
