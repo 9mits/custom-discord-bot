@@ -4,6 +4,7 @@ import net.kyori.adventure.text.Component;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.player.AsyncPlayerPreLoginEvent;
 import org.bukkit.event.player.PlayerLoginEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -415,9 +416,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         getServer().getScheduler().runTask(this, () -> {
             for (org.bukkit.entity.Player player : getServer().getOnlinePlayers()) {
-                if (!bypassesMaintenance(player)) {
-                    player.kick(MAINTENANCE_MESSAGE);
-                }
+                scheduleMaintenanceKick(player);
             }
         });
     }
@@ -516,7 +515,86 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     }
 
     private boolean bypassesMaintenance(org.bukkit.entity.Player player) {
-        return player.hasPermission(AdminCommandService.PERMISSION);
+        return player.isOp() || player.hasPermission(AdminCommandService.PERMISSION);
+    }
+
+    /**
+     * Pre-login path, where the player object does not exist yet. {@code isOp}
+     * reads ops.json by UUID; LuckPerms is consulted only here, on this async
+     * thread, so a staff member who is not an operator still gets in.
+     */
+    private boolean bypassesMaintenance(UUID uuid) {
+        if (getServer().getOfflinePlayer(uuid).isOp()) {
+            return true;
+        }
+        org.bukkit.entity.Player online = getServer().getPlayer(uuid);
+        if (online != null) {
+            return bypassesMaintenance(online);
+        }
+        if (luckPermsService == null) {
+            return false;
+        }
+        try {
+            return Boolean.TRUE.equals(
+                    luckPermsService.hasPermission(uuid, AdminCommandService.PERMISSION).join()
+            );
+        } catch (RuntimeException exception) {
+            getLogger().warning("LuckPerms lookup failed during maintenance check: "
+                    + exception.getClass().getSimpleName());
+            return false;
+        }
+    }
+
+    private void kickUnlessExempt(org.bukkit.entity.Player player) {
+        if (!player.isOnline() || bypassesMaintenance(player)) {
+            return;
+        }
+        player.kick(MAINTENANCE_MESSAGE);
+    }
+
+    /**
+     * Immediate kick plus delayed retries. Java honours the first; Geyser drops
+     * a kick issued while the Bedrock client is still completing spawn.
+     */
+    private void scheduleMaintenanceKick(org.bukkit.entity.Player player) {
+        for (long delay : MaintenanceGate.JOIN_KICK_TICKS) {
+            if (delay == 0L) {
+                kickUnlessExempt(player);
+            } else {
+                getServer().getScheduler().runTaskLater(this, () -> kickUnlessExempt(player), delay);
+            }
+        }
+    }
+
+    /**
+     * Floodgate's 1.21 login path calls this event and then starts client
+     * verification. A hold that only refused {@code PlayerLoginEvent} left
+     * Bedrock players — including a never-seen default account with no op, no
+     * whitelist entry and no permission — walking into the world, because
+     * Geyser never consulted that later event.
+     */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onPlayerPreLogin(AsyncPlayerPreLoginEvent event) {
+        AsyncPlayerPreLoginEvent.Result incoming = event.getLoginResult();
+        if (!MaintenanceGate.isRefusable(
+                incoming == AsyncPlayerPreLoginEvent.Result.ALLOWED,
+                incoming == AsyncPlayerPreLoginEvent.Result.KICK_WHITELIST
+        )) {
+            return;
+        }
+        if (!MaintenanceGate.shouldRefuse(maintenanceHeld(), bypassesMaintenance(event.getUniqueId()))) {
+            return;
+        }
+        getLogger().info("Refused " + event.getName()
+                + " at pre-login: the server is closed for maintenance.");
+        event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER, MAINTENANCE_MESSAGE);
+        // File-backed verification must stay on the main thread. The kick
+        // wording is the hold either way; an applicant still gets queued.
+        if (incoming == AsyncPlayerPreLoginEvent.Result.KICK_WHITELIST) {
+            UUID uuid = event.getUniqueId();
+            String name = event.getName();
+            getServer().getScheduler().runTask(this, () -> handleVerification(uuid, name));
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
@@ -524,8 +602,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         PlayerLoginEvent.Result result = event.getResult();
         // A ban or a full server is somebody else's refusal and carries a more
         // useful message than ours. They are not getting in either way.
-        if (result != PlayerLoginEvent.Result.ALLOWED
-                && result != PlayerLoginEvent.Result.KICK_WHITELIST) {
+        if (!MaintenanceGate.isRefusable(
+                result == PlayerLoginEvent.Result.ALLOWED,
+                result == PlayerLoginEvent.Result.KICK_WHITELIST
+        )) {
             return;
         }
 
@@ -537,7 +617,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 ? handleVerification(event)
                 : null;
 
-        if (!maintenanceHeld() || bypassesMaintenance(event.getPlayer())) {
+        if (!MaintenanceGate.shouldRefuse(maintenanceHeld(), bypassesMaintenance(event.getPlayer()))) {
             return;
         }
         if (result == PlayerLoginEvent.Result.ALLOWED) {
@@ -554,13 +634,41 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     }
 
     /**
+     * Last look at the login result. Floodgate (and anything else that rewrites
+     * it after {@link EventPriority#HIGHEST}) is why a hold that stopped here
+     * used to let Bedrock through. MONITOR is not supposed to mutate events;
+     * mutating it is the only way to undo a re-allow that happens after us.
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = false)
+    public void onPlayerLoginMonitor(PlayerLoginEvent event) {
+        if (!MaintenanceGate.shouldRefuse(maintenanceHeld(), bypassesMaintenance(event.getPlayer()))) {
+            return;
+        }
+        if (event.getResult() == PlayerLoginEvent.Result.ALLOWED) {
+            event.disallow(PlayerLoginEvent.Result.KICK_OTHER, MAINTENANCE_MESSAGE);
+        }
+    }
+
+    /**
      * Matches a whitelist-refused login against the pending verifications.
      *
      * @return the message this login has earned, or null when there was nothing to
      *         say — which leaves the refusal exactly as it was found.
      */
     private Component handleVerification(PlayerLoginEvent event) {
-        UUID uuid = event.getPlayer().getUniqueId();
+        Component message = handleVerification(
+                event.getPlayer().getUniqueId(), event.getPlayer().getName()
+        );
+        if (message != null) {
+            // Only the text changes here. The KICK_WHITELIST result is preserved so
+            // that an open server keeps behaving exactly as it did; the caller
+            // decides separately whether a maintenance hold overrides it.
+            event.kickMessage(message);
+        }
+        return message;
+    }
+
+    private Component handleVerification(UUID uuid, String javaUsername) {
         FloodgatePlayer floodgatePlayer;
         try {
             floodgatePlayer = FloodgateApi.getInstance().getPlayer(uuid);
@@ -579,45 +687,39 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             xuid = String.valueOf(floodgatePlayer.getXuid());
         } else {
             edition = MinecraftEdition.JAVA;
-            actualUsername = event.getPlayer().getName();
+            actualUsername = javaUsername;
         }
 
-        Component message;
         Optional<PendingVerification> match = pending.match(edition, actualUsername);
         if (match.isEmpty()) {
-            message = verifiedApplications.find(uuid).isPresent()
+            return verifiedApplications.find(uuid).isPresent()
                     ? APPLICATION_ALREADY_SENT_MESSAGE
                     : VERIFICATION_HELP_MESSAGE;
-        } else if (bridgeClient.queueVerification(match.get(), edition, uuid, actualUsername, xuid)) {
-            message = VERIFIED_MESSAGE;
-        } else {
-            message = Component.text(
-                    "Verification is temporarily unavailable. Your application is safe; "
-                            + "please try again shortly."
-            );
         }
-        // Only the text changes here. The KICK_WHITELIST result is preserved so that
-        // an open server keeps behaving exactly as it did; the caller decides
-        // separately whether a maintenance hold overrides it.
-        event.kickMessage(message);
-        return message;
+        if (bridgeClient.queueVerification(match.get(), edition, uuid, actualUsername, xuid)) {
+            return VERIFIED_MESSAGE;
+        }
+        return Component.text(
+                "Verification is temporarily unavailable. Your application is safe; "
+                        + "please try again shortly."
+        );
     }
 
     /**
      * Last line of the maintenance hold.
      *
-     * <p>The login refusal is the polite path, but it depends on every other plugin
-     * leaving the result alone after this one has read it. Anybody who reaches the
-     * world anyway is removed here.
+     * <p>The login refusal is the polite path, but Geyser can ignore it and spawn
+     * anyway. Anybody who reaches the world is removed here, with delayed retries
+     * because a kick issued during this event is dropped for Bedrock.
      */
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onMaintenanceJoin(PlayerJoinEvent event) {
-        if (!maintenanceHeld() || bypassesMaintenance(event.getPlayer())) {
+        if (!MaintenanceGate.shouldRefuse(maintenanceHeld(), bypassesMaintenance(event.getPlayer()))) {
             return;
         }
         getLogger().warning("Removed " + event.getPlayer().getName()
                 + " after login: the server is closed for maintenance.");
-        event.getPlayer().kick(MAINTENANCE_MESSAGE);
+        scheduleMaintenanceKick(event.getPlayer());
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)

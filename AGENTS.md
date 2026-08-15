@@ -209,17 +209,23 @@ Read the relevant file when you touch an area; these are the non-obvious points.
   Nothing in Discord branches on the flag; the plugin states the closure on its
   own kick screen, where it is true at the moment it is read. Applications,
   verification and acceptance all carry on regardless.
-  Enforced in `MGXAccessBridge.onPlayerLogin` at `EventPriority.HIGHEST`, which
-  runs after Floodgate has re-allowed whitelisted Bedrock players. Verification is
-  matched **before** the hold is applied and never needed the login to succeed —
-  an applicant is turned away either way and only the wording differs — which is
-  what lets a closed server still verify accounts. The refusal rewrites the result
-  to `KICK_OTHER`: leaving `KICK_WHITELIST` in place is what let Floodgate's
-  whitelist fixer wave Bedrock logins through. A join handler kicks anyone who
-  reaches the world regardless, since the login refusal depends on other plugins
-  leaving the result alone. Paper persists the flag itself, because it accepts
-  logins before the bridge connects; the bot restates it on connect so Discord
-  stays the authority. If the bot is unreachable, delete
+  Enforced in three places, because Floodgate's 1.21 path does not honour a
+  `PlayerLoginEvent` refusal the way Java does: `onPlayerPreLogin`
+  (`AsyncPlayerPreLoginEvent` at `HIGHEST`) is what Floodgate actually consults
+  before starting client verification; `onPlayerLogin` at `HIGHEST` still rewrites
+  the result to `KICK_OTHER` after Floodgate has re-allowed whitelisted Bedrock
+  players, and a `MONITOR` pass undoes a later re-allow; a join handler then kicks
+  anyone who reaches the world, with delayed retries, because Geyser drops a kick
+  issued during `PlayerJoinEvent` while the Bedrock client is still spawning.
+  That last path is what let a never-seen default Bedrock account — no op, no
+  whitelist, no permission — walk through a hold that already blocked Java.
+  Verification is matched **before** the hold is applied and never needed the
+  login to succeed — an applicant is turned away either way and only the wording
+  differs — which is what lets a closed server still verify accounts. Leaving
+  `KICK_WHITELIST` in place is what let Floodgate's whitelist fixer wave Bedrock
+  logins through. Paper persists the flag itself, because it accepts logins
+  before the bridge connects; the bot restates it on connect so Discord stays the
+  authority. If the bot is unreachable, delete
   `plugins/MGXAccessBridge/maintenance.flag` and restart.
 - **Resetting data is two commands, one per side.** `/mgxadmin reset all
   confirm` (in game) clears what Paper keeps; `/mcadmin wipe` (Discord, owner
