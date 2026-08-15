@@ -2298,21 +2298,23 @@ class MinecraftAccessBot(commands.Bot):
             name="maintenance",
             description="Hold the server closed before launch, or open it again.",
         )
-        @app_commands.describe(open_server="On opens the server; off holds it closed.")
+        @app_commands.describe(
+            server="Whether players may join. Leave it empty to see the current state."
+        )
         @app_commands.choices(
-            open_server=[
-                app_commands.Choice(name="Hold the server closed", value="close"),
-                app_commands.Choice(name="Open the server", value="open"),
+            server=[
+                app_commands.Choice(name="Closed — nobody can join", value="closed"),
+                app_commands.Choice(name="Open — everybody accepted can join", value="open"),
             ]
         )
         async def maintenance(
             interaction: discord.Interaction,
-            open_server: Optional[app_commands.Choice[str]] = None,
+            server: Optional[app_commands.Choice[str]] = None,
         ) -> None:
             if not await self.require_administrator(interaction):
                 return
             await interaction.response.defer(ephemeral=True)
-            if open_server is None:
+            if server is None:
                 state = "closed" if self.settings.maintenance_mode else "open"
                 await interaction.edit_original_response(
                     **branded_edit(
@@ -2326,7 +2328,7 @@ class MinecraftAccessBot(commands.Bot):
                     )
                 )
                 return
-            closing = open_server.value == "close"
+            closing = server.value == "closed"
             changed, delivered = await self.set_maintenance_mode(closing)
             if closing:
                 summary = (

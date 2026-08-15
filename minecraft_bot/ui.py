@@ -586,11 +586,11 @@ def application_card_view(status: ApplicationStatus) -> Optional[discord.ui.View
     """
     if status is ApplicationStatus.PENDING_APPLICATION:
         return continue_application_view()
-    if status in {
-        ApplicationStatus.PENDING_VERIFICATION,
-        ApplicationStatus.PENDING_REVIEW,
-        ApplicationStatus.APPROVAL_QUEUED,
-    }:
+    if status is ApplicationStatus.PENDING_VERIFICATION:
+        # The one step an applicant can get stuck on: a mistyped username, or a
+        # connection that will not go through. Once the form is in there is
+        # nothing left for them to do, so offering help there only invites a
+        # ticket that says "waiting".
         return LiveApplicationView()
     # Approved, denied, expired, cancelled and revoked are final: there is nothing
     # left to do from the card.
