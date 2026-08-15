@@ -240,19 +240,38 @@ class EditionSelectionView(discord.ui.View):
         self.add_item(EditionSelection(requester_id))
 
 
+class _LinkEditionButton(discord.ui.Button):
+    """Opens the account-name modal for one edition."""
+
+    def __init__(self, edition: Edition) -> None:
+        super().__init__(
+            label=f"Link {edition.value.title()}",
+            style=discord.ButtonStyle.success,
+        )
+        self.edition = edition
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await interaction.response.send_modal(MinecraftApplicationModal(self.edition))
+
+
 class LinkEditionView(discord.ui.View):
     """The ephemeral step before the link modal.
 
     The modal edits its original response, so it has to be opened from a private
     card — opening it straight from the public information panel would edit that
     panel for everybody.
+
+    One button per edition offered. A member missing one edition is offered that
+    one; a member with nothing linked is offered both, because the panel is the
+    only surface they can reach — accepted members lose the application channel.
     """
 
-    def __init__(self, requester_id: int, edition: Edition) -> None:
+    def __init__(self, requester_id: int, *editions: Edition) -> None:
         super().__init__(timeout=300)
         self.requester_id = int(requester_id)
-        self.edition = edition
-        self.start.label = f"Link {edition.value.title()}"
+        self.editions = tuple(editions)
+        for edition in self.editions:
+            self.add_item(_LinkEditionButton(edition))
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user.id == self.requester_id:
@@ -261,12 +280,6 @@ class LinkEditionView(discord.ui.View):
             "This belongs to another member.", ephemeral=True
         )
         return False
-
-    @discord.ui.button(label="Link", style=discord.ButtonStyle.success)
-    async def start(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
-        await interaction.response.send_modal(
-            MinecraftApplicationModal(self.edition)
-        )
 
 
 class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Application"):

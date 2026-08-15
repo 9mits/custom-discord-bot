@@ -679,24 +679,6 @@ class MinecraftAccessBot(commands.Bot):
             self.data.list_applications_for_user(user_id, limit=1),
         )
         linked = {str(row["edition"]).upper() for row in accounts}
-        if not linked:
-            # Only point at the application channel when this member can actually
-            # open it. Naming a channel they cannot see reads as a dead end, and
-            # somebody without a linked account is exactly the person most likely
-            # not to have been given it yet.
-            where = "Press **Apply** on the application panel to get your first "
-            hint = self._visible_application_channel(user_id)
-            if hint is not None:
-                where = f"Press **Apply** in {hint} to get your first "
-            return (
-                info_embed(
-                    "No Linked Account Yet",
-                    "> Linking a second edition is for members who already play here.\n\n"
-                    + where
-                    + "account set up.",
-                ),
-                None,
-            )
         if len(linked) >= len(Edition):
             return (
                 info_embed(
@@ -718,6 +700,25 @@ class MinecraftAccessBot(commands.Bot):
                 ),
                 None,
             )
+        if not linked:
+            # Linking starts here rather than being sent elsewhere. Members lose the
+            # application channel once they are accepted, so pointing them at it was
+            # a dead end for the very people who needed this. Offering the flow is
+            # safe: verification only links an account outright for somebody who
+            # already holds an approved application, and anybody else still gets the
+            # written form and a staff review.
+            return (
+                info_embed(
+                    "Link Your Minecraft Account",
+                    "> No Minecraft account is linked to you yet. Pick the edition "
+                    "you play on and prove the account is yours.\n\n"
+                    "**1.** Press the button and enter the exact account name.\n"
+                    "**2.** Join the server once with it. You will be disconnected.\n"
+                    "**3.** Already accepted here? That is it. If not, a short form "
+                    "follows and staff review it.",
+                ),
+                LinkEditionView(user_id, *Edition),
+            )
         missing = next(edition for edition in Edition if edition.value not in linked)
         return (
             info_embed(
@@ -730,32 +731,6 @@ class MinecraftAccessBot(commands.Bot):
             ),
             LinkEditionView(user_id, missing),
         )
-
-    def _visible_application_channel(self, user_id: int | str) -> Optional[str]:
-        """The application channel as a mention, but only if this member can see it.
-
-        A channel mention somebody lacks permission to open renders as a dead link
-        and sends them nowhere, so callers fall back to naming the panel instead.
-        """
-        channel_id = int(getattr(self.settings, "application_channel_id", 0) or 0)
-        if not channel_id:
-            return None
-        guild = self.get_guild(self.config.guild_id)
-        channel = self.get_channel(channel_id) if guild is not None else None
-        member = None
-        if guild is not None:
-            try:
-                member = guild.get_member(int(user_id))
-            except (TypeError, ValueError):
-                member = None
-        if channel is None or member is None:
-            return None
-        try:
-            if not channel.permissions_for(member).view_channel:
-                return None
-        except (AttributeError, TypeError):
-            return None
-        return f"<#{channel_id}>"
 
     async def build_account_embed(self, user_id: int | str) -> discord.Embed:
         accounts, applications = await asyncio.gather(
