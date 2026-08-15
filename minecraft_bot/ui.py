@@ -87,14 +87,12 @@ class ApplyButton(discord.ui.Button):
             pending_verification = active.status is ApplicationStatus.PENDING_VERIFICATION
             message = {
                 **branded_send(live_status_embed(active, bot.settings)),
-                # Same controls the card gets anywhere else. Deciding them here
-                # too is how a Get Help button survived being removed from the
-                # submitted card: this path never asked.
-                "view": (
-                    CancelPendingConfirmationView(interaction.user.id)
-                    if pending_verification
-                    else application_card_view(active.status)
-                ),
+                # Same controls the card gets anywhere else, including while it is
+                # awaiting verification: this path used to substitute a cancel-only
+                # view, so reopening the card through Apply silently dropped Get
+                # Help. Deciding controls here at all is also how a Get Help button
+                # survived being removed from the submitted card.
+                "view": application_card_view(active.status),
                 "ephemeral": True,
             }
             if pending_verification:
@@ -586,7 +584,45 @@ class LiveApplicationView(discord.ui.View):
             return None
         return application
 
-    @discord.ui.button(label="Get Help", style=discord.ButtonStyle.danger, custom_id="minecraft:live:help")
+    @discord.ui.button(
+        label="Cancel Pending Verification",
+        style=discord.ButtonStyle.danger,
+        custom_id="minecraft:live:cancel",
+    )
+    async def cancel(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+        """Cancels the presser's own pending verification.
+
+        Persistent, so it acts on whoever pressed it rather than on a member id
+        captured when the card was drawn — the card outlives the interaction that
+        created it, and a captured id would be wrong after a restart.
+        """
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        bot = interaction.client
+        try:
+            await bot.cancel_pending_verification(
+                guild_id=interaction.guild_id or bot.config.guild_id,
+                discord_user_id=interaction.user.id,
+            )
+        except InvalidTransition as exc:
+            await interaction.edit_original_response(
+                **branded_edit(info_embed("Nothing to Cancel", f"> {exc}", error=True)),
+            )
+            return
+        await interaction.edit_original_response(
+            **branded_edit(
+                info_embed(
+                    "Verification Cancelled",
+                    "> Your pending verification has been cancelled.\n"
+                    "> Press **Apply** on the application panel to begin again with "
+                    "the correct account name.",
+                    success=True,
+                )
+            ),
+        )
+
+    @discord.ui.button(
+        label="Get Help", style=discord.ButtonStyle.secondary, custom_id="minecraft:live:help"
+    )
     async def help(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
         application = await self._application(interaction)
         if application is not None:
