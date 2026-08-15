@@ -42,7 +42,6 @@ final class ClanStore {
             UUID leader,
             Map<UUID, String> members,
             Set<UUID> staff,
-            String icon,
             int level,
             Map<String, Integer> vault,
             int memberSlots,
@@ -96,8 +95,6 @@ final class ClanStore {
         String leader;
         Map<String, String> members = new LinkedHashMap<>();
         Set<String> staff = new LinkedHashSet<>();
-        /** Absent on clans saved before 2.27.0, and on any clan that never set one. */
-        String icon;
         /** Absent on clans saved before 2.28.0, which read back as an unupgraded clan. */
         Integer level;
         /** Material name to amount. Absent before 2.28.0; anything of value may appear. */
@@ -258,28 +255,6 @@ final class ClanStore {
             throw new ClanException("Your clan already uses that theme color.");
         }
         clan.themeColor = themeColor;
-        persist();
-        return view(clan);
-    }
-
-    /** Clan staff and the leader may set the icon; it only ever shows on the leaderboard. */
-    synchronized ClanView setIcon(UUID actor, String requestedIcon) throws IOException {
-        SavedClan clan = requireStaff(actor);
-        String icon = ClanIcon.normalize(requestedIcon);
-        if (icon.equals(clan.icon)) {
-            throw new ClanException("Your clan already uses that icon.");
-        }
-        clan.icon = icon;
-        persist();
-        return view(clan);
-    }
-
-    synchronized ClanView clearIcon(UUID actor) throws IOException {
-        SavedClan clan = requireStaff(actor);
-        if (clan.icon == null || clan.icon.isEmpty()) {
-            throw new ClanException("Your clan has no icon set.");
-        }
-        clan.icon = null;
         persist();
         return view(clan);
     }
@@ -747,7 +722,6 @@ final class ClanStore {
                 UUID.fromString(clan.leader),
                 Map.copyOf(members),
                 Set.copyOf(staff),
-                clan.icon == null ? "" : clan.icon,
                 levelOf(clan),
                 clan.vault == null ? Map.of() : Map.copyOf(clan.vault),
                 slotsOf(clan),

@@ -283,15 +283,6 @@ def commands_clans_embed(settings=None) -> discord.Embed:
                 "> `/claninfo [name]` — any clan's card, and its roster\n"
                 "> `/clans help` — only what your role currently permits",
             ),
-            (
-                "Your clan's picture",
-                "> `/clans icon <url>` — shown beside your clan on the leaderboard\n"
-                "> `/clans icon clear` — back to the default\n"
-                "> Must end in `.png`, `.jpg`, `.gif` or `.webp`\n"
-                "> \n"
-                "> *Avoid Discord attachment links — they expire after about a "
-                "day.*",
-            ),
         ],
     )
 
@@ -347,7 +338,7 @@ def clans_embed() -> discord.Embed:
             (
                 "Roles inside a clan",
                 "> **Member** — clan chat and the roster\n"
-                "> **Staff** — the above, plus invite, kick and the clan icon\n"
+                "> **Staff** — the above, plus invite and kick\n"
                 "> **Leader** — the above, plus rename, colour, promote, transfer "
                 "and disband",
             ),
@@ -440,8 +431,7 @@ def clans_roles_embed(settings=None) -> discord.Embed:
                 "Staff",
                 "> Everything a member can, plus:\n"
                 "> `/clans invite <player>` — bring someone in\n"
-                "> `/clans kick <player>` — remove a **member**\n"
-                "> `/clans icon <url>` — set the clan's leaderboard picture",
+                "> `/clans kick <player>` — remove a **member**",
             ),
             (
                 "Leader",
