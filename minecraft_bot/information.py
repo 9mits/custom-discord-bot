@@ -53,6 +53,8 @@ TELEPORT_WARMUP_SECONDS = 5
 
 #: Clan limits mirrored from ClanStore and ClanService in minecraft-bridge, which
 #: are what actually enforce them. Tests parse the Java to fail on any drift.
+#: This is the ceiling a fully upgraded clan reaches, not what a new one gets —
+#: see clans.STARTING_MEMBER_SLOTS for that.
 CLAN_MAX_MEMBERS = 25
 CLAN_INVITE_EXPIRY_MINUTES = 5
 CLAN_THEME_COLOURS = (
@@ -259,7 +261,7 @@ def commands_clans_embed(settings=None) -> discord.Embed:
                 "> `/clans invite <player>` — invite an online player\n"
                 "> `/clans chat` — speak to your clan only\n"
                 "> `/clans list` — every clan on the server\n"
-                "> `/clans vault` · `/clans deposit` — the clan vault\n"
+                "> `/clans donate` · `/clans balance` — give to the clan\n"
                 "> `/clans leave` — depart your clan",
             ),
             (
@@ -268,7 +270,7 @@ def commands_clans_embed(settings=None) -> discord.Embed:
                 "> `/clans rename` · `/clans color` — change name or colour\n"
                 "> `/clans transfer <player>` — hand over leadership\n"
                 "> `/clans kick <player>` — remove a member\n"
-                "> `/clans upgrade` · `/clans withdraw` — spend the clan vault\n"
+                "> `/clans upgrade` — spend the balance on levels or slots\n"
                 "> `/clans disband` — dissolve the clan",
             ),
             (
@@ -330,7 +332,8 @@ def clans_embed() -> discord.Embed:
             (
                 "General information",
                 "> Members **cannot damage each other**\n"
-                f"> Up to **{CLAN_MAX_MEMBERS} members**\n"
+                f"> Starts at **{clans.STARTING_MEMBER_SLOTS} members**, "
+                f"upgradeable to **{CLAN_MAX_MEMBERS}**\n"
                 f"> **{clans.MAX_PUBLIC_LEVEL} levels** to earn, each granting perks "
                 "to every member\n"
                 "> Join by invite, or start your own with `/clans create`",
@@ -363,28 +366,57 @@ def clans_levels_embed(settings=None) -> discord.Embed:
         ))
     return _page(
         "Clans — Levels",
-        "A clan climbs by banking materials and spending them. Every perk applies to "
-        "**everyone in the clan**, and stacks on top of the perks your Discord level "
-        "already gives you.",
+        "A clan climbs on what its members donate. Every perk applies to **everyone "
+        "in the clan**, and stacks on top of the perks your Discord level already "
+        "gives you.",
         [
             (
-                "The clan vault",
-                "> `/clans deposit [amount]` — bank the materials you are holding\n"
-                "> `/clans vault` — what is banked, and what the next level needs\n"
-                "> `/clans withdraw <material> [amount]` — leader only\n"
-                "> `/clans upgrade` — leader only; spends the vault\n"
+                "Donating",
+                "> `/clans` — open the clan menu\n"
+                "> `/clans donate` — opens a window; drop in anything valuable, then "
+                "close it\n"
+                "> `/clans balance` — what the clan is holding and what it is worth\n"
+                "> `/clans donors` — who has given what, largest first\n"
+                "> `/clans upgrade` — leader only; spends the balance\n"
                 "> \n"
-                "> Any member can deposit. A deposit is a contribution to the clan, "
-                "not savings you can take back — only the leader withdraws.",
+                "> **Donations are one way.** Nobody can take items back out, and "
+                "disbanding the clan destroys the balance with it.",
             ),
             *ladder,
             (
                 "Keeping the perks",
                 "> Perks last exactly as long as your membership. Leave the clan or "
                 "get kicked and they stop at once.\n"
-                "> Stars beside a clan tag show its level, so you can read it at a "
-                "glance in chat, the player list and above someone's head.",
+                "> A star beside a clan tag shows its level by colour, so you can "
+                "read it at a glance in chat, the player list and above someone's "
+                "head.",
             ),
+        ],
+    )
+
+
+def clans_members_embed(settings=None) -> discord.Embed:
+    """The roster ladder, which is the other thing a balance buys."""
+    rungs = [
+        (
+            f"{slots} members",
+            f"> Costs {amount}x {clans.readable_material(material)}",
+        )
+        for slots, material, amount in clans.MEMBER_TIERS
+    ]
+    return _page(
+        "Clans — Roster",
+        f"A new clan holds **{clans.STARTING_MEMBER_SLOTS} members**. Room for more "
+        "is bought from the clan balance, the same way levels are.",
+        [
+            (
+                "How it works",
+                "> `/clans upgrade` — leader only; the roster track sits beside the "
+                "level track\n"
+                f"> Every slot up to **{clans.MAX_MEMBER_SLOTS}** has to be earned\n"
+                "> Invites are refused once the roster is full",
+            ),
+            *rungs,
         ],
     )
 
@@ -451,9 +483,10 @@ def clans_joining_embed(settings=None) -> discord.Embed:
             ),
             (
                 "When a clan is full",
-                f"> At **{CLAN_MAX_MEMBERS} members** no further invites can be "
-                "accepted, and an outstanding one fails when used. Somebody has "
-                "to leave first.",
+                "> A clan can only hold as many members as it has bought room for, "
+                f"starting at **{clans.STARTING_MEMBER_SLOTS}**. At that point no "
+                "further invites can be accepted, and an outstanding one fails when "
+                "used. Buy another roster slot, or somebody has to leave first.",
             ),
         ],
     )
@@ -676,6 +709,7 @@ SECTIONS: dict[str, dict[str, tuple[str, Callable[[Optional[object]], discord.Em
     },
     "clans": {
         "levels": ("Levels", clans_levels_embed),
+        "members": ("Roster", clans_members_embed),
         "roles": ("Roles", clans_roles_embed),
         "joining": ("Joining", clans_joining_embed),
         "leaving": ("Leaving", clans_leaving_embed),

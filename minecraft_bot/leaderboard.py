@@ -366,9 +366,16 @@ def build_embed(
         title=f"{label} — {scope_label}",
         colour=BRAND_COLOUR,
     )
+    # This board reads the clan's own balance, not what its members carry, so say
+    # so — otherwise a clan full of rich players looks broken.
+    note = (
+        "What each clan has been donated and still holds.\n\n"
+        if scope == "clan" and board == "wealth"
+        else ""
+    )
     rows = _rows(snapshot, scope, board)
     if not rows:
-        embed.description = "No standings yet. Play a little and this fills in."
+        embed.description = note + "No standings yet. Play a little and this fills in."
     else:
         lines = []
         for index, row in enumerate(rows[:DISPLAY_ROWS]):
@@ -401,7 +408,7 @@ def build_embed(
             else:
                 body = f"{_placement(index)} · {name} — {value}{suffix}"
             lines.append(f"{icon} {body}".strip())
-        embed.description = "\n".join(lines)
+        embed.description = note + "\n".join(lines)
 
     generated = snapshot.get("generated_at")
     if generated:

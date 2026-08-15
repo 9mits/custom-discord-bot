@@ -71,16 +71,33 @@ COSTS: dict[int, tuple[tuple[str, int], ...]] = {
     6: (("DRAGON_EGG", 1),),
 }
 
-#: One star per level, so a clan's standing reads without anyone writing "LEVEL 3".
+#: One glyph the whole way up, recoloured in game rather than repeated — a growing
+#: row of stars sits in front of every chat line. Discord embed text cannot carry
+#: that colour, which is why :func:`tag` writes the level as a number instead.
 BADGES: dict[int, str] = {
     0: "",
     1: "★",
-    2: "★★",
-    3: "★★★",
-    4: "★★★★",
-    5: "★★★★★",
+    2: "★",
+    3: "★",
+    4: "★",
+    5: "★",
     6: "✦",
 }
+
+STARTING_MEMBER_SLOTS = 3
+
+#: Roster upgrades as (slots, material, amount). Diamonds then netherite, each step
+#: dearer than the last; the plugin enforces the same ladder.
+MEMBER_TIERS: tuple[tuple[int, str, int], ...] = (
+    (5, "DIAMOND", 32),
+    (8, "DIAMOND_BLOCK", 8),
+    (12, "NETHERITE_INGOT", 12),
+    (16, "NETHERITE_INGOT", 18),
+    (20, "NETHERITE_INGOT", 24),
+    (25, "NETHERITE_INGOT", 30),
+)
+
+MAX_MEMBER_SLOTS = MEMBER_TIERS[-1][0]
 
 #: Levels that may be named to any player. The secret level is not among them.
 PUBLIC_LEVELS = tuple(range(1, MAX_PUBLIC_LEVEL + 1))
@@ -131,9 +148,26 @@ def describe(level: int) -> str:
 
 
 def tag(name: str, level: int) -> str:
-    """A clan's name with its badge, as shown beside it on Discord surfaces."""
-    marks = badge(level)
-    return f"[{name}] {marks}" if marks else f"[{name}]"
+    """A clan's name and level, as shown on Discord surfaces.
+
+    In game the badge is one star recoloured per level. Embed text cannot carry that
+    colour, so a colourless star here would say nothing — the level is written out
+    instead, and the two surfaces deliberately read differently.
+    """
+    return f"[{name}] Lv{level}" if level > 0 else f"[{name}]"
+
+
+def next_member_tier(slots: int) -> Optional[tuple[int, str, int]]:
+    """The roster upgrade a clan at ``slots`` would buy next, or None at the top."""
+    for tier in MEMBER_TIERS:
+        if tier[0] > slots:
+            return tier
+    return None
+
+
+def described_member_cost(tier: tuple[int, str, int]) -> str:
+    _slots, material, amount = tier
+    return f"{amount}x {readable_material(material)}"
 
 
 def _clamp(level: int) -> int:

@@ -102,7 +102,11 @@ final class LeaderboardService {
         for (LeaderboardType type : LeaderboardType.values()) {
             individual.add(type.key(), rankIndividuals(everyone, type));
             if (type.clanEligible()) {
-                clan.add(type.key(), rankClans(everyone, type));
+                // Richest clans rank on the clan's own balance rather than on what its
+                // members happen to be carrying, so the board tracks the clan itself.
+                clan.add(type.key(), type == LeaderboardType.WEALTH
+                        ? rankClansByBalance()
+                        : rankClans(everyone, type));
             }
         }
         snapshot.add("individual", individual);
@@ -129,6 +133,28 @@ final class LeaderboardService {
             clans.clanOf(row.minecraftUuid())
                     .ifPresent(view -> entry.addProperty("clan", view.name()));
             rows.add(entry);
+        }
+        return rows;
+    }
+
+    /** The richest board: every clan ordered by what its vault is worth right now. */
+    private JsonArray rankClansByBalance() {
+        List<ClanStore.ClanView> ranked = new ArrayList<>(clans.list());
+        ranked.sort(Comparator.comparingLong(ClanStore.ClanView::balance).reversed());
+        JsonArray rows = new JsonArray();
+        for (ClanStore.ClanView clan : ranked) {
+            if (rows.size() >= ROWS || clan.balance() <= 0) {
+                break;
+            }
+            JsonObject row = new JsonObject();
+            row.addProperty("clan", clan.name());
+            row.addProperty("members", clan.members().size());
+            row.addProperty("colour", clan.themeColor());
+            row.addProperty("icon", clan.icon());
+            row.addProperty("level", clan.level());
+            row.addProperty("value", clan.balance());
+            row.addProperty("display", LeaderboardType.WEALTH.describe(clan.balance()));
+            rows.add(row);
         }
         return rows;
     }

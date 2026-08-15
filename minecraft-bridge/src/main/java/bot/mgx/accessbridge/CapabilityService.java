@@ -159,6 +159,8 @@ final class CapabilityService {
             entry.addProperty("clan_role", clanRole(view, playerId));
             entry.addProperty("clan_members", view.members().size());
             entry.addProperty("clan_level", view.level());
+            entry.addProperty("clan_balance", view.balance());
+            entry.addProperty("clan_member_slots", view.memberSlots());
         });
         return entry;
     }

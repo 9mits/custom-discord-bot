@@ -1370,7 +1370,7 @@ class MinecraftLeaderboardRenderTests(unittest.TestCase):
             snapshot, scope="clan", board="wealth", heads=icons
         ).description
 
-        self.assertTrue(described.startswith("<:w:1> **#1 · [Wolves]**"))
+        self.assertIn("<:w:1> **#1 · [Wolves]**", described)
         self.assertIn("<:r:2>", described)
         self.assertIn("<:f:3>", described)
         # Fourth place is off the podium, so it stays plain like the players do.
@@ -2273,11 +2273,29 @@ class MinecraftInformationPanelTests(unittest.TestCase):
             with self.subTest(level=level):
                 self.assertEqual(expected, [tuple(cost) for cost in clans.cost_of(level)])
 
-        for level in range(0, clans.SECRET_LEVEL + 1):
-            badge = re.search(rf"\n            {level}, \"(.*?)\"", source)
-            if badge is not None:
-                with self.subTest(badge=level):
-                    self.assertEqual(badge.group(1), clans.badge(level))
+        badges = re.search(r"BADGES = Map\.of\((.*?)\n    \);", source, re.S)
+        self.assertIsNotNone(badges, "BADGES vanished from ClanLevel")
+        drawn = {
+            int(level): glyph
+            for level, glyph in re.findall(r'\n\s+(\d+), "(.*?)"', badges.group(1))
+        }
+        self.assertEqual(clans.SECRET_LEVEL + 1, len(drawn), "the badge table changed shape")
+        for level, glyph in drawn.items():
+            with self.subTest(badge=level):
+                self.assertEqual(glyph, clans.badge(level))
+
+        starting = re.search(r"STARTING_MEMBER_SLOTS = (\d+);", source)
+        self.assertIsNotNone(starting, "STARTING_MEMBER_SLOTS vanished from ClanLevel")
+        self.assertEqual(clans.STARTING_MEMBER_SLOTS, int(starting.group(1)))
+
+        tiers = re.findall(
+            r'new MemberTier\((\d+), new Cost\("([A-Z_]+)", (\d+)\)\)', source
+        )
+        self.assertEqual(
+            [(slots, material, amount) for slots, material, amount in clans.MEMBER_TIERS],
+            [(int(slots), material, int(amount)) for slots, material, amount in tiers],
+            "the roster ladder drifted from the plugin that enforces it",
+        )
 
     def test_the_secret_clan_level_is_never_advertised(self):
         # The whole point of level 6 is that a clan learns of it only after buying
@@ -2289,6 +2307,8 @@ class MinecraftInformationPanelTests(unittest.TestCase):
         self.assertNotIn("Dragon Egg", described)
         self.assertNotIn("DRAGON_EGG", described)
         self.assertNotIn(f"Level {clans.SECRET_LEVEL}", described)
+        # The public badge is now one star at every level, so the secret glyph is the
+        # only badge that could give it away.
         self.assertNotIn(clans.badge(clans.SECRET_LEVEL), described)
         # And it is absent from the tuple every player-facing surface enumerates.
         self.assertNotIn(clans.SECRET_LEVEL, clans.PUBLIC_LEVELS)
@@ -2310,6 +2330,33 @@ class MinecraftInformationPanelTests(unittest.TestCase):
                     self.assertIn(f"{amount}x {clans.readable_material(material)}", described)
         # Perks are worthless to a player who does not know they end with membership.
         self.assertRegex(described, r"(?i)leave the clan or get kicked")
+        # Donations being one way is the rule people will be angriest to discover late.
+        self.assertRegex(described, r"(?i)one way")
+        self.assertRegex(described, r"(?i)disbanding the clan destroys the balance")
+
+    def test_clan_roster_page_prices_every_slot(self):
+        from minecraft_bot import clans
+
+        described = self.embed_text(self.information.clans_members_embed())
+
+        self.assertIn(str(clans.STARTING_MEMBER_SLOTS), described)
+        for slots, material, amount in clans.MEMBER_TIERS:
+            with self.subTest(slots=slots):
+                self.assertIn(f"{slots} members", described)
+                self.assertIn(f"{amount}x {clans.readable_material(material)}", described)
+
+    def test_no_clan_page_still_offers_a_way_to_take_donations_back(self):
+        # Withdrawing is gone from the plugin. Copy that still advertises it would
+        # send people looking for a command that no longer exists.
+        described = " ".join(
+            self.embed_text(embed)
+            for name, embed in self._every_embed()
+            if "clan" in name
+        )
+
+        self.assertNotIn("withdraw", described.lower())
+        self.assertNotIn("/clans deposit", described)
+        self.assertNotIn("/clans vault", described)
 
     def test_clan_pages_state_the_rules_people_get_wrong(self):
         described = " ".join(

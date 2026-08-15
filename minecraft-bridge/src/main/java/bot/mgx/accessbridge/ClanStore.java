@@ -44,7 +44,9 @@ final class ClanStore {
             Set<UUID> staff,
             String icon,
             int level,
-            Map<String, Integer> vault
+            Map<String, Integer> vault,
+            int memberSlots,
+            Map<UUID, Long> donations
     ) {
         ClanRole roleOf(UUID playerId) {
             if (leader.equals(playerId)) {
@@ -60,6 +62,23 @@ final class ClanStore {
         /** The level this clan would buy next, or empty when it holds the last one. */
         Optional<Integer> nextLevel() {
             return level >= ClanLevel.SECRET_LEVEL ? Optional.empty() : Optional.of(level + 1);
+        }
+
+        /** What the vault is worth, which is the clan's balance. */
+        long balance() {
+            return WealthValues.totalOf(vault);
+        }
+
+        /** The next roster upgrade, or empty once the clan is at full size. */
+        Optional<ClanLevel.MemberTier> nextMemberTier() {
+            return ClanLevel.nextMemberTier(ClanLevel.tiersBoughtFor(memberSlots));
+        }
+
+        /** Lifetime contributors, largest first, which is how the donor board reads. */
+        List<Map.Entry<UUID, Long>> rankedDonors() {
+            List<Map.Entry<UUID, Long>> ranked = new ArrayList<>(donations.entrySet());
+            ranked.sort(Map.Entry.<UUID, Long>comparingByValue().reversed());
+            return ranked;
         }
     }
 
@@ -81,8 +100,12 @@ final class ClanStore {
         String icon;
         /** Absent on clans saved before 2.28.0, which read back as an unupgraded clan. */
         Integer level;
-        /** Material name to amount. Absent before 2.28.0; only upgrade materials appear. */
+        /** Material name to amount. Absent before 2.28.0; anything of value may appear. */
         Map<String, Integer> vault;
+        /** Roster size bought so far. Absent reads as {@link ClanLevel#STARTING_MEMBER_SLOTS}. */
+        Integer memberSlots;
+        /** Player uuid to lifetime value donated. Never reduced by spending. */
+        Map<String, Long> donations;
     }
 
     private static final class SavedInvite {
@@ -157,8 +180,9 @@ final class ClanStore {
             throw new ClanException("You cannot invite yourself.");
         }
         requireNotInClan(target, "That player already has a clan.");
-        if (clan.members.size() >= MAX_MEMBERS) {
-            throw new ClanException("Your clan has reached its 25-player limit.");
+        if (clan.members.size() >= slotsOf(clan)) {
+            throw new ClanException("Your clan is full at " + slotsOf(clan)
+                    + " members. Buy another roster slot to invite more.");
         }
         pruneInvites(now);
         SavedInvite invite = new SavedInvite();
@@ -178,7 +202,7 @@ final class ClanStore {
             throw new ClanException("You do not have an active clan invite.");
         }
         SavedClan clan = requireClan(UUID.fromString(invite.clanId));
-        if (clan.members.size() >= MAX_MEMBERS) {
+        if (clan.members.size() >= slotsOf(clan)) {
             state.invites.remove(player.toString());
             persist();
             throw new ClanException("That clan is full.");
@@ -243,47 +267,55 @@ final class ClanStore {
     }
 
     /**
-     * Adds to the clan vault. Any member may contribute; only the leader spends it,
-     * so a deposit is a contribution to the clan rather than personal savings.
+     * Banks a batch of items and credits the donor.
+     *
+     * <p>Donations are one-way: there is no withdraw, and disbanding destroys the
+     * vault. The ledger it credits is lifetime value and is never reduced by spending,
+     * so someone who funded an upgrade keeps the credit for it.
+     *
+     * @return the value added, so the caller can tell the donor what it was worth
      */
-    synchronized ClanView deposit(UUID actor, String material, int amount) throws IOException {
+    synchronized long donate(UUID actor, Map<String, Integer> items) throws IOException {
         SavedClan clan = requireClanForMember(actor);
-        String normalized = ClanLevel.normalizeMaterial(material);
-        if (!ClanLevel.isDepositable(normalized)) {
-            throw new ClanException("The clan vault only holds clan upgrade materials.");
+        if (items == null || items.isEmpty()) {
+            throw new ClanException("Put something in the donation window first.");
         }
-        if (amount <= 0) {
-            throw new ClanException("Deposit at least one item.");
+        LinkedHashMap<String, Integer> accepted = new LinkedHashMap<>();
+        for (Map.Entry<String, Integer> entry : items.entrySet()) {
+            String material = ClanLevel.normalizeMaterial(entry.getKey());
+            int amount = entry.getValue() == null ? 0 : entry.getValue();
+            if (amount > 0 && ClanLevel.isDonatable(material)) {
+                accepted.merge(material, amount, Integer::sum);
+            }
         }
+        if (accepted.isEmpty()) {
+            throw new ClanException("None of that is worth anything to the clan.");
+        }
+        long value = WealthValues.totalOf(accepted);
         if (clan.vault == null) {
             clan.vault = new LinkedHashMap<>();
         }
-        clan.vault.merge(normalized, amount, Integer::sum);
+        accepted.forEach((material, amount) -> clan.vault.merge(material, amount, Integer::sum));
+        if (clan.donations == null) {
+            clan.donations = new LinkedHashMap<>();
+        }
+        clan.donations.merge(actor.toString(), value, Long::sum);
         persist();
-        return view(clan);
+        return value;
     }
 
-    /** Leader-only, so a mistaken deposit can be reversed without a second clan. */
-    synchronized ClanView withdraw(UUID actor, String material, int amount) throws IOException {
+    /** Buys the next rung of the roster ladder out of the vault. */
+    synchronized ClanView upgradeMembers(UUID actor) throws IOException {
         SavedClan clan = requireLeader(actor);
-        String normalized = ClanLevel.normalizeMaterial(material);
-        if (amount <= 0) {
-            throw new ClanException("Withdraw at least one item.");
+        int slots = slotsOf(clan);
+        ClanLevel.MemberTier tier = ClanLevel.nextMemberTier(ClanLevel.tiersBoughtFor(slots))
+                .orElseThrow(() -> new ClanException("Your clan already holds every roster slot."));
+        Map<String, Integer> missing = ClanLevel.shortfall(clan.vault, List.of(tier.cost()));
+        if (!missing.isEmpty()) {
+            throw new ClanException("The clan vault is short: " + describe(missing) + ".");
         }
-        int held = clan.vault == null ? 0 : clan.vault.getOrDefault(normalized, 0);
-        if (held <= 0) {
-            throw new ClanException("The clan vault holds no "
-                    + ClanLevel.readableMaterial(normalized) + ".");
-        }
-        if (held < amount) {
-            throw new ClanException("The clan vault only holds " + held + "x "
-                    + ClanLevel.readableMaterial(normalized) + ".");
-        }
-        if (held == amount) {
-            clan.vault.remove(normalized);
-        } else {
-            clan.vault.put(normalized, held - amount);
-        }
+        spend(clan, List.of(tier.cost()));
+        clan.memberSlots = tier.slots();
         persist();
         return view(clan);
     }
@@ -306,7 +338,15 @@ final class ClanStore {
         if (!missing.isEmpty()) {
             throw new ClanException("The clan vault is short: " + describe(missing) + ".");
         }
-        for (ClanLevel.Cost cost : ClanLevel.costOf(next)) {
+        spend(clan, ClanLevel.costOf(next));
+        clan.level = next;
+        persist();
+        return view(clan);
+    }
+
+    /** Debits a price already checked against the vault. */
+    private static void spend(SavedClan clan, List<ClanLevel.Cost> costs) {
+        for (ClanLevel.Cost cost : costs) {
             int remaining = clan.vault.getOrDefault(cost.material(), 0) - cost.amount();
             if (remaining > 0) {
                 clan.vault.put(cost.material(), remaining);
@@ -314,9 +354,19 @@ final class ClanStore {
                 clan.vault.remove(cost.material());
             }
         }
-        clan.level = next;
-        persist();
-        return view(clan);
+    }
+
+    private static int slotsOf(SavedClan clan) {
+        return clan.memberSlots == null ? ClanLevel.STARTING_MEMBER_SLOTS : clan.memberSlots;
+    }
+
+    private static Map<UUID, Long> donationsOf(SavedClan clan) {
+        if (clan.donations == null || clan.donations.isEmpty()) {
+            return Map.of();
+        }
+        LinkedHashMap<UUID, Long> donations = new LinkedHashMap<>();
+        clan.donations.forEach((id, value) -> donations.put(UUID.fromString(id), value));
+        return Map.copyOf(donations);
     }
 
     /** Whether a clan other than {@code exclude} already holds the secret level. */
@@ -402,8 +452,10 @@ final class ClanStore {
     }
 
     /**
-     * Disbands the clan and hands back what its vault held, so a disband never
-     * silently destroys materials members contributed. The caller returns them.
+     * Disbands the clan. The vault goes with it — donations are one-way, and handing
+     * it to the leader would be a withdraw route in all but name. Callers must warn
+     * before reaching here; the returned view still carries the balance destroyed so
+     * the message can name the figure.
      */
     synchronized ClanView disband(UUID actor) throws IOException {
         SavedClan clan = requireLeader(actor);
@@ -503,6 +555,16 @@ final class ClanStore {
                 if (clan.members.isEmpty() || clan.members.size() > MAX_MEMBERS) {
                     throw new IOException("Clan member counts must be between 1 and " + MAX_MEMBERS);
                 }
+                if (clan.memberSlots == null) {
+                    // Clans that predate the roster ladder were built under a flat
+                    // 25-player cap. Grant them the smallest tier that still holds
+                    // everyone, rather than dropping them to 3 and stranding members.
+                    clan.memberSlots = ClanLevel.smallestSlotCountHolding(clan.members.size());
+                    migrated = true;
+                }
+                if (clan.members.size() > clan.memberSlots) {
+                    throw new IOException("A clan cannot hold more members than its roster allows");
+                }
                 if (clan.level != null && !ClanLevel.isValid(clan.level)) {
                     throw new IOException("Clan levels must be between 0 and " + ClanLevel.SECRET_LEVEL);
                 }
@@ -514,11 +576,22 @@ final class ClanStore {
                 }
                 if (clan.vault != null) {
                     for (Map.Entry<String, Integer> entry : clan.vault.entrySet()) {
-                        if (!ClanLevel.isDepositable(entry.getKey())) {
+                        if (!ClanLevel.isDonatable(entry.getKey())) {
                             throw new IOException("The clan vault holds a material it cannot accept");
                         }
                         if (entry.getValue() == null || entry.getValue() < 0) {
                             throw new IOException("Clan vault amounts cannot be negative");
+                        }
+                    }
+                }
+                if (clan.memberSlots != null && !ClanLevel.isValidSlotCount(clan.memberSlots)) {
+                    throw new IOException("Clan roster sizes must come from the member ladder");
+                }
+                if (clan.donations != null) {
+                    for (Map.Entry<String, Long> entry : clan.donations.entrySet()) {
+                        UUID.fromString(entry.getKey());
+                        if (entry.getValue() == null || entry.getValue() < 0) {
+                            throw new IOException("Clan donation totals cannot be negative");
                         }
                     }
                 }
@@ -658,7 +731,9 @@ final class ClanStore {
                 Set.copyOf(staff),
                 clan.icon == null ? "" : clan.icon,
                 levelOf(clan),
-                clan.vault == null ? Map.of() : Map.copyOf(clan.vault)
+                clan.vault == null ? Map.of() : Map.copyOf(clan.vault),
+                slotsOf(clan),
+                donationsOf(clan)
         );
     }
 

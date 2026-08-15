@@ -69,6 +69,8 @@ class PlayerCapabilities:
     clan_colour: int = 0xFF9900
     clan_members: int = 0
     clan_level: int = 0
+    clan_balance: int = 0
+    clan_member_slots: int = 0
     staff_tools: tuple[str, ...] = field(default_factory=tuple)
 
     @property
@@ -123,5 +125,7 @@ def capabilities_for(snapshot: dict[str, Any], minecraft_uuid: str) -> PlayerCap
         clan_colour=int(entry.get("clan_colour", 0xFF9900) or 0xFF9900),
         clan_members=int(entry.get("clan_members", 0) or 0),
         clan_level=int(entry.get("clan_level", 0) or 0),
+        clan_balance=int(entry.get("clan_balance", 0) or 0),
+        clan_member_slots=int(entry.get("clan_member_slots", 0) or 0),
         staff_tools=tuple(tools) if isinstance(tools, list) else (),
     )
