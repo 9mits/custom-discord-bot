@@ -76,10 +76,12 @@ SERVER_TAGLINE = "\n\n".join(SERVER_TAGLINE_PARAGRAPHS)
 #: clients down to it and Geyser handles Bedrock, so player-facing text should
 #: always pair this with the supported range below rather than stand alone.
 SERVER_VERSION = "1.21.1"
-#: Clients newer than the server are refused rather than translated up: GrimAC
-#: cannot police a session it only sees through ViaVersion's up-translation, so
-#: allowing them would leave the newest clients effectively unpoliced.
-JAVA_SUPPORTED_RANGE = f"1.8 up to {SERVER_VERSION}"
+#: Every version joins: ViaBackwards translates older clients down, ViaVersion
+#: translates newer ones up. The cap that used to sit here was removed on
+#: 2026-08-15 — it could not be applied to Java alone, because Geyser injects
+#: Bedrock players at the newest Java protocol, so it was turning away every
+#: mobile player too. GrimAC polices up-translated sessions regardless.
+JAVA_SUPPORTED_RANGE = "1.8 and newer"
 
 #: Official download pages, used to hyperlink mod and version names in embeds.
 #: Only well-known official pages belong here — never guess a link.

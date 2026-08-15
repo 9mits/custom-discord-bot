@@ -137,8 +137,8 @@ def overview_embed(settings=None) -> discord.Embed:
             f"> **Java** — {JAVA_SUPPORTED_RANGE}\n"
             "> **Bedrock** — any current version\n"
             "> \n"
-            f"> The server runs **{SERVER_VERSION}**. Anything newer is "
-            "blocked; anything older is translated automatically."
+            f"> The server runs **{SERVER_VERSION}**, and translates in both "
+            "directions, so join on whatever version you already play."
         ),
         inline=False,
     )
@@ -671,13 +671,12 @@ def technical_embed(settings=None) -> discord.Embed:
                 f"> **[Paper](https://papermc.io)** {SERVER_VERSION} — the server\n"
                 "> **[Geyser](https://geysermc.org)** — lets Bedrock players in\n"
                 "> **[ViaVersion](https://modrinth.com/plugin/viaversion)** and "
-                "ViaBackwards — translate older Java clients",
+                "ViaBackwards — translate Java clients in both directions",
             ),
             (
                 "Java Edition",
-                f"> **{JAVA_SUPPORTED_RANGE}** — newer releases are refused\n"
-                f"> On something newer? Add a **{SERVER_VERSION}** entry under "
-                "**Installations** in the launcher\n\n"
+                f"> **{JAVA_SUPPORTED_RANGE}** — including the current release\n"
+                "> No launcher changes needed; play on whatever you already use\n\n"
                 "Add the server under **Multiplayer → Add Server**\n"
                 f"```text\n{java_address}\n```",
             ),
