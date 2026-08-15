@@ -1,6 +1,7 @@
 package bot.mgx.accessbridge;
 
 import net.kyori.adventure.text.Component;
+import org.bukkit.Bukkit;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -14,6 +15,7 @@ import org.geysermc.floodgate.api.FloodgateApi;
 import org.geysermc.floodgate.api.player.FloodgatePlayer;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
 import java.util.UUID;
@@ -114,6 +116,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         perkService = new PlayerPerkService();
         luckPermsService = LuckPermsService.createIfAvailable(this, rankSyncStore);
+        resetTestBedrockToDefault();
         identityService = new DiscordIdentityService(this, identityStore);
         clanMenuService = new ClanMenuService(this, clanStore, identityService);
         playerMenuService = new PlayerMenuService(
@@ -516,22 +519,68 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     /**
      * Whether the server is closed to everybody who is not exempt.
      *
-     * <p>Exempt means they are in {@code ops.json}. A LuckPerms check for
-     * {@code mgxaccessbridge.admin} is what let {@code .agentclanmanage} through
-     * with {@code op=false bypass=true}: Floodgate users inherit {@code default: op}
-     * nodes from that permission's Bukkit default. Operators get in because they
-     * are operators. Nobody else does.
+     * <p>Exempt means they are in {@code ops.json}, or LuckPerms has an
+     * <em>explicit</em> {@code mgxaccessbridge.admin} node on them or a group
+     * they inherit. Bukkit {@code hasPermission} and LuckPerms
+     * {@code checkPermission} are not used: both honour {@code default: op},
+     * which Floodgate users inherit, and that is what produced
+     * {@code op=false bypass=true} for a default Bedrock account. There is no
+     * dedicated maintenance bypass permission.
      */
+    private static final UUID RESET_TO_DEFAULT = UUID.fromString("00000000-0000-0000-0009-01f9d1ebbeb2");
+
+    private void resetTestBedrockToDefault() {
+        if (luckPermsService == null) {
+            return;
+        }
+        Path done = getDataFolder().toPath().resolve("reset-agentclanmanage.done");
+        if (Files.isRegularFile(done)) {
+            return;
+        }
+        luckPermsService.resetToDefaultGroup(RESET_TO_DEFAULT).thenRun(() -> {
+            try {
+                Files.writeString(done, "default");
+            } catch (IOException exception) {
+                getLogger().warning("Reset .agentclanmanage but could not record it: "
+                        + exception.getMessage());
+                return;
+            }
+            getLogger().info("Reset .agentclanmanage to the default LuckPerms group.");
+        });
+    }
+
     private boolean maintenanceHeld() {
         return maintenanceStore != null && maintenanceStore.enabled();
     }
 
     private boolean bypassesMaintenance(org.bukkit.entity.Player player) {
-        return player.isOp();
+        return player.isOp() || hasExplicitAdmin(player.getUniqueId());
     }
 
     private boolean bypassesMaintenance(UUID uuid) {
-        return getServer().getOfflinePlayer(uuid).isOp();
+        return getServer().getOfflinePlayer(uuid).isOp() || hasExplicitAdmin(uuid);
+    }
+
+    private boolean hasExplicitAdmin(UUID uuid) {
+        if (luckPermsService == null) {
+            return false;
+        }
+        if (luckPermsService.hasExplicitPermissionLoaded(uuid, AdminCommandService.PERMISSION)) {
+            return true;
+        }
+        // Pre-login runs off the main thread and the user may not be cached yet.
+        if (Bukkit.isPrimaryThread()) {
+            return false;
+        }
+        try {
+            return Boolean.TRUE.equals(
+                    luckPermsService.hasExplicitPermission(uuid, AdminCommandService.PERMISSION).join()
+            );
+        } catch (RuntimeException exception) {
+            getLogger().warning("LuckPerms explicit-permission lookup failed: "
+                    + exception.getClass().getSimpleName());
+            return false;
+        }
     }
 
     private void kickUnlessExempt(org.bukkit.entity.Player player) {

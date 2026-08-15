@@ -2,6 +2,7 @@ package bot.mgx.accessbridge;
 
 import net.luckperms.api.LuckPerms;
 import net.luckperms.api.model.user.User;
+import net.luckperms.api.node.Node;
 import net.luckperms.api.node.NodeType;
 import net.luckperms.api.node.types.InheritanceNode;
 import org.bukkit.Bukkit;
@@ -86,19 +87,49 @@ final class LuckPermsService {
     }
 
     /**
-     * Sync check against a user LuckPerms already has in memory. Returns false
-     * when they are not loaded — fail closed for a bypass, never guess.
+     * Whether LuckPerms actually granted {@code permission} — a node on the user
+     * or a group they inherit, not Bukkit's {@code default: op}.
      *
-     * <p>Bukkit {@code Player#hasPermission} is not used for the maintenance
-     * hold: Floodgate players can report true for {@code default: op} nodes
-     * before their attachments exist, which is how a nobody walked through.
+     * <p>{@code checkPermission} includes that Bukkit default, which is how a
+     * Floodgate account with no groups reported {@code bypass=true} while
+     * {@code op=false}. Only an explicit grant counts for the maintenance hold.
      */
-    boolean hasLoadedPermission(UUID playerId, String permission) {
+    static boolean grants(String key, boolean value, String permission) {
+        return value && key.equalsIgnoreCase(permission);
+    }
+
+    static boolean anyNodeGrants(Iterable<? extends Node> nodes, String permission) {
+        for (Node node : nodes) {
+            if (grants(node.getKey(), node.getValue(), permission)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    boolean hasExplicitPermissionLoaded(UUID playerId, String permission) {
         User user = luckPerms.getUserManager().getUser(playerId);
         if (user == null) {
             return false;
         }
-        return user.getCachedData().getPermissionData().checkPermission(permission).asBoolean();
+        return anyNodeGrants(user.resolveInheritedNodes(user.getQueryOptions()), permission);
+    }
+
+    CompletableFuture<Boolean> hasExplicitPermission(UUID playerId, String permission) {
+        return luckPerms.getUserManager().loadUser(playerId)
+                .thenApply(user -> anyNodeGrants(
+                        user.resolveInheritedNodes(user.getQueryOptions()), permission
+                ))
+                .exceptionally(error -> false);
+    }
+
+    /** Drops every stored node so the player sits on the default group only. */
+    CompletableFuture<Void> resetToDefaultGroup(UUID playerId) {
+        return luckPerms.getUserManager().modifyUser(playerId, user -> user.data().clear())
+                .exceptionally(error -> {
+                    plugin.getLogger().log(Level.WARNING, "Could not reset LuckPerms user " + playerId, error);
+                    return null;
+                });
     }
 
     /**

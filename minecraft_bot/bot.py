@@ -2352,8 +2352,8 @@ class MinecraftAccessBot(commands.Bot):
                             "Maintenance Mode",
                             f"> The server is currently **{state}**.\n\n"
                             "Choose an option to change it. While the server is held "
-                            "closed, only operators and staff holding the in-game "
-                            "admin permission can still join — everyone else is "
+                            "closed, only operators and staff with an explicit "
+                            "in-game admin grant can still join — everyone else is "
                             "turned away on both editions. Applications, "
                             "verification and acceptance all carry on as normal — "
                             "only playing is blocked.",
@@ -2368,9 +2368,9 @@ class MinecraftAccessBot(commands.Bot):
                     "> The server is now **held closed**.\n\n"
                     "Members can still apply, join once to verify, and be accepted. "
                     "Regular players cannot play until you open it again, on either "
-                    "edition, and anyone online without the in-game admin "
-                    "permission was disconnected. Operators and staff holding "
-                    "`mgxaccessbridge.admin` in LuckPerms are unaffected."
+                    "edition, and anyone online who is not an operator or holding "
+                    "an explicit `mgxaccessbridge.admin` grant in LuckPerms was "
+                    "disconnected."
                 )
             else:
                 summary = (

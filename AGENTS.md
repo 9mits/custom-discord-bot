@@ -203,11 +203,13 @@ Read the relevant file when you touch an area; these are the non-obvious points.
   covered every operator without anyone consciously granting it, so the hold
   looked enabled while the people testing it walked straight in. Reusing an
   already-audited permission means access is never silent — an operator gets in
-  because they are an operator. `bypassesMaintenance` is `isOp()` only. Checking
-  LuckPerms for `mgxaccessbridge.admin` let a Floodgate account through with
-  `op=false bypass=true`, because that node defaults to `op` and Floodgate users
-  inherit it. The login refusal, join handler, sweep, and kick of anyone already
-  online when the hold is enabled all use that same check.
+  because they are an operator. `bypassesMaintenance` is `isOp()` or an
+  **explicit** LuckPerms grant of `mgxaccessbridge.admin` on the user or a group
+  they inherit. `checkPermission` and Bukkit `hasPermission` are not used: both
+  honour `default: op`, which Floodgate users inherit, and that produced
+  `op=false bypass=true` for a default Bedrock account. There is no dedicated
+  maintenance bypass node. The login refusal, join handler, sweep, and kick of
+  anyone already online when the hold is enabled all use that same check.
   Nothing in Discord branches on the flag; the plugin states the closure on its
   own kick screen, where it is true at the moment it is read. Applications,
   verification and acceptance all carry on regardless.
@@ -224,7 +226,7 @@ Read the relevant file when you touch an area; these are the non-obvious points.
   account (no op, no permission) walked through every event-only hold, and
   Bukkit `hasPermission` must not be the bypass check: Floodgate players can
   report true for `default: op` nodes before attachments exist. Use `isOp()` and
-  LuckPerms' loaded user only.
+  LuckPerms' explicit nodes only.
   Verification is matched **before** the hold is applied and never needed the
   login to succeed — an applicant is turned away either way and only the wording
   differs — which is what lets a closed server still verify accounts. Leaving
