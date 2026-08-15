@@ -56,7 +56,6 @@ from .presentation import (
     review_embed,
     player_activity_embed,
     verification_log_embed,
-    verified_embed,
     application_card_files,
     live_status_embed,
 )
@@ -374,6 +373,26 @@ class MinecraftAccessBot(commands.Bot):
             self._application_messages.pop(oldest, None)
         self._application_messages[int(application_id)] = (message, now + 14 * 60)
 
+    async def replace_application_card(
+        self, application_id: int, message: discord.Message
+    ) -> None:
+        """Makes `message` the application's card and deletes the one it replaces.
+
+        An applicant reaches the written form from a card that is already on screen,
+        and answering it produces a fresh reply. Remembering the new one without
+        removing the old left two cards for one application, both of which the next
+        refresh edited — so the applicant watched a duplicate update alongside the
+        real one.
+        """
+        previous = getattr(self, "_application_messages", {}).get(int(application_id))
+        self.remember_application_message(application_id, message)
+        if previous is None or previous[0].id == message.id:
+            return
+        # Ephemeral replies are only deletable through the interaction that made
+        # them, and only while its token lives. A stale one is left as it is.
+        with suppress(discord.NotFound, discord.Forbidden, discord.HTTPException):
+            await previous[0].delete()
+
     async def cancel_pending_verification(
         self,
         *,
@@ -523,15 +542,11 @@ class MinecraftAccessBot(commands.Bot):
             current = await self.data.get_application(application.id)
             if current is not None:
                 application = current
+            # Verification is deliberately not DMed. The application card already
+            # shows the same thing and updates in place, so the DM was a second copy
+            # of it arriving seconds later. A decision still is: staff may act days
+            # afterwards, when no card is on screen to update.
             notifications: list[str] = []
-            if application.status in {
-                ApplicationStatus.PENDING_APPLICATION,
-                ApplicationStatus.PENDING_REVIEW,
-                ApplicationStatus.APPROVAL_QUEUED,
-                ApplicationStatus.APPROVED,
-                ApplicationStatus.DENIED,
-            }:
-                notifications.append("verification")
             if application.status in {ApplicationStatus.APPROVED, ApplicationStatus.DENIED}:
                 notifications.append("decision")
             delivered = True
@@ -544,15 +559,18 @@ class MinecraftAccessBot(commands.Bot):
             return delivered
 
     def _application_card_embed(self, application: MinecraftApplication) -> discord.Embed:
+        """The card's own embed for a status.
+
+        Every state in flight renders through `live_status_embed`. It used to swap
+        to a differently worded "Account Verified" embed once the form arrived, so
+        the same application was described two ways depending on which code path
+        drew it last. Only the two final decisions get their own embed, because
+        they carry more than a status line.
+        """
         if application.status is ApplicationStatus.APPROVED:
             return approval_embed(self.settings)
         if application.status is ApplicationStatus.DENIED:
             return denial_embed(application)
-        if application.status in {
-            ApplicationStatus.PENDING_REVIEW,
-            ApplicationStatus.APPROVAL_QUEUED,
-        }:
-            return verified_embed(application)
         return live_status_embed(application, self.settings)
 
     async def _send_application_dm(
@@ -562,12 +580,14 @@ class MinecraftAccessBot(commands.Bot):
         *,
         queue_on_failure: bool,
     ) -> bool:
-        marker = (
-            getattr(application, "status_message_id", None)
-            if notification == "verification"
-            else getattr(application, "decision_message_id", None)
-        )
-        if marker:
+        """DMs the applicant a staff decision.
+
+        Only decisions. Verification used to DM as well, which duplicated the
+        application card the applicant was already looking at.
+        """
+        if notification != "decision":
+            return True
+        if getattr(application, "decision_message_id", None):
             return True
         try:
             user = self.get_user(int(application.discord_user_id))
@@ -576,27 +596,15 @@ class MinecraftAccessBot(commands.Bot):
                     user = await self.fetch_user(int(application.discord_user_id))
             if user is None:
                 raise RuntimeError("Discord user unavailable")
-            from .ui import continue_application_view
-
-            extras: dict[str, object] = {}
-            if (
-                notification == "verification"
-                and application.status is ApplicationStatus.PENDING_APPLICATION
-            ):
-                extras["view"] = continue_application_view()
             icon = brand_icon_file()
             try:
                 message = await user.send(
                     **branded_send(application_dm_embed(application, self.settings, notification)),
                     file=icon,
-                    **extras,
                 )
             finally:
                 icon.close()
-            if notification == "verification":
-                await self.data.set_status_message(application.id, message.channel.id, message.id)
-            else:
-                await self.data.set_decision_message(application.id, message.channel.id, message.id)
+            await self.data.set_decision_message(application.id, message.channel.id, message.id)
             return True
         except (discord.Forbidden, discord.HTTPException, RuntimeError) as exc:
             if queue_on_failure:
@@ -626,7 +634,9 @@ class MinecraftAccessBot(commands.Bot):
                 elif delivery.kind == "USER_EMBED":
                     application = await self.data.get_application(int(delivery.target_id))
                     notification = str(delivery.payload.get("notification") or "")
-                    if notification not in {"verification", "decision"}:
+                    # "verification" is no longer delivered; anything left in the
+                    # queue from before is completed rather than retried forever.
+                    if notification != "decision":
                         delivered = True
                     elif application is not None:
                         delivered = await self._send_application_dm(
@@ -1240,8 +1250,11 @@ class MinecraftAccessBot(commands.Bot):
             ):
                 with suppress(Exception):
                     await self.post_or_update_review(application)
-            if application.status_message_id is None:
-                await self.update_live_card(application)
+            # A replayed event changes nothing, so this only redraws the card the
+            # applicant already has. It used to be gated on the verification DM
+            # having been sent; there is no such DM now, and the gate would always
+            # have been open.
+            await self.update_live_card(application, create_if_missing=False)
             return
         if application.status is ApplicationStatus.PENDING_REVIEW:
             try:
@@ -1749,9 +1762,6 @@ class MinecraftAccessBot(commands.Bot):
                 await self.bridge.dispatch_outbox()
             await self._process_delivery_recovery()
             await self._restore_missing_reviews()
-            for application in await self.data.list_live_card_applications(limit=20):
-                if not application.status_message_id:
-                    await self.update_live_card(application)
             await self._prune_command_log()
         except asyncio.CancelledError:
             raise

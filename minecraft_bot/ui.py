@@ -444,6 +444,13 @@ class ApplicationQuestionsModal(discord.ui.Modal, title="Mysterious SMP X Applic
             **branded_edit(live_status_embed(application, bot.settings)),
             view=application_card_view(application.status),
         )
+        # This reply becomes the application's card. The one the applicant was
+        # already looking at is retired, because otherwise submitting the form left
+        # two cards on screen describing the same application, both being edited by
+        # the background refresh that follows.
+        await bot.replace_application_card(
+            application.id, await interaction.original_response()
+        )
 
 
 class ContinueApplicationButton(
