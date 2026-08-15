@@ -228,21 +228,20 @@ def application_embeds() -> list[discord.Embed]:
         f"{SERVER_TAGLINE}",
     )
     # Someone reading this is deciding whether the server suits them, so it lists
-    # what is actually here rather than describing the atmosphere twice.
+    # what is actually here rather than describing the atmosphere twice. How any
+    # of it works belongs in the information panel they get after acceptance.
     welcome.add_field(
         name="What you can do here",
         value=(
-            "> **Clans** — found one, share a name, tag and colour, and never "
-            "take damage from your own members\n"
-            "> **Levels** — chatting in Discord earns permanent extra hearts and "
-            "damage in game\n"
-            "> **Homes and travel** — save your spots with `/sethome`, and "
-            "teleport to friends with `/tpa`\n"
+            "> **Clans** — your own name, tag and colour, with no friendly fire\n"
+            "> **Levels** — chatting in Discord earns permanent extra hearts "
+            "and damage\n"
+            "> **Homes and travel** — save your spots and teleport to friends\n"
             "> **Voice chat** — proximity voice with whoever is standing near "
             "you\n"
             "> **Leaderboards** — richest, kills, playtime, blocks mined and "
             "distance walked\n"
-            "> **Crossplay** — Java and Bedrock players in one shared world"
+            "> **Crossplay** — Java and Bedrock in one shared world"
         ),
         inline=False,
     )

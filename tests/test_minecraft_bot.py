@@ -1942,8 +1942,7 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
         for feature in (
             "Clans",
             "Levels",
-            "/sethome",
-            "/tpa",
+            "Homes and travel",
             "Voice chat",
             "Leaderboards",
             "Crossplay",
@@ -1971,7 +1970,9 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
                 documented += [field.value for field in builder(0).fields]
         catalogue = "\n".join(documented)
 
-        self.assertTrue(advertised, "the showcase names no commands at all")
+        # The showcase is allowed to name no commands at all — it sells the
+        # server, it does not teach it. The guarantee is only that anything it
+        # does name is a command the server actually has.
         for command in sorted(advertised):
             with self.subTest(command=command):
                 self.assertIn(command, catalogue)
