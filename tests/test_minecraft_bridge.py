@@ -436,6 +436,27 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(self.server.supports_whitelist_sync)
         await socket.close()
 
+    async def test_protocol_v8_can_hold_the_server_closed(self):
+        socket = await self._connected_socket(version=8, key="hello-v8-maintenance")
+        self.assertTrue(self.server.supports_maintenance)
+
+        sent = await self.server.send_maintenance(True)
+        action = await socket.receive_json()
+
+        self.assertTrue(sent)
+        self.assertEqual(action["payload"]["action"], "SET_MAINTENANCE")
+        self.assertTrue(action["payload"]["enabled"])
+        await socket.close()
+
+    async def test_an_older_plugin_is_not_offered_maintenance(self):
+        # It would silently do nothing, leaving the server open while Discord
+        # reported it closed — the one failure worth reporting to the operator.
+        socket = await self._connected_socket(version=7, key="hello-v7-maintenance")
+
+        self.assertFalse(self.server.supports_maintenance)
+        self.assertFalse(await self.server.send_maintenance(True))
+        await socket.close()
+
     def test_the_plugin_advertises_the_protocol_version_the_bot_expects(self):
         # The plugin gates SERVER_EVENT on its own constant. If the two drift, in-game
         # actions silently stop reaching the activity log with nothing logged about it.

@@ -821,6 +821,26 @@ class MinecraftAccessBot(commands.Bot):
             await self.publish_whitelist_snapshot()
         except Exception:
             logger.exception("Could not publish the whitelist snapshot on connect")
+        # Paper persists the hold itself, but a bridge that reconnects after the
+        # flag was toggled here would otherwise be out of step until the next
+        # toggle. Restating it on connect makes Discord the authority.
+        try:
+            await self.bridge.send_maintenance(self.settings.maintenance_mode)
+        except Exception:
+            logger.exception("Could not restate maintenance mode on connect")
+
+    async def set_maintenance_mode(self, enabled: bool) -> tuple[bool, bool]:
+        """Holds the server closed, or opens it again.
+
+        Returns whether the setting changed and whether Paper was told. Applications,
+        verification and acceptance all carry on either way — this only decides
+        whether anybody may actually play.
+        """
+        changed = bool(self.settings.maintenance_mode) != bool(enabled)
+        if changed:
+            await self.update_settings(maintenance_mode=bool(enabled))
+        delivered = await self.bridge.send_maintenance(bool(enabled))
+        return changed, delivered
 
     async def execute_data_wipe(self, actor: discord.Member | discord.User) -> dict[str, int]:
         """Clears every application and whitelist record while keeping settings.
@@ -2274,6 +2294,70 @@ class MinecraftAccessBot(commands.Bot):
                 summary += f" {failed} could not be deleted; run it again in a minute."
             await interaction.edit_original_response(content=summary)
 
+        @admin_group.command(
+            name="maintenance",
+            description="Hold the server closed before launch, or open it again.",
+        )
+        @app_commands.describe(open_server="On opens the server; off holds it closed.")
+        @app_commands.choices(
+            open_server=[
+                app_commands.Choice(name="Hold the server closed", value="close"),
+                app_commands.Choice(name="Open the server", value="open"),
+            ]
+        )
+        async def maintenance(
+            interaction: discord.Interaction,
+            open_server: Optional[app_commands.Choice[str]] = None,
+        ) -> None:
+            if not await self.require_administrator(interaction):
+                return
+            await interaction.response.defer(ephemeral=True)
+            if open_server is None:
+                state = "closed" if self.settings.maintenance_mode else "open"
+                await interaction.edit_original_response(
+                    **branded_edit(
+                        info_embed(
+                            "Maintenance Mode",
+                            f"> The server is currently **{state}**.\n\n"
+                            "Choose an option to change it. While the server is held "
+                            "closed, applications, verification and acceptance all "
+                            "carry on as normal — only playing is blocked.",
+                        )
+                    )
+                )
+                return
+            closing = open_server.value == "close"
+            changed, delivered = await self.set_maintenance_mode(closing)
+            if closing:
+                summary = (
+                    "> The server is now **held closed**.\n\n"
+                    "Members can still apply, join once to verify, and be accepted. "
+                    "Nobody can actually play until you open it, and anyone online "
+                    "was disconnected.\n"
+                    "Staff with the bypass permission are unaffected."
+                )
+            else:
+                summary = (
+                    "> The server is now **open**.\n\n"
+                    "Everybody already accepted can join straight away."
+                )
+            if not delivered:
+                summary += (
+                    "\n\n**The Minecraft server has not been told yet.** The setting "
+                    "is saved and is sent the moment the bridge reconnects."
+                )
+            elif not changed:
+                summary += "\n\nIt was already set that way; the server was told again."
+            await interaction.edit_original_response(
+                **branded_edit(
+                    info_embed(
+                        "Server Held Closed" if closing else "Server Open",
+                        summary,
+                        success=not closing,
+                    )
+                )
+            )
+
         @group.command(name="account", description="Open your private Minecraft account and application panel.")
         async def account(interaction: discord.Interaction) -> None:
             await interaction.response.defer(ephemeral=True)
@@ -2776,6 +2860,8 @@ class MinecraftAccessBot(commands.Bot):
                         "`/mcadmin leaderboard` — choose the leaderboard channel\n"
                         "`/mcadmin log-channel` — choose the Activity and Important log channels\n"
                         "`/mcadmin chat-channel` — two-way Minecraft chat sync\n"
+                        "`/mcadmin maintenance` — hold the server closed before "
+                        "launch, or open it again\n"
                         "`/mcadmin cleanheads` — remove leaderboard head emoji\n"
                         "`/mcadmin wipe` — owner only; delete all application and whitelist data"
                     ),

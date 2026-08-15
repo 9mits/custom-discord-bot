@@ -29,9 +29,10 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
      * field. Keep in step with the *_PROTOCOL_VERSION constants in
      * {@code minecraft_bot/bridge.py}. 5 added the SYNC_PROFILE rank fields;
      * 6 added the SYNC_WHITELIST directory snapshot; 7 added SERVER_EVENT, which
-     * reports in-game actions to the Discord activity log.
+     * reports in-game actions to the Discord activity log; 8 added
+     * SET_MAINTENANCE, which holds the server closed before launch.
      */
-    static final int PROTOCOL_VERSION = 7;
+    static final int PROTOCOL_VERSION = 8;
 
     private final MGXAccessBridge plugin;
     private final BridgeConfig config;
@@ -224,6 +225,10 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                     plugin,
                     () -> executeDiscordChat(idempotencyKey, payload)
             );
+            return;
+        }
+        if (action.equals("SET_MAINTENANCE")) {
+            plugin.setMaintenance(payload.get("enabled").getAsBoolean());
             return;
         }
         if (action.equals("SYNC_WHITELIST")) {
