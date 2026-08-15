@@ -46,5 +46,5 @@ permissions:
     description: Allows players to use the clan system.
     default: true
   mgxaccessbridge.admin:
-    description: Allows rank holds, administrative data resets, and joining while the server is held for maintenance.
+    description: Allows rank holds and administrative data resets.
     default: op

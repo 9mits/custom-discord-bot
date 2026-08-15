@@ -203,9 +203,11 @@ Read the relevant file when you touch an area; these are the non-obvious points.
   covered every operator without anyone consciously granting it, so the hold
   looked enabled while the people testing it walked straight in. Reusing an
   already-audited permission means access is never silent — an operator gets in
-  because they are an operator, and anyone else needs `mgxaccessbridge.admin` set
-  explicitly in LuckPerms. `bypassesMaintenance` gates the login refusal, the join
-  handler, and the kick of anyone already online when the hold is enabled.
+  because they are an operator. `bypassesMaintenance` is `isOp()` only. Checking
+  LuckPerms for `mgxaccessbridge.admin` let a Floodgate account through with
+  `op=false bypass=true`, because that node defaults to `op` and Floodgate users
+  inherit it. The login refusal, join handler, sweep, and kick of anyone already
+  online when the hold is enabled all use that same check.
   Nothing in Discord branches on the flag; the plugin states the closure on its
   own kick screen, where it is true at the moment it is read. Applications,
   verification and acceptance all carry on regardless.
