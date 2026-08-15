@@ -450,6 +450,7 @@ class MinecraftBridgeServer:
         rank_weight: int = 0,
         booster: bool = False,
         rank_known: bool = True,
+        link_known: bool = True,
     ) -> bool:
         """Apply an online player's Discord-derived perks on protocol v3 Paper."""
         if not self.supports_profile_sync:
@@ -460,8 +461,13 @@ class MinecraftBridgeServer:
             "level": max(0, min(int(level), 50)),
             "extra_hearts": max(0, min(int(extra_hearts), 5)),
             "elite": bool(elite),
-            "discord_username": str(discord_username).strip()[:32],
         }
+        if link_known:
+            # Sent even when empty, which the plugin reads as "this account is not
+            # linked" and clears the cached name. Omitted when the link state could
+            # not be determined, so a failed lookup never wipes anyone's name — the
+            # same distinction rank_known draws for LuckPerms groups.
+            payload["discord_username"] = str(discord_username).strip()[:32]
         if self.supports_rank_sync and rank_known:
             # Sent even when empty so the plugin can clear a rank the member lost.
             # Omitted entirely when the member could not be resolved, which the plugin

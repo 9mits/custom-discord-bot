@@ -195,6 +195,58 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(profile["payload"]["discord_username"], "hellomits")
         await socket.close()
 
+    async def _connected_socket(self, *, version, key):
+        socket = await self.session.ws_connect(
+            f"http://127.0.0.1:{self.port}/minecraft-bridge"
+        )
+        await socket.send_json(create_envelope(
+            self.secret,
+            "HELLO",
+            {"server_id": "mysterious-smp-x", "protocol_version": version},
+            idempotency_key=key,
+        ))
+        await socket.receive_json()
+        await socket.receive_json()
+        return socket
+
+    async def test_a_player_with_no_linked_account_is_told_to_forget_the_name(self):
+        # An empty username that is actually sent means "not linked". Without it the
+        # plugin keeps a cached Discord name forever, which is what left a wiped
+        # member's name showing beside their Minecraft one.
+        socket = await self._connected_socket(version=7, key="hello-unlinked")
+
+        await self.server.send_player_profile(
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            level=0,
+            extra_hearts=0,
+            elite=False,
+            discord_username="",
+            link_known=True,
+        )
+        profile = await socket.receive_json()
+
+        self.assertIn("discord_username", profile["payload"])
+        self.assertEqual(profile["payload"]["discord_username"], "")
+        await socket.close()
+
+    async def test_an_unresolvable_member_leaves_the_cached_name_alone(self):
+        # Omitted, not empty. Sending "" here would clear everyone's name the first
+        # time a Discord lookup failed.
+        socket = await self._connected_socket(version=7, key="hello-unknown-link")
+
+        await self.server.send_player_profile(
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            level=0,
+            extra_hearts=0,
+            elite=False,
+            discord_username="",
+            link_known=False,
+        )
+        profile = await socket.receive_json()
+
+        self.assertNotIn("discord_username", profile["payload"])
+        await socket.close()
+
     async def test_replayed_nonce_closes_the_connection(self):
         socket = await self.session.ws_connect(
             f"http://127.0.0.1:{self.port}/minecraft-bridge"

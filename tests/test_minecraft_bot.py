@@ -1089,7 +1089,41 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
             rank_weight=0,
             booster=False,
             rank_known=False,
+            # The account is linked but the member could not be resolved, so the name
+            # is unknown rather than absent: the plugin must keep what it cached.
+            link_known=False,
         )
+
+    async def test_an_unlinked_player_is_told_to_forget_their_cached_name(self):
+        # No account row is knowledge, not a failed lookup. Without this the plugin
+        # keeps showing a Discord name for somebody who is no longer linked at all.
+        bot = object.__new__(MinecraftAccessBot)
+        bot.config = SimpleNamespace(guild_id=1)
+        bot.settings = SimpleNamespace(player_log_channel_id=55)
+        bot._background_tasks = set()
+        bot.bridge = SimpleNamespace(
+            supports_profile_sync=True,
+            send_player_profile=AsyncMock(return_value=True),
+        )
+        bot.data = SimpleNamespace(
+            claim_bridge_event=AsyncMock(return_value=True),
+            get_account_owner=AsyncMock(return_value=None),
+        )
+        bot._send_configured_log = AsyncMock()
+
+        await bot.handle_player_event(
+            joined=True,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            current_username="PlayerOne",
+            edition="JAVA",
+            xuid=None,
+            event_idempotency_key="player-event-unlinked",
+        )
+        await asyncio.gather(*bot._background_tasks)
+
+        kwargs = bot.bridge.send_player_profile.await_args.kwargs
+        self.assertTrue(kwargs["link_known"])
+        self.assertEqual(kwargs["discord_username"], "")
 
     async def test_level_role_change_resyncs_all_linked_accounts(self):
         bot = object.__new__(MinecraftAccessBot)

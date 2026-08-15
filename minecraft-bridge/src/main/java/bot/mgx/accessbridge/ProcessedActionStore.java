@@ -46,6 +46,25 @@ final class ProcessedActionStore {
         return CompletableFuture.runAsync(this::persist, ioExecutor);
     }
 
+    /**
+     * Forgets every recorded action outcome.
+     *
+     * <p>Safe only as part of a full reset: these records are what stop a replayed
+     * bridge action being applied twice, and the bot's own queue is cleared alongside.
+     */
+    int clearAll() {
+        int cleared;
+        synchronized (this) {
+            cleared = properties.size();
+            if (cleared == 0) {
+                return 0;
+            }
+            properties.clear();
+        }
+        persist();
+        return cleared;
+    }
+
     private void persist() {
         Properties snapshot = new Properties();
         synchronized (this) {

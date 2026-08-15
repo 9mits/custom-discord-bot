@@ -163,7 +163,11 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             for (ResetScope scope : scopes) {
                 sender.sendMessage(Component.text("  " + scope.description(), NamedTextColor.WHITE));
             }
-            info(sender, "Nothing anyone has built is affected — the world itself is untouched.");
+            info(sender, "Kept: the world and everything built in it, operators, bans, "
+                    + "and any rank holds you have set.");
+            if (scopes.stream().anyMatch(ResetScope::revokesAccess)) {
+                error(sender, "Everyone loses access and has to apply again through Discord.");
+            }
             error(sender, "Add 'confirm' to run it: /mgxadmin reset "
                     + String.join(" ", rest) + " confirm");
             return;
@@ -181,6 +185,10 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         }
         if (scopes.contains(ResetScope.INVENTORIES)) {
             info(sender, "Players offline now respawn fresh on their next join.");
+        }
+        if (scopes.contains(ResetScope.ACCESS)) {
+            info(sender, "Run /mcadmin wipe in Discord too — that side keeps its own "
+                    + "applications and linked accounts, which this cannot reach.");
         }
         report(sender, "data_reset", "Reset " + scopes.size() + " data scope(s)")
                 .detail("scopes", scopes.stream().map(ResetScope::key)

@@ -54,4 +54,43 @@ class ResetScopeTest {
         assertEquals(false, ResetScope.CLANS.isPlayerData());
         assertEquals(false, ResetScope.WEALTH.isPlayerData());
     }
+
+    @Test
+    void allCoversEveryTraceIncludingTheOnesAddedLater() {
+        // "all" is what an operator reaches for to start a season over. A scope added
+        // later that is not swept in by it would leave exactly the kind of leftover
+        // this command exists to remove.
+        Set<ResetScope> all = ResetScope.parse(List.of("all"));
+
+        assertTrue(all.contains(ResetScope.IDENTITIES));
+        assertTrue(all.contains(ResetScope.SETTINGS));
+        assertTrue(all.contains(ResetScope.RANKS));
+        assertTrue(all.contains(ResetScope.ACCESS));
+        assertTrue(all.contains(ResetScope.USERCACHE));
+        assertEquals(ResetScope.values().length, all.size());
+    }
+
+    @Test
+    void onlyClearingAccessLocksPlayersOut() {
+        // Surfaced separately in the confirmation, so it is worth pinning down which
+        // scope carries the consequence.
+        assertTrue(ResetScope.ACCESS.revokesAccess());
+        for (ResetScope scope : ResetScope.values()) {
+            if (scope != ResetScope.ACCESS) {
+                assertEquals(false, scope.revokesAccess(), scope.key() + " should not revoke access");
+            }
+        }
+    }
+
+    @Test
+    void everyScopeHasADistinctKeyAndADescription() {
+        Set<String> keys = new java.util.HashSet<>(ResetScope.keys());
+
+        assertEquals(ResetScope.values().length, keys.size());
+        for (ResetScope scope : ResetScope.values()) {
+            assertTrue(!scope.description().isBlank(), scope.key() + " needs a description");
+            // "all" is a parse-time alias; a scope named that would be unreachable.
+            assertEquals(false, scope.key().equals("all"));
+        }
+    }
 }

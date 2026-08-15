@@ -109,6 +109,17 @@ final class PlayerSettingsStore {
         return nowEnabled;
     }
 
+    /** Forgets every player's toggles, so everyone starts back on the defaults. */
+    synchronized int clearAll() {
+        int cleared = disabled.size();
+        if (cleared == 0) {
+            return 0;
+        }
+        disabled.clear();
+        save();
+        return cleared;
+    }
+
     private void save() {
         JsonObject root = new JsonObject();
         disabled.forEach((playerId, off) -> {

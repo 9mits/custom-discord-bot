@@ -54,6 +54,23 @@ final class VerificationEventStore {
         return removed;
     }
 
+    /** Drops every queued verification, so a reset leaves nothing waiting to replay. */
+    synchronized int clearAll() {
+        int cleared = events.size();
+        if (cleared == 0) {
+            return 0;
+        }
+        LinkedHashMap<String, JsonObject> previous = new LinkedHashMap<>(events);
+        events.clear();
+        try {
+            persist();
+        } catch (IOException exception) {
+            events.putAll(previous);
+            throw new UncheckedIOException(exception);
+        }
+        return cleared;
+    }
+
     synchronized Map<String, JsonObject> snapshot() {
         LinkedHashMap<String, JsonObject> copy = new LinkedHashMap<>();
         events.forEach((key, value) -> copy.put(key, value.deepCopy()));
