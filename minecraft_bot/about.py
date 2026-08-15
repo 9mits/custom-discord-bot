@@ -228,9 +228,8 @@ def world_about_embed(_settings=None) -> discord.Embed:
         "same players, the same rules.",
         [
             (
-                "Java and Bedrock together",
-                "Phone, console and PC players share the same world and can build "
-                "side by side.",
+                "Crossplay",
+                "Java and Bedrock play together in the same world.",
             ),
             (
                 "PvP with limits",
@@ -246,11 +245,6 @@ def world_about_embed(_settings=None) -> discord.Embed:
                 "Neutral ground",
                 "Spawn, public farms and community projects belong to everyone and "
                 "are left alone.",
-            ),
-            (
-                "Kept honest",
-                "Anti-cheat software runs constantly, so nobody gets an advantage "
-                "the rest of you do not have.",
             ),
             (
                 "A sensible mod policy",
