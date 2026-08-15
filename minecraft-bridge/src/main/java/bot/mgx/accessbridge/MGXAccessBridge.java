@@ -516,56 +516,22 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     /**
      * Whether the server is closed to everybody who is not exempt.
      *
-     * <p>Exempt means holds {@link AdminCommandService#PERMISSION} — the same tier
-     * that already gates {@code /mgxadmin} — rather than a permission invented just
-     * for this. A dedicated {@code maintenance.bypass} node existed once and
-     * defaulted to {@code op}, which is what let every operator, including whoever
-     * was testing the hold, through it without anyone granting anything. Reusing an
-     * already-visible, already-audited permission means there is nothing left that
-     * grants access silently: an operator gets in because they are an operator, and
-     * anyone else needs {@code mgxaccessbridge.admin} explicitly set in LuckPerms.
+     * <p>Exempt means they are in {@code ops.json}. A LuckPerms check for
+     * {@code mgxaccessbridge.admin} is what let {@code .agentclanmanage} through
+     * with {@code op=false bypass=true}: Floodgate users inherit {@code default: op}
+     * nodes from that permission's Bukkit default. Operators get in because they
+     * are operators. Nobody else does.
      */
     private boolean maintenanceHeld() {
         return maintenanceStore != null && maintenanceStore.enabled();
     }
 
     private boolean bypassesMaintenance(org.bukkit.entity.Player player) {
-        // Do not ask Bukkit hasPermission. Floodgate players can report true
-        // for default:op nodes before attachments exist, which is how a
-        // never-seen Bedrock account walked through a hold that already
-        // blocked Java.
-        if (player.isOp()) {
-            return true;
-        }
-        return luckPermsService != null
-                && luckPermsService.hasLoadedPermission(player.getUniqueId(), AdminCommandService.PERMISSION);
+        return player.isOp();
     }
 
-    /**
-     * Pre-login path, where the player object does not exist yet. {@code isOp}
-     * reads ops.json by UUID; LuckPerms is consulted only here, on this async
-     * thread, so a staff member who is not an operator still gets in.
-     */
     private boolean bypassesMaintenance(UUID uuid) {
-        if (getServer().getOfflinePlayer(uuid).isOp()) {
-            return true;
-        }
-        org.bukkit.entity.Player online = getServer().getPlayer(uuid);
-        if (online != null) {
-            return bypassesMaintenance(online);
-        }
-        if (luckPermsService == null) {
-            return false;
-        }
-        try {
-            return Boolean.TRUE.equals(
-                    luckPermsService.hasPermission(uuid, AdminCommandService.PERMISSION).join()
-            );
-        } catch (RuntimeException exception) {
-            getLogger().warning("LuckPerms lookup failed during maintenance check: "
-                    + exception.getClass().getSimpleName());
-            return false;
-        }
+        return getServer().getOfflinePlayer(uuid).isOp();
     }
 
     private void kickUnlessExempt(org.bukkit.entity.Player player) {
