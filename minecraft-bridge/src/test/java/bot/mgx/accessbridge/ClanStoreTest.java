@@ -384,14 +384,16 @@ class ClanStoreTest {
         ClanStore store = new ClanStore(temporaryDirectory.resolve("clans.json"));
         UUID leader = UUID.randomUUID();
         store.create(leader, "Leader", "TIGHT");
-        ClanLevel.MemberTier tier = ClanLevel.MEMBER_TIERS.get(0);
-        store.donate(leader, Map.of(tier.cost().material(), tier.cost().amount() - 1));
+        // A vault with plenty of value in it, but none of the material the next slot
+        // actually asks for — balance alone does not buy anything.
+        store.donate(leader, Map.of("ELYTRA", 3));
 
         assertThrows(ClanStore.ClanException.class, () -> store.upgradeMembers(leader));
 
         ClanStore.ClanView clan = store.clanOf(leader).orElseThrow();
         assertEquals(ClanLevel.STARTING_MEMBER_SLOTS, clan.memberSlots());
-        assertEquals(tier.cost().amount() - 1, clan.vault().get(tier.cost().material()));
+        assertEquals(3, clan.vault().get("ELYTRA"));
+        assertTrue(clan.balance() > 0);
     }
 
     @Test
@@ -430,7 +432,9 @@ class ClanStoreTest {
     void aRosterSizeOffTheLadderIsRejectedOnLoad() throws Exception {
         UUID leader = UUID.randomUUID();
         assertThrows(java.io.IOException.class, () -> new ClanStore(
-                writeClan(temporaryDirectory.resolve("odd.json"), leader, "\"memberSlots\": 4,")));
+                writeClan(temporaryDirectory.resolve("over.json"), leader, "\"memberSlots\": 26,")));
+        assertThrows(java.io.IOException.class, () -> new ClanStore(
+                writeClan(temporaryDirectory.resolve("under.json"), leader, "\"memberSlots\": 2,")));
         assertThrows(java.io.IOException.class, () -> new ClanStore(
                 writeClan(temporaryDirectory.resolve("negative-donor.json"), leader,
                         "\"donations\": {\"" + UUID.randomUUID() + "\": -5},")));

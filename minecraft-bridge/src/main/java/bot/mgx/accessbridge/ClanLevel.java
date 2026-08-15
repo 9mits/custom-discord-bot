@@ -77,17 +77,37 @@ final class ClanLevel {
     static final int STARTING_MEMBER_SLOTS = 3;
 
     /**
-     * Roster upgrades as (slots, price). Diamonds then netherite, each step dearer
-     * than the last by {@link WealthValues} — a test holds that ordering, since a
-     * cheaper later tier would let a clan skip the ladder.
+     * Roster upgrades as (slots, price), one member at a time from
+     * {@link #STARTING_MEMBER_SLOTS} to 25.
+     *
+     * <p>Diamonds, then diamond blocks, then netherite, each step dearer than the last
+     * by {@link WealthValues} — a test holds that ordering, since a cheaper later tier
+     * would let a clan skip the ladder. The first few slots are deliberately near-free
+     * so a new clan can grow the day it is founded.
      */
     static final List<MemberTier> MEMBER_TIERS = List.of(
-            new MemberTier(5, new Cost("DIAMOND", 32)),
-            new MemberTier(8, new Cost("DIAMOND_BLOCK", 8)),
-            new MemberTier(12, new Cost("NETHERITE_INGOT", 12)),
-            new MemberTier(16, new Cost("NETHERITE_INGOT", 18)),
-            new MemberTier(20, new Cost("NETHERITE_INGOT", 24)),
-            new MemberTier(25, new Cost("NETHERITE_INGOT", 30))
+            new MemberTier(4, new Cost("DIAMOND", 1)),
+            new MemberTier(5, new Cost("DIAMOND", 2)),
+            new MemberTier(6, new Cost("DIAMOND", 3)),
+            new MemberTier(7, new Cost("DIAMOND", 4)),
+            new MemberTier(8, new Cost("DIAMOND", 5)),
+            new MemberTier(9, new Cost("DIAMOND", 6)),
+            new MemberTier(10, new Cost("DIAMOND", 7)),
+            new MemberTier(11, new Cost("DIAMOND", 8)),
+            new MemberTier(12, new Cost("DIAMOND", 10)),
+            new MemberTier(13, new Cost("DIAMOND", 12)),
+            new MemberTier(14, new Cost("DIAMOND", 14)),
+            new MemberTier(15, new Cost("DIAMOND", 16)),
+            new MemberTier(16, new Cost("DIAMOND_BLOCK", 2)),
+            new MemberTier(17, new Cost("DIAMOND_BLOCK", 3)),
+            new MemberTier(18, new Cost("DIAMOND_BLOCK", 4)),
+            new MemberTier(19, new Cost("DIAMOND_BLOCK", 5)),
+            new MemberTier(20, new Cost("DIAMOND_BLOCK", 6)),
+            new MemberTier(21, new Cost("DIAMOND_BLOCK", 7)),
+            new MemberTier(22, new Cost("NETHERITE_INGOT", 6)),
+            new MemberTier(23, new Cost("NETHERITE_INGOT", 7)),
+            new MemberTier(24, new Cost("NETHERITE_INGOT", 8)),
+            new MemberTier(25, new Cost("NETHERITE_INGOT", 10))
     );
 
     /** One rung of the roster ladder. */

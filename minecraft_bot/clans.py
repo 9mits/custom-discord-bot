@@ -86,15 +86,32 @@ BADGES: dict[int, str] = {
 
 STARTING_MEMBER_SLOTS = 3
 
-#: Roster upgrades as (slots, material, amount). Diamonds then netherite, each step
-#: dearer than the last; the plugin enforces the same ladder.
+#: Roster upgrades as (slots, material, amount), one member at a time. Diamonds,
+#: then diamond blocks, then netherite, each step dearer than the last; the plugin
+#: enforces the same ladder.
 MEMBER_TIERS: tuple[tuple[int, str, int], ...] = (
-    (5, "DIAMOND", 32),
-    (8, "DIAMOND_BLOCK", 8),
-    (12, "NETHERITE_INGOT", 12),
-    (16, "NETHERITE_INGOT", 18),
-    (20, "NETHERITE_INGOT", 24),
-    (25, "NETHERITE_INGOT", 30),
+    (4, "DIAMOND", 1),
+    (5, "DIAMOND", 2),
+    (6, "DIAMOND", 3),
+    (7, "DIAMOND", 4),
+    (8, "DIAMOND", 5),
+    (9, "DIAMOND", 6),
+    (10, "DIAMOND", 7),
+    (11, "DIAMOND", 8),
+    (12, "DIAMOND", 10),
+    (13, "DIAMOND", 12),
+    (14, "DIAMOND", 14),
+    (15, "DIAMOND", 16),
+    (16, "DIAMOND_BLOCK", 2),
+    (17, "DIAMOND_BLOCK", 3),
+    (18, "DIAMOND_BLOCK", 4),
+    (19, "DIAMOND_BLOCK", 5),
+    (20, "DIAMOND_BLOCK", 6),
+    (21, "DIAMOND_BLOCK", 7),
+    (22, "NETHERITE_INGOT", 6),
+    (23, "NETHERITE_INGOT", 7),
+    (24, "NETHERITE_INGOT", 8),
+    (25, "NETHERITE_INGOT", 10),
 )
 
 MAX_MEMBER_SLOTS = MEMBER_TIERS[-1][0]

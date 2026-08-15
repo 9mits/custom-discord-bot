@@ -397,12 +397,18 @@ def clans_levels_embed(settings=None) -> discord.Embed:
 
 def clans_members_embed(settings=None) -> discord.Embed:
     """The roster ladder, which is the other thing a balance buys."""
+    # Twenty-two rungs would be twenty-two fields, which overruns what an embed can
+    # hold and reads as a wall besides. Grouped by material instead, which is also
+    # how the cost actually escalates.
+    grouped: dict[str, list[str]] = {}
+    for slots, material, amount in clans.MEMBER_TIERS:
+        grouped.setdefault(material, []).append(f"**{slots}** — {amount}")
     rungs = [
         (
-            f"{slots} members",
-            f"> Costs {amount}x {clans.readable_material(material)}",
+            f"Slots priced in {clans.readable_material(material)}",
+            "> " + "  ·  ".join(entries),
         )
-        for slots, material, amount in clans.MEMBER_TIERS
+        for material, entries in grouped.items()
     ]
     return _page(
         "Clans — Roster",
@@ -413,8 +419,12 @@ def clans_members_embed(settings=None) -> discord.Embed:
                 "How it works",
                 "> `/clans upgrade` — leader only; the roster track sits beside the "
                 "level track\n"
+                "> **One member at a time**, so the next slot is always in reach\n"
                 f"> Every slot up to **{clans.MAX_MEMBER_SLOTS}** has to be earned\n"
-                "> Invites are refused once the roster is full",
+                "> Invites are refused once the roster is full\n"
+                "> \n"
+                "> Read as **roster size — cost**. The first few are pocket change; "
+                "the last ones are not.",
             ),
             *rungs,
         ],

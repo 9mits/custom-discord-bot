@@ -92,20 +92,35 @@ class ClanLevelTest {
     }
 
     @Test
-    void theRosterLadderStartsAtThreeAndEndsAtThirtyNetheriteIngots() {
+    void theRosterLadderBuysOneMemberAtATime() {
         assertEquals(3, ClanLevel.STARTING_MEMBER_SLOTS);
         assertEquals(25, ClanLevel.maxMemberSlots());
+        // Every slot between the start and the cap is its own purchase, so there are
+        // no jumps a clan pays for but cannot use.
+        assertEquals(25 - 3, ClanLevel.MEMBER_TIERS.size());
 
-        ClanLevel.MemberTier last = ClanLevel.MEMBER_TIERS.get(ClanLevel.MEMBER_TIERS.size() - 1);
-        assertEquals("NETHERITE_INGOT", last.cost().material());
-        assertEquals(30, last.cost().amount());
-
-        // Diamonds then netherite, and nothing else.
+        int expected = ClanLevel.STARTING_MEMBER_SLOTS + 1;
         for (ClanLevel.MemberTier tier : ClanLevel.MEMBER_TIERS) {
+            assertEquals(expected++, tier.slots(), "the ladder skips a roster size");
             assertTrue(tier.cost().material().startsWith("DIAMOND")
                             || tier.cost().material().startsWith("NETHERITE"),
                     tier.cost().material() + " is neither diamond nor netherite");
         }
+    }
+
+    @Test
+    void theFirstRosterSlotsAreCheapEnoughToBuyOnDayOne() {
+        // A clan that cannot grow past three without a netherite budget is a clan
+        // nobody bothers founding.
+        ClanLevel.MemberTier first = ClanLevel.MEMBER_TIERS.get(0);
+        assertEquals("DIAMOND", first.cost().material());
+        assertTrue(first.cost().amount() <= 4, "the first slot costs " + first.cost().amount());
+
+        long wholeLadder = ClanLevel.MEMBER_TIERS.stream()
+                .mapToLong(tier -> (long) WealthValues.valueOf(tier.cost().material())
+                        * tier.cost().amount())
+                .sum();
+        assertTrue(wholeLadder < 7_000, "the whole roster ladder costs " + wholeLadder);
     }
 
     @Test
@@ -118,7 +133,9 @@ class ClanLevelTest {
             assertTrue(ClanLevel.isValidSlotCount(slots));
         }
         assertTrue(ClanLevel.nextMemberTier(ClanLevel.MEMBER_TIERS.size()).isEmpty());
-        assertFalse(ClanLevel.isValidSlotCount(4));
+        // Every size from the start to the cap is reachable; nothing outside it is.
+        assertFalse(ClanLevel.isValidSlotCount(ClanLevel.STARTING_MEMBER_SLOTS - 1));
+        assertFalse(ClanLevel.isValidSlotCount(ClanLevel.maxMemberSlots() + 1));
     }
 
     @Test
@@ -127,8 +144,10 @@ class ClanLevelTest {
         // down to 3 would strand members who are already inside.
         assertEquals(3, ClanLevel.smallestSlotCountHolding(1));
         assertEquals(3, ClanLevel.smallestSlotCountHolding(3));
-        assertEquals(5, ClanLevel.smallestSlotCountHolding(4));
-        assertEquals(8, ClanLevel.smallestSlotCountHolding(7));
+        // Every roster size is on the ladder now, so a migrated clan lands exactly on
+        // its own head count rather than being rounded up to the next rung.
+        assertEquals(4, ClanLevel.smallestSlotCountHolding(4));
+        assertEquals(7, ClanLevel.smallestSlotCountHolding(7));
         assertEquals(25, ClanLevel.smallestSlotCountHolding(25));
         for (int members = 1; members <= 25; members++) {
             assertTrue(ClanLevel.smallestSlotCountHolding(members) >= members,
