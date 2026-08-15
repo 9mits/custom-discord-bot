@@ -237,7 +237,8 @@ SERVER_FEATURES: tuple[tuple[str, str], ...] = (
 )
 
 
-def application_embeds() -> list[discord.Embed]:
+def application_welcome_embed() -> discord.Embed:
+    """What the server is. The first thing anybody sees, so it sells nothing else."""
     welcome = _panel_embed(
         "Welcome to Mysterious SMP X",
         "**Mysterious Girlfriend X Discord, in partnership with r/MysteriousGirlfriendX.**\n\n"
@@ -258,7 +259,46 @@ def application_embeds() -> list[discord.Embed]:
         inline=False,
     )
     welcome.set_image(url=LOGO_ATTACHMENT_URI)
-    apply = _panel_embed(
+    return welcome
+
+
+def application_guide_embed() -> discord.Embed:
+    """The questions worth answering before deciding to apply.
+
+    Built like the information panel, and reading from the same pages, but only the
+    ones that matter to somebody who has not joined yet. How to use the commands,
+    run a clan or link a second account are all things to learn afterwards, and put
+    in front of an applicant they are a manual for a server they cannot enter.
+    """
+    embed = _panel_embed(
+        "Before You Apply",
+        "Worth knowing before you decide. Every button answers privately, so "
+        "nothing here fills the channel.",
+    )
+    embed.add_field(
+        name="Can I play on my version?",
+        value=(
+            f"> **Java** — {JAVA_SUPPORTED_RANGE}\n"
+            "> **Bedrock** — any current version, on phone, console or Windows\n"
+            f"> The server runs **{SERVER_VERSION}** and translates in both "
+            "directions, so join on whatever you already play."
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="Read the rules first",
+        value=(
+            "> You accept them as part of applying, and they are what staff "
+            "enforce once you are in."
+        ),
+        inline=False,
+    )
+    return embed
+
+
+def application_apply_embed() -> discord.Embed:
+    """The step-by-step, kept on its own message so the button stands alone."""
+    return _panel_embed(
         "Apply to Mysterious SMP X",
         "Applying takes a few minutes and is completed entirely within Discord.\n\n"
         "**How it works**\n"
@@ -271,7 +311,6 @@ def application_embeds() -> list[discord.Embed]:
         "> Enable direct messages from server members so the bot can reach you.\n"
         "> Entered the wrong username? Press **Apply** again to cancel privately.",
     )
-    return [welcome, apply]
 
 
 #: Each rule as (heading, body). Held as data so the reference panel and the
@@ -413,11 +452,25 @@ def rules_embed(*, agreement: bool = False) -> discord.Embed:
 
 
 def application_panel() -> discord.ui.View:
-    from .ui import ApplyButton, RulesButton
+    """Just Apply. The reading lives on its own message above this one."""
+    from .ui import ApplyButton
 
     view = discord.ui.View(timeout=None)
     view.add_item(ApplyButton())
-    view.add_item(RulesButton())
+    return view
+
+
+def application_guide_view() -> discord.ui.View:
+    """The pre-join reading, as the same buttons the information panel uses.
+
+    Imported here rather than at module scope because `information` reads its embeds
+    back out of this module.
+    """
+    from .information import PRE_JOIN_PAGES, InformationButton
+
+    view = discord.ui.View(timeout=None)
+    for page in PRE_JOIN_PAGES:
+        view.add_item(InformationButton(page))
     return view
 
 

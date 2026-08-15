@@ -117,24 +117,6 @@ class ApplyButton(discord.ui.Button):
         )
 
 
-class RulesButton(discord.ui.Button):
-    def __init__(self) -> None:
-        super().__init__(
-            label="Rules",
-            style=discord.ButtonStyle.secondary,
-            custom_id="minecraft:application:rules",
-        )
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        if not await _validate_application_panel(interaction):
-            return
-        await interaction.response.send_message(
-            **branded_send(rules_embed()),
-            file=rules_image_file(),
-            ephemeral=True,
-        )
-
-
 class RulesAgreementView(discord.ui.View):
     def __init__(self, requester_id: int) -> None:
         super().__init__(timeout=300)
