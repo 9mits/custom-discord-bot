@@ -48,6 +48,3 @@ permissions:
   mgxaccessbridge.admin:
     description: Allows rank holds and administrative data resets.
     default: op
-  mgxaccessbridge.maintenance.bypass:
-    description: Allows joining while the server is held closed before launch.
-    default: op

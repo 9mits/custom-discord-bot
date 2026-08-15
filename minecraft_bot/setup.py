@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import logging
-from contextlib import suppress
 from dataclasses import dataclass
 from typing import Optional
 
 import discord
 
-from .presentation import BRAND_NAME, THEME_COLOUR, branded_edit, branded_send, info_embed
+from .presentation import BRAND_NAME, THEME_COLOUR, branded_send, info_embed
 
 
 logger = logging.getLogger("MinecraftAccessBot.Setup")
@@ -227,9 +226,8 @@ class MinecraftRoleSelect(discord.ui.RoleSelect):
 
 
 class MinecraftAddressModal(discord.ui.Modal):
-    def __init__(self, source_interaction: discord.Interaction, view: "MinecraftSetupView") -> None:
+    def __init__(self, view: "MinecraftSetupView") -> None:
         super().__init__(title="Edit Minecraft Addresses", timeout=300)
-        self.source_interaction = source_interaction
         self.setup_view = view
         settings = view.bot.settings
         self.java_address = discord.ui.TextInput(
@@ -283,25 +281,29 @@ class MinecraftAddressModal(discord.ui.Modal):
                 ephemeral=True,
             )
             return
-        await interaction.response.defer(ephemeral=True)
+        # The modal was opened from a button on the dashboard, so this response
+        # updates the dashboard itself — which is how it gets to show the new
+        # addresses. The confirmation has to be a separate reply: the dashboard is a
+        # Components V2 message, and Discord refuses to put an embed on one.
+        await interaction.response.defer()
         await self.setup_view.bot.update_settings(actor_id=interaction.user.id, **updates)
-        with suppress(discord.HTTPException):
-            await self.source_interaction.edit_original_response(
-                view=MinecraftSetupView(
-                    self.setup_view.bot,
-                    self.setup_view.requester_id,
-                    interaction.guild,
-                )
-            )
         await interaction.edit_original_response(
-            **branded_edit(
+            view=MinecraftSetupView(
+                self.setup_view.bot,
+                self.setup_view.requester_id,
+                interaction.guild,
+            )
+        )
+        await interaction.followup.send(
+            **branded_send(
                 info_embed(
                     "Addresses Updated",
                     "> The Java and Bedrock connection addresses were validated and saved.\n\n"
                     "New applicant instructions will use these values immediately.",
                     success=True,
                 )
-            )
+            ),
+            ephemeral=True,
         )
 
     async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:
@@ -330,7 +332,7 @@ class MinecraftSetupAction(discord.ui.Button):
         if not isinstance(view, MinecraftSetupView):
             return
         if self.action == "addresses":
-            await interaction.response.send_modal(MinecraftAddressModal(interaction, view))
+            await interaction.response.send_modal(MinecraftAddressModal(view))
             return
         if self.action in {"information", "leaderboard"}:
             channel = interaction.channel
@@ -376,17 +378,24 @@ class MinecraftSetupAction(discord.ui.Button):
                 ephemeral=True,
             )
             return
+        # Same reason as the address modal: the outcome cannot be written onto the
+        # dashboard, because Discord will not put an embed on a Components V2
+        # message. The dashboard is refreshed in place instead, so the Post button
+        # reflects whatever the new state is, and the outcome arrives beside it.
         await interaction.response.defer()
         try:
             message = await view.bot.post_application_panel()
         except RuntimeError as exc:
-            await interaction.edit_original_response(
-                **branded_edit(info_embed("Panel Not Posted", f"> {exc}", error=True)),
-                view=None,
+            await interaction.followup.send(
+                **branded_send(info_embed("Panel Not Posted", f"> {exc}", error=True)),
+                ephemeral=True,
             )
             return
         await interaction.edit_original_response(
-            **branded_edit(
+            view=MinecraftSetupView(view.bot, view.requester_id, interaction.guild)
+        )
+        await interaction.followup.send(
+            **branded_send(
                 info_embed(
                     "Application Panel Ready",
                     f"> The latest application panel is available in {message.channel.mention}.\n\n"
@@ -394,7 +403,7 @@ class MinecraftSetupAction(discord.ui.Button):
                     success=True,
                 )
             ),
-            view=None,
+            ephemeral=True,
         )
 
 

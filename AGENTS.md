@@ -194,18 +194,25 @@ Read the relevant file when you touch an area; these are the non-obvious points.
   it alone. Never collapse the last two — clearing on any empty value drops
   every player's name the first time a Discord lookup fails. `link_known`
   controls which is sent, mirroring `rank_known` for LuckPerms groups.
-- **Maintenance mode** (`/mcadmin maintenance`) is a pre-launch hold, not a
-  whitelist change: applications, verification and acceptance all carry on, and
-  Paper refuses the login instead. Enforced in the plugin at
-  `EventPriority.HIGHEST`, judged on the **final** login result: Floodgate
-  re-allows Bedrock players after the vanilla whitelist has refused them, so a
-  handler reading the result earlier sees `KICK_WHITELIST`, leaves it alone, and
-  lets Floodgate wave them through the hold. A `KICK_WHITELIST` result is still
-  left untouched, so verification works against a closed server. A join handler
-  kicks anyone who reaches the world regardless, since the login refusal depends
-  on other plugins leaving the result alone. Paper persists the flag itself, because it accepts
+- **Maintenance mode** (`/mcadmin maintenance`) closes the server to everybody —
+  staff, operators and already-whitelisted players, Java and Bedrock alike. There
+  is deliberately **no bypass permission**: one that defaulted to `op` covered
+  every operator silently, so the hold looked enabled while the people testing it
+  walked straight in. Nothing in Discord branches on the flag either; the plugin
+  states the closure on its own kick screen, where it is true at the moment it is
+  read. Applications, verification and acceptance all carry on regardless.
+  Enforced in `MGXAccessBridge.onPlayerLogin` at `EventPriority.HIGHEST`, which
+  runs after Floodgate has re-allowed whitelisted Bedrock players. Verification is
+  matched **before** the hold is applied and never needed the login to succeed —
+  an applicant is turned away either way and only the wording differs — which is
+  what lets a closed server still verify accounts. The refusal rewrites the result
+  to `KICK_OTHER`: leaving `KICK_WHITELIST` in place is what let Floodgate's
+  whitelist fixer wave Bedrock logins through. A join handler kicks anyone who
+  reaches the world regardless, since the login refusal depends on other plugins
+  leaving the result alone. Paper persists the flag itself, because it accepts
   logins before the bridge connects; the bot restates it on connect so Discord
-  stays the authority.
+  stays the authority. If the bot is unreachable, delete
+  `plugins/MGXAccessBridge/maintenance.flag` and restart.
 - **Resetting data is two commands, one per side.** `/mgxadmin reset all
   confirm` (in game) clears what Paper keeps; `/mcadmin wipe` (Discord, owner
   only) clears the bot's SQLite. Neither can reach the other's data, so a full

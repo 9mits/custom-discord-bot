@@ -569,12 +569,13 @@ class MinecraftBridgeServer:
         )
 
     async def send_maintenance(self, enabled: bool) -> bool:
-        """Opens or closes the server to everyone who is not exempt.
+        """Opens or closes the server to everybody, with no exemption.
 
-        Verification is unaffected: a player joining to verify is refused by the
-        whitelist before this is consulted, and that refusal is what the plugin
-        turns into a verification. So a closed server still lets people prove an
-        account, which is the whole point of holding it closed before launch.
+        Verification is unaffected: a player joining to verify is turned away in
+        either case, so the plugin reads their account and queues the verification
+        before the hold rewrites what they see. That is what lets a closed server
+        still prove accounts, which is the whole point of holding it closed
+        before launch.
         """
         if not self.supports_maintenance:
             return False

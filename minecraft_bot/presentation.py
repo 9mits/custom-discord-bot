@@ -750,21 +750,12 @@ def live_status_embed(application: MinecraftApplication, settings) -> discord.Em
             "direct message once it is ready."
         )
     elif status is ApplicationStatus.APPROVED:
-        if getattr(settings, "maintenance_mode", False):
-            title = "Application Approved"
-            body = (
-                "> Your application has been approved and your place is reserved.\n"
-                "> The server has not opened yet, so it cannot be joined for now.\n"
-                "\n"
-                "> You will be notified here as soon as it opens."
-            )
-        else:
-            title = "Access Granted"
-            body = (
-                "> Your access is active and the server is open.\n"
-                "> Connect using the address for your edition below."
-            )
-            show_connection = True
+        title = "Access Granted"
+        body = (
+            "> Your access is active.\n"
+            "> Connect using the address for your edition below."
+        )
+        show_connection = True
     elif status is ApplicationStatus.DENIED:
         title = "Application Declined"
         reason = application.applicant_reason or "No reason was provided."
@@ -825,19 +816,11 @@ def denial_embed(application: MinecraftApplication) -> discord.Embed:
 
 
 def approval_embed(settings) -> discord.Embed:
-    # Telling somebody their access is active while the server is holding every
-    # login would read as a broken promise the moment they tried it.
-    if getattr(settings, "maintenance_mode", False):
-        return info_embed(
-            "Application Approved",
-            "> Your Minecraft application has been approved and your place is "
-            "reserved.\n"
-            "> The server has not opened yet, so it cannot be joined for now. "
-            "There is nothing wrong with your account.\n"
-            "\n"
-            "> You will be notified here as soon as it opens.",
-            success=True,
-        )
+    # Deliberately says nothing about a maintenance hold. It used to, and promised
+    # a "you will be notified when it opens" message that nothing ever sent — and
+    # a hold can be lifted minutes after the DM, which left the wrong copy sitting
+    # in somebody's inbox for good. The server states its own closure, on the kick
+    # screen, at the moment it is true.
     return info_embed(
         "Application Approved",
         "> Your Minecraft application has been approved and your access is now "

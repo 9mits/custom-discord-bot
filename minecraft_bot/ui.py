@@ -81,7 +81,9 @@ class ApplyButton(discord.ui.Button):
         if active is not None:
             if active.status is ApplicationStatus.PENDING_APPLICATION:
                 # The account is verified; pressing Apply continues straight into
-                # the written form rather than showing a status card first.
+                # the written form rather than showing a status card first. The
+                # answer becomes a new card rather than editing this message, which
+                # is the public panel — updating it would rewrite it for everybody.
                 await interaction.response.send_modal(ApplicationQuestionsModal(active.id))
                 return
             pending_verification = active.status is ApplicationStatus.PENDING_VERIFICATION
@@ -417,12 +419,32 @@ class ApplicationQuestionsModal(discord.ui.Modal, title="Mysterious SMP X Applic
         max_length=1000,
     )
 
-    def __init__(self, application_id: int) -> None:
+    def __init__(self, application_id: int, *, edits_card: bool = False) -> None:
         super().__init__(timeout=600, custom_id=f"minecraft:application:answers:{application_id}")
         self.application_id = int(application_id)
+        # True when the modal was opened from the applicant's own card, which is the
+        # message this interaction may update. False when it was opened from the
+        # public application panel, where an update would rewrite the panel itself.
+        self.edits_card = bool(edits_card)
+
+    async def _refuse(self, interaction: discord.Interaction, title: str, detail: str) -> None:
+        """Reports a refusal without taking the card down with it."""
+        embed = info_embed(title, f"> {detail}", error=True)
+        if self.edits_card:
+            await interaction.followup.send(**branded_send(embed), ephemeral=True)
+            return
+        await interaction.edit_original_response(**branded_edit(embed))
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        # Deferring a *message update* keeps the whole submission on the card the
+        # applicant is already looking at. Answering into a fresh reply instead left
+        # two identical "Application Sent" cards on screen — the card the background
+        # refresh had just rewritten, and this reply — and the older one was then
+        # deleted from under them.
+        if self.edits_card:
+            await interaction.response.defer()
+        else:
+            await interaction.response.defer(ephemeral=True, thinking=True)
         bot = interaction.client
         try:
             application = await bot.data.submit_answers(
@@ -432,14 +454,10 @@ class ApplicationQuestionsModal(discord.ui.Modal, title="Mysterious SMP X Applic
                 about=str(self.about),
             )
         except InvalidTransition as exc:
-            await interaction.edit_original_response(
-                **branded_edit(info_embed("Application Not Submitted", f"> {exc}", error=True)),
-            )
+            await self._refuse(interaction, "Application Not Submitted", str(exc))
             return
         except ValueError as exc:
-            await interaction.edit_original_response(
-                **branded_edit(info_embed("Application Invalid", f"> {exc}", error=True)),
-            )
+            await self._refuse(interaction, "Application Invalid", str(exc))
             return
         bot.spawn_background_task(
             bot.finish_answers_submission(application),
@@ -447,12 +465,12 @@ class ApplicationQuestionsModal(discord.ui.Modal, title="Mysterious SMP X Applic
         )
         await interaction.edit_original_response(
             **branded_edit(live_status_embed(application, bot.settings)),
+            attachments=application_card_files(application),
             view=application_card_view(application.status),
         )
-        # This reply becomes the application's card. The one the applicant was
-        # already looking at is retired, because otherwise submitting the form left
-        # two cards on screen describing the same application, both being edited by
-        # the background refresh that follows.
+        # Either the card was updated in place, in which case this re-binds it to
+        # this interaction's fresher token and buys another editable quarter hour,
+        # or the reply is a new card and the one it replaced is retired.
         await bot.replace_application_card(
             application.id, await interaction.original_response()
         )
@@ -501,7 +519,10 @@ class ContinueApplicationButton(
                 ephemeral=True,
             )
             return
-        await interaction.response.send_modal(ApplicationQuestionsModal(active.id))
+        # Opened from the card this button lives on, so the answer edits it in place.
+        await interaction.response.send_modal(
+            ApplicationQuestionsModal(active.id, edits_card=True)
+        )
 
 
 def continue_application_view() -> discord.ui.View:
@@ -595,8 +616,12 @@ class LiveApplicationView(discord.ui.View):
         Persistent, so it acts on whoever pressed it rather than on a member id
         captured when the card was drawn — the card outlives the interaction that
         created it, and a captured id would be wrong after a restart.
+
+        The outcome is written onto the card itself. Cancelling drops the card out
+        of the refresh table, so a separate reply would have left the dead card on
+        screen still offering to verify an application that no longer exists.
         """
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        await interaction.response.defer()
         bot = interaction.client
         try:
             await bot.cancel_pending_verification(
@@ -604,8 +629,11 @@ class LiveApplicationView(discord.ui.View):
                 discord_user_id=interaction.user.id,
             )
         except InvalidTransition as exc:
-            await interaction.edit_original_response(
-                **branded_edit(info_embed("Nothing to Cancel", f"> {exc}", error=True)),
+            # Nothing was cancelled, so the card still describes something real and
+            # is left exactly as it is.
+            await interaction.followup.send(
+                **branded_send(info_embed("Nothing to Cancel", f"> {exc}", error=True)),
+                ephemeral=True,
             )
             return
         await interaction.edit_original_response(
@@ -618,6 +646,9 @@ class LiveApplicationView(discord.ui.View):
                     success=True,
                 )
             ),
+            # The verify screenshot goes with it; the embed no longer points at it.
+            attachments=[],
+            view=None,
         )
 
     @discord.ui.button(
