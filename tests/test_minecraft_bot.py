@@ -908,10 +908,12 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             guide_ids,
             {
-                "mgx_info:rules",
-                "mgx_info:versions",
-                "mgx_info:mods",
-                "mgx_info:boosting",
+                "mgx_about:clans",
+                "mgx_about:travel",
+                "mgx_about:levels",
+                "mgx_about:social",
+                "mgx_about:world",
+                "mgx_about:rules",
             },
         )
         for call in channel.send.await_args_list:
@@ -2734,36 +2736,15 @@ class MinecraftInformationPanelTests(unittest.TestCase):
         self.assertIn("in partnership with", application_welcome_embed().description)
 
 
-class PreJoinInformationTests(unittest.TestCase):
-    """The application channel is read by people who cannot join yet.
+class AboutPanelTests(unittest.TestCase):
+    """The application channel explains; the information panel teaches.
 
-    Anything that only means something once somebody is playing belongs in the
-    information panel they get after acceptance, not in front of an applicant.
+    Somebody reading these pages cannot join yet, so a command is no use to them
+    and a page full of them reads as homework rather than an invitation.
     """
 
-    def test_every_pre_join_page_is_a_real_information_page(self):
-        from minecraft_bot.information import PAGES, PRE_JOIN_PAGES
-
-        for page in PRE_JOIN_PAGES:
-            with self.subTest(page=page):
-                self.assertIn(page, PAGES)
-
-    def test_the_in_game_pages_are_deliberately_left_out(self):
-        from minecraft_bot.information import PRE_JOIN_PAGES
-
-        # Commands and clan management are how to play, not whether to apply.
-        self.assertNotIn("commands", PRE_JOIN_PAGES)
-        self.assertNotIn("clans", PRE_JOIN_PAGES)
-        # Levels reads well but its page tells you to run /perks.
-        self.assertNotIn("levels", PRE_JOIN_PAGES)
-
-    def test_the_applicant_panel_never_shows_a_slash_command(self):
-        from minecraft_bot.information import PAGES, PRE_JOIN_PAGES
-        from minecraft_bot.presentation import (
-            application_apply_embed,
-            application_guide_embed,
-            application_welcome_embed,
-        )
+    def pages(self):
+        from minecraft_bot.about import ABOUT_PAGES
 
         settings = SimpleNamespace(
             java_address="java.example",
@@ -2771,36 +2752,81 @@ class PreJoinInformationTests(unittest.TestCase):
             bedrock_port=19132,
             application_channel_id=5,
         )
-        embeds = [
+        return {key: builder(settings) for key, (_label, builder) in ABOUT_PAGES.items()}
+
+    def text_of(self, embed):
+        return " ".join(
+            [embed.title or "", embed.description or ""]
+            + [f"{field.name} {field.value}" for field in embed.fields]
+        )
+
+    def test_no_explainer_page_names_a_command(self):
+        from minecraft_bot.presentation import (
+            application_apply_embed,
+            application_guide_embed,
+            application_welcome_embed,
+        )
+
+        embeds = list(self.pages().values()) + [
             application_welcome_embed(),
             application_guide_embed(),
             application_apply_embed(),
         ]
-        embeds.extend(PAGES[page][1](settings) for page in PRE_JOIN_PAGES)
 
         for embed in embeds:
-            text = " ".join(
-                [embed.title or "", embed.description or ""]
-                + [f"{field.name} {field.value}" for field in embed.fields]
-            )
             with self.subTest(embed=embed.title):
-                # "/home", "/clans", "/tpa" and friends: nothing an applicant can
-                # run before they are accepted.
-                self.assertNotRegex(text, r"`/[a-z]")
+                self.assertNotRegex(self.text_of(embed), r"`/[a-z]")
 
-    def test_the_guide_answers_the_questions_asked_before_applying(self):
-        from minecraft_bot.presentation import (
-            JAVA_SUPPORTED_RANGE,
-            SERVER_VERSION,
-            application_guide_embed,
-        )
+    def test_the_mechanics_people_ask_about_are_explained(self):
+        pages = self.pages()
 
-        embed = application_guide_embed()
-        text = " ".join(f"{field.name} {field.value}" for field in embed.fields)
+        clans = self.text_of(pages["clans"]).lower()
+        self.assertIn("clan", clans)
+        self.assertIn("cannot hurt each other", clans)
 
-        self.assertIn(JAVA_SUPPORTED_RANGE, text)
-        self.assertIn(SERVER_VERSION, text)
-        self.assertIn("rules", text.lower())
+        travel = self.text_of(pages["travel"]).lower()
+        for mechanic in ("home", "teleport", "warp"):
+            with self.subTest(mechanic=mechanic):
+                self.assertIn(mechanic, travel)
+
+        levels = self.text_of(pages["levels"]).lower()
+        self.assertIn("heart", levels)
+        self.assertIn("boost", levels)
+
+    def test_figures_are_quoted_from_what_the_game_enforces(self):
+        # Copy that promises a level or a roster size the server does not offer is
+        # worse than copy that omits the number.
+        from minecraft_bot import clans as clan_rules
+        from minecraft_bot.information import CLAN_MAX_MEMBERS, DEFAULT_HOME_LIMIT
+
+        clans_text = self.text_of(self.pages()["clans"])
+        travel_text = self.text_of(self.pages()["travel"])
+
+        self.assertIn(str(clan_rules.MAX_PUBLIC_LEVEL), clans_text)
+        self.assertIn(str(clan_rules.STARTING_MEMBER_SLOTS), clans_text)
+        self.assertIn(str(CLAN_MAX_MEMBERS), clans_text)
+        self.assertIn(str(DEFAULT_HOME_LIMIT), travel_text)
+
+    def test_the_secret_clan_level_is_never_advertised(self):
+        from minecraft_bot import clans as clan_rules
+
+        self.assertNotIn(str(clan_rules.SECRET_LEVEL), self.text_of(self.pages()["clans"]))
+
+    def test_rules_are_the_one_page_shared_with_the_information_panel(self):
+        # Applicants agree to the rules as part of applying, so a second copy could
+        # only drift from the one staff actually enforce.
+        from minecraft_bot.about import ABOUT_PAGES
+        from minecraft_bot.presentation import rules_embed
+
+        self.assertEqual(ABOUT_PAGES["rules"][1](None).title, rules_embed().title)
+
+    def test_every_button_has_a_page_behind_it(self):
+        from minecraft_bot.about import ABOUT_PAGES
+        from minecraft_bot.presentation import application_guide_view
+
+        for item in application_guide_view().children:
+            with self.subTest(button=item.custom_id):
+                self.assertIn(item.custom_id.split(":", 1)[1], ABOUT_PAGES)
 
 
 class ApplicationCardReplacementTests(unittest.IsolatedAsyncioTestCase):

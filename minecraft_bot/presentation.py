@@ -263,17 +263,19 @@ def application_welcome_embed() -> discord.Embed:
 
 
 def application_guide_embed() -> discord.Embed:
-    """The questions worth answering before deciding to apply.
+    """What the server is actually like, for somebody deciding whether to apply.
 
-    Built like the information panel, and reading from the same pages, but only the
-    ones that matter to somebody who has not joined yet. How to use the commands,
-    run a clan or link a second account are all things to learn afterwards, and put
-    in front of an applicant they are a manual for a server they cannot enter.
+    Laid out like the information panel so the two feel like one product, but they
+    answer different questions. Information *teaches* accepted members how to play —
+    commands, limits, costs. This *explains*: what a clan is for, that you can save
+    places and travel to friends, what levelling earns you. The pages behind these
+    buttons live in `about.py` and never name a command, because a command is no use
+    to somebody who cannot join yet.
     """
     embed = _panel_embed(
         "Before You Apply",
-        "Worth knowing before you decide. Every button answers privately, so "
-        "nothing here fills the channel.",
+        "What playing here is actually like. Every button answers privately, so "
+        "nothing fills the channel.",
     )
     embed.add_field(
         name="Can I play on my version?",
@@ -461,16 +463,16 @@ def application_panel() -> discord.ui.View:
 
 
 def application_guide_view() -> discord.ui.View:
-    """The pre-join reading, as the same buttons the information panel uses.
+    """One button per explainer page.
 
-    Imported here rather than at module scope because `information` reads its embeds
-    back out of this module.
+    Imported inside the function because `about` reads its embeds back out of this
+    module, and importing it at module scope would close the loop.
     """
-    from .information import PRE_JOIN_PAGES, InformationButton
+    from .about import ABOUT_PAGES, AboutButton
 
     view = discord.ui.View(timeout=None)
-    for page in PRE_JOIN_PAGES:
-        view.add_item(InformationButton(page))
+    for page in ABOUT_PAGES:
+        view.add_item(AboutButton(page))
     return view
 
 
