@@ -132,8 +132,11 @@ def overview_embed(settings=None) -> discord.Embed:
     # Columns, matching the welcome panel. Each feature names itself, which
     # retires the old "The server" section: its crossplay line is now one of
     # these, and its tagline is the description above.
+    # Not quoted: these are narrow side-by-side columns, and a quote bar inside one
+    # wraps the text to a word or two per line and doubles the height of the panel.
+    # The bar is for full-width blocks, where it separates sections instead.
     for name, line in SERVER_FEATURES:
-        embed.add_field(name=name, value=quote_block(line), inline=True)
+        embed.add_field(name=name, value=line, inline=True)
     embed.add_field(
         name="Client versions",
         value=(

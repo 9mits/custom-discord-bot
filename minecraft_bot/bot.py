@@ -679,17 +679,21 @@ class MinecraftAccessBot(commands.Bot):
             self.data.list_applications_for_user(user_id, limit=1),
         )
         linked = {str(row["edition"]).upper() for row in accounts}
-        panel_hint = (
-            f"<#{self.settings.application_channel_id}>"
-            if self.settings.application_channel_id
-            else "the application channel"
-        )
         if not linked:
+            # Only point at the application channel when this member can actually
+            # open it. Naming a channel they cannot see reads as a dead end, and
+            # somebody without a linked account is exactly the person most likely
+            # not to have been given it yet.
+            where = "Press **Apply** on the application panel to get your first "
+            hint = self._visible_application_channel(user_id)
+            if hint is not None:
+                where = f"Press **Apply** in {hint} to get your first "
             return (
                 info_embed(
                     "No Linked Account Yet",
                     "> Linking a second edition is for members who already play here.\n\n"
-                    f"Press **Apply** in {panel_hint} to get your first account set up.",
+                    + where
+                    + "account set up.",
                 ),
                 None,
             )
@@ -726,6 +730,32 @@ class MinecraftAccessBot(commands.Bot):
             ),
             LinkEditionView(user_id, missing),
         )
+
+    def _visible_application_channel(self, user_id: int | str) -> Optional[str]:
+        """The application channel as a mention, but only if this member can see it.
+
+        A channel mention somebody lacks permission to open renders as a dead link
+        and sends them nowhere, so callers fall back to naming the panel instead.
+        """
+        channel_id = int(getattr(self.settings, "application_channel_id", 0) or 0)
+        if not channel_id:
+            return None
+        guild = self.get_guild(self.config.guild_id)
+        channel = self.get_channel(channel_id) if guild is not None else None
+        member = None
+        if guild is not None:
+            try:
+                member = guild.get_member(int(user_id))
+            except (TypeError, ValueError):
+                member = None
+        if channel is None or member is None:
+            return None
+        try:
+            if not channel.permissions_for(member).view_channel:
+                return None
+        except (AttributeError, TypeError):
+            return None
+        return f"<#{channel_id}>"
 
     async def build_account_embed(self, user_id: int | str) -> discord.Embed:
         accounts, applications = await asyncio.gather(
