@@ -644,6 +644,19 @@ class MinecraftDataManager:
         )
         return [self._application(row) for row in rows]
 
+    async def has_approved_application(self, discord_user_id: int | str) -> bool:
+        """Whether this member holds access that staff granted.
+
+        The same fact `record_verification` checks before linking a second edition
+        outright, so anything that tells somebody they are already accepted can ask
+        rather than infer it from having a linked account.
+        """
+        rows = await self._connection().execute_fetchall(
+            "SELECT 1 FROM minecraft_applications WHERE discord_user_id=? AND status=? LIMIT 1",
+            (str(discord_user_id), ApplicationStatus.APPROVED.value),
+        )
+        return bool(rows)
+
     async def list_applications(
         self,
         *,

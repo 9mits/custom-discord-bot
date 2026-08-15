@@ -33,7 +33,8 @@ async def _validate_application_panel(interaction: discord.Interaction) -> bool:
             **branded_send(
                 info_embed(
                     "Applications Unavailable",
-                    "> Minecraft applications are not available in this Discord server.",
+                    "> Minecraft applications are not available in this Discord "
+                    "server.",
                     error=True,
                 )
             ),
@@ -49,8 +50,9 @@ async def _validate_application_panel(interaction: discord.Interaction) -> bool:
         await interaction.response.send_message(
             **branded_send(
                 info_embed(
-                    "Application Panel Updated",
-                    "> This panel is no longer active. Use the newest panel in the configured application channel.",
+                    "Panel No Longer Active",
+                    "> This application panel has been replaced.\n"
+                    "> Please use the most recent panel in the application channel.",
                     error=True,
                 )
             ),
@@ -105,8 +107,9 @@ class ApplyButton(discord.ui.Button):
             await interaction.response.send_message(
                 **branded_send(
                     info_embed(
-                        "Application Recently Opened",
-                        "> Please wait a few seconds before opening the application form again.",
+                        "Please Wait",
+                        "> The application form was opened moments ago.\n"
+                        "> Please wait a few seconds before opening it again.",
                     )
                 ),
                 ephemeral=True,
@@ -152,8 +155,10 @@ class RulesAgreementView(discord.ui.View):
             **branded_edit(
                 info_embed(
                     "Application Closed",
-                    "> You chose not to accept the server rules, so no application was started.\n\n"
-                    "You may return to the public panel and apply later if you decide to accept them.",
+                    "> The server rules were not accepted, so no application was "
+                    "started.\n"
+                    "> Press **Apply** on the application panel whenever you wish "
+                    "to begin again.",
                 )
             ),
             attachments=[],
@@ -198,8 +203,9 @@ class CancelPendingConfirmationView(discord.ui.View):
             **branded_edit(
                 info_embed(
                     "Verification Cancelled",
-                    "> Your pending Minecraft verification was cancelled successfully.\n\n"
-                    "Return to the application panel and press **Apply** when you are ready to enter the correct username.",
+                    "> Your pending verification has been cancelled.\n"
+                    "> Press **Apply** on the application panel to begin again with "
+                    "the correct account name.",
                     success=True,
                 )
             ),
@@ -280,7 +286,7 @@ class LinkEditionView(discord.ui.View):
         if interaction.user.id == self.requester_id:
             return True
         await interaction.response.send_message(
-            "This belongs to another member.", ephemeral=True
+            "This card belongs to another member.", ephemeral=True
         )
         return False
 
@@ -354,8 +360,10 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
             await edit_card(
                 embed=info_embed(
                     "Application Already Active",
-                    "> You already have an application being verified or reviewed.\n\n"
-                    "If it is still awaiting verification, you can cancel it below and apply again.",
+                    "> An application of yours is already being verified or "
+                    "reviewed.\n"
+                    "> If it is still awaiting verification, it can be cancelled "
+                    "below so that you may apply again.",
                     error=True,
                 ),
                 attachments=[],
@@ -365,9 +373,10 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
         except AccountEditionAlreadyLinked as exc:
             await edit_card(
                 embed=info_embed(
-                    "Minecraft Account Limit Reached",
-                    f"> {exc}.\n\n"
-                    "Each Discord member may link **one Java account and one Bedrock account**.",
+                    "Account Limit Reached",
+                    f"> {exc}.\n"
+                    "> Each Discord account may link **one Java account and one "
+                    "Bedrock account**.",
                     error=True,
                 ),
                 attachments=[],
@@ -486,8 +495,8 @@ class ContinueApplicationButton(
                 **branded_send(
                     info_embed(
                         "Nothing to Continue",
-                        "> There is no application waiting for its written form. "
-                        "Check `/minecraft account` for your current status.",
+                        "> No application of yours is awaiting its written form.\n"
+                        "> Use `/minecraft account` to review your current status.",
                         error=True,
                     )
                 ),
@@ -528,12 +537,23 @@ class SupportConfirmationView(discord.ui.View):
             )
         except OSError:
             await interaction.response.send_message(
-                **branded_send(info_embed("Support Temporarily Unavailable", "> Your request could not be saved. Please try again shortly.", error=True)),
+                **branded_send(info_embed(
+                        "Support Unavailable",
+                        "> Your request could not be saved.\n"
+                        "> Please try again shortly.",
+                        error=True,
+                    )),
                 ephemeral=True,
             )
             return
         await interaction.response.edit_message(
-            **branded_edit(info_embed("Support Requested", "> Your request was saved securely. The support bot will open a normal modmail ticket and notify you by DM.", success=True)),
+            **branded_edit(info_embed(
+                "Support Requested",
+                "> Your request has been recorded.\n"
+                "> A support ticket will be opened and you will be notified by "
+                "direct message.",
+                success=True,
+            )),
             view=None,
         )
 
@@ -556,7 +576,11 @@ class LiveApplicationView(discord.ui.View):
             )
         if application is None or int(application.discord_user_id) != interaction.user.id:
             await interaction.response.send_message(
-                **branded_send(info_embed("Application Unavailable", "> This card is no longer connected to an application.", error=True)),
+                **branded_send(info_embed(
+                    "Application Unavailable",
+                    "> This card is no longer connected to an application.",
+                    error=True,
+                )),
                 ephemeral=True,
             )
             return None
@@ -567,7 +591,12 @@ class LiveApplicationView(discord.ui.View):
         application = await self._application(interaction)
         if application is not None:
             await interaction.response.send_message(
-                **branded_send(info_embed("Open Minecraft Support?", "> This creates a private modmail ticket with your application status attached. Continue?")),
+                **branded_send(info_embed(
+                    "Open a Support Ticket?",
+                    "> A private support ticket will be opened, with your "
+                    "application status attached.\n"
+                    "> Press the button below to confirm.",
+                )),
                 view=SupportConfirmationView(application.id, interaction.user.id),
                 ephemeral=True,
             )

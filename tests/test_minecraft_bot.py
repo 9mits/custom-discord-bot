@@ -699,7 +699,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         # is on screen to carry the news.
         user.send.assert_awaited_once()
         decision_kwargs = user.send.await_args.kwargs
-        self.assertEqual(decision_kwargs["embed"].title, "Minecraft Application Denied")
+        self.assertEqual(decision_kwargs["embed"].title, "Application Declined")
         self.assertEqual(decision_kwargs["embed"].colour.value, ERROR_COLOUR.value)
         self.assertEqual(decision_kwargs["embed"].thumbnail.url, ICON_ATTACHMENT_URI)
         self.assertEqual(decision_kwargs["file"].filename, "mysterious_smp_x_icon.png")
@@ -741,7 +741,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(delivered)
         user.send.assert_awaited_once()
         kwargs = user.send.await_args.kwargs
-        self.assertEqual(kwargs["embed"].title, "Minecraft Application Approved")
+        self.assertEqual(kwargs["embed"].title, "Application Approved")
         self.assertEqual(kwargs["embed"].colour.value, SUCCESS_COLOUR.value)
         self.assertEqual(kwargs["embed"].thumbnail.url, ICON_ATTACHMENT_URI)
         self.assertEqual(kwargs["file"].filename, "mysterious_smp_x_icon.png")
@@ -2805,19 +2805,23 @@ class MaintenanceModeTests(unittest.IsolatedAsyncioTestCase):
     def test_an_approved_member_is_told_the_server_is_shut(self):
         from minecraft_bot.presentation import approval_embed
 
-        closed = approval_embed(SimpleNamespace(maintenance_mode=True))
-        opened = approval_embed(
-            SimpleNamespace(
-                maintenance_mode=False,
-                java_address="j",
-                bedrock_address="b",
-                bedrock_port=1,
-            )
+        # Real-looking addresses: a one-letter host matches inside ordinary words
+        # and would make the "no addresses" assertion below pass for free.
+        addresses = dict(
+            java_address="play.example.net",
+            bedrock_address="bedrock.example.net",
+            bedrock_port=19132,
         )
+        closed = approval_embed(SimpleNamespace(maintenance_mode=True, **addresses))
+        opened = approval_embed(SimpleNamespace(maintenance_mode=False, **addresses))
 
-        self.assertIn("not open yet", closed.description)
-        # And no addresses, which would only invite a login that gets refused.
-        self.assertNotIn("j", closed.description.split("**")[0])
+        self.assertIn("has not opened yet", closed.description)
+        # No addresses while it is held shut: they would only invite a connection
+        # the server is going to refuse.
+        for address in ("play.example.net", "bedrock.example.net", "19132"):
+            with self.subTest(address=address):
+                self.assertNotIn(address, closed.description)
+                self.assertIn(address, opened.description)
         self.assertIn("access is now active", opened.description)
 
 
@@ -2828,15 +2832,35 @@ class LinkEditionPromptTests(unittest.IsolatedAsyncioTestCase):
     them elsewhere for is somewhere they cannot go.
     """
 
-    def _bot(self, *, accounts=(), applications=()):
+    def _bot(self, *, accounts=(), applications=(), approved=True):
         bot = object.__new__(MinecraftAccessBot)
         bot.config = SimpleNamespace(guild_id=1)
         bot.settings = SimpleNamespace(application_channel_id=4242)
         bot.data = SimpleNamespace(
             list_accounts_for_user=AsyncMock(return_value=list(accounts)),
             list_applications_for_user=AsyncMock(return_value=list(applications)),
+            has_approved_application=AsyncMock(return_value=approved),
         )
         return bot
+
+    async def test_acceptance_is_looked_up_rather_than_assumed(self):
+        # Somebody who has never been accepted is told a form and a review follow;
+        # promising them instant access would be untrue, and having a linked
+        # account is not the same fact as holding an approved application.
+        unapproved, _view = await self._bot(approved=False).build_link_edition_prompt(99)
+        accepted, _view = await self._bot(approved=True).build_link_edition_prompt(99)
+
+        self.assertIn("staff review", unapproved.description)
+        self.assertNotIn("staff review", accepted.description)
+
+    async def test_the_steps_are_the_same_three_either_way(self):
+        for accounts in ([], [{"edition": "JAVA"}]):
+            with self.subTest(accounts=accounts):
+                embed, _view = await self._bot(accounts=accounts).build_link_edition_prompt(99)
+
+                for step in ("**1.**", "**2.**", "**3.**"):
+                    self.assertIn(step, embed.description)
+                self.assertIn("disconnected automatically", embed.description)
 
     async def test_a_member_with_nothing_linked_can_link_from_here(self):
         embed, view = await self._bot().build_link_edition_prompt(99)
@@ -3040,6 +3064,78 @@ class ApplyButtonExistingApplicationTests(unittest.IsolatedAsyncioTestCase):
         )
 
 
+class ApplicantVoiceTests(unittest.TestCase):
+    """The applicant-facing copy reads as a server writing to a member.
+
+    Conversational asides — "that is it", "nothing is lost", "whenever you like" —
+    are how it drifted before, so the ones already removed are pinned out.
+    """
+
+    CHATTY = (
+        "that is it",
+        "nothing is lost",
+        "whenever you like",
+        "you are in",
+        "that is expected",
+        "no form, no waiting",
+        "give it a moment",
+    )
+
+    def _every_applicant_embed(self):
+        from types import SimpleNamespace
+
+        from minecraft_bot.presentation import (
+            approval_embed,
+            denial_embed,
+            live_status_embed,
+        )
+
+        settings = SimpleNamespace(
+            java_address="play.example.net",
+            bedrock_address="bedrock.example.net",
+            bedrock_port=19132,
+            maintenance_mode=False,
+        )
+        held = SimpleNamespace(**{**vars(settings), "maintenance_mode": True})
+        for status in ApplicationStatus:
+            application = MinecraftApplication(
+                id=1,
+                guild_id="1",
+                discord_user_id="9",
+                edition=Edition.JAVA,
+                claimed_username="PlayerOne",
+                normalized_username="playerone",
+                answers={},
+                status=status,
+                verification_expires_at=2_000_000_000,
+                verified_username="PlayerOne",
+                created_at=1,
+                updated_at=1,
+                applicant_reason="The application needs more detail.",
+            )
+            yield f"card:{status.value}", live_status_embed(application, settings)
+            yield f"card-held:{status.value}", live_status_embed(application, held)
+            if status is ApplicationStatus.DENIED:
+                yield "dm:denied", denial_embed(application)
+        yield "dm:approved", approval_embed(settings)
+        yield "dm:approved-held", approval_embed(held)
+
+    def test_no_applicant_embed_slips_back_into_chattiness(self):
+        for name, embed in self._every_applicant_embed():
+            described = f"{embed.title} {embed.description}".casefold()
+            for phrase in self.CHATTY:
+                with self.subTest(embed=name, phrase=phrase):
+                    self.assertNotIn(phrase, described)
+
+    def test_every_applicant_embed_leads_with_a_quote(self):
+        for name, embed in self._every_applicant_embed():
+            with self.subTest(embed=name):
+                self.assertTrue(
+                    embed.description.startswith(">"),
+                    f"{name} does not open with a quoted line",
+                )
+
+
 class ApplicationCardCopyTests(unittest.TestCase):
     """The card answers one question: where am I, and what happens next."""
 
@@ -3097,7 +3193,7 @@ class ApplicationCardCopyTests(unittest.TestCase):
             ApplicationStatus.PENDING_VERIFICATION: "Verify Your Account",
             ApplicationStatus.PENDING_APPLICATION: "Account Verified",
             ApplicationStatus.PENDING_REVIEW: "Application Sent",
-            ApplicationStatus.APPROVED: "You Are In",
+            ApplicationStatus.APPROVED: "Access Granted",
         }
         for status, title in expected.items():
             with self.subTest(status=status):
@@ -3163,7 +3259,7 @@ class ApplicationCardCopyTests(unittest.TestCase):
             self._settings(maintenance_mode=True),
         )
 
-        self.assertIn("not open yet", self._text(embed))
+        self.assertIn("has not opened yet", self._text(embed))
         self.assertNotIn("play.example.net", self._text(embed))
 
     def test_every_status_renders(self):
