@@ -280,7 +280,7 @@ SERVER_FEATURES: tuple[tuple[str, str], ...] = (
     ("Levels", "Chatting in Discord earns permanent extra hearts and damage"),
     ("Homes and travel", "Save your spots and teleport to friends"),
     ("Voice chat", "Proximity voice with whoever is standing near you"),
-    ("Leaderboards", "Richest, kills, playtime, blocks mined and distance walked"),
+    ("Leaderboards", "Richest and most kills"),
     ("Crossplay", "Java and Bedrock in one shared world"),
 )
 

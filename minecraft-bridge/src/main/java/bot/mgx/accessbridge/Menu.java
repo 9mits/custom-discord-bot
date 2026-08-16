@@ -27,6 +27,11 @@ final class Menu implements InventoryHolder {
         CLAN_INFO,
         CLAN_MEMBERS,
         CLAN_LIST,
+        LEADERBOARD_HUB,
+        LEADERBOARD_PLAYERS_WEALTH,
+        LEADERBOARD_PLAYERS_KILLS,
+        LEADERBOARD_CLANS,
+        LEADERBOARD_MEMBERS,
         SETTINGS,
         WHITELIST,
         PERKS;

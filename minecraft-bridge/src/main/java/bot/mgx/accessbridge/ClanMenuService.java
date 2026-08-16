@@ -151,9 +151,13 @@ final class ClanMenuService implements Listener {
                     .ifPresent(username -> lore.add("@" + username));
             lore.add(Bukkit.getPlayer(member.getKey()) != null ? "Online now" : "Offline");
             long given = clan.donations().getOrDefault(member.getKey(), 0L);
-            if (given > 0) {
-                lore.add("Donated " + String.format("%,d", given) + " in all.");
-            }
+            lore.add("Donated " + String.format("%,d", given) + ".");
+            Long joined = clan.joinedAt().get(member.getKey());
+            lore.add(joined == null
+                    ? "Joined: unknown"
+                    : "Joined " + java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy")
+                    .withZone(java.time.ZoneId.systemDefault())
+                    .format(java.time.Instant.ofEpochMilli(joined)));
             inventory.setItem(index - first, head(member.getKey(), member.getValue(), lore));
         }
         MenuItems.paginate(inventory, page, roster.size(), back != null);

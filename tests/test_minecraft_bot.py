@@ -1574,8 +1574,8 @@ class MinecraftLeaderboardRenderTests(unittest.TestCase):
         self.assertIn("No standings yet", embed.description)
 
     def test_clan_boards_exclude_per_player_only_types(self):
-        self.assertNotIn("blocks_mined", tuple(self.leaderboard.boards_for("clan")))
-        self.assertIn("blocks_mined", tuple(self.leaderboard.boards_for("individual")))
+        self.assertEqual(tuple(self.leaderboard.boards_for("clan")), ("wealth", "kills"))
+        self.assertEqual(tuple(self.leaderboard.boards_for("individual")), ("wealth", "kills"))
 
     def test_emoji_names_are_discord_safe(self):
         self.assertEqual(self.leaderboard._emoji_name("Not.A-Name!"), "mgx_head_NotAName")
@@ -1891,9 +1891,9 @@ class MinecraftPodiumScopeTests(unittest.TestCase):
 
         podium = self._store()._podium_players(snapshot)
 
-        for uuid in ("rich", "killer", "walker"):
-            with self.subTest(uuid=uuid):
-                self.assertIn(uuid, podium)
+        self.assertIn("rich", podium)
+        self.assertIn("killer", podium)
+        self.assertNotIn("walker", podium)
 
     def test_clan_rows_never_mint_podium_subjects(self):
         # Clans have no picture of their own, so nothing about a clan board should

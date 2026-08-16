@@ -5,6 +5,8 @@ import net.luckperms.api.model.user.User;
 import net.luckperms.api.node.Node;
 import net.luckperms.api.node.NodeType;
 import net.luckperms.api.node.types.InheritanceNode;
+import net.luckperms.api.node.types.PrefixNode;
+import net.luckperms.api.node.types.WeightNode;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.RegisteredServiceProvider;
 
@@ -78,9 +80,29 @@ final class LuckPermsService {
             group.data().add(Node.builder("voicechat.speak").value(true).build());
             group.data().add(Node.builder("voicechat.groups").value(true).build());
             group.data().add(Node.builder("mgx.clans").value(true).build());
-        }).thenRun(() -> plugin.getLogger().info("Default players can use voice chat and clans."))
+            group.data().add(Node.builder("mgx.leaderboard").value(true).build());
+        }).thenRun(() -> plugin.getLogger().info("Default players can use voice chat, clans and the leaderboard."))
                 .exceptionally(throwable -> {
                     plugin.getLogger().log(Level.WARNING, "Could not grant default player permissions", throwable);
+                    return null;
+                });
+        makeOwnerCosmetic();
+    }
+
+    /** Prefix only. No wildcards, no WorldGuard bypass, no keep-inventory, no gamemode. */
+    void makeOwnerCosmetic() {
+        luckPerms.getGroupManager().modifyGroup("owner", group -> {
+            group.data().clear();
+            group.data().add(InheritanceNode.builder("default").build());
+            group.data().add(PrefixNode.builder("&c[OWNER] ", 100).build());
+            group.data().add(WeightNode.builder(100).build());
+            group.data().add(Node.builder("worldguard.region.bypass.*").value(false).build());
+            group.data().add(Node.builder("essentials.keepinv").value(false).build());
+            group.data().add(Node.builder("essentials.gamemode").value(false).build());
+            group.data().add(Node.builder("essentials.gamemode.*").value(false).build());
+        }).thenRun(() -> plugin.getLogger().info("LuckPerms owner is cosmetic only."))
+                .exceptionally(throwable -> {
+                    plugin.getLogger().log(Level.WARNING, "Could not reset the owner group", throwable);
                     return null;
                 });
     }

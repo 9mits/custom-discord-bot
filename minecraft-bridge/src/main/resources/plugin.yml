@@ -38,6 +38,11 @@ commands:
     description: List everyone with whitelist access and their Discord name.
     usage: /whitelisted [page]
     aliases: [whitelistlist]
+  leaderboard:
+    description: Open the richest and most-kills boards.
+    usage: /leaderboard
+    aliases: [lb, boards]
+    permission: mgx.leaderboard
   mgxadmin:
     description: Hold players out of Discord rank sync, and reset accumulated data.
     usage: /mgxadmin <startserver|teststart|ranks|reset>
@@ -46,6 +51,9 @@ commands:
 permissions:
   mgx.clans:
     description: Allows players to use the clan system.
+    default: true
+  mgx.leaderboard:
+    description: Allows players to open the in-game leaderboard.
     default: true
   mgxaccessbridge.admin:
     description: Allows rank holds, administrative data resets, and joining while the server is held for maintenance when granted explicitly in LuckPerms.
