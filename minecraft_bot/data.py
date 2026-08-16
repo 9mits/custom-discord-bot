@@ -217,6 +217,11 @@ def _clean_username(username: str) -> str:
     return cleaned
 
 
+def _fold_username(username: str) -> str:
+    """Bedrock spaces and Floodgate underscores are the same name."""
+    return " ".join(_clean_username(username).replace("_", " ").split()).casefold()
+
+
 def normalize_username(edition: Edition | str, username: str) -> tuple[str, str]:
     try:
         parsed_edition = Edition(str(edition).upper())
@@ -907,7 +912,7 @@ class MinecraftDataManager:
                     return updated or application, False
                 if not application.auto_detect_edition and application.edition is not edition:
                     raise InvalidTransition("Verified edition does not match the application")
-                if _clean_username(application.claimed_username).casefold() != cleaned_actual.casefold():
+                if _fold_username(application.claimed_username) != _fold_username(cleaned_actual):
                     raise InvalidTransition("Verified username does not match the application")
                 if edition is Edition.BEDROCK and not xuid:
                     raise InvalidTransition("Bedrock verification did not include a Floodgate XUID")

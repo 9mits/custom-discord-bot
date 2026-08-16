@@ -19,6 +19,14 @@ record PendingVerification(
     }
 
     static String normalize(String username) {
-        return username.strip().replaceAll("\\s+", " ").toLowerCase(java.util.Locale.ROOT);
+        if (username == null) {
+            return "";
+        }
+        // Floodgate turns Bedrock spaces into underscores and prefixes a dot.
+        String folded = VerificationIdentity.bedrockUsername(username)
+                .replace('_', ' ')
+                .strip()
+                .replaceAll("\\s+", " ");
+        return folded.toLowerCase(java.util.Locale.ROOT);
     }
 }
