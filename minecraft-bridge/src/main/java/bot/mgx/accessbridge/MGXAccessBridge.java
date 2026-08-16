@@ -61,6 +61,11 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             "Verification could not be saved.\n\n"
                     + "Wait a minute, then join once more with the same account."
     );
+    private static final Component WAITING_FOR_APPLICATION_MESSAGE = Component.text(
+            "The server does not have your application yet.\n\n"
+                    + "If you just pressed Apply in Discord, wait ten seconds and join once more.\n"
+                    + "Use the exact name on your Mysterious SMP X card."
+    );
 
     private final ConcurrentHashMap<UUID, Component> verificationKicks = new ConcurrentHashMap<>();
 
@@ -773,14 +778,26 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             getLogger().info("No pending verification for " + loginName
                     + " (cache=" + pending.size()
                     + " names=" + pending.snapshotNames() + ")");
+            if (pending.size() == 0 && !announceNoMatch) {
+                return WAITING_FOR_APPLICATION_MESSAGE;
+            }
             return announceNoMatch ? VERIFICATION_HELP_MESSAGE : CLOSED_MESSAGE;
+        }
+        MinecraftEdition edition = identity.edition();
+        String xuid = identity.xuid();
+        UUID accountId = identity.uuid() != null ? identity.uuid() : uuid;
+        if (edition == MinecraftEdition.BEDROCK && (xuid == null || xuid.isBlank())) {
+            getLogger().warning("Matched " + loginName
+                    + " but have no Floodgate XUID; not sending a Bedrock verification.");
+            verificationKicks.put(uuid, UNAVAILABLE_MESSAGE);
+            return UNAVAILABLE_MESSAGE;
         }
         if (bridgeClient.queueVerification(
                 match.get(),
-                identity.edition(),
-                identity.uuid(),
+                edition,
+                accountId,
                 identity.username(),
-                identity.xuid()
+                xuid
         )) {
             verificationKicks.put(uuid, VERIFIED_MESSAGE);
             if (identity.uuid() != null) {
@@ -796,6 +813,20 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         VerificationIdentity.Resolved identity = VerificationIdentity.resolve(uuid, loginName);
         try {
             FloodgateApi api = FloodgateApi.getInstance();
+            boolean floodgateId = false;
+            try {
+                floodgateId = api.isFloodgateId(uuid);
+            } catch (RuntimeException ignored) {
+                floodgateId = VerificationIdentity.isFloodgateUuid(uuid);
+            }
+            if (floodgateId && identity.edition() != MinecraftEdition.BEDROCK) {
+                identity = new VerificationIdentity.Resolved(
+                        MinecraftEdition.BEDROCK,
+                        VerificationIdentity.bedrockUsername(loginName),
+                        VerificationIdentity.xuidFromFloodgateUuid(uuid),
+                        uuid
+                );
+            }
             FloodgatePlayer floodgatePlayer = api.getPlayer(uuid);
             if (floodgatePlayer != null) {
                 return new VerificationIdentity.Resolved(
@@ -811,12 +842,15 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                                 : uuid
                 );
             }
-            if (identity.edition() == MinecraftEdition.BEDROCK && identity.xuid() == null) {
-                Long lookedUp = api.getXuidFor(identity.username()).get(2, java.util.concurrent.TimeUnit.SECONDS);
+            if (identity.edition() == MinecraftEdition.BEDROCK && (identity.xuid() == null || identity.xuid().isBlank())) {
+                String lookupName = VerificationIdentity.bedrockUsername(
+                        identity.username().isBlank() ? loginName : identity.username()
+                );
+                Long lookedUp = api.getXuidFor(lookupName).get(5, java.util.concurrent.TimeUnit.SECONDS);
                 if (lookedUp != null) {
                     return new VerificationIdentity.Resolved(
                             MinecraftEdition.BEDROCK,
-                            identity.username(),
+                            lookupName,
                             Long.toUnsignedString(lookedUp),
                             api.createJavaPlayerId(lookedUp)
                     );

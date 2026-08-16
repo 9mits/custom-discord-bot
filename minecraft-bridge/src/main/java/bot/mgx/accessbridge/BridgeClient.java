@@ -560,6 +560,10 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             String currentUsername,
             String xuid
     ) {
+        if (edition == MinecraftEdition.BEDROCK && (xuid == null || xuid.isBlank())) {
+            plugin.getLogger().warning("Refusing to queue Bedrock verification without an XUID.");
+            return false;
+        }
         String key = "verification:" + application.applicationId() + ":" + minecraftUuid;
         JsonObject payload = new JsonObject();
         payload.addProperty("application_id", application.applicationId());
