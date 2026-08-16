@@ -135,8 +135,10 @@ final class SidebarService {
         if (damageBonus > 0) {
             rows.add(new Row("Power", "+" + damageBonus + "% damage", NamedTextColor.LIGHT_PURPLE));
         }
-        clans.clanOf(player.getUniqueId())
-                .ifPresent(clan -> rows.add(new Row("Clan", clan.name(), clanColor(clan))));
+        clans.clanOf(player.getUniqueId()).ifPresent(clan -> {
+            rows.add(new Row("Clan", clan.name(), clanColor(clan)));
+            addClanPerkRows(rows, perks.clanPerks(player.getUniqueId()));
+        });
         rows.add(new Row("STATS", null, null));
         rows.add(new Row(
                 "Kills",
@@ -187,6 +189,26 @@ final class SidebarService {
             lines.remove(spacer);
         }
         return lines;
+    }
+
+    private static void addClanPerkRows(List<Row> rows, ClanLevel.Perks clanPerks) {
+        if (clanPerks == null || clanPerks.isNone()) {
+            return;
+        }
+        if (clanPerks.extraHearts() > 0) {
+            rows.add(new Row("Clan Hearts", "+" + clanPerks.extraHearts(), NamedTextColor.RED));
+        }
+        addClanPercent(rows, "Strength", clanPerks.strength());
+        addClanPercent(rows, "Saturation", clanPerks.saturation());
+        addClanPercent(rows, "Digging", clanPerks.diggingSpeed());
+        addClanPercent(rows, "Resistance", clanPerks.resistance());
+        addClanPercent(rows, "Speed", clanPerks.speed());
+    }
+
+    private static void addClanPercent(List<Row> rows, String label, double fraction) {
+        if (fraction > 0) {
+            rows.add(new Row(label, "+" + Math.round(fraction * 100) + "%", GOLD));
+        }
     }
 
     /** A heading (no value) or a stat row, able to report its own rendered width. */
