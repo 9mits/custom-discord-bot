@@ -45,8 +45,14 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(normalize_username(Edition.BEDROCK, " Real   Name "), ("Real Name", "real name"))
         with self.assertRaises(ValueError):
             normalize_username(Edition.JAVA, "has spaces")
-        with self.assertRaises(ValueError):
-            normalize_username(Edition.BEDROCK, ".FloodgatePrefix")
+        self.assertEqual(
+            normalize_username(Edition.BEDROCK, ".FloodgatePrefix"),
+            ("FloodgatePrefix", "floodgateprefix"),
+        )
+        self.assertEqual(
+            normalize_username(Edition.JAVA, "Dr_Ravager"),
+            ("Dr_Ravager", "dr_ravager"),
+        )
 
     async def test_duplicate_active_application_is_rejected(self):
         pending = await self.create_pending()
@@ -184,8 +190,10 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(changed)
         self.assertEqual(verified.xuid, "2533274900000001")
-        with self.assertRaises(ValueError):
-            normalize_username(Edition.BEDROCK, ".Real Name")
+        self.assertEqual(
+            normalize_username(Edition.BEDROCK, ".Real Name"),
+            ("Real Name", "real name"),
+        )
 
     async def test_user_can_link_one_account_per_edition(self):
         java = await self.create_pending()
@@ -1082,6 +1090,17 @@ class MinecraftAccessIntegrityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.data.find_applications_by_username("%"), [])
         self.assertEqual(await self.data.find_applications_by_username("_"), [])
         self.assertEqual(len(await self.data.find_applications_by_username("TestPlayer")), 1)
+
+    async def test_auto_detect_accepts_a_normal_java_name(self):
+        application = await self.data.create_application(
+            guild_id=10,
+            discord_user_id=7,
+            edition=None,
+            claimed_username="Dr_Ravager",
+            now=1000,
+        )
+        self.assertEqual(application.edition, Edition.JAVA)
+        self.assertEqual(application.claimed_username, "Dr_Ravager")
 
 
 if __name__ == "__main__":

@@ -4083,14 +4083,15 @@ class MinecraftAccessGuardTests(unittest.IsolatedAsyncioTestCase):
         )
         bot.spawn_background_task = Mock()
 
-        await bot.handle_bridge_verification(
-            application_id=1,
-            edition=Edition.JAVA,
-            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
-            current_username="TestPlayer",
-            xuid=None,
-            event_idempotency_key="verify-1",
-        )
+        with self.assertRaises(InvalidTransition):
+            await bot.handle_bridge_verification(
+                application_id=1,
+                edition=Edition.JAVA,
+                minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+                current_username="TestPlayer",
+                xuid=None,
+                event_idempotency_key="verify-1",
+            )
 
         bot.spawn_background_task.assert_not_called()
 

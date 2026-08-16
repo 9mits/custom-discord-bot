@@ -35,7 +35,7 @@ class PendingVerificationCacheTest {
         ));
 
         assertTrue(cache.match(MinecraftEdition.BEDROCK, "Real Name").isPresent());
-        assertTrue(cache.match(MinecraftEdition.BEDROCK, ".Real Name").isEmpty());
+        assertTrue(cache.matchLogin(".Real Name").isPresent());
     }
 
     @Test
@@ -66,5 +66,19 @@ class PendingVerificationCacheTest {
         cache.put(new PendingVerification(2, MinecraftEdition.AUTO, "Steve", "steve", Long.MAX_VALUE));
 
         assertTrue(cache.match(MinecraftEdition.JAVA, "Steve").isEmpty());
+    }
+
+    @Test
+    void aPrefixedBedrockLoginMatchesAJavaPendingRow() {
+        PendingVerificationCache cache = new PendingVerificationCache();
+        cache.put(new PendingVerification(
+                9,
+                MinecraftEdition.JAVA,
+                "agentclanmanage",
+                "agentclanmanage",
+                Long.MAX_VALUE
+        ));
+
+        assertEquals(9, cache.matchLogin(".agentclanmanage").orElseThrow().applicationId());
     }
 }

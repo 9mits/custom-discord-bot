@@ -758,46 +758,23 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
      *         say — which leaves the refusal exactly as it was found.
      */
     private Component handleVerification(UUID uuid, String loginName, boolean announceNoMatch) {
-        VerificationIdentity.Resolved identity = VerificationIdentity.resolve(uuid, loginName);
-        try {
-            FloodgatePlayer floodgatePlayer = FloodgateApi.getInstance().getPlayer(uuid);
-            if (floodgatePlayer != null) {
-                identity = VerificationIdentity.overlayFloodgate(
-                        identity, floodgatePlayer.getUsername(), floodgatePlayer.getXuid()
-                );
-            }
-        } catch (RuntimeException exception) {
-            getLogger().warning("Floodgate lookup failed during account verification: "
-                    + exception.getClass().getSimpleName());
-        }
-
-        MinecraftEdition edition = identity.edition();
-        String actualUsername = identity.username();
-        String xuid = identity.xuid();
-        Optional<PendingVerification> match = pending.match(edition, actualUsername);
-        if (match.isEmpty() && edition == MinecraftEdition.JAVA) {
-            String bedrockName = VerificationIdentity.bedrockUsername(loginName);
-            if (!bedrockName.equals(actualUsername)) {
-                Optional<PendingVerification> bedrock = pending.match(
-                        MinecraftEdition.BEDROCK, bedrockName
-                );
-                if (bedrock.isPresent()) {
-                    match = bedrock;
-                    edition = MinecraftEdition.BEDROCK;
-                    actualUsername = bedrockName;
-                    xuid = VerificationIdentity.xuidFromFloodgateUuid(uuid);
-                }
-            }
-        }
+        VerificationIdentity.Resolved identity = resolveConnectingIdentity(uuid, loginName);
+        Optional<PendingVerification> match = pending.matchLogin(loginName);
         if (match.isEmpty()) {
-            if (verifiedApplications.find(uuid).isPresent()) {
-                verificationKicks.put(uuid, APPLICATION_ALREADY_SENT_MESSAGE);
-                return APPLICATION_ALREADY_SENT_MESSAGE;
-            }
+            getLogger().info("No pending verification for " + loginName
+                    + " (cache=" + pending.size()
+                    + " names=" + pending.snapshotNames() + ")");
             return announceNoMatch ? VERIFICATION_HELP_MESSAGE : null;
         }
-        if (bridgeClient.queueVerification(match.get(), edition, uuid, actualUsername, xuid)) {
+        if (bridgeClient.queueVerification(
+                match.get(),
+                identity.edition(),
+                identity.uuid(),
+                identity.username(),
+                identity.xuid()
+        )) {
             verificationKicks.put(uuid, VERIFIED_MESSAGE);
+            verificationKicks.put(identity.uuid(), VERIFIED_MESSAGE);
             return VERIFIED_MESSAGE;
         }
         Component unavailable = Component.text(
@@ -806,6 +783,55 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         );
         verificationKicks.put(uuid, unavailable);
         return unavailable;
+    }
+
+    private VerificationIdentity.Resolved resolveConnectingIdentity(UUID uuid, String loginName) {
+        VerificationIdentity.Resolved identity = VerificationIdentity.resolve(uuid, loginName);
+        try {
+            FloodgateApi api = FloodgateApi.getInstance();
+            FloodgatePlayer floodgatePlayer = api.getPlayer(uuid);
+            if (floodgatePlayer != null) {
+                return new VerificationIdentity.Resolved(
+                        MinecraftEdition.BEDROCK,
+                        firstNonBlank(
+                                floodgatePlayer.getCorrectUsername(),
+                                floodgatePlayer.getUsername(),
+                                identity.username()
+                        ),
+                        firstNonBlank(floodgatePlayer.getXuid(), identity.xuid()),
+                        floodgatePlayer.getCorrectUniqueId() != null
+                                ? floodgatePlayer.getCorrectUniqueId()
+                                : uuid
+                );
+            }
+            if (identity.edition() == MinecraftEdition.BEDROCK && identity.xuid() == null) {
+                Long lookedUp = api.getXuidFor(identity.username()).get(2, java.util.concurrent.TimeUnit.SECONDS);
+                if (lookedUp != null) {
+                    return new VerificationIdentity.Resolved(
+                            MinecraftEdition.BEDROCK,
+                            identity.username(),
+                            Long.toUnsignedString(lookedUp),
+                            api.createJavaPlayerId(lookedUp)
+                    );
+                }
+            }
+        } catch (Exception exception) {
+            getLogger().warning("Floodgate lookup failed during account verification: "
+                    + exception.getClass().getSimpleName());
+        }
+        return identity;
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return "";
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return "";
     }
 
     private void lockLoadedWorldSpawns() {

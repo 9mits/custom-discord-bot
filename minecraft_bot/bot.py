@@ -1329,7 +1329,7 @@ class MinecraftAccessBot(commands.Bot):
                 application_id,
                 exc,
             )
-            return
+            raise
         self.spawn_background_task(
             self._publish_verification(application, changed=changed),
             name=f"minecraft-verification:{application.id}",

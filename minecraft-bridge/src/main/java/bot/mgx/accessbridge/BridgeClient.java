@@ -251,6 +251,15 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             executeWhitelistSync(idempotencyKey, payload);
             return;
         }
+        if (action.equals("SYNC_PENDING")) {
+            try {
+                applyPendingSync(payload);
+                recordAndSend(idempotencyKey, new ProcessedActionStore.Result(true, ""));
+            } catch (RuntimeException exception) {
+                recordAndSend(idempotencyKey, new ProcessedActionStore.Result(false, safeError(exception)));
+            }
+            return;
+        }
         Optional<ProcessedActionStore.Result> existing = processedActions.get(idempotencyKey);
         if (existing.isPresent()) {
             sendActionResult(idempotencyKey, existing.get());
@@ -261,14 +270,6 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             return;
         }
         switch (action) {
-            case "SYNC_PENDING" -> {
-                try {
-                    applyPendingSync(payload);
-                    recordAndSend(idempotencyKey, new ProcessedActionStore.Result(true, ""));
-                } catch (RuntimeException exception) {
-                    recordAndSend(idempotencyKey, new ProcessedActionStore.Result(false, safeError(exception)));
-                }
-            }
             case "REMOVE_PENDING" -> {
                 long applicationId = payload.get("application_id").getAsLong();
                 pending.remove(applicationId);
@@ -579,7 +580,6 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             plugin.getLogger().severe("Could not persist verification event: " + safeError(exception));
             return false;
         }
-        pending.remove(application.applicationId());
         if (isConnected()) {
             sendRaw(protocol.create("VERIFICATION", key, payload));
         }
