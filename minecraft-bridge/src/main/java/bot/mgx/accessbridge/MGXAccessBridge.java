@@ -37,25 +37,29 @@ import java.util.concurrent.ScheduledExecutorService;
 
 public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private static final Component VERIFIED_MESSAGE = Component.text(
-            "Minecraft account verified!\n\n"
-                    + "One step left: return to Discord and fill out the short application form.\n"
-                    + "Press Continue Application on your Minecraft application card."
+            "Account verified.\n\n"
+                    + "You are not being let into the world. That is normal.\n\n"
+                    + "Open Discord and press Continue Application on your Mysterious SMP X card."
     );
     private static final Component VERIFICATION_HELP_MESSAGE = Component.text(
-            "No active verification matched this account.\n\n"
-                    + "Check the username and expiry shown on your Discord Minecraft card, then try again."
+            "This account cannot join yet.\n\n"
+                    + "If you are applying, join with the exact name on your Discord card.\n"
+                    + "If you already applied, wait for staff. Do not keep joining."
     );
     private static final Component APPLICATION_ALREADY_SENT_MESSAGE = Component.text(
-            "Your Minecraft account is already verified.\n\n"
-                    + "If you have not finished the written application, press Continue Application\n"
-                    + "on your Minecraft application card in Discord. Staff review it once it is\n"
-                    + "submitted, and you will be let in as soon as they approve it."
+            "This account is already verified.\n\n"
+                    + "You cannot play until staff approve you.\n\n"
+                    + "Open Discord. Press Continue Application if you have not finished the form."
     );
-
-    private static final Component MAINTENANCE_MESSAGE = Component.text(
-            "Mysterious SMP X is not open right now.\n\n"
-                    + "The server is closed for maintenance and nobody can join. Nothing is\n"
-                    + "wrong with your account — check Discord to find out when it opens."
+    private static final Component CLOSED_MESSAGE = Component.text(
+            "Mysterious SMP X is closed right now.\n\n"
+                    + "Applying? Press Apply in Discord first, then join once with the exact name "
+                    + "on your card. Being turned away is how we verify the account.\n\n"
+                    + "Already a member? The world is closed for everyone. Check Discord for news."
+    );
+    private static final Component UNAVAILABLE_MESSAGE = Component.text(
+            "Verification could not be saved.\n\n"
+                    + "Wait a minute, then join once more with the same account."
     );
 
     private final ConcurrentHashMap<UUID, Component> verificationKicks = new ConcurrentHashMap<>();
@@ -626,7 +630,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         if (!player.isOnline() || bypassesMaintenance(player)) {
             return;
         }
-        player.kick(verificationKicks.getOrDefault(player.getUniqueId(), MAINTENANCE_MESSAGE));
+        player.kick(verificationKicks.getOrDefault(player.getUniqueId(), CLOSED_MESSAGE));
     }
 
     private void sweepMaintenance() {
@@ -639,7 +643,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             }
             getLogger().warning("Sweep removed " + player.getName()
                     + ": the server is closed for maintenance.");
-            player.kick(MAINTENANCE_MESSAGE);
+            player.kick(CLOSED_MESSAGE);
         }
     }
 
@@ -680,10 +684,11 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             return;
         }
         getLogger().info("Refused " + event.getName()
-                + " at pre-login: the server is closed for maintenance.");
+                + " at pre-login"
+                + (verdict == VERIFIED_MESSAGE ? ": account verified." : "."));
         event.disallow(
                 AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
-                verdict != null ? verdict : MAINTENANCE_MESSAGE
+                verdict != null ? verdict : CLOSED_MESSAGE
         );
     }
 
@@ -720,15 +725,14 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             return;
         }
         if (result == PlayerLoginEvent.Result.ALLOWED) {
-            getLogger().info("Refused " + event.getPlayer().getName()
-                    + ": the server is closed for maintenance.");
+            getLogger().info("Refused " + event.getPlayer().getName() + " after login.");
         }
         // Rewriting the result to KICK_OTHER is what makes the hold hold. Floodgate
         // re-allows Bedrock players by looking for KICK_WHITELIST, so leaving that
         // result in place let every Bedrock login walk straight through.
         event.disallow(
                 PlayerLoginEvent.Result.KICK_OTHER,
-                verdict != null ? verdict : MAINTENANCE_MESSAGE
+                verdict != null ? verdict : CLOSED_MESSAGE
         );
     }
 
@@ -746,7 +750,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         if (event.getResult() == PlayerLoginEvent.Result.ALLOWED) {
             event.disallow(
                     PlayerLoginEvent.Result.KICK_OTHER,
-                    verificationKicks.getOrDefault(event.getPlayer().getUniqueId(), MAINTENANCE_MESSAGE)
+                    verificationKicks.getOrDefault(event.getPlayer().getUniqueId(), CLOSED_MESSAGE)
             );
         }
     }
@@ -761,10 +765,15 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         VerificationIdentity.Resolved identity = resolveConnectingIdentity(uuid, loginName);
         Optional<PendingVerification> match = pending.matchLogin(loginName);
         if (match.isEmpty()) {
+            if (verifiedApplications.find(uuid).isPresent()
+                    || (identity.uuid() != null && verifiedApplications.find(identity.uuid()).isPresent())) {
+                verificationKicks.put(uuid, APPLICATION_ALREADY_SENT_MESSAGE);
+                return APPLICATION_ALREADY_SENT_MESSAGE;
+            }
             getLogger().info("No pending verification for " + loginName
                     + " (cache=" + pending.size()
                     + " names=" + pending.snapshotNames() + ")");
-            return announceNoMatch ? VERIFICATION_HELP_MESSAGE : null;
+            return announceNoMatch ? VERIFICATION_HELP_MESSAGE : CLOSED_MESSAGE;
         }
         if (bridgeClient.queueVerification(
                 match.get(),
@@ -774,15 +783,13 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 identity.xuid()
         )) {
             verificationKicks.put(uuid, VERIFIED_MESSAGE);
-            verificationKicks.put(identity.uuid(), VERIFIED_MESSAGE);
+            if (identity.uuid() != null) {
+                verificationKicks.put(identity.uuid(), VERIFIED_MESSAGE);
+            }
             return VERIFIED_MESSAGE;
         }
-        Component unavailable = Component.text(
-                "Verification is temporarily unavailable. Your application is safe; "
-                        + "please try again shortly."
-        );
-        verificationKicks.put(uuid, unavailable);
-        return unavailable;
+        verificationKicks.put(uuid, UNAVAILABLE_MESSAGE);
+        return UNAVAILABLE_MESSAGE;
     }
 
     private VerificationIdentity.Resolved resolveConnectingIdentity(UUID uuid, String loginName) {

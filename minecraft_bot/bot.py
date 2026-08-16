@@ -687,7 +687,7 @@ class MinecraftAccessBot(commands.Bot):
     _LINK_STEPS = (
         "\n> **1.** Press the button below and enter your exact account name.\n"
         "> **2.** Join the server once using that account. You will be disconnected "
-        "automatically.\n"
+        "automatically — that is how we verify it.\n"
         "> **3.** Your account is now verified."
     )
     #: Added only when the member holds no approved application. Promising instant
