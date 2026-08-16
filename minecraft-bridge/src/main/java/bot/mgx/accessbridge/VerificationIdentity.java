@@ -18,7 +18,10 @@ final class VerificationIdentity {
     private VerificationIdentity() {
     }
 
-    record Resolved(MinecraftEdition edition, String username, String xuid) {
+    record Resolved(MinecraftEdition edition, String username, String xuid, UUID uuid) {
+        Resolved(MinecraftEdition edition, String username, String xuid) {
+            this(edition, username, xuid, null);
+        }
     }
 
     static boolean isFloodgateUuid(UUID uuid) {
@@ -52,15 +55,16 @@ final class VerificationIdentity {
             return new Resolved(
                     MinecraftEdition.BEDROCK,
                     bedrockUsername(loginName),
-                    xuidFromFloodgateUuid(uuid)
+                    xuidFromFloodgateUuid(uuid),
+                    uuid
             );
         }
-        return new Resolved(MinecraftEdition.JAVA, loginName == null ? "" : loginName, null);
+        return new Resolved(MinecraftEdition.JAVA, loginName == null ? "" : loginName, null, uuid);
     }
 
     static Resolved overlayFloodgate(Resolved fallback, String username, String xuid) {
         String name = username == null || username.isBlank() ? fallback.username() : username;
         String resolvedXuid = xuid == null || xuid.isBlank() ? fallback.xuid() : xuid;
-        return new Resolved(MinecraftEdition.BEDROCK, bedrockUsername(name), resolvedXuid);
+        return new Resolved(MinecraftEdition.BEDROCK, bedrockUsername(name), resolvedXuid, fallback.uuid());
     }
 }
