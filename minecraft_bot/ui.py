@@ -349,7 +349,7 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
                 guild_id=interaction.guild_id,
                 discord_user_id=interaction.user.id,
                 edition=edition,
-                claimed_username=str(self.username),
+                claimed_username=str(self.username.value or ""),
             )
         except DuplicateActiveApplication:
             active = await bot.data.get_active_application_for_user(
@@ -392,6 +392,16 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
                 attachments=[],
             )
             return
+        except Exception:
+            await edit_card(
+                embed=info_embed(
+                    "Application Failed",
+                    "> The application could not be started. Wait a moment and try again.",
+                    error=True,
+                ),
+                attachments=[],
+            )
+            raise
 
         card_message = await interaction.original_response()
         bot.remember_application_message(application.id, card_message)

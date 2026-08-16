@@ -30,7 +30,7 @@ from .models import (
 
 
 JAVA_USERNAME = re.compile(r"^[A-Za-z0-9_]{3,16}$")
-BEDROCK_USERNAME = re.compile(r"^[A-Za-z0-9 _-]{1,16}$")
+BEDROCK_USERNAME = re.compile(r"^[\w -]{1,16}$", re.UNICODE)
 SCHEMA_VERSION = 6
 COMMAND_LOG_RETENTION_DAYS = 30
 COMMAND_LOG_RETENTION_ROWS = 20_000
@@ -209,12 +209,20 @@ CREATE INDEX IF NOT EXISTS idx_minecraft_delivery_due
 """
 
 
+def _clean_username(username: str) -> str:
+    printable = "".join(character for character in str(username) if character.isprintable())
+    cleaned = " ".join(printable.strip().split())
+    while cleaned.startswith("."):
+        cleaned = cleaned[1:].strip()
+    return cleaned
+
+
 def normalize_username(edition: Edition | str, username: str) -> tuple[str, str]:
     try:
         parsed_edition = Edition(str(edition).upper())
     except ValueError as exc:
         raise ValueError("Edition must be Java or Bedrock") from exc
-    cleaned = " ".join(str(username).strip().split())
+    cleaned = _clean_username(username)
     if parsed_edition is Edition.JAVA:
         if not JAVA_USERNAME.fullmatch(cleaned):
             raise ValueError("Java usernames must contain 3-16 letters, numbers, or underscores")
@@ -490,12 +498,15 @@ class MinecraftDataManager:
         current = _now() if now is None else int(now)
         auto_detect_edition = edition is None
         if auto_detect_edition:
-            cleaned = " ".join(str(claimed_username).strip().split())
-            if not BEDROCK_USERNAME.fullmatch(cleaned):
+            cleaned = _clean_username(claimed_username)
+            if JAVA_USERNAME.fullmatch(cleaned):
+                edition = Edition.JAVA
+            elif BEDROCK_USERNAME.fullmatch(cleaned):
+                edition = Edition.BEDROCK
+            else:
                 raise ValueError(
                     "Minecraft names must contain 1-16 letters, numbers, spaces, underscores, or hyphens"
                 )
-            edition = Edition.JAVA if JAVA_USERNAME.fullmatch(cleaned) else Edition.BEDROCK
             claimed, normalized = cleaned, cleaned.casefold()
         else:
             claimed, normalized = normalize_username(edition, claimed_username)

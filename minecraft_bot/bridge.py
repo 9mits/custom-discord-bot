@@ -305,6 +305,7 @@ class MinecraftBridgeServer:
                 )
             except Exception:
                 logger.exception("Verification handler failed")
+                return
             await self._send(
                 "VERIFICATION_ACK",
                 {"application_id": int(payload["application_id"])},

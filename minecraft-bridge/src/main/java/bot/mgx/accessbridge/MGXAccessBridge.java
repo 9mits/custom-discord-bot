@@ -761,11 +761,6 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         VerificationIdentity.Resolved identity = resolveConnectingIdentity(uuid, loginName);
         Optional<PendingVerification> match = pending.matchLogin(loginName);
         if (match.isEmpty()) {
-            if (verifiedApplications.find(uuid).isPresent()
-                    || verifiedApplications.find(identity.uuid()).isPresent()) {
-                verificationKicks.put(uuid, APPLICATION_ALREADY_SENT_MESSAGE);
-                return APPLICATION_ALREADY_SENT_MESSAGE;
-            }
             getLogger().info("No pending verification for " + loginName
                     + " (cache=" + pending.size()
                     + " names=" + pending.snapshotNames() + ")");

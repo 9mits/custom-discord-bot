@@ -580,7 +580,6 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             plugin.getLogger().severe("Could not persist verification event: " + safeError(exception));
             return false;
         }
-        pending.remove(application.applicationId());
         if (isConnected()) {
             sendRaw(protocol.create("VERIFICATION", key, payload));
         }
