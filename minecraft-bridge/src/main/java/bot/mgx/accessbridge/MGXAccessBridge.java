@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
@@ -56,6 +57,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                     + "The server is closed for maintenance and nobody can join. Nothing is\n"
                     + "wrong with your account — check Discord to find out when it opens."
     );
+
+    private final ConcurrentHashMap<UUID, Component> verificationKicks = new ConcurrentHashMap<>();
 
     private ScheduledExecutorService networkExecutor;
     private BridgeClient bridgeClient;
@@ -623,7 +626,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         if (!player.isOnline() || bypassesMaintenance(player)) {
             return;
         }
-        player.kick(MAINTENANCE_MESSAGE);
+        player.kick(verificationKicks.getOrDefault(player.getUniqueId(), MAINTENANCE_MESSAGE));
     }
 
     private void sweepMaintenance() {
@@ -670,19 +673,18 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         )) {
             return;
         }
+        // Match first. Floodgate consults this event and may never reach
+        // PlayerLoginEvent once we rewrite the result to KICK_OTHER.
+        Component verdict = handleVerification(event.getUniqueId(), event.getName(), false);
         if (!MaintenanceGate.shouldRefuse(maintenanceHeld(), bypassesMaintenance(event.getUniqueId()))) {
             return;
         }
         getLogger().info("Refused " + event.getName()
                 + " at pre-login: the server is closed for maintenance.");
-        event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER, MAINTENANCE_MESSAGE);
-        // File-backed verification must stay on the main thread. The kick
-        // wording is the hold either way; an applicant still gets queued.
-        if (incoming == AsyncPlayerPreLoginEvent.Result.KICK_WHITELIST) {
-            UUID uuid = event.getUniqueId();
-            String name = event.getName();
-            getServer().getScheduler().runTask(this, () -> handleVerification(uuid, name));
-        }
+        event.disallow(
+                AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
+                verdict != null ? verdict : MAINTENANCE_MESSAGE
+        );
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
@@ -690,22 +692,31 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         PlayerLoginEvent.Result result = event.getResult();
         // A ban or a full server is somebody else's refusal and carries a more
         // useful message than ours. They are not getting in either way.
+        boolean whitelistKick = result == PlayerLoginEvent.Result.KICK_WHITELIST;
+        boolean held = maintenanceHeld();
         if (!MaintenanceGate.isRefusable(
                 result == PlayerLoginEvent.Result.ALLOWED,
-                result == PlayerLoginEvent.Result.KICK_WHITELIST
-        )) {
+                whitelistKick
+        ) && !(held && result == PlayerLoginEvent.Result.KICK_OTHER)) {
             return;
         }
 
         // Verification runs before the hold is applied, and never needed the login
         // to succeed: an applicant is turned away whether the server is open or
         // closed, and only the wording differs. That is what lets a held server
-        // still verify accounts.
-        Component verdict = result == PlayerLoginEvent.Result.KICK_WHITELIST
-                ? handleVerification(event)
-                : null;
+        // still verify accounts. During a hold, pre-login already rewrote the
+        // result to KICK_OTHER — still match here for Java, which honours this
+        // event, and so a Floodgate re-allow cannot skip the queue.
+        Component verdict = handleVerification(
+                event.getPlayer().getUniqueId(),
+                event.getPlayer().getName(),
+                whitelistKick && !held
+        );
+        if (verdict != null) {
+            event.kickMessage(verdict);
+        }
 
-        if (!MaintenanceGate.shouldRefuse(maintenanceHeld(), bypassesMaintenance(event.getPlayer()))) {
+        if (!MaintenanceGate.shouldRefuse(held, bypassesMaintenance(event.getPlayer()))) {
             return;
         }
         if (result == PlayerLoginEvent.Result.ALLOWED) {
@@ -733,7 +744,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             return;
         }
         if (event.getResult() == PlayerLoginEvent.Result.ALLOWED) {
-            event.disallow(PlayerLoginEvent.Result.KICK_OTHER, MAINTENANCE_MESSAGE);
+            event.disallow(
+                    PlayerLoginEvent.Result.KICK_OTHER,
+                    verificationKicks.getOrDefault(event.getPlayer().getUniqueId(), MAINTENANCE_MESSAGE)
+            );
         }
     }
 
@@ -743,54 +757,55 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
      * @return the message this login has earned, or null when there was nothing to
      *         say — which leaves the refusal exactly as it was found.
      */
-    private Component handleVerification(PlayerLoginEvent event) {
-        Component message = handleVerification(
-                event.getPlayer().getUniqueId(), event.getPlayer().getName()
-        );
-        if (message != null) {
-            // Only the text changes here. The KICK_WHITELIST result is preserved so
-            // that an open server keeps behaving exactly as it did; the caller
-            // decides separately whether a maintenance hold overrides it.
-            event.kickMessage(message);
-        }
-        return message;
-    }
-
-    private Component handleVerification(UUID uuid, String javaUsername) {
-        FloodgatePlayer floodgatePlayer;
+    private Component handleVerification(UUID uuid, String loginName, boolean announceNoMatch) {
+        VerificationIdentity.Resolved identity = VerificationIdentity.resolve(uuid, loginName);
         try {
-            floodgatePlayer = FloodgateApi.getInstance().getPlayer(uuid);
+            FloodgatePlayer floodgatePlayer = FloodgateApi.getInstance().getPlayer(uuid);
+            if (floodgatePlayer != null) {
+                identity = VerificationIdentity.overlayFloodgate(
+                        identity, floodgatePlayer.getUsername(), floodgatePlayer.getXuid()
+                );
+            }
         } catch (RuntimeException exception) {
             getLogger().warning("Floodgate lookup failed during account verification: "
                     + exception.getClass().getSimpleName());
-            return null;
         }
 
-        MinecraftEdition edition;
-        String actualUsername;
-        String xuid = null;
-        if (floodgatePlayer != null) {
-            edition = MinecraftEdition.BEDROCK;
-            actualUsername = floodgatePlayer.getUsername();
-            xuid = String.valueOf(floodgatePlayer.getXuid());
-        } else {
-            edition = MinecraftEdition.JAVA;
-            actualUsername = javaUsername;
-        }
-
+        MinecraftEdition edition = identity.edition();
+        String actualUsername = identity.username();
+        String xuid = identity.xuid();
         Optional<PendingVerification> match = pending.match(edition, actualUsername);
+        if (match.isEmpty() && edition == MinecraftEdition.JAVA) {
+            String bedrockName = VerificationIdentity.bedrockUsername(loginName);
+            if (!bedrockName.equals(actualUsername)) {
+                Optional<PendingVerification> bedrock = pending.match(
+                        MinecraftEdition.BEDROCK, bedrockName
+                );
+                if (bedrock.isPresent()) {
+                    match = bedrock;
+                    edition = MinecraftEdition.BEDROCK;
+                    actualUsername = bedrockName;
+                    xuid = VerificationIdentity.xuidFromFloodgateUuid(uuid);
+                }
+            }
+        }
         if (match.isEmpty()) {
-            return verifiedApplications.find(uuid).isPresent()
-                    ? APPLICATION_ALREADY_SENT_MESSAGE
-                    : VERIFICATION_HELP_MESSAGE;
+            if (verifiedApplications.find(uuid).isPresent()) {
+                verificationKicks.put(uuid, APPLICATION_ALREADY_SENT_MESSAGE);
+                return APPLICATION_ALREADY_SENT_MESSAGE;
+            }
+            return announceNoMatch ? VERIFICATION_HELP_MESSAGE : null;
         }
         if (bridgeClient.queueVerification(match.get(), edition, uuid, actualUsername, xuid)) {
+            verificationKicks.put(uuid, VERIFIED_MESSAGE);
             return VERIFIED_MESSAGE;
         }
-        return Component.text(
+        Component unavailable = Component.text(
                 "Verification is temporarily unavailable. Your application is safe; "
                         + "please try again shortly."
         );
+        verificationKicks.put(uuid, unavailable);
+        return unavailable;
     }
 
     private void lockLoadedWorldSpawns() {
