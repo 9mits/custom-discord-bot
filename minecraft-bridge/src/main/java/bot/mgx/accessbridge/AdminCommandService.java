@@ -37,7 +37,7 @@ import static bot.mgx.accessbridge.MenuItems.ORANGE;
  */
 final class AdminCommandService implements CommandExecutor, TabCompleter {
     static final String PERMISSION = "mgxaccessbridge.admin";
-    private static final List<String> SUBCOMMANDS = List.of("startserver", "ranks", "reset", "help");
+    private static final List<String> SUBCOMMANDS = List.of("startserver", "teststart", "ranks", "reset", "help");
     private static final List<String> RANK_ACTIONS = List.of("hold", "release", "list");
 
     private final MGXAccessBridge plugin;
@@ -62,6 +62,10 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 case "startserver" -> {
                     plugin.startLaunch(sender);
                     success(sender, "Launch countdown started.");
+                }
+                case "teststart" -> {
+                    plugin.startLaunchTest(sender);
+                    success(sender, "Test countdown started. Barriers return in 1 minute.");
                 }
                 case "ranks" -> ranks(sender, args);
                 case "reset" -> reset(sender, args);
@@ -222,6 +226,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         heading(sender, "Administration");
         sender.sendMessage(Component.text("  /mgxadmin startserver", ORANGE)
                 .append(Component.text("  countdown, strip barriers, hold PvP off for 5 hours", NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin teststart", ORANGE)
+                .append(Component.text("  same countdown; barriers come back after 1 minute", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin ranks hold <player>", ORANGE)
                 .append(Component.text("  stop Discord rank sync touching them", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin ranks release <player>", ORANGE)

@@ -5,6 +5,7 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
 import org.bukkit.Chunk;
+import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
@@ -16,7 +17,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
+import java.util.List;
 
 /**
  * One-shot launch: countdown in chat, strip barrier blocks, hold PvP off for five hours.
@@ -24,13 +27,17 @@ import java.util.Deque;
 final class LaunchService {
     private static final int COUNTDOWN_SECONDS = 10;
     private static final long PVP_HOLD_MILLIS = 5L * 60L * 60L * 1000L;
+    private static final long TEST_RESTORE_TICKS = 60L * 20L;
     private static final int SPAWN_CHUNK_RADIUS = 12;
     private static final int CHUNKS_PER_TICK = 8;
 
     private final MGXAccessBridge plugin;
     private final Path holdFile;
     private boolean countdownRunning;
+    private boolean testRun;
     private BukkitTask restoreTask;
+    private BukkitTask barrierRestoreTask;
+    private final List<Location> removedBarriers = new ArrayList<>();
 
     LaunchService(MGXAccessBridge plugin, Path dataFolder) {
         this.plugin = plugin;
@@ -48,11 +55,21 @@ final class LaunchService {
     }
 
     void start(CommandSender sender) {
+        begin(sender, false);
+    }
+
+    void startTest(CommandSender sender) {
+        begin(sender, true);
+    }
+
+    private void begin(CommandSender sender, boolean test) {
         if (countdownRunning) {
             throw new IllegalArgumentException("A start countdown is already running.");
         }
         countdownRunning = true;
-        plugin.getLogger().info(sender.getName() + " started the server launch countdown.");
+        testRun = test;
+        plugin.getLogger().info(sender.getName() + " started the "
+                + (test ? "test " : "") + "server launch countdown.");
         tickCountdown(COUNTDOWN_SECONDS);
     }
 
@@ -61,22 +78,34 @@ final class LaunchService {
             finishStart();
             return;
         }
-        Bukkit.broadcast(Component.text("Server starting in " + remaining, NamedTextColor.GOLD)
+        String prefix = testRun ? "Test starting in " : "Server starting in ";
+        Bukkit.broadcast(Component.text(prefix + remaining, NamedTextColor.GOLD)
                 .decorate(TextDecoration.BOLD));
         plugin.getServer().getScheduler().runTaskLater(plugin, () -> tickCountdown(remaining - 1), 20L);
     }
 
     private void finishStart() {
         countdownRunning = false;
+        boolean test = testRun;
+        testRun = false;
+        if (test) {
+            Bukkit.broadcast(Component.text("Test starting. Barriers return in 1 minute.", NamedTextColor.GOLD)
+                    .decorate(TextDecoration.BOLD));
+            stripBarriers(true);
+            return;
+        }
         Bukkit.broadcast(Component.text("Server starting.", NamedTextColor.GOLD).decorate(TextDecoration.BOLD));
         setPvp(false);
         long until = System.currentTimeMillis() + PVP_HOLD_MILLIS;
         writeHoldUntil(until);
         scheduleRestore(until);
-        stripBarriers();
+        stripBarriers(false);
     }
 
-    private void stripBarriers() {
+    private void stripBarriers(boolean restoreAfterMinute) {
+        if (restoreAfterMinute) {
+            removedBarriers.clear();
+        }
         Deque<long[]> queue = new ArrayDeque<>();
         for (World world : Bukkit.getWorlds()) {
             if (world.getEnvironment() == World.Environment.THE_END) {
@@ -92,29 +121,34 @@ final class LaunchService {
             }
         }
         plugin.getLogger().info("Removing barrier blocks from " + queue.size() + " chunks.");
-        drainBarrierQueue(queue, 0);
+        drainBarrierQueue(queue, 0, restoreAfterMinute);
     }
 
-    private void drainBarrierQueue(Deque<long[]> queue, int removed) {
+    private void drainBarrierQueue(Deque<long[]> queue, int removed, boolean restoreAfterMinute) {
         int processed = 0;
         int total = removed;
         while (!queue.isEmpty() && processed < CHUNKS_PER_TICK) {
             long[] next = queue.removeFirst();
             World world = Bukkit.getWorld(new java.util.UUID(next[0], next[1]));
             if (world != null) {
-                total += clearBarriers(world.getChunkAt((int) next[2], (int) next[3]));
+                total += clearBarriers(world.getChunkAt((int) next[2], (int) next[3]), restoreAfterMinute);
             }
             processed++;
         }
         if (queue.isEmpty()) {
             plugin.getLogger().info("Removed " + total + " barrier blocks.");
+            if (restoreAfterMinute) {
+                scheduleBarrierRestore();
+            }
             return;
         }
         int carried = total;
-        plugin.getServer().getScheduler().runTaskLater(plugin, () -> drainBarrierQueue(queue, carried), 1L);
+        plugin.getServer().getScheduler().runTaskLater(
+                plugin, () -> drainBarrierQueue(queue, carried, restoreAfterMinute), 1L
+        );
     }
 
-    private static int clearBarriers(Chunk chunk) {
+    private int clearBarriers(Chunk chunk, boolean record) {
         int removed = 0;
         World world = chunk.getWorld();
         int minY = world.getMinHeight();
@@ -126,6 +160,9 @@ final class LaunchService {
                 for (int y = minY; y < maxY; y++) {
                     Block block = world.getBlockAt(baseX + x, y, baseZ + z);
                     if (block.getType() == Material.BARRIER) {
+                        if (record) {
+                            removedBarriers.add(block.getLocation());
+                        }
                         block.setType(Material.AIR, false);
                         removed++;
                     }
@@ -133,6 +170,30 @@ final class LaunchService {
             }
         }
         return removed;
+    }
+
+    private void scheduleBarrierRestore() {
+        if (barrierRestoreTask != null) {
+            barrierRestoreTask.cancel();
+        }
+        barrierRestoreTask = plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            int restored = 0;
+            for (Location location : removedBarriers) {
+                World world = location.getWorld();
+                if (world == null) {
+                    continue;
+                }
+                Block block = world.getBlockAt(location);
+                if (block.getType() == Material.AIR) {
+                    block.setType(Material.BARRIER, false);
+                    restored++;
+                }
+            }
+            removedBarriers.clear();
+            Bukkit.broadcast(Component.text("Test finished. Barriers are back.", NamedTextColor.GOLD)
+                    .decorate(TextDecoration.BOLD));
+            plugin.getLogger().info("Restored " + restored + " barrier blocks.");
+        }, TEST_RESTORE_TICKS);
     }
 
     private void setPvp(boolean enabled) {
