@@ -188,6 +188,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 bridgeConfig.leaderboardRefreshTicks()
         );
         getServer().getPluginManager().registerEvents(this, this);
+        getServer().getPluginManager().registerEvents(
+                new StarterKitService(this, getDataFolder().toPath().resolve("starter-kits.json")),
+                this
+        );
         getServer().getPluginManager().registerEvents(perkService, this);
         getServer().getPluginManager().registerEvents(clanService, this);
         getServer().getPluginManager().registerEvents(clanMenuService, this);
