@@ -2,14 +2,21 @@ package bot.mgx.accessbridge;
 
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
+import org.bukkit.GameRule;
+import org.bukkit.Location;
+import org.bukkit.World;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.event.player.AsyncPlayerPreLoginEvent;
-import org.bukkit.event.player.PlayerLoginEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerLoginEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerRespawnEvent;
+import org.bukkit.event.world.SpawnChangeEvent;
+import org.bukkit.event.world.WorldLoadEvent;
+import org.bukkit.scheduler.BukkitTask;
+import org.spigotmc.event.player.PlayerSpawnLocationEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.geysermc.floodgate.api.FloodgateApi;
 import org.geysermc.floodgate.api.player.FloodgatePlayer;
@@ -227,6 +234,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         maintenanceSweep = getServer().getScheduler().runTaskTimer(
                 this, this::sweepMaintenance, MaintenanceGate.SWEEP_PERIOD_TICKS, MaintenanceGate.SWEEP_PERIOD_TICKS
         );
+        // Worlds may not exist yet during onEnable on Paper; the next tick
+        // and WorldLoadEvent both call lockWorldSpawn.
+        getServer().getScheduler().runTask(this, this::lockLoadedWorldSpawns);
     }
 
     @Override
@@ -755,6 +765,69 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 "Verification is temporarily unavailable. Your application is safe; "
                         + "please try again shortly."
         );
+    }
+
+    private void lockLoadedWorldSpawns() {
+        for (World world : getServer().getWorlds()) {
+            lockWorldSpawn(world);
+        }
+    }
+
+    private void lockWorldSpawn(World world) {
+        if (world.getEnvironment() != World.Environment.NORMAL) {
+            return;
+        }
+        Location current = world.getSpawnLocation();
+        if (!WorldSpawn.isExact(current.getBlockX(), current.getBlockY(), current.getBlockZ())) {
+            world.setSpawnLocation(WorldSpawn.X, WorldSpawn.Y, WorldSpawn.Z);
+            getLogger().info("World spawn locked to "
+                    + WorldSpawn.X + " " + WorldSpawn.Y + " " + WorldSpawn.Z + ".");
+        }
+        Integer radius = world.getGameRuleValue(GameRule.SPAWN_RADIUS);
+        if (radius == null || radius != WorldSpawn.RADIUS) {
+            world.setGameRule(GameRule.SPAWN_RADIUS, WorldSpawn.RADIUS);
+        }
+    }
+
+    private Location exactWorldSpawn(World world) {
+        return new Location(world, WorldSpawn.X + 0.5, WorldSpawn.Y, WorldSpawn.Z + 0.5);
+    }
+
+    @EventHandler
+    public void onWorldLoad(WorldLoadEvent event) {
+        lockWorldSpawn(event.getWorld());
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onSpawnChange(SpawnChangeEvent event) {
+        lockWorldSpawn(event.getWorld());
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onPlayerSpawnLocation(PlayerSpawnLocationEvent event) {
+        Location loc = event.getSpawnLocation();
+        World world = loc.getWorld();
+        if (world == null || world.getEnvironment() != World.Environment.NORMAL) {
+            return;
+        }
+        Location spawn = exactWorldSpawn(world);
+        if (loc.getWorld().equals(world) && loc.distanceSquared(spawn) <= 256.0) {
+            event.setSpawnLocation(spawn);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onPlayerRespawn(PlayerRespawnEvent event) {
+        if (event.isBedSpawn() || event.isAnchorSpawn()) {
+            return;
+        }
+        World world = event.getRespawnLocation().getWorld();
+        if (world == null || world.getEnvironment() != World.Environment.NORMAL) {
+            world = getServer().getWorlds().isEmpty() ? null : getServer().getWorlds().get(0);
+        }
+        if (world != null) {
+            event.setRespawnLocation(exactWorldSpawn(world));
+        }
     }
 
     /**
