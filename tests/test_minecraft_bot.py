@@ -3680,7 +3680,7 @@ class MinecraftCapabilityTests(unittest.TestCase):
     def test_a_member_may_only_leave(self):
         caps = self._caps("member-uuid")
 
-        self.assertEqual([a for a, _ in caps.available_clan_actions()], ["leave"])
+        self.assertEqual([a for a, _ in caps.available_clan_actions()], ["leave", "donate"])
         self.assertFalse(caps.may("disband"))
         self.assertFalse(caps.may("invite"))
 

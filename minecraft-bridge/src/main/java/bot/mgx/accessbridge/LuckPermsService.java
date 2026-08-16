@@ -71,15 +71,16 @@ final class LuckPermsService {
         return true;
     }
 
-    /** Simple Voice Chat defaults to everyone, but LuckPerms can strip that. */
-    void grantVoiceChatToEveryone() {
+    /** Nodes that should stay on every player even if LuckPerms strips plugin defaults. */
+    void grantEveryoneDefaults() {
         luckPerms.getGroupManager().modifyGroup("default", group -> {
             group.data().add(Node.builder("voicechat.listen").value(true).build());
             group.data().add(Node.builder("voicechat.speak").value(true).build());
             group.data().add(Node.builder("voicechat.groups").value(true).build());
-        }).thenRun(() -> plugin.getLogger().info("Voice chat is granted to every player."))
+            group.data().add(Node.builder("mgx.clans").value(true).build());
+        }).thenRun(() -> plugin.getLogger().info("Default players can use voice chat and clans."))
                 .exceptionally(throwable -> {
-                    plugin.getLogger().log(Level.WARNING, "Could not grant voice chat to everyone", throwable);
+                    plugin.getLogger().log(Level.WARNING, "Could not grant default player permissions", throwable);
                     return null;
                 });
     }

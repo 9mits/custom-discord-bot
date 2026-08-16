@@ -133,7 +133,7 @@ final class GuideService implements CommandExecutor, TabCompleter {
         player.sendMessage(detail("PROTECTION", "Members of the same clan cannot damage one another.", NamedTextColor.GREEN));
         player.sendMessage(detail(
                 "MANAGEMENT",
-                "Leaders manage settings and staff; leaders and staff can invite or remove members.",
+                "Any member can donate. Leaders manage settings and staff; leaders and staff can invite or remove members.",
                 NamedTextColor.YELLOW
         ));
         player.sendMessage(Component.empty());
