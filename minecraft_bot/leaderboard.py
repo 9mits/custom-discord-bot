@@ -48,6 +48,8 @@ CLAN_TYPES = ("wealth", "kills", "playtime")
 
 CONFIG_CHANNEL = "leaderboard_channel_id"
 CONFIG_MESSAGE = "leaderboard_message_id"
+CONFIG_CLAN_CHANNEL = "leaderboard_clan_channel_id"
+CONFIG_CLAN_MESSAGE = "leaderboard_clan_message_id"
 CONFIG_EMOJIS = "leaderboard_head_emojis"
 
 
@@ -317,25 +319,23 @@ def _render_row(
     heads: dict[str, str],
     linked: dict[str, str],
 ) -> str:
-    """One ranked entry. Podium stays bold and headed; later rows stay quieter."""
+    """One ranked entry. Every place uses the same layout; only heads stay podium-only."""
     podium = index < PODIUM
     value = str(row.get("display", row.get("value", 0)))
-    place = f"**{_placement(index)}**" if podium else _placement(index)
+    place = f"**{_placement(index)}**"
     if scope == "clan":
         clan_name = str(row.get("clan") or "?")
         name = clans.tag(clan_name, int(row.get("level", 0) or 0))
-        title = f"{place}  **{name}**" if podium else f"{place}  {name}"
         members = row.get("members")
         detail = f"`{value}`"
         if members:
             detail += f"  ·  {members} members"
-        return f"{title}\n{detail}"
+        return f"{place}  **{name}**\n{detail}"
 
     uuid = str(row.get("minecraft_uuid") or "")
     username = str(row.get("username", "?"))
     icon = heads.get(uuid, "") if podium else ""
-    name = f"**{username}**" if podium else username
-    lead = "  ".join(part for part in (place, icon, name) if part)
+    lead = "  ".join(part for part in (place, icon, f"**{username}**") if part)
     identity: list[str] = []
     clan = row.get("clan")
     if clan:
@@ -346,7 +346,7 @@ def _render_row(
     lines = [lead]
     if identity:
         lines.append("  ·  ".join(identity))
-    lines.append(f"`{value}`" if podium else value)
+    lines.append(f"`{value}`")
     return "\n".join(lines)
 
 
@@ -458,29 +458,31 @@ class BoardSelect(discord.ui.DynamicItem[discord.ui.Select], template=r"mgx_boar
 
 
 class LeaderboardView(discord.ui.View):
-    def __init__(self) -> None:
+    def __init__(self, scope: str = "individual") -> None:
         super().__init__(timeout=None)
-        self.add_item(BoardSelect("individual"))
-        self.add_item(BoardSelect("clan"))
+        self.add_item(BoardSelect(scope))
 
 
 def message_payload(
     snapshot: dict[str, Any],
     heads: dict[str, str],
     linked: Optional[dict[str, str]] = None,
+    *,
+    scope: str = "individual",
 ) -> dict[str, Any]:
-    """The permanent message: both default boards side by side, plus the dropdowns."""
-    # No attachment: every thumbnail is a remote URL now, and an attached file that
-    # no embed references would render as a stray image under the message.
+    """One permanent message: the default board for this scope, plus its dropdown."""
     return {
         "embeds": [
             build_embed(
-                snapshot, scope="individual", board=DEFAULT_TYPE, heads=heads, linked=linked
+                snapshot,
+                scope=scope,
+                board=DEFAULT_TYPE,
+                heads=heads,
+                linked=linked if scope == "individual" else None,
             ),
-            build_embed(snapshot, scope="clan", board=DEFAULT_TYPE, heads=heads),
         ],
         "attachments": [],
-        "view": LeaderboardView(),
+        "view": LeaderboardView(scope),
     }
 
 

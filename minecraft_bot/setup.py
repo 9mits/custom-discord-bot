@@ -334,7 +334,7 @@ class MinecraftSetupAction(discord.ui.Button):
         if self.action == "addresses":
             await interaction.response.send_modal(MinecraftAddressModal(view))
             return
-        if self.action in {"information", "leaderboard"}:
+        if self.action in {"information", "leaderboard", "leaderboard-clans"}:
             channel = interaction.channel
             if not isinstance(channel, discord.TextChannel):
                 await interaction.response.send_message(
@@ -347,12 +347,22 @@ class MinecraftSetupAction(discord.ui.Button):
                 problem = await view.bot.publish_information_panel(channel)
                 posted = "The server guide"
             else:
-                from .leaderboard import CONFIG_CHANNEL, CONFIG_MESSAGE
+                from .leaderboard import (
+                    CONFIG_CHANNEL,
+                    CONFIG_CLAN_CHANNEL,
+                    CONFIG_CLAN_MESSAGE,
+                    CONFIG_MESSAGE,
+                )
 
-                await view.bot.data.set_config(CONFIG_CHANNEL, channel.id)
-                await view.bot.data.set_config(CONFIG_MESSAGE, None)
+                if self.action == "leaderboard-clans":
+                    await view.bot.data.set_config(CONFIG_CLAN_CHANNEL, channel.id)
+                    await view.bot.data.set_config(CONFIG_CLAN_MESSAGE, None)
+                    posted = "The clan leaderboard"
+                else:
+                    await view.bot.data.set_config(CONFIG_CHANNEL, channel.id)
+                    await view.bot.data.set_config(CONFIG_MESSAGE, None)
+                    posted = "The player leaderboard"
                 problem = await view.bot._refresh_leaderboard_message()
-                posted = "The leaderboard"
             await interaction.followup.send(
                 problem or f"{posted} is now in {channel.mention}.", ephemeral=True
             )
@@ -499,7 +509,7 @@ class MinecraftSetupView(discord.ui.LayoutView):
         container.add_item(actions)
         container.add_item(
             discord.ui.TextDisplay(
-                "**Server guide** and **leaderboard** are permanent messages. Each button "
+                "**Server guide** and **leaderboards** are permanent messages. Each button "
                 "posts into the channel you run this from, and keeps that message updated."
             )
         )
@@ -508,7 +518,12 @@ class MinecraftSetupView(discord.ui.LayoutView):
             MinecraftSetupAction("information", "Post Server Guide", discord.ButtonStyle.primary)
         )
         panels.add_item(
-            MinecraftSetupAction("leaderboard", "Post Leaderboard", discord.ButtonStyle.primary)
+            MinecraftSetupAction("leaderboard", "Post Player Board", discord.ButtonStyle.primary)
+        )
+        panels.add_item(
+            MinecraftSetupAction(
+                "leaderboard-clans", "Post Clan Board", discord.ButtonStyle.primary
+            )
         )
         container.add_item(panels)
         container.add_item(discord.ui.Separator(visible=False))
