@@ -255,7 +255,7 @@ class ClanStoreTest {
     }
 
     @Test
-    void anyMemberDonatesButOnlyTheLeaderSpends() throws Exception {
+    void anyMemberDonatesButOnlyStaffSpends() throws Exception {
         Path path = temporaryDirectory.resolve("clans.json");
         ClanStore store = new ClanStore(path);
         UUID leader = UUID.randomUUID();
@@ -272,7 +272,8 @@ class ClanStoreTest {
         assertEquals(WealthValues.valueOf("DIAMOND") * 30L, banked.balance());
         assertThrows(ClanStore.ClanException.class, () -> store.upgrade(member));
 
-        ClanStore.ClanView upgraded = store.upgrade(leader);
+        store.setStaff(leader, member, true);
+        ClanStore.ClanView upgraded = store.upgrade(member);
 
         assertEquals(1, upgraded.level());
         // The price is debited, not merely checked.

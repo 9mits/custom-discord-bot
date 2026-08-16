@@ -44,7 +44,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     );
     private static final List<String> STAFF_SUBCOMMANDS = List.of(
             "help", "invite", "info", "list", "members", "kick", "chat", "leave",
-            "menu", "donate", "balance", "donors"
+            "menu", "donate", "balance", "donors", "upgrade"
     );
     private static final List<String> LEADER_SUBCOMMANDS = List.of(
             "help", "invite", "info", "list", "rename", "color", "promote", "demote",
@@ -352,10 +352,8 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
             player.sendMessage(help("/clans", "Open the clan menu"));
             player.sendMessage(help("/clans donate", "Give items to the clan"));
             player.sendMessage(help("/clans balance | donors", "What the clan holds, and who gave it"));
-            if (role == ClanStore.ClanRole.LEADER) {
-                player.sendMessage(help("/clans upgrade", "Spend the balance on levels or slots"));
-            }
             if (role == ClanStore.ClanRole.LEADER || role == ClanStore.ClanRole.STAFF) {
+                player.sendMessage(help("/clans upgrade", "Spend the balance on levels or slots"));
                 player.sendMessage(help("/clans invite <player>", "Invite an online player"));
                 player.sendMessage(help("/clans kick <player>", "Remove a clan member"));
             }
