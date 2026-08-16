@@ -45,7 +45,8 @@ final class ClanStore {
             int level,
             Map<String, Integer> vault,
             int memberSlots,
-            Map<UUID, Long> donations
+            Map<UUID, Long> donations,
+            Map<UUID, Long> joinedAt
     ) {
         ClanRole roleOf(UUID playerId) {
             if (leader.equals(playerId)) {
@@ -103,6 +104,8 @@ final class ClanStore {
         Integer memberSlots;
         /** Player uuid to lifetime value donated. Never reduced by spending. */
         Map<String, Long> donations;
+        /** Player uuid to epoch millis when they joined. Absent on older saves. */
+        Map<String, Long> joinedAt;
     }
 
     private static final class SavedInvite {
@@ -140,6 +143,8 @@ final class ClanStore {
         clan.themeColor = DEFAULT_THEME_COLOR;
         clan.leader = owner.toString();
         clan.members.put(owner.toString(), cleanPlayerName(ownerName));
+        clan.joinedAt = new LinkedHashMap<>();
+        clan.joinedAt.put(owner.toString(), System.currentTimeMillis());
         state.clans.add(clan);
         memberIndex.put(owner, clan);
         persist();
@@ -169,6 +174,16 @@ final class ClanStore {
         return clan == null ? Optional.empty() : Optional.of(view(clan));
     }
 
+    synchronized Optional<ClanView> findClanById(UUID clanId) {
+        if (clanId == null) {
+            return Optional.empty();
+        }
+        return state.clans.stream()
+                .filter(clan -> clan.id.equals(clanId.toString()))
+                .findFirst()
+                .map(this::view);
+    }
+
     synchronized Optional<ClanView> findClan(String name) {
         String lookup = normalizeLookup(name);
         return state.clans.stream()
@@ -181,6 +196,13 @@ final class ClanStore {
         return state.clans.stream()
                 .map(this::view)
                 .sorted(Comparator.comparing(ClanView::name, String.CASE_INSENSITIVE_ORDER))
+                .toList();
+    }
+
+    synchronized List<ClanView> listByWealth() {
+        return state.clans.stream()
+                .map(this::view)
+                .sorted(Comparator.comparingLong(ClanView::balance).reversed())
                 .toList();
     }
 
@@ -223,6 +245,10 @@ final class ClanStore {
             throw new ClanException("That clan is full.");
         }
         clan.members.put(player.toString(), cleanPlayerName(playerName));
+        if (clan.joinedAt == null) {
+            clan.joinedAt = new LinkedHashMap<>();
+        }
+        clan.joinedAt.put(player.toString(), now);
         memberIndex.put(player, clan);
         state.invites.remove(player.toString());
         persist();
@@ -732,8 +758,18 @@ final class ClanStore {
                 levelOf(clan),
                 clan.vault == null ? Map.of() : Map.copyOf(clan.vault),
                 slotsOf(clan),
-                donationsOf(clan)
+                donationsOf(clan),
+                joinedAtOf(clan)
         );
+    }
+
+    private static Map<UUID, Long> joinedAtOf(SavedClan clan) {
+        if (clan.joinedAt == null || clan.joinedAt.isEmpty()) {
+            return Map.of();
+        }
+        LinkedHashMap<UUID, Long> joined = new LinkedHashMap<>();
+        clan.joinedAt.forEach((id, at) -> joined.put(UUID.fromString(id), at));
+        return Map.copyOf(joined);
     }
 
     private static String normalizeName(String value) {

@@ -31,6 +31,7 @@ final class LeaderboardService {
     private final ClanStore clans;
     private final long refreshTicks;
     private int taskId = -1;
+    private JsonObject latest = new JsonObject();
 
     LeaderboardService(
             MGXAccessBridge plugin,
@@ -100,6 +101,9 @@ final class LeaderboardService {
         JsonObject individual = new JsonObject();
         JsonObject clan = new JsonObject();
         for (LeaderboardType type : LeaderboardType.values()) {
+            if (!type.published()) {
+                continue;
+            }
             individual.add(type.key(), rankIndividuals(everyone, type));
             if (type.clanEligible()) {
                 // Richest clans rank on the clan's own balance rather than on what its
@@ -111,7 +115,12 @@ final class LeaderboardService {
         }
         snapshot.add("individual", individual);
         snapshot.add("clan", clan);
+        latest = snapshot;
         bridge.sendLeaderboardSnapshot(snapshot);
+    }
+
+    JsonObject latest() {
+        return latest;
     }
 
     private JsonArray rankIndividuals(List<PlayerStats> everyone, LeaderboardType type) {

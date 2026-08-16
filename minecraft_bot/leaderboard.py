@@ -39,12 +39,9 @@ DEFAULT_TYPE = "wealth"
 TYPE_LABELS: dict[str, str] = {
     "wealth": "Richest",
     "kills": "Most Kills",
-    "playtime": "Time Played",
-    "blocks_mined": "Blocks Mined",
-    "blocks_walked": "Distance Walked",
 }
-#: Mirrors LeaderboardType.clanEligible on the Paper side.
-CLAN_TYPES = ("wealth", "kills", "playtime")
+#: Mirrors LeaderboardType.published on the Paper side.
+CLAN_TYPES = ("wealth", "kills")
 
 CONFIG_CHANNEL = "leaderboard_channel_id"
 CONFIG_MESSAGE = "leaderboard_message_id"

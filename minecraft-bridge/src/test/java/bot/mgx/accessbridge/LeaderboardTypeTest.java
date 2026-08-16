@@ -36,6 +36,10 @@ class LeaderboardTypeTest {
         assertTrue(LeaderboardType.WEALTH.clanEligible());
         assertTrue(LeaderboardType.KILLS.clanEligible());
         assertTrue(LeaderboardType.PLAYTIME.clanEligible());
+        assertTrue(LeaderboardType.WEALTH.published());
+        assertTrue(LeaderboardType.KILLS.published());
+        assertFalse(LeaderboardType.PLAYTIME.published());
+        assertFalse(LeaderboardType.BLOCKS_MINED.published());
     }
 
     @Test

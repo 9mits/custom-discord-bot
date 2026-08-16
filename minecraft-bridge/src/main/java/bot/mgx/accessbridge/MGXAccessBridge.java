@@ -202,7 +202,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 || getCommand("discordnames") == null
                 || getCommand("settings") == null
                 || getCommand("mgxadmin") == null
-                || getCommand("whitelisted") == null) {
+                || getCommand("whitelisted") == null
+                || getCommand("leaderboard") == null) {
             getLogger().severe("A required Minecraft command is missing from plugin.yml.");
             getServer().getPluginManager().disablePlugin(this);
             return;
@@ -222,6 +223,11 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         WhitelistDirectoryService whitelistService = new WhitelistDirectoryService(whitelistDirectory, playerMenuService);
         getCommand("whitelisted").setExecutor(whitelistService);
         getCommand("whitelisted").setTabCompleter(whitelistService);
+        LeaderboardMenuService leaderboardMenus = new LeaderboardMenuService(
+                clanStore, leaderboardService, identityService
+        );
+        getCommand("leaderboard").setExecutor(leaderboardMenus);
+        getServer().getPluginManager().registerEvents(leaderboardMenus, this);
         AdminCommandService adminService = new AdminCommandService(
                 this,
                 rankSyncStore,

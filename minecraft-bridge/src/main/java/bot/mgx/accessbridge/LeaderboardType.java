@@ -25,6 +25,11 @@ enum LeaderboardType {
         return clanEligible;
     }
 
+    /** The boards Discord and {@code /leaderboard} actually show. */
+    boolean published() {
+        return this == WEALTH || this == KILLS;
+    }
+
     /** Renders a raw figure the way players read it, not the way the game stores it. */
     String describe(long value) {
         return switch (this) {
