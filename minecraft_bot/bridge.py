@@ -598,6 +598,7 @@ class MinecraftBridgeServer:
                 {"action": "SET_MAINTENANCE", "enabled": bool(enabled)},
                 idempotency_key=f"maintenance:{secrets.token_hex(12)}",
             )
+            await self.send_full_pending_sync()
         except ConnectionError:
             return False
         return True
