@@ -39,7 +39,7 @@ commands:
     aliases: [whitelistlist]
   mgxadmin:
     description: Hold players out of Discord rank sync, and reset accumulated data.
-    usage: /mgxadmin <startserver|ranks|reset>
+    usage: /mgxadmin <startserver|teststart|ranks|reset>
     aliases: [mcadmin]
     permission: mgxaccessbridge.admin
 permissions:

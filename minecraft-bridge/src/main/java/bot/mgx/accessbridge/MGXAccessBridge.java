@@ -504,6 +504,13 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         launchService.start(sender);
     }
 
+    void startLaunchTest(org.bukkit.command.CommandSender sender) {
+        if (launchService == null) {
+            throw new IllegalStateException("Launch service is not ready.");
+        }
+        launchService.startTest(sender);
+    }
+
     void setMaintenance(boolean enabled) {
         if (maintenanceStore == null || !maintenanceStore.set(enabled)) {
             return;
