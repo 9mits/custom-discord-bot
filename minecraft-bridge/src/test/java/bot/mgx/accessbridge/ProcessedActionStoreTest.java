@@ -26,4 +26,16 @@ class ProcessedActionStoreTest {
         assertTrue(result.success());
         assertEquals("", result.error());
     }
+
+    @Test
+    void reserveClaimsAKeyOnlyOnce() throws Exception {
+        ProcessedActionStore store = new ProcessedActionStore(
+                temporaryDirectory.resolve("processed-actions.properties"),
+                Runnable::run
+        );
+
+        assertTrue(store.reserve("application:1:approve"));
+        assertTrue(store.get("application:1:approve").isEmpty());
+        assertTrue(!store.reserve("application:1:approve"));
+    }
 }

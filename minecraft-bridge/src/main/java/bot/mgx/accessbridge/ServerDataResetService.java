@@ -156,6 +156,7 @@ final class ServerDataResetService {
             removed += clearQuietly(verifiedApplications::clearAll, "verified applications", problems);
             removed += clearQuietly(verificationEvents::clearAll, "queued verifications", problems);
             removed += clearQuietly(processedActions::clearAll, "processed actions", problems);
+            removed += plugin.revokeLiveAccess();
             removed += emptyJsonArray(serverRoot.resolve("whitelist.json"), problems);
             cleared.put(ResetScope.ACCESS, removed);
         }

@@ -125,15 +125,14 @@ def minecraft_head_url(
     allow_claimed_username: bool = False,
 ) -> Optional[str]:
     identifier = str(application.minecraft_uuid or "").strip()
-    if identifier:
-        return MINECRAFT_HEAD_URL.format(identifier=quote(identifier, safe=""))
-    if not allow_claimed_username:
-        return None
     username = str(application.verified_username or application.claimed_username or "").strip()
-    if not username:
+    if identifier:
+        return head_url(identifier, username)
+    if not allow_claimed_username or not username:
         return None
-    template = BEDROCK_NAME_HEAD_URL if application.edition.value == "BEDROCK" else MINECRAFT_HEAD_URL
-    return template.format(identifier=quote(username, safe=""))
+    if application.edition.value == "BEDROCK":
+        return BEDROCK_NAME_HEAD_URL.format(identifier=quote(username, safe=""))
+    return MINECRAFT_HEAD_URL.format(identifier=quote(username, safe=""))
 
 
 def _set_minecraft_thumbnail(embed: discord.Embed, thumbnail_url: Optional[str]) -> discord.Embed:
@@ -354,7 +353,7 @@ def application_apply_embed() -> discord.Embed:
         "**How it works**\n"
         "> **1.** Press **Apply** and accept the server rules.\n"
         "> **2.** Enter your exact Java username or Xbox gamertag.\n"
-        "> **3.** Join the server once to verify. You will be disconnected.\n"
+        "> **3.** Join the server once within **10 minutes** to verify. You will be disconnected.\n"
         "> **4.** Return to Discord and complete a short form.\n"
         "> **5.** Staff review it and send the outcome by direct message.\n\n"
         "**Before you begin**\n"
@@ -590,6 +589,8 @@ def review_embed(
         )
     if application.status is ApplicationStatus.DENIED and application.applicant_reason:
         embed.add_field(name="Applicant-Facing Reason", value=_safe(application.applicant_reason), inline=False)
+    if application.internal_note:
+        embed.add_field(name="Internal Note", value=_safe(application.internal_note), inline=False)
     _set_minecraft_thumbnail(embed, minecraft_head_url(application))
     embed.set_footer(text=BRAND_NAME, icon_url=FOOTER_ICON_URL)
     return embed
@@ -758,7 +759,7 @@ def live_status_embed(application: MinecraftApplication, settings) -> discord.Em
         show_connection = True
     elif status is ApplicationStatus.DENIED:
         title = "Application Declined"
-        reason = application.applicant_reason or "No reason was provided."
+        reason = _safe(application.applicant_reason or "No reason was provided.")
         body = (
             "> Your application has been reviewed and was not approved.\n"
             f"> **Reason:** {reason}"
@@ -976,7 +977,4 @@ def player_activity_embed(
             value=f"<@{discord_user_id}> · `{discord_user_id}`",
             inline=False,
         )
-    return _set_minecraft_thumbnail(
-        embed,
-        MINECRAFT_HEAD_URL.format(identifier=quote(str(minecraft_uuid).strip(), safe="")),
-    )
+    return _set_minecraft_thumbnail(embed, head_url(str(minecraft_uuid or ""), username))

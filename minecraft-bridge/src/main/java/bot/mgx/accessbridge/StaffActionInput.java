@@ -1,5 +1,6 @@
 package bot.mgx.accessbridge;
 
+import java.util.Locale;
 import java.util.regex.Pattern;
 
 /**
@@ -12,6 +13,7 @@ import java.util.regex.Pattern;
  */
 final class StaffActionInput {
     private static final Pattern USERNAME_PATTERN = Pattern.compile("^\\.?[A-Za-z0-9_]{1,16}$");
+    private static final Pattern DURATION_PATTERN = Pattern.compile("^\\d+[smhdw]$");
 
     private StaffActionInput() {
     }
@@ -21,6 +23,18 @@ final class StaffActionInput {
         String trimmed = raw == null ? "" : raw.trim();
         if (!USERNAME_PATTERN.matcher(trimmed).matches()) {
             throw new StaffActionException("\"" + trimmed + "\" is not a valid player name.");
+        }
+        return trimmed;
+    }
+
+    /** Essentials-style durations only: {@code 10m}, {@code 2h}, {@code 7d}. */
+    static String sanitizeDuration(String raw) {
+        String trimmed = raw == null ? "" : raw.trim().toLowerCase(Locale.ROOT);
+        if (trimmed.isEmpty()) {
+            return "";
+        }
+        if (!DURATION_PATTERN.matcher(trimmed).matches()) {
+            throw new StaffActionException("Duration must look like 10m, 2h, or 7d.");
         }
         return trimmed;
     }

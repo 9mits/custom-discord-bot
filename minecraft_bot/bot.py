@@ -40,7 +40,7 @@ from .perks import (
 from .presentation import (
     BRAND_NAME,
     FOOTER_ICON_URL,
-    MINECRAFT_HEAD_URL,
+    head_url,
     about_image_file,
     application_apply_embed,
     application_guide_embed,
@@ -185,6 +185,7 @@ class MinecraftAccessBot(commands.Bot):
         )
         self.apply_rate_limit = RateLimiter(5)
         self.status_rate_limit = RateLimiter(10)
+        self.chat_rate_limit = RateLimiter(2)
         # Minecraft UUID -> linked Discord id, refreshed with the leaderboard so the
         # dropdowns can render mentions without hitting the database again.
         self.leaderboard_links: dict[str, str] = {}
@@ -297,10 +298,13 @@ class MinecraftAccessBot(commands.Bot):
             "Share this reference with staff if the problem continues.",
             error=True,
         )
-        if interaction.response.is_done():
-            await interaction.followup.send(**branded_send(embed), ephemeral=True)
-        else:
-            await interaction.response.send_message(**branded_send(embed), ephemeral=True)
+        try:
+            if interaction.response.is_done():
+                await interaction.followup.send(**branded_send(embed), ephemeral=True)
+            else:
+                await interaction.response.send_message(**branded_send(embed), ephemeral=True)
+        except Exception:
+            logger.exception("Could not report Minecraft command failure %s", correlation_id)
 
     def is_moderator(self, member: discord.Member | discord.User) -> bool:
         permissions = getattr(member, "guild_permissions", None)
@@ -314,14 +318,9 @@ class MinecraftAccessBot(commands.Bot):
         return bool(permissions is not None and permissions.administrator)
 
     def is_owner_member(self, member: discord.Member | discord.User) -> bool:
-        """The server owner, or a member holding a role literally named Owner."""
+        """The Discord guild owner only. Role names are not authority."""
         guild = self.get_guild(self.config.guild_id)
-        if guild is not None and int(member.id) == int(guild.owner_id or 0):
-            return True
-        return any(
-            str(getattr(role, "name", "")).strip().casefold() == "owner"
-            for role in getattr(member, "roles", ())
-        )
+        return guild is not None and int(member.id) == int(guild.owner_id or 0)
 
     async def require_moderator(self, interaction: discord.Interaction) -> bool:
         if self.is_moderator(interaction.user):
@@ -437,6 +436,25 @@ class MinecraftAccessBot(commands.Bot):
         if guild is not None:
             return guild
         return None
+
+    async def _resolve_guild_member(
+        self,
+        guild: Optional[discord.Guild],
+        user_id: int | str,
+    ) -> Optional[discord.Member]:
+        if guild is None:
+            return None
+        try:
+            parsed = int(user_id)
+        except (TypeError, ValueError):
+            return None
+        member = guild.get_member(parsed)
+        if member is not None:
+            return member
+        try:
+            return await guild.fetch_member(parsed)
+        except (discord.NotFound, discord.HTTPException):
+            return None
 
     async def _send_configured_log(
         self,
@@ -1018,21 +1036,26 @@ class MinecraftAccessBot(commands.Bot):
             and message.channel.id == self.settings.chat_channel_id
             and not message.author.bot
             and message.webhook_id is None
+            and self.bridge.supports_chat_sync
         ):
             accounts = await self.data.list_accounts_for_user(message.author.id)
-            minecraft_uuid = str(accounts[0]["minecraft_uuid"]) if accounts else None
-            minecraft_username = str(accounts[0]["current_username"]) if accounts else None
-            content = str(message.content or "")[:2000]
-            attachment_url = message.jump_url if message.attachments else None
-            await self.bridge.send_discord_chat(
-                discord_user_id=message.author.id,
-                discord_username=message.author.name,
-                minecraft_uuid=minecraft_uuid,
-                minecraft_username=minecraft_username,
-                message=content,
-                attachment_url=attachment_url,
-                attachment_count=len(message.attachments),
-            )
+            if accounts and self.chat_rate_limit.claim(message.author.id):
+                java = next(
+                    (row for row in accounts if str(row.get("edition", "")).upper() == "JAVA"),
+                    accounts[0],
+                )
+                attachment_url = None
+                if message.attachments:
+                    attachment_url = str(getattr(message.attachments[0], "url", "") or "") or None
+                await self.bridge.send_discord_chat(
+                    discord_user_id=message.author.id,
+                    discord_username=message.author.name,
+                    minecraft_uuid=str(java["minecraft_uuid"]),
+                    minecraft_username=str(java["current_username"]),
+                    message=str(message.content or "")[:2000],
+                    attachment_url=attachment_url,
+                    attachment_count=len(message.attachments),
+                )
         await self.process_commands(message)
 
     async def handle_minecraft_chat(
@@ -1068,7 +1091,7 @@ class MinecraftAccessBot(commands.Bot):
         try:
             webhook = await self._chat_webhook(channel)
             username = f"{current_username} • Minecraft"
-            avatar_url = MINECRAFT_HEAD_URL.format(identifier=minecraft_uuid)
+            avatar_url = head_url(minecraft_uuid, current_username)
             if linked_user is not None:
                 username = f"{current_username} • @{linked_user.name}"
                 avatar_url = str(linked_user.display_avatar.url)
@@ -1082,7 +1105,7 @@ class MinecraftAccessBot(commands.Bot):
             )
             embed.set_author(
                 name=f"Minecraft · {current_username}",
-                icon_url=MINECRAFT_HEAD_URL.format(identifier=minecraft_uuid),
+                icon_url=head_url(minecraft_uuid, current_username),
             )
             embed.set_footer(text=BRAND_NAME, icon_url=FOOTER_ICON_URL)
             await webhook.send(
@@ -1291,14 +1314,22 @@ class MinecraftAccessBot(commands.Bot):
         xuid: Optional[str],
         event_idempotency_key: str,
     ) -> None:
-        application, changed = await self.data.record_verification(
-            application_id=application_id,
-            edition=edition,
-            minecraft_uuid=minecraft_uuid,
-            current_username=current_username,
-            xuid=xuid,
-            event_idempotency_key=event_idempotency_key,
-        )
+        try:
+            application, changed = await self.data.record_verification(
+                application_id=application_id,
+                edition=edition,
+                minecraft_uuid=minecraft_uuid,
+                current_username=current_username,
+                xuid=xuid,
+                event_idempotency_key=event_idempotency_key,
+            )
+        except InvalidTransition as exc:
+            logger.warning(
+                "Rejected Minecraft verification for application %s: %s",
+                application_id,
+                exc,
+            )
+            return
         self.spawn_background_task(
             self._publish_verification(application, changed=changed),
             name=f"minecraft-verification:{application.id}",
@@ -1459,7 +1490,7 @@ class MinecraftAccessBot(commands.Bot):
 
     async def _finish_approval(self, application: MinecraftApplication) -> None:
         guild = await self._configured_guild()
-        member = guild.get_member(int(application.discord_user_id)) if guild else None
+        member = await self._resolve_guild_member(guild, application.discord_user_id)
         role = guild.get_role(self.settings.member_role_id) if guild else None
         if member is not None and role is not None:
             try:
@@ -1477,7 +1508,7 @@ class MinecraftAccessBot(commands.Bot):
                     logger.exception("Could not record approved-role failure for application %s", application.id)
     async def _finish_revocation(self, application: MinecraftApplication) -> None:
         guild = await self._configured_guild()
-        member = guild.get_member(int(application.discord_user_id)) if guild else None
+        member = await self._resolve_guild_member(guild, application.discord_user_id)
         role = guild.get_role(self.settings.member_role_id) if guild else None
         remaining = [
             item
@@ -1531,7 +1562,7 @@ class MinecraftAccessBot(commands.Bot):
                 "> Please try again shortly.",
                 error=True,
             )
-        needs_argument = action in {"kick", "promote", "demote", "transfer", "rename", "color"}
+        needs_argument = action in {"kick", "promote", "demote", "transfer", "rename", "color", "invite"}
         if needs_argument and not argument:
             return info_embed(
                 "Missing Detail",
@@ -1836,6 +1867,7 @@ class MinecraftAccessBot(commands.Bot):
             expired = await self.data.expire_pending(limit=100)
             for application in expired:
                 await self.log_application_decision(application)
+                await self.update_live_card(application)
             if self.bridge.connected:
                 await self.bridge.dispatch_outbox()
             await self._process_delivery_recovery()
@@ -2196,6 +2228,8 @@ class MinecraftAccessBot(commands.Bot):
             description="The Minecraft staff tools your permissions allow.",
         )
         async def staff_tools(interaction: discord.Interaction) -> None:
+            if not await self.require_moderator(interaction):
+                return
             await interaction.response.defer(ephemeral=True)
             await interaction.edit_original_response(
                 embed=await self.build_capability_embed(interaction.user.id, staff=True)
@@ -2407,6 +2441,8 @@ class MinecraftAccessBot(commands.Bot):
             description="See everyone with whitelist access and their linked Discord account.",
         )
         async def whitelist(interaction: discord.Interaction) -> None:
+            if not await self.require_moderator(interaction):
+                return
             await interaction.response.defer(ephemeral=True)
             await interaction.edit_original_response(
                 **branded_edit(await self.build_whitelist_embed())
@@ -2422,8 +2458,7 @@ class MinecraftAccessBot(commands.Bot):
                     **branded_send(
                         info_embed(
                             "Owner Access Required",
-                            "> Only the server owner, or a member holding the "
-                            "Owner role, may wipe Minecraft data.",
+                            "> Only the server owner may wipe Minecraft data.",
                             error=True,
                         )
                     ),

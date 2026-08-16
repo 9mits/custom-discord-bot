@@ -58,4 +58,13 @@ class PendingVerificationCacheTest {
         assertTrue(verification.matches(MinecraftEdition.JAVA, "SharedName", 1));
         assertTrue(verification.matches(MinecraftEdition.BEDROCK, "SharedName", 1));
     }
+
+    @Test
+    void twoPendingRowsForTheSameNameMatchNeither() {
+        PendingVerificationCache cache = new PendingVerificationCache();
+        cache.put(new PendingVerification(1, MinecraftEdition.JAVA, "Steve", "steve", Long.MAX_VALUE));
+        cache.put(new PendingVerification(2, MinecraftEdition.AUTO, "Steve", "steve", Long.MAX_VALUE));
+
+        assertTrue(cache.match(MinecraftEdition.JAVA, "Steve").isEmpty());
+    }
 }

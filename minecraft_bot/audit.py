@@ -16,12 +16,11 @@ import logging
 import time
 from dataclasses import dataclass, field, replace
 from typing import Any, Iterable, Mapping, Optional, Sequence
-from urllib.parse import quote
 
 import discord
 from discord import InteractionType, app_commands
 
-from .presentation import MINECRAFT_HEAD_URL, branded_send, info_embed
+from .presentation import branded_send, head_url, info_embed
 
 
 logger = logging.getLogger("MinecraftAccessBot")
@@ -76,6 +75,9 @@ COMMAND_RISK: Mapping[str, str] = {
     "mcadmin chat-channel": RISK_CONFIGURATION,
     "mcadmin leaderboard": RISK_CONFIGURATION,
     "mcadmin wipe": RISK_DESTRUCTIVE,
+    "mcadmin maintenance": RISK_DESTRUCTIVE,
+    "mcadmin information": RISK_CONFIGURATION,
+    "mcadmin cleanheads": RISK_CONFIGURATION,
 }
 
 # In-game actions reported over the bridge. Everything absent is routine, which is the
@@ -492,7 +494,7 @@ async def deliver_server_event(
         record, minecraft_username=minecraft_username, summary=summary
     )
     if minecraft_uuid:
-        embed.set_thumbnail(url=MINECRAFT_HEAD_URL.format(identifier=quote(minecraft_uuid, safe="")))
+        embed.set_thumbnail(url=head_url(minecraft_uuid, minecraft_username))
     await _send(client, channel_id, embed)
 
 
@@ -598,8 +600,9 @@ async def _set_player_thumbnail(client: Any, embed: discord.Embed, discord_user_
     if not accounts:
         return
     minecraft_uuid = str(accounts[0].get("minecraft_uuid") or "").strip()
+    username = str(accounts[0].get("current_username") or "").strip()
     if minecraft_uuid:
-        embed.set_thumbnail(url=MINECRAFT_HEAD_URL.format(identifier=quote(minecraft_uuid, safe="")))
+        embed.set_thumbnail(url=head_url(minecraft_uuid, username))
 
 
 def schedule_delivery(client: Any, record: CommandAuditRecord) -> None:

@@ -512,5 +512,104 @@ class MinecraftBridgeDispatchTests(unittest.IsolatedAsyncioTestCase):
         data.mark_outbox_sent_batch.assert_awaited_once_with([1, 2])
         self.assertEqual(server._socket.send_json.await_count, 2)
 
+    def test_forwarded_proto_from_a_remote_client_is_ignored(self):
+        server = MinecraftBridgeServer(
+            SimpleNamespace(
+                bridge_path="/bridge",
+                bridge_secret=bytes(range(32)),
+                allow_insecure_localhost=False,
+            ),
+            SimpleNamespace(),
+            verification_handler=AsyncMock(),
+            action_result_handler=AsyncMock(),
+            player_event_handler=AsyncMock(),
+        )
+        request = SimpleNamespace(
+            secure=False,
+            remote="203.0.113.10",
+            headers={"X-Forwarded-Proto": "https"},
+        )
+        self.assertFalse(server._request_is_secure(request))
+
+    def test_forwarded_proto_from_localhost_is_trusted(self):
+        server = MinecraftBridgeServer(
+            SimpleNamespace(
+                bridge_path="/bridge",
+                bridge_secret=bytes(range(32)),
+                allow_insecure_localhost=False,
+            ),
+            SimpleNamespace(),
+            verification_handler=AsyncMock(),
+            action_result_handler=AsyncMock(),
+            player_event_handler=AsyncMock(),
+        )
+        request = SimpleNamespace(
+            secure=False,
+            remote="127.0.0.1",
+            headers={"X-Forwarded-Proto": "https"},
+        )
+        self.assertTrue(server._request_is_secure(request))
+
+
+class MinecraftBridgeProtocolCapTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.secret = bytes(range(32))
+        self.config = MinecraftConfig(
+            discord_token="unused",
+            guild_id=1,
+            application_channel_id=2,
+            review_channel_id=3,
+            mod_role_id=4,
+            member_role_id=5,
+            bridge_secret=self.secret,
+            server_id="mysterious-smp-x",
+            java_address="localhost:25565",
+            bedrock_address="localhost",
+            bedrock_port=19132,
+            bridge_path="/minecraft-bridge",
+            bridge_host="127.0.0.1",
+            bridge_port=0,
+            data_dir=Path(self.directory.name),
+            allow_insecure_localhost=True,
+        )
+        self.data = MinecraftDataManager(self.config.database_path)
+        await self.data.open()
+        self.server = MinecraftBridgeServer(
+            self.config,
+            self.data,
+            verification_handler=AsyncMock(),
+            action_result_handler=AsyncMock(),
+            player_event_handler=AsyncMock(),
+        )
+        await self.server.start()
+        self.port = self.server._site._server.sockets[0].getsockname()[1]
+        self.session = aiohttp.ClientSession()
+
+    async def asyncTearDown(self):
+        await self.session.close()
+        await self.server.close()
+        await self.data.close()
+        self.directory.cleanup()
+
+    async def test_a_future_protocol_version_is_capped_at_current(self):
+        from minecraft_bot.bridge import CURRENT_PROTOCOL_VERSION
+
+        socket = await self.session.ws_connect(
+            f"http://127.0.0.1:{self.port}/minecraft-bridge"
+        )
+        await socket.send_json(create_envelope(
+            self.secret,
+            "HELLO",
+            {"server_id": "mysterious-smp-x", "protocol_version": 999},
+            idempotency_key="hello-future",
+        ))
+        hello_ack = (await socket.receive_json())
+        if hello_ack.get("type") != "HELLO_ACK":
+            hello_ack = await socket.receive_json()
+        self.assertEqual(hello_ack["payload"]["protocol_version"], CURRENT_PROTOCOL_VERSION)
+        self.assertEqual(self.server._peer_protocol_version, CURRENT_PROTOCOL_VERSION)
+        await socket.close()
+
 if __name__ == "__main__":
     unittest.main()

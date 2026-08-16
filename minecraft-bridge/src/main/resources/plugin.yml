@@ -47,4 +47,4 @@ permissions:
     default: true
   mgxaccessbridge.admin:
     description: Allows rank holds, administrative data resets, and joining while the server is held for maintenance when granted explicitly in LuckPerms.
-    default: op
+    default: false

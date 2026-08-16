@@ -905,5 +905,184 @@ class SecondEditionLinkTests(unittest.IsolatedAsyncioTestCase):
             )
 
 
+class MinecraftAccessIntegrityTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.data = MinecraftDataManager(Path(self.directory.name) / "minecraft.db")
+        await self.data.open()
+
+    async def asyncTearDown(self):
+        await self.data.close()
+        self.directory.cleanup()
+
+    async def test_two_users_cannot_claim_the_same_username(self):
+        await self.data.create_application(
+            guild_id=10,
+            discord_user_id=1,
+            edition=Edition.JAVA,
+            claimed_username="Steve",
+            now=1000,
+        )
+        with self.assertRaises(ValueError):
+            await self.data.create_application(
+                guild_id=10,
+                discord_user_id=2,
+                edition=Edition.JAVA,
+                claimed_username="Steve",
+                now=1001,
+            )
+
+    async def test_unlink_cancels_a_pending_application(self):
+        application = await self.data.create_application(
+            guild_id=10,
+            discord_user_id=42,
+            edition=Edition.JAVA,
+            claimed_username="TestPlayer",
+            now=1000,
+        )
+        await self.data.record_verification(
+            application_id=application.id,
+            edition=Edition.JAVA,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            current_username="TestPlayer",
+            xuid=None,
+            event_idempotency_key="verify-form",
+            now=1010,
+        )
+
+        account, affected, queued = await self.data.unlink_account(
+            42, Edition.JAVA, 99, "Wrong account"
+        )
+
+        self.assertEqual(account["current_username"], "TestPlayer")
+        self.assertFalse(queued)
+        self.assertEqual(affected[0].status, ApplicationStatus.CANCELLED)
+        self.assertEqual(await self.data.list_accounts_for_user(42), [])
+
+    async def test_deny_releases_the_minecraft_account(self):
+        application = await self.data.create_application(
+            guild_id=10,
+            discord_user_id=42,
+            edition=Edition.JAVA,
+            claimed_username="TestPlayer",
+            answers={
+                "why": "I want to build with this community.",
+                "about": "I am a considerate builder who enjoys group projects.",
+            },
+            now=1000,
+        )
+        await self.data.record_verification(
+            application_id=application.id,
+            edition=Edition.JAVA,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            current_username="TestPlayer",
+            xuid=None,
+            event_idempotency_key="verify-deny-release",
+            now=1010,
+        )
+        await self.data.deny_application(
+            application.id,
+            99,
+            internal_note="Not a fit",
+            applicant_reason="Please reapply later",
+            now=1020,
+        )
+
+        replacement = await self.data.create_application(
+            guild_id=10,
+            discord_user_id=42,
+            edition=Edition.JAVA,
+            claimed_username="OtherJava",
+            now=1030,
+        )
+        self.assertEqual(replacement.claimed_username, "OtherJava")
+
+    async def test_late_approve_does_not_resurrect_a_cancelled_outbox_row(self):
+        application = await self.data.create_application(
+            guild_id=10,
+            discord_user_id=42,
+            edition=Edition.JAVA,
+            claimed_username="TestPlayer",
+            answers={
+                "why": "I want to build with this community.",
+                "about": "I am a considerate builder who enjoys group projects.",
+            },
+            now=1000,
+        )
+        await self.data.record_verification(
+            application_id=application.id,
+            edition=Edition.JAVA,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            current_username="TestPlayer",
+            xuid=None,
+            event_idempotency_key="verify-cancel-approve",
+            now=1010,
+        )
+        await self.data.queue_approval(application.id, 99, now=1020)
+        approve = next(
+            record
+            for record in await self.data.get_outbox_batch()
+            if record.action is BridgeAction.APPROVE
+        )
+        await self.data.cancel_application(application.id, 99)
+        record, updated, newly = await self.data.complete_outbox(approve.idempotency_key)
+
+        self.assertFalse(newly)
+        self.assertEqual(updated.status, ApplicationStatus.CANCELLED)
+        self.assertEqual(record.status, "CANCELLED")
+
+    async def test_expired_verification_is_acknowledged_without_raising(self):
+        application = await self.data.create_application(
+            guild_id=10,
+            discord_user_id=42,
+            edition=Edition.JAVA,
+            claimed_username="TestPlayer",
+            verification_seconds=10,
+            now=1000,
+        )
+        updated, changed = await self.data.record_verification(
+            application_id=application.id,
+            edition=Edition.JAVA,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            current_username="TestPlayer",
+            xuid=None,
+            event_idempotency_key="verify-expired",
+            now=2000,
+        )
+        self.assertFalse(changed)
+        self.assertEqual(updated.status, ApplicationStatus.EXPIRED)
+
+    async def test_verification_rejects_a_malformed_uuid(self):
+        application = await self.data.create_application(
+            guild_id=10,
+            discord_user_id=42,
+            edition=Edition.JAVA,
+            claimed_username="TestPlayer",
+            now=1000,
+        )
+        with self.assertRaises(InvalidTransition):
+            await self.data.record_verification(
+                application_id=application.id,
+                edition=Edition.JAVA,
+                minecraft_uuid="not-a-uuid",
+                current_username="TestPlayer",
+                xuid=None,
+                event_idempotency_key="verify-bad-uuid",
+                now=1010,
+            )
+
+    async def test_username_search_treats_like_wildcards_as_literals(self):
+        await self.data.create_application(
+            guild_id=10,
+            discord_user_id=42,
+            edition=Edition.JAVA,
+            claimed_username="TestPlayer",
+            now=1000,
+        )
+        self.assertEqual(await self.data.find_applications_by_username("%"), [])
+        self.assertEqual(await self.data.find_applications_by_username("_"), [])
+        self.assertEqual(len(await self.data.find_applications_by_username("TestPlayer")), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

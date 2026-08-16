@@ -14,6 +14,8 @@ import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.BlockStateMeta;
+import org.bukkit.inventory.meta.ItemMeta;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -455,7 +457,7 @@ final class ClanMenuService implements Listener {
             if (item == null || item.getType().isAir()) {
                 continue;
             }
-            if (ClanLevel.isDonatable(item.getType().name())) {
+            if (ClanLevel.isDonatable(item.getType().name()) && !hasPreservedData(item)) {
                 offered.merge(item.getType().name(), item.getAmount(), Integer::sum);
             } else {
                 returned.add(item);
@@ -627,6 +629,17 @@ final class ClanMenuService implements Listener {
 
     private static String describeLevel(int level) {
         return level == 0 ? "Unranked." : "Level " + level + ".";
+    }
+
+    private static boolean hasPreservedData(ItemStack item) {
+        if (!item.hasItemMeta()) {
+            return false;
+        }
+        ItemMeta meta = item.getItemMeta();
+        if (meta instanceof BlockStateMeta blockState && blockState.hasBlockState()) {
+            return true;
+        }
+        return meta.hasEnchants() || meta.hasDisplayName() || meta.hasLore();
     }
 
     private static void error(Player player, String message) {

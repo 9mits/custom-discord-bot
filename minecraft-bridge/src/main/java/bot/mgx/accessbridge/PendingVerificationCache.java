@@ -2,7 +2,6 @@ package bot.mgx.accessbridge;
 
 import java.time.Instant;
 import java.util.Collection;
-import java.util.Comparator;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -27,9 +26,13 @@ final class PendingVerificationCache {
     Optional<PendingVerification> match(MinecraftEdition edition, String username) {
         long now = Instant.now().getEpochSecond();
         entries.entrySet().removeIf(entry -> entry.getValue().expiresAt() <= now);
-        return entries.values().stream()
+        java.util.List<PendingVerification> matches = entries.values().stream()
                 .filter(entry -> entry.matches(edition, username, now))
-                .min(Comparator.comparingLong(PendingVerification::applicationId));
+                .toList();
+        if (matches.size() != 1) {
+            return Optional.empty();
+        }
+        return Optional.of(matches.get(0));
     }
 
     int size() {

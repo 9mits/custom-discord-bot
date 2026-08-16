@@ -71,8 +71,17 @@ def verify_envelope(
     current = int(time.time() if now is None else now)
     if abs(current - timestamp) > max_clock_skew or nonce in used_nonces:
         return False
+    if not isinstance(signature, str) or len(signature) != 64:
+        return False
+    try:
+        int(signature, 16)
+    except ValueError:
+        return False
     expected = sign_envelope(secret, envelope)
-    if not hmac.compare_digest(expected, signature):
+    try:
+        if not hmac.compare_digest(expected, signature):
+            return False
+    except (TypeError, ValueError):
         return False
     used_nonces.add(nonce)
     return True

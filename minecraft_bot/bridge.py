@@ -165,11 +165,16 @@ class MinecraftBridgeServer:
             self._site = None
 
     def _request_is_secure(self, request: web.Request) -> bool:
-        forwarded = request.headers.get("X-Forwarded-Proto", "").split(",", 1)[0].strip().lower()
-        if request.secure or forwarded == "https":
+        if request.secure:
             return True
         remote = request.remote or ""
-        return self.config.allow_insecure_localhost and remote in {"127.0.0.1", "::1", "localhost"}
+        trusted_local = remote in {"127.0.0.1", "::1", "localhost"}
+        if trusted_local:
+            forwarded = request.headers.get("X-Forwarded-Proto", "").split(",", 1)[0].strip().lower()
+            if forwarded == "https":
+                return True
+            return self.config.allow_insecure_localhost
+        return False
 
     async def _websocket_handler(self, request: web.Request) -> web.StreamResponse:
         if not self._request_is_secure(request):
@@ -203,6 +208,7 @@ class MinecraftBridgeServer:
             except (TypeError, ValueError):
                 await socket.close(code=1008, message=b"Invalid protocol version")
                 return socket
+            negotiated_protocol_version = min(peer_protocol_version, CURRENT_PROTOCOL_VERSION)
 
             async with self._connection_lock:
                 previous = self._socket
@@ -212,14 +218,14 @@ class MinecraftBridgeServer:
                 self._sent_this_connection.clear()
                 self._connected_at = time.time()
                 self._last_heartbeat_at = time.time()
-                self._peer_protocol_version = peer_protocol_version
+                self._peer_protocol_version = negotiated_protocol_version
 
             logger.info("Minecraft bridge connected for server %s", self.config.server_id)
             await self._send(
                 "HELLO_ACK",
                 {
                     "server_id": self.config.server_id,
-                    "protocol_version": min(peer_protocol_version, CURRENT_PROTOCOL_VERSION),
+                    "protocol_version": negotiated_protocol_version,
                 },
                 idempotency_key=envelope["idempotency_key"],
             )
@@ -288,14 +294,17 @@ class MinecraftBridgeServer:
             )
             return
         if message_type == "VERIFICATION":
-            await self.verification_handler(
-                application_id=int(payload["application_id"]),
-                edition=Edition(str(payload["edition"]).upper()),
-                minecraft_uuid=str(payload["minecraft_uuid"]),
-                current_username=str(payload["current_username"]),
-                xuid=str(payload["xuid"]) if payload.get("xuid") is not None else None,
-                event_idempotency_key=envelope["idempotency_key"],
-            )
+            try:
+                await self.verification_handler(
+                    application_id=int(payload["application_id"]),
+                    edition=Edition(str(payload["edition"]).upper()),
+                    minecraft_uuid=str(payload["minecraft_uuid"]),
+                    current_username=str(payload["current_username"]),
+                    xuid=str(payload["xuid"]) if payload.get("xuid") is not None else None,
+                    event_idempotency_key=envelope["idempotency_key"],
+                )
+            except Exception:
+                logger.exception("Verification handler failed")
             await self._send(
                 "VERIFICATION_ACK",
                 {"application_id": int(payload["application_id"])},
@@ -303,14 +312,17 @@ class MinecraftBridgeServer:
             )
             return
         if message_type in {"PLAYER_JOIN", "PLAYER_LEAVE"}:
-            await self.player_event_handler(
-                joined=message_type == "PLAYER_JOIN",
-                minecraft_uuid=str(payload["minecraft_uuid"]),
-                current_username=str(payload["current_username"]),
-                edition=str(payload["edition"]).upper(),
-                xuid=str(payload["xuid"]) if payload.get("xuid") is not None else None,
-                event_idempotency_key=envelope["idempotency_key"],
-            )
+            try:
+                await self.player_event_handler(
+                    joined=message_type == "PLAYER_JOIN",
+                    minecraft_uuid=str(payload["minecraft_uuid"]),
+                    current_username=str(payload["current_username"]),
+                    edition=str(payload["edition"]).upper(),
+                    xuid=str(payload["xuid"]) if payload.get("xuid") is not None else None,
+                    event_idempotency_key=envelope["idempotency_key"],
+                )
+            except Exception:
+                logger.exception("Player event handler failed")
             await self._send(
                 "PLAYER_EVENT_ACK",
                 {"event_idempotency_key": envelope["idempotency_key"]},
@@ -376,13 +388,13 @@ class MinecraftBridgeServer:
                     # failures alike; older ones only set "error" on failure.
                     pending.set_result(
                         (
-                            bool(payload.get("success")),
+                            payload.get("success") is True,
                             str(payload.get("message") or payload.get("error") or ""),
                         )
                     )
                 self._sent_this_connection.pop(action_key, None)
                 return
-            if bool(payload.get("success")):
+            if payload.get("success") is True:
                 record, application, newly_processed = await self.data.complete_outbox(action_key)
                 if record is not None and newly_processed:
                     await self.action_result_handler(record, application)
@@ -398,7 +410,7 @@ class MinecraftBridgeServer:
         if message_type == "STATUS_RESULT":
             self._last_heartbeat_at = time.time()
             return
-        raise ValueError(f"Unsupported bridge message type: {message_type}")
+        logger.warning("Ignored unsupported bridge message type: %s", message_type)
 
     async def _send(
         self,
