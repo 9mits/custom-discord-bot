@@ -9,11 +9,13 @@ import org.bukkit.Material;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.Inventory;
 
 import java.time.Instant;
@@ -37,11 +39,12 @@ import static bot.mgx.accessbridge.MenuItems.head;
 /**
  * In-game leaderboard, drawn like the clan screens so Bedrock and Java share one UI.
  */
-final class LeaderboardMenuService implements CommandExecutor, Listener {
+final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Listener {
     private static final int HUB_SIZE = 27;
-    private static final int HUB_PLAYERS_WEALTH = 11;
-    private static final int HUB_PLAYERS_KILLS = 13;
-    private static final int HUB_CLANS = 15;
+    private static final int HUB_CLANS_WEALTH = 10;
+    private static final int HUB_CLANS_KILLS = 12;
+    private static final int HUB_PLAYERS_WEALTH = 14;
+    private static final int HUB_PLAYERS_KILLS = 16;
     private static final DateTimeFormatter JOINED =
             DateTimeFormatter.ofPattern("d MMM yyyy", Locale.UK).withZone(ZoneId.systemDefault());
 
@@ -69,16 +72,25 @@ final class LeaderboardMenuService implements CommandExecutor, Listener {
         return true;
     }
 
+    @Override
+    public List<String> onTabComplete(
+            CommandSender sender, Command command, String alias, String[] args
+    ) {
+        return List.of();
+    }
+
     void openHub(Player player) {
         Inventory inventory = create(
                 Menu.Kind.LEADERBOARD_HUB, null, 1, HUB_SIZE, "Leaderboard", null
         );
-        inventory.setItem(HUB_PLAYERS_WEALTH, button(Material.GOLD_INGOT, "Richest players",
-                "Who is carrying the most.", "Click to open."));
-        inventory.setItem(HUB_PLAYERS_KILLS, button(Material.IRON_SWORD, "Most kills",
-                "Player kills, highest first.", "Click to open."));
-        inventory.setItem(HUB_CLANS, button(Material.SHIELD, "Richest clans",
+        inventory.setItem(HUB_CLANS_WEALTH, button(Material.GOLD_BLOCK, "Richest clan",
                 "What each clan holds.", "Hover a clan for details.", "Click a clan for its members."));
+        inventory.setItem(HUB_CLANS_KILLS, button(Material.IRON_SWORD, "Clan with most kills",
+                "Kills summed across members.", "Hover a clan for details.", "Click a clan for its members."));
+        inventory.setItem(HUB_PLAYERS_WEALTH, button(Material.GOLD_INGOT, "Richest player",
+                "Who is carrying the most.", "Click to open."));
+        inventory.setItem(HUB_PLAYERS_KILLS, button(Material.DIAMOND_SWORD, "Player with most kills",
+                "Player kills, highest first.", "Click to open."));
         player.openInventory(inventory);
     }
 
@@ -115,11 +127,15 @@ final class LeaderboardMenuService implements CommandExecutor, Listener {
         player.openInventory(inventory);
     }
 
-    void openClans(Player player, int page) {
-        List<ClanStore.ClanView> ranked = clans.listByWealth();
+    void openClans(Player player, String board, int page) {
+        List<ClanStore.ClanView> ranked = rankedClans(board);
+        Menu.Kind kind = board.equals("kills")
+                ? Menu.Kind.LEADERBOARD_CLANS_KILLS
+                : Menu.Kind.LEADERBOARD_CLANS;
+        String title = board.equals("kills") ? "Clan kills" : "Richest clans";
         Inventory inventory = create(
-                Menu.Kind.LEADERBOARD_CLANS, null, page, BOARD_SIZE,
-                MenuItems.pagedTitle("Richest clans", page, ranked.size()),
+                kind, null, page, BOARD_SIZE,
+                MenuItems.pagedTitle(title, page, ranked.size()),
                 Menu.Destination.of(Menu.Kind.LEADERBOARD_HUB)
         );
         int first = MenuPaging.firstIndex(page, ranked.size(), PER_PAGE);
@@ -143,10 +159,10 @@ final class LeaderboardMenuService implements CommandExecutor, Listener {
         player.openInventory(inventory);
     }
 
-    void openMembers(Player player, UUID clanId, int page) {
+    void openMembers(Player player, UUID clanId, int page, Menu.Kind backKind) {
         Optional<ClanStore.ClanView> found = clans.findClanById(clanId);
         if (found.isEmpty()) {
-            openClans(player, 1);
+            openClans(player, "wealth", 1);
             return;
         }
         ClanStore.ClanView clan = found.get();
@@ -160,7 +176,7 @@ final class LeaderboardMenuService implements CommandExecutor, Listener {
         Inventory inventory = create(
                 Menu.Kind.LEADERBOARD_MEMBERS, clan.id(), page, BOARD_SIZE,
                 MenuItems.pagedTitle(clan.name() + " members", page, roster.size()),
-                Menu.Destination.of(Menu.Kind.LEADERBOARD_CLANS)
+                Menu.Destination.of(backKind == null ? Menu.Kind.LEADERBOARD_CLANS : backKind)
         );
         int first = MenuPaging.firstIndex(page, roster.size(), PER_PAGE);
         int last = MenuPaging.lastIndex(page, roster.size(), PER_PAGE);
@@ -181,10 +197,10 @@ final class LeaderboardMenuService implements CommandExecutor, Listener {
         player.openInventory(inventory);
     }
 
-    @EventHandler(priority = EventPriority.NORMAL, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = false)
     public void onClick(InventoryClickEvent event) {
-        if (!(event.getWhoClicked() instanceof Player player)
-                || !(event.getInventory().getHolder() instanceof Menu menu)
+        if (!(event.getInventory().getHolder() instanceof Menu menu)
+                || !(event.getWhoClicked() instanceof Player player)
                 || !isLeaderboard(menu.kind())) {
             return;
         }
@@ -200,29 +216,33 @@ final class LeaderboardMenuService implements CommandExecutor, Listener {
         switch (menu.kind()) {
             case LEADERBOARD_HUB -> {
                 switch (slot) {
+                    case HUB_CLANS_WEALTH -> openClans(player, "wealth", 1);
+                    case HUB_CLANS_KILLS -> openClans(player, "kills", 1);
                     case HUB_PLAYERS_WEALTH -> openPlayers(player, "wealth", 1);
                     case HUB_PLAYERS_KILLS -> openPlayers(player, "kills", 1);
-                    case HUB_CLANS -> openClans(player, 1);
                     default -> { }
                 }
             }
             case LEADERBOARD_PLAYERS_WEALTH -> pagePlayers(player, "wealth", menu, slot);
             case LEADERBOARD_PLAYERS_KILLS -> pagePlayers(player, "kills", menu, slot);
-            case LEADERBOARD_CLANS -> {
-                switch (slot) {
-                    case PREVIOUS_SLOT -> openClans(player, menu.page() - 1);
-                    case NEXT_SLOT -> openClans(player, menu.page() + 1);
-                    default -> openClanAt(player, menu.page(), slot);
-                }
-            }
+            case LEADERBOARD_CLANS -> pageClans(player, "wealth", menu, slot);
+            case LEADERBOARD_CLANS_KILLS -> pageClans(player, "kills", menu, slot);
             case LEADERBOARD_MEMBERS -> {
+                Menu.Kind back = menu.back() == null ? Menu.Kind.LEADERBOARD_CLANS : menu.back().kind();
                 switch (slot) {
-                    case PREVIOUS_SLOT -> openMembers(player, menu.subject(), menu.page() - 1);
-                    case NEXT_SLOT -> openMembers(player, menu.subject(), menu.page() + 1);
+                    case PREVIOUS_SLOT -> openMembers(player, menu.subject(), menu.page() - 1, back);
+                    case NEXT_SLOT -> openMembers(player, menu.subject(), menu.page() + 1, back);
                     default -> { }
                 }
             }
             default -> { }
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = false)
+    public void onDrag(InventoryDragEvent event) {
+        if (event.getInventory().getHolder() instanceof Menu menu && isLeaderboard(menu.kind())) {
+            event.setCancelled(true);
         }
     }
 
@@ -234,18 +254,41 @@ final class LeaderboardMenuService implements CommandExecutor, Listener {
         }
     }
 
-    private void openClanAt(Player player, int page, int slot) {
-        List<ClanStore.ClanView> ranked = clans.listByWealth();
+    private void pageClans(Player player, String board, Menu menu, int slot) {
+        switch (slot) {
+            case PREVIOUS_SLOT -> openClans(player, board, menu.page() - 1);
+            case NEXT_SLOT -> openClans(player, board, menu.page() + 1);
+            default -> openClanAt(player, board, menu.page(), slot);
+        }
+    }
+
+    private void openClanAt(Player player, String board, int page, int slot) {
+        List<ClanStore.ClanView> ranked = rankedClans(board);
         int index = MenuPaging.firstIndex(page, ranked.size(), PER_PAGE) + slot;
         if (index < 0 || index >= ranked.size()) {
             return;
         }
-        openMembers(player, ranked.get(index).id(), 1);
+        Menu.Kind back = board.equals("kills")
+                ? Menu.Kind.LEADERBOARD_CLANS_KILLS
+                : Menu.Kind.LEADERBOARD_CLANS;
+        openMembers(player, ranked.get(index).id(), 1, back);
+    }
+
+    private List<ClanStore.ClanView> rankedClans(String board) {
+        if (!"kills".equals(board)) {
+            return clans.listByWealth();
+        }
+        List<ClanStore.ClanView> ranked = new ArrayList<>();
+        for (JsonObject row : rows("clan", "kills")) {
+            clans.findClan(text(row, "clan", "")).ifPresent(ranked::add);
+        }
+        return ranked;
     }
 
     private void openDestination(Player player, Menu.Destination back) {
         switch (back.kind()) {
-            case LEADERBOARD_CLANS -> openClans(player, Math.max(1, back.page()));
+            case LEADERBOARD_CLANS -> openClans(player, "wealth", Math.max(1, back.page()));
+            case LEADERBOARD_CLANS_KILLS -> openClans(player, "kills", Math.max(1, back.page()));
             case LEADERBOARD_PLAYERS_WEALTH -> openPlayers(player, "wealth", 1);
             case LEADERBOARD_PLAYERS_KILLS -> openPlayers(player, "kills", 1);
             default -> openHub(player);
@@ -285,6 +328,7 @@ final class LeaderboardMenuService implements CommandExecutor, Listener {
                 || kind == Menu.Kind.LEADERBOARD_PLAYERS_WEALTH
                 || kind == Menu.Kind.LEADERBOARD_PLAYERS_KILLS
                 || kind == Menu.Kind.LEADERBOARD_CLANS
+                || kind == Menu.Kind.LEADERBOARD_CLANS_KILLS
                 || kind == Menu.Kind.LEADERBOARD_MEMBERS;
     }
 

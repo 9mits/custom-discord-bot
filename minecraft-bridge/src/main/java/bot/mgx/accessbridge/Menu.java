@@ -31,6 +31,7 @@ final class Menu implements InventoryHolder {
         LEADERBOARD_PLAYERS_WEALTH,
         LEADERBOARD_PLAYERS_KILLS,
         LEADERBOARD_CLANS,
+        LEADERBOARD_CLANS_KILLS,
         LEADERBOARD_MEMBERS,
         SETTINGS,
         WHITELIST,

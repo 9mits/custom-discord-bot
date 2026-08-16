@@ -227,6 +227,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 clanStore, leaderboardService, identityService
         );
         getCommand("leaderboard").setExecutor(leaderboardMenus);
+        getCommand("leaderboard").setTabCompleter(leaderboardMenus);
         getServer().getPluginManager().registerEvents(leaderboardMenus, this);
         AdminCommandService adminService = new AdminCommandService(
                 this,
