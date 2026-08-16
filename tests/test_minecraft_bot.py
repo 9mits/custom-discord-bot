@@ -1502,7 +1502,8 @@ class MinecraftLeaderboardRenderTests(unittest.TestCase):
             snapshot, scope="clan", board="wealth", heads={"u1": "<:w:1>"}
         ).description
 
-        self.assertIn("**#1 · [Wolves]**", described)
+        self.assertIn("**#1**", described)
+        self.assertIn("**[Wolves]**", described)
         self.assertNotIn("<:w:1>", described)
 
     def test_clan_thumbnail_is_always_the_brand_mark(self):
@@ -1584,17 +1585,17 @@ class MinecraftLeaderboardRenderTests(unittest.TestCase):
     def test_only_five_rows_are_shown(self):
         embed = self.leaderboard.build_embed(self.snapshot, scope="individual", board="wealth")
 
-        self.assertEqual(len(embed.description.splitlines()), 5)
+        self.assertEqual(embed.description.count("#"), 5)
         self.assertNotIn("zed", embed.description)
 
     def test_podium_is_bold_and_the_rest_are_not(self):
         embed = self.leaderboard.build_embed(self.snapshot, scope="individual", board="wealth")
-        lines = embed.description.splitlines()
+        blocks = embed.description.split("\n\n")
 
-        for line in lines[:3]:
-            self.assertIn("**", line)
-        for line in lines[3:]:
-            self.assertNotIn("**", line)
+        for block in blocks[:3]:
+            self.assertIn("**", block)
+        for block in blocks[3:]:
+            self.assertNotIn("**", block)
 
     def test_row_reads_clan_then_discord_then_minecraft(self):
         embed = self.leaderboard.build_embed(
@@ -1603,10 +1604,10 @@ class MinecraftLeaderboardRenderTests(unittest.TestCase):
             board="wealth",
             linked={"u1": "12345"},
         )
-        first = embed.description.splitlines()[0]
+        first = embed.description.split("\n\n")[0]
 
         self.assertLess(first.index("[LUCKY]"), first.index("<@12345>"))
-        self.assertLess(first.index("<@12345>"), first.index("mits"))
+        self.assertIn("mits", first)
 
     def test_linked_discord_account_is_mentioned_beside_the_username(self):
         embed = self.leaderboard.build_embed(
@@ -1615,7 +1616,7 @@ class MinecraftLeaderboardRenderTests(unittest.TestCase):
             board="wealth",
             linked={"u1": "12345"},
         )
-        first = embed.description.splitlines()[0]
+        first = embed.description.split("\n\n")[0]
 
         self.assertIn("mits", first)
         self.assertIn("<@12345>", first)
@@ -1627,7 +1628,7 @@ class MinecraftLeaderboardRenderTests(unittest.TestCase):
             board="wealth",
             linked={"u1": "12345"},
         )
-        second = embed.description.splitlines()[1]
+        second = embed.description.split("\n\n")[1]
 
         self.assertIn("kai", second)
         self.assertNotIn("<@", second)

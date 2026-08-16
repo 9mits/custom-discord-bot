@@ -309,6 +309,47 @@ def _placement(index: int) -> str:
     return f"#{index + 1}"
 
 
+def _render_row(
+    index: int,
+    row: dict[str, Any],
+    *,
+    scope: str,
+    heads: dict[str, str],
+    linked: dict[str, str],
+) -> str:
+    """One ranked entry. Podium stays bold and headed; later rows stay quieter."""
+    podium = index < PODIUM
+    value = str(row.get("display", row.get("value", 0)))
+    place = f"**{_placement(index)}**" if podium else _placement(index)
+    if scope == "clan":
+        clan_name = str(row.get("clan") or "?")
+        name = clans.tag(clan_name, int(row.get("level", 0) or 0))
+        title = f"{place}  **{name}**" if podium else f"{place}  {name}"
+        members = row.get("members")
+        detail = f"`{value}`"
+        if members:
+            detail += f"  ·  {members} members"
+        return f"{title}\n{detail}"
+
+    uuid = str(row.get("minecraft_uuid") or "")
+    username = str(row.get("username", "?"))
+    icon = heads.get(uuid, "") if podium else ""
+    name = f"**{username}**" if podium else username
+    lead = "  ".join(part for part in (place, icon, name) if part)
+    identity: list[str] = []
+    clan = row.get("clan")
+    if clan:
+        identity.append(f"[{clan}]")
+    discord_id = linked.get(uuid)
+    if discord_id:
+        identity.append(f"<@{discord_id}>")
+    lines = [lead]
+    if identity:
+        lines.append("  ·  ".join(identity))
+    lines.append(f"`{value}`" if podium else value)
+    return "\n".join(lines)
+
+
 def _thumbnail(rows: list[dict[str, Any]]) -> str:
     """Whoever tops *this* board, so each one is visibly about its own leader.
 
@@ -356,39 +397,11 @@ def build_embed(
     if not rows:
         embed.description = note + "No standings yet. Play a little and this fills in."
     else:
-        lines = []
-        for index, row in enumerate(rows[:DISPLAY_ROWS]):
-            podium = index < PODIUM
-            value = str(row.get("display", row.get("value", 0)))
-            if scope == "clan":
-                clan_name = str(row.get("clan") or "?")
-                name = clans.tag(clan_name, int(row.get("level", 0) or 0))
-                members = row.get("members")
-                suffix = f" · {members} members" if members else ""
-                # Clans have no picture of their own; only players carry a head.
-                icon = ""
-            else:
-                uuid = str(row.get("minecraft_uuid") or "")
-                # Identity reads clan, then Discord, then Minecraft — broadest first.
-                parts = []
-                clan = row.get("clan")
-                if clan:
-                    parts.append(f"[{clan}]")
-                # Mentions render without pinging inside an embed description.
-                discord_id = linked.get(uuid)
-                if discord_id:
-                    parts.append(f"<@{discord_id}>")
-                parts.append(str(row.get("username", "?")))
-                name = " ".join(parts)
-                suffix = ""
-                icon = heads.get(uuid, "") if podium else ""
-            # The podium is bold and carries the head; the rest stay quiet beneath it.
-            if podium:
-                body = f"**{_placement(index)} · {name}** — `{value}`{suffix}"
-            else:
-                body = f"{_placement(index)} · {name} — {value}{suffix}"
-            lines.append(f"{icon} {body}".strip())
-        embed.description = note + "\n".join(lines)
+        blocks = [
+            _render_row(index, row, scope=scope, heads=heads, linked=linked)
+            for index, row in enumerate(rows[:DISPLAY_ROWS])
+        ]
+        embed.description = note + "\n\n".join(blocks)
 
     generated = snapshot.get("generated_at")
     if generated:
