@@ -505,7 +505,8 @@ class MinecraftDataManager:
                 edition = Edition.BEDROCK
             else:
                 raise ValueError(
-                    "Minecraft names must contain 1-16 letters, numbers, spaces, underscores, or hyphens"
+                    "Use your exact in-game Java name or Xbox gamertag "
+                    "(1-16 letters, numbers, spaces, underscores, or hyphens)."
                 )
             claimed, normalized = cleaned, cleaned.casefold()
         else:
@@ -871,7 +872,9 @@ class MinecraftDataManager:
             uuid.UUID(str(minecraft_uuid))
         except ValueError as exc:
             raise InvalidTransition("Invalid Minecraft UUID") from exc
-        _, normalized_actual = normalize_username(edition, current_username)
+        cleaned_actual = _clean_username(current_username)
+        if not cleaned_actual:
+            raise InvalidTransition("Verified username is empty")
         db = self._connection()
         changed = False
         async with self._write_lock:
@@ -904,7 +907,7 @@ class MinecraftDataManager:
                     return updated or application, False
                 if not application.auto_detect_edition and application.edition is not edition:
                     raise InvalidTransition("Verified edition does not match the application")
-                if normalized_actual != application.normalized_username:
+                if _clean_username(application.claimed_username).casefold() != cleaned_actual.casefold():
                     raise InvalidTransition("Verified username does not match the application")
                 if edition is Edition.BEDROCK and not xuid:
                     raise InvalidTransition("Bedrock verification did not include a Floodgate XUID")
@@ -972,7 +975,7 @@ class MinecraftDataManager:
                     "WHERE id=? AND status=?",
                     (
                         edition.value,
-                        current_username,
+                        cleaned_actual,
                         minecraft_uuid,
                         str(xuid) if xuid is not None else None,
                         next_status.value,
@@ -995,7 +998,7 @@ class MinecraftDataManager:
                         edition.value,
                         minecraft_uuid,
                         str(xuid) if xuid is not None else None,
-                        current_username,
+                        cleaned_actual,
                         current,
                         current,
                         current,
@@ -1026,7 +1029,7 @@ class MinecraftDataManager:
                             "application_id": application.id,
                             "edition": edition.value,
                             "minecraft_uuid": minecraft_uuid,
-                            "verified_username": current_username,
+                            "verified_username": cleaned_actual,
                         },
                         idempotency_key=f"application:{application.id}:approve:{minecraft_uuid}",
                         application_id=application.id,
@@ -1037,7 +1040,7 @@ class MinecraftDataManager:
                         "LINK_AUTO_APPROVED",
                         application_id=application.id,
                         target_id=application.discord_user_id,
-                        payload={"edition": edition.value, "username": current_username},
+                        payload={"edition": edition.value, "username": cleaned_actual},
                         timestamp=current,
                     )
                 await self._audit(
@@ -1050,7 +1053,7 @@ class MinecraftDataManager:
                         "edition": edition.value,
                         "minecraft_uuid": minecraft_uuid,
                         "xuid": str(xuid) if xuid is not None else None,
-                        "current_username": current_username,
+                        "current_username": cleaned_actual,
                     },
                     timestamp=current,
                 )

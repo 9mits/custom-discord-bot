@@ -353,7 +353,7 @@ def application_apply_embed() -> discord.Embed:
         "**How it works**\n"
         "> **1.** Press **Apply** and accept the server rules.\n"
         "> **2.** Enter your exact Java username or Xbox gamertag.\n"
-        "> **3.** Join the server once within **10 minutes** to verify. You will be disconnected.\n"
+        "> **3.** Join the server once within **10 minutes**. You will be disconnected automatically — that is how we verify the account.\n"
         "> **4.** Return to Discord and complete a short form.\n"
         "> **5.** Staff review it and send the outcome by direct message.\n\n"
         "**Before you begin**\n"
@@ -717,9 +717,10 @@ def live_status_embed(application: MinecraftApplication, settings) -> discord.Em
         edition_note = "" if application.auto_detect_edition else f" on {edition}"
         title = "Verify Your Account"
         body = (
-            f"> Join the server once using `{username}`{edition_note}. You will be "
-            "disconnected automatically, which confirms the account is yours.\n"
-            "> The server address is below.\n"
+            f"> Join once using `{username}`{edition_note}. You will be "
+            "disconnected automatically — even if the kick screen says the world "
+            "is closed. That is how we confirm the account is yours.\n"
+            "> Then return here. Do not keep joining.\n"
             "\n"
             f"> Verification expires {expires}."
         )

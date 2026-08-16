@@ -1091,6 +1091,26 @@ class MinecraftAccessIntegrityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await self.data.find_applications_by_username("_"), [])
         self.assertEqual(len(await self.data.find_applications_by_username("TestPlayer")), 1)
 
+    async def test_verification_accepts_a_floodgate_prefixed_name(self):
+        application = await self.data.create_application(
+            guild_id=10,
+            discord_user_id=8,
+            edition=None,
+            claimed_username="Dr_Ravager",
+            now=1000,
+        )
+        verified, changed = await self.data.record_verification(
+            application_id=application.id,
+            edition=Edition.JAVA,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174099",
+            current_username=".Dr_Ravager",
+            xuid=None,
+            event_idempotency_key="verify-prefixed",
+            now=1010,
+        )
+        self.assertTrue(changed)
+        self.assertEqual(verified.verified_username, "Dr_Ravager")
+
     async def test_auto_detect_accepts_a_normal_java_name(self):
         application = await self.data.create_application(
             guild_id=10,
