@@ -68,4 +68,12 @@ class StaffActionInputTest {
     void nullFreeTextBecomesEmpty() {
         assertEquals("", StaffActionInput.sanitizeFreeText(null, 200));
     }
+
+    @Test
+    void durationsMustBeANumberAndUnit() {
+        assertEquals("10m", StaffActionInput.sanitizeDuration("10M"));
+        assertEquals("", StaffActionInput.sanitizeDuration(""));
+        assertThrows(StaffActionException.class, () -> StaffActionInput.sanitizeDuration("1d extra"));
+        assertThrows(StaffActionException.class, () -> StaffActionInput.sanitizeDuration("forever"));
+    }
 }

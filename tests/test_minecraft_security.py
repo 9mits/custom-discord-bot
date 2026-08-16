@@ -77,6 +77,17 @@ class MinecraftBridgeSecurityTests(unittest.TestCase):
         envelope["payload"]["action"] = "APPROVE"
         self.assertFalse(verify_envelope(self.secret, envelope, used_nonces=set(), now=1_700_000_000))
 
+    def test_non_hex_signature_is_rejected(self):
+        envelope = create_envelope(
+            self.secret,
+            "HEARTBEAT",
+            {},
+            now=1_700_000_000,
+            nonce="bad-sig",
+        )
+        envelope["signature"] = "not-a-hex-signature"
+        self.assertFalse(verify_envelope(self.secret, envelope, used_nonces=set(), now=1_700_000_000))
+
 
 if __name__ == "__main__":
     unittest.main()

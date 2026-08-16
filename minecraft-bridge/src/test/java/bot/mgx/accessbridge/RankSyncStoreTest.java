@@ -42,6 +42,8 @@ class RankSyncStoreTest {
 
         assertTrue(store.hold(player, "Steve"));
         assertFalse(store.hold(player, "Steve"));
+        assertFalse(store.hold(player, "Alex"));
+        assertEquals("Alex", store().holds().get(player));
     }
 
     @Test

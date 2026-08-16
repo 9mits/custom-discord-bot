@@ -151,8 +151,18 @@ final class LuckPermsService {
             // Re-adding an unchanged grant would churn the LuckPerms file on every join.
             return;
         }
-        luckPerms.getUserManager().modifyUser(minecraftUuid, user -> mutate(user, previous, desired))
-                .thenRun(() -> rankSync.recordApplied(minecraftUuid, desired))
+        luckPerms.getUserManager().modifyUser(minecraftUuid, user -> {
+                    if (rankSync.isHeld(minecraftUuid)) {
+                        return;
+                    }
+                    mutate(user, previous, desired);
+                })
+                .thenRun(() -> {
+                    if (rankSync.isHeld(minecraftUuid)) {
+                        return;
+                    }
+                    rankSync.recordApplied(minecraftUuid, desired);
+                })
                 .exceptionally(throwable -> {
                     plugin.getLogger().log(
                             Level.WARNING,

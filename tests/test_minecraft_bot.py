@@ -297,7 +297,7 @@ class MinecraftBotPolicyTests(unittest.TestCase):
 
         self.assertEqual(
             embed.thumbnail.url,
-            "https://mc-heads.net/head/00000000-0000-0000-0000-000000000000/128.png",
+            "https://api.mcheads.org/head/.VerifiedName/128",
         )
         self.assertEqual(embed.footer.icon_url, FOOTER_ICON_URL)
         self.assertTrue(any(field.name == "Claimed Username" for field in embed.fields))
@@ -473,7 +473,11 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
             "minecraft_uuid": "123e4567-e89b-12d3-a456-426614174000",
             "current_username": "TestPlayer",
         }]))
-        bot.bridge = SimpleNamespace(send_discord_chat=AsyncMock(return_value=True))
+        bot.bridge = SimpleNamespace(
+            send_discord_chat=AsyncMock(return_value=True),
+            supports_chat_sync=True,
+        )
+        bot.chat_rate_limit = RateLimiter(0)
         bot.process_commands = AsyncMock()
         message = SimpleNamespace(
             guild=SimpleNamespace(id=10),
@@ -481,7 +485,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
             author=SimpleNamespace(id=99, name="hellomits", bot=False),
             webhook_id=None,
             content="hello from Discord",
-            attachments=[SimpleNamespace(filename="image.png")],
+            attachments=[SimpleNamespace(url="https://cdn.discordapp.com/attachments/1/2/image.png")],
             jump_url="https://discord.com/channels/10/20/30",
         )
 
@@ -493,7 +497,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
             minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
             minecraft_username="TestPlayer",
             message="hello from Discord",
-            attachment_url=message.jump_url,
+            attachment_url="https://cdn.discordapp.com/attachments/1/2/image.png",
             attachment_count=1,
         )
         bot.process_commands.assert_awaited_once_with(message)
@@ -1044,6 +1048,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
                 get_active_application_for_user=AsyncMock(return_value=application),
             ),
             apply_rate_limit=SimpleNamespace(claim=lambda _user_id: True),
+            replace_application_card=AsyncMock(),
         )
         interaction = SimpleNamespace(
             client=bot,
@@ -1052,6 +1057,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
             message=SimpleNamespace(id=30),
             user=SimpleNamespace(id=99),
             response=response,
+            original_response=AsyncMock(return_value=SimpleNamespace(id=99)),
         )
 
         await ApplyButton().callback(interaction)
@@ -3110,6 +3116,7 @@ class ApplyButtonExistingApplicationTests(unittest.IsolatedAsyncioTestCase):
                 ),
                 get_config=AsyncMock(return_value="30"),
             ),
+            replace_application_card=AsyncMock(),
         )
         response = SimpleNamespace(send_message=AsyncMock(), send_modal=AsyncMock())
         interaction = SimpleNamespace(
@@ -3119,6 +3126,7 @@ class ApplyButtonExistingApplicationTests(unittest.IsolatedAsyncioTestCase):
             message=SimpleNamespace(id=30),
             user=SimpleNamespace(id=99),
             response=response,
+            original_response=AsyncMock(return_value=SimpleNamespace(id=99)),
         )
 
         await ApplyButton().callback(interaction)
@@ -4030,3 +4038,93 @@ class MinecraftSetupDashboardOutcomeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             interaction.followup.send.await_args.kwargs["embed"].title, "Panel Not Posted"
         )
+
+
+class MinecraftAccessGuardTests(unittest.IsolatedAsyncioTestCase):
+    def test_owner_is_only_the_guild_owner(self):
+        bot = object.__new__(MinecraftAccessBot)
+        bot.config = SimpleNamespace(guild_id=10)
+        bot.get_guild = lambda _gid: SimpleNamespace(owner_id=1)
+        owner = SimpleNamespace(id=1, roles=[SimpleNamespace(name="Member")])
+        named = SimpleNamespace(id=2, roles=[SimpleNamespace(name="Owner")])
+
+        self.assertTrue(bot.is_owner_member(owner))
+        self.assertFalse(bot.is_owner_member(named))
+
+    async def test_unlinked_discord_chat_is_not_relayed(self):
+        bot = object.__new__(MinecraftAccessBot)
+        bot.config = SimpleNamespace(guild_id=10)
+        bot.settings = SimpleNamespace(chat_channel_id=20)
+        bot.data = SimpleNamespace(list_accounts_for_user=AsyncMock(return_value=[]))
+        bot.bridge = SimpleNamespace(
+            send_discord_chat=AsyncMock(return_value=True),
+            supports_chat_sync=True,
+        )
+        bot.chat_rate_limit = RateLimiter(0)
+        bot.process_commands = AsyncMock()
+        message = SimpleNamespace(
+            guild=SimpleNamespace(id=10),
+            channel=SimpleNamespace(id=20),
+            author=SimpleNamespace(id=99, name="stranger", bot=False),
+            webhook_id=None,
+            content="hello",
+            attachments=[],
+        )
+
+        await bot.on_message(message)
+
+        bot.bridge.send_discord_chat.assert_not_awaited()
+        bot.process_commands.assert_awaited_once_with(message)
+
+    async def test_rejected_verification_does_not_spawn_work(self):
+        bot = object.__new__(MinecraftAccessBot)
+        bot.data = SimpleNamespace(
+            record_verification=AsyncMock(side_effect=InvalidTransition("already linked"))
+        )
+        bot.spawn_background_task = Mock()
+
+        await bot.handle_bridge_verification(
+            application_id=1,
+            edition=Edition.JAVA,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            current_username="TestPlayer",
+            xuid=None,
+            event_idempotency_key="verify-1",
+        )
+
+        bot.spawn_background_task.assert_not_called()
+
+    async def test_moderator_cannot_approve_their_own_application(self):
+        view = ReviewView()
+        application = MinecraftApplication(
+            id=1,
+            guild_id="10",
+            discord_user_id="99",
+            edition=Edition.JAVA,
+            claimed_username="TestPlayer",
+            normalized_username="testplayer",
+            answers={},
+            status=ApplicationStatus.PENDING_REVIEW,
+            verification_expires_at=9999,
+            created_at=1,
+            updated_at=1,
+        )
+        bot = SimpleNamespace(
+            is_moderator=lambda _member: True,
+            settings=SimpleNamespace(mod_role_id=5),
+            data=SimpleNamespace(queue_approval=AsyncMock()),
+        )
+        interaction = SimpleNamespace(
+            client=bot,
+            user=SimpleNamespace(id=99, roles=[SimpleNamespace(id=5)]),
+            response=SimpleNamespace(send_message=AsyncMock()),
+        )
+        view._authorize = AsyncMock(return_value=application)
+        approve = next(
+            item for item in view.children if getattr(item, "custom_id", "") == "minecraft:review:approve"
+        )
+
+        await approve.callback(interaction)
+
+        interaction.response.send_message.assert_awaited()
+        bot.data.queue_approval.assert_not_awaited()

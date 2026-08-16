@@ -8,6 +8,7 @@ import math
 import re
 import statistics
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional
@@ -29,7 +30,7 @@ from .models import (
 
 
 JAVA_USERNAME = re.compile(r"^[A-Za-z0-9_]{3,16}$")
-BEDROCK_USERNAME = re.compile(r"^[\w -]{1,16}$", re.UNICODE)
+BEDROCK_USERNAME = re.compile(r"^[A-Za-z0-9 _-]{1,16}$")
 SCHEMA_VERSION = 6
 COMMAND_LOG_RETENTION_DAYS = 30
 COMMAND_LOG_RETENTION_ROWS = 20_000
@@ -221,6 +222,11 @@ def normalize_username(edition: Edition | str, username: str) -> tuple[str, str]
     if not BEDROCK_USERNAME.fullmatch(cleaned):
         raise ValueError("Bedrock gamertags must contain 1-16 letters, numbers, spaces, underscores, or hyphens")
     return cleaned, cleaned.casefold()
+
+
+def _like_contains(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
 
 
 def validate_answers(answers: dict[str, str]) -> tuple[str, str]:
@@ -446,6 +452,30 @@ class MinecraftDataManager:
             ),
         )
 
+    async def _release_account_if_unused(
+        self,
+        db: aiosqlite.Connection,
+        application: MinecraftApplication,
+    ) -> None:
+        if not application.minecraft_uuid:
+            return
+        still_needed = await db.execute_fetchall(
+            "SELECT id FROM minecraft_applications WHERE minecraft_uuid=? AND id<>? "
+            "AND status IN (?, ?) LIMIT 1",
+            (
+                application.minecraft_uuid,
+                application.id,
+                ApplicationStatus.APPROVED.value,
+                ApplicationStatus.APPROVAL_QUEUED.value,
+            ),
+        )
+        if still_needed:
+            return
+        await db.execute(
+            "DELETE FROM minecraft_accounts WHERE edition=? AND minecraft_uuid=?",
+            (application.edition.value, application.minecraft_uuid),
+        )
+
     async def create_application(
         self,
         *,
@@ -522,6 +552,37 @@ class MinecraftDataManager:
                         raise AccountEditionAlreadyLinked(
                             f"Your Discord account already has a linked {edition.value.title()} account"
                         )
+                else:
+                    linked_editions = await db.execute_fetchall(
+                        "SELECT edition FROM minecraft_accounts WHERE discord_user_id=?",
+                        (str(discord_user_id),),
+                    )
+                    if len(linked_editions) >= 2:
+                        raise AccountEditionAlreadyLinked(
+                            "Your Discord account already has a linked Java and Bedrock account"
+                        )
+                owned_name = await db.execute_fetchall(
+                    "SELECT discord_user_id FROM minecraft_accounts "
+                    "WHERE lower(current_username)=? LIMIT 1",
+                    (normalized,),
+                )
+                if owned_name and str(owned_name[0]["discord_user_id"]) != str(discord_user_id):
+                    raise ValueError(
+                        "That Minecraft name is already linked to another Discord account"
+                    )
+                claimed_name = await db.execute_fetchall(
+                    "SELECT discord_user_id FROM minecraft_applications "
+                    "WHERE normalized_username=? AND status IN "
+                    f"({','.join('?' for _ in ACTIVE_APPLICATION_STATUSES)}) LIMIT 1",
+                    (
+                        normalized,
+                        *(status.value for status in ACTIVE_APPLICATION_STATUSES),
+                    ),
+                )
+                if claimed_name and str(claimed_name[0]["discord_user_id"]) != str(discord_user_id):
+                    raise ValueError(
+                        "That Minecraft name is already being used on another application"
+                    )
                 placeholders = ",".join("?" for _ in ACTIVE_APPLICATION_STATUSES)
                 active = await db.execute_fetchall(
                     f"SELECT id FROM minecraft_applications WHERE guild_id=? AND discord_user_id=? "
@@ -762,6 +823,7 @@ class MinecraftDataManager:
                             application_id=application.id,
                             timestamp=current,
                         )
+                    await self._release_account_if_unused(db, application)
                     await self._audit(
                         db,
                         "VERIFICATION_EXPIRED"
@@ -794,6 +856,10 @@ class MinecraftDataManager:
         now: Optional[int] = None,
     ) -> tuple[MinecraftApplication, bool]:
         current = _now() if now is None else int(now)
+        try:
+            uuid.UUID(str(minecraft_uuid))
+        except ValueError as exc:
+            raise InvalidTransition("Invalid Minecraft UUID") from exc
         _, normalized_actual = normalize_username(edition, current_username)
         db = self._connection()
         changed = False
@@ -823,7 +889,8 @@ class MinecraftDataManager:
                         (ApplicationStatus.EXPIRED.value, current, application.id),
                     )
                     await db.commit()
-                    raise InvalidTransition("Verification window expired")
+                    updated = await self.get_application(application_id)
+                    return updated or application, False
                 if not application.auto_detect_edition and application.edition is not edition:
                     raise InvalidTransition("Verified edition does not match the application")
                 if normalized_actual != application.normalized_username:
@@ -1315,9 +1382,12 @@ class MinecraftDataManager:
                 if cursor.rowcount != 1:
                     raise InvalidTransition("Application has already been reviewed")
                 rows = await db.execute_fetchall(
-                    "SELECT discord_user_id FROM minecraft_applications WHERE id=?",
+                    "SELECT * FROM minecraft_applications WHERE id=?",
                     (int(application_id),),
                 )
+                denied = self._application(rows[0]) if rows else None
+                if denied is not None:
+                    await self._release_account_if_unused(db, denied)
                 await self._queue(
                     db,
                     BridgeAction.REMOVE_PENDING,
@@ -1331,7 +1401,7 @@ class MinecraftDataManager:
                     "APPLICATION_DENIED",
                     application_id=application_id,
                     actor_id=moderator_id,
-                    target_id=rows[0]["discord_user_id"] if rows else None,
+                    target_id=denied.discord_user_id if denied is not None else None,
                     payload={"has_public_reason": bool(applicant_reason)},
                     timestamp=current,
                 )
@@ -1398,6 +1468,8 @@ class MinecraftDataManager:
                         application_id=application.id,
                         timestamp=current,
                     )
+                else:
+                    await self._release_account_if_unused(db, application)
                 await self._audit(
                     db,
                     "APPLICATION_CANCELLED",
@@ -1572,6 +1644,11 @@ class MinecraftDataManager:
                     for row in applications:
                         application = self._application(row)
                         affected_ids.append(application.id)
+                        await db.execute(
+                            "UPDATE minecraft_bridge_outbox SET status='CANCELLED', processed_at=? "
+                            "WHERE application_id=? AND action=? AND status IN ('PENDING', 'SENT', 'FAILED')",
+                            (current, application.id, BridgeAction.APPROVE.value),
+                        )
                         await self._queue(
                             db,
                             BridgeAction.REVOKE,
@@ -1598,12 +1675,13 @@ class MinecraftDataManager:
                 else:
                     pending_rows = await db.execute_fetchall(
                         "SELECT id FROM minecraft_applications WHERE discord_user_id=? AND edition=? "
-                        "AND minecraft_uuid=? AND status=?",
+                        "AND minecraft_uuid=? AND status IN (?, ?)",
                         (
                             str(discord_user_id),
                             edition.value,
                             account["minecraft_uuid"],
                             ApplicationStatus.PENDING_REVIEW.value,
+                            ApplicationStatus.PENDING_APPLICATION.value,
                         ),
                     )
                     affected_ids = [int(row["id"]) for row in pending_rows]
@@ -1614,6 +1692,15 @@ class MinecraftDataManager:
                             f"WHERE id IN ({placeholders})",
                             (ApplicationStatus.CANCELLED.value, current, *affected_ids),
                         )
+                        for pending_id in affected_ids:
+                            await self._queue(
+                                db,
+                                BridgeAction.REMOVE_PENDING,
+                                {"application_id": pending_id},
+                                idempotency_key=f"application:{pending_id}:unlink-remove",
+                                application_id=pending_id,
+                                timestamp=current,
+                            )
                     await db.execute(
                         "DELETE FROM minecraft_accounts WHERE id=?",
                         (int(account["id"]),),
@@ -1707,7 +1794,7 @@ class MinecraftDataManager:
                     return None, None, False
                 record = self._outbox(rows[0])
                 application_id = record.application_id
-                if record.status == "PROCESSED":
+                if record.status in {"PROCESSED", "CANCELLED"}:
                     await db.rollback()
                 else:
                     newly_processed = True
@@ -1717,29 +1804,37 @@ class MinecraftDataManager:
                         (current, idempotency_key),
                     )
                     if application_id is not None and record.action is BridgeAction.APPROVE:
-                        await db.execute(
-                            "UPDATE minecraft_applications SET status=?, updated_at=? WHERE id=? AND status=?",
-                            (
-                                ApplicationStatus.APPROVED.value,
-                                current,
-                                application_id,
-                                ApplicationStatus.APPROVAL_QUEUED.value,
-                            ),
+                        account_still_linked = await db.execute_fetchall(
+                            "SELECT 1 FROM minecraft_accounts WHERE minecraft_uuid=? LIMIT 1",
+                            (str(record.payload.get("minecraft_uuid") or ""),),
                         )
-                        await self._audit(
-                            db,
-                            "APPLICATION_APPROVED",
-                            application_id=application_id,
-                            timestamp=current,
-                        )
+                        if account_still_linked:
+                            await db.execute(
+                                "UPDATE minecraft_applications SET status=?, updated_at=? "
+                                "WHERE id=? AND status=?",
+                                (
+                                    ApplicationStatus.APPROVED.value,
+                                    current,
+                                    application_id,
+                                    ApplicationStatus.APPROVAL_QUEUED.value,
+                                ),
+                            )
+                            await self._audit(
+                                db,
+                                "APPLICATION_APPROVED",
+                                application_id=application_id,
+                                timestamp=current,
+                            )
                     elif application_id is not None and record.action is BridgeAction.REVOKE:
                         await db.execute(
-                            "UPDATE minecraft_applications SET status=?, updated_at=? WHERE id=? AND status=?",
+                            "UPDATE minecraft_applications SET status=?, updated_at=? "
+                            "WHERE id=? AND status IN (?, ?)",
                             (
                                 ApplicationStatus.REVOKED.value,
                                 current,
                                 application_id,
                                 ApplicationStatus.APPROVED.value,
+                                ApplicationStatus.APPROVAL_QUEUED.value,
                             ),
                         )
                         await self._audit(
@@ -2066,8 +2161,8 @@ class MinecraftDataManager:
             clauses.append("actor_discord_id=?")
             params.append(str(actor_id))
         if command:
-            clauses.append("command LIKE ?")
-            params.append(f"%{command}%")
+            clauses.append("command LIKE ? ESCAPE '\\'")
+            params.append(_like_contains(str(command)))
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         params.append(max(1, min(50, int(limit))))
         rows = await self._connection().execute_fetchall(
@@ -2088,8 +2183,8 @@ class MinecraftDataManager:
             clauses.append("actor_discord_id=?")
             params.append(str(actor_id))
         if command:
-            clauses.append("command LIKE ?")
-            params.append(f"%{command}%")
+            clauses.append("command LIKE ? ESCAPE '\\'")
+            params.append(_like_contains(str(command)))
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = await self._connection().execute_fetchall(
             f"SELECT COUNT(*) AS count FROM minecraft_command_log {where}", tuple(params)
@@ -2131,9 +2226,9 @@ class MinecraftDataManager:
         if not needle:
             return []
         rows = await self._connection().execute_fetchall(
-            "SELECT * FROM minecraft_applications WHERE normalized_username LIKE ? "
+            "SELECT * FROM minecraft_applications WHERE normalized_username LIKE ? ESCAPE '\\' "
             "ORDER BY id DESC LIMIT ?",
-            (f"%{needle}%", max(1, min(25, int(limit)))),
+            (_like_contains(needle), max(1, min(25, int(limit)))),
         )
         return [self._application(row) for row in rows]
 
@@ -2148,9 +2243,9 @@ class MinecraftDataManager:
         if not needle:
             return []
         rows = await self._connection().execute_fetchall(
-            "SELECT * FROM minecraft_accounts WHERE current_username LIKE ? COLLATE NOCASE "
+            "SELECT * FROM minecraft_accounts WHERE current_username LIKE ? ESCAPE '\\' COLLATE NOCASE "
             "ORDER BY id DESC LIMIT ?",
-            (f"%{needle}%", max(1, min(25, int(limit)))),
+            (_like_contains(needle), max(1, min(25, int(limit)))),
         )
         return [dict(row) for row in rows]
 

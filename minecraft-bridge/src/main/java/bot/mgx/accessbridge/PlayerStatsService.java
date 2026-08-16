@@ -137,9 +137,6 @@ final class PlayerStatsService {
         long total = 0L;
         total += valueOf(player.getInventory());
         total += valueOf(player.getEnderChest());
-        for (ItemStack armour : player.getInventory().getArmorContents()) {
-            total += valueOf(armour);
-        }
         wealth.record(player.getUniqueId(), total);
     }
 

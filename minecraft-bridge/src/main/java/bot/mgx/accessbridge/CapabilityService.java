@@ -95,9 +95,14 @@ final class CapabilityService {
         for (UUID uuid : offlineTargets) {
             List<String> held = new ArrayList<>();
             List<CompletableFuture<Void>> checks = new ArrayList<>();
+            boolean operator = plugin.getServer().getOfflinePlayer(uuid).isOp();
             for (StaffTools.StaffTool tool : StaffTools.ALL) {
+                if (operator) {
+                    held.add(tool.key());
+                    continue;
+                }
                 checks.add(
-                        luckPerms.hasPermission(uuid, tool.permission())
+                        luckPerms.hasExplicitPermission(uuid, tool.permission())
                                 .thenAccept(allowed -> {
                                     if (allowed) {
                                         synchronized (held) {
@@ -133,8 +138,11 @@ final class CapabilityService {
         UUID playerId = online.getUniqueId();
         JsonObject entry = clanFields(playerId);
         JsonArray tools = new JsonArray();
+        boolean operator = online.isOp();
         for (StaffTools.StaffTool tool : StaffTools.ALL) {
-            if (online.hasPermission(tool.permission())) {
+            if (operator
+                    || (luckPerms != null
+                    && luckPerms.hasExplicitPermissionLoaded(playerId, tool.permission()))) {
                 tools.add(tool.key());
             }
         }

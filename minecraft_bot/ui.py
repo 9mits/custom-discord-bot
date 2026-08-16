@@ -102,6 +102,10 @@ class ApplyButton(discord.ui.Button):
             await interaction.response.send_message(
                 **message,
             )
+            if pending_verification:
+                await bot.replace_application_card(
+                    active.id, await interaction.original_response()
+                )
             return
         if not bot.apply_rate_limit.claim(interaction.user.id):
             await interaction.response.send_message(
@@ -978,13 +982,12 @@ class ReviewView(discord.ui.View):
         if application is None:
             return
         bot = interaction.client
-        has_mod_role = any(role.id == bot.settings.mod_role_id for role in interaction.user.roles)
-        if int(application.discord_user_id) == interaction.user.id and not has_mod_role:
+        if int(application.discord_user_id) == interaction.user.id:
             await interaction.response.send_message(
                 **branded_send(
                     info_embed(
                         "Approval Restricted",
-                        "> Administrators cannot approve their own application unless they also hold the configured moderator role.",
+                        "> You cannot approve your own application.",
                         error=True,
                     )
                 ),

@@ -17,14 +17,19 @@ import org.bukkit.event.world.SpawnChangeEvent;
 import org.bukkit.event.world.WorldLoadEvent;
 import org.bukkit.scheduler.BukkitTask;
 import org.spigotmc.event.player.PlayerSpawnLocationEvent;
+import org.bukkit.OfflinePlayer;
+import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.geysermc.floodgate.api.FloodgateApi;
 import org.geysermc.floodgate.api.player.FloodgatePlayer;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -123,7 +128,6 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         perkService = new PlayerPerkService();
         luckPermsService = LuckPermsService.createIfAvailable(this, rankSyncStore);
-        resetTestBedrockToDefault();
         identityService = new DiscordIdentityService(this, identityStore);
         clanMenuService = new ClanMenuService(this, clanStore, identityService);
         playerMenuService = new PlayerMenuService(
@@ -385,7 +389,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         // and must not be pushed through the username check.
         String safeTarget = tool.needsTarget() ? StaffActionInput.sanitizeUsername(target) : "";
         String safeReason = StaffActionInput.sanitizeFreeText(reason, 200);
-        String safeDuration = StaffActionInput.sanitizeFreeText(duration, 20);
+        String safeDuration = StaffActionInput.sanitizeDuration(duration);
         String command;
         try {
             command = remote.build(safeTarget, safeReason, safeDuration);
@@ -419,14 +423,58 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
      * rather than guessing.
      */
     private java.util.concurrent.CompletableFuture<Boolean> authorised(UUID actor, String permission) {
-        org.bukkit.entity.Player online = getServer().getPlayer(actor);
-        if (online != null) {
-            return java.util.concurrent.CompletableFuture.completedFuture(online.hasPermission(permission));
+        Player online = getServer().getPlayer(actor);
+        if (online != null && online.isOp()) {
+            return java.util.concurrent.CompletableFuture.completedFuture(true);
+        }
+        if (online == null && getServer().getOfflinePlayer(actor).isOp()) {
+            return java.util.concurrent.CompletableFuture.completedFuture(true);
         }
         if (luckPermsService == null) {
             return java.util.concurrent.CompletableFuture.completedFuture(false);
         }
-        return luckPermsService.hasPermission(actor, permission);
+        return luckPermsService.hasExplicitPermission(actor, permission);
+    }
+
+    /**
+     * Console, {@code ops.json}, or an explicit LuckPerms grant of
+     * {@code mgxaccessbridge.admin}. Bukkit {@code hasPermission} is not used:
+     * Floodgate accounts inherit {@code default: op} nodes while {@code op=false}.
+     */
+    boolean mayAdminister(CommandSender sender) {
+        if (!(sender instanceof Player player)) {
+            return true;
+        }
+        return player.isOp() || hasExplicitAdmin(player.getUniqueId());
+    }
+
+    /**
+     * Drops the live Java and Floodgate whitelist, pending verifications, and
+     * anyone online who is not exempt. Writing {@code whitelist.json} alone
+     * leaves Paper's in-memory list (and Floodgate's own store) untouched.
+     */
+    int revokeLiveAccess() {
+        int removed = 0;
+        Set<OfflinePlayer> listed = new HashSet<>(getServer().getWhitelistedPlayers());
+        for (OfflinePlayer player : listed) {
+            if (player.isWhitelisted()) {
+                player.setWhitelisted(false);
+                removed++;
+            }
+            UUID id = player.getUniqueId();
+            getServer().dispatchCommand(getServer().getConsoleSender(), "fwhitelist remove " + id);
+        }
+        getServer().reloadWhitelist();
+        if (pending != null) {
+            pending.replace(List.of());
+        }
+        for (Player online : getServer().getOnlinePlayers()) {
+            if (bypassesMaintenance(online)) {
+                continue;
+            }
+            online.kick(Component.text("Minecraft access was reset."));
+        }
+        return removed;
     }
 
     /**
@@ -537,28 +585,6 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
      * {@code op=false bypass=true} for a default Bedrock account. There is no
      * dedicated maintenance bypass permission.
      */
-    private static final UUID RESET_TO_DEFAULT = UUID.fromString("00000000-0000-0000-0009-01f9d1ebbeb2");
-
-    private void resetTestBedrockToDefault() {
-        if (luckPermsService == null) {
-            return;
-        }
-        Path done = getDataFolder().toPath().resolve("reset-agentclanmanage.done");
-        if (Files.isRegularFile(done)) {
-            return;
-        }
-        luckPermsService.resetToDefaultGroup(RESET_TO_DEFAULT).thenRun(() -> {
-            try {
-                Files.writeString(done, "default");
-            } catch (IOException exception) {
-                getLogger().warning("Reset .agentclanmanage but could not record it: "
-                        + exception.getMessage());
-                return;
-            }
-            getLogger().info("Reset .agentclanmanage to the default LuckPerms group.");
-        });
-    }
-
     private boolean maintenanceHeld() {
         return maintenanceStore != null && maintenanceStore.enabled();
     }

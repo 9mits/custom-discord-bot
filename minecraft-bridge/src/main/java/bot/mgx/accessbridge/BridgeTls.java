@@ -87,6 +87,7 @@ final class BridgeTls {
             if (chain == null || chain.length == 0) {
                 throw new CertificateException("Bridge did not present a certificate");
             }
+            chain[0].checkValidity();
             try {
                 requireFingerprint(chain[0].getEncoded(), expectedFingerprint);
             } catch (CertificateEncodingException exception) {

@@ -5,6 +5,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 
 /**
  * Whether the server is closed to everyone but staff.
@@ -41,12 +42,18 @@ final class MaintenanceStore {
         if (enabled == value) {
             return false;
         }
-        enabled = value;
         try {
-            Files.writeString(file, Boolean.toString(value), StandardCharsets.UTF_8);
+            Path temporary = file.resolveSibling(file.getFileName() + ".tmp");
+            Files.writeString(temporary, Boolean.toString(value), StandardCharsets.UTF_8);
+            try {
+                Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException unsupportedAtomicMove) {
+                Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING);
+            }
         } catch (IOException exception) {
             throw new UncheckedIOException(exception);
         }
+        enabled = value;
         return true;
     }
 }

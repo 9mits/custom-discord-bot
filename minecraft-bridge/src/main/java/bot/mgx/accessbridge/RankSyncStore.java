@@ -82,13 +82,15 @@ final class RankSyncStore {
     /** @return true when the player was not already held. */
     synchronized boolean hold(UUID playerId, String name) {
         boolean added = held.add(playerId);
+        boolean renamed = false;
         if (name != null && !name.isBlank()) {
-            heldNames.put(playerId, name);
+            String previous = heldNames.put(playerId, name);
+            renamed = !name.equals(previous);
         }
         // The bridge no longer owns anything it gave them: releasing later must not
         // retroactively strip a group an admin has since set by hand.
         applied.remove(playerId);
-        if (added) {
+        if (added || renamed) {
             save();
         }
         return added;

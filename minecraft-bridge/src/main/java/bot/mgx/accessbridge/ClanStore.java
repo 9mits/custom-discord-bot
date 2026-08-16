@@ -288,7 +288,14 @@ final class ClanStore {
         if (clan.vault == null) {
             clan.vault = new LinkedHashMap<>();
         }
-        accepted.forEach((material, amount) -> clan.vault.merge(material, amount, Integer::sum));
+        for (Map.Entry<String, Integer> entry : accepted.entrySet()) {
+            int current = clan.vault.getOrDefault(entry.getKey(), 0);
+            int amount = entry.getValue();
+            if (amount < 0 || current > Integer.MAX_VALUE - amount) {
+                throw new ClanException("The clan vault cannot hold that many items.");
+            }
+            clan.vault.put(entry.getKey(), current + amount);
+        }
         if (clan.donations == null) {
             clan.donations = new LinkedHashMap<>();
         }

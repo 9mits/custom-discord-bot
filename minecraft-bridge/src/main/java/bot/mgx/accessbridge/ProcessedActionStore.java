@@ -28,15 +28,26 @@ final class ProcessedActionStore {
         }
     }
 
+    private static final String IN_PROGRESS = "IN_PROGRESS";
+
     synchronized Optional<Result> get(String idempotencyKey) {
         String value = properties.getProperty(idempotencyKey);
-        if (value == null) {
+        if (value == null || value.startsWith(IN_PROGRESS)) {
             return Optional.empty();
         }
         int separator = value.indexOf(':');
         boolean success = separator < 0 ? Boolean.parseBoolean(value) : Boolean.parseBoolean(value.substring(0, separator));
         String error = separator < 0 ? "" : value.substring(separator + 1);
         return Optional.of(new Result(success, error));
+    }
+
+    /** Claims a key in memory before the side effect. Does not persist. */
+    synchronized boolean reserve(String idempotencyKey) {
+        if (properties.containsKey(idempotencyKey)) {
+            return false;
+        }
+        properties.setProperty(idempotencyKey, IN_PROGRESS);
+        return true;
     }
 
     CompletableFuture<Void> put(String idempotencyKey, Result result) {

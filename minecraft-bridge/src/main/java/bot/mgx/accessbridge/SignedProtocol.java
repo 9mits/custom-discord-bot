@@ -73,16 +73,15 @@ final class SignedProtocol {
             throw new SecurityException("Bridge message timestamp is outside the allowed window");
         }
         pruneNonces(now);
-        if (nonces.putIfAbsent(nonce, timestamp + MAX_CLOCK_SKEW_SECONDS + 1) != null) {
-            throw new SecurityException("Bridge message nonce was already used");
-        }
         String expected = signature(envelope);
         if (!MessageDigest.isEqual(
                 expected.getBytes(StandardCharsets.US_ASCII),
                 provided.getBytes(StandardCharsets.US_ASCII)
         )) {
-            nonces.remove(nonce);
             throw new SecurityException("Bridge message signature is invalid");
+        }
+        if (nonces.putIfAbsent(nonce, timestamp + MAX_CLOCK_SKEW_SECONDS + 1) != null) {
+            throw new SecurityException("Bridge message nonce was already used");
         }
         return envelope;
     }

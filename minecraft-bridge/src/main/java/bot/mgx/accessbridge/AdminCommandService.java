@@ -52,7 +52,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!sender.hasPermission(PERMISSION)) {
+        if (!plugin.mayAdminister(sender)) {
             error(sender, "You do not have permission to do that.");
             return true;
         }
@@ -230,7 +230,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     public List<String> onTabComplete(
             CommandSender sender, Command command, String alias, String[] args
     ) {
-        if (!sender.hasPermission(PERMISSION)) {
+        if (!plugin.mayAdminister(sender)) {
             return List.of();
         }
         if (args.length == 1) {

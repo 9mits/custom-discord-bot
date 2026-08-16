@@ -16,6 +16,8 @@ import org.bukkit.event.Listener;
 import org.geysermc.floodgate.api.FloodgateApi;
 import org.geysermc.floodgate.api.player.FloodgatePlayer;
 
+import java.net.URI;
+import java.util.Locale;
 import java.util.UUID;
 
 final class ChatRelayService implements Listener {
@@ -71,7 +73,7 @@ final class ChatRelayService implements Listener {
         rendered = rendered
                 .append(Component.text(": ", NamedTextColor.DARK_GRAY))
                 .append(Component.text(message, NamedTextColor.WHITE));
-        if (attachmentCount > 0 && attachmentUrl != null && !attachmentUrl.isBlank()) {
+        if (attachmentCount > 0 && allowedAttachmentUrl(attachmentUrl)) {
             String label = attachmentCount == 1 ? "View attachment on Discord" : "View attachments on Discord";
             rendered = rendered
                     .append(Component.text("  ", NamedTextColor.DARK_GRAY))
@@ -87,5 +89,28 @@ final class ChatRelayService implements Listener {
             }
         }
         Bukkit.getConsoleSender().sendMessage(rendered);
+    }
+
+    static boolean allowedAttachmentUrl(String url) {
+        if (url == null || url.isBlank()) {
+            return false;
+        }
+        try {
+            URI uri = URI.create(url);
+            String scheme = uri.getScheme();
+            String host = uri.getHost();
+            if (scheme == null || host == null || !"https".equalsIgnoreCase(scheme)) {
+                return false;
+            }
+            String normalised = host.toLowerCase(Locale.ROOT);
+            return normalised.equals("discord.com")
+                    || normalised.endsWith(".discord.com")
+                    || normalised.equals("discordapp.com")
+                    || normalised.endsWith(".discordapp.com")
+                    || normalised.equals("discordapp.net")
+                    || normalised.endsWith(".discordapp.net");
+        } catch (RuntimeException exception) {
+            return false;
+        }
     }
 }

@@ -155,53 +155,58 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             }
             return;
         }
-        String type = envelope.get("type").getAsString();
-        JsonObject payload = envelope.getAsJsonObject("payload");
-        switch (type) {
-            case "HELLO_ACK" -> {
-                if (!config.serverId().equals(payload.get("server_id").getAsString())) {
-                    closeSocket(1008, "Server ID mismatch");
-                    return;
+        try {
+            String type = envelope.get("type").getAsString();
+            JsonObject payload = envelope.getAsJsonObject("payload");
+            if (!authenticated && !"HELLO_ACK".equals(type)) {
+                plugin.getLogger().warning("Ignored " + type + " before HELLO_ACK.");
+                return;
+            }
+            switch (type) {
+                case "HELLO_ACK" -> {
+                    if (!config.serverId().equals(payload.get("server_id").getAsString())) {
+                        closeSocket(1008, "Server ID mismatch");
+                        return;
+                    }
+                    authenticated = true;
+                    reconnectAttempts = 0;
+                    plugin.getLogger().info("Connected to the signed Minecraft application bridge.");
+                    flushVerificationOutbox();
+                    flushPlayerActivityOutbox();
+                    flushMinecraftChatOutbox();
+                    flushServerEventOutbox();
+                    // The bot holds standings in memory, so a restart leaves it with none.
+                    // Republish at once rather than making it wait for the next interval.
+                    plugin.republishLeaderboard();
+                    plugin.republishCapabilities();
                 }
-                authenticated = true;
-                reconnectAttempts = 0;
-                plugin.getLogger().info("Connected to the signed Minecraft application bridge.");
-                flushVerificationOutbox();
-                flushPlayerActivityOutbox();
-                flushMinecraftChatOutbox();
-                flushServerEventOutbox();
-                // The bot holds standings in memory, so a restart leaves it with none.
-                // Republish at once rather than making it wait for the next interval.
-                plugin.republishLeaderboard();
-                plugin.republishCapabilities();
-            }
-            case "HEARTBEAT_ACK" -> {
-                // The signed response is sufficient proof of liveness.
-            }
-            case "VERIFICATION_ACK" -> {
-                String key = envelope.get("idempotency_key").getAsString();
-                JsonObject verification = verificationOutbox.remove(key);
-                if (verification != null) {
-                    pending.remove(verification.get("application_id").getAsLong());
+                case "HEARTBEAT_ACK" -> {
+                    // The signed response is sufficient proof of liveness.
                 }
+                case "VERIFICATION_ACK" -> {
+                    String key = envelope.get("idempotency_key").getAsString();
+                    JsonObject verification = verificationOutbox.remove(key);
+                    if (verification != null) {
+                        pending.remove(verification.get("application_id").getAsLong());
+                    }
+                }
+                case "PLAYER_EVENT_ACK" -> {
+                    String key = payload.get("event_idempotency_key").getAsString();
+                    playerActivityOutbox.remove(key);
+                }
+                case "MINECRAFT_CHAT_ACK" -> {
+                    String key = payload.get("event_idempotency_key").getAsString();
+                    minecraftChatOutbox.remove(key);
+                }
+                case "SERVER_EVENT_ACK" -> {
+                    String key = payload.get("event_idempotency_key").getAsString();
+                    serverEventOutbox.remove(key);
+                }
+                case "ACTION" -> processAction(envelope.get("idempotency_key").getAsString(), payload);
+                default -> plugin.getLogger().warning("Ignored unsupported bridge message type: " + type);
             }
-            case "PLAYER_EVENT_ACK" -> {
-                String key = payload.get("event_idempotency_key").getAsString();
-                playerActivityOutbox.remove(key);
-            }
-            case "MINECRAFT_CHAT_ACK" -> {
-                String key = payload.get("event_idempotency_key").getAsString();
-                minecraftChatOutbox.remove(key);
-            }
-            case "SERVER_EVENT_ACK" -> {
-                String key = payload.get("event_idempotency_key").getAsString();
-                serverEventOutbox.remove(key);
-            }
-            case "ACTION" -> processAction(envelope.get("idempotency_key").getAsString(), payload);
-            default -> {
-                plugin.getLogger().warning("Rejected unsupported bridge message type: " + type);
-                closeSocket(1008, "Unsupported message type");
-            }
+        } catch (RuntimeException exception) {
+            plugin.getLogger().warning("Bridge message failed: " + exception.getMessage());
         }
     }
 
@@ -228,7 +233,16 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             return;
         }
         if (action.equals("SET_MAINTENANCE")) {
-            plugin.setMaintenance(payload.get("enabled").getAsBoolean());
+            try {
+                if (!payload.has("enabled") || !payload.get("enabled").isJsonPrimitive()) {
+                    recordAndSend(idempotencyKey, new ProcessedActionStore.Result(false, "enabled is required"));
+                    return;
+                }
+                plugin.setMaintenance(payload.get("enabled").getAsBoolean());
+                recordAndSend(idempotencyKey, new ProcessedActionStore.Result(true, ""));
+            } catch (RuntimeException exception) {
+                recordAndSend(idempotencyKey, new ProcessedActionStore.Result(false, safeError(exception)));
+            }
             return;
         }
         if (action.equals("SYNC_WHITELIST")) {
@@ -240,6 +254,10 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         Optional<ProcessedActionStore.Result> existing = processedActions.get(idempotencyKey);
         if (existing.isPresent()) {
             sendActionResult(idempotencyKey, existing.get());
+            return;
+        }
+        if (!processedActions.reserve(idempotencyKey)) {
+            processedActions.get(idempotencyKey).ifPresent(result -> sendActionResult(idempotencyKey, result));
             return;
         }
         switch (action) {
@@ -360,7 +378,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             // when the bot could not work out the link state, which is why absence and
             // emptiness cannot be treated the same: clearing on a failed lookup would
             // drop everyone's name the first time Discord was slow.
-            if (payload.has("discord_username")) {
+            if (payload.has("discord_username") && !payload.get("discord_username").isJsonNull()) {
                 String username = payload.get("discord_username").getAsString();
                 if (username.isBlank()) {
                     plugin.forgetDiscordIdentity(minecraftUuid);
