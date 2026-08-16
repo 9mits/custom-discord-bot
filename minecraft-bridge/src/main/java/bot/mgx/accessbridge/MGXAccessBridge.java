@@ -684,7 +684,12 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         // Match first. Floodgate consults this event and may never reach
         // PlayerLoginEvent once we rewrite the result to KICK_OTHER.
-        Component verdict = handleVerification(event.getUniqueId(), event.getName(), false);
+        Component verdict = handleVerification(
+                event.getUniqueId(),
+                event.getName(),
+                false,
+                incoming == AsyncPlayerPreLoginEvent.Result.KICK_WHITELIST
+        );
         if (!MaintenanceGate.shouldRefuse(maintenanceHeld(), bypassesMaintenance(event.getUniqueId()))) {
             return;
         }
@@ -720,7 +725,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         Component verdict = handleVerification(
                 event.getPlayer().getUniqueId(),
                 event.getPlayer().getName(),
-                whitelistKick && !held
+                whitelistKick && !held,
+                whitelistKick
         );
         if (verdict != null) {
             event.kickMessage(verdict);
@@ -766,7 +772,12 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
      * @return the message this login has earned, or null when there was nothing to
      *         say — which leaves the refusal exactly as it was found.
      */
-    private Component handleVerification(UUID uuid, String loginName, boolean announceNoMatch) {
+    private Component handleVerification(
+            UUID uuid,
+            String loginName,
+            boolean announceNoMatch,
+            boolean applicant
+    ) {
         VerificationIdentity.Resolved identity = resolveConnectingIdentity(uuid, loginName);
         Optional<PendingVerification> match = pending.matchLogin(loginName);
         if (match.isEmpty()) {
@@ -778,7 +789,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             getLogger().info("No pending verification for " + loginName
                     + " (cache=" + pending.size()
                     + " names=" + pending.snapshotNames() + ")");
-            if (pending.size() == 0 && !announceNoMatch) {
+            if (applicant && pending.size() == 0 && !announceNoMatch) {
                 return WAITING_FOR_APPLICATION_MESSAGE;
             }
             return announceNoMatch ? VERIFICATION_HELP_MESSAGE : CLOSED_MESSAGE;
