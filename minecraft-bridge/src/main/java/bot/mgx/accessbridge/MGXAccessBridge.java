@@ -69,6 +69,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     private final ConcurrentHashMap<UUID, Component> verificationKicks = new ConcurrentHashMap<>();
 
+    private LaunchService launchService;
     private ScheduledExecutorService networkExecutor;
     private BridgeClient bridgeClient;
     private PendingVerificationCache pending;
@@ -237,6 +238,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         );
         getCommand("mgxadmin").setExecutor(adminService);
         getCommand("mgxadmin").setTabCompleter(adminService);
+        launchService = new LaunchService(this, getDataFolder().toPath());
+        launchService.restoreOnEnable();
         sidebarService.start();
         leaderboardService.start();
         capabilityService.start();
@@ -494,6 +497,13 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
      * when it closes, since holding it shut only for new logins leaves whoever was
      * online playing.
      */
+    void startLaunch(org.bukkit.command.CommandSender sender) {
+        if (launchService == null) {
+            throw new IllegalStateException("Launch service is not ready.");
+        }
+        launchService.start(sender);
+    }
+
     void setMaintenance(boolean enabled) {
         if (maintenanceStore == null || !maintenanceStore.set(enabled)) {
             return;
@@ -915,6 +925,24 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     @EventHandler
     public void onWorldLoad(WorldLoadEvent event) {
         lockWorldSpawn(event.getWorld());
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onPlayerPortal(org.bukkit.event.player.PlayerPortalEvent event) {
+        if (event.getTo() != null
+                && event.getTo().getWorld() != null
+                && event.getTo().getWorld().getEnvironment() == World.Environment.THE_END) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onEntityPortal(org.bukkit.event.entity.EntityPortalEvent event) {
+        if (event.getTo() != null
+                && event.getTo().getWorld() != null
+                && event.getTo().getWorld().getEnvironment() == World.Environment.THE_END) {
+            event.setCancelled(true);
+        }
     }
 
     @EventHandler(ignoreCancelled = true)
