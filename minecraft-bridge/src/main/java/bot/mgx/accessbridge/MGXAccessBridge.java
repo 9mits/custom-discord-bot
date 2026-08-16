@@ -2,6 +2,7 @@ package bot.mgx.accessbridge;
 
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
+import org.bukkit.Difficulty;
 import org.bukkit.GameRule;
 import org.bukkit.Location;
 import org.bukkit.World;
@@ -909,6 +910,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private void lockLoadedWorldSpawns() {
         for (World world : getServer().getWorlds()) {
             lockWorldSpawn(world);
+            ensureHostileSpawns(world);
         }
     }
 
@@ -928,6 +930,21 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
     }
 
+    private void ensureHostileSpawns(World world) {
+        if (world.getEnvironment() == World.Environment.THE_END) {
+            return;
+        }
+        Boolean spawning = world.getGameRuleValue(GameRule.DO_MOB_SPAWNING);
+        if (spawning == null || !spawning) {
+            world.setGameRule(GameRule.DO_MOB_SPAWNING, true);
+            getLogger().info("Enabled mob spawning in " + world.getName() + ".");
+        }
+        if (world.getDifficulty() == Difficulty.PEACEFUL) {
+            world.setDifficulty(Difficulty.NORMAL);
+            getLogger().info("Set " + world.getName() + " difficulty to normal.");
+        }
+    }
+
     private Location exactWorldSpawn(World world) {
         return new Location(world, WorldSpawn.X + 0.5, WorldSpawn.Y, WorldSpawn.Z + 0.5);
     }
@@ -935,6 +952,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     @EventHandler
     public void onWorldLoad(WorldLoadEvent event) {
         lockWorldSpawn(event.getWorld());
+        ensureHostileSpawns(event.getWorld());
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
