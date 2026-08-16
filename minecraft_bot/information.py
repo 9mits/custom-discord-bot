@@ -369,7 +369,7 @@ def clans_levels_embed(settings=None) -> discord.Embed:
                 "> `/clans members` — every member, their role and Discord name\n"
                 "> `/clans balance` — what the clan is holding and what it is worth\n"
                 "> `/clans donors` — who has given what, largest first\n"
-                "> `/clans upgrade` — leader only; spends the balance\n"
+                "> `/clans upgrade` — leader or clan staff; spends the balance\n"
                 "> \n"
                 "> **Donations are one way.** Nobody can take items back out, and "
                 "disbanding the clan destroys the balance with it.",
@@ -404,7 +404,7 @@ def clans_members_embed(settings=None) -> discord.Embed:
         "Clans — Roster",
         f"A new clan holds **{clans.STARTING_MEMBER_SLOTS} members**. Room for more "
         "is bought from the clan balance, the same way levels are.\n\n"
-        "> `/clans upgrade` — leader only; the roster track sits beside the level "
+        "> `/clans upgrade` — leader or clan staff; the roster track sits beside the level "
         "track\n"
         "> **One member at a time**, so the next slot is always in reach\n"
         f"> Every slot up to **{clans.MAX_MEMBER_SLOTS}** has to be earned\n"

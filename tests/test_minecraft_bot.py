@@ -3687,6 +3687,7 @@ class MinecraftCapabilityTests(unittest.TestCase):
         self.assertEqual([a for a, _ in caps.available_clan_actions()], ["leave", "donate"])
         self.assertFalse(caps.may("disband"))
         self.assertFalse(caps.may("invite"))
+        self.assertFalse(caps.may("upgrade"))
 
     def test_staff_tools_are_limited_to_those_held(self):
         caps = self._caps("mod-uuid")

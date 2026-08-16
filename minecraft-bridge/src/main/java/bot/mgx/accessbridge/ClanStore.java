@@ -306,7 +306,7 @@ final class ClanStore {
 
     /** Buys the next rung of the roster ladder out of the vault. */
     synchronized ClanView upgradeMembers(UUID actor) throws IOException {
-        SavedClan clan = requireLeader(actor);
+        SavedClan clan = requireStaff(actor);
         int slots = slotsOf(clan);
         ClanLevel.MemberTier tier = ClanLevel.nextMemberTier(ClanLevel.tiersBoughtFor(slots))
                 .orElseThrow(() -> new ClanException("Your clan already holds every roster slot."));
@@ -325,7 +325,7 @@ final class ClanStore {
      * a clan cannot be charged for an upgrade it does not receive.
      */
     synchronized ClanView upgrade(UUID actor) throws IOException {
-        SavedClan clan = requireLeader(actor);
+        SavedClan clan = requireStaff(actor);
         int current = levelOf(clan);
         if (current >= ClanLevel.SECRET_LEVEL) {
             throw new ClanException("Your clan is already at the highest level.");
