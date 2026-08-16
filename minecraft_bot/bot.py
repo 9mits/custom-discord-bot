@@ -1811,31 +1811,79 @@ class MinecraftAccessBot(commands.Bot):
         return await self.data.owners_for_uuids(uuids)
 
     async def _refresh_leaderboard_message(self) -> Optional[str]:
-        """Posts or edits the permanent leaderboard. Returns a reason when it could not."""
-        from .leaderboard import CONFIG_CHANNEL, CONFIG_MESSAGE, HeadEmojiStore, message_payload
+        """Posts or edits the permanent player and clan boards."""
+        from .leaderboard import (
+            CONFIG_CHANNEL,
+            CONFIG_CLAN_CHANNEL,
+            CONFIG_CLAN_MESSAGE,
+            CONFIG_MESSAGE,
+            HeadEmojiStore,
+        )
 
-        # Posted even before Paper has pushed anything: the board renders its own
-        # "no standings yet" state, which is far better than silently doing nothing.
         snapshot = getattr(self.bridge, "latest_leaderboard", {}) or {}
-        channel_id = await self.data.get_config(CONFIG_CHANNEL)
-        if not channel_id:
+        player_channel_id = await self.data.get_config(CONFIG_CHANNEL)
+        clan_channel_id = await self.data.get_config(CONFIG_CLAN_CHANNEL)
+        player_message_id = await self.data.get_config(CONFIG_MESSAGE)
+        clan_message_id = await self.data.get_config(CONFIG_CLAN_MESSAGE)
+        if not player_channel_id and not clan_channel_id:
             return "No leaderboard channel is configured."
-        message_id = await self.data.get_config(CONFIG_MESSAGE)
-        if not snapshot and message_id:
-            # Standings live in memory, so a bot restart empties them until Paper's
-            # next push. Leave the last good board up rather than blanking it.
+        if not snapshot and (player_message_id or clan_message_id):
             return None
-        channel = self.get_channel(int(channel_id))
-        if not isinstance(channel, discord.TextChannel):
-            return "The configured leaderboard channel is not reachable."
 
+        guild = None
+        for channel_id in (player_channel_id, clan_channel_id):
+            if not channel_id:
+                continue
+            channel = self.get_channel(int(channel_id))
+            if isinstance(channel, discord.TextChannel) and channel.guild is not None:
+                guild = channel.guild
+                break
         heads: dict[str, str] = {}
-        if channel.guild is not None:
-            heads = await HeadEmojiStore(self).sync(channel.guild, snapshot)
+        if guild is not None:
+            heads = await HeadEmojiStore(self).sync(guild, snapshot)
         self.leaderboard_heads = heads
         self.leaderboard_links = await self._resolve_leaderboard_links(snapshot)
-        payload = message_payload(snapshot, heads, self.leaderboard_links)
 
+        problems = []
+        if player_channel_id:
+            problem = await self._upsert_leaderboard_post(
+                snapshot,
+                heads,
+                int(player_channel_id),
+                player_message_id,
+                CONFIG_MESSAGE,
+                "individual",
+            )
+            if problem:
+                problems.append(problem)
+        if clan_channel_id:
+            problem = await self._upsert_leaderboard_post(
+                snapshot,
+                heads,
+                int(clan_channel_id),
+                clan_message_id,
+                CONFIG_CLAN_MESSAGE,
+                "clan",
+            )
+            if problem:
+                problems.append(problem)
+        return problems[0] if problems else None
+
+    async def _upsert_leaderboard_post(
+        self,
+        snapshot: dict,
+        heads: dict[str, str],
+        channel_id: int,
+        message_id: object,
+        message_key: str,
+        scope: str,
+    ) -> Optional[str]:
+        from .leaderboard import message_payload
+
+        channel = self.get_channel(channel_id)
+        if not isinstance(channel, discord.TextChannel):
+            return "A configured leaderboard channel is not reachable."
+        payload = message_payload(snapshot, heads, self.leaderboard_links, scope=scope)
         if message_id:
             try:
                 message = await channel.fetch_message(int(message_id))
@@ -1846,7 +1894,7 @@ class MinecraftAccessBot(commands.Bot):
                 )
                 return None
             except discord.NotFound:
-                pass  # deleted by someone; fall through and repost
+                pass
             except discord.HTTPException:
                 return "Discord refused the edit; retrying on the next refresh."
         try:
@@ -1856,9 +1904,9 @@ class MinecraftAccessBot(commands.Bot):
                 view=payload["view"],
             )
         except discord.HTTPException:
-            logger.exception("Could not post the leaderboard message")
+            logger.exception("Could not post the %s leaderboard", scope)
             return "I could not post there. Check my permissions in that channel."
-        await self.data.set_config(CONFIG_MESSAGE, posted.id)
+        await self.data.set_config(message_key, posted.id)
         return None
 
     @tasks.loop(seconds=30)
@@ -2138,27 +2186,48 @@ class MinecraftAccessBot(commands.Bot):
 
         @admin_group.command(
             name="leaderboard",
-            description="Choose the channel that holds the permanent leaderboard message.",
+            description="Choose the channel for the player or clan leaderboard.",
         )
-        @app_commands.describe(channel="Where the self-updating leaderboard should live.")
+        @app_commands.describe(
+            channel="Where this board should live.",
+            board="Players or clans.",
+        )
+        @app_commands.choices(
+            board=[
+                app_commands.Choice(name="Players", value="players"),
+                app_commands.Choice(name="Clans", value="clans"),
+            ]
+        )
         async def leaderboard(
-            interaction: discord.Interaction, channel: discord.TextChannel
+            interaction: discord.Interaction,
+            channel: discord.TextChannel,
+            board: app_commands.Choice[str],
         ) -> None:
             if not await self.require_administrator(interaction):
                 return
-            from .leaderboard import CONFIG_CHANNEL, CONFIG_MESSAGE
+            from .leaderboard import (
+                CONFIG_CHANNEL,
+                CONFIG_CLAN_CHANNEL,
+                CONFIG_CLAN_MESSAGE,
+                CONFIG_MESSAGE,
+            )
 
             await interaction.response.defer(ephemeral=True)
-            # A new channel means the old message is orphaned, so forget it and repost.
-            await self.data.set_config(CONFIG_CHANNEL, channel.id)
-            await self.data.set_config(CONFIG_MESSAGE, None)
+            if board.value == "clans":
+                await self.data.set_config(CONFIG_CLAN_CHANNEL, channel.id)
+                await self.data.set_config(CONFIG_CLAN_MESSAGE, None)
+                label = "clan leaderboard"
+            else:
+                await self.data.set_config(CONFIG_CHANNEL, channel.id)
+                await self.data.set_config(CONFIG_MESSAGE, None)
+                label = "player leaderboard"
             problem = await self._refresh_leaderboard_message()
             if problem:
                 await interaction.edit_original_response(content=problem)
                 return
             await interaction.edit_original_response(
                 content=(
-                    f"The leaderboard is now in {channel.mention} and refreshes every 5 minutes. "
+                    f"The {label} is now in {channel.mention} and refreshes every 5 minutes. "
                     "Standings fill in once the Minecraft server reports them."
                 )
             )
@@ -2931,7 +3000,7 @@ class MinecraftAccessBot(commands.Bot):
                     value=(
                         "`/mcadmin setup` — the setup dashboard\n"
                         "`/mcadmin information` — post the server guide panel\n"
-                        "`/mcadmin leaderboard` — choose the leaderboard channel\n"
+                        "`/mcadmin leaderboard` — choose the player or clan leaderboard channel\n"
                         "`/mcadmin log-channel` — choose the Activity and Important log channels\n"
                         "`/mcadmin chat-channel` — two-way Minecraft chat sync\n"
                         "`/mcadmin maintenance` — hold the server closed before "

@@ -1588,14 +1588,13 @@ class MinecraftLeaderboardRenderTests(unittest.TestCase):
         self.assertEqual(embed.description.count("#"), 5)
         self.assertNotIn("zed", embed.description)
 
-    def test_podium_is_bold_and_the_rest_are_not(self):
+    def test_every_place_uses_the_same_number_formatting(self):
         embed = self.leaderboard.build_embed(self.snapshot, scope="individual", board="wealth")
         blocks = embed.description.split("\n\n")
 
-        for block in blocks[:3]:
-            self.assertIn("**", block)
-        for block in blocks[3:]:
-            self.assertNotIn("**", block)
+        for block in blocks:
+            self.assertRegex(block, r"\*\*#\d+\*\*")
+            self.assertIn("`", block)
 
     def test_row_reads_clan_then_discord_then_minecraft(self):
         embed = self.leaderboard.build_embed(
@@ -1945,7 +1944,11 @@ class MinecraftBoardSelectRoutingTests(unittest.TestCase):
         from minecraft_bot.leaderboard import BoardSelect, LeaderboardView
 
         pattern = BoardSelect.__discord_ui_compiled_template__
-        emitted = [item.custom_id for item in LeaderboardView().children]
+        emitted = [
+            item.custom_id
+            for scope in ("individual", "clan")
+            for item in LeaderboardView(scope).children
+        ]
 
         self.assertEqual(len(emitted), 2)
         for custom_id in emitted:
