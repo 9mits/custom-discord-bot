@@ -1111,6 +1111,26 @@ class MinecraftAccessIntegrityTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(changed)
         self.assertEqual(verified.verified_username, "Dr_Ravager")
 
+    async def test_bedrock_spaces_match_floodgate_underscores(self):
+        application = await self.data.create_application(
+            guild_id=10,
+            discord_user_id=9,
+            edition=Edition.BEDROCK,
+            claimed_username="FER GAMER3520",
+            now=1000,
+        )
+        verified, changed = await self.data.record_verification(
+            application_id=application.id,
+            edition=Edition.BEDROCK,
+            minecraft_uuid="00000000-0000-0000-0009-01f9d1ebbeb2",
+            current_username=".FER_GAMER3520",
+            xuid="2172480372402",
+            event_idempotency_key="verify-bedrock-spaces",
+            now=1010,
+        )
+        self.assertTrue(changed)
+        self.assertEqual(verified.verified_username, "FER_GAMER3520")
+
     async def test_auto_detect_accepts_a_normal_java_name(self):
         application = await self.data.create_application(
             guild_id=10,

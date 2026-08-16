@@ -81,4 +81,19 @@ class PendingVerificationCacheTest {
 
         assertEquals(9, cache.matchLogin(".agentclanmanage").orElseThrow().applicationId());
     }
+
+    @Test
+    void floodgateUnderscoresMatchASpacedBedrockGamertag() {
+        PendingVerificationCache cache = new PendingVerificationCache();
+        cache.put(new PendingVerification(
+                12,
+                MinecraftEdition.BEDROCK,
+                "FER GAMER3520",
+                "fer gamer3520",
+                Long.MAX_VALUE
+        ));
+
+        assertEquals(12, cache.matchLogin(".FER_GAMER3520").orElseThrow().applicationId());
+        assertEquals(12, cache.match(MinecraftEdition.BEDROCK, "FER GAMER3520").orElseThrow().applicationId());
+    }
 }

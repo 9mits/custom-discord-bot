@@ -808,6 +808,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     ) {
         VerificationIdentity.Resolved identity = resolveConnectingIdentity(uuid, loginName);
         Optional<PendingVerification> match = pending.matchLogin(loginName);
+        if (match.isEmpty() && identity.username() != null && !identity.username().equals(loginName)) {
+            match = pending.matchLogin(identity.username());
+        }
         if (match.isEmpty()) {
             if (verifiedApplications.find(uuid).isPresent()
                     || (identity.uuid() != null && verifiedApplications.find(identity.uuid()).isPresent())) {

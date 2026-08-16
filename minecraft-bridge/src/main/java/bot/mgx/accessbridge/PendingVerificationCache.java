@@ -64,14 +64,7 @@ final class PendingVerificationCache {
     private java.util.List<PendingVerification> candidates(MinecraftEdition edition, String username) {
         long now = Instant.now().getEpochSecond();
         entries.entrySet().removeIf(entry -> entry.getValue().expiresAt() <= now);
-        String needle = PendingVerification.normalize(
-                edition == MinecraftEdition.BEDROCK
-                        ? VerificationIdentity.bedrockUsername(username)
-                        : username
-        );
-        String strippedNeedle = PendingVerification.normalize(
-                VerificationIdentity.bedrockUsername(username)
-        );
+        String needle = PendingVerification.normalize(username);
         return entries.values().stream()
                 .filter(entry -> entry.expiresAt() > now)
                 .filter(entry -> {
@@ -79,12 +72,9 @@ final class PendingVerificationCache {
                             && entry.edition() != edition) {
                         return false;
                     }
-                    String stored = entry.normalizedUsername();
-                    String storedStripped = PendingVerification.normalize(
-                            VerificationIdentity.bedrockUsername(entry.claimedUsername())
-                    );
-                    return stored.equals(needle) || stored.equals(strippedNeedle)
-                            || storedStripped.equals(needle) || storedStripped.equals(strippedNeedle);
+                    String stored = PendingVerification.normalize(entry.claimedUsername());
+                    String storedFolded = PendingVerification.normalize(entry.normalizedUsername());
+                    return stored.equals(needle) || storedFolded.equals(needle);
                 })
                 .toList();
     }
