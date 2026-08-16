@@ -71,6 +71,19 @@ final class LuckPermsService {
         return true;
     }
 
+    /** Simple Voice Chat defaults to everyone, but LuckPerms can strip that. */
+    void grantVoiceChatToEveryone() {
+        luckPerms.getGroupManager().modifyGroup("default", group -> {
+            group.data().add(Node.builder("voicechat.listen").value(true).build());
+            group.data().add(Node.builder("voicechat.speak").value(true).build());
+            group.data().add(Node.builder("voicechat.groups").value(true).build());
+        }).thenRun(() -> plugin.getLogger().info("Voice chat is granted to every player."))
+                .exceptionally(throwable -> {
+                    plugin.getLogger().log(Level.WARNING, "Could not grant voice chat to everyone", throwable);
+                    return null;
+                });
+    }
+
     /**
      * Whether a player — online or not — holds a permission, per LuckPerms' own
      * cached data. This is the authoritative check for remote Discord actions:
