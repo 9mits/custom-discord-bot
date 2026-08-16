@@ -376,7 +376,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         ));
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)
     public void onClanDamage(EntityDamageByEntityEvent event) {
         Player attacker = attackingPlayer(event);
         if (attacker == null || !(event.getEntity() instanceof Player victim)) {
@@ -384,10 +384,32 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         }
         Optional<ClanStore.ClanView> attackerClan = store.clanOf(attacker.getUniqueId());
         Optional<ClanStore.ClanView> victimClan = store.clanOf(victim.getUniqueId());
-        if (attackerClan.isPresent()
-                && victimClan.isPresent()
-                && attackerClan.get().id().equals(victimClan.get().id())) {
-            event.setCancelled(true);
+        if (attackerClan.isEmpty()
+                || victimClan.isEmpty()
+                || !attackerClan.get().id().equals(victimClan.get().id())) {
+            return;
+        }
+        // LOWEST so CombatLog has not tagged yet when we cancel. A next-tick
+        // untag covers a CombatLog that listens at LOWEST and registered first.
+        event.setCancelled(true);
+        clearCombatLog(attacker, victim);
+        plugin.getServer().getScheduler().runTask(plugin, () -> clearCombatLog(attacker, victim));
+    }
+
+    private static void clearCombatLog(Player... players) {
+        org.bukkit.plugin.Plugin combatLog = Bukkit.getPluginManager().getPlugin("CombatLog");
+        if (combatLog == null || !combatLog.isEnabled()) {
+            return;
+        }
+        for (Player player : players) {
+            for (String name : List.of("untag", "removeTag", "removeCombat", "endCombat")) {
+                try {
+                    combatLog.getClass().getMethod(name, Player.class).invoke(combatLog, player);
+                    break;
+                } catch (ReflectiveOperationException ignored) {
+                    // Try the next known method name.
+                }
+            }
         }
     }
 
