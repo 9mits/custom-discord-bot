@@ -193,6 +193,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(clanMenuService, this);
         getServer().getPluginManager().registerEvents(playerMenuService, this);
         getServer().getPluginManager().registerEvents(chatRelayService, this);
+        getServer().getPluginManager().registerEvents(new TeleportWarmupService(this), this);
         if (getCommand("clans") == null
                 || getCommand("claninfo") == null
                 || getCommand("guide") == null
