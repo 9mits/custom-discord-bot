@@ -11,6 +11,7 @@ commands:
     description: Create and manage Minecraft clans.
     usage: /clans help
     aliases: [clan]
+    permission: mgx.clans
   claninfo:
     description: Open a detailed clan information card.
     usage: /claninfo [name]

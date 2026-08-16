@@ -143,7 +143,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         perkService = new PlayerPerkService();
         luckPermsService = LuckPermsService.createIfAvailable(this, rankSyncStore);
         if (luckPermsService != null) {
-            luckPermsService.grantVoiceChatToEveryone();
+            luckPermsService.grantEveryoneDefaults();
         }
         identityService = new DiscordIdentityService(this, identityStore);
         clanMenuService = new ClanMenuService(this, clanStore, identityService);
