@@ -38,10 +38,13 @@ import static bot.mgx.accessbridge.MenuItems.ORANGE;
 final class AdminCommandService implements CommandExecutor, TabCompleter {
     static final String PERMISSION = "mgxaccessbridge.admin";
     private static final List<String> SUBCOMMANDS = List.of(
-            "startserver", "teststart", "ranks", "eco", "hologram", "reset", "help"
+            "startserver", "teststart", "ranks", "eco", "bounty", "hologram", "reset", "help"
     );
     private static final List<String> RANK_ACTIONS = List.of("hold", "release", "list");
-    private static final List<String> ECO_ACTIONS = List.of("give", "take", "set");
+    private static final List<String> ECO_ACTIONS = List.of("give", "take", "set", "join");
+    private static final List<String> BOUNTY_ACTIONS = List.of("set", "join");
+    private static final List<String> JOIN_ACTIONS = List.of("on", "off");
+    private static final List<String> EVERYONE = List.of("everyone", "*", "all");
     private static final List<String> HOLOGRAM_BOARDS = List.of(
             "wealth", "kills", "clans-wealth", "clans-kills", "remove"
     );
@@ -49,6 +52,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     private final MGXAccessBridge plugin;
     private final RankSyncStore rankSync;
     private final EconomyStore economy;
+    private final BountyStore bounties;
+    private final JoinGrantStore joinGrants;
     private final HologramService holograms;
     private final ServerDataResetService resets;
 
@@ -56,12 +61,16 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             MGXAccessBridge plugin,
             RankSyncStore rankSync,
             EconomyStore economy,
+            BountyStore bounties,
+            JoinGrantStore joinGrants,
             HologramService holograms,
             ServerDataResetService resets
     ) {
         this.plugin = plugin;
         this.rankSync = rankSync;
         this.economy = economy;
+        this.bounties = bounties;
+        this.joinGrants = joinGrants;
         this.holograms = holograms;
         this.resets = resets;
     }
@@ -86,6 +95,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 }
                 case "ranks" -> ranks(sender, args);
                 case "eco" -> eco(sender, args);
+                case "bounty" -> bounty(sender, args);
                 case "hologram", "holograms", "lb" -> hologram(sender, args);
                 case "reset" -> reset(sender, args);
                 default -> sendHelp(sender);
@@ -151,6 +161,54 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         ));
     }
 
+    private static boolean isEveryone(String token) {
+        return EVERYONE.contains(token.toLowerCase(Locale.ROOT));
+    }
+
+    private int forEachTarget(String token, java.util.function.Consumer<Player> action) {
+        if (isEveryone(token)) {
+            int count = 0;
+            for (Player player : Bukkit.getOnlinePlayers()) {
+                action.accept(player);
+                count++;
+            }
+            if (count == 0) {
+                throw new IllegalArgumentException("Nobody is online.");
+            }
+            return count;
+        }
+        OfflinePlayer target = requireNamedPlayer(token);
+        if (!(target instanceof Player online) || !online.isOnline()) {
+            throw new IllegalArgumentException(nameOf(target) + " is not online.");
+        }
+        action.accept(online);
+        return 1;
+    }
+
+    private static String describeTargets(String token, int count) {
+        if (isEveryone(token)) {
+            return count == 1 ? "1 player" : count + " players";
+        }
+        return token;
+    }
+
+    private OfflinePlayer requireNamedPlayer(String name) {
+        Player online = Bukkit.getPlayerExact(name);
+        if (online != null) {
+            return online;
+        }
+        for (OfflinePlayer known : Bukkit.getOfflinePlayers()) {
+            if (name.equalsIgnoreCase(known.getName())) {
+                return known;
+            }
+        }
+        throw new IllegalArgumentException("No player called '" + name + "' has joined this server.");
+    }
+
+    private static String nameOf(OfflinePlayer target) {
+        return target.getName() == null ? target.getUniqueId().toString() : target.getName();
+    }
+
     private OfflinePlayer requirePlayerArgument(String[] args, String action) {
         if (args.length < 3) {
             throw new IllegalArgumentException("Usage: /mgxadmin ranks " + action + " <player>");
@@ -174,33 +232,101 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     }
 
     private void eco(CommandSender sender, String[] args) {
-        if (args.length < 4) {
-            throw new IllegalArgumentException("Usage: /mgxadmin eco <give|take|set> <player> <amount>");
+        if (args.length < 2) {
+            throw new IllegalArgumentException(
+                    "Usage: /mgxadmin eco <give|take|set|join> ..."
+            );
         }
         String action = args[1].toLowerCase(Locale.ROOT);
-        OfflinePlayer target = requirePlayerArgument(args, action);
-        UUID playerId = target.getUniqueId();
-        String name = target.getName() == null ? playerId.toString() : target.getName();
+        if (action.equals("join")) {
+            joinToggle(sender, args, JoinGrantStore.Kind.MONEY);
+            return;
+        }
+        if (args.length < 4) {
+            throw new IllegalArgumentException(
+                    "Usage: /mgxadmin eco <give|take|set> <player|everyone> <amount>"
+            );
+        }
         long amount = EconomyFormat.parseAmount(args[3]);
         switch (action) {
             case "give" -> {
-                economy.deposit(playerId, amount);
-                success(sender, "Gave " + name + " " + EconomyFormat.dollars(amount) + ".");
+                int count = forEachTarget(args[2], player -> economy.deposit(player.getUniqueId(), amount));
+                success(sender, "Gave " + EconomyFormat.dollars(amount) + " to " + describeTargets(args[2], count) + ".");
             }
             case "take" -> {
-                if (!economy.tryWithdraw(playerId, amount)) {
+                if (isEveryone(args[2])) {
+                    throw new IllegalArgumentException("Take one player at a time.");
+                }
+                OfflinePlayer target = requireNamedPlayer(args[2]);
+                if (!economy.tryWithdraw(target.getUniqueId(), amount)) {
                     throw new IllegalArgumentException(
-                            name + " only has " + EconomyFormat.dollars(economy.balance(playerId)) + "."
+                            nameOf(target) + " only has "
+                                    + EconomyFormat.dollars(economy.balance(target.getUniqueId())) + "."
                     );
                 }
-                success(sender, "Took " + EconomyFormat.dollars(amount) + " from " + name + ".");
+                success(sender, "Took " + EconomyFormat.dollars(amount) + " from " + nameOf(target) + ".");
             }
             case "set" -> {
-                economy.set(playerId, amount);
-                success(sender, "Set " + name + " to " + EconomyFormat.dollars(amount) + ".");
+                if (isEveryone(args[2])) {
+                    throw new IllegalArgumentException("Set one player at a time.");
+                }
+                OfflinePlayer target = requireNamedPlayer(args[2]);
+                economy.set(target.getUniqueId(), amount);
+                success(sender, "Set " + nameOf(target) + " to " + EconomyFormat.dollars(amount) + ".");
             }
-            default -> throw new IllegalArgumentException("Usage: /mgxadmin eco <give|take|set> <player> <amount>");
+            default -> throw new IllegalArgumentException(
+                    "Usage: /mgxadmin eco <give|take|set|join> ..."
+            );
         }
+    }
+
+    private void bounty(CommandSender sender, String[] args) {
+        if (args.length < 2) {
+            throw new IllegalArgumentException("Usage: /mgxadmin bounty <set|join> ...");
+        }
+        String action = args[1].toLowerCase(Locale.ROOT);
+        if (action.equals("join")) {
+            joinToggle(sender, args, JoinGrantStore.Kind.BOUNTY);
+            return;
+        }
+        if (!action.equals("set") || args.length < 4) {
+            throw new IllegalArgumentException(
+                    "Usage: /mgxadmin bounty set <player|everyone> <amount>"
+            );
+        }
+        long amount = EconomyFormat.parseAmount(args[3]);
+        int count = forEachTarget(args[2], player -> bounties.add(player.getUniqueId(), amount, false));
+        success(sender, "Placed a " + EconomyFormat.dollars(amount) + " bounty on "
+                + describeTargets(args[2], count) + ".");
+    }
+
+    private void joinToggle(CommandSender sender, String[] args, JoinGrantStore.Kind kind) {
+        String noun = kind == JoinGrantStore.Kind.MONEY ? "join money" : "join bounty";
+        if (args.length < 3 || args[2].equalsIgnoreCase("status")) {
+            if (!joinGrants.enabled(kind)) {
+                info(sender, noun + " is off.");
+                return;
+            }
+            info(sender, noun + " is on: " + EconomyFormat.dollars(joinGrants.amount(kind))
+                    + " until you turn it off.");
+            return;
+        }
+        String mode = args[2].toLowerCase(Locale.ROOT);
+        if (mode.equals("off")) {
+            joinGrants.disable(kind);
+            success(sender, "Turned " + noun + " off.");
+            return;
+        }
+        if (!mode.equals("on") || args.length < 4) {
+            throw new IllegalArgumentException(
+                    "Usage: /mgxadmin " + args[0] + " join <on <amount>|off>"
+            );
+        }
+        long amount = EconomyFormat.parseAmount(args[3]);
+        joinGrants.enable(kind, amount);
+        success(sender, "Everyone who joins now gets " + EconomyFormat.dollars(amount)
+                + " " + (kind == JoinGrantStore.Kind.MONEY ? "until you turn it off."
+                : "as a bounty, once each, until you turn it off."));
     }
 
     // ------------------------------------------------------------------
@@ -303,8 +429,14 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 .append(Component.text("  hand them back to Discord rank sync", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin ranks list", ORANGE)
                 .append(Component.text("  everyone currently held", NamedTextColor.GRAY)));
-        sender.sendMessage(Component.text("  /mgxadmin eco give|take|set <player> <amount>", ORANGE)
-                .append(Component.text("  change a wallet", NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin eco give <player|everyone> <amount>", ORANGE)
+                .append(Component.text("  add money", NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin eco join on|off [amount]", ORANGE)
+                .append(Component.text("  pay everyone who joins", NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin bounty set <player|everyone> <amount>", ORANGE)
+                .append(Component.text("  place a bounty without paying", NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin bounty join on|off [amount]", ORANGE)
+                .append(Component.text("  bounty everyone who joins, once each", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin hologram <board|remove>", ORANGE)
                 .append(Component.text("  place or remove a spawn leaderboard", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin reset", ORANGE)
@@ -332,13 +464,17 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             }
             return List.of();
         }
-        if (action.equals("eco")) {
+        if (action.equals("eco") || action.equals("bounty")) {
             if (args.length == 2) {
-                return partial(args[1], ECO_ACTIONS);
+                return partial(args[1], action.equals("eco") ? ECO_ACTIONS : BOUNTY_ACTIONS);
             }
             if (args.length == 3) {
-                return partial(args[2], Bukkit.getOnlinePlayers().stream()
-                        .map(Player::getName).toList());
+                if (args[1].equalsIgnoreCase("join")) {
+                    return partial(args[2], JOIN_ACTIONS);
+                }
+                List<String> names = new ArrayList<>(EVERYONE);
+                Bukkit.getOnlinePlayers().forEach(player -> names.add(player.getName()));
+                return partial(args[2], names);
             }
             return List.of();
         }

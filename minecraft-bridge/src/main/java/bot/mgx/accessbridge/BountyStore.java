@@ -52,7 +52,14 @@ final class BountyStore {
     }
 
     synchronized long add(UUID target, long amount) {
-        if (amount < MIN_BOUNTY) {
+        return add(target, amount, true);
+    }
+
+    synchronized long add(UUID target, long amount, boolean enforceFloor) {
+        if (amount <= 0L) {
+            throw new IllegalArgumentException("The amount must be at least $1.");
+        }
+        if (enforceFloor && amount < MIN_BOUNTY) {
             throw new IllegalArgumentException(
                     "Bounties start at " + EconomyFormat.dollars(MIN_BOUNTY) + "."
             );

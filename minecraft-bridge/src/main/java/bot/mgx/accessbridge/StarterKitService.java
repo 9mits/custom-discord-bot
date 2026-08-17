@@ -26,15 +26,18 @@ import java.util.UUID;
 
 /** One starter kit per player, first join only. */
 final class StarterKitService implements Listener {
+    static final long STARTER_CASH = 2_500L;
     private static final Type SET_TYPE = new TypeToken<Set<String>>() { }.getType();
 
     private final MGXAccessBridge plugin;
+    private final EconomyStore money;
     private final Path path;
     private final Gson gson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
     private final Set<String> claimed = new LinkedHashSet<>();
 
-    StarterKitService(MGXAccessBridge plugin, Path path) {
+    StarterKitService(MGXAccessBridge plugin, EconomyStore money, Path path) {
         this.plugin = plugin;
+        this.money = money;
         this.path = path;
         load();
     }
@@ -55,8 +58,14 @@ final class StarterKitService implements Listener {
                 new ItemStack(Material.STONE_SWORD, 1),
                 new ItemStack(Material.BREAD, 20)
         );
+        money.deposit(player.getUniqueId(), STARTER_CASH);
         player.sendMessage(Component.text(
-                "Welcome. You received a starter kit.",
+                "Welcome. You received a starter kit and "
+                        + EconomyFormat.dollars(STARTER_CASH) + ".",
+                NamedTextColor.GOLD
+        ));
+        player.sendMessage(Component.text(
+                "Use /shop to buy something.",
                 NamedTextColor.GOLD
         ));
     }

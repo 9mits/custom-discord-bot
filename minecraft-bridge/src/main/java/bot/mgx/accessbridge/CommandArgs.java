@@ -22,7 +22,7 @@ final class CommandArgs {
             "rename", "color", "colour", "transfer", "disband", "donate", "upgrade",
             "members", "balance", "donors", "info", "menu", "help",
             "startserver", "teststart", "ranks", "eco", "hologram", "holograms", "lb",
-            "reset", "hold", "release",
+            "reset", "hold", "release", "bounty", "join", "everyone", "on", "off",
             "levels", "clans", "commands", "staff",
             "clan_tags", "discord_chat", "discord_names"
     );

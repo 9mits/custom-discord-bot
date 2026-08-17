@@ -194,7 +194,11 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         );
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(
-                new StarterKitService(this, getDataFolder().toPath().resolve("starter-kits.json")),
+                new StarterKitService(
+                        this,
+                        economyStore,
+                        getDataFolder().toPath().resolve("starter-kits.json")
+                ),
                 this
         );
         getServer().getPluginManager().registerEvents(perkService, this);
@@ -240,6 +244,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("whitelisted").setTabCompleter(whitelistService);
         HologramService holograms;
         BountyStore bountyStore;
+        JoinGrantStore joinGrants;
         try {
             holograms = new HologramService(
                     getDataFolder().toPath().resolve("holograms.json"),
@@ -248,6 +253,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                     identityService
             );
             bountyStore = new BountyStore(getDataFolder().toPath().resolve("bounties.json"));
+            joinGrants = new JoinGrantStore(getDataFolder().toPath().resolve("join-grants.json"));
         } catch (IOException exception) {
             getLogger().severe("MGXAccessBridge could not open holograms or bounties: "
                     + exception.getMessage());
@@ -284,6 +290,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("bounty").setExecutor(bountyService);
         getCommand("bounty").setTabCompleter(bountyService);
         getServer().getPluginManager().registerEvents(bountyService, this);
+        getServer().getPluginManager().registerEvents(
+                new JoinGrantService(economyStore, bountyStore, joinGrants), this
+        );
         getServer().getPluginManager().registerEvents(economyMenus, this);
         getServer().getScheduler().runTaskTimer(
                 this, holograms::refresh, 220L, bridgeConfig.leaderboardRefreshTicks()
@@ -295,6 +304,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 this,
                 rankSyncStore,
                 economyStore,
+                bountyStore,
+                joinGrants,
                 holograms,
                 new ServerDataResetService(
                         this,
