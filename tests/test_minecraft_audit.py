@@ -406,6 +406,8 @@ class ServerEventClassificationTests(unittest.TestCase):
         # would bury revocations and bans under ordinary clan traffic.
         self.assertEqual(server_event_risk("clan_create"), RISK_READ_ONLY)
         self.assertEqual(server_event_risk("clan_donate"), RISK_READ_ONLY)
+        self.assertEqual(server_event_risk("shop_buy"), RISK_READ_ONLY)
+        self.assertEqual(server_event_risk("shop_sell"), RISK_READ_ONLY)
         self.assertEqual(server_event_risk("clan_join"), RISK_READ_ONLY)
 
     def test_destroying_data_is_important(self):
@@ -421,6 +423,8 @@ class ServerEventClassificationTests(unittest.TestCase):
 
     def test_titles_are_readable_and_fall_back_gracefully(self):
         self.assertEqual(server_event_title("clan_donate"), "Minecraft Clan Donation")
+        self.assertEqual(server_event_title("shop_buy"), "Minecraft Shop Purchase")
+        self.assertEqual(server_event_title("shop_sell"), "Minecraft Items Sold")
         self.assertEqual(server_event_title("brand_new_thing"), "Minecraft Brand New Thing")
         self.assertEqual(server_event_title(""), "Minecraft Server Action")
 

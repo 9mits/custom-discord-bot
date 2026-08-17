@@ -30,6 +30,7 @@ record ServerEvent(
     static final String CATEGORY_CLAN = "clan";
     static final String CATEGORY_STAFF = "staff";
     static final String CATEGORY_ADMIN = "admin";
+    static final String CATEGORY_ECONOMY = "economy";
 
     private static final int SUMMARY_LIMIT = 300;
     private static final int DETAIL_LIMIT = 200;
