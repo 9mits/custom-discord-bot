@@ -54,14 +54,24 @@ final class ClanMenuService implements Listener {
     /** Finishes the clan card's single row. Must stay inside {@link #HUB_SIZE}. */
     private static final int INFO_MEMBERS = 15;
 
+    private static final long[] DONATE_AMOUNTS = {100L, 1_000L, 10_000L, 100_000L, 1_000_000L};
+    private static final int[] DONATE_SLOTS = {11, 12, 13, 14, 15};
+
     private final MGXAccessBridge plugin;
     private final ClanStore store;
     private final DiscordIdentityService identities;
+    private final EconomyStore money;
 
-    ClanMenuService(MGXAccessBridge plugin, ClanStore store, DiscordIdentityService identities) {
+    ClanMenuService(
+            MGXAccessBridge plugin,
+            ClanStore store,
+            DiscordIdentityService identities,
+            EconomyStore money
+    ) {
         this.plugin = plugin;
         this.store = store;
         this.identities = identities;
+        this.money = money;
     }
 
     void openHub(Player player) {
@@ -69,10 +79,10 @@ final class ClanMenuService implements Listener {
         Inventory inventory = create(
                 Menu.Kind.CLAN_HUB, clan.id(), 1, HUB_SIZE, "Clan  " + clan.name(), null
         );
-        inventory.setItem(HUB_DONATE, button(Material.CHEST, "Donate",
-                "Give items to the clan.", "Donations cannot be taken back."));
-        inventory.setItem(HUB_BALANCE, button(Material.GOLD_INGOT, "Balance",
-                "Worth " + String.format("%,d", clan.balance()) + "."));
+        inventory.setItem(HUB_DONATE, button(Material.GOLD_INGOT, "Donate",
+                "Give money to the clan.", "Donations cannot be taken back."));
+        inventory.setItem(HUB_BALANCE, button(Material.SUNFLOWER, "Balance",
+                EconomyFormat.dollars(clan.balance()) + " in the treasury."));
         inventory.setItem(HUB_INFO, button(Material.BOOK, "Clan info",
                 describeLevel(clan.level()), "Leader, roster and theme."));
         inventory.setItem(HUB_MEMBERS, head(clan.leader(), "Members",
@@ -87,16 +97,50 @@ final class ClanMenuService implements Listener {
 
     void openDonate(Player player) {
         ClanStore.ClanView clan = requireOwnClan(player);
-        // Deliberately empty: whatever is inside when the window closes is banked.
-        // No Back button either — every slot has to stay free for items.
         Inventory inventory = create(
-                Menu.Kind.CLAN_DONATE, clan.id(), 1, BOARD_SIZE, "Donate to " + clan.name(), null
+                Menu.Kind.CLAN_DONATE, clan.id(), 1, HUB_SIZE,
+                "Donate  •  " + EconomyFormat.dollars(money.balance(player.getUniqueId())),
+                Menu.Destination.of(Menu.Kind.CLAN_HUB)
         );
+        for (int index = 0; index < DONATE_AMOUNTS.length; index++) {
+            long amount = DONATE_AMOUNTS[index];
+            inventory.setItem(DONATE_SLOTS[index], button(
+                    Material.GOLD_NUGGET,
+                    "Donate " + EconomyFormat.dollars(amount),
+                    "Taken from your wallet.",
+                    "Cannot be withdrawn."
+            ));
+        }
+        inventory.setItem(22, button(
+                Material.PAPER, "Custom amount",
+                "Use /clans donate <amount>."
+        ));
+        MenuItems.back(inventory);
         player.openInventory(inventory);
-        player.sendMessage(prefix().append(Component.text(
-                "Drop items in, then close the window. Anything worthless comes back.",
-                NamedTextColor.WHITE
-        )));
+    }
+
+    void donate(Player player, long amount) throws IOException {
+        if (!money.tryWithdraw(player.getUniqueId(), amount)) {
+            throw new ClanStore.ClanException("You need " + EconomyFormat.dollars(amount) + ".");
+        }
+        try {
+            store.donate(player.getUniqueId(), amount);
+        } catch (RuntimeException | IOException failure) {
+            money.deposit(player.getUniqueId(), amount);
+            throw failure;
+        }
+        ClanStore.ClanView clan = store.clanOf(player.getUniqueId()).orElseThrow();
+        report(player, "clan_donate",
+                "Donated " + EconomyFormat.dollars(amount) + " to " + clan.name())
+                .detail("clan", clan.name())
+                .detail("value", amount)
+                .detail("balance", clan.balance())
+                .record();
+        announce(clan, Component.text(
+                player.getName() + " donated " + EconomyFormat.dollars(amount)
+                        + " to the clan.", ORANGE));
+        info(player, "Donated " + EconomyFormat.dollars(amount) + ". Treasury is now "
+                + EconomyFormat.dollars(clan.balance()) + ".");
     }
 
     /** The clan card. Works for any clan, not only the viewer's own. */
@@ -109,7 +153,7 @@ final class ClanMenuService implements Listener {
         inventory.setItem(11, head(clan.leader(), "Leader", List.of(leader)));
         inventory.setItem(12, button(Material.NETHER_STAR, "Level",
                 describeLevel(clan.level()),
-                "Balance " + String.format("%,d", clan.balance()) + "."));
+                "Treasury " + EconomyFormat.dollars(clan.balance()) + "."));
         inventory.setItem(13, button(Material.WHITE_BANNER, "Theme",
                 String.format("#%06X", clan.themeColor())));
         inventory.setItem(14, button(Material.CLOCK, "Online",
@@ -181,7 +225,7 @@ final class ClanMenuService implements Listener {
                     List.of(
                             describeLevel(clan.level()),
                             clan.members().size() + "/" + clan.memberSlots() + " members.",
-                            "Balance " + String.format("%,d", clan.balance()) + ".",
+                            "Treasury " + EconomyFormat.dollars(clan.balance()) + ".",
                             "Click to open."
                     )));
         }
@@ -196,30 +240,16 @@ final class ClanMenuService implements Listener {
     void openBalance(Player player) {
         ClanStore.ClanView clan = requireOwnClan(player);
         Inventory inventory = create(
-                Menu.Kind.CLAN_BALANCE, clan.id(), 1, BOARD_SIZE,
-                "Balance  " + String.format("%,d", clan.balance()),
+                Menu.Kind.CLAN_BALANCE, clan.id(), 1, HUB_SIZE,
+                "Treasury  •  " + EconomyFormat.dollars(clan.balance()),
                 Menu.Destination.of(Menu.Kind.CLAN_HUB)
         );
-        int slot = 0;
-        for (Map.Entry<String, Integer> entry : clan.vault().entrySet()) {
-            if (slot >= PER_PAGE) {
-                break;
-            }
-            Material material = Material.matchMaterial(entry.getKey());
-            if (material == null) {
-                continue;
-            }
-            long worth = (long) WealthValues.valueOfIncludingVariants(entry.getKey()) * entry.getValue();
-            inventory.setItem(slot++, button(
-                    material,
-                    entry.getValue() + "x " + WealthValues.readable(entry.getKey()),
-                    "Worth " + String.format("%,d", worth) + "."
-            ));
-        }
-        if (slot == 0) {
-            inventory.setItem(22, button(Material.BARRIER, "Nothing donated yet",
-                    "Use Donate to start the clan off."));
-        }
+        inventory.setItem(13, button(
+                Material.SUNFLOWER,
+                EconomyFormat.dollars(clan.balance()),
+                "Donated money stays here.",
+                "It cannot be withdrawn."
+        ));
         MenuItems.back(inventory);
         player.openInventory(inventory);
     }
@@ -237,7 +267,7 @@ final class ClanMenuService implements Listener {
             Map.Entry<UUID, Long> donor = ranked.get(index);
             String name = clan.members().getOrDefault(donor.getKey(), "Former member");
             inventory.setItem(index, head(donor.getKey(), "#" + (index + 1) + "  " + name,
-                    List.of("Donated " + String.format("%,d", donor.getValue()) + " in all.")));
+                    List.of("Donated " + EconomyFormat.dollars(donor.getValue()) + " in all.")));
         }
         if (ranked.isEmpty()) {
             inventory.setItem(22, button(Material.BARRIER, "No donations yet",
@@ -269,12 +299,14 @@ final class ClanMenuService implements Listener {
         }
         lore.add("");
         lore.add("Next: level " + next.get());
-        addCostLines(lore, clan, ClanLevel.costOf(next.get()));
+        ClanLevel.Cost cost = ClanLevel.costOf(next.get()).orElseThrow();
+        lore.add("Cost " + EconomyFormat.dollars(cost.dollars()));
+        lore.add("Treasury " + EconomyFormat.dollars(clan.balance()));
         lore.add("");
         lore.addAll(perkLines(ClanLevel.perksFor(next.get())));
         lore.add("");
-        lore.add(ClanLevel.shortfall(clan.vault(), next.get()).isEmpty()
-                ? "Click to buy." : "The vault is short.");
+        lore.add(ClanLevel.shortfall(clan.balance(), cost) == 0L
+                ? "Click to buy." : "The treasury is short.");
         return button(Material.NETHER_STAR, "Clan level", lore);
     }
 
@@ -288,21 +320,12 @@ final class ClanMenuService implements Listener {
         }
         lore.add("");
         lore.add("Next: " + next.get().slots() + " members");
-        addCostLines(lore, clan, List.of(next.get().cost()));
+        lore.add("Cost " + EconomyFormat.dollars(next.get().cost().dollars()));
+        lore.add("Treasury " + EconomyFormat.dollars(clan.balance()));
         lore.add("");
-        lore.add(ClanLevel.shortfall(clan.vault(), List.of(next.get().cost())).isEmpty()
-                ? "Click to buy." : "The vault is short.");
+        lore.add(ClanLevel.shortfall(clan.balance(), next.get().cost()) == 0L
+                ? "Click to buy." : "The treasury is short.");
         return button(Material.PLAYER_HEAD, "Roster size", lore);
-    }
-
-    private static void addCostLines(
-            List<String> lore, ClanStore.ClanView clan, List<ClanLevel.Cost> costs
-    ) {
-        for (ClanLevel.Cost cost : costs) {
-            int held = clan.vault().getOrDefault(cost.material(), 0);
-            lore.add("  " + Math.min(held, cost.amount()) + "/" + cost.amount()
-                    + " " + WealthValues.readable(cost.material()));
-        }
     }
 
     @EventHandler(priority = EventPriority.NORMAL)
@@ -371,6 +394,7 @@ final class ClanMenuService implements Listener {
                     default -> openClanAt(player, menu.page(), slot);
                 }
             }
+            case CLAN_DONATE -> donateClicked(player, slot);
             case CLAN_UPGRADE -> {
                 switch (slot) {
                     case UPGRADE_LEVEL -> buyLevel(player);
@@ -441,64 +465,16 @@ final class ClanMenuService implements Listener {
         }
     }
 
-    /**
-     * Banks whatever was left in a donation window.
-     *
-     * <p>Items live only in this inventory object while the window is open, so this
-     * must run for every close — including the forced closes on plugin disable.
-     */
-    @EventHandler(priority = EventPriority.MONITOR)
-    public void onClose(InventoryCloseEvent event) {
-        if (!(event.getInventory().getHolder() instanceof Menu menu)
-                || menu.kind() != Menu.Kind.CLAN_DONATE
-                || !(event.getPlayer() instanceof Player player)) {
-            return;
-        }
-        Inventory inventory = event.getInventory();
-        LinkedHashMap<String, Integer> offered = new LinkedHashMap<>();
-        List<ItemStack> returned = new ArrayList<>();
-        for (ItemStack item : inventory.getContents()) {
-            if (item == null || item.getType().isAir()) {
-                continue;
-            }
-            if (ClanLevel.isDonatable(item.getType().name()) && !hasPreservedData(item)) {
-                offered.merge(item.getType().name(), item.getAmount(), Integer::sum);
-            } else {
-                returned.add(item);
+    private void donateClicked(Player player, int slot) throws IOException {
+        for (int index = 0; index < DONATE_SLOTS.length; index++) {
+            if (slot == DONATE_SLOTS[index]) {
+                donate(player, DONATE_AMOUNTS[index]);
+                openDonate(player);
+                return;
             }
         }
-        inventory.clear();
-        for (ItemStack item : returned) {
-            give(player, item);
-        }
-        if (offered.isEmpty()) {
-            if (!returned.isEmpty()) {
-                error(player, "None of that is worth anything to the clan, so it came back.");
-            }
-            return;
-        }
-        try {
-            long value = store.donate(player.getUniqueId(), offered);
-            ClanStore.ClanView clan = store.clanOf(player.getUniqueId()).orElseThrow();
-            report(player, "clan_donate",
-                    "Donated " + String.format("%,d", value) + " to " + clan.name())
-                    .detail("clan", clan.name())
-                    .detail("value", value)
-                    .detail("balance", clan.balance())
-                    .detail("items", describeOffer(offered))
-                    .record();
-            announce(clan, Component.text(
-                    player.getName() + " donated " + String.format("%,d", value)
-                            + " to the clan.", ORANGE));
-        } catch (ClanStore.ClanException | IOException failure) {
-            // Nothing was banked, so nothing may be kept: hand it all straight back.
-            returnAll(player, offered);
-            error(player, failure instanceof ClanStore.ClanException
-                    ? failure.getMessage()
-                    : "That could not be saved, so nothing was taken. Try again shortly.");
-            if (failure instanceof IOException) {
-                plugin.getLogger().severe("Could not bank a clan donation: " + failure.getMessage());
-            }
+        if (slot == 22) {
+            info(player, "Type /clans donate <amount> to give a custom sum.");
         }
     }
 
@@ -644,6 +620,10 @@ final class ClanMenuService implements Listener {
             return true;
         }
         return meta.hasEnchants() || meta.hasDisplayName() || meta.hasLore();
+    }
+
+    private static void info(Player player, String message) {
+        player.sendMessage(prefix().append(Component.text(message, NamedTextColor.GRAY)));
     }
 
     private static void error(Player player, String message) {

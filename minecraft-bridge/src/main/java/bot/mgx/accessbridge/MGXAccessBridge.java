@@ -150,7 +150,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             luckPermsService.grantEveryoneDefaults();
         }
         identityService = new DiscordIdentityService(this, identityStore);
-        clanMenuService = new ClanMenuService(this, clanStore, identityService);
+        clanMenuService = new ClanMenuService(this, clanStore, identityService, economyStore);
         playerMenuService = new PlayerMenuService(
                 this, playerSettings, identityService, whitelistDirectory
         );
@@ -190,7 +190,6 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 bridgeClient,
                 statsService,
                 clanStore,
-                economyStore,
                 bridgeConfig.leaderboardRefreshTicks()
         );
         getServer().getPluginManager().registerEvents(this, this);
@@ -218,7 +217,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 || getCommand("sell") == null
                 || getCommand("ah") == null
                 || getCommand("bal") == null
-                || getCommand("pay") == null) {
+                || getCommand("pay") == null
+                || getCommand("bounty") == null) {
             getLogger().severe("A required Minecraft command is missing from plugin.yml.");
             getServer().getPluginManager().disablePlugin(this);
             return;
@@ -238,8 +238,24 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         WhitelistDirectoryService whitelistService = new WhitelistDirectoryService(whitelistDirectory, playerMenuService);
         getCommand("whitelisted").setExecutor(whitelistService);
         getCommand("whitelisted").setTabCompleter(whitelistService);
+        HologramService holograms;
+        BountyStore bountyStore;
+        try {
+            holograms = new HologramService(
+                    getDataFolder().toPath().resolve("holograms.json"),
+                    leaderboardService,
+                    clanStore,
+                    identityService
+            );
+            bountyStore = new BountyStore(getDataFolder().toPath().resolve("bounties.json"));
+        } catch (IOException exception) {
+            getLogger().severe("MGXAccessBridge could not open holograms or bounties: "
+                    + exception.getMessage());
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
         LeaderboardMenuService leaderboardMenus = new LeaderboardMenuService(
-                clanStore, leaderboardService, identityService, economyStore
+                clanStore, leaderboardService, identityService, holograms
         );
         getCommand("leaderboard").setExecutor(leaderboardMenus);
         getCommand("leaderboard").setTabCompleter(leaderboardMenus);
@@ -264,7 +280,14 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("bal").setTabCompleter(economyCommands);
         getCommand("pay").setExecutor(economyCommands);
         getCommand("pay").setTabCompleter(economyCommands);
+        BountyService bountyService = new BountyService(economyStore, bountyStore);
+        getCommand("bounty").setExecutor(bountyService);
+        getCommand("bounty").setTabCompleter(bountyService);
+        getServer().getPluginManager().registerEvents(bountyService, this);
         getServer().getPluginManager().registerEvents(economyMenus, this);
+        getServer().getScheduler().runTaskTimer(
+                this, holograms::refresh, 220L, bridgeConfig.leaderboardRefreshTicks()
+        );
         getServer().getScheduler().runTaskTimer(
                 this, economyMenus::expireListings, 20L * 60L, 20L * 60L
         );
@@ -278,6 +301,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                         wealthStore,
                         economyStore,
                         auctionStore,
+                        bountyStore,
                         rankSyncStore,
                         identityStore,
                         playerSettings,
@@ -386,11 +410,11 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             case "disband" -> {
                 // Disbanding refunds the vault, and Discord cannot hand anyone items.
                 // Refusing beats destroying what members contributed.
-                boolean holdsVault = clan.map(view -> !view.vault().isEmpty()).orElse(false);
+                boolean holdsVault = clan.map(view -> view.balance() > 0L).orElse(false);
                 if (holdsVault) {
                     throw new ClanStore.ClanException(
-                            "Your clan vault still holds materials. Disband in game with "
-                                    + "/clans disband confirm so they are returned to you."
+                            "Your clan treasury still holds money. Disband in game with "
+                                    + "/clans disband confirm. Donated money is destroyed."
                     );
                 }
                 ClanStore.ClanView disbanded = clanStore.disband(actor);

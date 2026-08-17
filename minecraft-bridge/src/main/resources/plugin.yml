@@ -66,6 +66,11 @@ commands:
     description: Send money to an online player.
     usage: /pay <player> <amount>
     permission: mgx.shop
+  bounty:
+    description: Put money on a player's head, or list active bounties.
+    usage: /bounty [set <player> <amount>|list|check]
+    aliases: [bounties]
+    permission: mgx.shop
   mgxadmin:
     description: Hold players out of Discord rank sync, and reset accumulated data.
     usage: /mgxadmin <startserver|teststart|ranks|reset>

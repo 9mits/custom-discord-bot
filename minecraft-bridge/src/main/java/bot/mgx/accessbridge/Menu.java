@@ -9,9 +9,8 @@ import java.util.UUID;
  * Marks an inventory as one of ours, so click handling can tell a menu apart from a
  * chest a player happens to have open.
  *
- * <p>{@link Kind#CLAN_DONATE} and {@link Kind#SELL} are the only screens that accept
- * item movement; every other screen is a button board whose clicks are cancelled
- * and dispatched by slot.
+ * <p>{@link Kind#SELL} is the only screen that accepts item movement; every other
+ * screen is a button board whose clicks are cancelled and dispatched by slot.
  *
  * <p>A menu also carries where its Back button leads. Storing the origin rather than
  * hard-coding one parent per screen is what lets the same screen be reached from two
@@ -40,13 +39,15 @@ final class Menu implements InventoryHolder {
         SHOP_HUB,
         SHOP_CATEGORY,
         SELL,
+        SELL_PREVIEW,
+        SELL_PRICES,
         AUCTION_HUB,
         AUCTION_OWN,
         AUCTION_MAIL,
         AUCTION_CONFIRM;
 
         boolean acceptsItems() {
-            return this == CLAN_DONATE || this == SELL;
+            return this == SELL;
         }
     }
 
