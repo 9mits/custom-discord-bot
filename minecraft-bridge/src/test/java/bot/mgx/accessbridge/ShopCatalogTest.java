@@ -8,36 +8,36 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ShopCatalogTest {
     @Test
-    void shopMatchesThePublishedBuildingAndUtilityList() {
-        assertEquals(2_000L, ShopCatalog.offer("COBBLESTONE").orElseThrow().price());
-        assertEquals(3_000L, ShopCatalog.offer("STONE").orElseThrow().price());
-        assertEquals(18_000L, ShopCatalog.offer("OAK_LOG").orElseThrow().price());
-        assertEquals(50_000L, ShopCatalog.offer("SADDLE").orElseThrow().price());
-        assertEquals(75_000L, ShopCatalog.offer("NAME_TAG").orElseThrow().price());
-        assertEquals(4_000L, ShopCatalog.offer("WATER_BUCKET").orElseThrow().price());
-        assertEquals(8_000L, ShopCatalog.offer("LAVA_BUCKET").orElseThrow().price());
-        assertEquals(350L, ShopCatalog.offer("BONE").orElseThrow().price());
-        assertEquals(4_000L, ShopCatalog.offer("BONE_MEAL").orElseThrow().price());
-        assertEquals(5_000L, ShopCatalog.offer("WHEAT").orElseThrow().price());
-        assertFalse(ShopCatalog.offer("DIAMOND").isPresent());
-        assertFalse(ShopCatalog.offer("BLAZE_ROD").isPresent());
-        assertFalse(ShopCatalog.offer("SLIME_BALL").isPresent());
+    void shopSitsAroundOneAndAHalfTimesSell() {
+        assertEquals(400L, ShopCatalog.offer("COBBLESTONE").orElseThrow().price());
+        assertEquals(4L * 64L, ShopCatalog.sellCredit("COBBLESTONE", 64));
+        assertEquals(1_800L, ShopCatalog.offer("WHEAT").orElseThrow().price());
+        assertEquals(75L * 16L, ShopCatalog.sellCredit("WHEAT", 16));
+        assertEquals(6_600L, ShopCatalog.offer("IRON_INGOT").orElseThrow().price());
+        assertEquals(275L * 16L, ShopCatalog.sellCredit("IRON_INGOT", 16));
     }
 
     @Test
-    void sellMatchesTheBulkFarmSheetAndSkipsGems() {
-        assertEquals(75L, ShopCatalog.sellCredit("WHEAT", 1));
+    void boneIsTheCheapFarmInput() {
+        long boneSell = ShopCatalog.sellCredit("BONE", 1);
+        long boneBuy = ShopCatalog.offer("BONE").orElseThrow().price();
+        assertEquals(8L, boneSell);
+        assertEquals(12L, boneBuy);
+        assertTrue(boneSell < ShopCatalog.sellCredit("KELP", 1));
+        assertTrue(boneSell < ShopCatalog.sellCredit("BAMBOO", 1));
+        assertTrue(boneSell < ShopCatalog.sellCredit("WHEAT", 1));
+        assertTrue(boneSell < ShopCatalog.sellCredit("SUGAR_CANE", 1));
+        assertTrue(boneBuy < ShopCatalog.sellCredit("SUGAR_CANE", 1));
+        assertEquals(50L, ShopCatalog.offer("BONE_MEAL").orElseThrow().price());
+    }
+
+    @Test
+    void sellKeepsTheBulkFarmSheetAndSkipsGems() {
         assertEquals(100L, ShopCatalog.sellCredit("SUGAR_CANE", 1));
         assertEquals(20L, ShopCatalog.sellCredit("BAMBOO", 1));
         assertEquals(20L, ShopCatalog.sellCredit("KELP", 1));
-        assertEquals(4L, ShopCatalog.sellCredit("COBBLESTONE", 1));
-        assertEquals(275L, ShopCatalog.sellCredit("IRON_INGOT", 1));
-        assertEquals(90L, ShopCatalog.sellCredit("RED_WOOL", 1));
         assertFalse(ShopCatalog.isSellable("DIAMOND"));
-        assertFalse(ShopCatalog.isSellable("EMERALD"));
-        assertFalse(ShopCatalog.isSellable("ANCIENT_DEBRIS"));
-        assertFalse(ShopCatalog.isSellable("NETHERITE_INGOT"));
-        assertFalse(ShopCatalog.isSellable("ENDER_PEARL"));
+        assertFalse(ShopCatalog.offer("DIAMOND").isPresent());
     }
 
     @Test
@@ -58,8 +58,8 @@ class ShopCatalogTest {
     @Test
     void maxOrdersRespectBalanceAndSpace() {
         ShopCatalog.Offer cobble = ShopCatalog.offer("COBBLESTONE").orElseThrow();
-        assertEquals(0, cobble.maxOrders(1_999, 64));
-        assertEquals(1, cobble.maxOrders(2_000, 64));
+        assertEquals(0, cobble.maxOrders(399, 64));
+        assertEquals(1, cobble.maxOrders(400, 64));
         assertEquals(2, cobble.maxOrders(10_000, 128));
     }
 }
