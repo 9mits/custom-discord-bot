@@ -42,6 +42,8 @@ final class ServerDataResetService {
     private final MGXAccessBridge plugin;
     private final ClanStore clans;
     private final WealthStore wealth;
+    private final EconomyStore economy;
+    private final AuctionStore auctions;
     private final RankSyncStore rankSync;
     private final DiscordIdentityStore identities;
     private final PlayerSettingsStore settings;
@@ -56,6 +58,8 @@ final class ServerDataResetService {
             MGXAccessBridge plugin,
             ClanStore clans,
             WealthStore wealth,
+            EconomyStore economy,
+            AuctionStore auctions,
             RankSyncStore rankSync,
             DiscordIdentityStore identities,
             PlayerSettingsStore settings,
@@ -68,6 +72,8 @@ final class ServerDataResetService {
         this.plugin = plugin;
         this.clans = clans;
         this.wealth = wealth;
+        this.economy = economy;
+        this.auctions = auctions;
         this.rankSync = rankSync;
         this.identities = identities;
         this.settings = settings;
@@ -135,6 +141,12 @@ final class ServerDataResetService {
         }
         if (scopes.contains(ResetScope.WEALTH)) {
             clear(ResetScope.WEALTH, wealth::clearAll, cleared, problems);
+        }
+        if (scopes.contains(ResetScope.BALANCES)) {
+            clear(ResetScope.BALANCES, economy::clearAll, cleared, problems);
+        }
+        if (scopes.contains(ResetScope.AUCTIONS)) {
+            clear(ResetScope.AUCTIONS, auctions::clearAll, cleared, problems);
         }
         if (scopes.contains(ResetScope.IDENTITIES)) {
             clear(ResetScope.IDENTITIES, identities::clearAll, cleared, problems);

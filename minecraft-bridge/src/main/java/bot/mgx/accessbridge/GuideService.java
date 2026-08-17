@@ -143,6 +143,11 @@ final class GuideService implements CommandExecutor, TabCompleter {
 
     private static void commands(Player player) {
         title(player, "USEFUL COMMANDS");
+        player.sendMessage(guideLink("/shop", "Buy blocks, food, ores and more", ORANGE));
+        player.sendMessage(guideLink("/sell", "Sell items to the server", GOLD));
+        player.sendMessage(guideLink("/ah", "Player auction house", NamedTextColor.YELLOW));
+        player.sendMessage(guideLink("/bal", "Your money", NamedTextColor.GREEN));
+        player.sendMessage(guideLink("/pay <player> <amount>", "Send money to someone online", NamedTextColor.AQUA));
         player.sendMessage(guideLink("/leaderboard", "Richest players and clans", ORANGE));
         player.sendMessage(guideLink("/clan", "Open your available clan commands", GOLD));
         player.sendMessage(guideLink("/claninfo [name]", "Open a clan information card", NamedTextColor.AQUA));

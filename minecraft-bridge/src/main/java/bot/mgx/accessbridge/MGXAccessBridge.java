@@ -87,6 +87,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private PlayerMenuService playerMenuService;
     private PlayerSettingsStore playerSettings;
     private WealthStore wealthStore;
+    private EconomyStore economyStore;
+    private EconomyMenuService economyMenus;
     private RankSyncStore rankSyncStore;
     private MaintenanceStore maintenanceStore;
     private BukkitTask maintenanceSweep;
@@ -127,6 +129,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                     getDataFolder().toPath().resolve("player-settings.json")
             );
             wealthStore = new WealthStore(getDataFolder().toPath().resolve("wealth.json"));
+            economyStore = new EconomyStore(getDataFolder().toPath().resolve("balances.json"));
             rankSyncStore = new RankSyncStore(getDataFolder().toPath().resolve("rank-sync.json"));
             maintenanceStore = new MaintenanceStore(
                     getDataFolder().toPath().resolve("maintenance.flag")
@@ -160,6 +163,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 clanStore,
                 identityService,
                 playerSettings,
+                economyStore,
                 bridgeConfig.scoreboardFooter(),
                 bridgeConfig.scoreboardUpdateTicks()
         );
@@ -207,7 +211,12 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 || getCommand("settings") == null
                 || getCommand("mgxadmin") == null
                 || getCommand("whitelisted") == null
-                || getCommand("leaderboard") == null) {
+                || getCommand("leaderboard") == null
+                || getCommand("shop") == null
+                || getCommand("sell") == null
+                || getCommand("ah") == null
+                || getCommand("bal") == null
+                || getCommand("pay") == null) {
             getLogger().severe("A required Minecraft command is missing from plugin.yml.");
             getServer().getPluginManager().disablePlugin(this);
             return;
@@ -233,13 +242,40 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("leaderboard").setExecutor(leaderboardMenus);
         getCommand("leaderboard").setTabCompleter(leaderboardMenus);
         getServer().getPluginManager().registerEvents(leaderboardMenus, this);
+        AuctionStore auctionStore;
+        try {
+            auctionStore = new AuctionStore(getDataFolder().toPath().resolve("auctions.json"));
+        } catch (IOException exception) {
+            getLogger().severe("MGXAccessBridge could not open the auction house: " + exception.getMessage());
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
+        economyMenus = new EconomyMenuService(this, economyStore, auctionStore);
+        EconomyCommandService economyCommands = new EconomyCommandService(economyStore);
+        getCommand("shop").setExecutor(economyMenus);
+        getCommand("shop").setTabCompleter(economyMenus);
+        getCommand("sell").setExecutor(economyMenus);
+        getCommand("sell").setTabCompleter(economyMenus);
+        getCommand("ah").setExecutor(economyMenus);
+        getCommand("ah").setTabCompleter(economyMenus);
+        getCommand("bal").setExecutor(economyCommands);
+        getCommand("bal").setTabCompleter(economyCommands);
+        getCommand("pay").setExecutor(economyCommands);
+        getCommand("pay").setTabCompleter(economyCommands);
+        getServer().getPluginManager().registerEvents(economyMenus, this);
+        getServer().getScheduler().runTaskTimer(
+                this, economyMenus::expireListings, 20L * 60L, 20L * 60L
+        );
         AdminCommandService adminService = new AdminCommandService(
                 this,
                 rankSyncStore,
+                economyStore,
                 new ServerDataResetService(
                         this,
                         clanStore,
                         wealthStore,
+                        economyStore,
+                        auctionStore,
                         rankSyncStore,
                         identityStore,
                         playerSettings,
@@ -280,6 +316,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             // Items sitting in an open donation window exist only in that inventory
             // object. Closing banks them; not closing loses them.
             clanMenuService.closeAll();
+        }
+        if (economyMenus != null) {
+            economyMenus.closeAll();
         }
         if (capabilityService != null) {
             capabilityService.stop();

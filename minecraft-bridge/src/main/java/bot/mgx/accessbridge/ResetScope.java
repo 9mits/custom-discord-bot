@@ -27,6 +27,10 @@ enum ResetScope {
     CLANS("clans", "every clan, clan balance and donation record"),
     /** Recorded wealth, which is the one leaderboard figure the server does not keep. */
     WEALTH("wealth", "recorded wealth for the leaderboard"),
+    /** Player cash wallets used by /shop, /sell, /ah and /pay. */
+    BALANCES("balances", "player money"),
+    /** Auction listings and the mailbox expired items return to. */
+    AUCTIONS("auctions", "auction listings and collected items"),
     /** Linked Discord usernames — the only personal data the plugin keeps. */
     IDENTITIES("identities", "linked Discord names shown beside Minecraft names"),
     /** Per-player display toggles, so everyone returns to the defaults. */

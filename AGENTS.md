@@ -244,6 +244,12 @@ Read the relevant file when you touch an area; these are the non-obvious points.
   scan chunk it had to load, so the launch pass cannot leave ~1,250 chunks in
   RAM. Set `world.max-view-distance: 0` in the plugin config to leave the
   panel value alone.
+- **In-game money is not leaderboard wealth.** `/shop`, `/sell`, `/ah`, `/bal`
+  and `/pay` use `EconomyStore` (`balances.json`). The richest-player board still
+  sums item values in `wealth.json`. Auction listings live in `auctions.json`;
+  opening a page deserialises only the 45 visible stacks. Shop prices are the
+  static `ShopCatalog`. Elytra, netherite, totems, shulker shells and enchanted
+  golden apples are not sold.
 - **Resetting data is two commands, one per side.** `/mgxadmin reset all
   confirm` (in game) clears what Paper keeps; `/mcadmin wipe` (Discord, owner
   only) clears the bot's SQLite. Neither can reach the other's data, so a full
