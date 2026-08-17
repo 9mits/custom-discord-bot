@@ -64,6 +64,7 @@ final class GuideService implements CommandExecutor, TabCompleter {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        args = CommandArgs.withoutEchoedSender(sender.getName(), args);
         if (!(sender instanceof Player player)) {
             sender.sendMessage("Server guides are available to players in Minecraft.");
             return true;

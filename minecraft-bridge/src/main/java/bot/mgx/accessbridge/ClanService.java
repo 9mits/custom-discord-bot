@@ -77,6 +77,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        args = CommandArgs.withoutEchoedSender(sender.getName(), args);
         if (!(sender instanceof Player player)) {
             sender.sendMessage("The clans command is available to players only.");
             return true;

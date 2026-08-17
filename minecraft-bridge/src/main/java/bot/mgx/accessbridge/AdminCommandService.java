@@ -68,6 +68,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        args = CommandArgs.withoutEchoedSender(sender.getName(), args);
         if (!plugin.mayAdminister(sender)) {
             error(sender, "You do not have permission to do that.");
             return true;

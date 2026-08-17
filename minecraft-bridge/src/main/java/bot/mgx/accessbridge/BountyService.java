@@ -35,6 +35,7 @@ final class BountyService implements CommandExecutor, TabCompleter, Listener {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        args = CommandArgs.withoutEchoedSender(sender.getName(), args);
         try {
             if (args.length == 0 || args[0].equalsIgnoreCase("list")) {
                 list(sender);

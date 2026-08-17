@@ -28,6 +28,7 @@ final class WhitelistDirectoryService implements CommandExecutor, TabCompleter {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        args = CommandArgs.withoutEchoedSender(sender.getName(), args);
         if (!directory.synced()) {
             sender.sendMessage(Component.text(
                     "The whitelist directory has not synced from Discord yet. Try again shortly.",

@@ -80,6 +80,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        args = CommandArgs.withoutEchoedSender(sender.getName(), args);
         if (!(sender instanceof Player player)) {
             sender.sendMessage("Shop, sell and the auction house are menus. Use them in Minecraft.");
             return true;
