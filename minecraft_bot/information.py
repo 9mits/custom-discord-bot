@@ -303,7 +303,8 @@ def commands_account_embed(settings=None) -> discord.Embed:
                 "> `/sell` · `/sell hand` · `/sell all` — sell items for money\n"
                 "> `/ah` — auction house; `/ah sell <price>` lists the item in hand\n"
                 "> `/bal` · `/pay <player> <amount>` — wallet and transfers\n"
-                "> `/bounty set <player> <amount>` — put money on someone's head",
+                "> `/bounty set <player> <amount>` — put money on someone's head\n"
+                "> `/bounty clan <player> <amount>` — clan owner, paid from the treasury",
             ),
             (
                 "The server",

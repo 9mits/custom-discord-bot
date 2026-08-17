@@ -346,6 +346,24 @@ class ClanStoreTest {
     }
 
     @Test
+    void onlyTheOwnerCanSpendTheTreasuryOnABounty() throws Exception {
+        ClanStore store = new ClanStore(temporaryDirectory.resolve("clans.json"));
+        UUID leader = UUID.randomUUID();
+        UUID member = UUID.randomUUID();
+        store.create(leader, "Leader", "HUNT");
+        store.invite(leader, member, "Member", 1_000);
+        store.accept(member, "Member", 1_001);
+        store.donate(leader, 5_000L);
+
+        assertThrows(ClanStore.ClanException.class, () -> store.spendTreasury(member, 100L));
+        assertThrows(ClanStore.ClanException.class, () -> store.spendTreasury(leader, 9_000L));
+
+        ClanStore.ClanView spent = store.spendTreasury(leader, 1_500L);
+        assertEquals(3_500L, spent.balance());
+        assertEquals(5_000L, spent.donations().get(leader));
+    }
+
+    @Test
     void clansStartAtThreeSlotsAndBuyTheirWayUp() throws Exception {
         ClanStore store = new ClanStore(temporaryDirectory.resolve("clans.json"));
         UUID leader = UUID.randomUUID();
