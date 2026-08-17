@@ -37,16 +37,26 @@ import static bot.mgx.accessbridge.MenuItems.ORANGE;
  */
 final class AdminCommandService implements CommandExecutor, TabCompleter {
     static final String PERMISSION = "mgxaccessbridge.admin";
-    private static final List<String> SUBCOMMANDS = List.of("startserver", "teststart", "ranks", "reset", "help");
+    private static final List<String> SUBCOMMANDS = List.of(
+            "startserver", "teststart", "ranks", "eco", "reset", "help"
+    );
     private static final List<String> RANK_ACTIONS = List.of("hold", "release", "list");
+    private static final List<String> ECO_ACTIONS = List.of("give", "take", "set");
 
     private final MGXAccessBridge plugin;
     private final RankSyncStore rankSync;
+    private final EconomyStore economy;
     private final ServerDataResetService resets;
 
-    AdminCommandService(MGXAccessBridge plugin, RankSyncStore rankSync, ServerDataResetService resets) {
+    AdminCommandService(
+            MGXAccessBridge plugin,
+            RankSyncStore rankSync,
+            EconomyStore economy,
+            ServerDataResetService resets
+    ) {
         this.plugin = plugin;
         this.rankSync = rankSync;
+        this.economy = economy;
         this.resets = resets;
     }
 
@@ -68,6 +78,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                     success(sender, "Test countdown started. Barriers return in 1 minute.");
                 }
                 case "ranks" -> ranks(sender, args);
+                case "eco" -> eco(sender, args);
                 case "reset" -> reset(sender, args);
                 default -> sendHelp(sender);
             }
@@ -154,6 +165,36 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         );
     }
 
+    private void eco(CommandSender sender, String[] args) {
+        if (args.length < 4) {
+            throw new IllegalArgumentException("Usage: /mgxadmin eco <give|take|set> <player> <amount>");
+        }
+        String action = args[1].toLowerCase(Locale.ROOT);
+        OfflinePlayer target = requirePlayerArgument(args, action);
+        UUID playerId = target.getUniqueId();
+        String name = target.getName() == null ? playerId.toString() : target.getName();
+        long amount = EconomyFormat.parseAmount(args[3]);
+        switch (action) {
+            case "give" -> {
+                economy.deposit(playerId, amount);
+                success(sender, "Gave " + name + " " + EconomyFormat.dollars(amount) + ".");
+            }
+            case "take" -> {
+                if (!economy.tryWithdraw(playerId, amount)) {
+                    throw new IllegalArgumentException(
+                            name + " only has " + EconomyFormat.dollars(economy.balance(playerId)) + "."
+                    );
+                }
+                success(sender, "Took " + EconomyFormat.dollars(amount) + " from " + name + ".");
+            }
+            case "set" -> {
+                economy.set(playerId, amount);
+                success(sender, "Set " + name + " to " + EconomyFormat.dollars(amount) + ".");
+            }
+            default -> throw new IllegalArgumentException("Usage: /mgxadmin eco <give|take|set> <player> <amount>");
+        }
+    }
+
     // ------------------------------------------------------------------
     // Data reset
     // ------------------------------------------------------------------
@@ -234,6 +275,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 .append(Component.text("  hand them back to Discord rank sync", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin ranks list", ORANGE)
                 .append(Component.text("  everyone currently held", NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin eco give|take|set <player> <amount>", ORANGE)
+                .append(Component.text("  change a wallet", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin reset", ORANGE)
                 .append(Component.text("  clear progress, keeping the world", NamedTextColor.GRAY)));
     }
@@ -254,6 +297,16 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 return partial(args[1], RANK_ACTIONS);
             }
             if (args.length == 3 && !args[1].equalsIgnoreCase("list")) {
+                return partial(args[2], Bukkit.getOnlinePlayers().stream()
+                        .map(Player::getName).toList());
+            }
+            return List.of();
+        }
+        if (action.equals("eco")) {
+            if (args.length == 2) {
+                return partial(args[1], ECO_ACTIONS);
+            }
+            if (args.length == 3) {
                 return partial(args[2], Bukkit.getOnlinePlayers().stream()
                         .map(Player::getName).toList());
             }

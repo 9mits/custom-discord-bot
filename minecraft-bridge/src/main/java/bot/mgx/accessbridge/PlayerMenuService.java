@@ -154,7 +154,7 @@ final class PlayerMenuService implements Listener {
     public void onClick(InventoryClickEvent event) {
         if (!(event.getInventory().getHolder() instanceof Menu menu)
                 || !(event.getWhoClicked() instanceof Player player)
-                || isClanMenu(menu)) {
+                || !isPlayerMenu(menu.kind())) {
             return;
         }
         event.setCancelled(true);
@@ -195,13 +195,15 @@ final class PlayerMenuService implements Listener {
 
     @EventHandler(priority = EventPriority.NORMAL)
     public void onDrag(InventoryDragEvent event) {
-        if (event.getInventory().getHolder() instanceof Menu menu && !isClanMenu(menu)) {
+        if (event.getInventory().getHolder() instanceof Menu menu && isPlayerMenu(menu.kind())) {
             event.setCancelled(true);
         }
     }
 
-    private static boolean isClanMenu(Menu menu) {
-        return menu.kind().name().startsWith("CLAN_");
+    private static boolean isPlayerMenu(Menu.Kind kind) {
+        return kind == Menu.Kind.SETTINGS
+                || kind == Menu.Kind.WHITELIST
+                || kind == Menu.Kind.PERKS;
     }
 
     private Inventory create(Menu.Kind kind, int page, int size, String title) {

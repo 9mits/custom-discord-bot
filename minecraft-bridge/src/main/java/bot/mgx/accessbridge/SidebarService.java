@@ -51,6 +51,7 @@ final class SidebarService {
     private final ClanStore clans;
     private final DiscordIdentityService identities;
     private final PlayerSettingsStore settings;
+    private final EconomyStore money;
     private final String footer;
     private final int updateTicks;
     private final Map<UUID, PlayerBoard> boards = new HashMap<>();
@@ -64,6 +65,7 @@ final class SidebarService {
             ClanStore clans,
             DiscordIdentityService identities,
             PlayerSettingsStore settings,
+            EconomyStore money,
             String footer,
             int updateTicks
     ) {
@@ -72,6 +74,7 @@ final class SidebarService {
         this.clans = clans;
         this.identities = identities;
         this.settings = settings;
+        this.money = money;
         this.footer = footer;
         this.updateTicks = updateTicks;
     }
@@ -200,6 +203,11 @@ final class SidebarService {
                 "Deaths",
                 String.valueOf(player.getStatistic(Statistic.DEATHS)),
                 NamedTextColor.YELLOW
+        ));
+        rows.add(new Row(
+                "Money",
+                EconomyFormat.dollars(money.balance(player.getUniqueId())),
+                GOLD
         ));
 
         String playerLine = " " + player.getName() + " (" + player.getPing() + "ms)";

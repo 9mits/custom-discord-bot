@@ -298,7 +298,11 @@ def commands_account_embed(settings=None) -> discord.Embed:
                 "> `/settings` — a panel of toggles: clan tags, Discord chat, "
                 "and whether others see your Discord name\n"
                 "> `/discordnames` — whether others see your Discord name\n"
-                "> `/playtime` — time spent on the server",
+                "> `/playtime` — time spent on the server\n"
+                "> `/shop` — buy from the server shop\n"
+                "> `/sell` · `/sell hand` · `/sell all` — sell items for money\n"
+                "> `/ah` — auction house; `/ah sell <price>` lists the item in hand\n"
+                "> `/bal` · `/pay <player> <amount>` — wallet and transfers",
             ),
             (
                 "The server",
