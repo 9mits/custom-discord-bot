@@ -194,11 +194,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         );
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(
-                new StarterKitService(
-                        this,
-                        economyStore,
-                        getDataFolder().toPath().resolve("starter-kits.json")
-                ),
+                new StarterKitService(this, getDataFolder().toPath().resolve("starter-kits.json")),
                 this
         );
         getServer().getPluginManager().registerEvents(perkService, this);
