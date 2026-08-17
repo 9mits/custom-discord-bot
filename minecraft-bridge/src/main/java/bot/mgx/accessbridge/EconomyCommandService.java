@@ -27,6 +27,7 @@ final class EconomyCommandService implements CommandExecutor, TabCompleter {
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
+        args = CommandArgs.withoutEchoedSender(sender.getName(), args);
         String name = command.getName().toLowerCase(Locale.ROOT);
         try {
             if (name.equals("pay")) {
