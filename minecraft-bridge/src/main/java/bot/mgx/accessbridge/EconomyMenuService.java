@@ -772,20 +772,26 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         if (held == null || held.getType().isAir()) {
             throw new IllegalArgumentException("Hold the item you want to list.");
         }
-        String encoded = encodeItem(held);
-        String name = readable(held.getType().name());
-        auctions.list(
-                player.getUniqueId(),
-                player.getName(),
-                price,
-                held.getType().name(),
-                held.getAmount(),
-                name,
-                encoded,
-                System.currentTimeMillis()
-        );
+        ItemStack listing = held.clone();
+        String encoded = encodeItem(listing);
+        String name = readable(listing.getType().name());
         player.getInventory().setItemInMainHand(null);
-        info(player, "Listed " + held.getAmount() + " " + name + " for "
+        try {
+            auctions.list(
+                    player.getUniqueId(),
+                    player.getName(),
+                    price,
+                    listing.getType().name(),
+                    listing.getAmount(),
+                    name,
+                    encoded,
+                    System.currentTimeMillis()
+            );
+        } catch (RuntimeException failure) {
+            player.getInventory().setItemInMainHand(listing);
+            throw failure;
+        }
+        info(player, "Listed " + listing.getAmount() + " " + name + " for "
                 + EconomyFormat.dollars(price) + ".");
     }
 

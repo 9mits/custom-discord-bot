@@ -3659,6 +3659,7 @@ class MinecraftCapabilityTests(unittest.TestCase):
         self.assertTrue(caps.may("disband"))
         self.assertTrue(caps.may("promote"))
         self.assertTrue(caps.may("invite"))
+        self.assertFalse(caps.may("leave"))
 
     def test_a_member_may_only_leave(self):
         caps = self._caps("member-uuid")

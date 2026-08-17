@@ -14,7 +14,6 @@ import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.entity.ArmorStand;
-import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 
 import java.io.IOException;
@@ -24,8 +23,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 
 import static bot.mgx.accessbridge.MenuItems.ORANGE;
@@ -124,17 +125,18 @@ final class HologramService {
 
     void refresh() {
         clearStands();
+        Map<String, Integer> colours = clanColours();
         for (Placement placement : List.copyOf(placements)) {
             World world = Bukkit.getWorld(placement.worldId());
             if (world == null) {
                 continue;
             }
-            spawn(world, placement);
+            spawn(world, placement, colours);
         }
     }
 
-    private void spawn(World world, Placement placement) {
-        List<Component> lines = lines(placement.board());
+    private void spawn(World world, Placement placement, Map<String, Integer> colours) {
+        List<Component> lines = lines(placement.board(), colours);
         for (int index = 0; index < lines.size(); index++) {
             Location at = new Location(
                     world,
@@ -152,19 +154,19 @@ final class HologramService {
                 stand.setCustomNameVisible(true);
                 stand.customName(line);
                 stand.addScoreboardTag(TAG);
-                stand.setPersistent(false);
+                stand.setPersistent(true);
             });
         }
     }
 
-    private List<Component> lines(Board board) {
+    private List<Component> lines(Board board, Map<String, Integer> colours) {
         List<Component> lines = new ArrayList<>();
         lines.add(Component.text(board.title, ORANGE, TextDecoration.BOLD));
         lines.add(Component.empty());
         JsonArray rows = rows(board);
         for (int index = 0; index < ROWS; index++) {
             if (index < rows.size()) {
-                lines.add(rowLine(board, index + 1, rows.get(index).getAsJsonObject()));
+                lines.add(rowLine(board, index + 1, rows.get(index).getAsJsonObject(), colours));
             } else {
                 lines.add(Component.text("#" + (index + 1) + " | ---", NamedTextColor.DARK_GRAY));
             }
@@ -172,14 +174,16 @@ final class HologramService {
         return lines;
     }
 
-    private Component rowLine(Board board, int place, JsonObject row) {
+    private Component rowLine(Board board, int place, JsonObject row, Map<String, Integer> colours) {
         Component prefix = Component.text("#" + place + " | ", NamedTextColor.WHITE);
         if (board.scope.equals("clan")) {
             String name = text(row, "clan");
             int colour = row.has("colour") ? row.get("colour").getAsInt() : 0xFF9900;
+            int level = row.has("level") ? row.get("level").getAsInt() : 0;
+            String tag = level > 0 ? "[" + name + "] Lv" + level : "[" + name + "]";
             String display = text(row, "display");
             return prefix
-                    .append(Component.text("[" + name + "]", TextColor.color(colour), TextDecoration.BOLD))
+                    .append(Component.text(tag, TextColor.color(colour), TextDecoration.BOLD))
                     .append(Component.text(": " + display, NamedTextColor.WHITE));
         }
         UUID uuid = parseUuid(text(row, "minecraft_uuid"));
@@ -188,11 +192,7 @@ final class HologramService {
         String clanName = text(row, "clan");
         Component line = prefix;
         if (!clanName.isBlank()) {
-            int colour = clans.list().stream()
-                    .filter(clan -> clan.name().equalsIgnoreCase(clanName))
-                    .map(ClanStore.ClanView::themeColor)
-                    .findFirst()
-                    .orElse(0xFF9900);
+            int colour = colours.getOrDefault(clanName.toLowerCase(Locale.ROOT), 0xFF9900);
             line = line.append(Component.text("[" + clanName + "] ", TextColor.color(colour), TextDecoration.BOLD));
         }
         if (uuid != null) {
@@ -216,11 +216,19 @@ final class HologramService {
         return section.getAsJsonArray(board.key);
     }
 
+    private Map<String, Integer> clanColours() {
+        Map<String, Integer> colours = new HashMap<>();
+        for (ClanStore.ClanView clan : clans.list()) {
+            colours.put(clan.name().toLowerCase(Locale.ROOT), clan.themeColor());
+        }
+        return colours;
+    }
+
     private void clearStands() {
         for (World world : Bukkit.getWorlds()) {
-            for (Entity entity : world.getEntities()) {
-                if (entity instanceof ArmorStand && entity.getScoreboardTags().contains(TAG)) {
-                    entity.remove();
+            for (ArmorStand stand : world.getEntitiesByClass(ArmorStand.class)) {
+                if (stand.getScoreboardTags().contains(TAG)) {
+                    stand.remove();
                 }
             }
         }

@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 final class SidebarService {
     private static final int MAX_LINES = 15;
@@ -55,6 +56,7 @@ final class SidebarService {
     private final String footer;
     private final int updateTicks;
     private final Map<UUID, PlayerBoard> boards = new HashMap<>();
+    private final Map<UUID, ClientPlatform> platforms = new ConcurrentHashMap<>();
     private String lastTeamKey = "";
     private String lastHeaderKey = "";
     private int taskId = -1;
@@ -374,7 +376,16 @@ final class SidebarService {
         player.sendPlayerListHeaderAndFooter(header, footerComponent);
     }
 
-    private static ClientPlatform clientPlatform(Player player) {
+    void forget(UUID playerId) {
+        boards.remove(playerId);
+        platforms.remove(playerId);
+    }
+
+    private ClientPlatform clientPlatform(Player player) {
+        return platforms.computeIfAbsent(player.getUniqueId(), ignored -> lookupPlatform(player));
+    }
+
+    private static ClientPlatform lookupPlatform(Player player) {
         try {
             FloodgatePlayer floodgatePlayer = FloodgateApi.getInstance().getPlayer(player.getUniqueId());
             if (floodgatePlayer != null) {

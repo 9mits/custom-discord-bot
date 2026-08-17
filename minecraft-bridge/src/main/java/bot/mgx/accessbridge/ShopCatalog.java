@@ -73,11 +73,12 @@ final class ShopCatalog {
         }
 
         int maxOrders(long balance, int inventorySpace) {
-            if (price <= 0L || balance < price || inventorySpace <= 0) {
+            if (price <= 0L || amount <= 0 || balance < price || inventorySpace < amount) {
                 return 0;
             }
             long affordable = balance / price;
-            return (int) Math.min(inventorySpace, Math.min(Integer.MAX_VALUE, affordable));
+            int bySpace = inventorySpace / amount;
+            return (int) Math.min(bySpace, Math.min(Integer.MAX_VALUE, affordable));
         }
     }
 
