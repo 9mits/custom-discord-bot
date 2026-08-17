@@ -195,7 +195,7 @@ final class ClanMenuService implements Listener {
                     .ifPresent(username -> lore.add("@" + username));
             lore.add(Bukkit.getPlayer(member.getKey()) != null ? "Online now" : "Offline");
             long given = clan.donations().getOrDefault(member.getKey(), 0L);
-            lore.add("Donated " + String.format("%,d", given) + ".");
+            lore.add("Donated " + EconomyFormat.dollars(given) + ".");
             Long joined = clan.joinedAt().get(member.getKey());
             lore.add(joined == null
                     ? "Joined: unknown"

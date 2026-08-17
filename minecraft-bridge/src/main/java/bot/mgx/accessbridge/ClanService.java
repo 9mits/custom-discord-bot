@@ -323,8 +323,8 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
             if (clan.balance() > 0) {
                 // Donations are one-way, so this is the last chance anyone gets to
                 // hear that the balance dies with the clan.
-                error(player, "This also destroys the clan balance of "
-                        + String.format("%,d", clan.balance())
+                error(player, "This also destroys the clan treasury of "
+                        + EconomyFormat.dollars(clan.balance())
                         + ". Donations cannot be taken back out.");
             }
             throw new ClanStore.ClanException("This removes the clan permanently. Use /clans disband confirm.");

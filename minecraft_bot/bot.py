@@ -1722,7 +1722,7 @@ class MinecraftAccessBot(commands.Bot):
                 )
                 lines.append("")
                 lines.append(f"**{clans.describe(caps.clan_level)}**")
-                lines.append(f"> Balance **{caps.clan_balance:,}**")
+                lines.append(f"> Balance **${caps.clan_balance:,}**")
                 slots = caps.clan_member_slots or clans.STARTING_MEMBER_SLOTS
                 lines.append(f"> Roster **{caps.clan_members}/{slots}**")
                 held = clans.perks_for(caps.clan_level)

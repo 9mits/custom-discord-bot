@@ -85,7 +85,7 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
                 Menu.Kind.LEADERBOARD_HUB, null, 1, HUB_SIZE, "Leaderboard", null
         );
         inventory.setItem(HUB_CLANS_WEALTH, button(Material.GOLD_BLOCK, "Richest clan",
-                "Member wallets, added up.", "Hover a clan for details.", "Click a clan for its members."));
+                "Donated treasury, not member wallets.", "Hover a clan for details.", "Click a clan for its members."));
         inventory.setItem(HUB_CLANS_KILLS, button(Material.IRON_SWORD, "Clan with most kills",
                 "Kills summed across members.", "Hover a clan for details.", "Click a clan for its members."));
         inventory.setItem(HUB_PLAYERS_WEALTH, button(Material.GOLD_INGOT, "Richest player",

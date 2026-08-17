@@ -26,6 +26,18 @@ class CommandArgsTest {
     }
 
     @Test
+    void aPlayerNamedAfterASubcommandKeepsThatWord() {
+        assertArrayEquals(
+                new String[]{"clan", "Alex", "100"},
+                CommandArgs.withoutEchoedSender("clan", new String[]{"clan", "Alex", "100"})
+        );
+        assertArrayEquals(
+                new String[]{"hand"},
+                CommandArgs.withoutEchoedSender("hand", new String[]{"hand"})
+        );
+    }
+
+    @Test
     void aFloodgateDotPrefixStillMatches() {
         assertArrayEquals(
                 new String[]{"wealth"},

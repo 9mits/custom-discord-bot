@@ -1217,6 +1217,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
         verificationKicks.remove(event.getPlayer().getUniqueId());
+        if (sidebarService != null) {
+            sidebarService.forget(event.getPlayer().getUniqueId());
+        }
         queuePlayerActivity(event.getPlayer().getUniqueId(), event.getPlayer().getName(), false);
     }
 

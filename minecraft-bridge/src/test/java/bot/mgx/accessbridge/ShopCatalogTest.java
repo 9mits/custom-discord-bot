@@ -48,4 +48,12 @@ class ShopCatalogTest {
         assertEquals(2, diamond.maxOrders(500, 2));
         assertEquals(1, diamond.maxOrders(10_000, 1));
     }
+
+    @Test
+    void fillOrdersAreLimitedByHowManyStacksFitNotRawItemSlots() {
+        ShopCatalog.Offer cobble = ShopCatalog.offer("COBBLESTONE").orElseThrow();
+        assertEquals(1, cobble.maxOrders(10_000, 64));
+        assertEquals(2, cobble.maxOrders(10_000, 128));
+        assertEquals(0, cobble.maxOrders(10_000, 63));
+    }
 }

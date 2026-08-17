@@ -343,8 +343,8 @@ def clans_embed() -> discord.Embed:
             ),
             (
                 "Roles inside a clan",
-                "> **Member** — clan chat and the roster\n"
-                "> **Staff** — the above, plus invite and kick\n"
+                "> **Member** — clan chat, the roster, and donate\n"
+                "> **Staff** — the above, plus invite, kick, and upgrades\n"
                 "> **Leader** — the above, plus rename, colour, promote, transfer "
                 "and disband",
             ),
