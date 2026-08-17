@@ -157,15 +157,15 @@ def commands_embed() -> discord.Embed:
         [
             (
                 "Most used",
+                "> `/shop` · `/sell` — buy from the server, or sell what you gathered\n"
+                "> `/bal` · `/pay <player> <amount>` — your wallet\n"
                 "> `/sethome` · `/home` — save a spot and return to it\n"
-                "> `/tpa <player>` — ask to teleport to someone\n"
-                "> `/msg <player> <message>` — private message\n"
-                "> `/back` — return to where you were",
+                "> `/tpa <player>` — ask to teleport to someone",
             ),
             (
                 "Full list",
                 "> The buttons below cover homes and travel, teleports, "
-                "communication, clans, and your account.",
+                "communication, economy, clans, and your account.",
             ),
         ],
     )
@@ -248,6 +248,37 @@ def commands_chat_embed(settings=None) -> discord.Embed:
                 "Needing help",
                 "> `/helpop <message>` — reach whoever is on duty\n"
                 "> For rule breaking, or anything needing intervention",
+            ),
+        ],
+    )
+
+
+def commands_economy_embed(settings=None) -> discord.Embed:
+    return _page(
+        "Commands — Economy",
+        "Money in your wallet, and money on other players.",
+        [
+            (
+                "Shop and sell",
+                "> `/shop` — buy from the server\n"
+                "> `/sell` — see what you can sell, then sell a stack or all of it\n"
+                "> `/sell hand` · `/sell all` — sell what you are holding, or everything "
+                "the shop buys\n"
+                "> Elytras, netherite, totems, shulker shells and enchanted golden "
+                "apples are not sold",
+            ),
+            (
+                "Auction house",
+                "> `/ah` — browse listings\n"
+                "> `/ah sell <price>` — list the item in your hand\n"
+                "> `/ah listings` · `/ah expired` · `/ah search <name>`",
+            ),
+            (
+                "Wallet and bounties",
+                "> `/bal` · `/pay <player> <amount>` — your wallet, and sending money\n"
+                "> `/bounty set <player> <amount>` — put money on someone's head\n"
+                "> `/bounty clan <player> <amount>` — clan owner, paid from the treasury\n"
+                "> `/bounty` · `/bounty check` — who has a price on them",
             ),
         ],
     )
@@ -337,8 +368,8 @@ def clans_embed() -> discord.Embed:
                 "> Members **cannot damage each other**\n"
                 f"> Starts at **{clans.STARTING_MEMBER_SLOTS} members**, "
                 f"upgradeable to **{CLAN_MAX_MEMBERS}**\n"
-                f"> **{clans.MAX_PUBLIC_LEVEL} levels** to earn, each granting perks "
-                "to every member\n"
+                f"> **{clans.MAX_PUBLIC_LEVEL} levels**, bought from a shared treasury\n"
+                "> Donate money; nobody can take it back\n"
                 "> Join by invite, or start your own with `/clans create`",
             ),
             (
@@ -703,6 +734,7 @@ SECTIONS: dict[str, dict[str, tuple[str, Callable[[Optional[object]], discord.Em
         "homes": ("Homes & Travel", commands_homes_embed),
         "teleports": ("Teleports", commands_teleports_embed),
         "chat": ("Communication", commands_chat_embed),
+        "economy": ("Economy", commands_economy_embed),
         "clans": ("Clans", commands_clans_embed),
         "account": ("Account", commands_account_embed),
     },
