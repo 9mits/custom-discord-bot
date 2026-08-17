@@ -56,7 +56,10 @@ import static bot.mgx.accessbridge.MenuItems.button;
  */
 final class EconomyMenuService implements CommandExecutor, TabCompleter, Listener {
     private static final int SHOP_HUB_SIZE = 54;
-    private static final int[] CATEGORY_SLOTS = {11, 13, 15, 20, 22, 24, 29, 31};
+    private static final int[] CATEGORY_SLOTS = {
+            10, 11, 12, 13, 14, 15, 16,
+            19, 20, 21, 22, 23, 24, 25
+    };
     private static final int WALLET_SLOT = 49;
     private static final int AH_SEARCH_SLOT = 46;
     private static final int AH_OWN_SLOT = 47;
@@ -252,8 +255,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         int shown = Math.min(sellable.size(), 45);
         for (int index = 0; index < shown; index++) {
             ItemStack stack = sellable.get(index).clone();
-            ShopCatalog.Offer offer = ShopCatalog.offer(stack.getType().name()).orElseThrow();
-            long credit = offer.creditFor(stack.getAmount());
+            long credit = ShopCatalog.sellCredit(stack.getType().name(), stack.getAmount());
             ItemMeta meta = stack.getItemMeta();
             if (meta != null) {
                 meta.lore(List.of(
@@ -266,7 +268,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         }
         if (sellable.isEmpty()) {
             inventory.setItem(22, button(Material.BARRIER, "Nothing to sell",
-                    "Hold something the shop buys,",
+                    "Nothing you are holding sells here,",
                     "or open the price list."));
         }
         inventory.setItem(45, button(Material.HOPPER, "Sell all",
@@ -279,34 +281,33 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     }
 
     void openSellPrices(Player player, int page) {
-        List<ShopCatalog.Offer> offers = ShopCatalog.allOffers();
+        List<ShopCatalog.SellQuote> quotes = ShopCatalog.allSellQuotes();
         Inventory inventory = create(
                 Menu.Kind.SELL_PRICES,
                 null,
                 page,
                 BOARD_SIZE,
-                MenuItems.pagedTitle("Sell prices", page, offers.size()),
+                MenuItems.pagedTitle("Sell prices", page, quotes.size()),
                 Menu.Destination.of(Menu.Kind.SELL_PREVIEW)
         );
-        int first = MenuPaging.firstIndex(page, offers.size(), PER_PAGE);
-        int last = MenuPaging.lastIndex(page, offers.size(), PER_PAGE);
+        int first = MenuPaging.firstIndex(page, quotes.size(), PER_PAGE);
+        int last = MenuPaging.lastIndex(page, quotes.size(), PER_PAGE);
         for (int index = first; index < last; index++) {
-            ShopCatalog.Offer offer = offers.get(index);
-            Material material = materialOf(offer.material());
-            ItemStack item = new ItemStack(material, Math.min(offer.amount(), material.getMaxStackSize()));
+            ShopCatalog.SellQuote quote = quotes.get(index);
+            Material material = materialOf(quote.material());
+            ItemStack item = new ItemStack(material, 1);
             ItemMeta meta = item.getItemMeta();
             if (meta != null) {
-                meta.displayName(Component.text(readable(offer.material()), ORANGE, TextDecoration.BOLD)
+                meta.displayName(Component.text(readable(quote.material()), ORANGE, TextDecoration.BOLD)
                         .decoration(TextDecoration.ITALIC, false));
                 meta.lore(List.of(
-                        line(offer.amount() + " sells for " + EconomyFormat.dollars(offer.price())),
-                        line("One sells for " + EconomyFormat.dollars(offer.creditFor(1)))
+                        line("Sells for " + EconomyFormat.dollars(quote.unitPrice()) + " each")
                 ));
                 item.setItemMeta(meta);
             }
             inventory.setItem(index - first, item);
         }
-        MenuItems.paginate(inventory, page, offers.size(), true);
+        MenuItems.paginate(inventory, page, quotes.size(), true);
         player.openInventory(inventory);
     }
 
@@ -523,9 +524,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     private static long previewTotal(List<ItemStack> stacks) {
         long total = 0L;
         for (ItemStack item : stacks) {
-            total += ShopCatalog.offer(item.getType().name())
-                    .map(offer -> offer.creditFor(item.getAmount()))
-                    .orElse(0L);
+            total += ShopCatalog.sellCredit(item.getType().name(), item.getAmount());
         }
         return total;
     }
@@ -752,11 +751,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             if (item == null || item.getType().isAir() || hasPreservedData(item)) {
                 continue;
             }
-            Optional<ShopCatalog.Offer> offer = ShopCatalog.offer(item.getType().name());
-            if (offer.isEmpty()) {
-                continue;
-            }
-            long value = offer.get().creditFor(item.getAmount());
+            long value = ShopCatalog.sellCredit(item.getType().name(), item.getAmount());
             if (value <= 0L) {
                 continue;
             }
@@ -976,9 +971,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         if (item == null || item.getType().isAir() || hasPreservedData(item)) {
             return false;
         }
-        return ShopCatalog.offer(item.getType().name())
-                .map(offer -> offer.creditFor(item.getAmount()) > 0L)
-                .orElse(false);
+        return ShopCatalog.sellCredit(item.getType().name(), item.getAmount()) > 0L;
     }
 
     private static boolean hasPreservedData(ItemStack item) {
