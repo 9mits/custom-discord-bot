@@ -56,6 +56,16 @@ class ShopCatalogTest {
     }
 
     @Test
+    void shopChargesByTheSingleItem() {
+        ShopCatalog.Offer cobble = ShopCatalog.offer("COBBLESTONE").orElseThrow();
+        assertEquals(6L, cobble.unitPrice());
+        assertEquals(6L, cobble.costOfItems(1));
+        assertEquals(384L, cobble.costOfItems(64));
+        assertEquals(0, cobble.maxItems(5, 64));
+        assertEquals(64, cobble.maxItems(10_000, 64));
+    }
+
+    @Test
     void maxOrdersRespectBalanceAndSpace() {
         ShopCatalog.Offer cobble = ShopCatalog.offer("COBBLESTONE").orElseThrow();
         assertEquals(0, cobble.maxOrders(399, 64));

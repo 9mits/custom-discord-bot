@@ -213,17 +213,19 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         for (int index = first; index < last; index++) {
             ShopCatalog.Offer offer = offers.get(index);
             Material material = materialOf(offer.material());
-            ItemStack item = new ItemStack(material, Math.min(offer.amount(), material.getMaxStackSize()));
+            ItemStack item = new ItemStack(material, 1);
             ItemMeta meta = item.getItemMeta();
             if (meta != null) {
                 meta.displayName(Component.text(readable(offer.material()), ORANGE, TextDecoration.BOLD)
                         .decoration(TextDecoration.ITALIC, false));
+                long each = offer.unitPrice();
                 meta.lore(List.of(
-                        line("Buy " + offer.amount() + " for " + EconomyFormat.dollars(offer.price())),
+                        line(EconomyFormat.dollars(each) + " each"),
+                        line("64 for " + EconomyFormat.dollars(offer.costOfItems(64))),
                         line(""),
-                        line("Left click: buy one"),
-                        line("Right click: buy four"),
-                        line("Shift-click: fill")
+                        line("Left click: buy 1"),
+                        line("Right click: buy 16"),
+                        line("Shift-click: buy 64")
                 ));
                 item.setItemMeta(meta);
             }
@@ -558,7 +560,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         if (slot < 0 || slot >= PER_PAGE || index >= offers.size()) {
             return;
         }
-        buy(player, offers.get(index), ordersFor(click, offers.get(index), player));
+        buy(player, offers.get(index), itemsFor(click, offers.get(index), player));
         openShopCategory(player, category, menu.page());
     }
 
@@ -649,34 +651,33 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         openAuction(player, 1);
     }
 
-    private void buy(Player player, ShopCatalog.Offer offer, int orders) {
-        if (orders <= 0) {
+    private void buy(Player player, ShopCatalog.Offer offer, int items) {
+        if (items <= 0) {
             throw new IllegalArgumentException("You cannot afford that.");
         }
         Material material = materialOf(offer.material());
-        int total = Math.multiplyExact(offer.amount(), orders);
-        if (!canFit(player, material, total)) {
+        if (!canFit(player, material, items)) {
             throw new IllegalArgumentException("Your inventory is full.");
         }
-        long cost = offer.costOf(orders);
+        long cost = offer.costOfItems(items);
         if (!money.tryWithdraw(player.getUniqueId(), cost)) {
             throw new IllegalArgumentException(
                     "You need " + EconomyFormat.dollars(cost) + "."
             );
         }
-        give(player, new ItemStack(material, total));
-        info(player, "Bought " + total + " " + readable(offer.material())
+        give(player, new ItemStack(material, items));
+        info(player, "Bought " + items + " " + readable(offer.material())
                 + " for " + EconomyFormat.dollars(cost) + ".");
     }
 
-    private int ordersFor(ClickType click, ShopCatalog.Offer offer, Player player) {
+    private int itemsFor(ClickType click, ShopCatalog.Offer offer, Player player) {
         int space = spaceFor(player, materialOf(offer.material()));
-        int affordable = offer.maxOrders(money.balance(player.getUniqueId()), space);
+        int affordable = offer.maxItems(money.balance(player.getUniqueId()), space);
         if (click.isShiftClick()) {
-            return affordable;
+            return Math.min(64, affordable);
         }
         if (click.isRightClick()) {
-            return Math.min(4, affordable);
+            return Math.min(16, affordable);
         }
         return Math.min(1, affordable);
     }
