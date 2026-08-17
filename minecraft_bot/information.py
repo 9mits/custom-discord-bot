@@ -157,7 +157,7 @@ def commands_embed() -> discord.Embed:
         [
             (
                 "Most used",
-                "> `/shop` · `/sell` — buy convenience, or sell crops, animals and ores\n"
+                "> `/shop` · `/sell` — buy building blocks, or sell farm bulk\n"
                 "> `/bal` · `/pay <player> <amount>` — your wallet\n"
                 "> `/sethome` · `/home` — save a spot and return to it\n"
                 "> `/tpa <player>` — ask to teleport to someone",
