@@ -157,7 +157,7 @@ def commands_embed() -> discord.Embed:
         [
             (
                 "Most used",
-                "> `/shop` · `/sell` — buy from the server, or sell what you gathered\n"
+                "> `/shop` · `/sell` — buy convenience, or sell crops, animals and ores\n"
                 "> `/bal` · `/pay <player> <amount>` — your wallet\n"
                 "> `/sethome` · `/home` — save a spot and return to it\n"
                 "> `/tpa <player>` — ask to teleport to someone",
@@ -263,7 +263,7 @@ def commands_economy_embed(settings=None) -> discord.Embed:
                 "> `/shop` — buy from the server\n"
                 "> `/sell` — see what you can sell, then sell a stack or all of it\n"
                 "> `/sell hand` · `/sell all` — sell what you are holding, or everything "
-                "the shop buys\n"
+                "the server buys\n"
                 "> Elytras, netherite, totems, shulker shells and enchanted golden "
                 "apples are not sold",
             ),
