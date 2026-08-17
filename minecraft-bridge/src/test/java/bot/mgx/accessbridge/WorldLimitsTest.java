@@ -6,19 +6,19 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class WorldLimitsTest {
     @Test
-    void overworldDiameterIsFiftyThousandEitherSideOfSpawn() {
-        assertEquals(100_000, WorldLimits.diameter(false, 50_000));
+    void overworldDiameterIsOneHundredThousandEitherSideOfSpawn() {
+        assertEquals(200_000, WorldLimits.diameter(false, 100_000));
     }
 
     @Test
     void netherDiameterFollowsTheEightToOnePortalScale() {
-        assertEquals(12_500, WorldLimits.diameter(true, 50_000));
+        assertEquals(25_000, WorldLimits.diameter(true, 100_000));
     }
 
     @Test
     void aMissingConfigRadiusUsesTheDefault() {
-        assertEquals(100_000, WorldLimits.diameter(false, 0));
-        assertEquals(12_500, WorldLimits.diameter(true, -1));
+        assertEquals(200_000, WorldLimits.diameter(false, 0));
+        assertEquals(25_000, WorldLimits.diameter(true, -1));
     }
 
     @Test
