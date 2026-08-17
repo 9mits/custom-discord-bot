@@ -1,0 +1,293 @@
+package bot.mgx.accessbridge;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextColor;
+import net.kyori.adventure.text.format.TextDecoration;
+import org.bukkit.Bukkit;
+import org.bukkit.Location;
+import org.bukkit.World;
+import org.bukkit.entity.ArmorStand;
+import org.bukkit.entity.Entity;
+import org.bukkit.entity.Player;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.UUID;
+
+import static bot.mgx.accessbridge.MenuItems.ORANGE;
+
+/**
+ * In-world leaderboard holograms. Armor stands, not text displays, so Bedrock
+ * through Geyser can read them.
+ */
+final class HologramService {
+    private static final String TAG = "mgx_hologram";
+    private static final double LINE_GAP = 0.28;
+    private static final int ROWS = 10;
+
+    enum Board {
+        PLAYERS_WEALTH("individual", "wealth", "TOP WEALTH"),
+        PLAYERS_KILLS("individual", "kills", "TOP KILLS"),
+        CLANS_WEALTH("clan", "wealth", "TOP CLAN WEALTH"),
+        CLANS_KILLS("clan", "kills", "TOP CLAN KILLS");
+
+        private final String scope;
+        private final String key;
+        private final String title;
+
+        Board(String scope, String key, String title) {
+            this.scope = scope;
+            this.key = key;
+            this.title = title;
+        }
+
+        static Board fromKey(String raw) {
+            if (raw == null) {
+                throw new IllegalArgumentException(usage());
+            }
+            String token = raw.strip().toLowerCase(Locale.ROOT).replace('_', '-');
+            return switch (token) {
+                case "wealth", "players-wealth", "richest" -> PLAYERS_WEALTH;
+                case "kills", "players-kills" -> PLAYERS_KILLS;
+                case "clans-wealth", "clan-wealth", "clans" -> CLANS_WEALTH;
+                case "clans-kills", "clan-kills" -> CLANS_KILLS;
+                default -> throw new IllegalArgumentException(usage());
+            };
+        }
+
+        static String usage() {
+            return "Usage: /leaderboard hologram <wealth|kills|clans-wealth|clans-kills>";
+        }
+    }
+
+    private record Placement(Board board, UUID worldId, double x, double y, double z) {
+    }
+
+    private final Path file;
+    private final LeaderboardService boards;
+    private final ClanStore clans;
+    private final DiscordIdentityService identities;
+    private final Gson gson = new GsonBuilder().disableHtmlEscaping().create();
+    private final List<Placement> placements = new ArrayList<>();
+
+    HologramService(
+            Path file,
+            LeaderboardService boards,
+            ClanStore clans,
+            DiscordIdentityService identities
+    ) throws IOException {
+        this.file = file;
+        this.boards = boards;
+        this.clans = clans;
+        this.identities = identities;
+        load();
+    }
+
+    void place(Player player, Board board) throws IOException {
+        Location at = player.getLocation().add(0, 2.4, 0);
+        World world = at.getWorld();
+        if (world == null) {
+            throw new IllegalArgumentException("Stand in a world first.");
+        }
+        placements.removeIf(row -> row.board() == board);
+        placements.add(new Placement(board, world.getUID(), at.getX(), at.getY(), at.getZ()));
+        persist();
+        refresh();
+    }
+
+    void removeNearby(Player player) throws IOException {
+        Location at = player.getLocation();
+        boolean removed = placements.removeIf(row ->
+                row.worldId().equals(at.getWorld() == null ? null : at.getWorld().getUID())
+                        && distanceSquared(row, at) <= 16
+        );
+        if (!removed) {
+            throw new IllegalArgumentException("No hologram within 4 blocks.");
+        }
+        persist();
+        refresh();
+    }
+
+    void refresh() {
+        clearStands();
+        for (Placement placement : List.copyOf(placements)) {
+            World world = Bukkit.getWorld(placement.worldId());
+            if (world == null) {
+                continue;
+            }
+            spawn(world, placement);
+        }
+    }
+
+    private void spawn(World world, Placement placement) {
+        List<Component> lines = lines(placement.board());
+        for (int index = 0; index < lines.size(); index++) {
+            Location at = new Location(
+                    world,
+                    placement.x(),
+                    placement.y() - (index * LINE_GAP),
+                    placement.z()
+            );
+            Component line = lines.get(index);
+            world.spawn(at, ArmorStand.class, stand -> {
+                stand.setInvisible(true);
+                stand.setMarker(true);
+                stand.setGravity(false);
+                stand.setInvulnerable(true);
+                stand.setSilent(true);
+                stand.setCustomNameVisible(true);
+                stand.customName(line);
+                stand.addScoreboardTag(TAG);
+                stand.setPersistent(false);
+            });
+        }
+    }
+
+    private List<Component> lines(Board board) {
+        List<Component> lines = new ArrayList<>();
+        lines.add(Component.text(board.title, ORANGE, TextDecoration.BOLD));
+        lines.add(Component.empty());
+        JsonArray rows = rows(board);
+        for (int index = 0; index < ROWS; index++) {
+            if (index < rows.size()) {
+                lines.add(rowLine(board, index + 1, rows.get(index).getAsJsonObject()));
+            } else {
+                lines.add(Component.text("#" + (index + 1) + " | ---", NamedTextColor.DARK_GRAY));
+            }
+        }
+        return lines;
+    }
+
+    private Component rowLine(Board board, int place, JsonObject row) {
+        Component prefix = Component.text("#" + place + " | ", NamedTextColor.WHITE);
+        if (board.scope.equals("clan")) {
+            String name = text(row, "clan");
+            int colour = row.has("colour") ? row.get("colour").getAsInt() : 0xFF9900;
+            String display = text(row, "display");
+            return prefix
+                    .append(Component.text("[" + name + "]", TextColor.color(colour), TextDecoration.BOLD))
+                    .append(Component.text(": " + display, NamedTextColor.WHITE));
+        }
+        UUID uuid = parseUuid(text(row, "minecraft_uuid"));
+        String minecraft = text(row, "username");
+        String display = text(row, "display");
+        String clanName = text(row, "clan");
+        Component line = prefix;
+        if (!clanName.isBlank()) {
+            int colour = clans.list().stream()
+                    .filter(clan -> clan.name().equalsIgnoreCase(clanName))
+                    .map(ClanStore.ClanView::themeColor)
+                    .findFirst()
+                    .orElse(0xFF9900);
+            line = line.append(Component.text("[" + clanName + "] ", TextColor.color(colour), TextDecoration.BOLD));
+        }
+        if (uuid != null) {
+            String discord = identities.visibleUsername(uuid).orElse("");
+            if (!discord.isBlank()) {
+                line = line.append(Component.text("(" + discord + ") ", TextColor.color(0x5865F2)));
+            }
+        }
+        return line.append(Component.text(minecraft + ": " + display, NamedTextColor.WHITE));
+    }
+
+    private JsonArray rows(Board board) {
+        JsonObject snapshot = boards.latest();
+        if (snapshot == null || !snapshot.has(board.scope)) {
+            return new JsonArray();
+        }
+        JsonObject section = snapshot.getAsJsonObject(board.scope);
+        if (section == null || !section.has(board.key) || !section.get(board.key).isJsonArray()) {
+            return new JsonArray();
+        }
+        return section.getAsJsonArray(board.key);
+    }
+
+    private void clearStands() {
+        for (World world : Bukkit.getWorlds()) {
+            for (Entity entity : world.getEntities()) {
+                if (entity instanceof ArmorStand && entity.getScoreboardTags().contains(TAG)) {
+                    entity.remove();
+                }
+            }
+        }
+    }
+
+    private void load() throws IOException {
+        if (!Files.isRegularFile(file) || Files.size(file) == 0) {
+            return;
+        }
+        try {
+            JsonObject root = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
+            if (!root.has("placements") || !root.get("placements").isJsonArray()) {
+                return;
+            }
+            for (JsonElement element : root.getAsJsonArray("placements")) {
+                JsonObject row = element.getAsJsonObject();
+                placements.add(new Placement(
+                        Board.fromKey(row.get("board").getAsString()),
+                        UUID.fromString(row.get("world").getAsString()),
+                        row.get("x").getAsDouble(),
+                        row.get("y").getAsDouble(),
+                        row.get("z").getAsDouble()
+                ));
+            }
+        } catch (RuntimeException exception) {
+            throw new IOException("Hologram store is unreadable", exception);
+        }
+    }
+
+    private void persist() throws IOException {
+        JsonObject root = new JsonObject();
+        JsonArray listed = new JsonArray();
+        for (Placement placement : placements) {
+            JsonObject row = new JsonObject();
+            row.addProperty("board", placement.board().name().toLowerCase(Locale.ROOT).replace('_', '-'));
+            row.addProperty("world", placement.worldId().toString());
+            row.addProperty("x", placement.x());
+            row.addProperty("y", placement.y());
+            row.addProperty("z", placement.z());
+            listed.add(row);
+        }
+        root.add("placements", listed);
+        Path temporary = file.resolveSibling(file.getFileName() + ".tmp");
+        Files.writeString(temporary, gson.toJson(root), StandardCharsets.UTF_8);
+        try {
+            Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (AtomicMoveNotSupportedException ignored) {
+            Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    private static double distanceSquared(Placement placement, Location at) {
+        double dx = placement.x() - at.getX();
+        double dy = placement.y() - at.getY();
+        double dz = placement.z() - at.getZ();
+        return dx * dx + dy * dy + dz * dz;
+    }
+
+    private static String text(JsonObject row, String key) {
+        return row.has(key) ? row.get(key).getAsString() : "";
+    }
+
+    private static UUID parseUuid(String raw) {
+        try {
+            return UUID.fromString(raw);
+        } catch (RuntimeException ignored) {
+            return null;
+        }
+    }
+}

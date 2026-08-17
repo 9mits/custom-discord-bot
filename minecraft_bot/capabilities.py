@@ -56,7 +56,7 @@ CLAN_ACTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
     "transfer": ("Transfer leadership", ("leader",)),
     "disband": ("Disband the clan", ("leader",)),
     "leave": ("Leave the clan", ("leader", "staff", "member")),
-    "donate": ("Donate items in game", ("leader", "staff", "member")),
+    "donate": ("Donate money in game", ("leader", "staff", "member")),
     "upgrade": ("Buy a level or roster slot in game", ("leader", "staff")),
 }
 

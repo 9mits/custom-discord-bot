@@ -31,6 +31,8 @@ enum ResetScope {
     BALANCES("balances", "player money"),
     /** Auction listings and the mailbox expired items return to. */
     AUCTIONS("auctions", "auction listings and collected items"),
+    /** Money placed on players' heads. */
+    BOUNTIES("bounties", "player bounties"),
     /** Linked Discord usernames — the only personal data the plugin keeps. */
     IDENTITIES("identities", "linked Discord names shown beside Minecraft names"),
     /** Per-player display toggles, so everyone returns to the defaults. */

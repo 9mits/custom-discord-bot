@@ -2372,19 +2372,16 @@ class MinecraftInformationPanelTests(unittest.TestCase):
             / "minecraft-bridge/src/main/java/bot/mgx/accessbridge/ClanLevel.java"
         ).read_text()
 
-        for name, expected in (
-            ("MAX_PUBLIC_LEVEL", clans.MAX_PUBLIC_LEVEL),
-            ("SECRET_LEVEL", clans.SECRET_LEVEL),
-        ):
-            match = re.search(rf"int {name} = (\d+);", source)
-            self.assertIsNotNone(match, f"{name} vanished from ClanLevel")
-            self.assertEqual(expected, int(match.group(1)))
+        match = re.search(r"int MAX_PUBLIC_LEVEL = (\d+);", source)
+        self.assertIsNotNone(match, "MAX_PUBLIC_LEVEL vanished from ClanLevel")
+        self.assertEqual(clans.MAX_PUBLIC_LEVEL, int(match.group(1)))
+        self.assertNotIn("SECRET_LEVEL", source)
 
         perks = re.findall(
             r"(\d+), new Perks\((\d+), ([0-9.]+), ([0-9.]+), ([0-9.]+), ([0-9.]+), ([0-9.]+)\)",
             source,
         )
-        self.assertEqual(clans.SECRET_LEVEL, len(perks), "the perk table changed shape")
+        self.assertEqual(clans.MAX_PUBLIC_LEVEL, len(perks), "the perk table changed shape")
         for level, hearts, strength, saturation, digging, resistance, speed in perks:
             with self.subTest(level=level):
                 mirrored = clans.perks_for(int(level))
@@ -2395,26 +2392,16 @@ class MinecraftInformationPanelTests(unittest.TestCase):
                 self.assertEqual(round(float(resistance) * 100), mirrored.resistance)
                 self.assertEqual(round(float(speed) * 100), mirrored.speed)
 
-        costs = re.search(r"COSTS = Map\.of\((.*?)\n    \);", source, re.S)
-        self.assertIsNotNone(costs, "COSTS vanished from ClanLevel")
-        # Split on the level markers rather than matching each entry, so a cost list
-        # spilling over several lines does not need its own pattern.
-        parts = re.split(r"\n\s+(\d+), List\.of\(", costs.group(1))
+        costs_block = re.search(r"COSTS = Map\.of\((.*?)\n    \);", source, re.S)
+        self.assertIsNotNone(costs_block, "COSTS vanished from ClanLevel")
         priced = {
-            int(level): [
-                (material, int(amount))
-                for material, amount in re.findall(r'new Cost\("([A-Z_]+)", (\d+)\)', body)
-            ]
-            for level, body in zip(parts[1::2], parts[2::2])
+            int(level): int(amount.replace("_", ""))
+            for level, amount in re.findall(r"(\d+), new Cost\(([0-9_]+)L\)", costs_block.group(1))
         }
-        self.assertEqual(
-            set(range(1, clans.SECRET_LEVEL + 1)),
-            set(priced),
-            "the levels ClanLevel prices changed",
-        )
+        self.assertEqual(set(clans.COSTS), set(priced), "the levels ClanLevel prices changed")
         for level, expected in priced.items():
             with self.subTest(level=level):
-                self.assertEqual(expected, [tuple(cost) for cost in clans.cost_of(level)])
+                self.assertEqual(expected, clans.cost_of(level))
 
         badges = re.search(r"BADGES = Map\.of\((.*?)\n    \);", source, re.S)
         self.assertIsNotNone(badges, "BADGES vanished from ClanLevel")
@@ -2422,7 +2409,7 @@ class MinecraftInformationPanelTests(unittest.TestCase):
             int(level): glyph
             for level, glyph in re.findall(r'\n\s+(\d+), "(.*?)"', badges.group(1))
         }
-        self.assertEqual(clans.SECRET_LEVEL + 1, len(drawn), "the badge table changed shape")
+        self.assertEqual(clans.MAX_PUBLIC_LEVEL + 1, len(drawn), "the badge table changed shape")
         for level, glyph in drawn.items():
             with self.subTest(badge=level):
                 self.assertEqual(glyph, clans.badge(level))
@@ -2431,34 +2418,22 @@ class MinecraftInformationPanelTests(unittest.TestCase):
         self.assertIsNotNone(starting, "STARTING_MEMBER_SLOTS vanished from ClanLevel")
         self.assertEqual(clans.STARTING_MEMBER_SLOTS, int(starting.group(1)))
 
-        tiers = re.findall(
-            r'new MemberTier\((\d+), new Cost\("([A-Z_]+)", (\d+)\)\)', source
-        )
+        tiers = re.findall(r"new MemberTier\((\d+), new Cost\(([0-9_]+)L\)\)", source)
         self.assertEqual(
-            [(slots, material, amount) for slots, material, amount in clans.MEMBER_TIERS],
-            [(int(slots), material, int(amount)) for slots, material, amount in tiers],
+            list(clans.MEMBER_TIERS),
+            [(int(slots), int(amount.replace("_", ""))) for slots, amount in tiers],
             "the roster ladder drifted from the plugin that enforces it",
         )
 
-    def test_the_secret_clan_level_is_never_advertised(self):
-        # The whole point of level 6 is that a clan learns of it only after buying
-        # everything else. A copy edit that names it anywhere undoes that silently.
+    def test_there_is_no_secret_sixth_clan_level(self):
         from minecraft_bot import clans
 
         described = " ".join(self.embed_text(embed) for _name, embed in self._every_embed())
 
         self.assertNotIn("Dragon Egg", described)
-        self.assertNotIn("DRAGON_EGG", described)
-        self.assertNotIn(f"Level {clans.SECRET_LEVEL}", described)
-        # The public badge is now one star at every level, so the secret glyph is the
-        # only badge that could give it away.
-        self.assertNotIn(clans.badge(clans.SECRET_LEVEL), described)
-        # And it is absent from the tuple every player-facing surface enumerates.
-        self.assertNotIn(clans.SECRET_LEVEL, clans.PUBLIC_LEVELS)
-        self.assertNotIn(clans.SECRET_LEVEL, clans.visible_levels(0))
-        self.assertNotIn(clans.SECRET_LEVEL, clans.visible_levels(clans.MAX_PUBLIC_LEVEL - 1))
-        # A clan with nothing left to buy is the one case that may see it.
-        self.assertIn(clans.SECRET_LEVEL, clans.visible_levels(clans.MAX_PUBLIC_LEVEL))
+        self.assertNotIn("Level 6", described)
+        self.assertEqual(clans.PUBLIC_LEVELS, clans.visible_levels(0))
+        self.assertEqual(clans.PUBLIC_LEVELS, clans.visible_levels(clans.MAX_PUBLIC_LEVEL))
 
     def test_clan_levels_page_publishes_no_prices_or_perk_figures(self):
         # The upgrade menu quotes the next level in game, at the moment it matters.
@@ -2470,10 +2445,7 @@ class MinecraftInformationPanelTests(unittest.TestCase):
         for level in clans.PUBLIC_LEVELS:
             with self.subTest(level=level):
                 self.assertNotIn(f"Level {level}", described)
-                for material, amount in clans.cost_of(level):
-                    self.assertNotIn(
-                        f"{amount}x {clans.readable_material(material)}", described
-                    )
+                self.assertNotIn(clans.described_cost(level), described)
         # No per-level perk figures either, which is the other half of the table.
         self.assertNotRegex(described, r"\+\d")
         # What is left still has to warn about the rules people resent finding late.
@@ -2487,7 +2459,7 @@ class MinecraftInformationPanelTests(unittest.TestCase):
         embed = self.information.clans_members_embed()
         described = self.embed_text(embed)
 
-        for slots, material, amount in clans.MEMBER_TIERS:
+        for slots, amount in clans.MEMBER_TIERS:
             with self.subTest(slots=slots):
                 self.assertNotIn(f"**{slots}** — {amount}", described)
         self.assertNotIn("Slots priced in", described)

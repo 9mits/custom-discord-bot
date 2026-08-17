@@ -44,6 +44,7 @@ final class ServerDataResetService {
     private final WealthStore wealth;
     private final EconomyStore economy;
     private final AuctionStore auctions;
+    private final BountyStore bounties;
     private final RankSyncStore rankSync;
     private final DiscordIdentityStore identities;
     private final PlayerSettingsStore settings;
@@ -60,6 +61,7 @@ final class ServerDataResetService {
             WealthStore wealth,
             EconomyStore economy,
             AuctionStore auctions,
+            BountyStore bounties,
             RankSyncStore rankSync,
             DiscordIdentityStore identities,
             PlayerSettingsStore settings,
@@ -74,6 +76,7 @@ final class ServerDataResetService {
         this.wealth = wealth;
         this.economy = economy;
         this.auctions = auctions;
+        this.bounties = bounties;
         this.rankSync = rankSync;
         this.identities = identities;
         this.settings = settings;
@@ -147,6 +150,9 @@ final class ServerDataResetService {
         }
         if (scopes.contains(ResetScope.AUCTIONS)) {
             clear(ResetScope.AUCTIONS, auctions::clearAll, cleared, problems);
+        }
+        if (scopes.contains(ResetScope.BOUNTIES)) {
+            clear(ResetScope.BOUNTIES, bounties::clearAll, cleared, problems);
         }
         if (scopes.contains(ResetScope.IDENTITIES)) {
             clear(ResetScope.IDENTITIES, identities::clearAll, cleared, problems);

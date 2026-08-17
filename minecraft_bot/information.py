@@ -302,7 +302,8 @@ def commands_account_embed(settings=None) -> discord.Embed:
                 "> `/shop` — buy from the server shop\n"
                 "> `/sell` · `/sell hand` · `/sell all` — sell items for money\n"
                 "> `/ah` — auction house; `/ah sell <price>` lists the item in hand\n"
-                "> `/bal` · `/pay <player> <amount>` — wallet and transfers",
+                "> `/bal` · `/pay <player> <amount>` — wallet and transfers\n"
+                "> `/bounty set <player> <amount>` — put money on someone's head",
             ),
             (
                 "The server",
@@ -368,14 +369,14 @@ def clans_levels_embed(settings=None) -> discord.Embed:
             (
                 "Donating",
                 "> `/clans` — open the clan menu\n"
-                "> `/clans donate` — opens a window; drop in anything valuable, then "
-                "close it\n"
+                "> `/clans donate` — give money from your wallet\n"
+                "> `/clans donate <amount>` — a custom sum\n"
                 "> `/clans members` — every member, their role and Discord name\n"
-                "> `/clans balance` — what the clan is holding and what it is worth\n"
+                "> `/clans balance` — the clan treasury\n"
                 "> `/clans donors` — who has given what, largest first\n"
-                "> `/clans upgrade` — leader or clan staff; spends the balance\n"
+                "> `/clans upgrade` — leader or clan staff; spends the treasury\n"
                 "> \n"
-                "> **Donations are one way.** Nobody can take items back out, and "
+                "> **Donations are one way.** Nobody can take money back out, and "
                 "disbanding the clan destroys the balance with it.",
             ),
             (

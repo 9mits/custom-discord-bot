@@ -147,6 +147,7 @@ final class GuideService implements CommandExecutor, TabCompleter {
         player.sendMessage(guideLink("/sell", "Sell items to the server", GOLD));
         player.sendMessage(guideLink("/ah", "Player auction house", NamedTextColor.YELLOW));
         player.sendMessage(guideLink("/bal", "Your money", NamedTextColor.GREEN));
+        player.sendMessage(guideLink("/bounty set <player> <amount>", "Put money on a player", NamedTextColor.RED));
         player.sendMessage(guideLink("/pay <player> <amount>", "Send money to someone online", NamedTextColor.AQUA));
         player.sendMessage(guideLink("/leaderboard", "Richest players and clans", ORANGE));
         player.sendMessage(guideLink("/clan", "Open your available clan commands", GOLD));

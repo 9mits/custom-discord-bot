@@ -386,7 +386,7 @@ def build_embed(
     # This board reads the clan's own balance, not what its members carry, so say
     # so — otherwise a clan full of rich players looks broken.
     note = (
-        "What each clan has been donated and still holds.\n\n"
+        "What each clan has been donated in money and still holds.\n\n"
         if scope == "clan" and board == "wealth"
         else ""
     )

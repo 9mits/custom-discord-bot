@@ -1743,7 +1743,7 @@ class MinecraftAccessBot(commands.Bot):
                 if following is None and roster is None:
                     lines.append("> Everything is bought.")
                 else:
-                    lines.append("> Give items with `/clans donate` in game.")
+                    lines.append("> Give money with `/clans donate` in game.")
                 actions = caps.available_clan_actions()
                 if actions:
                     lines.append("")

@@ -127,7 +127,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
 
     private void sellCommand(Player player, String[] args) {
         if (args.length == 0) {
-            openSell(player);
+            openSellPreview(player);
             return;
         }
         String action = args[0].toLowerCase(Locale.ROOT);
@@ -238,6 +238,74 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                 "Sell  •  " + EconomyFormat.dollars(money.balance(player.getUniqueId())),
                 null
         );
+        player.openInventory(inventory);
+    }
+
+    void openSellPreview(Player player) {
+        List<ItemStack> sellable = sellableIn(player);
+        Inventory inventory = create(
+                Menu.Kind.SELL_PREVIEW, null, 1, BOARD_SIZE,
+                "Sell  •  " + EconomyFormat.dollars(previewTotal(sellable)),
+                null
+        );
+        int shown = Math.min(sellable.size(), 45);
+        for (int index = 0; index < shown; index++) {
+            ItemStack stack = sellable.get(index).clone();
+            ShopCatalog.Offer offer = ShopCatalog.offer(stack.getType().name()).orElseThrow();
+            long credit = offer.creditFor(stack.getAmount());
+            ItemMeta meta = stack.getItemMeta();
+            if (meta != null) {
+                meta.lore(List.of(
+                        line("Sell for " + EconomyFormat.dollars(credit)),
+                        line("Click to sell this stack.")
+                ));
+                stack.setItemMeta(meta);
+            }
+            inventory.setItem(index, stack);
+        }
+        if (sellable.isEmpty()) {
+            inventory.setItem(22, button(Material.BARRIER, "Nothing to sell",
+                    "Hold something the shop buys,",
+                    "or open the price list."));
+        }
+        inventory.setItem(45, button(Material.HOPPER, "Sell all",
+                "Sell every listed stack."));
+        inventory.setItem(49, button(Material.CHEST, "Put items in",
+                "Drop extras in a chest to sell."));
+        inventory.setItem(53, button(Material.BOOK, "Price list",
+                "What the shop pays for each item."));
+        player.openInventory(inventory);
+    }
+
+    void openSellPrices(Player player, int page) {
+        List<ShopCatalog.Offer> offers = ShopCatalog.allOffers();
+        Inventory inventory = create(
+                Menu.Kind.SELL_PRICES,
+                null,
+                page,
+                BOARD_SIZE,
+                MenuItems.pagedTitle("Sell prices", page, offers.size()),
+                Menu.Destination.of(Menu.Kind.SELL_PREVIEW)
+        );
+        int first = MenuPaging.firstIndex(page, offers.size(), PER_PAGE);
+        int last = MenuPaging.lastIndex(page, offers.size(), PER_PAGE);
+        for (int index = first; index < last; index++) {
+            ShopCatalog.Offer offer = offers.get(index);
+            Material material = materialOf(offer.material());
+            ItemStack item = new ItemStack(material, Math.min(offer.amount(), material.getMaxStackSize()));
+            ItemMeta meta = item.getItemMeta();
+            if (meta != null) {
+                meta.displayName(Component.text(readable(offer.material()), ORANGE, TextDecoration.BOLD)
+                        .decoration(TextDecoration.ITALIC, false));
+                meta.lore(List.of(
+                        line(offer.amount() + " sells for " + EconomyFormat.dollars(offer.price())),
+                        line("One sells for " + EconomyFormat.dollars(offer.creditFor(1)))
+                ));
+                item.setItemMeta(meta);
+            }
+            inventory.setItem(index - first, item);
+        }
+        MenuItems.paginate(inventory, page, offers.size(), true);
         player.openInventory(inventory);
     }
 
@@ -361,6 +429,8 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             switch (menu.kind()) {
                 case SHOP_HUB -> clickShopHub(player, slot);
                 case SHOP_CATEGORY -> clickShopCategory(player, menu, slot, event.getClick());
+                case SELL_PREVIEW -> clickSellPreview(player, slot);
+                case SELL_PRICES -> clickSellPrices(player, menu, slot);
                 case AUCTION_HUB -> clickAuction(player, menu, slot);
                 case AUCTION_OWN -> clickOwn(player, menu, slot);
                 case AUCTION_MAIL -> clickMail(player, slot);
@@ -389,6 +459,78 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             return;
         }
         settleSell(player, event.getInventory());
+    }
+
+    private void clickSellPreview(Player player, int slot) {
+        if (slot == 45) {
+            sellInventory(player);
+            openSellPreview(player);
+            return;
+        }
+        if (slot == 49) {
+            openSell(player);
+            return;
+        }
+        if (slot == 53) {
+            openSellPrices(player, 1);
+            return;
+        }
+        List<ItemStack> sellable = sellableIn(player);
+        if (slot < 0 || slot >= sellable.size() || slot >= 45) {
+            return;
+        }
+        ItemStack target = sellable.get(slot);
+        PlayerInventory inventory = player.getInventory();
+        for (int index = 0; index < 36; index++) {
+            ItemStack item = inventory.getItem(index);
+            if (item == null || !sameSellStack(item, target)) {
+                continue;
+            }
+            Sold sold = sellStacks(player, List.of(item));
+            if (sold.count() == 0) {
+                throw new IllegalArgumentException("That cannot be sold here.");
+            }
+            inventory.setItem(index, null);
+            money.deposit(player.getUniqueId(), sold.credit());
+            info(player, "Sold " + sold.describe() + " for " + EconomyFormat.dollars(sold.credit()) + ".");
+            openSellPreview(player);
+            return;
+        }
+    }
+
+    private void clickSellPrices(Player player, Menu menu, int slot) {
+        if (slot == PREVIOUS_SLOT) {
+            openSellPrices(player, menu.page() - 1);
+            return;
+        }
+        if (slot == NEXT_SLOT) {
+            openSellPrices(player, menu.page() + 1);
+        }
+    }
+
+    private static List<ItemStack> sellableIn(Player player) {
+        List<ItemStack> stacks = new ArrayList<>();
+        for (int slot = 0; slot < 36; slot++) {
+            ItemStack item = player.getInventory().getItem(slot);
+            if (isInstantSellable(item)) {
+                stacks.add(item);
+            }
+        }
+        return stacks;
+    }
+
+    private static long previewTotal(List<ItemStack> stacks) {
+        long total = 0L;
+        for (ItemStack item : stacks) {
+            total += ShopCatalog.offer(item.getType().name())
+                    .map(offer -> offer.creditFor(item.getAmount()))
+                    .orElse(0L);
+        }
+        return total;
+    }
+
+    private static boolean sameSellStack(ItemStack left, ItemStack right) {
+        return left.getType() == right.getType() && left.getAmount() == right.getAmount();
     }
 
     private void clickShopHub(Player player, int slot) {
@@ -704,6 +846,10 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             openShopHub(player);
             return;
         }
+        if (back.kind() == Menu.Kind.SELL_PREVIEW) {
+            openSellPreview(player);
+            return;
+        }
         openAuction(player, Math.max(1, back.page()));
     }
 
@@ -720,6 +866,8 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         return kind == Menu.Kind.SHOP_HUB
                 || kind == Menu.Kind.SHOP_CATEGORY
                 || kind == Menu.Kind.SELL
+                || kind == Menu.Kind.SELL_PREVIEW
+                || kind == Menu.Kind.SELL_PRICES
                 || kind == Menu.Kind.AUCTION_HUB
                 || kind == Menu.Kind.AUCTION_OWN
                 || kind == Menu.Kind.AUCTION_MAIL

@@ -107,7 +107,13 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 case "leave" -> leave(player);
                 case "chat" -> chat(player, remainder(args, 1));
                 case "menu" -> menus.openHub(player);
-                case "donate" -> menus.openDonate(player);
+                case "donate" -> {
+                    if (args.length >= 2) {
+                        menus.donate(player, EconomyFormat.parseAmount(args[1]));
+                    } else {
+                        menus.openDonate(player);
+                    }
+                }
                 case "balance", "vault", "bank" -> menus.openBalance(player);
                 case "donors", "contributors" -> menus.openDonors(player);
                 case "upgrade", "levelup" -> menus.openUpgrade(player);
@@ -350,7 +356,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         if (current.isPresent()) {
             ClanStore.ClanRole role = current.get().roleOf(player.getUniqueId());
             player.sendMessage(help("/clans", "Open the clan menu"));
-            player.sendMessage(help("/clans donate", "Give items to the clan"));
+            player.sendMessage(help("/clans donate [amount]", "Give money to the clan"));
             player.sendMessage(help("/clans balance | donors", "What the clan holds, and who gave it"));
             if (role == ClanStore.ClanRole.LEADER || role == ClanStore.ClanRole.STAFF) {
                 player.sendMessage(help("/clans upgrade", "Spend the balance on levels or slots"));
