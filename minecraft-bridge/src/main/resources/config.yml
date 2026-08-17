@@ -19,8 +19,15 @@ verification-expiry-seconds: 600
 reconnect-max-seconds: 60
 
 # The sidebar refreshes live player, level, heart, clan, combat, and server data.
+# 100 ticks (5s) keeps ping/TPS current without rebuilding every scoreboard each second.
 scoreboard:
   footer: "discord.gg/mgx"
-  update-ticks: 20
+  update-ticks: 100
+
+# Caps how much of each world Paper keeps in RAM. 0 on a distance leaves the panel value.
+world:
+  keep-spawn-loaded: false
+  max-view-distance: 6
+  max-simulation-distance: 4
 
 debug: false

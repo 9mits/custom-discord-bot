@@ -1,8 +1,5 @@
 package bot.mgx.accessbridge;
 
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
@@ -10,13 +7,14 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 
 import java.io.IOException;
-import java.io.Reader;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
 
@@ -27,14 +25,20 @@ import java.util.stream.Stream;
  *
  * <p>Wealth is the exception: nothing records it, so it is measured while a player is
  * online and the last known figure is kept for when they are not.
+ *
+ * <p>Unchanged files are not parsed again, and usernames are remembered after the
+ * first lookup so the five-minute pass does not keep warming Paper's offline-player
+ * cache.
  */
 final class PlayerStatsService {
-    private static final String CUSTOM = "minecraft:custom";
-    private static final String MINED = "minecraft:mined";
-
     private final MGXAccessBridge plugin;
     private final Path statsDirectory;
     private final WealthStore wealth;
+    private final Map<UUID, Cached> cache = new HashMap<>();
+    private final Map<UUID, String> rememberedNames = new HashMap<>();
+
+    private record Cached(long mtime, PlayerStatsParser.Snapshot snapshot) {
+    }
 
     PlayerStatsService(MGXAccessBridge plugin, Path statsDirectory, WealthStore wealth) {
         this.plugin = plugin;
@@ -54,82 +58,74 @@ final class PlayerStatsService {
             plugin.getLogger().warning("No statistics directory at " + statsDirectory);
             return all;
         }
+        rememberedNames.putAll(onlineNames);
+        Set<UUID> seen = new HashSet<>();
         try (Stream<Path> files = Files.list(statsDirectory)) {
             for (Path file : files.filter(path -> path.toString().endsWith(".json")).toList()) {
-                statsFor(file, onlineNames).ifPresent(all::add);
+                statsFor(file, onlineNames).ifPresent(row -> {
+                    seen.add(row.minecraftUuid());
+                    all.add(row);
+                });
             }
         } catch (IOException exception) {
             plugin.getLogger().warning("Could not list player statistics: " + exception.getMessage());
         }
+        cache.keySet().removeIf(uuid -> !seen.contains(uuid));
         return all;
     }
 
     private java.util.Optional<PlayerStats> statsFor(Path file, Map<UUID, String> onlineNames) {
-        String name = file.getFileName().toString().replace(".json", "");
-        UUID uuid;
-        try {
-            uuid = UUID.fromString(name);
-        } catch (IllegalArgumentException ignored) {
+        java.util.Optional<UUID> parsedUuid = PlayerStatsParser.uuidFromFileName(file);
+        if (parsedUuid.isEmpty()) {
             return java.util.Optional.empty();
         }
-        try (Reader reader = Files.newBufferedReader(file, StandardCharsets.UTF_8)) {
-            JsonElement parsed = JsonParser.parseReader(reader);
-            if (!parsed.isJsonObject()) {
-                return java.util.Optional.empty();
-            }
-            JsonObject stats = parsed.getAsJsonObject().getAsJsonObject("stats");
-            if (stats == null) {
-                return java.util.Optional.empty();
+        UUID uuid = parsedUuid.get();
+        try {
+            long mtime = Files.getLastModifiedTime(file).toMillis();
+            Cached cached = cache.get(uuid);
+            PlayerStatsParser.Snapshot snapshot;
+            if (cached != null && cached.mtime() == mtime) {
+                snapshot = cached.snapshot();
+            } else {
+                java.util.Optional<PlayerStatsParser.Snapshot> read = PlayerStatsParser.read(file);
+                if (read.isEmpty()) {
+                    return java.util.Optional.empty();
+                }
+                snapshot = read.get();
+                cache.put(uuid, new Cached(mtime, snapshot));
             }
             return java.util.Optional.of(new PlayerStats(
                     uuid,
                     usernameOf(uuid, onlineNames),
-                    custom(stats, "minecraft:player_kills"),
-                    custom(stats, "minecraft:deaths"),
-                    custom(stats, "minecraft:play_time"),
-                    totalOf(stats, MINED),
-                    custom(stats, "minecraft:walk_one_cm"),
+                    snapshot.kills(),
+                    snapshot.deaths(),
+                    snapshot.playTimeTicks(),
+                    snapshot.blocksMined(),
+                    snapshot.walkedCm(),
                     wealth.snapshots().getOrDefault(uuid, 0L)
             ));
         } catch (IOException | RuntimeException exception) {
             plugin.getLogger().warning(
-                    "Could not read statistics for " + name + ": " + exception.getMessage()
+                    "Could not read statistics for " + uuid + ": " + exception.getMessage()
             );
             return java.util.Optional.empty();
         }
     }
 
-    private static long custom(JsonObject stats, String key) {
-        JsonObject section = stats.getAsJsonObject(CUSTOM);
-        if (section == null || !section.has(key)) {
-            return 0L;
-        }
-        return section.get(key).getAsLong();
-    }
-
-    /** Sums a whole section, which is how "blocks mined" is derived from per-block counts. */
-    private static long totalOf(JsonObject stats, String sectionName) {
-        JsonObject section = stats.getAsJsonObject(sectionName);
-        if (section == null) {
-            return 0L;
-        }
-        long total = 0L;
-        for (Map.Entry<String, JsonElement> entry : section.entrySet()) {
-            total += entry.getValue().getAsLong();
-        }
-        return total;
-    }
-
     private String usernameOf(UUID uuid, Map<UUID, String> onlineNames) {
-        String online = onlineNames.get(uuid);
-        if (online != null) {
-            return online;
+        String cached = PlayerStatsParser.cachedUsername(uuid, onlineNames, rememberedNames);
+        if (!cached.isEmpty()) {
+            rememberedNames.put(uuid, cached);
+            return cached;
         }
         // Safe off the main thread: a UUID lookup reads the local cache and never
-        // makes a web request, unlike looking a player up by name.
+        // makes a web request, unlike looking a player up by name. Remembered after
+        // the first hit so later passes do not keep Paper's offline-player map warm.
         OfflinePlayer offline = Bukkit.getOfflinePlayer(uuid);
         String name = offline.getName();
-        return name == null ? uuid.toString().substring(0, 8) : name;
+        String resolved = name == null ? PlayerStatsParser.fallbackUsername(uuid) : name;
+        rememberedNames.put(uuid, resolved);
+        return resolved;
     }
 
     /** Measures what a player is carrying right now and remembers it for when they log off. */

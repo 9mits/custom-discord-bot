@@ -30,7 +30,7 @@ record BridgeConfig(
         int expiry = config.getInt("verification-expiry-seconds", 600);
         int reconnectMax = config.getInt("reconnect-max-seconds", 60);
         String scoreboardFooter = config.getString("scoreboard.footer", "discord.gg/mgx").trim();
-        int scoreboardUpdateTicks = config.getInt("scoreboard.update-ticks", 20);
+        int scoreboardUpdateTicks = config.getInt("scoreboard.update-ticks", 100);
         // Minecraft statistics move slowly and each pass reads every player's file,
         // so five minutes keeps the board live without hammering disk or Discord.
         int leaderboardRefreshTicks = config.getInt("leaderboard.refresh-ticks", 6_000);

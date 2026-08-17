@@ -5,7 +5,6 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
 import org.bukkit.Chunk;
-import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
@@ -19,7 +18,10 @@ import java.nio.file.Path;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 
 /**
  * One-shot launch: countdown in chat, strip barrier blocks, hold PvP off for five hours.
@@ -37,7 +39,15 @@ final class LaunchService {
     private boolean testRun;
     private BukkitTask restoreTask;
     private BukkitTask barrierRestoreTask;
-    private final List<Location> removedBarriers = new ArrayList<>();
+    private final List<BarrierBlock> removedBarriers = new ArrayList<>();
+
+    /** Packed block we stripped in a test run, without holding a live World. */
+    private record BarrierBlock(UUID worldId, int x, int y, int z) {
+    }
+
+    /** A chunk we loaded only to restore a test barrier, keyed without a World. */
+    private record ScannedChunk(UUID worldId, int x, int z) {
+    }
 
     LaunchService(MGXAccessBridge plugin, Path dataFolder) {
         this.plugin = plugin;
@@ -129,9 +139,15 @@ final class LaunchService {
         int total = removed;
         while (!queue.isEmpty() && processed < CHUNKS_PER_TICK) {
             long[] next = queue.removeFirst();
-            World world = Bukkit.getWorld(new java.util.UUID(next[0], next[1]));
+            World world = Bukkit.getWorld(new UUID(next[0], next[1]));
             if (world != null) {
-                total += clearBarriers(world.getChunkAt((int) next[2], (int) next[3]), restoreAfterMinute);
+                int chunkX = (int) next[2];
+                int chunkZ = (int) next[3];
+                boolean wasLoaded = world.isChunkLoaded(chunkX, chunkZ);
+                total += clearBarriers(world.getChunkAt(chunkX, chunkZ), restoreAfterMinute);
+                if (WorldMemory.shouldUnloadScannedChunk(wasLoaded)) {
+                    world.unloadChunk(chunkX, chunkZ, true);
+                }
             }
             processed++;
         }
@@ -161,7 +177,9 @@ final class LaunchService {
                     Block block = world.getBlockAt(baseX + x, y, baseZ + z);
                     if (block.getType() == Material.BARRIER) {
                         if (record) {
-                            removedBarriers.add(block.getLocation());
+                            removedBarriers.add(new BarrierBlock(
+                                    world.getUID(), baseX + x, y, baseZ + z
+                            ));
                         }
                         block.setType(Material.AIR, false);
                         removed++;
@@ -178,15 +196,28 @@ final class LaunchService {
         }
         barrierRestoreTask = plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
             int restored = 0;
-            for (Location location : removedBarriers) {
-                World world = location.getWorld();
+            Set<ScannedChunk> loaded = new HashSet<>();
+            for (BarrierBlock location : removedBarriers) {
+                World world = Bukkit.getWorld(location.worldId());
                 if (world == null) {
                     continue;
                 }
-                Block block = world.getBlockAt(location);
+                int chunkX = location.x() >> 4;
+                int chunkZ = location.z() >> 4;
+                boolean wasLoaded = world.isChunkLoaded(chunkX, chunkZ);
+                Block block = world.getBlockAt(location.x(), location.y(), location.z());
                 if (block.getType() == Material.AIR) {
                     block.setType(Material.BARRIER, false);
                     restored++;
+                }
+                if (WorldMemory.shouldUnloadScannedChunk(wasLoaded)) {
+                    loaded.add(new ScannedChunk(location.worldId(), chunkX, chunkZ));
+                }
+            }
+            for (ScannedChunk chunk : loaded) {
+                World world = Bukkit.getWorld(chunk.worldId());
+                if (world != null) {
+                    world.unloadChunk(chunk.x(), chunk.z(), true);
                 }
             }
             removedBarriers.clear();
