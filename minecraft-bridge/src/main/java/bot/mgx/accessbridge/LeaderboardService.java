@@ -20,8 +20,8 @@ import java.util.UUID;
  * replaces it. That also caps how often the statistics files are read.
  */
 final class LeaderboardService {
-    /** Top five on every board — hologram, menu, and Discord. */
-    private static final int ROWS = 5;
+    /** Top ten on every board — hologram, menu, and Discord. */
+    private static final int ROWS = 10;
     /** Publish shortly after boot so a freshly placed board is not blank for minutes. */
     private static final long FIRST_PUBLISH_TICKS = 200L;
 

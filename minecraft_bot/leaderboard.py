@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 BRAND_COLOUR = discord.Color.from_rgb(255, 153, 0)
 PODIUM = 3
 #: Five rows keeps the pair of boards readable in one message.
-DISPLAY_ROWS = 5
+DISPLAY_ROWS = 10
 #: Head emojis are a reward, so they outlive a single bad week on the board.
 EMOJI_RETENTION_DAYS = 14
 #: Five individual boards and three clan boards, three places each, plus room for

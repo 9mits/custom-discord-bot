@@ -37,7 +37,7 @@ import static bot.mgx.accessbridge.MenuItems.ORANGE;
 final class HologramService {
     private static final String TAG = "mgx_hologram";
     private static final double LINE_GAP = 0.28;
-    private static final int ROWS = 5;
+    private static final int ROWS = 10;
 
     enum Board {
         PLAYERS_WEALTH("individual", "wealth", "TOP WEALTH"),
