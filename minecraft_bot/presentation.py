@@ -276,11 +276,11 @@ def _panel_embed(title: str, description: str) -> discord.Embed:
 #: rather than describing the atmosphere twice. How any of it works belongs in
 #: the information panel they get after acceptance.
 SERVER_FEATURES: tuple[tuple[str, str], ...] = (
-    ("Clans", "Your own name, tag and colour, with no friendly fire"),
+    ("Economy", "Shop, sell, player auctions and bounties"),
+    ("Clans", "Your own name, tag and colour, funded by a shared treasury"),
     ("Levels", "Chatting in Discord earns permanent extra hearts and damage"),
-    ("Homes and travel", "Save your spots and teleport to friends"),
     ("Voice chat", "Proximity voice with whoever is standing near you"),
-    ("Leaderboards", "Richest and most kills"),
+    ("Leaderboards", "Top 10 richest and most kills"),
     ("Crossplay", "Java and Bedrock in one shared world"),
 )
 
@@ -330,6 +330,34 @@ def application_guide_embed() -> discord.Embed:
             "> **Bedrock** — any current version, on phone, console or Windows\n"
             f"> The server runs **{SERVER_VERSION}** and translates in both "
             "directions, so join on whatever you already play."
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="Money",
+        value=(
+            "> A wallet of your own: buy from the server shop, sell what you "
+            "gather, list items on the auction house, and put a bounty on a "
+            "player. Rare progression items — elytras, netherite, totems, "
+            "shulker shells and enchanted golden apples — are not sold."
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="Clans",
+        value=(
+            "> A named group with a shared tag, colour, and treasury. Money "
+            "you donate stays there and cannot be taken back. The richest clan "
+            "is whoever has given the most, not what members are carrying."
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="The world",
+        value=(
+            "> One hundred thousand blocks from spawn, Java and Bedrock in "
+            "the same world. Leaderboards sit at spawn: richest players, "
+            "most kills, and the same for clans."
         ),
         inline=False,
     )

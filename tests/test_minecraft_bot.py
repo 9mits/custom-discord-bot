@@ -2078,9 +2078,9 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
         }
 
         for feature in (
+            "Economy",
             "Clans",
             "Levels",
-            "Homes and travel",
             "Voice chat",
             "Leaderboards",
             "Crossplay",
@@ -2704,6 +2704,12 @@ class MinecraftInformationPanelTests(unittest.TestCase):
             "/afk",
             "/list",
             "/ping",
+            "/shop",
+            "/sell",
+            "/ah",
+            "/bal",
+            "/pay",
+            "/bounty",
         ):
             with self.subTest(command=command):
                 self.assertIn(command, described)
