@@ -242,7 +242,7 @@ Read the relevant file when you touch an area; these are the non-obvious points.
   distance (defaults 6 / 4) so an empty or far-from-spawn world does not keep
   a 1.21 neighborhood resident. A 3x3 plugin ticket stays on the spawn chunk
   so a death far from 0,0 can still respawn. `WorldLimits` sets the overworld
-  border to 50,000 blocks from spawn (nether 1/8) — the red fog and sounds
+  border to 100,000 blocks from spawn (nether 1/8) — the red fog and sounds
   past a small border are vanilla's warning, not a broken world.
   `/mgxadmin startserver` unloads each barrier scan chunk it had to load, so
   the launch pass cannot leave ~1,250 chunks in RAM. Set

@@ -12,7 +12,7 @@ package bot.mgx.accessbridge;
  * <p>Zero for a configured radius means "leave the panel value alone".
  */
 final class WorldLimits {
-    static final double OVERWORLD_RADIUS = 50_000;
+    static final double OVERWORLD_RADIUS = 100_000;
     static final double NETHER_SCALE = 8;
     static final int WARNING_DISTANCE = 100;
     static final int SPAWN_TICKET_RADIUS = 1;
