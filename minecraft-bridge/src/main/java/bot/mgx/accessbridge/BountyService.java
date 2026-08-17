@@ -25,10 +25,12 @@ import static bot.mgx.accessbridge.MenuItems.ORANGE;
 final class BountyService implements CommandExecutor, TabCompleter, Listener {
     private final EconomyStore money;
     private final BountyStore bounties;
+    private final ClanStore clans;
 
-    BountyService(EconomyStore money, BountyStore bounties) {
+    BountyService(EconomyStore money, BountyStore bounties, ClanStore clans) {
         this.money = money;
         this.bounties = bounties;
+        this.clans = clans;
     }
 
     @Override
@@ -40,9 +42,10 @@ final class BountyService implements CommandExecutor, TabCompleter, Listener {
             }
             String action = args[0].toLowerCase(Locale.ROOT);
             switch (action) {
-                case "set", "add", "place" -> set(sender, args);
+                case "set", "add", "place" -> set(sender, args, false);
+                case "clan" -> set(sender, args, true);
                 case "check" -> check(sender, args);
-                default -> set(sender, prepend(args, "set"));
+                default -> set(sender, prepend(args, "set"), false);
             }
         } catch (IllegalArgumentException exception) {
             error(sender, exception.getMessage());
@@ -57,7 +60,7 @@ final class BountyService implements CommandExecutor, TabCompleter, Listener {
         if (args.length == 1) {
             return StringUtil.copyPartialMatches(
                     args[0],
-                    List.of("set", "list", "check"),
+                    List.of("set", "clan", "list", "check"),
                     new ArrayList<>()
             );
         }
@@ -110,15 +113,20 @@ final class BountyService implements CommandExecutor, TabCompleter, Listener {
         }
     }
 
-    private void set(CommandSender sender, String[] args) {
+    private void set(CommandSender sender, String[] args, boolean fromClan) {
         if (!(sender instanceof Player player)) {
             throw new IllegalArgumentException("/bounty is a player command.");
         }
         int nameIndex = args[0].equalsIgnoreCase("set")
                 || args[0].equalsIgnoreCase("add")
-                || args[0].equalsIgnoreCase("place") ? 1 : 0;
+                || args[0].equalsIgnoreCase("place")
+                || args[0].equalsIgnoreCase("clan") ? 1 : 0;
         if (args.length <= nameIndex + 1) {
-            throw new IllegalArgumentException("Usage: /bounty set <player> <amount>");
+            throw new IllegalArgumentException(
+                    fromClan
+                            ? "Usage: /bounty clan <player> <amount>"
+                            : "Usage: /bounty set <player> <amount>"
+            );
         }
         Player target = Bukkit.getPlayerExact(args[nameIndex]);
         if (target == null) {
@@ -128,14 +136,48 @@ final class BountyService implements CommandExecutor, TabCompleter, Listener {
             throw new IllegalArgumentException("You cannot put a bounty on yourself.");
         }
         long amount = EconomyFormat.parseAmount(args[nameIndex + 1]);
-        if (!money.tryWithdraw(player.getUniqueId(), amount)) {
-            throw new IllegalArgumentException("You need " + EconomyFormat.dollars(amount) + ".");
+        if (amount < BountyStore.MIN_BOUNTY) {
+            throw new IllegalArgumentException(
+                    "Bounties start at " + EconomyFormat.dollars(BountyStore.MIN_BOUNTY) + "."
+            );
+        }
+        String source;
+        if (fromClan) {
+            ClanStore.ClanView clan = clans.clanOf(player.getUniqueId()).orElseThrow(
+                    () -> new IllegalArgumentException("You are not in a clan.")
+            );
+            if (clan.roleOf(player.getUniqueId()) != ClanStore.ClanRole.LEADER) {
+                throw new IllegalArgumentException("Only the clan owner can spend the treasury on a bounty.");
+            }
+            if (clan.members().containsKey(target.getUniqueId())) {
+                throw new IllegalArgumentException("You cannot put a bounty on a clan member.");
+            }
+            try {
+                clans.spendTreasury(player.getUniqueId(), amount);
+            } catch (ClanStore.ClanException exception) {
+                throw new IllegalArgumentException(exception.getMessage());
+            } catch (java.io.IOException exception) {
+                throw new IllegalArgumentException("The clan treasury could not be saved. Try again.");
+            }
+            source = clan.name();
+        } else {
+            if (!money.tryWithdraw(player.getUniqueId(), amount)) {
+                throw new IllegalArgumentException("You need " + EconomyFormat.dollars(amount) + ".");
+            }
+            source = player.getName();
         }
         long total = bounties.add(target.getUniqueId(), amount);
-        info(player, "Added " + EconomyFormat.dollars(amount) + " to " + target.getName()
+        info(player, source + " added " + EconomyFormat.dollars(amount) + " to " + target.getName()
                 + ". Total: " + EconomyFormat.dollars(total) + ".");
-        info(target, player.getName() + " put " + EconomyFormat.dollars(amount)
+        info(target, source + " put " + EconomyFormat.dollars(amount)
                 + " on your head. Total: " + EconomyFormat.dollars(total) + ".");
+        if (fromClan) {
+            Bukkit.broadcast(prefix().append(Component.text(
+                    "[" + source + "] put " + EconomyFormat.dollars(amount)
+                            + " on " + target.getName() + ".",
+                    NamedTextColor.GRAY
+            )));
+        }
     }
 
     private void check(CommandSender sender, String[] args) {

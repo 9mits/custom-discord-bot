@@ -345,6 +345,26 @@ final class ClanStore {
         return view(clan);
     }
 
+    /**
+     * Takes money out of the treasury for a clan bounty. Leader only. Donations
+     * stay on the ledger; this is a spend, not a withdraw back to a player.
+     */
+    synchronized ClanView spendTreasury(UUID actor, long amount) throws IOException {
+        if (amount <= 0L) {
+            throw new ClanException("Spend a whole dollar amount.");
+        }
+        SavedClan clan = requireLeader(actor);
+        long held = treasuryOf(clan);
+        if (held < amount) {
+            throw new ClanException(
+                    "The clan needs " + EconomyFormat.dollars(amount - held) + " more."
+            );
+        }
+        clan.treasury = held - amount;
+        persist();
+        return view(clan);
+    }
+
     private static int slotsOf(SavedClan clan) {
         return clan.memberSlots == null ? ClanLevel.STARTING_MEMBER_SLOTS : clan.memberSlots;
     }

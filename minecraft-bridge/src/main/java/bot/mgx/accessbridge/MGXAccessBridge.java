@@ -280,7 +280,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("bal").setTabCompleter(economyCommands);
         getCommand("pay").setExecutor(economyCommands);
         getCommand("pay").setTabCompleter(economyCommands);
-        BountyService bountyService = new BountyService(economyStore, bountyStore);
+        BountyService bountyService = new BountyService(economyStore, bountyStore, clanStore);
         getCommand("bounty").setExecutor(bountyService);
         getCommand("bounty").setTabCompleter(bountyService);
         getServer().getPluginManager().registerEvents(bountyService, this);
