@@ -12,6 +12,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.AsyncPlayerPreLoginEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerLoginEvent;
+import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.world.SpawnChangeEvent;
@@ -967,6 +968,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         for (World world : getServer().getWorlds()) {
             lockWorldSpawn(world);
             applyWorldMemory(world);
+            applyWorldLimits(world);
             ensureHostileSpawns(world);
         }
     }
@@ -1016,6 +1018,54 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
     }
 
+    private void applyWorldLimits(World world) {
+        double radius = getConfig().getDouble("world.border-radius", WorldLimits.OVERWORLD_RADIUS);
+        if (radius < 0) {
+            return;
+        }
+        boolean nether = world.getEnvironment() == World.Environment.NETHER;
+        double size = WorldLimits.diameter(nether, radius);
+        org.bukkit.WorldBorder border = world.getWorldBorder();
+        if (border.getCenter().getX() != 0.5 || border.getCenter().getZ() != 0.5) {
+            border.setCenter(0.5, 0.5);
+        }
+        if (Math.abs(border.getSize() - size) > 0.5) {
+            border.setSize(size);
+            getLogger().info("Set the world border in " + world.getName()
+                    + " to " + (int) (size / 2) + " blocks from spawn.");
+        }
+        if (border.getWarningDistance() != WorldLimits.WARNING_DISTANCE) {
+            border.setWarningDistance(WorldLimits.WARNING_DISTANCE);
+        }
+        pinSpawnChunks(world);
+    }
+
+    /**
+     * A 3x3 around spawn, not the vanilla spawn-chunk neighborhood. Death far
+     * from 0,0 still has somewhere loaded to land; the rest of the world can
+     * unload.
+     */
+    private void pinSpawnChunks(World world) {
+        if (world.getEnvironment() != World.Environment.NORMAL) {
+            return;
+        }
+        int cx = WorldLimits.spawnChunkX();
+        int cz = WorldLimits.spawnChunkZ();
+        int reach = WorldLimits.SPAWN_TICKET_RADIUS;
+        for (int x = -reach; x <= reach; x++) {
+            for (int z = -reach; z <= reach; z++) {
+                world.addPluginChunkTicket(cx + x, cz + z, this);
+            }
+        }
+    }
+
+    private void loadChunk(Location location) {
+        if (location == null || location.getWorld() == null) {
+            return;
+        }
+        location.getWorld().getChunkAt(location);
+    }
+
     private void ensureHostileSpawns(World world) {
         if (world.getEnvironment() == World.Environment.THE_END) {
             return;
@@ -1039,6 +1089,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     public void onWorldLoad(WorldLoadEvent event) {
         lockWorldSpawn(event.getWorld());
         applyWorldMemory(event.getWorld());
+        applyWorldLimits(event.getWorld());
         ensureHostileSpawns(event.getWorld());
     }
 
@@ -1078,9 +1129,22 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
     }
 
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPlayerDeath(PlayerDeathEvent event) {
+        Location bed = event.getPlayer().getPotentialBedLocation();
+        if (bed != null) {
+            loadChunk(bed);
+        }
+        World overworld = getServer().getWorlds().isEmpty() ? null : getServer().getWorlds().get(0);
+        if (overworld != null) {
+            loadChunk(exactWorldSpawn(overworld));
+        }
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPlayerRespawn(PlayerRespawnEvent event) {
         if (event.isBedSpawn() || event.isAnchorSpawn()) {
+            loadChunk(event.getRespawnLocation());
             return;
         }
         World world = event.getRespawnLocation().getWorld();
@@ -1088,7 +1152,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             world = getServer().getWorlds().isEmpty() ? null : getServer().getWorlds().get(0);
         }
         if (world != null) {
-            event.setRespawnLocation(exactWorldSpawn(world));
+            Location spawn = exactWorldSpawn(world);
+            loadChunk(spawn);
+            event.setRespawnLocation(spawn);
         }
     }
 

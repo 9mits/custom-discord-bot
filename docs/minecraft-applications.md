@@ -163,11 +163,13 @@ world:
   keep-spawn-loaded: false
   max-view-distance: 6
   max-simulation-distance: 4
+  border-radius: 50000
 ```
 
 The footer accepts 1-32 characters. Refresh intervals accept 10-200 ticks; the default
 is every five seconds. View and simulation caps drop 1.21 chunk residency; set a
-distance to `0` to leave the panel value alone.
+distance to `0` to leave the panel value alone. The border is 50,000 blocks from
+spawn; set `border-radius: -1` to leave the panel value.
 
 ## Discord and Minecraft chat
 
