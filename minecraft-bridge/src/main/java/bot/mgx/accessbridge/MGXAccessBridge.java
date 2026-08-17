@@ -175,7 +175,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         PlayerStatsService statsService = new PlayerStatsService(
                 this,
                 getServer().getWorlds().get(0).getWorldFolder().toPath().resolve("stats"),
-                wealthStore
+                economyStore
         );
         capabilityService = new CapabilityService(
                 this,
@@ -189,6 +189,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 bridgeClient,
                 statsService,
                 clanStore,
+                economyStore,
                 bridgeConfig.leaderboardRefreshTicks()
         );
         getServer().getPluginManager().registerEvents(this, this);
@@ -237,7 +238,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("whitelisted").setExecutor(whitelistService);
         getCommand("whitelisted").setTabCompleter(whitelistService);
         LeaderboardMenuService leaderboardMenus = new LeaderboardMenuService(
-                clanStore, leaderboardService, identityService
+                clanStore, leaderboardService, identityService, economyStore
         );
         getCommand("leaderboard").setExecutor(leaderboardMenus);
         getCommand("leaderboard").setTabCompleter(leaderboardMenus);

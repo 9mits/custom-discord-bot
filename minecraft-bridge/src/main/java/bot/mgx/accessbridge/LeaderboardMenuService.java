@@ -22,6 +22,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -51,15 +52,18 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
     private final ClanStore clans;
     private final LeaderboardService boards;
     private final DiscordIdentityService identities;
+    private final EconomyStore money;
 
     LeaderboardMenuService(
             ClanStore clans,
             LeaderboardService boards,
-            DiscordIdentityService identities
+            DiscordIdentityService identities,
+            EconomyStore money
     ) {
         this.clans = clans;
         this.boards = boards;
         this.identities = identities;
+        this.money = money;
     }
 
     @Override
@@ -84,11 +88,11 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
                 Menu.Kind.LEADERBOARD_HUB, null, 1, HUB_SIZE, "Leaderboard", null
         );
         inventory.setItem(HUB_CLANS_WEALTH, button(Material.GOLD_BLOCK, "Richest clan",
-                "What each clan holds.", "Hover a clan for details.", "Click a clan for its members."));
+                "Member wallets, added up.", "Hover a clan for details.", "Click a clan for its members."));
         inventory.setItem(HUB_CLANS_KILLS, button(Material.IRON_SWORD, "Clan with most kills",
                 "Kills summed across members.", "Hover a clan for details.", "Click a clan for its members."));
         inventory.setItem(HUB_PLAYERS_WEALTH, button(Material.GOLD_INGOT, "Richest player",
-                "Who is carrying the most.", "Click to open."));
+                "Who has the most money.", "Click to open."));
         inventory.setItem(HUB_PLAYERS_KILLS, button(Material.DIAMOND_SWORD, "Player with most kills",
                 "Player kills, highest first.", "Click to open."));
         player.openInventory(inventory);
@@ -147,7 +151,9 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
                     List.of(
                             clan.level() == 0 ? "Unranked." : "Level " + clan.level() + ".",
                             clan.members().size() + "/" + clan.memberSlots() + " members.",
-                            "Balance " + String.format("%,d", clan.balance()) + ".",
+                            board.equals("kills")
+                                    ? "Balance " + String.format("%,d", clan.balance()) + "."
+                                    : "Wallets " + EconomyFormat.dollars(money.totalOf(clan.members().keySet())) + ".",
                             "Click to see members."
                     )));
         }
@@ -276,7 +282,11 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
 
     private List<ClanStore.ClanView> rankedClans(String board) {
         if (!"kills".equals(board)) {
-            return clans.listByWealth();
+            List<ClanStore.ClanView> ranked = new ArrayList<>(clans.list());
+            ranked.sort(Comparator.comparingLong(
+                    (ClanStore.ClanView clan) -> money.totalOf(clan.members().keySet())
+            ).reversed());
+            return ranked;
         }
         List<ClanStore.ClanView> ranked = new ArrayList<>();
         for (JsonObject row : rows("clan", "kills")) {

@@ -35,6 +35,7 @@ enum LeaderboardType {
         return switch (this) {
             case PLAYTIME -> String.format(Locale.ROOT, "%,dh %dm", value / 72_000, (value / 1_200) % 60);
             case BLOCKS_WALKED -> String.format(Locale.ROOT, "%,d blocks", value / 100);
+            case WEALTH -> EconomyFormat.dollars(value);
             default -> String.format(Locale.ROOT, "%,d", value);
         };
     }

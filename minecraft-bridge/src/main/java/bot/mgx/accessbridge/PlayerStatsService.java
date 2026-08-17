@@ -2,9 +2,6 @@ package bot.mgx.accessbridge;
 
 import org.bukkit.Bukkit;
 import org.bukkit.OfflinePlayer;
-import org.bukkit.entity.Player;
-import org.bukkit.inventory.Inventory;
-import org.bukkit.inventory.ItemStack;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -23,8 +20,8 @@ import java.util.stream.Stream;
  * writes, so kills, deaths, playtime, blocks mined and distance walked are complete
  * for every player who has ever joined — including those offline right now.
  *
- * <p>Wealth is the exception: nothing records it, so it is measured while a player is
- * online and the last known figure is kept for when they are not.
+ * <p>Wealth is the player's wallet. Anyone with money but no statistics file is
+ * still listed, so a sale is enough to appear on the richest board.
  *
  * <p>Unchanged files are not parsed again, and usernames are remembered after the
  * first lookup so the five-minute pass does not keep warming Paper's offline-player
@@ -33,17 +30,17 @@ import java.util.stream.Stream;
 final class PlayerStatsService {
     private final MGXAccessBridge plugin;
     private final Path statsDirectory;
-    private final WealthStore wealth;
+    private final EconomyStore money;
     private final Map<UUID, Cached> cache = new HashMap<>();
     private final Map<UUID, String> rememberedNames = new HashMap<>();
 
     private record Cached(long mtime, PlayerStatsParser.Snapshot snapshot) {
     }
 
-    PlayerStatsService(MGXAccessBridge plugin, Path statsDirectory, WealthStore wealth) {
+    PlayerStatsService(MGXAccessBridge plugin, Path statsDirectory, EconomyStore money) {
         this.plugin = plugin;
         this.statsDirectory = statsDirectory;
-        this.wealth = wealth;
+        this.money = money;
     }
 
     /**
@@ -54,13 +51,11 @@ final class PlayerStatsService {
      */
     List<PlayerStats> everyKnownPlayer(Map<UUID, String> onlineNames) {
         List<PlayerStats> all = new ArrayList<>();
-        if (!Files.isDirectory(statsDirectory)) {
-            plugin.getLogger().warning("No statistics directory at " + statsDirectory);
-            return all;
-        }
         rememberedNames.putAll(onlineNames);
         Set<UUID> seen = new HashSet<>();
-        try (Stream<Path> files = Files.list(statsDirectory)) {
+        if (!Files.isDirectory(statsDirectory)) {
+            plugin.getLogger().warning("No statistics directory at " + statsDirectory);
+        } else try (Stream<Path> files = Files.list(statsDirectory)) {
             for (Path file : files.filter(path -> path.toString().endsWith(".json")).toList()) {
                 statsFor(file, onlineNames).ifPresent(row -> {
                     seen.add(row.minecraftUuid());
@@ -69,6 +64,14 @@ final class PlayerStatsService {
             }
         } catch (IOException exception) {
             plugin.getLogger().warning("Could not list player statistics: " + exception.getMessage());
+        }
+        for (Map.Entry<UUID, Long> wallet : money.snapshots().entrySet()) {
+            if (seen.contains(wallet.getKey()) || wallet.getValue() <= 0L) {
+                continue;
+            }
+            seen.add(wallet.getKey());
+            all.add(PlayerStats.empty(wallet.getKey(), usernameOf(wallet.getKey(), onlineNames))
+                    .withWealth(wallet.getValue()));
         }
         cache.keySet().removeIf(uuid -> !seen.contains(uuid));
         return all;
@@ -102,7 +105,7 @@ final class PlayerStatsService {
                     snapshot.playTimeTicks(),
                     snapshot.blocksMined(),
                     snapshot.walkedCm(),
-                    wealth.snapshots().getOrDefault(uuid, 0L)
+                    money.balance(uuid)
             ));
         } catch (IOException | RuntimeException exception) {
             plugin.getLogger().warning(
@@ -126,38 +129,6 @@ final class PlayerStatsService {
         String resolved = name == null ? PlayerStatsParser.fallbackUsername(uuid) : name;
         rememberedNames.put(uuid, resolved);
         return resolved;
-    }
-
-    /** Measures what a player is carrying right now and remembers it for when they log off. */
-    void snapshotWealth(Player player) {
-        long total = 0L;
-        total += valueOf(player.getInventory());
-        total += valueOf(player.getEnderChest());
-        wealth.record(player.getUniqueId(), total);
-    }
-
-    /** Flushes measured wealth to disk; a no-op when nothing changed. */
-    void saveWealth() {
-        try {
-            wealth.saveIfChanged();
-        } catch (RuntimeException exception) {
-            plugin.getLogger().warning("Could not save player wealth: " + exception.getMessage());
-        }
-    }
-
-    private static long valueOf(Inventory inventory) {
-        long total = 0L;
-        for (ItemStack item : inventory.getContents()) {
-            total += valueOf(item);
-        }
-        return total;
-    }
-
-    private static long valueOf(ItemStack item) {
-        if (item == null) {
-            return 0L;
-        }
-        return (long) WealthTable.valueOfIncludingVariants(item.getType()) * item.getAmount();
     }
 
 }

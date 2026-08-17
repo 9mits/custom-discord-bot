@@ -70,4 +70,9 @@ class LeaderboardTypeTest {
     void walkedDistanceRendersInBlocksNotCentimetres() {
         assertEquals("123 blocks", LeaderboardType.BLOCKS_WALKED.describe(12_345));
     }
+
+    @Test
+    void wealthRendersAsDollars() {
+        assertEquals("$1,234", LeaderboardType.WEALTH.describe(1_234));
+    }
 }
