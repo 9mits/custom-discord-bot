@@ -1582,11 +1582,18 @@ class MinecraftLeaderboardRenderTests(unittest.TestCase):
         self.assertTrue(self.leaderboard._emoji_name("").endswith("player"))
         self.assertLessEqual(len(self.leaderboard._emoji_name("x" * 60)), 32)
 
-    def test_only_five_rows_are_shown(self):
-        embed = self.leaderboard.build_embed(self.snapshot, scope="individual", board="wealth")
+    def test_at_most_ten_rows_are_shown(self):
+        rows = [
+            {"minecraft_uuid": f"u{n}", "username": f"p{n}", "value": 100 - n, "display": str(100 - n)}
+            for n in range(12)
+        ]
+        embed = self.leaderboard.build_embed(
+            {"individual": {"wealth": rows}}, scope="individual", board="wealth"
+        )
 
-        self.assertEqual(embed.description.count("#"), 5)
-        self.assertNotIn("zed", embed.description)
+        self.assertEqual(embed.description.count("#"), 10)
+        self.assertNotIn("p10", embed.description)
+        self.assertNotIn("p11", embed.description)
 
     def test_every_place_uses_the_same_number_formatting(self):
         embed = self.leaderboard.build_embed(self.snapshot, scope="individual", board="wealth")
