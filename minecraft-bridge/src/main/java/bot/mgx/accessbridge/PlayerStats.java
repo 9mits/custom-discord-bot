@@ -6,8 +6,7 @@ import java.util.UUID;
  * One player's leaderboard figures.
  *
  * <p>Everything except {@link #wealth} comes from the vanilla statistics file the
- * server already writes, so these numbers are complete for players who have not
- * logged in since the feature shipped.
+ * server already writes. Wealth is the player's wallet, not what they are carrying.
  */
 record PlayerStats(
         UUID minecraftUuid,

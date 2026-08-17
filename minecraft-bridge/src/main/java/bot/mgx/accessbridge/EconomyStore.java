@@ -16,9 +16,8 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Player cash. Separate from {@link WealthStore}: that file is the richest-player
- * snapshot of what people are carrying, and mixing a wallet into it would rewrite
- * the board every time someone bought glass.
+ * Player cash. The richest boards read this store. {@link WealthStore} is leftover
+ * item-value data and is no longer what those boards rank.
  *
  * <p>Every mutation is written immediately. A crash mid-trade must not reprint money.
  */
@@ -44,6 +43,19 @@ final class EconomyStore {
 
     long balance(UUID playerId) {
         return balances.getOrDefault(playerId, 0L);
+    }
+
+    /** A copy of every non-zero wallet, for the richest-player board. */
+    Map<UUID, Long> snapshots() {
+        return Map.copyOf(balances);
+    }
+
+    long totalOf(Iterable<UUID> players) {
+        long total = 0L;
+        for (UUID playerId : players) {
+            total += balance(playerId);
+        }
+        return total;
     }
 
     synchronized void deposit(UUID playerId, long amount) {

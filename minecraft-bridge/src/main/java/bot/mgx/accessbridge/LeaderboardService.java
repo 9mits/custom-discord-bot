@@ -29,6 +29,7 @@ final class LeaderboardService {
     private final BridgeClient bridge;
     private final PlayerStatsService stats;
     private final ClanStore clans;
+    private final EconomyStore money;
     private final long refreshTicks;
     private int taskId = -1;
     private JsonObject latest = new JsonObject();
@@ -38,12 +39,14 @@ final class LeaderboardService {
             BridgeClient bridge,
             PlayerStatsService stats,
             ClanStore clans,
+            EconomyStore money,
             long refreshTicks
     ) {
         this.plugin = plugin;
         this.bridge = bridge;
         this.stats = stats;
         this.clans = clans;
+        this.money = money;
         this.refreshTicks = refreshTicks;
     }
 
@@ -56,18 +59,12 @@ final class LeaderboardService {
         );
     }
 
-    /**
-     * Inventories may only be read on the main thread, so wealth is measured here and
-     * online names are captured here; everything after that is disk and JSON work that
-     * has no business blocking the server.
-     */
+    /** Online names are captured on the main thread; wallets are already on disk. */
     private Map<UUID, String> snapshotOnlinePlayers() {
         Map<UUID, String> onlineNames = new HashMap<>();
         for (Player online : plugin.getServer().getOnlinePlayers()) {
-            stats.snapshotWealth(online);
             onlineNames.put(online.getUniqueId(), online.getName());
         }
-        stats.saveWealth();
         return onlineNames;
     }
 
@@ -84,8 +81,6 @@ final class LeaderboardService {
     }
 
     private void publish() {
-        // Wealth only changes while someone is playing, so refresh the online players
-        // first and let everyone else keep their last known figure.
         Map<UUID, String> onlineNames = snapshotOnlinePlayers();
         plugin.getServer().getScheduler().runTaskAsynchronously(
                 plugin,
@@ -106,10 +101,8 @@ final class LeaderboardService {
             }
             individual.add(type.key(), rankIndividuals(everyone, type));
             if (type.clanEligible()) {
-                // Richest clans rank on the clan's own balance rather than on what its
-                // members happen to be carrying, so the board tracks the clan itself.
                 clan.add(type.key(), type == LeaderboardType.WEALTH
-                        ? rankClansByBalance()
+                        ? rankClansByWallets()
                         : rankClans(everyone, type));
             }
         }
@@ -146,13 +139,14 @@ final class LeaderboardService {
         return rows;
     }
 
-    /** The richest board: every clan ordered by what its vault is worth right now. */
-    private JsonArray rankClansByBalance() {
+    /** The richest board: every clan ordered by the wallets of its members. */
+    private JsonArray rankClansByWallets() {
         List<ClanStore.ClanView> ranked = new ArrayList<>(clans.list());
-        ranked.sort(Comparator.comparingLong(ClanStore.ClanView::balance).reversed());
+        ranked.sort(Comparator.comparingLong(this::clanWallet).reversed());
         JsonArray rows = new JsonArray();
         for (ClanStore.ClanView clan : ranked) {
-            if (rows.size() >= ROWS || clan.balance() <= 0) {
+            long total = clanWallet(clan);
+            if (rows.size() >= ROWS || total <= 0) {
                 break;
             }
             JsonObject row = new JsonObject();
@@ -160,11 +154,15 @@ final class LeaderboardService {
             row.addProperty("members", clan.members().size());
             row.addProperty("colour", clan.themeColor());
             row.addProperty("level", clan.level());
-            row.addProperty("value", clan.balance());
-            row.addProperty("display", LeaderboardType.WEALTH.describe(clan.balance()));
+            row.addProperty("value", total);
+            row.addProperty("display", LeaderboardType.WEALTH.describe(total));
             rows.add(row);
         }
         return rows;
+    }
+
+    private long clanWallet(ClanStore.ClanView clan) {
+        return money.totalOf(clan.members().keySet());
     }
 
     private JsonArray rankClans(List<PlayerStats> everyone, LeaderboardType type) {

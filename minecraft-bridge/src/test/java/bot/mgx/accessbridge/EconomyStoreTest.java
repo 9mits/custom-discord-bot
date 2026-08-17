@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -50,5 +51,17 @@ class EconomyStoreTest {
         assertTrue(store.transfer(from, to, 15));
         assertEquals(25L, store.balance(from));
         assertEquals(15L, store.balance(to));
+    }
+
+    @Test
+    void totalOfSumsEveryListedWallet() throws Exception {
+        EconomyStore store = new EconomyStore(temporaryDirectory.resolve("balances.json"));
+        UUID one = UUID.randomUUID();
+        UUID two = UUID.randomUUID();
+        store.deposit(one, 40);
+        store.deposit(two, 15);
+
+        assertEquals(55L, store.totalOf(List.of(one, two)));
+        assertEquals(40L, store.totalOf(List.of(one, UUID.randomUUID())));
     }
 }

@@ -246,7 +246,7 @@ Read the relevant file when you touch an area; these are the non-obvious points.
   panel value alone.
 - **In-game money is not leaderboard wealth.** `/shop`, `/sell`, `/ah`, `/bal`
   and `/pay` use `EconomyStore` (`balances.json`). The richest-player board still
-  sums item values in `wealth.json`. Auction listings live in `auctions.json`;
+  sums wallets. Auction listings live in `auctions.json`;
   opening a page deserialises only the 45 visible stacks. Shop prices are the
   static `ShopCatalog`. Elytra, netherite, totems, shulker shells and enchanted
   golden apples are not sold.
