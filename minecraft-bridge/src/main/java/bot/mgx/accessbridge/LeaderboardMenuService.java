@@ -4,7 +4,6 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.command.Command;
@@ -53,28 +52,21 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
     private final ClanStore clans;
     private final LeaderboardService boards;
     private final DiscordIdentityService identities;
-    private final HologramService holograms;
 
     LeaderboardMenuService(
             ClanStore clans,
             LeaderboardService boards,
-            DiscordIdentityService identities,
-            HologramService holograms
+            DiscordIdentityService identities
     ) {
         this.clans = clans;
         this.boards = boards;
         this.identities = identities;
-        this.holograms = holograms;
     }
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (!(sender instanceof Player player)) {
             sender.sendMessage("The leaderboard is a menu. Use it in Minecraft.");
-            return true;
-        }
-        if (args.length > 0 && args[0].equalsIgnoreCase("hologram")) {
-            hologram(player, args);
             return true;
         }
         openHub(player);
@@ -85,34 +77,7 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
     public List<String> onTabComplete(
             CommandSender sender, Command command, String alias, String[] args
     ) {
-        if (args.length == 1) {
-            return List.of("hologram");
-        }
-        if (args.length == 2 && args[0].equalsIgnoreCase("hologram")) {
-            return List.of("wealth", "kills", "clans-wealth", "clans-kills", "remove");
-        }
         return List.of();
-    }
-
-    private void hologram(Player player, String[] args) {
-        if (!player.hasPermission(AdminCommandService.PERMISSION) && !player.isOp()) {
-            player.sendMessage(Component.text("Only staff can place holograms.", NamedTextColor.RED));
-            return;
-        }
-        try {
-            if (args.length < 2) {
-                throw new IllegalArgumentException(HologramService.Board.usage());
-            }
-            if (args[1].equalsIgnoreCase("remove")) {
-                holograms.removeNearby(player);
-                player.sendMessage(Component.text("Removed the nearby hologram.", ORANGE));
-                return;
-            }
-            holograms.place(player, HologramService.Board.fromKey(args[1]));
-            player.sendMessage(Component.text("Placed that hologram here.", ORANGE));
-        } catch (IllegalArgumentException | java.io.IOException exception) {
-            player.sendMessage(Component.text(exception.getMessage(), NamedTextColor.RED));
-        }
     }
 
     void openHub(Player player) {

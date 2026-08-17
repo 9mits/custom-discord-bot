@@ -255,7 +255,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             return;
         }
         LeaderboardMenuService leaderboardMenus = new LeaderboardMenuService(
-                clanStore, leaderboardService, identityService, holograms
+                clanStore, leaderboardService, identityService
         );
         getCommand("leaderboard").setExecutor(leaderboardMenus);
         getCommand("leaderboard").setTabCompleter(leaderboardMenus);
@@ -295,6 +295,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 this,
                 rankSyncStore,
                 economyStore,
+                holograms,
                 new ServerDataResetService(
                         this,
                         clanStore,

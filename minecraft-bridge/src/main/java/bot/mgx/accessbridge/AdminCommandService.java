@@ -38,25 +38,31 @@ import static bot.mgx.accessbridge.MenuItems.ORANGE;
 final class AdminCommandService implements CommandExecutor, TabCompleter {
     static final String PERMISSION = "mgxaccessbridge.admin";
     private static final List<String> SUBCOMMANDS = List.of(
-            "startserver", "teststart", "ranks", "eco", "reset", "help"
+            "startserver", "teststart", "ranks", "eco", "hologram", "reset", "help"
     );
     private static final List<String> RANK_ACTIONS = List.of("hold", "release", "list");
     private static final List<String> ECO_ACTIONS = List.of("give", "take", "set");
+    private static final List<String> HOLOGRAM_BOARDS = List.of(
+            "wealth", "kills", "clans-wealth", "clans-kills", "remove"
+    );
 
     private final MGXAccessBridge plugin;
     private final RankSyncStore rankSync;
     private final EconomyStore economy;
+    private final HologramService holograms;
     private final ServerDataResetService resets;
 
     AdminCommandService(
             MGXAccessBridge plugin,
             RankSyncStore rankSync,
             EconomyStore economy,
+            HologramService holograms,
             ServerDataResetService resets
     ) {
         this.plugin = plugin;
         this.rankSync = rankSync;
         this.economy = economy;
+        this.holograms = holograms;
         this.resets = resets;
     }
 
@@ -79,6 +85,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 }
                 case "ranks" -> ranks(sender, args);
                 case "eco" -> eco(sender, args);
+                case "hologram", "holograms", "lb" -> hologram(sender, args);
                 case "reset" -> reset(sender, args);
                 default -> sendHelp(sender);
             }
@@ -249,6 +256,26 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 .collect(java.util.stream.Collectors.joining(", ")));
     }
 
+    private void hologram(CommandSender sender, String[] args) {
+        if (!(sender instanceof Player player)) {
+            throw new IllegalArgumentException("Stand in the world to place a hologram.");
+        }
+        if (args.length < 2) {
+            throw new IllegalArgumentException(HologramService.Board.usage());
+        }
+        try {
+            if (args[1].equalsIgnoreCase("remove")) {
+                holograms.removeNearby(player);
+                success(sender, "Removed the nearby hologram.");
+                return;
+            }
+            holograms.place(player, HologramService.Board.fromKey(args[1]));
+            success(sender, "Placed that hologram here.");
+        } catch (java.io.IOException exception) {
+            throw new IllegalArgumentException("The hologram could not be saved. Try again.");
+        }
+    }
+
     private void sendResetHelp(CommandSender sender) {
         heading(sender, "Reset scopes");
         for (ResetScope scope : ResetScope.values()) {
@@ -277,6 +304,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 .append(Component.text("  everyone currently held", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin eco give|take|set <player> <amount>", ORANGE)
                 .append(Component.text("  change a wallet", NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin hologram <board|remove>", ORANGE)
+                .append(Component.text("  place or remove a spawn leaderboard", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin reset", ORANGE)
                 .append(Component.text("  clear progress, keeping the world", NamedTextColor.GRAY)));
     }
@@ -309,6 +338,12 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             if (args.length == 3) {
                 return partial(args[2], Bukkit.getOnlinePlayers().stream()
                         .map(Player::getName).toList());
+            }
+            return List.of();
+        }
+        if (action.equals("hologram") || action.equals("holograms") || action.equals("lb")) {
+            if (args.length == 2) {
+                return partial(args[1], HOLOGRAM_BOARDS);
             }
             return List.of();
         }
