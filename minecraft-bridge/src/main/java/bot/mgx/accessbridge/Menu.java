@@ -44,7 +44,8 @@ final class Menu implements InventoryHolder {
         AUCTION_HUB,
         AUCTION_OWN,
         AUCTION_MAIL,
-        AUCTION_CONFIRM;
+        AUCTION_CONFIRM,
+        BOUNTY_BOARD;
 
         boolean acceptsItems() {
             return this == SELL;

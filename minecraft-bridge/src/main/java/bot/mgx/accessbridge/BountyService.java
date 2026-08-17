@@ -4,6 +4,7 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
+import org.bukkit.Material;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -13,16 +14,33 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.inventory.Inventory;
 import org.bukkit.util.StringUtil;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.UUID;
 
+import static bot.mgx.accessbridge.MenuItems.BOARD_SIZE;
+import static bot.mgx.accessbridge.MenuItems.NEXT_SLOT;
 import static bot.mgx.accessbridge.MenuItems.ORANGE;
+import static bot.mgx.accessbridge.MenuItems.PER_PAGE;
+import static bot.mgx.accessbridge.MenuItems.PREVIOUS_SLOT;
+import static bot.mgx.accessbridge.MenuItems.button;
+import static bot.mgx.accessbridge.MenuItems.head;
 
-/** `/bounty` plus paying the killer when a marked player dies. */
+/**
+ * `/bounty` board — player heads ranked by pot, like Donut. Chat still places
+ * ({@code /bounty set}, {@code /bounty clan}).
+ */
 final class BountyService implements CommandExecutor, TabCompleter, Listener {
+    private static final int YOUR_BOUNTY_SLOT = 49;
+    private static final int HOW_SLOT = 47;
+    private static final int REFRESH_SLOT = 50;
+
     private final EconomyStore money;
     private final BountyStore bounties;
     private final ClanStore clans;
@@ -38,7 +56,11 @@ final class BountyService implements CommandExecutor, TabCompleter, Listener {
         args = CommandArgs.withoutEchoedSender(sender.getName(), args);
         try {
             if (args.length == 0 || args[0].equalsIgnoreCase("list")) {
-                list(sender);
+                if (sender instanceof Player player) {
+                    openBoard(player, 1);
+                } else {
+                    list(sender);
+                }
                 return true;
             }
             String action = args[0].toLowerCase(Locale.ROOT);
@@ -73,6 +95,102 @@ final class BountyService implements CommandExecutor, TabCompleter, Listener {
             );
         }
         return List.of();
+    }
+
+    void openBoard(Player player, int page) {
+        List<BountyStore.Entry> ranked = bounties.ranked();
+        Inventory inventory = create(
+                Menu.Kind.BOUNTY_BOARD,
+                null,
+                page,
+                "Bounties  •  " + EconomyFormat.dollars(money.balance(player.getUniqueId())),
+                ranked.size()
+        );
+        int first = MenuPaging.firstIndex(page, ranked.size(), PER_PAGE);
+        int last = MenuPaging.lastIndex(page, ranked.size(), PER_PAGE);
+        for (int index = first; index < last; index++) {
+            BountyStore.Entry entry = ranked.get(index);
+            String name = nameOf(entry.target());
+            boolean online = Bukkit.getPlayer(entry.target()) != null;
+            inventory.setItem(index - first, head(
+                    entry.target(),
+                    "#" + (index + 1) + "  " + name,
+                    List.of(
+                            EconomyFormat.dollars(entry.amount()),
+                            online ? "Online now." : "Offline.",
+                            "Kill them to claim the pot."
+                    )
+            ));
+        }
+        if (ranked.isEmpty()) {
+            inventory.setItem(22, button(
+                    Material.BARRIER, "No bounties",
+                    "Use /bounty set <player> <amount>."
+            ));
+        }
+        long mine = bounties.amountOn(player.getUniqueId());
+        inventory.setItem(YOUR_BOUNTY_SLOT, head(
+                player.getUniqueId(),
+                "Your bounty",
+                List.of(mine > 0L
+                        ? EconomyFormat.dollars(mine) + " on your head."
+                        : "Nobody has marked you.")
+        ));
+        inventory.setItem(HOW_SLOT, button(
+                Material.PAPER, "Place a bounty",
+                " /bounty set <player> <amount>",
+                " /bounty clan <player> <amount>",
+                "Minimum " + EconomyFormat.dollars(BountyStore.MIN_BOUNTY) + "."
+        ));
+        inventory.setItem(REFRESH_SLOT, button(Material.SUNFLOWER, "Refresh"));
+        MenuItems.paginate(inventory, page, ranked.size(), false);
+        player.openInventory(inventory);
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = false)
+    public void onClick(InventoryClickEvent event) {
+        if (!(event.getInventory().getHolder() instanceof Menu menu)
+                || menu.kind() != Menu.Kind.BOUNTY_BOARD
+                || !(event.getWhoClicked() instanceof Player player)) {
+            return;
+        }
+        event.setCancelled(true);
+        if (event.getClickedInventory() != event.getInventory()) {
+            return;
+        }
+        int slot = event.getSlot();
+        if (slot == PREVIOUS_SLOT) {
+            openBoard(player, menu.page() - 1);
+            return;
+        }
+        if (slot == NEXT_SLOT) {
+            openBoard(player, menu.page() + 1);
+            return;
+        }
+        if (slot == REFRESH_SLOT || slot == YOUR_BOUNTY_SLOT) {
+            openBoard(player, menu.page());
+            return;
+        }
+        if (slot == HOW_SLOT) {
+            info(player, "Use /bounty set <player> <amount> or /bounty clan <player> <amount>.");
+            return;
+        }
+        List<BountyStore.Entry> ranked = bounties.ranked();
+        int index = MenuPaging.firstIndex(menu.page(), ranked.size(), PER_PAGE) + slot;
+        if (slot < 0 || slot >= PER_PAGE || index >= ranked.size()) {
+            return;
+        }
+        BountyStore.Entry entry = ranked.get(index);
+        info(player, nameOf(entry.target()) + " has a "
+                + EconomyFormat.dollars(entry.amount()) + " bounty. Kill them to claim it.");
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = false)
+    public void onDrag(InventoryDragEvent event) {
+        if (event.getInventory().getHolder() instanceof Menu menu
+                && menu.kind() == Menu.Kind.BOUNTY_BOARD) {
+            event.setCancelled(true);
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -202,7 +320,16 @@ final class BountyService implements CommandExecutor, TabCompleter, Listener {
         info(sender, target.getName() + " has a " + EconomyFormat.dollars(amount) + " bounty.");
     }
 
-    private static String nameOf(java.util.UUID uuid) {
+    private Inventory create(Menu.Kind kind, UUID subject, int page, String title, int total) {
+        Menu menu = new Menu(kind, subject, page, null);
+        Inventory inventory = Bukkit.createInventory(
+                menu, BOARD_SIZE, Component.text(MenuItems.pagedTitle(title, page, total), ORANGE)
+        );
+        menu.attach(inventory);
+        return inventory;
+    }
+
+    private static String nameOf(UUID uuid) {
         Player online = Bukkit.getPlayer(uuid);
         if (online != null) {
             return online.getName();
