@@ -25,9 +25,11 @@ scoreboard:
   update-ticks: 100
 
 # Caps how much of each world Paper keeps in RAM. 0 on a distance leaves the panel value.
+# border-radius is blocks from spawn (nether is 1/8). Set -1 to leave the panel border.
 world:
   keep-spawn-loaded: false
   max-view-distance: 6
   max-simulation-distance: 4
+  border-radius: 50000
 
 debug: false
