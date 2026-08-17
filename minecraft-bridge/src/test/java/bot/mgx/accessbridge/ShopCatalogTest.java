@@ -16,7 +16,12 @@ class ShopCatalogTest {
         assertEquals(75_000L, ShopCatalog.offer("NAME_TAG").orElseThrow().price());
         assertEquals(4_000L, ShopCatalog.offer("WATER_BUCKET").orElseThrow().price());
         assertEquals(8_000L, ShopCatalog.offer("LAVA_BUCKET").orElseThrow().price());
+        assertEquals(350L, ShopCatalog.offer("BONE").orElseThrow().price());
+        assertEquals(4_000L, ShopCatalog.offer("BONE_MEAL").orElseThrow().price());
+        assertEquals(5_000L, ShopCatalog.offer("WHEAT").orElseThrow().price());
         assertFalse(ShopCatalog.offer("DIAMOND").isPresent());
+        assertFalse(ShopCatalog.offer("BLAZE_ROD").isPresent());
+        assertFalse(ShopCatalog.offer("SLIME_BALL").isPresent());
     }
 
     @Test

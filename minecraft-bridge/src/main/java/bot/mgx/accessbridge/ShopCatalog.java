@@ -19,6 +19,10 @@ final class ShopCatalog {
         BUILDING("Building", "STONE"),
         WOOD("Wood", "OAK_LOG"),
         COLORED("Color", "WHITE_WOOL"),
+        FARMING("Farming", "WHEAT"),
+        FOOD("Food", "BREAD"),
+        MINERALS("Minerals", "IRON_INGOT"),
+        REDSTONE("Redstone", "REDSTONE"),
         NETHER("Nether", "NETHERRACK"),
         OCEAN("Ocean", "PRISMARINE"),
         DECORATION("Decoration", "LANTERN"),
@@ -171,6 +175,63 @@ final class ShopCatalog {
                 dyed("TERRACOTTA", 64, 20_000),
                 dyed("CONCRETE_POWDER", 64, 20_000)
         ));
+        catalog.put(Category.FARMING, List.of(
+                offer("WHEAT", 16, 5_000),
+                offer("WHEAT_SEEDS", 16, 2_000),
+                offer("CARROT", 16, 4_500),
+                offer("POTATO", 16, 4_500),
+                offer("BEETROOT", 16, 6_000),
+                offer("BEETROOT_SEEDS", 16, 2_500),
+                offer("PUMPKIN", 16, 10_000),
+                offer("MELON", 16, 12_000),
+                offer("SUGAR_CANE", 16, 8_000),
+                offer("CACTUS", 16, 8_000),
+                offer("BAMBOO", 32, 4_000),
+                offer("COCOA_BEANS", 16, 6_000),
+                offer("NETHER_WART", 16, 12_000),
+                offer("KELP", 16, 3_000),
+                offer("SWEET_BERRIES", 16, 3_000),
+                offer("BONE", 1, 350),
+                offer("BONE_MEAL", 16, 4_000),
+                offer("LEATHER", 16, 14_000),
+                offer("WHITE_WOOL", 16, 6_000),
+                offer("OAK_SAPLING", 16, 4_000),
+                offer("SPRUCE_SAPLING", 16, 4_000),
+                offer("BIRCH_SAPLING", 16, 4_000)
+        ));
+        catalog.put(Category.FOOD, List.of(
+                offer("BREAD", 16, 5_000),
+                offer("COOKED_BEEF", 16, 10_000),
+                offer("COOKED_PORKCHOP", 16, 10_000),
+                offer("COOKED_CHICKEN", 16, 7_000),
+                offer("COOKED_MUTTON", 16, 8_000),
+                offer("BAKED_POTATO", 16, 5_000),
+                offer("PUMPKIN_PIE", 16, 8_000),
+                offer("COOKIE", 16, 3_500),
+                offer("GOLDEN_CARROT", 16, 25_000)
+        ));
+        catalog.put(Category.MINERALS, List.of(
+                offer("COAL", 16, 8_000),
+                offer("COPPER_INGOT", 16, 12_000),
+                offer("IRON_INGOT", 16, 25_000),
+                offer("GOLD_INGOT", 16, 40_000),
+                offer("REDSTONE", 16, 6_000),
+                offer("LAPIS_LAZULI", 16, 8_000),
+                offer("QUARTZ", 16, 12_000),
+                offer("AMETHYST_SHARD", 16, 10_000)
+        ));
+        catalog.put(Category.REDSTONE, List.of(
+                offer("REDSTONE", 16, 6_000),
+                offer("REDSTONE_TORCH", 16, 8_000),
+                offer("REPEATER", 8, 12_000),
+                offer("COMPARATOR", 8, 16_000),
+                offer("PISTON", 8, 22_000),
+                offer("STICKY_PISTON", 8, 35_000),
+                offer("OBSERVER", 8, 25_000),
+                offer("HOPPER", 8, 45_000),
+                offer("DISPENSER", 8, 22_000),
+                offer("DROPPER", 8, 14_000)
+        ));
         catalog.put(Category.NETHER, List.of(
                 offer("NETHERRACK", 64, 3_000),
                 offer("BLACKSTONE", 64, 12_000),
@@ -209,11 +270,15 @@ final class ShopCatalog {
                 offer("BUCKET", 1, 3_000),
                 offer("WATER_BUCKET", 1, 4_000),
                 offer("LAVA_BUCKET", 1, 8_000),
-                offer("BREAD", 16, 5_000),
                 offer("TORCH", 64, 8_000),
                 offer("ENDER_PEARL", 4, 20_000),
+                offer("LEAD", 1, 12_000),
                 offer("NAME_TAG", 1, 75_000),
-                offer("SADDLE", 1, 50_000)
+                offer("SADDLE", 1, 50_000),
+                offer("EXPERIENCE_BOTTLE", 1, 6_000),
+                offer("GLASS_BOTTLE", 16, 4_000),
+                offer("PAPER", 16, 5_000),
+                offer("BOOK", 16, 9_000)
         ));
         return catalog;
     }
