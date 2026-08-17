@@ -68,7 +68,7 @@ commands:
     permission: mgx.shop
   bounty:
     description: Put money on a player's head, or list active bounties.
-    usage: /bounty [set <player> <amount>|clan <player> <amount>|list|check]
+    usage: /bounty [set <player> <amount>|clan <player> <amount>|check]
     aliases: [bounties]
     permission: mgx.shop
   mgxadmin:

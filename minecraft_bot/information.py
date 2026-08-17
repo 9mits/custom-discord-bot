@@ -276,9 +276,10 @@ def commands_economy_embed(settings=None) -> discord.Embed:
             (
                 "Wallet and bounties",
                 "> `/bal` · `/pay <player> <amount>` — your wallet, and sending money\n"
+                "> `/bounty` — board of every pot, highest first\n"
                 "> `/bounty set <player> <amount>` — put money on someone's head\n"
                 "> `/bounty clan <player> <amount>` — clan owner, paid from the treasury\n"
-                "> `/bounty` · `/bounty check` — who has a price on them",
+                "> `/bounty check` — look up one player",
             ),
         ],
     )
