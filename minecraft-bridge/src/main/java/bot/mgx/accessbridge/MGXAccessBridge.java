@@ -307,8 +307,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     void applyPlayerProfile(org.bukkit.entity.Player player, PlayerProfile profile) {
         perkService.apply(player, profile);
-        sidebarService.refresh(player);
-        refreshClans();
+        if (sidebarService != null) {
+            sidebarService.refreshAll();
+        }
     }
 
     /** Called when the bridge reconnects, so the bot is never left without standings. */
@@ -925,6 +926,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private void lockLoadedWorldSpawns() {
         for (World world : getServer().getWorlds()) {
             lockWorldSpawn(world);
+            applyWorldMemory(world);
             ensureHostileSpawns(world);
         }
     }
@@ -942,6 +944,35 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         Integer radius = world.getGameRuleValue(GameRule.SPAWN_RADIUS);
         if (radius == null || radius != WorldSpawn.RADIUS) {
             world.setGameRule(GameRule.SPAWN_RADIUS, WorldSpawn.RADIUS);
+        }
+    }
+
+    private void applyWorldMemory(World world) {
+        boolean keepSpawn = getConfig().getBoolean(
+                "world.keep-spawn-loaded", WorldMemory.KEEP_SPAWN_IN_MEMORY
+        );
+        if (world.getKeepSpawnInMemory() != keepSpawn) {
+            world.setKeepSpawnInMemory(keepSpawn);
+            getLogger().info((keepSpawn ? "Keeping" : "Not keeping")
+                    + " spawn chunks loaded in " + world.getName() + ".");
+        }
+        int view = WorldMemory.capDistance(
+                world.getViewDistance(),
+                getConfig().getInt("world.max-view-distance", WorldMemory.MAX_VIEW_DISTANCE)
+        );
+        if (view != world.getViewDistance()) {
+            world.setViewDistance(view);
+            getLogger().info("Capped view distance in " + world.getName() + " to " + view + ".");
+        }
+        int simulation = WorldMemory.capSimulation(
+                world.getSimulationDistance(),
+                getConfig().getInt("world.max-simulation-distance", WorldMemory.MAX_SIMULATION_DISTANCE),
+                view
+        );
+        if (simulation != world.getSimulationDistance()) {
+            world.setSimulationDistance(simulation);
+            getLogger().info("Capped simulation distance in " + world.getName()
+                    + " to " + simulation + ".");
         }
     }
 
@@ -967,6 +998,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     @EventHandler
     public void onWorldLoad(WorldLoadEvent event) {
         lockWorldSpawn(event.getWorld());
+        applyWorldMemory(event.getWorld());
         ensureHostileSpawns(event.getWorld());
     }
 
@@ -1053,6 +1085,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
+        verificationKicks.remove(event.getPlayer().getUniqueId());
         queuePlayerActivity(event.getPlayer().getUniqueId(), event.getPlayer().getName(), false);
     }
 

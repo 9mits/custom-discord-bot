@@ -158,11 +158,16 @@ The sidebar is configured in `plugins/MGXAccessBridge/config.yml`:
 ```yaml
 scoreboard:
   footer: "discord.gg/mgx"
-  update-ticks: 20
+  update-ticks: 100
+world:
+  keep-spawn-loaded: false
+  max-view-distance: 6
+  max-simulation-distance: 4
 ```
 
 The footer accepts 1-32 characters. Refresh intervals accept 10-200 ticks; the default
-is once per second.
+is every five seconds. View and simulation caps drop 1.21 chunk residency; set a
+distance to `0` to leave the panel value alone.
 
 ## Discord and Minecraft chat
 

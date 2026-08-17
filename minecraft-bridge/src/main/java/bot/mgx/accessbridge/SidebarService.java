@@ -19,6 +19,7 @@ import org.geysermc.floodgate.api.FloodgateApi;
 import org.geysermc.floodgate.api.player.FloodgatePlayer;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -53,6 +54,8 @@ final class SidebarService {
     private final String footer;
     private final int updateTicks;
     private final Map<UUID, PlayerBoard> boards = new HashMap<>();
+    private String lastTeamKey = "";
+    private String lastHeaderKey = "";
     private int taskId = -1;
 
     SidebarService(
@@ -99,24 +102,72 @@ final class SidebarService {
             }
         });
         boards.clear();
+        lastTeamKey = "";
+        lastHeaderKey = "";
     }
 
     void refreshAll() {
         boards.keySet().removeIf(uuid -> plugin.getServer().getPlayer(uuid) == null);
-        for (Player player : plugin.getServer().getOnlinePlayers()) {
+        Collection<? extends Player> online = plugin.getServer().getOnlinePlayers();
+        String teamKey = teamFingerprint(online);
+        boolean teamsChanged = !teamKey.equals(lastTeamKey);
+        lastTeamKey = teamKey;
+        String headerKey = online.size() + ":" + tpsBucket();
+        boolean headerChanged = !headerKey.equals(lastHeaderKey);
+        lastHeaderKey = headerKey;
+        for (Player player : online) {
             updateTabName(player);
-            updateTabHeaderAndFooter(player);
-            refresh(player);
+            if (headerChanged) {
+                updateTabHeaderAndFooter(player);
+            }
+            refresh(player, teamsChanged);
         }
     }
 
     void refresh(Player player) {
+        refresh(player, true);
+    }
+
+    private void refresh(Player player, boolean syncTeams) {
         PlayerBoard board = boards.computeIfAbsent(player.getUniqueId(), ignored -> new PlayerBoard(player));
-        syncClanTeams(board.scoreboard, player);
+        if (syncTeams) {
+            syncClanTeams(board.scoreboard, player);
+        }
         board.update(lines(player));
         if (player.getScoreboard() != board.scoreboard) {
             player.setScoreboard(board.scoreboard);
         }
+    }
+
+    private String teamFingerprint(Collection<? extends Player> online) {
+        StringBuilder key = new StringBuilder();
+        for (Player player : online) {
+            PlayerProfile profile = perks.profile(player.getUniqueId());
+            key.append(player.getUniqueId())
+                    .append(':')
+                    .append(profile.rankWeight())
+                    .append(':')
+                    .append(clans.clanOf(player.getUniqueId())
+                            .map(clan -> clan.name() + clan.level() + clan.themeColor())
+                            .orElse(""))
+                    .append(':')
+                    .append(identities.visibleUsername(player.getUniqueId()).orElse(""))
+                    .append(':')
+                    .append(settings.isEnabled(player.getUniqueId(), PlayerSettingsStore.Setting.CLAN_TAGS))
+                    .append(';');
+        }
+        return key.toString();
+    }
+
+    private int tpsBucket() {
+        double tps = Math.min(plugin.getServer().getTPS()[0], 20.0);
+        if (tps < 15.0) {
+            return 0;
+        }
+        if (tps < 18.0) {
+            return 1;
+        }
+        return 2;
     }
 
     private List<Component> lines(Player player) {

@@ -238,6 +238,12 @@ Read the relevant file when you touch an area; these are the non-obvious points.
 - **Overworld spawn is locked to `0 69 0`.** `WorldSpawn` sets the block and
   `spawnRadius` 0 so vanilla cannot scatter joins. `SpawnChangeEvent` puts it
   back if anything else moves it. Bed and respawn-anchor deaths are left alone.
+  `WorldMemory` then drops spawn-chunk residency and caps view/simulation
+  distance (defaults 6 / 4) so an empty or far-from-spawn world does not keep
+  a 1.21 neighborhood resident. `/mgxadmin startserver` unloads each barrier
+  scan chunk it had to load, so the launch pass cannot leave ~1,250 chunks in
+  RAM. Set `world.max-view-distance: 0` in the plugin config to leave the
+  panel value alone.
 - **Resetting data is two commands, one per side.** `/mgxadmin reset all
   confirm` (in game) clears what Paper keeps; `/mcadmin wipe` (Discord, owner
   only) clears the bot's SQLite. Neither can reach the other's data, so a full
