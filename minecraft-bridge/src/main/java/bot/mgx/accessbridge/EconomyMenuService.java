@@ -497,6 +497,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             inventory.setItem(index, null);
             money.deposit(player.getUniqueId(), sold.credit());
             info(player, "Sold " + sold.describe() + " for " + EconomyFormat.dollars(sold.credit()) + ".");
+            logSale(player, sold);
             openSellPreview(player);
             return;
         }
@@ -666,8 +667,15 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             );
         }
         give(player, new ItemStack(material, items));
-        info(player, "Bought " + items + " " + readable(offer.material())
+        String name = readable(offer.material());
+        info(player, "Bought " + items + " " + name
                 + " for " + EconomyFormat.dollars(cost) + ".");
+        report(player, "shop_buy",
+                "Bought " + items + " " + name + " for " + EconomyFormat.dollars(cost))
+                .detail("item", name)
+                .detail("amount", items)
+                .detail("paid", cost)
+                .record();
     }
 
     private int itemsFor(ClickType click, ShopCatalog.Offer offer, Player player) {
@@ -691,6 +699,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         player.getInventory().setItemInMainHand(null);
         money.deposit(player.getUniqueId(), sold.credit());
         info(player, "Sold " + sold.describe() + " for " + EconomyFormat.dollars(sold.credit()) + ".");
+        logSale(player, sold);
     }
 
     private void sellInventory(Player player) {
@@ -714,6 +723,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         }
         money.deposit(player.getUniqueId(), sold.credit());
         info(player, "Sold " + sold.describe() + " for " + EconomyFormat.dollars(sold.credit()) + ".");
+        logSale(player, sold);
     }
 
     private void settleSell(Player player, Inventory inventory) {
@@ -742,6 +752,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         }
         money.deposit(player.getUniqueId(), sold.credit());
         info(player, "Sold " + sold.describe() + " for " + EconomyFormat.dollars(sold.credit()) + ".");
+        logSale(player, sold);
     }
 
     private Sold sellStacks(Player player, List<ItemStack> stacks) {
@@ -988,6 +999,21 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
 
     private static List<String> partial(String token, List<String> options) {
         return StringUtil.copyPartialMatches(token, options, new ArrayList<>());
+    }
+
+    private void logSale(Player player, Sold sold) {
+        report(player, "shop_sell",
+                "Sold " + sold.describe() + " for " + EconomyFormat.dollars(sold.credit()))
+                .detail("items", sold.describe())
+                .detail("received", sold.credit())
+                .record();
+    }
+
+    private ServerEvent.Builder report(Player actor, String event, String summary) {
+        return ServerEvent.of(
+                event, ServerEvent.CATEGORY_ECONOMY, actor.getUniqueId(), actor.getName(),
+                plugin::recordServerEvent
+        ).summary(summary);
     }
 
     private static void info(Player player, String message) {

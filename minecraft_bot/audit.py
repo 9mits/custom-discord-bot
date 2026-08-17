@@ -116,6 +116,8 @@ SERVER_EVENT_TITLES: Mapping[str, str] = {
     "rank_hold": "Rank Sync Held",
     "rank_release": "Rank Sync Released",
     "data_reset": "Server Data Reset",
+    "shop_buy": "Shop Purchase",
+    "shop_sell": "Items Sold",
 }
 
 
