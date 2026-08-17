@@ -56,7 +56,10 @@ import static bot.mgx.accessbridge.MenuItems.button;
  */
 final class EconomyMenuService implements CommandExecutor, TabCompleter, Listener {
     private static final int SHOP_HUB_SIZE = 54;
-    private static final int[] CATEGORY_SLOTS = {11, 13, 15, 20, 22, 24, 29, 31};
+    private static final int[] CATEGORY_SLOTS = {
+            10, 11, 12, 13, 14, 15, 16,
+            19, 20, 21, 22
+    };
     private static final int WALLET_SLOT = 49;
     private static final int AH_SEARCH_SLOT = 46;
     private static final int AH_OWN_SLOT = 47;
