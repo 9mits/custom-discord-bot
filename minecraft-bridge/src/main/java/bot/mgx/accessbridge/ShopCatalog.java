@@ -53,11 +53,22 @@ final class ShopCatalog {
             }
         }
 
+        long unitPrice() {
+            return Math.max(1L, price / amount);
+        }
+
         long costOf(int orders) {
             if (orders <= 0) {
                 return 0L;
             }
             return Math.multiplyExact(price, orders);
+        }
+
+        long costOfItems(int items) {
+            if (items <= 0) {
+                return 0L;
+            }
+            return Math.multiplyExact(unitPrice(), items);
         }
 
         int maxOrders(long balance, int inventorySpace) {
@@ -67,6 +78,14 @@ final class ShopCatalog {
             long affordable = balance / price;
             int bySpace = inventorySpace / amount;
             return (int) Math.min(bySpace, Math.min(Integer.MAX_VALUE, affordable));
+        }
+
+        int maxItems(long balance, int inventorySpace) {
+            long unit = unitPrice();
+            if (unit <= 0L || inventorySpace <= 0 || balance < unit) {
+                return 0;
+            }
+            return (int) Math.min(inventorySpace, Math.min(Integer.MAX_VALUE, balance / unit));
         }
     }
 
