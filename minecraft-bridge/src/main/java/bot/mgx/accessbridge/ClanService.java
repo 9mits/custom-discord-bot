@@ -40,16 +40,17 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
             "help", "create", "accept", "decline", "info", "list"
     );
     private static final List<String> MEMBER_SUBCOMMANDS = List.of(
-            "help", "info", "list", "members", "chat", "leave", "menu", "donate", "balance", "donors"
+            "help", "info", "list", "members", "chat", "leave", "menu", "donate", "balance",
+            "donors", "allies"
     );
     private static final List<String> STAFF_SUBCOMMANDS = List.of(
             "help", "invite", "info", "list", "members", "kick", "chat", "leave",
-            "menu", "donate", "balance", "donors", "upgrade"
+            "menu", "donate", "balance", "donors", "upgrade", "ally", "unally", "allies"
     );
     private static final List<String> LEADER_SUBCOMMANDS = List.of(
             "help", "invite", "info", "list", "rename", "color", "promote", "demote",
             "transfer", "kick", "chat", "disband", "menu", "donate", "balance", "donors", "upgrade",
-            "members"
+            "members", "ally", "unally", "allies"
     );
 
     private final MGXAccessBridge plugin;
@@ -105,6 +106,9 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 case "demote" -> setStaff(player, remainder(args, 1), false);
                 case "transfer", "leader" -> transfer(player, remainder(args, 1));
                 case "kick", "remove" -> kick(player, remainder(args, 1));
+                case "ally", "alliance" -> ally(player, remainder(args, 1));
+                case "unally", "breakally" -> unally(player, remainder(args, 1));
+                case "allies", "alliances" -> allies(player);
                 case "leave" -> leave(player);
                 case "chat" -> chat(player, remainder(args, 1));
                 case "menu" -> menus.openHub(player);
@@ -183,6 +187,91 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         store.decline(player.getUniqueId());
         success(player, "Declined the clan invite.");
     }
+
+    /**
+     * Offers an alliance, or accepts one already waiting.
+     *
+     * <p>One command does both halves, so neither clan has to remember a different
+     * word for their side of it.
+     */
+    private void ally(Player player, String targetName) throws IOException {
+        staffClan(player);
+        if (targetName.isBlank()) {
+            throw new ClanStore.ClanException("Usage: /clans ally <clan>");
+        }
+        ClanStore.AllyResult result = store.ally(
+                player.getUniqueId(), targetName, System.currentTimeMillis()
+        );
+        plugin.refreshClans();
+        if (!result.formed()) {
+            report(player, "clan_ally_offer",
+                    "Offered " + result.other().name() + " an alliance with " + result.own().name())
+                    .detail("clan", result.own().name())
+                    .detail("ally", result.other().name())
+                    .record();
+            success(player, "Offered " + result.other().name() + " an alliance. They accept with "
+                    + "/clans ally " + result.own().name() + " within ten minutes.");
+            broadcast(result.other(), Component.text(
+                    result.own().name() + " offered your clan an alliance. Accept with /clans ally "
+                            + result.own().name() + ".",
+                    LIGHT_ORANGE
+            ));
+            return;
+        }
+        report(player, "clan_ally",
+                result.own().name() + " allied with " + result.other().name())
+                .detail("clan", result.own().name())
+                .detail("ally", result.other().name())
+                .record();
+        Component formed = Component.text(
+                result.own().name() + " and " + result.other().name()
+                        + " are now allies. You cannot damage each other.",
+                LIGHT_ORANGE
+        );
+        broadcast(result.own(), formed);
+        broadcast(result.other(), formed);
+    }
+
+    private void unally(Player player, String targetName) throws IOException {
+        staffClan(player);
+        if (targetName.isBlank()) {
+            throw new ClanStore.ClanException("Usage: /clans unally <clan>");
+        }
+        ClanStore.AllyResult result = store.unally(player.getUniqueId(), targetName);
+        plugin.refreshClans();
+        report(player, "clan_unally",
+                result.own().name() + " ended its alliance with " + result.other().name())
+                .detail("clan", result.own().name())
+                .detail("ally", result.other().name())
+                .record();
+        Component ended = Component.text(
+                result.own().name() + " and " + result.other().name()
+                        + " are no longer allies. You can damage each other again.",
+                LIGHT_ORANGE
+        );
+        broadcast(result.own(), ended);
+        broadcast(result.other(), ended);
+    }
+
+    private void allies(Player player) {
+        ClanStore.ClanView clan = ownClan(player);
+        List<String> names = clan.allyNames();
+        if (names.isEmpty()) {
+            player.sendMessage(prefix().append(Component.text(
+                    clan.name() + " has no allies. Use /clans ally <clan> to offer one.",
+                    NamedTextColor.GRAY)));
+            return;
+        }
+        player.sendMessage(prefix().append(Component.text(
+                clan.name() + " allies (" + names.size() + "/" + ClanStore.MAX_ALLIES + "):",
+                NamedTextColor.GRAY)));
+        for (String name : names) {
+            player.sendMessage(prefix().append(Component.text("  " + name, ORANGE, TextDecoration.BOLD))
+                    .append(Component.text(" — no friendly fire", NamedTextColor.GRAY)));
+        }
+    }
+
+
 
     /** A page argument, defaulting to the first and never below it. */
     private static int page(String[] args, int index) {
@@ -359,10 +448,13 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
             player.sendMessage(help("/clans", "Open the clan menu"));
             player.sendMessage(help("/clans donate [amount]", "Give money to the clan"));
             player.sendMessage(help("/clans balance | donors", "What the clan holds, and who gave it"));
+            player.sendMessage(help("/clans allies", "Clans you cannot damage"));
             if (role == ClanStore.ClanRole.LEADER || role == ClanStore.ClanRole.STAFF) {
                 player.sendMessage(help("/clans upgrade", "Spend the balance on levels or slots"));
                 player.sendMessage(help("/clans invite <player>", "Invite an online player"));
                 player.sendMessage(help("/clans kick <player>", "Remove a clan member"));
+                player.sendMessage(help("/clans ally <clan>", "Offer or accept an alliance"));
+                player.sendMessage(help("/clans unally <clan>", "End an alliance"));
             }
             if (role == ClanStore.ClanRole.LEADER) {
                 player.sendMessage(help("/clans rename <name>", "Change your clan name"));
@@ -376,7 +468,8 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
             player.sendMessage(help("/clans chat <message>", "Message online clan members"));
         }
         player.sendMessage(Component.text(
-                "  Clan protection: members of the same clan cannot damage one another.",
+                "  Clan protection: members of the same clan, and of allied clans,"
+                        + " cannot damage one another.",
                 NamedTextColor.GRAY
         ));
     }
@@ -387,11 +480,10 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         if (attacker == null || !(event.getEntity() instanceof Player victim)) {
             return;
         }
-        Optional<ClanStore.ClanView> attackerClan = store.clanOf(attacker.getUniqueId());
-        Optional<ClanStore.ClanView> victimClan = store.clanOf(victim.getUniqueId());
-        if (attackerClan.isEmpty()
-                || victimClan.isEmpty()
-                || !attackerClan.get().id().equals(victimClan.get().id())) {
+        // pvpBlocked rather than two clanOf calls: this fires for every arrow and
+        // every swing, and building a ClanView rebuilds both rosters to answer a
+        // question the member index already knows.
+        if (!store.pvpBlocked(attacker.getUniqueId(), victim.getUniqueId())) {
             return;
         }
         // LOWEST so CombatLog has not tagged yet when we cancel. A next-tick
@@ -488,6 +580,19 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         if (action.equals("info")) {
             return partial(args[1], store.list().stream().map(ClanStore.ClanView::name).toList());
         }
+        if (List.of("ally", "alliance").contains(action)) {
+            // Every clan but their own, so the list never suggests something refused.
+            String own = store.clanOf(player.getUniqueId()).map(ClanStore.ClanView::name).orElse("");
+            return partial(args[1], store.list().stream()
+                    .map(ClanStore.ClanView::name)
+                    .filter(name -> !name.equals(own))
+                    .toList());
+        }
+        if (List.of("unally", "breakally").contains(action)) {
+            return store.clanOf(player.getUniqueId())
+                    .map(clan -> partial(args[1], clan.allyNames()))
+                    .orElse(List.of());
+        }
         if (List.of("color", "colour", "theme").contains(action)) {
             return partial(args[1], THEME_COLORS);
         }
@@ -551,6 +656,9 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
             case "contributors" -> "donors";
             case "roster" -> "members";
             case "levelup" -> "upgrade";
+            case "alliance" -> "ally";
+            case "breakally" -> "unally";
+            case "alliances" -> "allies";
             default -> action;
         };
     }
