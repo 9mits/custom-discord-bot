@@ -158,6 +158,16 @@ final class ClanMenuService implements Listener {
                 String.format("#%06X", clan.themeColor())));
         inventory.setItem(14, button(Material.CLOCK, "Online",
                 online + " of " + clan.members().size() + " here now."));
+        List<String> allies = clan.allyNames();
+        List<String> allyLore = new ArrayList<>();
+        if (allies.isEmpty()) {
+            allyLore.add("None.");
+            allyLore.add("Staff offer one with /clans ally <clan>.");
+        } else {
+            allyLore.addAll(allies);
+            allyLore.add("No friendly fire with these clans.");
+        }
+        inventory.setItem(16, button(Material.SHIELD, "Allies", allyLore));
         inventory.setItem(INFO_MEMBERS, head(clan.leader(), "Members",
                 List.of(clan.members().size() + "/" + clan.memberSlots() + " — click to see them.")));
         if (back != null) {

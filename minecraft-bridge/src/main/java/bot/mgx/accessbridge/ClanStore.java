@@ -26,6 +26,17 @@ final class ClanStore {
     static final int MAX_MEMBERS = 25;
     static final int DEFAULT_THEME_COLOR = 0xFF9900;
     static final long INVITE_TTL_MILLIS = 5 * 60 * 1000L;
+    /**
+     * How many other clans one clan may be allied to.
+     *
+     * <p>Capped because an alliance is a PvP truce: with no ceiling every clan allies
+     * every other clan, the map quietly becomes peaceful, and the bounty board and
+     * kill leaderboards stop meaning anything. Three is enough to take a side without
+     * being able to take everyone's.
+     */
+    static final int MAX_ALLIES = 3;
+    /** Long enough for the other clan's leader to be fetched, short enough to expire. */
+    static final long ALLY_OFFER_TTL_MILLIS = 10 * 60 * 1000L;
     private static final int FORMAT_VERSION = 2;
     private static final Pattern VALID_NAME = Pattern.compile("[A-Z0-9]{2,6}");
 
@@ -46,7 +57,9 @@ final class ClanStore {
             long treasury,
             int memberSlots,
             Map<UUID, Long> donations,
-            Map<UUID, Long> joinedAt
+            Map<UUID, Long> joinedAt,
+            /** Allied clan id to that clan's name, so callers can show it directly. */
+            Map<UUID, String> allies
     ) {
         ClanRole roleOf(UUID playerId) {
             if (leader.equals(playerId)) {
@@ -74,6 +87,17 @@ final class ClanStore {
             return ClanLevel.nextMemberTier(ClanLevel.tiersBoughtFor(memberSlots));
         }
 
+        boolean alliedWith(UUID clanId) {
+            return allies.containsKey(clanId);
+        }
+
+        /** Allied clan names, alphabetical, which is how every surface lists them. */
+        List<String> allyNames() {
+            return allies.values().stream()
+                    .sorted(String.CASE_INSENSITIVE_ORDER)
+                    .toList();
+        }
+
         /** Lifetime contributors, largest first, which is how the donor board reads. */
         List<Map.Entry<UUID, Long>> rankedDonors() {
             List<Map.Entry<UUID, Long>> ranked = new ArrayList<>(donations.entrySet());
@@ -86,6 +110,8 @@ final class ClanStore {
         int version = FORMAT_VERSION;
         List<SavedClan> clans = new ArrayList<>();
         Map<String, SavedInvite> invites = new LinkedHashMap<>();
+        /** Outstanding alliance offers, keyed {@code fromClanId>toClanId}. */
+        Map<String, SavedAllyOffer> allyOffers = new LinkedHashMap<>();
     }
 
     private static final class SavedClan {
@@ -106,6 +132,25 @@ final class ClanStore {
         Map<String, Long> donations;
         /** Player uuid to epoch millis when they joined. Absent on older saves. */
         Map<String, Long> joinedAt;
+        /**
+         * Clan ids this clan has allied. Absent before 2.72.0, which reads as none.
+         *
+         * <p>Held on both clans rather than in one shared list, because the damage
+         * check reads it from whichever clan it already has in hand. Load repairs any
+         * one-sided entry by dropping it, so the two copies cannot disagree.
+         */
+        Set<String> allies;
+    }
+
+    private static final class SavedAllyOffer {
+        String fromClanId;
+        String toClanId;
+        String offeredBy;
+        long expiresAt;
+    }
+
+    /** What an ally command did: an offer was sent, or an alliance was formed. */
+    record AllyResult(ClanView own, ClanView other, boolean formed) {
     }
 
     private static final class SavedInvite {
@@ -164,6 +209,7 @@ final class ClanStore {
         int removed = state.clans.size();
         state.clans.clear();
         state.invites.clear();
+        state.allyOffers.clear();
         memberIndex.clear();
         persist();
         return removed;
@@ -260,6 +306,89 @@ final class ClanStore {
             throw new ClanException("You do not have an active clan invite.");
         }
         persist();
+    }
+
+    /**
+     * Offers an alliance, or accepts one already offered by that clan.
+     *
+     * <p>One command for both halves: whoever runs it second completes the alliance.
+     * An alliance is mutual by construction, because a one-sided truce would let a
+     * clan make itself unhittable by whoever it liked.
+     */
+    synchronized AllyResult ally(UUID actor, String targetClanName, long now) throws IOException {
+        SavedClan own = requireStaff(actor);
+        SavedClan other = requireClanByName(targetClanName);
+        if (own.id.equals(other.id)) {
+            throw new ClanException("You cannot ally with your own clan.");
+        }
+        if (alliesOf(own).contains(other.id)) {
+            throw new ClanException("You are already allied with " + other.name + ".");
+        }
+        pruneAllyOffers(now);
+        if (state.allyOffers.remove(offerKey(other.id, own.id)) != null) {
+            requireAllyRoom(own);
+            requireAllyRoom(other);
+            alliesOf(own).add(other.id);
+            alliesOf(other).add(own.id);
+            // Neither clan needs the other's pending offer once they are allied.
+            state.allyOffers.remove(offerKey(own.id, other.id));
+            persist();
+            return new AllyResult(view(own), view(other), true);
+        }
+        requireAllyRoom(own);
+        if (state.allyOffers.containsKey(offerKey(own.id, other.id))) {
+            throw new ClanException("You have already offered " + other.name
+                    + " an alliance. They have to accept it.");
+        }
+        SavedAllyOffer offer = new SavedAllyOffer();
+        offer.fromClanId = own.id;
+        offer.toClanId = other.id;
+        offer.offeredBy = actor.toString();
+        offer.expiresAt = now + ALLY_OFFER_TTL_MILLIS;
+        state.allyOffers.put(offerKey(own.id, other.id), offer);
+        persist();
+        return new AllyResult(view(own), view(other), false);
+    }
+
+    /**
+     * Ends an alliance.
+     *
+     * <p>Deliberately one-sided: forming a truce needs both clans to agree, leaving
+     * one needs only the clan that wants out. Requiring consent to break it would let
+     * a clan hold another in a truce it no longer wants.
+     */
+    synchronized AllyResult unally(UUID actor, String targetClanName) throws IOException {
+        SavedClan own = requireStaff(actor);
+        SavedClan other = requireClanByName(targetClanName);
+        if (!alliesOf(own).remove(other.id)) {
+            throw new ClanException("You are not allied with " + other.name + ".");
+        }
+        alliesOf(other).remove(own.id);
+        persist();
+        return new AllyResult(view(own), view(other), false);
+    }
+
+    /**
+     * Whether these two players are barred from damaging each other: same clan, or
+     * clans that have allied.
+     *
+     * <p>Answered straight off the member index. The damage event fires for every
+     * arrow, swing and splash, and building a {@link ClanView} rebuilds both rosters —
+     * parsing a UUID per member — which is far too much work to do per hit.
+     */
+    synchronized boolean pvpBlocked(UUID attacker, UUID victim) {
+        SavedClan attackerClan = memberIndex.get(attacker);
+        if (attackerClan == null) {
+            return false;
+        }
+        SavedClan victimClan = memberIndex.get(victim);
+        if (victimClan == null) {
+            return false;
+        }
+        if (attackerClan.id.equals(victimClan.id)) {
+            return true;
+        }
+        return attackerClan.allies != null && attackerClan.allies.contains(victimClan.id);
     }
 
     synchronized ClanView rename(UUID actor, String requestedName) throws IOException {
@@ -467,6 +596,15 @@ final class ClanStore {
             memberIndex.remove(UUID.fromString(memberId));
         }
         state.invites.entrySet().removeIf(entry -> entry.getValue().clanId.equals(clanId.toString()));
+        // Both halves of every alliance point at this clan; leaving the other half
+        // behind would keep its members unhittable by a clan that no longer exists.
+        for (SavedClan remaining : state.clans) {
+            if (remaining.allies != null) {
+                remaining.allies.remove(clan.id);
+            }
+        }
+        state.allyOffers.values().removeIf(offer ->
+                offer.fromClanId.equals(clan.id) || offer.toClanId.equals(clan.id));
         persist();
         return disbanded;
     }
@@ -511,6 +649,9 @@ final class ClanStore {
             }
             if (loaded.invites == null) {
                 loaded.invites = new LinkedHashMap<>();
+            }
+            if (loaded.allyOffers == null) {
+                loaded.allyOffers = new LinkedHashMap<>();
             }
             return loaded;
         } catch (JsonParseException exception) {
@@ -610,6 +751,7 @@ final class ClanStore {
             }
             Set<String> knownClanIds = new LinkedHashSet<>();
             state.clans.forEach(clan -> knownClanIds.add(clan.id));
+            migrated |= repairAlliances(knownClanIds);
             for (Map.Entry<String, SavedInvite> entry : state.invites.entrySet()) {
                 UUID.fromString(entry.getKey());
                 SavedInvite invite = entry.getValue();
@@ -711,6 +853,95 @@ final class ClanStore {
         throw new ClanException("Could not migrate a unique clan name.");
     }
 
+    /**
+     * Makes the two halves of every alliance agree, and drops anything pointing at a
+     * clan that is gone.
+     *
+     * <p>An alliance is stored on both clans, so a crash between the two writes could
+     * leave one side allied and the other not — and the damage check reads whichever
+     * clan it has in hand, so the truce would apply in one direction only. A
+     * half-written alliance is dropped rather than completed: the clans can ally
+     * again in one command, and silently granting a truce nobody confirmed is worse
+     * than asking them to repeat themselves.
+     *
+     * @return whether anything had to be changed, so the caller writes it back
+     */
+    private boolean repairAlliances(Set<String> knownClanIds) {
+        boolean changed = false;
+        // Trim first, so a lowered MAX_ALLIES drops entries before the mutual pass
+        // reads them and can strand the other half.
+        for (SavedClan clan : state.clans) {
+            if (clan.allies != null && clan.allies.size() > MAX_ALLIES) {
+                clan.allies = new LinkedHashSet<>(
+                        new ArrayList<>(clan.allies).subList(0, MAX_ALLIES));
+                changed = true;
+            }
+        }
+        // One immutable snapshot for the whole pass. Reading the live sets while
+        // removing from them makes the result depend on clan order: A could be
+        // dropped from B by an earlier iteration and then B kept on A by a later one,
+        // rebuilding the asymmetry this exists to remove.
+        Map<String, Set<String>> named = new LinkedHashMap<>();
+        for (SavedClan clan : state.clans) {
+            named.put(clan.id, clan.allies == null ? Set.of() : Set.copyOf(clan.allies));
+        }
+        for (SavedClan clan : state.clans) {
+            if (clan.allies == null) {
+                continue;
+            }
+            changed |= clan.allies.removeIf(allyId ->
+                    allyId == null
+                            || allyId.equals(clan.id)
+                            || !knownClanIds.contains(allyId)
+                            || !named.getOrDefault(allyId, Set.of()).contains(clan.id));
+        }
+        changed |= state.allyOffers.entrySet().removeIf(entry -> {
+            SavedAllyOffer offer = entry.getValue();
+            return offer == null
+                    || offer.fromClanId == null
+                    || offer.toClanId == null
+                    || offer.expiresAt <= 0
+                    || !knownClanIds.contains(offer.fromClanId)
+                    || !knownClanIds.contains(offer.toClanId)
+                    || !entry.getKey().equals(offerKey(offer.fromClanId, offer.toClanId));
+        });
+        return changed;
+    }
+
+    private static String offerKey(String fromClanId, String toClanId) {
+        return fromClanId + ">" + toClanId;
+    }
+
+    /** The live ally set, created on first use so older saves upgrade in place. */
+    private static Set<String> alliesOf(SavedClan clan) {
+        if (clan.allies == null) {
+            clan.allies = new LinkedHashSet<>();
+        }
+        return clan.allies;
+    }
+
+    private static void requireAllyRoom(SavedClan clan) {
+        if (alliesOf(clan).size() >= MAX_ALLIES) {
+            throw new ClanException(clan.name + " already has " + MAX_ALLIES
+                    + " allies, which is the limit.");
+        }
+    }
+
+    private SavedClan requireClanByName(String name) {
+        if (name == null || name.isBlank()) {
+            throw new ClanException("Name the clan.");
+        }
+        String lookup = normalizeLookup(name);
+        return state.clans.stream()
+                .filter(clan -> clan.name.toLowerCase(Locale.ROOT).equals(lookup))
+                .findFirst()
+                .orElseThrow(() -> new ClanException("No clan is called " + name + "."));
+    }
+
+    private void pruneAllyOffers(long now) {
+        state.allyOffers.values().removeIf(offer -> offer.expiresAt <= now);
+    }
+
     private void pruneInvites(long now) {
         state.invites.entrySet().removeIf(entry -> entry.getValue().expiresAt <= now);
     }
@@ -731,8 +962,26 @@ final class ClanStore {
                 treasuryOf(clan),
                 slotsOf(clan),
                 donationsOf(clan),
-                joinedAtOf(clan)
+                joinedAtOf(clan),
+                allyNamesOf(clan)
         );
+    }
+
+    /** Allied clan ids mapped to their names. Capped at {@link #MAX_ALLIES}, so small. */
+    private Map<UUID, String> allyNamesOf(SavedClan clan) {
+        if (clan.allies == null || clan.allies.isEmpty()) {
+            return Map.of();
+        }
+        LinkedHashMap<UUID, String> named = new LinkedHashMap<>();
+        for (String allyId : clan.allies) {
+            for (SavedClan candidate : state.clans) {
+                if (candidate.id.equals(allyId)) {
+                    named.put(UUID.fromString(allyId), candidate.name);
+                    break;
+                }
+            }
+        }
+        return Map.copyOf(named);
     }
 
     private static Map<UUID, Long> joinedAtOf(SavedClan clan) {
