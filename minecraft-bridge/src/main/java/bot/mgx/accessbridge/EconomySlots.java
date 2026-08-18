@@ -15,10 +15,14 @@ package bot.mgx.accessbridge;
 final class EconomySlots {
     /** Every economy board is a double chest. */
     static final int BOARD = 54;
-    /** Cycles how many a plain click buys, on a shop category page. */
-    static final int BUY_AMOUNT = 47;
     /** Takes everything waiting in the auction mailbox. */
     static final int MAIL_COLLECT = 53;
+    /** Sets the amount to whatever the player can actually afford and carry. */
+    static final int BUY_MAX = 16;
+    /** Puts the amount back to one. */
+    static final int BUY_RESET = 34;
+    /** Commits the purchase. */
+    static final int BUY_CONFIRM = 40;
 
     private EconomySlots() {
     }
@@ -33,8 +37,10 @@ final class EconomySlots {
         return new int[] {
                 MenuItems.PREVIOUS_SLOT,
                 MenuItems.NEXT_SLOT,
-                BUY_AMOUNT,
                 MAIL_COLLECT,
+                BUY_MAX,
+                BUY_RESET,
+                BUY_CONFIRM,
         };
     }
 }

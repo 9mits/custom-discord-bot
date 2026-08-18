@@ -13,7 +13,6 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
@@ -58,7 +57,8 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     private static final int SHOP_HUB_SIZE = 54;
     private static final int[] CATEGORY_SLOTS = {
             10, 11, 12, 13, 14, 15, 16,
-            19, 20, 21, 22
+            19, 20, 21, 22, 23, 24, 25,
+            28, 29, 30, 31, 32, 33, 34
     };
     private static final int WALLET_SLOT = 49;
     private static final int AH_SEARCH_SLOT = 46;
@@ -69,14 +69,25 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     private static final int CONFIRM_ITEM = 13;
     private static final int CONFIRM_NO = 15;
     private static final int CONFIRM_SIZE = 27;
-    private static final int BUY_AMOUNT_SLOT = EconomySlots.BUY_AMOUNT;
     private static final int MAIL_COLLECT_SLOT = EconomySlots.MAIL_COLLECT;
+    private static final int BUY_SIZE = 54;
+    private static final int BUY_ITEM_SLOT = 22;
+    private static final int BUY_CONFIRM_SLOT = 40;
+    /** Green above the item adds, red below subtracts, in the same order. */
+    private static final int[] BUY_ADD_SLOTS = {10, 11, 12, 13, 14};
+    private static final int[] BUY_TAKE_SLOTS = {28, 29, 30, 31, 32};
+    private static final int[] BUY_STEPS = {1, 8, 16, 32, 64};
+    private static final int BUY_MAX_SLOT = 16;
+    private static final int BUY_RESET_SLOT = 34;
+    /** A full inventory of full stacks; nothing can be carried past this. */
+    private static final int BUY_CEILING = 36 * 64;
 
     private final MGXAccessBridge plugin;
     private final EconomyStore money;
     private final AuctionStore auctions;
     private final Map<UUID, String> auctionSearch = new ConcurrentHashMap<>();
-    private final Map<UUID, Integer> buyAmount = new ConcurrentHashMap<>();
+    /** What each player is part-way through buying, cleared when the screen closes. */
+    private final Map<UUID, PendingBuy> pendingBuys = new ConcurrentHashMap<>();
 
     EconomyMenuService(MGXAccessBridge plugin, EconomyStore money, AuctionStore auctions) {
         this.plugin = plugin;
@@ -202,7 +213,6 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
 
     void openShopCategory(Player player, ShopCatalog.Category category, int page) {
         List<ShopCatalog.Offer> offers = ShopCatalog.offers(category);
-        int amount = amountFor(player);
         Inventory inventory = create(
                 Menu.Kind.SHOP_CATEGORY,
                 categoryId(category),
@@ -225,10 +235,9 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                 long each = offer.unitPrice();
                 meta.lore(List.of(
                         line(EconomyFormat.dollars(each) + " each"),
-                        line(amount + " for " + EconomyFormat.dollars(offer.costOfItems(amount))),
+                        line(EconomyFormat.dollars(offer.costOfItems(64)) + " a stack"),
                         line(""),
-                        line("Click to buy " + amount + "."),
-                        line("Change the amount below.")
+                        line("Click to choose an amount.")
                 ));
                 item.setItemMeta(meta);
             }
@@ -238,12 +247,107 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             inventory.setItem(22, button(Material.BARRIER, "Nothing here"));
         }
         MenuItems.paginate(inventory, page, offers.size(), true);
-        inventory.setItem(BUY_AMOUNT_SLOT, button(
-                Material.COMPARATOR,
-                "Buy " + amount + " per click",
-                List.of("Click to cycle " + ShopAmounts.label() + ".")
-        ));
         MenuItems.show(plugin, player, inventory);
+    }
+
+    /**
+     * The amount picker: green panes above add, red panes below take away, and the
+     * item in the middle always shows what the current amount costs.
+     *
+     * <p>Replaces the per-click amount toggle that used to sit on the category page.
+     * That existed because Geyser gives the server no right or shift click from a
+     * Bedrock container, so the modifier shortcuts were Java-only — a screen with real
+     * buttons is the same on both editions and says the price out loud before anyone
+     * spends anything.
+     */
+    void openBuy(Player player, ShopCatalog.Offer offer, ShopCatalog.Category category, int categoryPage, int quantity) {
+        int wanted = Math.max(1, Math.min(BUY_CEILING, quantity));
+        pendingBuys.put(player.getUniqueId(), new PendingBuy(offer, category, categoryPage, wanted));
+        long balance = money.balance(player.getUniqueId());
+        long total = offer.costOfItems(wanted);
+        int space = spaceFor(player, materialOf(offer.material()));
+        boolean affordable = total <= balance;
+        boolean fits = space >= wanted;
+        Inventory inventory = create(
+                Menu.Kind.SHOP_BUY, categoryId(category), categoryPage, BUY_SIZE,
+                "Buy  •  " + readable(offer.material()),
+                new Menu.Destination(Menu.Kind.SHOP_CATEGORY, categoryId(category), categoryPage)
+        );
+        for (int index = 0; index < BUY_STEPS.length; index++) {
+            int step = BUY_STEPS[index];
+            inventory.setItem(BUY_ADD_SLOTS[index], pane(
+                    Material.LIME_STAINED_GLASS_PANE, step, "Add " + step,
+                    EconomyFormat.dollars(offer.costOfItems(step)) + " more"
+            ));
+            inventory.setItem(BUY_TAKE_SLOTS[index], pane(
+                    Material.RED_STAINED_GLASS_PANE, step, "Take off " + step,
+                    wanted <= step ? "Back to 1" : EconomyFormat.dollars(offer.costOfItems(step)) + " less"
+            ));
+        }
+        int most = Math.max(1, Math.min(BUY_CEILING, offer.maxItems(balance, space)));
+        inventory.setItem(BUY_MAX_SLOT, button(
+                Material.GOLD_INGOT, "As many as I can",
+                List.of(most + " right now", EconomyFormat.dollars(offer.costOfItems(most)))
+        ));
+        inventory.setItem(BUY_RESET_SLOT, button(
+                Material.BARRIER, "Back to 1", List.of("Start the amount over.")
+        ));
+
+        ItemStack preview = new ItemStack(materialOf(offer.material()), Math.max(1, Math.min(64, wanted)));
+        ItemMeta meta = preview.getItemMeta();
+        if (meta != null) {
+            meta.displayName(Component.text(readable(offer.material()), ORANGE, TextDecoration.BOLD)
+                    .decoration(TextDecoration.ITALIC, false));
+            meta.lore(List.of(
+                    line("Buying " + wanted),
+                    line(EconomyFormat.dollars(offer.unitPrice()) + " each"),
+                    line(""),
+                    line("Total " + EconomyFormat.dollars(total)),
+                    line("You have " + EconomyFormat.dollars(balance))
+            ));
+            preview.setItemMeta(meta);
+        }
+        inventory.setItem(BUY_ITEM_SLOT, preview);
+
+        List<String> confirmLore = new ArrayList<>();
+        confirmLore.add(wanted + " " + readable(offer.material()));
+        confirmLore.add("Total " + EconomyFormat.dollars(total));
+        if (!affordable) {
+            confirmLore.add("");
+            confirmLore.add("You are short "
+                    + EconomyFormat.dollars(total - balance) + ".");
+        } else if (!fits) {
+            confirmLore.add("");
+            confirmLore.add("Room for " + space + " only.");
+        }
+        inventory.setItem(BUY_CONFIRM_SLOT, button(
+                affordable && fits ? Material.LIME_CONCRETE : Material.GRAY_CONCRETE,
+                affordable && fits ? "Buy it" : "Cannot buy that many",
+                confirmLore
+        ));
+        MenuItems.back(inventory);
+        MenuItems.show(plugin, player, inventory);
+    }
+
+    /** A glass pane counted to its own step, so the number reads off the stack too. */
+    private static ItemStack pane(Material material, int step, String name, String detail) {
+        ItemStack item = new ItemStack(material, Math.max(1, Math.min(64, step)));
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.displayName(Component.text(name, ORANGE, TextDecoration.BOLD)
+                    .decoration(TextDecoration.ITALIC, false));
+            meta.lore(List.of(line(detail)));
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private record PendingBuy(
+            ShopCatalog.Offer offer,
+            ShopCatalog.Category category,
+            int categoryPage,
+            int quantity
+    ) {
     }
 
     void openSell(Player player) {
@@ -311,6 +415,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                 meta.displayName(Component.text(readable(quote.material()), ORANGE, TextDecoration.BOLD)
                         .decoration(TextDecoration.ITALIC, false));
                 meta.lore(List.of(
+                        line(quote.group()),
                         line("Sells for " + EconomyFormat.dollars(quote.unitPrice()) + " each")
                 ));
                 item.setItemMeta(meta);
@@ -442,7 +547,8 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         try {
             switch (menu.kind()) {
                 case SHOP_HUB -> clickShopHub(player, slot);
-                case SHOP_CATEGORY -> clickShopCategory(player, menu, slot, event.getClick());
+                case SHOP_CATEGORY -> clickShopCategory(player, menu, slot);
+                case SHOP_BUY -> clickBuy(player, slot);
                 case SELL_PREVIEW -> clickSellPreview(player, slot);
                 case SELL_PRICES -> clickSellPrices(player, menu, slot);
                 case AUCTION_HUB -> clickAuction(player, menu, slot);
@@ -468,11 +574,23 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     @EventHandler(priority = EventPriority.MONITOR)
     public void onClose(InventoryCloseEvent event) {
         if (!(event.getInventory().getHolder() instanceof Menu menu)
-                || menu.kind() != Menu.Kind.SELL
                 || !(event.getPlayer() instanceof Player player)) {
             return;
         }
-        settleSell(player, event.getInventory());
+        if (menu.kind() == Menu.Kind.SHOP_BUY) {
+            // Only when they are not on their way to another buy screen, which opens a
+            // tick later and would otherwise find its own state already discarded.
+            plugin.getServer().getScheduler().runTask(plugin, () -> {
+                if (!(player.getOpenInventory().getTopInventory().getHolder() instanceof Menu open)
+                        || open.kind() != Menu.Kind.SHOP_BUY) {
+                    pendingBuys.remove(player.getUniqueId());
+                }
+            });
+            return;
+        }
+        if (menu.kind() == Menu.Kind.SELL) {
+            settleSell(player, event.getInventory());
+        }
     }
 
     private void clickSellPreview(Player player, int slot) {
@@ -556,8 +674,8 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         }
     }
 
-    private void clickShopCategory(Player player, Menu menu, int slot, ClickType click) {
-        ShopCatalog.Category category = categoryOf(menu.subject()).orElse(ShopCatalog.Category.BUILDING);
+    private void clickShopCategory(Player player, Menu menu, int slot) {
+        ShopCatalog.Category category = categoryOf(menu.subject()).orElse(ShopCatalog.Category.STONE);
         if (slot == PREVIOUS_SLOT) {
             openShopCategory(player, category, menu.page() - 1);
             return;
@@ -566,18 +684,50 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             openShopCategory(player, category, menu.page() + 1);
             return;
         }
-        if (slot == BUY_AMOUNT_SLOT) {
-            cycleAmount(player);
-            openShopCategory(player, category, menu.page());
-            return;
-        }
         List<ShopCatalog.Offer> offers = ShopCatalog.offers(category);
         int index = MenuPaging.firstIndex(menu.page(), offers.size(), PER_PAGE) + slot;
         if (slot < 0 || slot >= PER_PAGE || index >= offers.size()) {
             return;
         }
-        buy(player, offers.get(index), itemsFor(click, offers.get(index), player));
-        openShopCategory(player, category, menu.page());
+        openBuy(player, offers.get(index), category, menu.page(), 1);
+    }
+
+    private void clickBuy(Player player, int slot) {
+        PendingBuy pending = pendingBuys.get(player.getUniqueId());
+        if (pending == null) {
+            openShopHub(player);
+            return;
+        }
+        for (int index = 0; index < BUY_STEPS.length; index++) {
+            if (slot == BUY_ADD_SLOTS[index]) {
+                redrawBuy(player, pending, pending.quantity() + BUY_STEPS[index]);
+                return;
+            }
+            if (slot == BUY_TAKE_SLOTS[index]) {
+                redrawBuy(player, pending, pending.quantity() - BUY_STEPS[index]);
+                return;
+            }
+        }
+        if (slot == BUY_RESET_SLOT) {
+            redrawBuy(player, pending, 1);
+            return;
+        }
+        if (slot == BUY_MAX_SLOT) {
+            int space = spaceFor(player, materialOf(pending.offer().material()));
+            redrawBuy(player, pending, pending.offer()
+                    .maxItems(money.balance(player.getUniqueId()), space));
+            return;
+        }
+        if (slot != BUY_CONFIRM_SLOT) {
+            return;
+        }
+        buy(player, pending.offer(), pending.quantity());
+        pendingBuys.remove(player.getUniqueId());
+        openShopCategory(player, pending.category(), pending.categoryPage());
+    }
+
+    private void redrawBuy(Player player, PendingBuy pending, int quantity) {
+        openBuy(player, pending.offer(), pending.category(), pending.categoryPage(), quantity);
     }
 
     private void clickAuction(Player player, Menu menu, int slot) {
@@ -669,7 +819,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
 
     private void buy(Player player, ShopCatalog.Offer offer, int items) {
         if (items <= 0) {
-            throw new IllegalArgumentException("You cannot afford that.");
+            throw new IllegalArgumentException("Choose how many first.");
         }
         Material material = materialOf(offer.material());
         if (!canFit(player, material, items)) {
@@ -691,26 +841,6 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                 .detail("amount", items)
                 .detail("paid", cost)
                 .record();
-    }
-
-    private int itemsFor(ClickType click, ShopCatalog.Offer offer, Player player) {
-        int space = spaceFor(player, materialOf(offer.material()));
-        int affordable = offer.maxItems(money.balance(player.getUniqueId()), space);
-        if (click.isShiftClick()) {
-            return Math.min(64, affordable);
-        }
-        if (click.isRightClick()) {
-            return Math.min(16, affordable);
-        }
-        return Math.min(amountFor(player), affordable);
-    }
-
-    private int amountFor(Player player) {
-        return buyAmount.getOrDefault(player.getUniqueId(), ShopAmounts.first());
-    }
-
-    private void cycleAmount(Player player) {
-        buyAmount.put(player.getUniqueId(), ShopAmounts.next(amountFor(player)));
     }
 
     private void sellHand(Player player) {
@@ -883,6 +1013,16 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             openShopHub(player);
             return;
         }
+        if (back.kind() == Menu.Kind.SHOP_CATEGORY) {
+            // Back off the amount picker returns to the shelf it was opened from,
+            // on the page it was opened from. Falling through to the auction house
+            // is what happens if this branch is missing.
+            categoryOf(back.subject()).ifPresentOrElse(
+                    category -> openShopCategory(player, category, Math.max(1, back.page())),
+                    () -> openShopHub(player)
+            );
+            return;
+        }
         if (back.kind() == Menu.Kind.SELL_PREVIEW) {
             openSellPreview(player);
             return;
@@ -902,6 +1042,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     static boolean isEconomy(Menu.Kind kind) {
         return kind == Menu.Kind.SHOP_HUB
                 || kind == Menu.Kind.SHOP_CATEGORY
+                || kind == Menu.Kind.SHOP_BUY
                 || kind == Menu.Kind.SELL
                 || kind == Menu.Kind.SELL_PREVIEW
                 || kind == Menu.Kind.SELL_PRICES

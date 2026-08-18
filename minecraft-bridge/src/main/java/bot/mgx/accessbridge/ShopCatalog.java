@@ -15,16 +15,29 @@ import java.util.Optional;
  * not bought or sold here — those go on the auction house.
  */
 final class ShopCatalog {
+    /**
+     * One shelf per kind of thing, rather than a few shelves each holding several.
+     *
+     * <p>Stone, earth, glass, wool, concrete and terracotta used to share two
+     * categories between them, so finding a block meant paging past thirty unrelated
+     * ones. The hub has room for twenty-one.
+     */
     enum Category {
-        BUILDING("Building", "STONE"),
+        STONE("Stone", "STONE"),
+        EARTH("Earth", "DIRT"),
         WOOD("Wood", "OAK_LOG"),
-        COLORED("Color", "WHITE_WOOL"),
+        GLASS("Glass", "GLASS"),
+        WOOL("Wool", "WHITE_WOOL"),
+        CONCRETE("Concrete", "LIGHT_BLUE_CONCRETE"),
+        TERRACOTTA("Terracotta", "ORANGE_TERRACOTTA"),
+        NETHER("Nether", "NETHERRACK"),
+        OCEAN("Ocean", "PRISMARINE"),
         FARMING("Farming", "WHEAT"),
         FOOD("Food", "BREAD"),
         MINERALS("Minerals", "IRON_INGOT"),
         REDSTONE("Redstone", "REDSTONE"),
-        NETHER("Nether", "NETHERRACK"),
-        OCEAN("Ocean", "PRISMARINE"),
+        STORAGE("Storage", "CHEST"),
+        TRANSPORT("Transport", "MINECART"),
         DECORATION("Decoration", "LANTERN"),
         UTILITY("Utility", "WATER_BUCKET");
 
@@ -89,7 +102,8 @@ final class ShopCatalog {
         }
     }
 
-    record SellQuote(String material, long unitPrice) {
+    /** {@code group} is only a heading for the price list; it does not affect pricing. */
+    record SellQuote(String material, String group, long unitPrice) {
         long creditFor(int count) {
             if (count <= 0 || unitPrice <= 0L) {
                 return 0L;
@@ -165,71 +179,138 @@ final class ShopCatalog {
 
     private static Map<Category, List<Offer>> buildShop() {
         Map<Category, List<Offer>> catalog = new EnumMap<>(Category.class);
-        catalog.put(Category.BUILDING, List.of(
+        catalog.put(Category.STONE, List.of(
                 offer("COBBLESTONE", 64, 450),
                 offer("STONE", 64, 630),
-                offer("DEEPSLATE", 64, 720),
-                offer("ANDESITE", 64, 720),
-                offer("DIORITE", 64, 720),
-                offer("GRANITE", 64, 720),
-                offer("TUFF", 64, 800),
-                offer("DIRT", 64, 400),
-                offer("GRASS_BLOCK", 64, 800),
-                offer("SAND", 64, 720),
-                offer("RED_SAND", 64, 1_000),
-                offer("GRAVEL", 64, 540),
-                offer("GLASS", 64, 1_200),
-                offer("CLAY", 64, 900),
-                offer("BRICKS", 64, 2_000),
-                offer("TERRACOTTA", 64, 1_800),
-                offer("MUD", 64, 800),
-                offer("MUD_BRICKS", 64, 1_800),
-                offer("MOSS_BLOCK", 64, 1_800),
-                offer("SNOW_BLOCK", 64, 600),
-                offer("CALCITE", 64, 2_500),
-                offer("DRIPSTONE_BLOCK", 64, 1_800),
-                offer("OBSIDIAN", 64, 12_000),
-                offer("CRYING_OBSIDIAN", 64, 28_000),
-                offer("AMETHYST_BLOCK", 64, 4_500),
                 offer("SMOOTH_STONE", 64, 800),
                 offer("STONE_BRICKS", 64, 800),
                 offer("MOSSY_COBBLESTONE", 64, 900),
                 offer("MOSSY_STONE_BRICKS", 64, 1_000),
+                offer("CRACKED_STONE_BRICKS", 64, 900),
                 offer("CHISELED_STONE_BRICKS", 64, 1_000),
+                offer("ANDESITE", 64, 720),
                 offer("POLISHED_ANDESITE", 64, 800),
+                offer("DIORITE", 64, 720),
                 offer("POLISHED_DIORITE", 64, 800),
+                offer("GRANITE", 64, 720),
                 offer("POLISHED_GRANITE", 64, 800),
-                // Sits on the sell counter at 8 a block, so the shop price has to stay
-                // inside the 1x-2x band ShopCatalogTest enforces.
+                offer("DEEPSLATE", 64, 720),
+                // On the sell counter at 8, so this has to stay inside the 1x-2x band.
                 offer("COBBLED_DEEPSLATE", 64, 640),
                 offer("POLISHED_DEEPSLATE", 64, 800),
                 offer("DEEPSLATE_BRICKS", 64, 900),
                 offer("DEEPSLATE_TILES", 64, 1_000),
+                offer("CHISELED_DEEPSLATE", 64, 1_000),
+                offer("TUFF", 64, 800),
                 offer("POLISHED_TUFF", 64, 900),
                 offer("TUFF_BRICKS", 64, 1_000),
+                offer("CHISELED_TUFF", 64, 1_100),
                 offer("SANDSTONE", 64, 800),
                 offer("SMOOTH_SANDSTONE", 64, 900),
                 offer("CUT_SANDSTONE", 64, 900),
+                offer("CHISELED_SANDSTONE", 64, 1_000),
                 offer("RED_SANDSTONE", 64, 1_100),
-                offer("GLASS_PANE", 64, 800),
-                offer("TINTED_GLASS", 64, 3_000)
+                offer("SMOOTH_RED_SANDSTONE", 64, 1_200),
+                offer("CUT_RED_SANDSTONE", 64, 1_200),
+                offer("BRICKS", 64, 2_000),
+                offer("CALCITE", 64, 2_500),
+                offer("DRIPSTONE_BLOCK", 64, 1_800),
+                offer("OBSIDIAN", 64, 12_000),
+                offer("CRYING_OBSIDIAN", 64, 28_000),
+                offer("AMETHYST_BLOCK", 64, 4_500)
+        ));
+        catalog.put(Category.EARTH, List.of(
+                offer("DIRT", 64, 400),
+                offer("COARSE_DIRT", 64, 450),
+                offer("ROOTED_DIRT", 64, 500),
+                offer("GRASS_BLOCK", 64, 800),
+                offer("PODZOL", 64, 900),
+                offer("MYCELIUM", 64, 1_200),
+                offer("SAND", 64, 720),
+                offer("RED_SAND", 64, 1_000),
+                offer("GRAVEL", 64, 540),
+                offer("CLAY", 64, 900),
+                offer("MUD", 64, 800),
+                offer("PACKED_MUD", 64, 1_000),
+                offer("MUD_BRICKS", 64, 1_800),
+                offer("MOSS_BLOCK", 64, 1_800),
+                offer("SNOW_BLOCK", 64, 600),
+                offer("ICE", 64, 900)
         ));
         catalog.put(Category.WOOD, concat(
                 wooded("LOG", 64, 2_000),
+                strippedLogs(64, 2_000),
                 List.of(offer("CRIMSON_STEM", 64, 2_000), offer("WARPED_STEM", 64, 2_000)),
                 wooded("PLANKS", 64, 900),
                 List.of(offer("CRIMSON_PLANKS", 64, 900), offer("WARPED_PLANKS", 64, 900)),
-                wooded("LEAVES", 64, 1_000)
+                wooded("LEAVES", 64, 1_000),
+                List.of(
+                        offer("BAMBOO_BLOCK", 64, 2_000),
+                        offer("BAMBOO_PLANKS", 64, 900),
+                        offer("BAMBOO_MOSAIC", 64, 1_000)
+                )
         ));
-        catalog.put(Category.COLORED, concat(
+        catalog.put(Category.GLASS, concat(
+                List.of(
+                        offer("GLASS", 64, 1_200),
+                        offer("GLASS_PANE", 64, 800),
+                        offer("TINTED_GLASS", 64, 3_000)
+                ),
+                dyed("STAINED_GLASS", 64, 2_400),
+                dyed("STAINED_GLASS_PANE", 64, 1_600)
+        ));
+        catalog.put(Category.WOOL, concat(
                 dyed("WOOL", 64, 4_500),
-                dyed("TERRACOTTA", 64, 6_000),
-                dyed("CONCRETE_POWDER", 64, 6_000),
-                // Set concrete, not just the powder. Hardening it needs water placed a
-                // stack at a time, which is the tedious step people were buying powder
-                // to avoid in the first place.
+                dyed("CARPET", 64, 3_000)
+        ));
+        catalog.put(Category.CONCRETE, concat(
+                // Set concrete, not just the powder. Hardening it means placing water a
+                // stack at a time, which is the step people bought powder to avoid.
                 dyed("CONCRETE", 64, 7_000),
-                dyed("STAINED_GLASS", 64, 2_400)
+                dyed("CONCRETE_POWDER", 64, 6_000)
+        ));
+        catalog.put(Category.TERRACOTTA, concat(
+                List.of(offer("TERRACOTTA", 64, 1_800)),
+                dyed("TERRACOTTA", 64, 6_000),
+                dyed("GLAZED_TERRACOTTA", 64, 9_000)
+        ));
+        catalog.put(Category.NETHER, List.of(
+                offer("NETHERRACK", 64, 360),
+                offer("BLACKSTONE", 64, 810),
+                offer("POLISHED_BLACKSTONE", 64, 900),
+                offer("POLISHED_BLACKSTONE_BRICKS", 64, 1_000),
+                offer("CHISELED_POLISHED_BLACKSTONE", 64, 1_100),
+                offer("BASALT", 64, 630),
+                offer("SMOOTH_BASALT", 64, 800),
+                offer("POLISHED_BASALT", 64, 800),
+                offer("NETHER_BRICKS", 64, 1_400),
+                offer("RED_NETHER_BRICKS", 64, 2_000),
+                offer("CHISELED_NETHER_BRICKS", 64, 1_600),
+                offer("SOUL_SAND", 64, 2_400),
+                offer("SOUL_SOIL", 64, 2_400),
+                offer("QUARTZ_BLOCK", 64, 3_200),
+                offer("SMOOTH_QUARTZ", 64, 3_200),
+                offer("QUARTZ_BRICKS", 64, 3_200),
+                offer("QUARTZ_PILLAR", 64, 3_200),
+                offer("CHISELED_QUARTZ_BLOCK", 64, 3_200),
+                offer("GLOWSTONE", 64, 4_800),
+                offer("SHROOMLIGHT", 64, 6_000),
+                offer("MAGMA_BLOCK", 64, 2_400),
+                offer("CRIMSON_NYLIUM", 64, 2_000),
+                offer("WARPED_NYLIUM", 64, 2_000)
+        ));
+        catalog.put(Category.OCEAN, List.of(
+                offer("PRISMARINE", 64, 8_000),
+                offer("PRISMARINE_BRICKS", 64, 10_000),
+                offer("DARK_PRISMARINE", 64, 14_000),
+                offer("SEA_LANTERN", 64, 28_000),
+                offer("PACKED_ICE", 64, 8_000),
+                offer("BLUE_ICE", 64, 36_000),
+                offer("TUBE_CORAL_BLOCK", 64, 22_000),
+                offer("BRAIN_CORAL_BLOCK", 64, 22_000),
+                offer("BUBBLE_CORAL_BLOCK", 64, 22_000),
+                offer("FIRE_CORAL_BLOCK", 64, 22_000),
+                offer("HORN_CORAL_BLOCK", 64, 22_000)
         ));
         catalog.put(Category.FARMING, List.of(
                 offer("WHEAT", 16, 1_120),
@@ -250,10 +331,11 @@ final class ShopCatalog {
                 offer("BONE", 1, 15),
                 offer("BONE_MEAL", 16, 60),
                 offer("LEATHER", 16, 1_570),
-                offer("WHITE_WOOL", 16, 1_120),
                 offer("OAK_SAPLING", 16, 700),
                 offer("SPRUCE_SAPLING", 16, 700),
-                offer("BIRCH_SAPLING", 16, 700)
+                offer("BIRCH_SAPLING", 16, 700),
+                offer("HAY_BLOCK", 16, 8_000),
+                offer("COMPOSTER", 16, 1_600)
         ));
         catalog.put(Category.FOOD, List.of(
                 offer("BREAD", 16, 1_400),
@@ -261,13 +343,16 @@ final class ShopCatalog {
                 offer("COOKED_PORKCHOP", 16, 1_400),
                 offer("COOKED_CHICKEN", 16, 1_010),
                 offer("COOKED_MUTTON", 16, 1_230),
+                offer("COOKED_SALMON", 16, 1_230),
                 offer("BAKED_POTATO", 16, 1_010),
                 offer("PUMPKIN_PIE", 16, 1_800),
                 offer("COOKIE", 16, 900),
+                offer("DRIED_KELP", 16, 700),
                 offer("GOLDEN_CARROT", 16, 5_000)
         ));
         catalog.put(Category.MINERALS, List.of(
                 offer("COAL", 16, 900),
+                offer("CHARCOAL", 16, 900),
                 offer("COPPER_INGOT", 16, 1_570),
                 offer("IRON_INGOT", 16, 2_690),
                 offer("GOLD_INGOT", 16, 3_580),
@@ -277,13 +362,11 @@ final class ShopCatalog {
                 offer("AMETHYST_SHARD", 16, 1_120),
                 offer("COAL_BLOCK", 16, 8_000),
                 offer("COPPER_BLOCK", 16, 14_000),
+                offer("CUT_COPPER", 16, 14_000),
                 offer("LAPIS_BLOCK", 16, 8_000),
                 offer("IRON_BLOCK", 8, 12_000),
                 offer("GOLD_BLOCK", 8, 16_000)
         ));
-        // Priced off the components each one is crafted from, at the same small
-        // discount the rest of the shop gives: buying the finished part beats buying
-        // the ingredients, which is the whole reason a convenience shop exists.
         catalog.put(Category.REDSTONE, List.of(
                 offer("REDSTONE", 16, 670),
                 offer("REDSTONE_BLOCK", 16, 5_600),
@@ -307,81 +390,62 @@ final class ShopCatalog {
                 offer("SLIME_BLOCK", 8, 9_600),
                 offer("SLIME_BALL", 16, 2_240),
                 offer("HONEY_BLOCK", 8, 6_000),
-                offer("HOPPER", 8, 4_800),
-                offer("DISPENSER", 8, 2_400),
-                offer("DROPPER", 8, 1_600),
-                offer("CRAFTER", 8, 9_600),
-                offer("CHEST", 16, 2_400),
-                offer("TRAPPED_CHEST", 16, 5_280),
-                offer("BARREL", 16, 2_400),
                 offer("NOTE_BLOCK", 16, 2_400),
                 offer("REDSTONE_LAMP", 16, 3_840),
                 offer("COPPER_BULB", 16, 8_000),
                 offer("IRON_DOOR", 16, 5_440),
                 offer("IRON_TRAPDOOR", 8, 5_360),
-                offer("TNT", 8, 5_600),
+                offer("TNT", 8, 5_600)
+        ));
+        catalog.put(Category.STORAGE, List.of(
+                offer("CHEST", 16, 2_400),
+                offer("TRAPPED_CHEST", 16, 5_280),
+                offer("BARREL", 16, 2_400),
+                offer("HOPPER", 8, 4_800),
+                offer("DISPENSER", 8, 2_400),
+                offer("DROPPER", 8, 1_600),
+                offer("CRAFTER", 8, 9_600),
+                offer("CRAFTING_TABLE", 16, 1_600),
+                offer("FURNACE", 16, 2_400),
+                offer("BLAST_FURNACE", 8, 8_000),
+                offer("SMOKER", 16, 4_400),
+                offer("ITEM_FRAME", 64, 3_000)
+        ));
+        catalog.put(Category.TRANSPORT, List.of(
                 offer("RAIL", 64, 4_480),
                 offer("POWERED_RAIL", 32, 8_000),
                 offer("DETECTOR_RAIL", 32, 6_400),
                 offer("ACTIVATOR_RAIL", 32, 7_360),
                 offer("MINECART", 8, 6_400),
                 offer("CHEST_MINECART", 8, 7_600),
-                offer("HOPPER_MINECART", 8, 11_200)
-        ));
-        catalog.put(Category.NETHER, List.of(
-                offer("NETHERRACK", 64, 360),
-                offer("BLACKSTONE", 64, 810),
-                offer("BASALT", 64, 630),
-                offer("NETHER_BRICKS", 64, 1_400),
-                offer("SOUL_SAND", 64, 2_400),
-                offer("QUARTZ_BLOCK", 64, 3_200),
-                offer("GLOWSTONE", 64, 4_800),
-                offer("MAGMA_BLOCK", 64, 2_400),
-                offer("SOUL_SOIL", 64, 2_400),
-                offer("SMOOTH_BASALT", 64, 800),
-                offer("POLISHED_BASALT", 64, 800),
-                offer("POLISHED_BLACKSTONE", 64, 900),
-                offer("POLISHED_BLACKSTONE_BRICKS", 64, 1_000),
-                offer("CHISELED_POLISHED_BLACKSTONE", 64, 1_100),
-                offer("RED_NETHER_BRICKS", 64, 2_000),
-                offer("CHISELED_NETHER_BRICKS", 64, 1_600),
-                offer("SMOOTH_QUARTZ", 64, 3_200),
-                offer("QUARTZ_BRICKS", 64, 3_200),
-                offer("QUARTZ_PILLAR", 64, 3_200),
-                offer("CHISELED_QUARTZ_BLOCK", 64, 3_200),
-                offer("SHROOMLIGHT", 64, 6_000),
-                offer("CRIMSON_NYLIUM", 64, 2_000),
-                offer("WARPED_NYLIUM", 64, 2_000)
-        ));
-        catalog.put(Category.OCEAN, concat(
-                List.of(
-                        offer("PRISMARINE", 64, 8_000),
-                        offer("PRISMARINE_BRICKS", 64, 10_000),
-                        offer("DARK_PRISMARINE", 64, 14_000),
-                        offer("SEA_LANTERN", 64, 28_000),
-                        offer("PACKED_ICE", 64, 8_000),
-                        offer("BLUE_ICE", 64, 36_000)
-                ),
-                List.of(
-                        offer("TUBE_CORAL_BLOCK", 64, 22_000),
-                        offer("BRAIN_CORAL_BLOCK", 64, 22_000),
-                        offer("BUBBLE_CORAL_BLOCK", 64, 22_000),
-                        offer("FIRE_CORAL_BLOCK", 64, 22_000),
-                        offer("HORN_CORAL_BLOCK", 64, 22_000)
-                )
+                offer("HOPPER_MINECART", 8, 11_200),
+                offer("FURNACE_MINECART", 8, 7_200),
+                offer("OAK_BOAT", 8, 1_600),
+                offer("SCAFFOLDING", 64, 3_200),
+                offer("LADDER", 64, 1_200)
         ));
         catalog.put(Category.DECORATION, List.of(
+                offer("TORCH", 64, 700),
+                offer("SOUL_TORCH", 64, 1_400),
                 offer("LANTERN", 64, 4_000),
+                offer("SOUL_LANTERN", 64, 4_500),
                 offer("CHAIN", 64, 4_500),
-                offer("ITEM_FRAME", 64, 3_000),
+                offer("CANDLE", 64, 3_000),
+                offer("GLOW_ITEM_FRAME", 64, 6_000),
                 offer("FLOWER_POT", 64, 1_500),
-                offer("PAINTING", 64, 2_000)
+                offer("PAINTING", 64, 2_000),
+                offer("ARMOR_STAND", 16, 2_400),
+                offer("BOOKSHELF", 16, 6_144),
+                offer("DECORATED_POT", 16, 2_400)
         ));
         catalog.put(Category.UTILITY, List.of(
                 offer("BUCKET", 1, 400),
                 offer("WATER_BUCKET", 1, 600),
                 offer("LAVA_BUCKET", 1, 1_200),
-                offer("TORCH", 64, 700),
+                offer("SHEARS", 1, 400),
+                offer("FLINT_AND_STEEL", 1, 250),
+                offer("COMPASS", 1, 900),
+                offer("CLOCK", 1, 1_000),
                 offer("ENDER_PEARL", 4, 3_200),
                 offer("LEAD", 1, 1_500),
                 offer("NAME_TAG", 1, 8_000),
@@ -396,58 +460,58 @@ final class ShopCatalog {
 
     private static Map<String, SellQuote> buildSell() {
         Map<String, SellQuote> sell = new LinkedHashMap<>();
-        putSell(sell, "WHEAT", 50);
-        putSell(sell, "CARROT", 45);
-        putSell(sell, "POTATO", 45);
-        putSell(sell, "BEETROOT", 55);
-        putSell(sell, "PUMPKIN", 80);
-        putSell(sell, "MELON", 90);
-        putSell(sell, "SUGAR_CANE", 80);
-        putSell(sell, "CACTUS", 70);
-        putSell(sell, "BAMBOO", 25);
-        putSell(sell, "COCOA_BEANS", 55);
-        putSell(sell, "NETHER_WART", 90);
-        putSell(sell, "KELP", 25);
-        putSell(sell, "DRIED_KELP", 40);
-        putSell(sell, "SWEET_BERRIES", 30);
-        putSell(sell, "GLOW_BERRIES", 35);
-        putSell(sell, "HONEYCOMB", 70);
-        putSell(sell, "HONEY_BOTTLE", 140);
+        putSell(sell, "Crops", "WHEAT", 50);
+        putSell(sell, "Crops", "CARROT", 45);
+        putSell(sell, "Crops", "POTATO", 45);
+        putSell(sell, "Crops", "BEETROOT", 55);
+        putSell(sell, "Crops", "PUMPKIN", 80);
+        putSell(sell, "Crops", "MELON", 90);
+        putSell(sell, "Crops", "SUGAR_CANE", 80);
+        putSell(sell, "Crops", "CACTUS", 70);
+        putSell(sell, "Crops", "BAMBOO", 25);
+        putSell(sell, "Crops", "COCOA_BEANS", 55);
+        putSell(sell, "Crops", "NETHER_WART", 90);
+        putSell(sell, "Crops", "KELP", 25);
+        putSell(sell, "Crops", "DRIED_KELP", 40);
+        putSell(sell, "Crops", "SWEET_BERRIES", 30);
+        putSell(sell, "Crops", "GLOW_BERRIES", 35);
+        putSell(sell, "Crops", "HONEYCOMB", 70);
+        putSell(sell, "Crops", "HONEY_BOTTLE", 140);
         for (String dye : DYES) {
-            putSell(sell, dye + "_WOOL", 50);
+            putSell(sell, "Wool", dye + "_WOOL", 50);
         }
-        putSell(sell, "LEATHER", 70);
-        putSell(sell, "FEATHER", 25);
-        putSell(sell, "BEEF", 50);
-        putSell(sell, "PORKCHOP", 50);
-        putSell(sell, "CHICKEN", 40);
-        putSell(sell, "MUTTON", 45);
-        putSell(sell, "ROTTEN_FLESH", 15);
-        putSell(sell, "BONE", 10);
-        putSell(sell, "STRING", 40);
-        putSell(sell, "SPIDER_EYE", 30);
-        putSell(sell, "GUNPOWDER", 90);
-        putSell(sell, "COAL", 40);
-        putSell(sell, "REDSTONE", 30);
-        putSell(sell, "LAPIS_LAZULI", 40);
-        putSell(sell, "QUARTZ", 55);
-        putSell(sell, "COPPER_INGOT", 70);
-        putSell(sell, "IRON_INGOT", 120);
-        putSell(sell, "GOLD_INGOT", 160);
-        putSell(sell, "AMETHYST_SHARD", 50);
-        putSell(sell, "FLINT", 12);
-        putSell(sell, "CLAY_BALL", 10);
-        putSell(sell, "COBBLESTONE", 5);
-        putSell(sell, "STONE", 7);
-        putSell(sell, "COBBLED_DEEPSLATE", 8);
-        putSell(sell, "ANDESITE", 8);
-        putSell(sell, "DIORITE", 8);
-        putSell(sell, "GRANITE", 8);
-        putSell(sell, "SAND", 8);
-        putSell(sell, "GRAVEL", 6);
-        putSell(sell, "NETHERRACK", 4);
-        putSell(sell, "BASALT", 7);
-        putSell(sell, "BLACKSTONE", 9);
+        putSell(sell, "Mob drops", "LEATHER", 70);
+        putSell(sell, "Mob drops", "FEATHER", 25);
+        putSell(sell, "Mob drops", "BEEF", 50);
+        putSell(sell, "Mob drops", "PORKCHOP", 50);
+        putSell(sell, "Mob drops", "CHICKEN", 40);
+        putSell(sell, "Mob drops", "MUTTON", 45);
+        putSell(sell, "Mob drops", "ROTTEN_FLESH", 15);
+        putSell(sell, "Mob drops", "BONE", 10);
+        putSell(sell, "Mob drops", "STRING", 40);
+        putSell(sell, "Mob drops", "SPIDER_EYE", 30);
+        putSell(sell, "Mob drops", "GUNPOWDER", 90);
+        putSell(sell, "Ores", "COAL", 40);
+        putSell(sell, "Ores", "REDSTONE", 30);
+        putSell(sell, "Ores", "LAPIS_LAZULI", 40);
+        putSell(sell, "Ores", "QUARTZ", 55);
+        putSell(sell, "Ores", "COPPER_INGOT", 70);
+        putSell(sell, "Ores", "IRON_INGOT", 120);
+        putSell(sell, "Ores", "GOLD_INGOT", 160);
+        putSell(sell, "Ores", "AMETHYST_SHARD", 50);
+        putSell(sell, "Ores", "FLINT", 12);
+        putSell(sell, "Ores", "CLAY_BALL", 10);
+        putSell(sell, "Stone", "COBBLESTONE", 5);
+        putSell(sell, "Stone", "STONE", 7);
+        putSell(sell, "Stone", "COBBLED_DEEPSLATE", 8);
+        putSell(sell, "Stone", "ANDESITE", 8);
+        putSell(sell, "Stone", "DIORITE", 8);
+        putSell(sell, "Stone", "GRANITE", 8);
+        putSell(sell, "Stone", "SAND", 8);
+        putSell(sell, "Stone", "GRAVEL", 6);
+        putSell(sell, "Stone", "NETHERRACK", 4);
+        putSell(sell, "Stone", "BASALT", 7);
+        putSell(sell, "Stone", "BLACKSTONE", 9);
         return Map.copyOf(sell);
     }
 
@@ -465,8 +529,8 @@ final class ShopCatalog {
         return new Offer(material, amount, price);
     }
 
-    private static void putSell(Map<String, SellQuote> sell, String material, long unit) {
-        sell.put(material, new SellQuote(material, unit));
+    private static void putSell(Map<String, SellQuote> sell, String group, String material, long unit) {
+        sell.put(material, new SellQuote(material, group, unit));
     }
 
     @SafeVarargs
@@ -482,6 +546,14 @@ final class ShopCatalog {
         List<Offer> offers = new ArrayList<>();
         for (String dye : DYES) {
             offers.add(offer(dye + "_" + suffix, amount, price));
+        }
+        return List.copyOf(offers);
+    }
+
+    private static List<Offer> strippedLogs(int amount, long price) {
+        List<Offer> offers = new ArrayList<>();
+        for (String wood : WOOD) {
+            offers.add(offer("STRIPPED_" + wood + "_LOG", amount, price));
         }
         return List.copyOf(offers);
     }
