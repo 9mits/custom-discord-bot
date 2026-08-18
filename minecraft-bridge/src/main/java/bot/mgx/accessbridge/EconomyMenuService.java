@@ -69,7 +69,8 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     private static final int CONFIRM_ITEM = 13;
     private static final int CONFIRM_NO = 15;
     private static final int CONFIRM_SIZE = 27;
-    private static final int BUY_AMOUNT_SLOT = 47;
+    private static final int BUY_AMOUNT_SLOT = EconomySlots.BUY_AMOUNT;
+    private static final int MAIL_COLLECT_SLOT = EconomySlots.MAIL_COLLECT;
 
     private final MGXAccessBridge plugin;
     private final EconomyStore money;
@@ -389,9 +390,11 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         if (waiting.isEmpty()) {
             inventory.setItem(22, button(Material.BARRIER, "Nothing to collect"));
         } else {
-            inventory.setItem(WALLET_SLOT, button(
+            // Not WALLET_SLOT: that is 49, which is where Back sits on a full board.
+            inventory.setItem(MAIL_COLLECT_SLOT, button(
                     Material.LIME_CONCRETE, "Collect all",
-                    waiting.size() + " item(s) waiting."
+                    waiting.size() + " item(s) waiting.",
+                    "Everything here goes to your inventory."
             ));
         }
         MenuItems.back(inventory);
@@ -633,7 +636,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     }
 
     private void clickMail(Player player, int slot) {
-        if (slot != WALLET_SLOT) {
+        if (slot != MAIL_COLLECT_SLOT) {
             return;
         }
         collectMail(player);
