@@ -24,12 +24,21 @@ class EconomySlotsTest {
     }
 
     @Test
-    void everyActionSlotIsOnTheNavigationRow() {
-        // Rows 0-44 hold content, so a button anywhere in that range would be mistaken
-        // for a listing, an offer or a mail item by the index arithmetic.
+    void everyActionSlotIsInsideTheBoard() {
         for (int slot : EconomySlots.onScreensWithBack()) {
-            assertEquals(true, slot >= MenuItems.PER_PAGE && slot < EconomySlots.BOARD,
-                    "slot " + slot + " is not on the navigation row");
+            assertEquals(true, slot >= 0 && slot < EconomySlots.BOARD,
+                    "slot " + slot + " is off the board");
+        }
+    }
+
+    @Test
+    void pagedScreensKeepTheirButtonsOffTheContentRows() {
+        // A paged screen fills slots 0-44 with listings and reads the clicked slot as
+        // an index into them, so a button there would be bought instead of pressed.
+        // The buy screen is not paged and deliberately uses the upper rows.
+        for (int slot : new int[] {MenuItems.PREVIOUS_SLOT, MenuItems.NEXT_SLOT, EconomySlots.MAIL_COLLECT}) {
+            assertEquals(true, slot >= MenuItems.PER_PAGE,
+                    "slot " + slot + " would be read as a listing");
         }
     }
 }

@@ -53,6 +53,39 @@ class ShopCatalogTest {
     }
 
     @Test
+    void everySellRowIsFiledUnderAHeading() {
+        List<String> unfiled = new ArrayList<>();
+        for (ShopCatalog.SellQuote quote : ShopCatalog.allSellQuotes()) {
+            if (quote.group() == null || quote.group().isBlank()) {
+                unfiled.add(quote.material());
+            }
+        }
+        assertEquals(List.of(), unfiled);
+    }
+
+    @Test
+    void everyShelfFitsOnOnePage() {
+        // A shelf that spills onto a second page is the squashed-together problem the
+        // split was meant to fix, so this is the line to hold when adding stock.
+        List<String> overflowing = new ArrayList<>();
+        for (ShopCatalog.Category category : ShopCatalog.categories()) {
+            int size = ShopCatalog.offers(category).size();
+            if (size > 45) {
+                overflowing.add(category.name() + " has " + size);
+            }
+        }
+        assertEquals(List.of(), overflowing);
+    }
+
+    @Test
+    void everyShelfFitsOnTheHub() {
+        // The hub draws one icon per category into a fixed grid; a shelf past the end
+        // of it would exist but be unreachable.
+        assertEquals(true, ShopCatalog.categories().size() <= 21,
+                "more shelves than the hub grid has slots");
+    }
+
+    @Test
     void everyCategoryHasOffers() {
         for (ShopCatalog.Category category : ShopCatalog.categories()) {
             assertFalse(ShopCatalog.offers(category).isEmpty(), category.name());
