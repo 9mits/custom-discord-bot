@@ -92,7 +92,7 @@ final class ClanMenuService implements Listener {
                 clan.members().size() + "/" + clan.memberSlots() + " members."));
         inventory.setItem(HUB_DONORS, button(Material.EMERALD, "Donors",
                 "Who has given what.", "Largest first."));
-        player.openInventory(inventory);
+        MenuItems.show(plugin, player, inventory);
     }
 
     void openDonate(Player player) {
@@ -116,7 +116,7 @@ final class ClanMenuService implements Listener {
                 "Use /clans donate <amount>."
         ));
         MenuItems.back(inventory);
-        player.openInventory(inventory);
+        MenuItems.show(plugin, player, inventory);
     }
 
     void donate(Player player, long amount) throws IOException {
@@ -163,7 +163,7 @@ final class ClanMenuService implements Listener {
         if (back != null) {
             MenuItems.back(inventory);
         }
-        player.openInventory(inventory);
+        MenuItems.show(plugin, player, inventory);
     }
 
     void openInfo(Player player, String requestedName) {
@@ -205,7 +205,7 @@ final class ClanMenuService implements Listener {
             inventory.setItem(index - first, head(member.getKey(), member.getValue(), lore));
         }
         MenuItems.paginate(inventory, page, roster.size(), back != null);
-        player.openInventory(inventory);
+        MenuItems.show(plugin, player, inventory);
     }
 
     /** The clan directory. */
@@ -234,7 +234,7 @@ final class ClanMenuService implements Listener {
                     "Found one with /clans create <name>."));
         }
         MenuItems.paginate(inventory, page, clans.size(), false);
-        player.openInventory(inventory);
+        MenuItems.show(plugin, player, inventory);
     }
 
     void openBalance(Player player) {
@@ -251,7 +251,7 @@ final class ClanMenuService implements Listener {
                 "It cannot be withdrawn."
         ));
         MenuItems.back(inventory);
-        player.openInventory(inventory);
+        MenuItems.show(plugin, player, inventory);
     }
 
     void openDonors(Player player) {
@@ -274,7 +274,7 @@ final class ClanMenuService implements Listener {
                     "Be the first to give something."));
         }
         MenuItems.back(inventory);
-        player.openInventory(inventory);
+        MenuItems.show(plugin, player, inventory);
     }
 
     void openUpgrade(Player player) {
@@ -286,7 +286,7 @@ final class ClanMenuService implements Listener {
         inventory.setItem(UPGRADE_LEVEL, levelButton(clan));
         inventory.setItem(UPGRADE_MEMBERS, memberButton(clan));
         MenuItems.back(inventory);
-        player.openInventory(inventory);
+        MenuItems.show(plugin, player, inventory);
     }
 
     private ItemStack levelButton(ClanStore.ClanView clan) {

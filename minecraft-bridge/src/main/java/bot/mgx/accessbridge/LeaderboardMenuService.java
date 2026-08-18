@@ -49,15 +49,18 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
     private static final DateTimeFormatter JOINED =
             DateTimeFormatter.ofPattern("d MMM yyyy", Locale.UK).withZone(ZoneId.systemDefault());
 
+    private final MGXAccessBridge plugin;
     private final ClanStore clans;
     private final LeaderboardService boards;
     private final DiscordIdentityService identities;
 
     LeaderboardMenuService(
+            MGXAccessBridge plugin,
             ClanStore clans,
             LeaderboardService boards,
             DiscordIdentityService identities
     ) {
+        this.plugin = plugin;
         this.clans = clans;
         this.boards = boards;
         this.identities = identities;
@@ -92,7 +95,7 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
                 "Who has the most money.", "Click to open."));
         inventory.setItem(HUB_PLAYERS_KILLS, button(Material.DIAMOND_SWORD, "Player with most kills",
                 "Player kills, highest first.", "Click to open."));
-        player.openInventory(inventory);
+        MenuItems.show(plugin, player, inventory);
     }
 
     void openPlayers(Player player, String board, int page) {
@@ -125,7 +128,7 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
                     "Play a little and this fills in."));
         }
         MenuItems.paginate(inventory, page, rows.size(), true);
-        player.openInventory(inventory);
+        MenuItems.show(plugin, player, inventory);
     }
 
     void openClans(Player player, String board, int page) {
@@ -159,7 +162,7 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
                     "Found one with /clans create <name>."));
         }
         MenuItems.paginate(inventory, page, ranked.size(), true);
-        player.openInventory(inventory);
+        MenuItems.show(plugin, player, inventory);
     }
 
     void openMembers(Player player, UUID clanId, int page, Menu.Kind backKind) {
@@ -197,7 +200,7 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
             inventory.setItem(index - first, head(member.getKey(), member.getValue(), lore));
         }
         MenuItems.paginate(inventory, page, roster.size(), true);
-        player.openInventory(inventory);
+        MenuItems.show(plugin, player, inventory);
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = false)

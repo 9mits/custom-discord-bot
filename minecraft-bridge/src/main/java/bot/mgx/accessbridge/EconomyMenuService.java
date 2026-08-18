@@ -69,11 +69,13 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     private static final int CONFIRM_ITEM = 13;
     private static final int CONFIRM_NO = 15;
     private static final int CONFIRM_SIZE = 27;
+    private static final int BUY_AMOUNT_SLOT = 47;
 
     private final MGXAccessBridge plugin;
     private final EconomyStore money;
     private final AuctionStore auctions;
     private final Map<UUID, String> auctionSearch = new ConcurrentHashMap<>();
+    private final Map<UUID, Integer> buyAmount = new ConcurrentHashMap<>();
 
     EconomyMenuService(MGXAccessBridge plugin, EconomyStore money, AuctionStore auctions) {
         this.plugin = plugin;
@@ -194,11 +196,12 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                 "Your balance",
                 List.of(EconomyFormat.dollars(money.balance(player.getUniqueId())))
         ));
-        player.openInventory(inventory);
+        MenuItems.show(plugin, player, inventory);
     }
 
     void openShopCategory(Player player, ShopCatalog.Category category, int page) {
         List<ShopCatalog.Offer> offers = ShopCatalog.offers(category);
+        int amount = amountFor(player);
         Inventory inventory = create(
                 Menu.Kind.SHOP_CATEGORY,
                 categoryId(category),
@@ -221,11 +224,10 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                 long each = offer.unitPrice();
                 meta.lore(List.of(
                         line(EconomyFormat.dollars(each) + " each"),
-                        line("64 for " + EconomyFormat.dollars(offer.costOfItems(64))),
+                        line(amount + " for " + EconomyFormat.dollars(offer.costOfItems(amount))),
                         line(""),
-                        line("Left click: buy 1"),
-                        line("Right click: buy 16"),
-                        line("Shift-click: buy 64")
+                        line("Click to buy " + amount + "."),
+                        line("Change the amount below.")
                 ));
                 item.setItemMeta(meta);
             }
@@ -235,7 +237,12 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             inventory.setItem(22, button(Material.BARRIER, "Nothing here"));
         }
         MenuItems.paginate(inventory, page, offers.size(), true);
-        player.openInventory(inventory);
+        inventory.setItem(BUY_AMOUNT_SLOT, button(
+                Material.COMPARATOR,
+                "Buy " + amount + " per click",
+                List.of("Click to cycle " + ShopAmounts.label() + ".")
+        ));
+        MenuItems.show(plugin, player, inventory);
     }
 
     void openSell(Player player) {
@@ -244,7 +251,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                 "Sell  •  " + EconomyFormat.dollars(money.balance(player.getUniqueId())),
                 null
         );
-        player.openInventory(inventory);
+        MenuItems.show(plugin, player, inventory);
     }
 
     void openSellPreview(Player player) {
@@ -279,7 +286,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                 "Drop extras in a chest to sell."));
         inventory.setItem(53, button(Material.BOOK, "Price list",
                 "What the shop pays for each item."));
-        player.openInventory(inventory);
+        MenuItems.show(plugin, player, inventory);
     }
 
     void openSellPrices(Player player, int page) {
@@ -310,7 +317,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             inventory.setItem(index - first, item);
         }
         MenuItems.paginate(inventory, page, quotes.size(), true);
-        player.openInventory(inventory);
+        MenuItems.show(plugin, player, inventory);
     }
 
     void openAuction(Player player, int page) {
@@ -346,7 +353,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                 List.of(EconomyFormat.dollars(money.balance(player.getUniqueId())))
         ));
         MenuItems.paginate(inventory, page, rows.size(), false);
-        player.openInventory(inventory);
+        MenuItems.show(plugin, player, inventory);
     }
 
     void openOwn(Player player, int page) {
@@ -362,7 +369,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                     "Hold an item and use /ah sell <price>."));
         }
         MenuItems.paginate(inventory, page, rows.size(), true);
-        player.openInventory(inventory);
+        MenuItems.show(plugin, player, inventory);
     }
 
     void openMail(Player player) {
@@ -388,7 +395,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             ));
         }
         MenuItems.back(inventory);
-        player.openInventory(inventory);
+        MenuItems.show(plugin, player, inventory);
     }
 
     void openConfirm(Player player, AuctionStore.Listing listing) {
@@ -407,7 +414,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             inventory.setItem(CONFIRM_ITEM, preview);
         }
         inventory.setItem(CONFIRM_NO, button(Material.RED_CONCRETE, "Cancel"));
-        player.openInventory(inventory);
+        MenuItems.show(plugin, player, inventory);
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = false)
@@ -556,6 +563,11 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             openShopCategory(player, category, menu.page() + 1);
             return;
         }
+        if (slot == BUY_AMOUNT_SLOT) {
+            cycleAmount(player);
+            openShopCategory(player, category, menu.page());
+            return;
+        }
         List<ShopCatalog.Offer> offers = ShopCatalog.offers(category);
         int index = MenuPaging.firstIndex(menu.page(), offers.size(), PER_PAGE) + slot;
         if (slot < 0 || slot >= PER_PAGE || index >= offers.size()) {
@@ -687,7 +699,15 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         if (click.isRightClick()) {
             return Math.min(16, affordable);
         }
-        return Math.min(1, affordable);
+        return Math.min(amountFor(player), affordable);
+    }
+
+    private int amountFor(Player player) {
+        return buyAmount.getOrDefault(player.getUniqueId(), ShopAmounts.first());
+    }
+
+    private void cycleAmount(Player player) {
+        buyAmount.put(player.getUniqueId(), ShopAmounts.next(amountFor(player)));
     }
 
     private void sellHand(Player player) {

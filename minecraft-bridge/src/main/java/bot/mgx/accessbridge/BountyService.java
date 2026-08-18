@@ -41,11 +41,13 @@ final class BountyService implements CommandExecutor, TabCompleter, Listener {
     private static final int HOW_SLOT = 47;
     private static final int REFRESH_SLOT = 50;
 
+    private final MGXAccessBridge plugin;
     private final EconomyStore money;
     private final BountyStore bounties;
     private final ClanStore clans;
 
-    BountyService(EconomyStore money, BountyStore bounties, ClanStore clans) {
+    BountyService(MGXAccessBridge plugin, EconomyStore money, BountyStore bounties, ClanStore clans) {
+        this.plugin = plugin;
         this.money = money;
         this.bounties = bounties;
         this.clans = clans;
@@ -144,7 +146,7 @@ final class BountyService implements CommandExecutor, TabCompleter, Listener {
         ));
         inventory.setItem(REFRESH_SLOT, button(Material.SUNFLOWER, "Refresh"));
         MenuItems.paginate(inventory, page, ranked.size(), false);
-        player.openInventory(inventory);
+        MenuItems.show(plugin, player, inventory);
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = false)
