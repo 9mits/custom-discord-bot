@@ -33,8 +33,11 @@ import java.util.concurrent.ConcurrentHashMap;
 final class SidebarService {
     private static final int MAX_LINES = 15;
     /**
-     * Glyphs supplied by the optional Mysterious SMP X resource pack. Players who
-     * decline the pack see the wordmark fall back to plain text instead.
+     * Glyphs supplied by the Mysterious SMP X resource pack, which
+     * {@code require-resource-pack} makes mandatory for Java. Bedrock never has
+     * them: Geyser does not convert Java packs, and a font provider is a Java-only
+     * concept, so a Bedrock client draws U+E000 as a missing-glyph box. Anything
+     * using this font has to have a text form for Bedrock — see {@code wordmark}.
      */
     private static final Key BRAND_FONT = Key.key("minecraft", "mgx");
     private static final String LOGO_LARGE = "\uE000";
@@ -345,16 +348,31 @@ final class SidebarService {
         player.playerListName(rendered);
     }
 
+    /**
+     * The wordmark, or its name spelled out.
+     *
+     * <p>The glyph is a bitmap font in the Java resource pack, and Geyser does not
+     * convert Java packs — Bedrock has no such font and draws U+E000 as a
+     * missing-glyph box at the top of every Bedrock player's tab list. The clearance
+     * newlines go with it: they exist to make room for a 44px-tall glyph Bedrock
+     * never renders.
+     */
+    private Component wordmark(Player player) {
+        if (clientPlatform(player).bedrock()) {
+            return Component.text("MYSTERIOUS SMP X", ORANGE, TextDecoration.BOLD);
+        }
+        return Component.empty()
+                .append(Component.newline())
+                .append(Component.newline())
+                .append(Component.newline())
+                .append(Component.newline())
+                .append(Component.text(LOGO_LARGE).font(BRAND_FONT));
+    }
+
     private void updateTabHeaderAndFooter(Player player) {
         int online = plugin.getServer().getOnlinePlayers().size();
-        // The wordmark glyph is drawn well above its baseline, so it needs more
-        // clearance above than below to avoid crowding whatever sits around it.
         Component header = Component.empty()
-                .append(Component.newline())
-                .append(Component.newline())
-                .append(Component.newline())
-                .append(Component.newline())
-                .append(Component.text(LOGO_LARGE).font(BRAND_FONT))
+                .append(wordmark(player))
                 .append(Component.newline())
                 .append(Component.newline())
                 .append(Component.newline())
