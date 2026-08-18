@@ -257,7 +257,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             return;
         }
         LeaderboardMenuService leaderboardMenus = new LeaderboardMenuService(
-                clanStore, leaderboardService, identityService
+                this, clanStore, leaderboardService, identityService
         );
         getCommand("leaderboard").setExecutor(leaderboardMenus);
         getCommand("leaderboard").setTabCompleter(leaderboardMenus);
@@ -282,7 +282,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("bal").setTabCompleter(economyCommands);
         getCommand("pay").setExecutor(economyCommands);
         getCommand("pay").setTabCompleter(economyCommands);
-        BountyService bountyService = new BountyService(economyStore, bountyStore, clanStore);
+        BountyService bountyService = new BountyService(this, economyStore, bountyStore, clanStore);
         getCommand("bounty").setExecutor(bountyService);
         getCommand("bounty").setTabCompleter(bountyService);
         getServer().getPluginManager().registerEvents(bountyService, this);

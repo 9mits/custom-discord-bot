@@ -6,10 +6,12 @@ import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
+import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
+import org.bukkit.plugin.Plugin;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -25,6 +27,24 @@ final class MenuItems {
     static final int NEXT_SLOT = 53;
 
     private MenuItems() {
+    }
+
+    /**
+     * Shows a screen to a player on the next tick.
+     *
+     * <p>Bukkit forbids {@code openInventory} from inside an {@code InventoryClickEvent}
+     * handler, and Bedrock is where ignoring it shows. Geyser is still settling the
+     * click transaction when the replacement container arrives, so it drops the open:
+     * the board freezes for a Bedrock player while a Java player sees it change, which
+     * reads as clicks doing nothing at all. Every screen goes through here, including
+     * the ones opened straight from a command, so there is a single path to get right.
+     */
+    static void show(Plugin plugin, Player player, Inventory inventory) {
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            if (player.isOnline()) {
+                player.openInventory(inventory);
+            }
+        });
     }
 
     /** Where Back sits on a board of this size. The arithmetic lives in {@link MenuPaging}. */

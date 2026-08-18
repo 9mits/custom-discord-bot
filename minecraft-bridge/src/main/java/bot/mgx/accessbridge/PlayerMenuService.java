@@ -77,7 +77,7 @@ final class PlayerMenuService implements Listener {
                 "Discord name",
                 "Show your linked Discord name to other players."
         ));
-        player.openInventory(inventory);
+        MenuItems.show(plugin, player, inventory);
     }
 
     /** Everyone with access, their edition, and the Discord name they chose to show. */
@@ -107,7 +107,7 @@ final class PlayerMenuService implements Listener {
                     "The directory has not synced from Discord."));
         }
         MenuItems.paginate(inventory, page, entries.size(), false);
-        player.openInventory(inventory);
+        MenuItems.show(plugin, player, inventory);
     }
 
     /**
@@ -135,7 +135,7 @@ final class PlayerMenuService implements Listener {
         inventory.setItem(22, button(Material.BOOK, "How to earn them",
                 "Chat in the Mysterious SMP X Discord.",
                 "Roles sync to Minecraft automatically."));
-        player.openInventory(inventory);
+        MenuItems.show(plugin, player, inventory);
     }
 
     private org.bukkit.inventory.ItemStack toggle(PlayerSettingsStore.Setting setting, boolean on) {
