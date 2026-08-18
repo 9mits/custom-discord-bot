@@ -190,7 +190,29 @@ final class ShopCatalog {
                 offer("DRIPSTONE_BLOCK", 64, 1_800),
                 offer("OBSIDIAN", 64, 12_000),
                 offer("CRYING_OBSIDIAN", 64, 28_000),
-                offer("AMETHYST_BLOCK", 64, 4_500)
+                offer("AMETHYST_BLOCK", 64, 4_500),
+                offer("SMOOTH_STONE", 64, 800),
+                offer("STONE_BRICKS", 64, 800),
+                offer("MOSSY_COBBLESTONE", 64, 900),
+                offer("MOSSY_STONE_BRICKS", 64, 1_000),
+                offer("CHISELED_STONE_BRICKS", 64, 1_000),
+                offer("POLISHED_ANDESITE", 64, 800),
+                offer("POLISHED_DIORITE", 64, 800),
+                offer("POLISHED_GRANITE", 64, 800),
+                // Sits on the sell counter at 8 a block, so the shop price has to stay
+                // inside the 1x-2x band ShopCatalogTest enforces.
+                offer("COBBLED_DEEPSLATE", 64, 640),
+                offer("POLISHED_DEEPSLATE", 64, 800),
+                offer("DEEPSLATE_BRICKS", 64, 900),
+                offer("DEEPSLATE_TILES", 64, 1_000),
+                offer("POLISHED_TUFF", 64, 900),
+                offer("TUFF_BRICKS", 64, 1_000),
+                offer("SANDSTONE", 64, 800),
+                offer("SMOOTH_SANDSTONE", 64, 900),
+                offer("CUT_SANDSTONE", 64, 900),
+                offer("RED_SANDSTONE", 64, 1_100),
+                offer("GLASS_PANE", 64, 800),
+                offer("TINTED_GLASS", 64, 3_000)
         ));
         catalog.put(Category.WOOD, concat(
                 wooded("LOG", 64, 2_000),
@@ -202,7 +224,12 @@ final class ShopCatalog {
         catalog.put(Category.COLORED, concat(
                 dyed("WOOL", 64, 4_500),
                 dyed("TERRACOTTA", 64, 6_000),
-                dyed("CONCRETE_POWDER", 64, 6_000)
+                dyed("CONCRETE_POWDER", 64, 6_000),
+                // Set concrete, not just the powder. Hardening it needs water placed a
+                // stack at a time, which is the tedious step people were buying powder
+                // to avoid in the first place.
+                dyed("CONCRETE", 64, 7_000),
+                dyed("STAINED_GLASS", 64, 2_400)
         ));
         catalog.put(Category.FARMING, List.of(
                 offer("WHEAT", 16, 1_120),
@@ -247,19 +274,59 @@ final class ShopCatalog {
                 offer("REDSTONE", 16, 670),
                 offer("LAPIS_LAZULI", 16, 900),
                 offer("QUARTZ", 16, 1_230),
-                offer("AMETHYST_SHARD", 16, 1_120)
+                offer("AMETHYST_SHARD", 16, 1_120),
+                offer("COAL_BLOCK", 16, 8_000),
+                offer("COPPER_BLOCK", 16, 14_000),
+                offer("LAPIS_BLOCK", 16, 8_000),
+                offer("IRON_BLOCK", 8, 12_000),
+                offer("GOLD_BLOCK", 8, 16_000)
         ));
+        // Priced off the components each one is crafted from, at the same small
+        // discount the rest of the shop gives: buying the finished part beats buying
+        // the ingredients, which is the whole reason a convenience shop exists.
         catalog.put(Category.REDSTONE, List.of(
                 offer("REDSTONE", 16, 670),
+                offer("REDSTONE_BLOCK", 16, 5_600),
                 offer("REDSTONE_TORCH", 16, 900),
                 offer("REPEATER", 8, 1_400),
                 offer("COMPARATOR", 8, 1_800),
+                offer("OBSERVER", 8, 2_800),
+                offer("TARGET", 16, 3_200),
+                offer("DAYLIGHT_DETECTOR", 8, 2_400),
+                offer("SCULK_SENSOR", 8, 8_000),
+                offer("CALIBRATED_SCULK_SENSOR", 8, 9_600),
+                offer("LIGHTNING_ROD", 16, 4_800),
+                offer("LEVER", 64, 640),
+                offer("STONE_BUTTON", 64, 640),
+                offer("OAK_BUTTON", 64, 640),
+                offer("STONE_PRESSURE_PLATE", 64, 1_280),
+                offer("OAK_PRESSURE_PLATE", 64, 1_280),
+                offer("TRIPWIRE_HOOK", 16, 2_880),
                 offer("PISTON", 8, 2_400),
                 offer("STICKY_PISTON", 8, 3_600),
-                offer("OBSERVER", 8, 2_800),
+                offer("SLIME_BLOCK", 8, 9_600),
+                offer("SLIME_BALL", 16, 2_240),
+                offer("HONEY_BLOCK", 8, 6_000),
                 offer("HOPPER", 8, 4_800),
                 offer("DISPENSER", 8, 2_400),
-                offer("DROPPER", 8, 1_600)
+                offer("DROPPER", 8, 1_600),
+                offer("CRAFTER", 8, 9_600),
+                offer("CHEST", 16, 2_400),
+                offer("TRAPPED_CHEST", 16, 5_280),
+                offer("BARREL", 16, 2_400),
+                offer("NOTE_BLOCK", 16, 2_400),
+                offer("REDSTONE_LAMP", 16, 3_840),
+                offer("COPPER_BULB", 16, 8_000),
+                offer("IRON_DOOR", 16, 5_440),
+                offer("IRON_TRAPDOOR", 8, 5_360),
+                offer("TNT", 8, 5_600),
+                offer("RAIL", 64, 4_480),
+                offer("POWERED_RAIL", 32, 8_000),
+                offer("DETECTOR_RAIL", 32, 6_400),
+                offer("ACTIVATOR_RAIL", 32, 7_360),
+                offer("MINECART", 8, 6_400),
+                offer("CHEST_MINECART", 8, 7_600),
+                offer("HOPPER_MINECART", 8, 11_200)
         ));
         catalog.put(Category.NETHER, List.of(
                 offer("NETHERRACK", 64, 360),
@@ -269,7 +336,22 @@ final class ShopCatalog {
                 offer("SOUL_SAND", 64, 2_400),
                 offer("QUARTZ_BLOCK", 64, 3_200),
                 offer("GLOWSTONE", 64, 4_800),
-                offer("MAGMA_BLOCK", 64, 2_400)
+                offer("MAGMA_BLOCK", 64, 2_400),
+                offer("SOUL_SOIL", 64, 2_400),
+                offer("SMOOTH_BASALT", 64, 800),
+                offer("POLISHED_BASALT", 64, 800),
+                offer("POLISHED_BLACKSTONE", 64, 900),
+                offer("POLISHED_BLACKSTONE_BRICKS", 64, 1_000),
+                offer("CHISELED_POLISHED_BLACKSTONE", 64, 1_100),
+                offer("RED_NETHER_BRICKS", 64, 2_000),
+                offer("CHISELED_NETHER_BRICKS", 64, 1_600),
+                offer("SMOOTH_QUARTZ", 64, 3_200),
+                offer("QUARTZ_BRICKS", 64, 3_200),
+                offer("QUARTZ_PILLAR", 64, 3_200),
+                offer("CHISELED_QUARTZ_BLOCK", 64, 3_200),
+                offer("SHROOMLIGHT", 64, 6_000),
+                offer("CRIMSON_NYLIUM", 64, 2_000),
+                offer("WARPED_NYLIUM", 64, 2_000)
         ));
         catalog.put(Category.OCEAN, concat(
                 List.of(
