@@ -17,8 +17,10 @@ final class EconomySlots {
     static final int BOARD = 54;
     /** Takes everything waiting in the auction mailbox. */
     static final int MAIL_COLLECT = 53;
-    /** Sets the amount to whatever the player can actually afford and carry. */
+    /** Sets the amount to whatever the player can afford and carry. */
     static final int BUY_MAX = 16;
+    /** Sets it to everything they can afford, spilling what will not fit. */
+    static final int BUY_ALL = 25;
     /** Puts the amount back to one. */
     static final int BUY_RESET = 34;
     /** Commits the purchase. */
@@ -39,6 +41,7 @@ final class EconomySlots {
                 MenuItems.NEXT_SLOT,
                 MAIL_COLLECT,
                 BUY_MAX,
+                BUY_ALL,
                 BUY_RESET,
                 BUY_CONFIRM,
         };
