@@ -296,6 +296,12 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getScheduler().runTaskTimer(
                 this, economyMenus::expireListings, 20L * 60L, 20L * 60L
         );
+        // Every tick, because a bulk order is handed over a few stacks at a time and
+        // waits on the hoppers under the player. It returns immediately when no order
+        // is in progress, which is nearly always.
+        getServer().getScheduler().runTaskTimer(
+                this, economyMenus::deliverOrders, 20L, 1L
+        );
         AdminCommandService adminService = new AdminCommandService(
                 this,
                 rankSyncStore,
@@ -353,6 +359,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         if (economyMenus != null) {
             economyMenus.closeAll();
+            // A shutdown mid-delivery would otherwise keep the money and the items.
+            economyMenus.refundOrders();
         }
         if (capabilityService != null) {
             capabilityService.stop();
