@@ -71,6 +71,8 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     private static final int CONFIRM_NO = 15;
     private static final int CONFIRM_SIZE = 27;
     private static final int MAIL_COLLECT_SLOT = EconomySlots.MAIL_COLLECT;
+    /** Sits between Sell all and the deposit chest on the sell screen. */
+    private static final int AUTO_SELL_SLOT = 47;
     private static final int BUY_SIZE = 54;
     private static final int BUY_ITEM_SLOT = 22;
     private static final int BUY_CONFIRM_SLOT = 40;
@@ -730,6 +732,16 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         }
         inventory.setItem(45, button(Material.HOPPER, "Sell all",
                 "Sell every listed stack."));
+        boolean auto = settings.isEnabled(player.getUniqueId(), PlayerSettingsStore.Setting.AUTO_SELL);
+        inventory.setItem(AUTO_SELL_SLOT, button(
+                auto ? Material.LIME_STAINED_GLASS_PANE : Material.RED_STAINED_GLASS_PANE,
+                auto ? "Auto sell is on" : "Auto sell is off",
+                auto
+                        ? List.of("Anything the shop buys sells", "as it reaches your inventory.",
+                                "", "Click to turn off.")
+                        : List.of("Sell anything the shop buys", "as it reaches your inventory.",
+                                "", "Click to turn on.")
+        ));
         inventory.setItem(49, button(Material.CHEST, "Put items in",
                 "Drop extras in a chest to sell."));
         inventory.setItem(53, button(Material.BOOK, "Price list",
@@ -945,6 +957,11 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     private void clickSellPreview(Player player, int slot) {
         if (slot == 45) {
             sellInventory(player);
+            openSellPreview(player);
+            return;
+        }
+        if (slot == AUTO_SELL_SLOT) {
+            settings.toggle(player.getUniqueId(), PlayerSettingsStore.Setting.AUTO_SELL);
             openSellPreview(player);
             return;
         }
