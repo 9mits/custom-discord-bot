@@ -1115,9 +1115,24 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         return remaining;
     }
 
+    /**
+     * Hands items over, in stacks the game can actually hold.
+     *
+     * <p>Splitting here rather than at the call sites because the overflow path needs
+     * it too: whatever will not fit comes back from {@code addItem} at the size it was
+     * offered, and {@code dropItemNaturally} drops that as a single item entity. An
+     * oversized drop becomes an oversized stack the moment somebody picks it up.
+     */
     private static void give(Player player, ItemStack item) {
-        player.getInventory().addItem(item).values().forEach(overflow ->
-                player.getWorld().dropItemNaturally(player.getLocation(), overflow));
+        if (item == null || item.getType().isAir()) {
+            return;
+        }
+        for (int portion : StackSplit.portions(item.getAmount(), item.getMaxStackSize())) {
+            ItemStack stack = item.clone();
+            stack.setAmount(portion);
+            player.getInventory().addItem(stack).values().forEach(overflow ->
+                    player.getWorld().dropItemNaturally(player.getLocation(), overflow));
+        }
     }
 
     static String encodeItem(ItemStack item) {
