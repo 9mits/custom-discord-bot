@@ -50,7 +50,12 @@ commands:
     permission: mgx.shop
   sell:
     description: Sell items to the server.
-    usage: /sell [hand|all]
+    usage: /sell [hand|all|chest]
+    permission: mgx.shop
+  autosell:
+    description: Sell anything the shop buys as soon as it reaches your inventory.
+    usage: /autosell
+    aliases: [autoselling]
     permission: mgx.shop
   ah:
     description: Open the auction house.
