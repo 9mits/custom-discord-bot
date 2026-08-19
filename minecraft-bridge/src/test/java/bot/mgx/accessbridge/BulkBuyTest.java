@@ -10,20 +10,21 @@ class BulkBuyTest {
 
     @Test
     void aFortuneInBonemealIsCappedByTheOrderSizeNotTheBalance() {
-        // Bone meal at $3 an item, seventeen million dollars: 5.6 million items.
-        int most = BulkBuy.most(17_000_000L, 3L, FULL_INVENTORY, 64);
-        assertEquals(BulkBuy.ceiling(FULL_INVENTORY, 64), most);
-        assertTrue(most < 17_000_000L / 3L, "the cap has to bite well before the money does");
-        assertEquals(BulkBuy.MAX_ORDER_STACKS, BulkBuy.overflow(most, FULL_INVENTORY) / 64);
+        // Bone meal at $3 an item, seventeen million dollars: 5.6 million items, which
+        // is 88,000 stacks against an inventory that holds thirty-six.
+        long affordable = 17_000_000L / 3L;
+        int ceiling = BulkBuy.ceiling(FULL_INVENTORY, 64);
+        assertTrue(ceiling < affordable, "the cap has to bite well before the money does");
+        assertEquals(BulkBuy.MAX_ORDER_STACKS, BulkBuy.overflow(ceiling, FULL_INVENTORY) / 64);
     }
 
     @Test
     void anOrderBigEnoughToStandOverIsAllowed() {
-        // The point of the feature: buy enough bone meal to feed a farm for an hour
-        // instead of returning to the shop every few minutes.
-        int most = BulkBuy.most(4_000_000L, 3L, FULL_INVENTORY, 64);
-        assertTrue(most > 1_000_000, "an order has to be worth standing over: " + most);
-        int minutes = BulkBuy.deliverySeconds(most, 64) / 60;
+        // The point of the feature: one order worth queuing rather than a trip to the
+        // shop every few minutes.
+        int ceiling = BulkBuy.ceiling(FULL_INVENTORY, 64);
+        assertTrue(ceiling > 1_000_000, "an order has to be worth standing over: " + ceiling);
+        int minutes = BulkBuy.deliverySeconds(BulkBuy.overflow(ceiling, FULL_INVENTORY), 64) / 60;
         assertTrue(minutes >= 4 && minutes <= 30, "delivery took " + minutes + " minutes");
     }
 
@@ -64,22 +65,6 @@ class BulkBuyTest {
     }
 
     @Test
-    void aModestPurseIsLimitedByMoneyNotByTheCap() {
-        // Ten dollars of bone meal is three items, and nothing else should interfere.
-        assertEquals(3, BulkBuy.most(10L, 3L, FULL_INVENTORY, 64));
-        assertEquals(0, BulkBuy.overflow(3, FULL_INVENTORY));
-    }
-
-    @Test
-    void anEmptyPurseBuysNothing() {
-        assertEquals(0, BulkBuy.most(0L, 3L, FULL_INVENTORY, 64));
-        assertEquals(0, BulkBuy.most(2L, 3L, FULL_INVENTORY, 64));
-        // A free item would divide by zero into an unbounded purchase.
-        assertEquals(0, BulkBuy.most(1_000L, 0L, FULL_INVENTORY, 64));
-        assertEquals(0, BulkBuy.most(1_000L, -5L, FULL_INVENTORY, 64));
-    }
-
-    @Test
     void theCeilingFollowsTheItemsOwnStackSize() {
         // Ender pearls stack to sixteen, so the same number of stacks is a quarter the
         // items — stacks are what the delivery rate is measured in, not items.
@@ -98,9 +83,9 @@ class BulkBuyTest {
     void aFullInventoryStillGetsTheWholeOrderDelivered() {
         // No room to carry anything, so every item bought is delivered to the floor —
         // still bounded, and still paced by the ground check.
-        int most = BulkBuy.most(Long.MAX_VALUE / 2, 3L, 0, 64);
-        assertEquals(BulkBuy.MAX_ORDER_STACKS * 64, most);
-        assertEquals(most, BulkBuy.overflow(most, 0));
+        int ceiling = BulkBuy.ceiling(0, 64);
+        assertEquals(BulkBuy.MAX_ORDER_STACKS * 64, ceiling);
+        assertEquals(ceiling, BulkBuy.overflow(ceiling, 0));
     }
 
     @Test

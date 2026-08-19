@@ -46,19 +46,6 @@ final class BulkBuy {
         return Math.max(0, inventorySpace) + MAX_ORDER_STACKS * stack;
     }
 
-    /**
-     * The most the player can both afford and be given.
-     *
-     * @return items, never more than {@link #ceiling}, and zero when one is unaffordable
-     */
-    static int most(long balance, long unitPrice, int inventorySpace, int stackSize) {
-        if (unitPrice <= 0L || balance < unitPrice) {
-            return 0;
-        }
-        long affordable = balance / unitPrice;
-        return (int) Math.min(ceiling(inventorySpace, stackSize), affordable);
-    }
-
     /** How many of a purchase will not fit and have to be delivered. */
     static int overflow(int items, int inventorySpace) {
         return Math.max(0, items - Math.max(0, inventorySpace));

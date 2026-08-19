@@ -19,8 +19,12 @@ final class EconomySlots {
     static final int MAIL_COLLECT = 53;
     /** Sets the amount to whatever the player can afford and carry. */
     static final int BUY_MAX = 16;
-    /** Sets it to everything they can afford, spilling what will not fit. */
-    static final int BUY_ALL = 25;
+    /** Opens the standing-order screen for this item. */
+    static final int AUTOBUY = 25;
+    /** On the standing-order screen: how often, whether to drop, start and stop. */
+    static final int AUTO_INTERVAL = 11;
+    static final int AUTO_DROP = 15;
+    static final int AUTO_START = 31;
     /** Puts the amount back to one. */
     static final int BUY_RESET = 34;
     /** Commits the purchase. */
@@ -41,8 +45,11 @@ final class EconomySlots {
                 MenuItems.NEXT_SLOT,
                 MAIL_COLLECT,
                 BUY_MAX,
-                BUY_ALL,
+                AUTOBUY,
                 BUY_RESET,
+                AUTO_INTERVAL,
+                AUTO_DROP,
+                AUTO_START,
                 BUY_CONFIRM,
         };
     }
