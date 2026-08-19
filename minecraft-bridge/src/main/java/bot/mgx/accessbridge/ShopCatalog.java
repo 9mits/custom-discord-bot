@@ -246,6 +246,7 @@ final class ShopCatalog {
                 wooded("LEAVES", 64, 1_000),
                 List.of(
                         offer("BAMBOO_BLOCK", 64, 2_000),
+                        offer("STRIPPED_BAMBOO_BLOCK", 64, 2_000),
                         offer("BAMBOO_PLANKS", 64, 900),
                         offer("BAMBOO_MOSAIC", 64, 1_000)
                 )
@@ -335,6 +336,7 @@ final class ShopCatalog {
                 offer("SPRUCE_SAPLING", 16, 700),
                 offer("BIRCH_SAPLING", 16, 700),
                 offer("HAY_BLOCK", 16, 8_000),
+                offer("DRIED_KELP_BLOCK", 16, 6_400),
                 offer("COMPOSTER", 16, 1_600)
         ));
         catalog.put(Category.FOOD, List.of(
