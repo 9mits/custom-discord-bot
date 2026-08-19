@@ -1,5 +1,6 @@
 package bot.mgx.accessbridge;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -24,15 +25,8 @@ final class SidebarLayout {
     /** What a vanilla scoreboard sidebar will draw. Everything past this is dropped. */
     static final int MAX_LINES = 15;
 
-    /**
-     * How many clan boosts share the one line before it starts rotating.
-     *
-     * <p>Two keeps the row at roughly the width of the longest row already on the
-     * board. All six on one line is two and a half times that, and since the widest
-     * row is what the centred title and footer pad against, one long line stretches
-     * the whole sidebar across the screen.
-     */
-    static final int BOOSTS_PER_LINE = 2;
+    /** Clan boosts to a row in the tab list, which is far wider than the sidebar. */
+    static final int BOOSTS_PER_ROW = 3;
 
     /** Lowest gives up its line first. */
     enum Priority {
@@ -66,28 +60,23 @@ final class SidebarLayout {
         return keep;
     }
 
-    /** The label and value for the boost row, or null when a clan has no boosts yet. */
-    record Boosts(String label, String value) {
-    }
-
     /**
-     * The slice of a clan's boosts to draw this refresh.
+     * Clan boosts grouped into rows for the tab list.
      *
-     * <p>Rotates only when there are more boosts than fit: a clan with two or fewer
-     * sees a still line with no page number, because a counter that never counts reads
-     * as broken. {@code tick} advances once per sidebar refresh, so each page holds for
-     * one refresh interval.
+     * <p>They live there rather than on the sidebar because the sidebar is capped at
+     * fifteen rows and the tab list is not: six boosts spelled out in full is what
+     * pushed the balance off the board, and abbreviating them to fit made them hard
+     * to read. The tab list has room for their real names.
      */
-    static Boosts boostsFor(List<String> boosts, long tick) {
-        if (boosts == null || boosts.isEmpty()) {
-            return null;
+    static List<String> boostRows(List<String> boosts, int perRow) {
+        if (boosts == null || boosts.isEmpty() || perRow < 1) {
+            return List.of();
         }
-        int pages = (boosts.size() + BOOSTS_PER_LINE - 1) / BOOSTS_PER_LINE;
-        int page = pages <= 1 ? 0 : (int) Math.floorMod(tick, pages);
-        int from = page * BOOSTS_PER_LINE;
-        int to = Math.min(boosts.size(), from + BOOSTS_PER_LINE);
-        String label = pages <= 1 ? "Boosts" : "Boosts " + (page + 1) + "/" + pages;
-        return new Boosts(label, String.join(" ", boosts.subList(from, to)));
+        List<String> rows = new ArrayList<>();
+        for (int from = 0; from < boosts.size(); from += perRow) {
+            rows.add(String.join("   ", boosts.subList(from, Math.min(boosts.size(), from + perRow))));
+        }
+        return List.copyOf(rows);
     }
 
     private static int drop(Priority[] lines, boolean[] keep, Priority level, int over) {
