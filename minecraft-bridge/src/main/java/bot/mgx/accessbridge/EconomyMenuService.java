@@ -5,6 +5,8 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
+import org.bukkit.block.Block;
+import org.bukkit.block.Container;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -92,10 +94,18 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     /** Orders still being handed over, a few stacks a tick. */
     private final Map<UUID, Delivery> deliveries = new ConcurrentHashMap<>();
 
-    EconomyMenuService(MGXAccessBridge plugin, EconomyStore money, AuctionStore auctions) {
+    private final PlayerSettingsStore settings;
+
+    EconomyMenuService(
+            MGXAccessBridge plugin,
+            EconomyStore money,
+            AuctionStore auctions,
+            PlayerSettingsStore settings
+    ) {
         this.plugin = plugin;
         this.money = money;
         this.auctions = auctions;
+        this.settings = settings;
     }
 
     @Override
@@ -109,6 +119,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         try {
             switch (name) {
                 case "shop" -> openShopHub(player);
+                case "autosell" -> autoSellCommand(player);
                 case "sell" -> sellCommand(player, args);
                 case "ah" -> auctionCommand(player, args);
                 default -> openShopHub(player);
@@ -125,7 +136,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     ) {
         String name = command.getName().toLowerCase(Locale.ROOT);
         if (name.equals("sell") && args.length == 1) {
-            return partial(args[0], List.of("hand", "all"));
+            return partial(args[0], List.of("hand", "all", "chest"));
         }
         if (name.equals("ah") && args.length == 1) {
             return partial(args[0], List.of("sell", "listings", "expired", "search"));
@@ -222,7 +233,93 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         switch (action) {
             case "hand" -> sellHand(player);
             case "all" -> sellInventory(player);
-            default -> throw new IllegalArgumentException("Use /sell, /sell hand or /sell all.");
+            case "chest", "container", "shulker", "barrel" -> sellContainer(player);
+            default -> throw new IllegalArgumentException(
+                    "Use /sell, /sell hand, /sell all or /sell chest.");
+        }
+    }
+
+    /**
+     * Sells what the shop buys out of the container the player is looking at.
+     *
+     * <p>Anything it does not buy is left where it is, so this can be pointed at a
+     * mixed chest without sorting it first.
+     */
+    private void sellContainer(Player player) {
+        Block target = player.getTargetBlockExact(6);
+        if (target == null || !(target.getState() instanceof Container container)) {
+            throw new IllegalArgumentException("Look at a chest, barrel or shulker box first.");
+        }
+        Inventory contents = container.getInventory();
+        List<ItemStack> offered = new ArrayList<>();
+        for (ItemStack item : contents.getContents()) {
+            if (isInstantSellable(item)) {
+                offered.add(item);
+            }
+        }
+        Sold sold = sellStacks(player, offered);
+        if (sold.count() == 0) {
+            throw new IllegalArgumentException("Nothing in there is bought here.");
+        }
+        for (int slot = 0; slot < contents.getSize(); slot++) {
+            if (isInstantSellable(contents.getItem(slot))) {
+                contents.setItem(slot, null);
+            }
+        }
+        money.deposit(player.getUniqueId(), sold.credit());
+        info(player, "Sold " + sold.describe() + " out of the "
+                + readable(target.getType().name()) + " for "
+                + EconomyFormat.dollars(sold.credit()) + ".");
+        logSale(player, sold);
+    }
+
+    private void autoSellCommand(Player player) {
+        boolean on = settings.toggle(player.getUniqueId(), PlayerSettingsStore.Setting.AUTO_SELL);
+        if (on) {
+            info(player, "Auto sell is on. Anything the shop buys will be sold as it "
+                    + "reaches your inventory. Run /autosell again to stop.");
+            return;
+        }
+        info(player, "Auto sell is off.");
+    }
+
+    /**
+     * Sells what the shop buys out of the inventory of everybody who asked for it.
+     *
+     * <p>On a timer rather than on pickup: a pickup event fires per item and would
+     * mean a sale, a balance write and a message for every single drop off a farm.
+     * A sweep sells whatever arrived since the last one in a single transaction.
+     */
+    void sweepAutoSell() {
+        for (Player player : plugin.getServer().getOnlinePlayers()) {
+            if (!settings.isEnabled(player.getUniqueId(), PlayerSettingsStore.Setting.AUTO_SELL)) {
+                continue;
+            }
+            PlayerInventory inventory = player.getInventory();
+            List<ItemStack> offered = new ArrayList<>();
+            for (int slot = 0; slot < 36; slot++) {
+                if (isInstantSellable(inventory.getItem(slot))) {
+                    offered.add(inventory.getItem(slot));
+                }
+            }
+            if (offered.isEmpty()) {
+                continue;
+            }
+            Sold sold = sellStacks(player, offered);
+            if (sold.count() == 0) {
+                continue;
+            }
+            for (int slot = 0; slot < 36; slot++) {
+                if (isInstantSellable(inventory.getItem(slot))) {
+                    inventory.setItem(slot, null);
+                }
+            }
+            money.deposit(player.getUniqueId(), sold.credit());
+            // The action bar rather than chat: this fires every few seconds while a
+            // farm is running, and chat would be unreadable within a minute.
+            player.sendActionBar(Component.text(
+                    "Auto sold " + sold.count() + " for "
+                            + EconomyFormat.dollars(sold.credit()), ORANGE));
         }
     }
 
@@ -335,10 +432,14 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         int space = spaceFor(player, material);
         int stackSize = material.getMaxStackSize();
         int wanted = Math.max(1, Math.min(BulkBuy.ceiling(space, stackSize), quantity));
-        pendingBuys.put(player.getUniqueId(), new PendingBuy(offer, category, categoryPage, wanted));
+        int spill = BulkBuy.overflow(wanted, space);
+        // Changing the amount disarms it, so the second click always confirms the
+        // figure that was on screen when the first one was made.
+        boolean armed = armedFor(player, offer, wanted);
+        pendingBuys.put(player.getUniqueId(),
+                new PendingBuy(offer, category, categoryPage, wanted, armed));
         long balance = money.balance(player.getUniqueId());
         long total = offer.costOfItems(wanted);
-        int spill = BulkBuy.overflow(wanted, space);
         boolean affordable = total <= balance;
         Inventory inventory = create(
                 Menu.Kind.SHOP_BUY, categoryId(category), categoryPage, BUY_SIZE,
@@ -420,11 +521,27 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                     + BulkBuy.deliverySeconds(spill, stackSize) + "s.");
             confirmLore.add("Log off and it is refunded.");
         }
-        inventory.setItem(BUY_CONFIRM_SLOT, button(
-                affordable ? Material.LIME_CONCRETE : Material.GRAY_CONCRETE,
-                affordable ? "Buy it" : "You cannot afford that",
-                confirmLore
-        ));
+        // An order big enough to be delivered spends most of a balance and cannot be
+        // undone, so it takes two clicks. A pocketful takes one.
+        boolean twoStep = spill > 0;
+        Material face = Material.GRAY_CONCRETE;
+        String label = "You cannot afford that";
+        if (affordable && twoStep && !armed) {
+            face = Material.YELLOW_CONCRETE;
+            label = "Click to confirm";
+            confirmLore.add("");
+            confirmLore.add("Large order — click twice.");
+        } else if (affordable && twoStep) {
+            face = Material.LIME_CONCRETE;
+            label = "Click again to buy";
+            confirmLore.add("");
+            confirmLore.add("Sure? This spends "
+                    + EconomyFormat.dollars(total) + ".");
+        } else if (affordable) {
+            face = Material.LIME_CONCRETE;
+            label = "Buy it";
+        }
+        inventory.setItem(BUY_CONFIRM_SLOT, button(face, label, confirmLore));
         MenuItems.back(inventory);
         MenuItems.show(plugin, player, inventory);
     }
@@ -446,8 +563,12 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             ShopCatalog.Offer offer,
             ShopCatalog.Category category,
             int categoryPage,
-            int quantity
+            int quantity,
+            boolean armed
     ) {
+        PendingBuy armed(boolean value) {
+            return new PendingBuy(offer, category, categoryPage, quantity, value);
+        }
     }
 
     void openSell(Player player) {
@@ -829,6 +950,12 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         if (slot != BUY_CONFIRM_SLOT) {
             return;
         }
+        int space = spaceFor(player, material);
+        if (BulkBuy.overflow(pending.quantity(), space) > 0 && !pending.armed()) {
+            pendingBuys.put(player.getUniqueId(), pending.armed(true));
+            redrawBuy(player, pending, pending.quantity());
+            return;
+        }
         buy(player, pending.offer(), pending.quantity());
         pendingBuys.remove(player.getUniqueId());
         openShopCategory(player, pending.category(), pending.categoryPage());
@@ -836,6 +963,15 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
 
     private void redrawBuy(Player player, PendingBuy pending, int quantity) {
         openBuy(player, pending.offer(), pending.category(), pending.categoryPage(), quantity);
+    }
+
+    /** Whether the confirm is already half pressed for exactly this order. */
+    private boolean armedFor(Player player, ShopCatalog.Offer offer, int quantity) {
+        PendingBuy previous = pendingBuys.get(player.getUniqueId());
+        return previous != null
+                && previous.armed()
+                && previous.quantity() == quantity
+                && previous.offer().material().equals(offer.material());
     }
 
     private void clickAuction(Player player, Menu menu, int slot) {

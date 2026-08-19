@@ -215,6 +215,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 || getCommand("leaderboard") == null
                 || getCommand("shop") == null
                 || getCommand("sell") == null
+                || getCommand("autosell") == null
                 || getCommand("ah") == null
                 || getCommand("bal") == null
                 || getCommand("pay") == null
@@ -270,10 +271,12 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
-        economyMenus = new EconomyMenuService(this, economyStore, auctionStore);
+        economyMenus = new EconomyMenuService(this, economyStore, auctionStore, playerSettings);
         EconomyCommandService economyCommands = new EconomyCommandService(economyStore);
         getCommand("shop").setExecutor(economyMenus);
         getCommand("shop").setTabCompleter(economyMenus);
+        getCommand("autosell").setExecutor(economyMenus);
+        getCommand("autosell").setTabCompleter(economyMenus);
         getCommand("sell").setExecutor(economyMenus);
         getCommand("sell").setTabCompleter(economyMenus);
         getCommand("ah").setExecutor(economyMenus);
@@ -301,6 +304,11 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         // is in progress, which is nearly always.
         getServer().getScheduler().runTaskTimer(
                 this, economyMenus::deliverOrders, 20L, 1L
+        );
+        // Two seconds: fast enough that a farm feels like it is selling itself, slow
+        // enough that a running farm is one balance write rather than one per item.
+        getServer().getScheduler().runTaskTimer(
+                this, economyMenus::sweepAutoSell, 40L, 40L
         );
         AdminCommandService adminService = new AdminCommandService(
                 this,

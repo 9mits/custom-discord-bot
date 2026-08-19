@@ -27,7 +27,8 @@ final class PlayerSettingsStore {
     /** A toggle a player can turn off. Names are persisted, so do not rename casually. */
     enum Setting {
         CLAN_TAGS("Clan tags", "Show other players' clan tags in chat and above their heads."),
-        DISCORD_CHAT("Discord chat", "Show messages sent from Discord in Minecraft chat.");
+        DISCORD_CHAT("Discord chat", "Show messages sent from Discord in Minecraft chat."),
+        AUTO_SELL("Auto sell", "Sell anything the shop buys as soon as it reaches your inventory.");
 
         private final String label;
         private final String description;
