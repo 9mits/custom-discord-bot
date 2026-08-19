@@ -9,6 +9,7 @@ import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
+import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -88,6 +89,8 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     private final Map<UUID, String> auctionSearch = new ConcurrentHashMap<>();
     /** What each player is part-way through buying, cleared when the screen closes. */
     private final Map<UUID, PendingBuy> pendingBuys = new ConcurrentHashMap<>();
+    /** Orders still being handed over, a few stacks a tick. */
+    private final Map<UUID, Delivery> deliveries = new ConcurrentHashMap<>();
 
     EconomyMenuService(MGXAccessBridge plugin, EconomyStore money, AuctionStore auctions) {
         this.plugin = plugin;
@@ -132,6 +135,73 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
 
     void expireListings() {
         auctions.expire(System.currentTimeMillis());
+    }
+
+    /**
+     * Releases a few stacks of every order in progress.
+     *
+     * <p>Runs every tick, so the first thing it does is notice there is nothing to do.
+     * A delivery waits while the ground under its owner is still busy, which is what
+     * lets an order be any size: the hoppers set the pace, and the floor never fills.
+     */
+    void deliverOrders() {
+        if (deliveries.isEmpty()) {
+            return;
+        }
+        deliveries.entrySet().removeIf(entry -> {
+            Player player = plugin.getServer().getPlayer(entry.getKey());
+            Delivery delivery = entry.getValue();
+            if (player == null || !player.isOnline()) {
+                // Nowhere to put the rest, so it was never really sold.
+                refund(entry.getKey(), delivery);
+                return true;
+            }
+            Material material = materialOf(delivery.material());
+            int release = BulkBuy.releaseThisTick(
+                    delivery.remaining(), material.getMaxStackSize(), itemsAround(player));
+            if (release <= 0) {
+                return false;
+            }
+            int carried = Math.min(release, spaceFor(player, material));
+            if (carried > 0) {
+                give(player, new ItemStack(material, carried));
+            }
+            dropAtFeet(player, material, release - carried);
+            int left = delivery.remaining() - release;
+            if (left > 0) {
+                entry.setValue(delivery.withRemaining(left));
+                return false;
+            }
+            info(player, "Delivered the last of your "
+                    + readable(delivery.material()) + ".");
+            return true;
+        });
+    }
+
+    /** Gives back what an order could not hand over. */
+    private void refund(UUID playerId, Delivery delivery) {
+        long owed = BulkBuy.refundFor(delivery.remaining(), delivery.unitPrice());
+        if (owed > 0L) {
+            money.deposit(playerId, owed);
+        }
+    }
+
+    /** Refunds every order in progress, for a shutdown that would otherwise eat them. */
+    void refundOrders() {
+        deliveries.forEach(this::refund);
+        deliveries.clear();
+    }
+
+    private static int itemsAround(Player player) {
+        return player.getWorld()
+                .getNearbyEntities(player.getLocation(), 6, 4, 6, entity -> entity instanceof Item)
+                .size();
+    }
+
+    private record Delivery(String material, int remaining, long unitPrice) {
+        Delivery withRemaining(int left) {
+            return new Delivery(material, left, unitPrice);
+        }
     }
 
     void closeAll() {
@@ -296,18 +366,23 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                 )
         ));
         int everything = Math.max(1, BulkBuy.most(balance, offer.unitPrice(), space, stackSize));
-        int everythingSpill = BulkBuy.overflow(everything, space);
+        int everythingOwed = BulkBuy.overflow(everything, space);
         List<String> spendLore = new ArrayList<>();
         spendLore.add(everything + " " + readable(offer.material()));
         spendLore.add(EconomyFormat.dollars(offer.costOfItems(everything)));
-        spendLore.add(everythingSpill > 0
-                ? everythingSpill + " dropped at your feet"
-                : "It all fits.");
+        if (everythingOwed > 0) {
+            spendLore.add("");
+            spendLore.add(everythingOwed + " delivered to your feet");
+            spendLore.add("over about "
+                    + BulkBuy.deliverySeconds(everythingOwed, stackSize) + "s.");
+            spendLore.add("Stand over a hopper and wait.");
+        } else {
+            spendLore.add("It all fits.");
+        }
         if (everything >= BulkBuy.ceiling(space, stackSize)) {
             // Say why it stopped, so a rich player does not think it miscounted.
             spendLore.add("");
-            spendLore.add("The most one purchase can hand over.");
-            spendLore.add("Buy again once you have stored it.");
+            spendLore.add("The most one order can carry.");
         }
         inventory.setItem(BUY_ALL_SLOT, button(Material.GOLD_BLOCK, "Spend it all", spendLore));
         inventory.setItem(BUY_RESET_SLOT, button(
@@ -337,11 +412,13 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             confirmLore.add("");
             confirmLore.add("You are short " + EconomyFormat.dollars(total - balance) + ".");
         } else if (spill > 0) {
-            // A warning, not a refusal: dropping the remainder is the point of
+            // A note, not a refusal: delivering the remainder is the point of
             // "spend it all", and saying so beforehand is what keeps it from
             // surprising somebody who only wanted what they could carry.
             confirmLore.add("");
-            confirmLore.add(spill + " will drop at your feet.");
+            confirmLore.add(spill + " delivered over "
+                    + BulkBuy.deliverySeconds(spill, stackSize) + "s.");
+            confirmLore.add("Log off and it is refunded.");
         }
         inventory.setItem(BUY_CONFIRM_SLOT, button(
                 affordable ? Material.LIME_CONCRETE : Material.GRAY_CONCRETE,
@@ -861,11 +938,30 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                     "You need " + EconomyFormat.dollars(cost) + "."
             );
         }
-        int dropped = handOver(player, material, wanted);
+        int carried = Math.min(wanted, spaceFor(player, material));
+        if (carried > 0) {
+            give(player, new ItemStack(material, carried));
+        }
+        int owed = wanted - carried;
         String name = readable(offer.material());
-        info(player, "Bought " + wanted + " " + name
-                + " for " + EconomyFormat.dollars(cost)
-                + (dropped > 0 ? ". " + dropped + " dropped at your feet." : "."));
+        if (owed > 0) {
+            // Queued rather than dropped: the whole point of an order this size is
+            // standing over a hopper and letting it arrive.
+            deliveries.merge(
+                    player.getUniqueId(),
+                    new Delivery(offer.material(), owed, offer.unitPrice()),
+                    (existing, added) -> existing.material().equals(added.material())
+                            ? existing.withRemaining(existing.remaining() + added.remaining())
+                            : added);
+            info(player, "Bought " + wanted + " " + name + " for "
+                    + EconomyFormat.dollars(cost) + ". " + owed
+                    + " arriving over about "
+                    + BulkBuy.deliverySeconds(owed, material.getMaxStackSize())
+                    + "s — stand where you want it.");
+        } else {
+            info(player, "Bought " + wanted + " " + name
+                    + " for " + EconomyFormat.dollars(cost) + ".");
+        }
         items = wanted;
         report(player, "shop_buy",
                 "Bought " + items + " " + name + " for " + EconomyFormat.dollars(cost))
@@ -1144,34 +1240,21 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     }
 
     /**
-     * Fills the inventory, then drops whatever is left at the player's feet.
+     * Drops items at the player's feet, in legal stacks.
      *
-     * <p>The remainder goes straight to the world rather than back through
-     * {@code addItem}. Once the inventory is full every further call scans all
-     * thirty-six slots to find nothing, and a bulk purchase makes that call hundreds
-     * of times — the work grows with the size of the order while finding room never
-     * gets any more likely.
-     *
-     * @return how many were dropped rather than carried
+     * <p>Straight to the world rather than back through {@code addItem}: the caller
+     * has already put away everything that fits, so every further call would scan all
+     * thirty-six slots to find nothing.
      */
-    private static int handOver(Player player, Material material, int items) {
+    private static void dropAtFeet(Player player, Material material, int items) {
         if (items <= 0) {
-            return 0;
-        }
-        int carried = Math.min(items, spaceFor(player, material));
-        if (carried > 0) {
-            give(player, new ItemStack(material, carried));
-        }
-        int spill = items - carried;
-        if (spill <= 0) {
-            return 0;
+            return;
         }
         org.bukkit.World world = player.getWorld();
         org.bukkit.Location at = player.getLocation();
-        for (int portion : StackSplit.portions(spill, material.getMaxStackSize())) {
+        for (int portion : StackSplit.portions(items, material.getMaxStackSize())) {
             world.dropItemNaturally(at, new ItemStack(material, portion));
         }
-        return spill;
     }
 
     /**
