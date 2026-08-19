@@ -11,6 +11,14 @@ package bot.mgx.accessbridge;
  * <p>Free of Bukkit imports so the timing is unit tested.
  */
 final class AutoBuy {
+    /**
+     * Item entities allowed near the player before a dropping order waits.
+     *
+     * <p>What keeps a standing order safe however long it runs: more is only put down
+     * once the hoppers have taken what is already there, so the floor cannot fill.
+     */
+    static final int GROUND_LIMIT = 64;
+
     /** How often a standing order can repeat. */
     static final int[] INTERVAL_SECONDS = {1, 2, 5, 10, 30};
 

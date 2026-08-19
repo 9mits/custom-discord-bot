@@ -302,11 +302,11 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getScheduler().runTaskTimer(
                 this, economyMenus::expireListings, 20L * 60L, 20L * 60L
         );
-        // Every tick, because a bulk order is handed over a few stacks at a time and
-        // waits on the hoppers under the player. It returns immediately when no order
-        // is in progress, which is nearly always.
+        // Every tick, because a standing order can repeat as often as once a second
+        // and waits on the hoppers under the player. It returns immediately when
+        // nobody has one running, which is nearly always.
         getServer().getScheduler().runTaskTimer(
-                this, economyMenus::deliverOrders, 20L, 1L
+                this, economyMenus::tickAutoOrders, 20L, 1L
         );
         // Two seconds: fast enough that a farm feels like it is selling itself, slow
         // enough that a running farm is one balance write rather than one per item.
@@ -370,8 +370,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         if (economyMenus != null) {
             economyMenus.closeAll();
-            // A shutdown mid-delivery would otherwise keep the money and the items.
-            economyMenus.refundOrders();
+            economyMenus.stopAutoOrders();
         }
         if (capabilityService != null) {
             capabilityService.stop();
