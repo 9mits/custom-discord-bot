@@ -2137,10 +2137,21 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
                 return field.value
         raise AssertionError(f"no rule named {heading!r}")
 
-    def test_griefing_is_the_first_rule(self):
+    def test_griefing_is_allowed_and_says_so_first(self):
+        # The policy people most need to know before they build anything, and the
+        # one most servers have the other way round.
         from minecraft_bot.presentation import rules_embed
 
-        self.assertEqual(rules_embed().fields[0].name, "1. Do not grief")
+        self.assertEqual(rules_embed().fields[0].name, "1. Griefing is allowed")
+
+    def test_server_builds_are_the_stated_exception(self):
+        rule = self._rule("3. Server builds are the exception")
+
+        self.assertIn("server-coordinated", rule)
+        # A build staff forgot to region is still off limits; the plugin refusing
+        # the block is the usual signal, never the definition.
+        self.assertIn("oversight rather than permission", rule)
+        self.assertIn("WorldGuard", rule)
 
     def test_each_rule_is_its_own_field(self):
         # A heading in the description gets its own paragraph margin and floats
@@ -2206,7 +2217,7 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
         # Conditions buried in a sentence get skimmed past. Where a rule draws a
         # line between two things, or lists several, it should show them.
         for heading, bullets in (
-            ("2. Theft has limits", ("**Fair** —", "**Griefing** —")),
+            ("1. Griefing is allowed", ("**Fair game** —", "**Off limits** —")),
             ("4. Keep PvP fair", ("**Allowed** —", "**Not allowed** —")),
             ("7. Keep it in character", ("**In character** —", "**Not** —")),
             ("9. Permitted mods and launchers", ("- Minimaps must", "- A launcher")),
@@ -2237,12 +2248,13 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
         described = self._rules_text()
 
         for clause in (
-            "looks abandoned",           # "it was abandoned"
-            "not an invitation",         # "the chest was unlocked"
-            "being offline is not consent",
+            "looks abandoned",           # "it was abandoned, so it was not really griefing"
+            "not an oversight",          # "the chest was unlocked"
+            "being offline is not protection",
+            "oversight rather than permission",  # "WorldGuard let me break it"
             "regardless of who started it",
             "the death you avoided",     # combat logging
-            "judged by staff",           # "it was proportional"
+            "judged on its effect",      # "I was not trying to run them off"
             "never excused as roleplay",
             "is not a defence",          # "I did not know"
             "ask before doing it",

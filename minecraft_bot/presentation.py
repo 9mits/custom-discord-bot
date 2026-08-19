@@ -362,6 +362,15 @@ def application_guide_embed() -> discord.Embed:
         inline=False,
     )
     embed.add_field(
+        name="Nothing is safe",
+        value=(
+            "> Griefing and raiding are allowed. Bases, farms and clan towers "
+            "can all be taken or torn down, which is exactly what makes holding "
+            "one worth something. Spawn and server builds are the only exception."
+        ),
+        inline=False,
+    )
+    embed.add_field(
         name="Read the rules first",
         value=(
             "> You accept them as part of applying, and they are what staff "
@@ -397,26 +406,38 @@ def application_apply_embed() -> discord.Embed:
 #: them without parsing prose.
 SERVER_RULES: tuple[tuple[str, str], ...] = (
     (
-        "1. Do not grief",
-        "Destroying, defacing, burning or flooding another player's base, farm, "
-        "build or animals is prohibited — whether or not it is claimed, locked, "
-        "lit or occupied. A build that looks abandoned still belongs to someone. "
-        "Damage caused during an agreed fight must be repaired in full, by you, "
-        "before you log off.",
+        "1. Griefing is allowed",
+        "- **Fair game** — player bases, farms, animals, clan builds, anything "
+        "you find out there\n"
+        "- **Off limits** — spawn, and any build marked as server-coordinated\n\n"
+        "Raid it, burn it, flood it, take it apart. Claimed or not, occupied or "
+        "not, and a build that looks abandoned is as fair a target as one that "
+        "does not.\n\n"
+        "This is deliberate. A world where anything can be lost is a world worth "
+        "defending: it gives clans a reason to fortify, alliances a reason to "
+        "mean something, and everyone a reason to log in and find out what "
+        "changed overnight. The best stories this server has came from somebody "
+        "losing something. Build accordingly.",
     ),
     (
-        "2. Theft has limits",
-        "- **Fair** — items taken from someone who is an active party to a "
-        "declared conflict\n"
-        "- **Griefing** — emptying storage, clearing shulkers or ender chests, or "
-        "taking from anyone with no part in the conflict\n\n"
-        "An unlocked chest is not an invitation, and being offline is not consent.",
+        "2. Raiding and theft are fair game",
+        "Chests, barrels, shulkers, storage rooms — if you can reach it, you can "
+        "take it. An unlocked chest is an opportunity, not an oversight, and "
+        "being offline is not protection.\n\n"
+        "Hidden bases, decoys, traps and distance are your defence. Use them, and "
+        "assume your rivals are using them too.",
     ),
     (
-        "3. Respect spawn and shared builds",
-        "Spawn, public farms, roads, portals and community projects are neutral "
-        "ground. Do not build over, claim, dismantle or place traps within them, "
-        "and do not fight at spawn regardless of who started it.",
+        "3. Server builds are the exception",
+        "Spawn and anything officially marked as a server build — the hub, public "
+        "roads and portals, event arenas, staff-run community projects — are "
+        "never valid targets. Do not break, burn, flood, build over or trap "
+        "them.\n\n"
+        "Most are held by WorldGuard and will simply refuse your block. Some are "
+        "not. A missing region is an oversight rather than permission: if a build "
+        "is labelled server-coordinated, treat it as protected whether or not the "
+        "plugin stops you. Do not fight at spawn either, regardless of who "
+        "started it.",
     ),
     (
         "4. Keep PvP fair",
@@ -427,11 +448,12 @@ SERVER_RULES: tuple[tuple[str, str], ...] = (
         "Logging out to escape a fight is treated as the death you avoided.",
     ),
     (
-        "5. Keep conflict proportional",
-        "A prank or a stolen item never justifies destroying a base. Retaliation "
-        "must leave the other player a fair chance to respond, and must stop when "
-        "they disengage. Whether an escalation was proportional is judged by "
-        "staff, not by the person escalating.",
+        "5. Fight players, not people",
+        "Griefing is aimed at builds and loot, because those can be rebuilt and "
+        "retaken. It is not a way to drive somebody off the server. Singling out "
+        "one player until they stop logging in is harassment however it is "
+        "dressed up, and is judged on its effect rather than on what you meant "
+        "by it.",
     ),
     (
         "6. Respect other players",
