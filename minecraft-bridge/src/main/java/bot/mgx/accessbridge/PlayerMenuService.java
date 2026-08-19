@@ -36,7 +36,6 @@ final class PlayerMenuService implements Listener {
     private static final int CLAN_TAGS_SLOT = 11;
     private static final int DISCORD_CHAT_SLOT = 13;
     private static final int DISCORD_NAME_SLOT = 15;
-    private static final int AUTO_SELL_SLOT = 17;
     private static final int SETTINGS_SIZE = 27;
 
     private final PlayerSettingsStore settings;
@@ -72,10 +71,6 @@ final class PlayerMenuService implements Listener {
         inventory.setItem(DISCORD_CHAT_SLOT, toggle(
                 PlayerSettingsStore.Setting.DISCORD_CHAT,
                 settings.isEnabled(player.getUniqueId(), PlayerSettingsStore.Setting.DISCORD_CHAT)
-        ));
-        inventory.setItem(AUTO_SELL_SLOT, toggle(
-                PlayerSettingsStore.Setting.AUTO_SELL,
-                settings.isEnabled(player.getUniqueId(), PlayerSettingsStore.Setting.AUTO_SELL)
         ));
         inventory.setItem(DISCORD_NAME_SLOT, pane(
                 identities.isVisible(player.getUniqueId()),
@@ -181,8 +176,6 @@ final class PlayerMenuService implements Listener {
 
     private void flip(Player player, int slot) {
         switch (slot) {
-            case AUTO_SELL_SLOT -> settings.toggle(
-                    player.getUniqueId(), PlayerSettingsStore.Setting.AUTO_SELL);
             case CLAN_TAGS_SLOT -> settings.toggle(
                     player.getUniqueId(), PlayerSettingsStore.Setting.CLAN_TAGS);
             case DISCORD_CHAT_SLOT -> settings.toggle(
