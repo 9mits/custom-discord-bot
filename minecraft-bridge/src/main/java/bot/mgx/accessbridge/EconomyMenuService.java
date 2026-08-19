@@ -127,6 +127,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             switch (name) {
                 case "shop" -> openShopHub(player);
                 case "autosell" -> autoSellCommand(player);
+                case "autobuy" -> autoBuyCommand(player, args);
                 case "sell" -> sellCommand(player, args);
                 case "ah" -> auctionCommand(player, args);
                 default -> openShopHub(player);
@@ -144,6 +145,9 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         String name = command.getName().toLowerCase(Locale.ROOT);
         if (name.equals("sell") && args.length == 1) {
             return partial(args[0], List.of("hand", "all"));
+        }
+        if (name.equals("autobuy") && args.length == 1) {
+            return partial(args[0], List.of("stop"));
         }
         if (name.equals("ah") && args.length == 1) {
             return partial(args[0], List.of("sell", "listings", "expired", "search"));
@@ -246,6 +250,39 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             case "all" -> sellInventory(player);
             default -> throw new IllegalArgumentException("Use /sell, /sell hand or /sell all.");
         }
+    }
+
+    /**
+     * Reports or stops a standing order.
+     *
+     * <p>Starting one stays in the shop: it needs an item, an amount, an interval and
+     * where the items land, which is four choices that read better as buttons than as
+     * arguments — especially on Bedrock, where typing is the worst part of the client.
+     * Stopping one from anywhere is the part that needed a command, since otherwise it
+     * meant finding your way back to that exact item's screen.
+     */
+    private void autoBuyCommand(Player player, String[] args) {
+        AutoOrder order = autoOrders.get(player.getUniqueId());
+        boolean stopping = args.length > 0
+                && List.of("stop", "off", "cancel").contains(args[0].toLowerCase(Locale.ROOT));
+        if (order == null) {
+            info(player, stopping
+                    ? "You have no auto buy running."
+                    : "No auto buy running. Open /shop, pick an item and an amount, "
+                            + "then press Auto buy.");
+            return;
+        }
+        if (stopping) {
+            stopAutoBuy(player, "Auto buy stopped.");
+            return;
+        }
+        long each = order.unitPrice() * (long) order.quantity();
+        info(player, "Auto buying " + order.quantity() + " "
+                + readable(order.material()) + " every " + order.intervalSeconds() + "s"
+                + (order.drop() ? ", dropped at your feet." : ", into your inventory.")
+                + " " + EconomyFormat.dollars(each) + " each time, "
+                + EconomyFormat.dollars(each * (60L / Math.max(1, order.intervalSeconds())))
+                + " a minute. Use /autobuy stop to end it.");
     }
 
     private void autoSellCommand(Player player) {

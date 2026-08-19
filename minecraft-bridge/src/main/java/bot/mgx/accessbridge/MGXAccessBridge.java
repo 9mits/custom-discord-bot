@@ -216,6 +216,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 || getCommand("shop") == null
                 || getCommand("sell") == null
                 || getCommand("autosell") == null
+                || getCommand("autobuy") == null
                 || getCommand("ah") == null
                 || getCommand("bal") == null
                 || getCommand("pay") == null
@@ -277,6 +278,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("shop").setTabCompleter(economyMenus);
         getCommand("autosell").setExecutor(economyMenus);
         getCommand("autosell").setTabCompleter(economyMenus);
+        getCommand("autobuy").setExecutor(economyMenus);
+        getCommand("autobuy").setTabCompleter(economyMenus);
         getCommand("sell").setExecutor(economyMenus);
         getCommand("sell").setTabCompleter(economyMenus);
         getCommand("ah").setExecutor(economyMenus);
