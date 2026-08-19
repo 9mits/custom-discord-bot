@@ -190,20 +190,15 @@ final class SidebarService {
             rows.add(Row.important("Rank", profile.rankLabel(), TextColor.color(profile.rankColour())));
         }
         rows.add(Row.important("Server Level", String.valueOf(profile.level()), NamedTextColor.GREEN));
-        // Totals, not just the Discord half. Level hearts and clan hearts are two
-        // separate attribute modifiers that stack in game, and strength adds to the
-        // damage multiplier the same way, so showing one of each understated what the
-        // player actually had. The tab list breaks down which part the clan supplies.
-        ClanLevel.Perks clanPerks = perks.clanPerks(player.getUniqueId());
+        // The total, not just the level half: level hearts and clan hearts are two
+        // separate attribute modifiers that stack in game, so reporting one of them
+        // understated what the player was actually carrying. The tab list breaks out
+        // the clan's share. Damage is not on the board at all — /perks covers it.
         rows.add(Row.important(
                 "Extra Hearts",
-                String.valueOf(profile.totalExtraHearts() + clanPerks.extraHearts()),
+                String.valueOf(profile.totalExtraHearts()
+                        + perks.clanPerks(player.getUniqueId()).extraHearts()),
                 NamedTextColor.GREEN));
-        int damageBonus = (int) Math.round(
-                (profile.damageMultiplier() - 1.0 + clanPerks.strength()) * 100);
-        if (damageBonus > 0) {
-            rows.add(Row.important("Power", "+" + damageBonus + "% damage", NamedTextColor.LIGHT_PURPLE));
-        }
         // The level stands in for the boosts, which are spelled out in the tab list
         // where there is room for their real names.
         clans.clanOf(player.getUniqueId()).ifPresent(clan -> rows.add(Row.important(
