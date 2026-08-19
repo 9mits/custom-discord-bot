@@ -80,7 +80,12 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     private static final int[] BUY_STEPS = {1, 8, 16, 32, 64};
     /** The right-hand column of the picker: fill, spend, start over. */
     private static final int BUY_MAX_SLOT = EconomySlots.BUY_MAX;
-    private static final int BUY_ALL_SLOT = EconomySlots.BUY_ALL;
+    private static final int AUTOBUY_SLOT = EconomySlots.AUTOBUY;
+    private static final int AUTO_INTERVAL_SLOT = EconomySlots.AUTO_INTERVAL;
+    private static final int AUTO_DROP_SLOT = EconomySlots.AUTO_DROP;
+    private static final int AUTO_START_SLOT = EconomySlots.AUTO_START;
+    /** The item preview sits a row higher on the standing-order screen. */
+    private static final int BUY_ITEM_SLOT_TOP = 13;
     private static final int BUY_RESET_SLOT = EconomySlots.BUY_RESET;
 
     private final MGXAccessBridge plugin;
@@ -91,6 +96,10 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     private final Map<UUID, PendingBuy> pendingBuys = new ConcurrentHashMap<>();
     /** Orders still being handed over, a few stacks a tick. */
     private final Map<UUID, Delivery> deliveries = new ConcurrentHashMap<>();
+    /** Standing orders that keep buying on a timer. */
+    private final Map<UUID, AutoOrder> autoOrders = new ConcurrentHashMap<>();
+    /** What each open standing-order screen is configuring. */
+    private final Map<UUID, PendingAuto> pendingAuto = new ConcurrentHashMap<>();
 
     private final PlayerSettingsStore settings;
 
@@ -154,6 +163,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
      * lets an order be any size: the hoppers set the pace, and the floor never fills.
      */
     void deliverOrders() {
+        runAutoOrders();
         if (deliveries.isEmpty()) {
             return;
         }
@@ -199,6 +209,9 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     void refundOrders() {
         deliveries.forEach(this::refund);
         deliveries.clear();
+        // Standing orders have already paid for everything they handed over, so there
+        // is nothing to give back — they simply stop.
+        autoOrders.clear();
     }
 
     private static int itemsAround(Player player) {
@@ -428,26 +441,21 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                         "Nothing dropped."
                 )
         ));
-        int everything = Math.max(1, BulkBuy.most(balance, offer.unitPrice(), space, stackSize));
-        int everythingOwed = BulkBuy.overflow(everything, space);
-        List<String> spendLore = new ArrayList<>();
-        spendLore.add(everything + " " + readable(offer.material()));
-        spendLore.add(EconomyFormat.dollars(offer.costOfItems(everything)));
-        if (everythingOwed > 0) {
-            spendLore.add("");
-            spendLore.add(everythingOwed + " delivered to your feet");
-            spendLore.add("over about "
-                    + BulkBuy.deliverySeconds(everythingOwed, stackSize) + "s.");
-            spendLore.add("Stand over a hopper and wait.");
-        } else {
-            spendLore.add("It all fits.");
-        }
-        if (everything >= BulkBuy.ceiling(space, stackSize)) {
-            // Say why it stopped, so a rich player does not think it miscounted.
-            spendLore.add("");
-            spendLore.add("The most one order can carry.");
-        }
-        inventory.setItem(BUY_ALL_SLOT, button(Material.GOLD_BLOCK, "Spend it all", spendLore));
+        AutoOrder standing = autoOrders.get(player.getUniqueId());
+        boolean running = standing != null && standing.material().equals(offer.material());
+        inventory.setItem(AUTOBUY_SLOT, button(
+                running ? Material.CLOCK : Material.REPEATER,
+                running ? "Auto buying" : "Auto buy",
+                running
+                        ? List.of(
+                                standing.quantity() + " every " + standing.intervalSeconds() + "s",
+                                standing.drop() ? "Dropped at your feet" : "Into your inventory",
+                                "Click to change or stop.")
+                        : List.of(
+                                "Keep buying " + wanted + " on a timer.",
+                                "For farms — restock without",
+                                "coming back to the shop.")
+        ));
         inventory.setItem(BUY_RESET_SLOT, button(
                 Material.BARRIER, "Back to 1", List.of("Start the amount over.")
         ));
@@ -506,6 +514,175 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         inventory.setItem(BUY_CONFIRM_SLOT, button(face, label, confirmLore));
         MenuItems.back(inventory);
         MenuItems.show(plugin, player, inventory);
+    }
+
+    /**
+     * The standing-order screen: how many, how often, and where they land.
+     *
+     * <p>Reached from an item's amount picker, so the quantity is whatever was chosen
+     * there — pick sixty-four bone meal, then set it to repeat.
+     */
+    void openAutoBuy(Player player, ShopCatalog.Offer offer, ShopCatalog.Category category, int categoryPage, int quantity, int intervalSeconds, boolean drop) {
+        Material material = materialOf(offer.material());
+        int wanted = Math.max(1, quantity);
+        pendingAuto.put(player.getUniqueId(),
+                new PendingAuto(offer, category, categoryPage, wanted, intervalSeconds, drop));
+        AutoOrder standing = autoOrders.get(player.getUniqueId());
+        boolean running = standing != null && standing.material().equals(offer.material());
+        long each = offer.costOfItems(wanted);
+        Inventory inventory = create(
+                Menu.Kind.SHOP_AUTOBUY, categoryId(category), categoryPage, BUY_SIZE,
+                "Auto buy  •  " + readable(offer.material()),
+                new Menu.Destination(Menu.Kind.SHOP_CATEGORY, categoryId(category), categoryPage)
+        );
+        inventory.setItem(AUTO_INTERVAL_SLOT, button(
+                Material.CLOCK, "Every " + intervalSeconds + "s",
+                List.of(
+                        "Click to cycle 1, 2, 5, 10, 30.",
+                        EconomyFormat.dollars(each * (60 / Math.max(1, intervalSeconds))) + " a minute"
+                )
+        ));
+        ItemStack preview = new ItemStack(material, Math.max(1, Math.min(64, wanted)));
+        ItemMeta meta = preview.getItemMeta();
+        if (meta != null) {
+            meta.displayName(Component.text(readable(offer.material()), ORANGE, TextDecoration.BOLD)
+                    .decoration(TextDecoration.ITALIC, false));
+            meta.lore(List.of(
+                    line(wanted + " every " + intervalSeconds + "s"),
+                    line(EconomyFormat.dollars(each) + " each time"),
+                    line(""),
+                    line("You have " + EconomyFormat.dollars(money.balance(player.getUniqueId())))
+            ));
+            preview.setItemMeta(meta);
+        }
+        inventory.setItem(BUY_ITEM_SLOT_TOP, preview);
+        inventory.setItem(AUTO_DROP_SLOT, button(
+                drop ? Material.LIME_STAINED_GLASS_PANE : Material.RED_STAINED_GLASS_PANE,
+                drop ? "Dropping at your feet" : "Into your inventory",
+                drop
+                        ? List.of("Straight to the ground for", "hoppers to pick up.", "", "Click to keep them instead.")
+                        : List.of("Kept until your inventory", "is full, then stops.", "", "Click to drop them instead.")
+        ));
+        inventory.setItem(AUTO_START_SLOT, button(
+                running ? Material.RED_CONCRETE : Material.LIME_CONCRETE,
+                running ? "Stop" : "Start",
+                running
+                        ? List.of("Buying " + standing.quantity() + " every "
+                                + standing.intervalSeconds() + "s.")
+                        : List.of(
+                                "Runs until you stop it,",
+                                "run out of money, or log off.")
+        ));
+        MenuItems.back(inventory);
+        MenuItems.show(plugin, player, inventory);
+    }
+
+    private void clickAutoBuy(Player player, int slot) {
+        PendingAuto pending = pendingAuto.get(player.getUniqueId());
+        if (pending == null) {
+            openShopHub(player);
+            return;
+        }
+        if (slot == AUTO_INTERVAL_SLOT) {
+            openAutoBuy(player, pending.offer(), pending.category(), pending.categoryPage(),
+                    pending.quantity(), AutoBuy.nextInterval(pending.intervalSeconds()), pending.drop());
+            return;
+        }
+        if (slot == AUTO_DROP_SLOT) {
+            openAutoBuy(player, pending.offer(), pending.category(), pending.categoryPage(),
+                    pending.quantity(), pending.intervalSeconds(), !pending.drop());
+            return;
+        }
+        if (slot != AUTO_START_SLOT) {
+            return;
+        }
+        AutoOrder standing = autoOrders.get(player.getUniqueId());
+        if (standing != null && standing.material().equals(pending.offer().material())) {
+            stopAutoBuy(player, "Auto buy stopped.");
+            openAutoBuy(player, pending.offer(), pending.category(), pending.categoryPage(),
+                    pending.quantity(), pending.intervalSeconds(), pending.drop());
+            return;
+        }
+        autoOrders.put(player.getUniqueId(), new AutoOrder(
+                pending.offer().material(), pending.offer().unitPrice(), pending.quantity(),
+                pending.intervalSeconds(), pending.drop(), plugin.getServer().getCurrentTick()));
+        info(player, "Auto buying " + pending.quantity() + " "
+                + readable(pending.offer().material()) + " every "
+                + pending.intervalSeconds() + "s"
+                + (pending.drop() ? ", dropped at your feet." : ", into your inventory.")
+                + " Stop it from the same screen.");
+        openAutoBuy(player, pending.offer(), pending.category(), pending.categoryPage(),
+                pending.quantity(), pending.intervalSeconds(), pending.drop());
+    }
+
+    private void stopAutoBuy(Player player, String reason) {
+        if (autoOrders.remove(player.getUniqueId()) != null && reason != null) {
+            info(player, reason);
+        }
+    }
+
+    /**
+     * Runs every standing order that is due.
+     *
+     * <p>Shares the delivery tick, and like it waits while the ground under the player
+     * is still busy — a farm that has fallen behind should not have more thrown at it.
+     */
+    private void runAutoOrders() {
+        if (autoOrders.isEmpty()) {
+            return;
+        }
+        long now = plugin.getServer().getCurrentTick();
+        autoOrders.entrySet().removeIf(entry -> {
+            Player player = plugin.getServer().getPlayer(entry.getKey());
+            AutoOrder order = entry.getValue();
+            if (player == null || !player.isOnline()) {
+                return true;
+            }
+            if (!AutoBuy.due(now, order.lastRun(), order.intervalSeconds())) {
+                return false;
+            }
+            if (!AutoBuy.affordable(money.balance(entry.getKey()), order.unitPrice(), order.quantity())) {
+                info(player, "Auto buy stopped: you ran out of money.");
+                return true;
+            }
+            Material material = materialOf(order.material());
+            if (order.drop() && itemsAround(player) >= BulkBuy.GROUND_LIMIT) {
+                // The floor has not been cleared yet; try again next tick rather than
+                // stacking more on top of it.
+                return false;
+            }
+            if (!order.drop() && spaceFor(player, material) < order.quantity()) {
+                info(player, "Auto buy stopped: your inventory is full.");
+                return true;
+            }
+            long cost = order.unitPrice() * (long) order.quantity();
+            if (!money.tryWithdraw(entry.getKey(), cost)) {
+                info(player, "Auto buy stopped: you ran out of money.");
+                return true;
+            }
+            if (order.drop()) {
+                dropAtFeet(player, material, order.quantity());
+            } else {
+                give(player, new ItemStack(material, order.quantity()));
+            }
+            entry.setValue(order.withLastRun(now));
+            return false;
+        });
+    }
+
+    private record AutoOrder(
+            String material, long unitPrice, int quantity, int intervalSeconds,
+            boolean drop, long lastRun
+    ) {
+        AutoOrder withLastRun(long tick) {
+            return new AutoOrder(material, unitPrice, quantity, intervalSeconds, drop, tick);
+        }
+    }
+
+    private record PendingAuto(
+            ShopCatalog.Offer offer, ShopCatalog.Category category, int categoryPage,
+            int quantity, int intervalSeconds, boolean drop
+    ) {
     }
 
     /** A glass pane counted to its own step, so the number reads off the stack too. */
@@ -732,6 +909,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                 case SHOP_HUB -> clickShopHub(player, slot);
                 case SHOP_CATEGORY -> clickShopCategory(player, menu, slot);
                 case SHOP_BUY -> clickBuy(player, slot);
+                case SHOP_AUTOBUY -> clickAutoBuy(player, slot);
                 case SELL_PREVIEW -> clickSellPreview(player, slot);
                 case SELL_PRICES -> clickSellPrices(player, menu, slot);
                 case AUCTION_HUB -> clickAuction(player, menu, slot);
@@ -769,6 +947,11 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                     pendingBuys.remove(player.getUniqueId());
                 }
             });
+            return;
+        }
+        if (menu.kind() == Menu.Kind.SHOP_AUTOBUY) {
+            // The standing order itself keeps running; only the screen state goes.
+            pendingAuto.remove(player.getUniqueId());
             return;
         }
         if (menu.kind() == Menu.Kind.SELL) {
@@ -901,12 +1084,14 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                     .maxItems(money.balance(player.getUniqueId()), spaceFor(player, material)));
             return;
         }
-        if (slot == BUY_ALL_SLOT) {
-            redrawBuy(player, pending, BulkBuy.most(
-                    money.balance(player.getUniqueId()),
-                    pending.offer().unitPrice(),
-                    spaceFor(player, material),
-                    material.getMaxStackSize()));
+        if (slot == AUTOBUY_SLOT) {
+            AutoOrder standing = autoOrders.get(player.getUniqueId());
+            boolean running = standing != null
+                    && standing.material().equals(pending.offer().material());
+            openAutoBuy(player, pending.offer(), pending.category(), pending.categoryPage(),
+                    running ? standing.quantity() : pending.quantity(),
+                    running ? standing.intervalSeconds() : AutoBuy.firstInterval(),
+                    running ? standing.drop() : true);
             return;
         }
         if (slot != BUY_CONFIRM_SLOT) {
@@ -1269,6 +1454,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         return kind == Menu.Kind.SHOP_HUB
                 || kind == Menu.Kind.SHOP_CATEGORY
                 || kind == Menu.Kind.SHOP_BUY
+                || kind == Menu.Kind.SHOP_AUTOBUY
                 || kind == Menu.Kind.SELL
                 || kind == Menu.Kind.SELL_PREVIEW
                 || kind == Menu.Kind.SELL_PRICES
