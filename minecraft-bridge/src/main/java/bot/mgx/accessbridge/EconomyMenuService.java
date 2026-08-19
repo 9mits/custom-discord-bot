@@ -77,10 +77,10 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     private static final int[] BUY_ADD_SLOTS = {10, 11, 12, 13, 14};
     private static final int[] BUY_TAKE_SLOTS = {28, 29, 30, 31, 32};
     private static final int[] BUY_STEPS = {1, 8, 16, 32, 64};
-    private static final int BUY_MAX_SLOT = 16;
-    private static final int BUY_RESET_SLOT = 34;
-    /** A full inventory of full stacks; nothing can be carried past this. */
-    private static final int BUY_CEILING = 36 * 64;
+    /** The right-hand column of the picker: fill, spend, start over. */
+    private static final int BUY_MAX_SLOT = EconomySlots.BUY_MAX;
+    private static final int BUY_ALL_SLOT = EconomySlots.BUY_ALL;
+    private static final int BUY_RESET_SLOT = EconomySlots.BUY_RESET;
 
     private final MGXAccessBridge plugin;
     private final EconomyStore money;
@@ -261,13 +261,15 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
      * spends anything.
      */
     void openBuy(Player player, ShopCatalog.Offer offer, ShopCatalog.Category category, int categoryPage, int quantity) {
-        int wanted = Math.max(1, Math.min(BUY_CEILING, quantity));
+        Material material = materialOf(offer.material());
+        int space = spaceFor(player, material);
+        int stackSize = material.getMaxStackSize();
+        int wanted = Math.max(1, Math.min(BulkBuy.ceiling(space, stackSize), quantity));
         pendingBuys.put(player.getUniqueId(), new PendingBuy(offer, category, categoryPage, wanted));
         long balance = money.balance(player.getUniqueId());
         long total = offer.costOfItems(wanted);
-        int space = spaceFor(player, materialOf(offer.material()));
+        int spill = BulkBuy.overflow(wanted, space);
         boolean affordable = total <= balance;
-        boolean fits = space >= wanted;
         Inventory inventory = create(
                 Menu.Kind.SHOP_BUY, categoryId(category), categoryPage, BUY_SIZE,
                 "Buy  •  " + readable(offer.material()),
@@ -284,11 +286,30 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                     wanted <= step ? "Back to 1" : EconomyFormat.dollars(offer.costOfItems(step)) + " less"
             ));
         }
-        int most = Math.max(1, Math.min(BUY_CEILING, offer.maxItems(balance, space)));
+        int carryable = Math.max(1, offer.maxItems(balance, space));
         inventory.setItem(BUY_MAX_SLOT, button(
-                Material.GOLD_INGOT, "As many as I can",
-                List.of(most + " right now", EconomyFormat.dollars(offer.costOfItems(most)))
+                Material.GOLD_INGOT, "Fill my inventory",
+                List.of(
+                        carryable + " " + readable(offer.material()),
+                        EconomyFormat.dollars(offer.costOfItems(carryable)),
+                        "Nothing dropped."
+                )
         ));
+        int everything = Math.max(1, BulkBuy.most(balance, offer.unitPrice(), space, stackSize));
+        int everythingSpill = BulkBuy.overflow(everything, space);
+        List<String> spendLore = new ArrayList<>();
+        spendLore.add(everything + " " + readable(offer.material()));
+        spendLore.add(EconomyFormat.dollars(offer.costOfItems(everything)));
+        spendLore.add(everythingSpill > 0
+                ? everythingSpill + " dropped at your feet"
+                : "It all fits.");
+        if (everything >= BulkBuy.ceiling(space, stackSize)) {
+            // Say why it stopped, so a rich player does not think it miscounted.
+            spendLore.add("");
+            spendLore.add("The most one purchase can hand over.");
+            spendLore.add("Buy again once you have stored it.");
+        }
+        inventory.setItem(BUY_ALL_SLOT, button(Material.GOLD_BLOCK, "Spend it all", spendLore));
         inventory.setItem(BUY_RESET_SLOT, button(
                 Material.BARRIER, "Back to 1", List.of("Start the amount over.")
         ));
@@ -314,15 +335,17 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         confirmLore.add("Total " + EconomyFormat.dollars(total));
         if (!affordable) {
             confirmLore.add("");
-            confirmLore.add("You are short "
-                    + EconomyFormat.dollars(total - balance) + ".");
-        } else if (!fits) {
+            confirmLore.add("You are short " + EconomyFormat.dollars(total - balance) + ".");
+        } else if (spill > 0) {
+            // A warning, not a refusal: dropping the remainder is the point of
+            // "spend it all", and saying so beforehand is what keeps it from
+            // surprising somebody who only wanted what they could carry.
             confirmLore.add("");
-            confirmLore.add("Room for " + space + " only.");
+            confirmLore.add(spill + " will drop at your feet.");
         }
         inventory.setItem(BUY_CONFIRM_SLOT, button(
-                affordable && fits ? Material.LIME_CONCRETE : Material.GRAY_CONCRETE,
-                affordable && fits ? "Buy it" : "Cannot buy that many",
+                affordable ? Material.LIME_CONCRETE : Material.GRAY_CONCRETE,
+                affordable ? "Buy it" : "You cannot afford that",
                 confirmLore
         ));
         MenuItems.back(inventory);
@@ -712,10 +735,18 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             redrawBuy(player, pending, 1);
             return;
         }
+        Material material = materialOf(pending.offer().material());
         if (slot == BUY_MAX_SLOT) {
-            int space = spaceFor(player, materialOf(pending.offer().material()));
             redrawBuy(player, pending, pending.offer()
-                    .maxItems(money.balance(player.getUniqueId()), space));
+                    .maxItems(money.balance(player.getUniqueId()), spaceFor(player, material)));
+            return;
+        }
+        if (slot == BUY_ALL_SLOT) {
+            redrawBuy(player, pending, BulkBuy.most(
+                    money.balance(player.getUniqueId()),
+                    pending.offer().unitPrice(),
+                    spaceFor(player, material),
+                    material.getMaxStackSize()));
             return;
         }
         if (slot != BUY_CONFIRM_SLOT) {
@@ -822,19 +853,20 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             throw new IllegalArgumentException("Choose how many first.");
         }
         Material material = materialOf(offer.material());
-        if (!canFit(player, material, items)) {
-            throw new IllegalArgumentException("Your inventory is full.");
-        }
-        long cost = offer.costOfItems(items);
+        int wanted = Math.min(items, BulkBuy.ceiling(
+                spaceFor(player, material), material.getMaxStackSize()));
+        long cost = offer.costOfItems(wanted);
         if (!money.tryWithdraw(player.getUniqueId(), cost)) {
             throw new IllegalArgumentException(
                     "You need " + EconomyFormat.dollars(cost) + "."
             );
         }
-        give(player, new ItemStack(material, items));
+        int dropped = handOver(player, material, wanted);
         String name = readable(offer.material());
-        info(player, "Bought " + items + " " + name
-                + " for " + EconomyFormat.dollars(cost) + ".");
+        info(player, "Bought " + wanted + " " + name
+                + " for " + EconomyFormat.dollars(cost)
+                + (dropped > 0 ? ". " + dropped + " dropped at your feet." : "."));
+        items = wanted;
         report(player, "shop_buy",
                 "Bought " + items + " " + name + " for " + EconomyFormat.dollars(cost))
                 .detail("item", name)
@@ -1094,10 +1126,6 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         return Component.text(text, NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false);
     }
 
-    private static boolean canFit(Player player, Material material, int amount) {
-        return spaceFor(player, material) >= amount;
-    }
-
     private static int spaceFor(Player player, Material material) {
         int remaining = 0;
         int max = material.getMaxStackSize();
@@ -1113,6 +1141,37 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             }
         }
         return remaining;
+    }
+
+    /**
+     * Fills the inventory, then drops whatever is left at the player's feet.
+     *
+     * <p>The remainder goes straight to the world rather than back through
+     * {@code addItem}. Once the inventory is full every further call scans all
+     * thirty-six slots to find nothing, and a bulk purchase makes that call hundreds
+     * of times — the work grows with the size of the order while finding room never
+     * gets any more likely.
+     *
+     * @return how many were dropped rather than carried
+     */
+    private static int handOver(Player player, Material material, int items) {
+        if (items <= 0) {
+            return 0;
+        }
+        int carried = Math.min(items, spaceFor(player, material));
+        if (carried > 0) {
+            give(player, new ItemStack(material, carried));
+        }
+        int spill = items - carried;
+        if (spill <= 0) {
+            return 0;
+        }
+        org.bukkit.World world = player.getWorld();
+        org.bukkit.Location at = player.getLocation();
+        for (int portion : StackSplit.portions(spill, material.getMaxStackSize())) {
+            world.dropItemNaturally(at, new ItemStack(material, portion));
+        }
+        return spill;
     }
 
     /**
