@@ -61,10 +61,14 @@ final class SidebarService {
     private final int updateTicks;
     private final Map<UUID, PlayerBoard> boards = new HashMap<>();
     private final Map<UUID, ClientPlatform> platforms = new ConcurrentHashMap<>();
-    /** Advances once per refresh, which is what paces the boost row. */
-    private long rotation;
+    /**
+     * What each player's tab header and footer last said. Per player, not one shared
+     * key: the footer carries their own clan boosts now, so a global "did the online
+     * count change" gate would leave someone who just joined a clan looking at an
+     * empty block until an unrelated player logged in.
+     */
+    private final Map<UUID, String> tabKeys = new HashMap<>();
     private String lastTeamKey = "";
-    private String lastHeaderKey = "";
     private int taskId = -1;
 
     SidebarService(
@@ -113,25 +117,20 @@ final class SidebarService {
             }
         });
         boards.clear();
+        tabKeys.clear();
         lastTeamKey = "";
-        lastHeaderKey = "";
     }
 
     void refreshAll() {
-        rotation++;
         boards.keySet().removeIf(uuid -> plugin.getServer().getPlayer(uuid) == null);
+        tabKeys.keySet().removeIf(uuid -> plugin.getServer().getPlayer(uuid) == null);
         Collection<? extends Player> online = plugin.getServer().getOnlinePlayers();
         String teamKey = teamFingerprint(online);
         boolean teamsChanged = !teamKey.equals(lastTeamKey);
         lastTeamKey = teamKey;
-        String headerKey = online.size() + ":" + tpsBucket();
-        boolean headerChanged = !headerKey.equals(lastHeaderKey);
-        lastHeaderKey = headerKey;
         for (Player player : online) {
             updateTabName(player);
-            if (headerChanged) {
-                updateTabHeaderAndFooter(player);
-            }
+            updateTabHeaderAndFooter(player);
             refresh(player, teamsChanged);
         }
     }
@@ -196,14 +195,12 @@ final class SidebarService {
         if (damageBonus > 0) {
             rows.add(Row.important("Power", "+" + damageBonus + "% damage", NamedTextColor.LIGHT_PURPLE));
         }
-        clans.clanOf(player.getUniqueId()).ifPresent(clan -> {
-            rows.add(Row.important("Clan", clan.name(), clanColor(clan)));
-            SidebarLayout.Boosts boosts = SidebarLayout.boostsFor(
-                    boostTokens(perks.clanPerks(player.getUniqueId())), rotation);
-            if (boosts != null) {
-                rows.add(Row.important(boosts.label(), boosts.value(), GOLD));
-            }
-        });
+        // The level stands in for the boosts, which are spelled out in the tab list
+        // where there is room for their real names.
+        clans.clanOf(player.getUniqueId()).ifPresent(clan -> rows.add(Row.important(
+                "Clan",
+                clan.level() > 0 ? clan.name() + " Lv" + clan.level() : clan.name(),
+                clanColor(clan))));
         rows.add(Row.heading("STATS"));
         rows.add(Row.essential(
                 "Kills",
@@ -285,32 +282,26 @@ final class SidebarService {
         }
     }
 
-    /**
-     * A clan's live boosts, shortened so several share one row.
-     *
-     * <p>Written short on purpose: the full names took six rows, which is what pushed
-     * kills, deaths and the balance off the bottom of the board. What each one means is
-     * spelled out on the /clans upgrade screen, where an item can carry a description.
-     */
-    private static List<String> boostTokens(ClanLevel.Perks clanPerks) {
-        List<String> tokens = new ArrayList<>();
+    /** A clan's live boosts by their real names, for the tab list. */
+    private static List<String> boostLabels(ClanLevel.Perks clanPerks) {
+        List<String> labels = new ArrayList<>();
         if (clanPerks == null || clanPerks.isNone()) {
-            return tokens;
+            return labels;
         }
         if (clanPerks.extraHearts() > 0) {
-            tokens.add("+" + clanPerks.extraHearts() + "HP");
+            labels.add("+" + clanPerks.extraHearts() + " Hearts");
         }
-        addBoost(tokens, clanPerks.strength(), "STR");
-        addBoost(tokens, clanPerks.saturation(), "SAT");
-        addBoost(tokens, clanPerks.diggingSpeed(), "DIG");
-        addBoost(tokens, clanPerks.resistance(), "RES");
-        addBoost(tokens, clanPerks.speed(), "SPD");
-        return tokens;
+        addBoost(labels, clanPerks.strength(), "Strength");
+        addBoost(labels, clanPerks.saturation(), "Saturation");
+        addBoost(labels, clanPerks.diggingSpeed(), "Digging");
+        addBoost(labels, clanPerks.resistance(), "Resistance");
+        addBoost(labels, clanPerks.speed(), "Speed");
+        return labels;
     }
 
-    private static void addBoost(List<String> tokens, double fraction, String code) {
+    private static void addBoost(List<String> labels, double fraction, String name) {
         if (fraction > 0) {
-            tokens.add(Math.round(fraction * 100) + "%" + code);
+            labels.add(name + " +" + Math.round(fraction * 100) + "%");
         }
     }
 
@@ -413,7 +404,16 @@ final class SidebarService {
     }
 
     private void updateTabHeaderAndFooter(Player player) {
+        Optional<ClanStore.ClanView> clan = clans.clanOf(player.getUniqueId());
+        List<String> boosts = SidebarLayout.boostRows(
+                boostLabels(perks.clanPerks(player.getUniqueId())), SidebarLayout.BOOSTS_PER_ROW);
         int online = plugin.getServer().getOnlinePlayers().size();
+        String key = online + ":" + tpsBucket() + ":"
+                + clan.map(view -> view.name() + view.level()).orElse("") + ":" + boosts;
+        if (key.equals(tabKeys.get(player.getUniqueId()))) {
+            return;
+        }
+        tabKeys.put(player.getUniqueId(), key);
         Component header = Component.empty()
                 .append(wordmark(player))
                 .append(Component.newline())
@@ -428,8 +428,22 @@ final class SidebarService {
                 .append(Component.text("TPS ", NamedTextColor.GRAY))
                 .append(tpsValue())
                 .append(Component.newline());
-        Component footerComponent = Component.empty()
-                .append(Component.newline())
+        Component footerComponent = Component.empty().append(Component.newline());
+        // The sidebar only has room to name the clan and its level; this is where the
+        // boosts that level grants are actually spelled out.
+        if (clan.isPresent() && !boosts.isEmpty()) {
+            footerComponent = footerComponent
+                    .append(Component.text(clan.get().name() + " Lv" + clan.get().level() + " boosts",
+                            clanColor(clan.get()), TextDecoration.BOLD))
+                    .append(Component.newline());
+            for (String row : boosts) {
+                footerComponent = footerComponent
+                        .append(Component.text(row, NamedTextColor.WHITE))
+                        .append(Component.newline());
+            }
+            footerComponent = footerComponent.append(Component.newline());
+        }
+        footerComponent = footerComponent
                 .append(Component.text("/guide", GOLD))
                 .append(divider())
                 .append(Component.text("discord.gg/mgx", ORANGE))
@@ -440,6 +454,7 @@ final class SidebarService {
     void forget(UUID playerId) {
         boards.remove(playerId);
         platforms.remove(playerId);
+        tabKeys.remove(playerId);
     }
 
     private ClientPlatform clientPlatform(Player player) {

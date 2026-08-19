@@ -24,7 +24,6 @@ class SidebarLayoutTest {
                 IMPORTANT,  // extra hearts
                 IMPORTANT,  // power
                 IMPORTANT,  // clan
-                IMPORTANT,  // boosts, one rotating row
                 SPACER,
                 HEADING,    // STATS
                 ESSENTIAL,  // kills
@@ -77,8 +76,8 @@ class SidebarLayoutTest {
 
     @Test
     void theWholeProfileSurvivesOnAMaxedBoard() {
-        // Rank, level, hearts, power, clan and the boost row all fit: blank lines pay
-        // for them, which is the trade the six perk rows used to make impossible.
+        // Rank, level, hearts, power and clan all fit: blank lines pay for them, which
+        // is the trade the six perk rows used to make impossible.
         boolean[] keep = SidebarLayout.fit(fullBoard(), SidebarLayout.MAX_LINES);
         SidebarLayout.Priority[] board = fullBoard();
         int importantKept = 0;
@@ -87,7 +86,7 @@ class SidebarLayoutTest {
                 importantKept++;
             }
         }
-        org.junit.jupiter.api.Assertions.assertEquals(6, importantKept);
+        org.junit.jupiter.api.Assertions.assertEquals(5, importantKept);
     }
 
     @Test
@@ -114,47 +113,33 @@ class SidebarLayoutTest {
     }
 
     @Test
-    void boostsSitStillUntilThereAreMoreThanFitOnOneLine() {
-        // A page counter that never counts reads as broken, so a clan with two or
-        // fewer boosts gets a plain label and no rotation.
-        SidebarLayout.Boosts one = SidebarLayout.boostsFor(List.of("+3HP"), 0);
-        org.junit.jupiter.api.Assertions.assertEquals("Boosts", one.label());
-        org.junit.jupiter.api.Assertions.assertEquals("+3HP", one.value());
-
-        SidebarLayout.Boosts two = SidebarLayout.boostsFor(List.of("+3HP", "10%STR"), 7);
-        org.junit.jupiter.api.Assertions.assertEquals("Boosts", two.label());
-        org.junit.jupiter.api.Assertions.assertEquals("+3HP 10%STR", two.value());
+    void boostsAreLaidOutThreeToARowForTheTabList() {
+        List<String> boosts = List.of(
+                "+3 Hearts", "Strength +10%", "Saturation +15%",
+                "Digging +25%", "Resistance +15%", "Speed +15%");
+        List<String> rows = SidebarLayout.boostRows(boosts, SidebarLayout.BOOSTS_PER_ROW);
+        org.junit.jupiter.api.Assertions.assertEquals(2, rows.size());
+        org.junit.jupiter.api.Assertions.assertEquals(
+                "+3 Hearts   Strength +10%   Saturation +15%", rows.get(0));
+        org.junit.jupiter.api.Assertions.assertEquals(
+                "Digging +25%   Resistance +15%   Speed +15%", rows.get(1));
     }
 
     @Test
-    void sixBoostsCycleThroughThreePagesAndWrap() {
-        List<String> boosts = List.of("+3HP", "10%STR", "15%SAT", "25%DIG", "15%RES", "15%SPD");
-        org.junit.jupiter.api.Assertions.assertEquals(
-                "Boosts 1/3", SidebarLayout.boostsFor(boosts, 0).label());
-        org.junit.jupiter.api.Assertions.assertEquals(
-                "+3HP 10%STR", SidebarLayout.boostsFor(boosts, 0).value());
-        org.junit.jupiter.api.Assertions.assertEquals(
-                "15%SAT 25%DIG", SidebarLayout.boostsFor(boosts, 1).value());
-        org.junit.jupiter.api.Assertions.assertEquals(
-                "15%RES 15%SPD", SidebarLayout.boostsFor(boosts, 2).value());
-        // Wraps back round rather than running off the end.
-        org.junit.jupiter.api.Assertions.assertEquals(
-                "+3HP 10%STR", SidebarLayout.boostsFor(boosts, 3).value());
+    void aPartialLastRowIsNotPaddedOrOverrun() {
+        List<String> rows = SidebarLayout.boostRows(
+                List.of("Strength +5%", "Saturation +5%", "Digging +10%", "Speed +5%"), 3);
+        org.junit.jupiter.api.Assertions.assertEquals(2, rows.size());
+        org.junit.jupiter.api.Assertions.assertEquals("Speed +5%", rows.get(1));
     }
 
     @Test
-    void anOddBoostCountDoesNotOverrunTheLastPage() {
-        List<String> boosts = List.of("5%STR", "5%SAT", "10%DIG");
+    void aClanWithNoBoostsGetsNoRows() {
+        org.junit.jupiter.api.Assertions.assertEquals(List.of(), SidebarLayout.boostRows(List.of(), 3));
+        org.junit.jupiter.api.Assertions.assertEquals(List.of(), SidebarLayout.boostRows(null, 3));
+        // A nonsense width must not spin forever adding empty rows.
         org.junit.jupiter.api.Assertions.assertEquals(
-                "5%STR 5%SAT", SidebarLayout.boostsFor(boosts, 0).value());
-        org.junit.jupiter.api.Assertions.assertEquals(
-                "10%DIG", SidebarLayout.boostsFor(boosts, 1).value());
-    }
-
-    @Test
-    void aClanWithNoBoostsGetsNoRow() {
-        org.junit.jupiter.api.Assertions.assertNull(SidebarLayout.boostsFor(List.of(), 0));
-        org.junit.jupiter.api.Assertions.assertNull(SidebarLayout.boostsFor(null, 0));
+                List.of(), SidebarLayout.boostRows(List.of("Speed +5%"), 0));
     }
 
     @Test
