@@ -332,6 +332,8 @@ final class ShopCatalog {
                 offer("BONE", 1, 15),
                 offer("BONE_MEAL", 16, 60),
                 offer("LEATHER", 16, 1_570),
+                // Sells at 40, so this has to stay inside the 1x-2x band.
+                offer("STRING", 16, 960),
                 offer("OAK_SAPLING", 16, 700),
                 offer("SPRUCE_SAPLING", 16, 700),
                 offer("BIRCH_SAPLING", 16, 700),
@@ -340,6 +342,7 @@ final class ShopCatalog {
                 offer("COMPOSTER", 16, 1_600)
         ));
         catalog.put(Category.FOOD, List.of(
+                offer("APPLE", 16, 1_120),
                 offer("BREAD", 16, 1_400),
                 offer("COOKED_BEEF", 16, 1_400),
                 offer("COOKED_PORKCHOP", 16, 1_400),
