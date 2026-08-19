@@ -29,9 +29,10 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.IntFunction;
 
 final class SidebarService {
-    private static final int MAX_LINES = 15;
+    private static final int MAX_LINES = SidebarLayout.MAX_LINES;
     /**
      * Glyphs supplied by the Mysterious SMP X resource pack, which
      * {@code require-resource-pack} makes mandatory for Java. Bedrock never has
@@ -60,6 +61,8 @@ final class SidebarService {
     private final int updateTicks;
     private final Map<UUID, PlayerBoard> boards = new HashMap<>();
     private final Map<UUID, ClientPlatform> platforms = new ConcurrentHashMap<>();
+    /** Advances once per refresh, which is what paces the boost row. */
+    private long rotation;
     private String lastTeamKey = "";
     private String lastHeaderKey = "";
     private int taskId = -1;
@@ -115,6 +118,7 @@ final class SidebarService {
     }
 
     void refreshAll() {
+        rotation++;
         boards.keySet().removeIf(uuid -> plugin.getServer().getPlayer(uuid) == null);
         Collection<? extends Player> online = plugin.getServer().getOnlinePlayers();
         String teamKey = teamFingerprint(online);
@@ -181,102 +185,151 @@ final class SidebarService {
     private List<Component> lines(Player player) {
         PlayerProfile profile = perks.profile(player.getUniqueId());
 
-        // Build the stat rows first: their widest line decides what "centred" means
-        // for the headings, the wordmark tail and the footer.
         List<Row> rows = new ArrayList<>();
-        rows.add(new Row("PROFILE", null, null));
+        rows.add(Row.heading("PROFILE"));
         if (profile.hasRankLabel()) {
-            rows.add(new Row("Rank", profile.rankLabel(), TextColor.color(profile.rankColour())));
+            rows.add(Row.important("Rank", profile.rankLabel(), TextColor.color(profile.rankColour())));
         }
-        rows.add(new Row("Server Level", String.valueOf(profile.level()), NamedTextColor.GREEN));
-        rows.add(new Row("Extra Hearts", String.valueOf(profile.totalExtraHearts()), NamedTextColor.GREEN));
+        rows.add(Row.important("Server Level", String.valueOf(profile.level()), NamedTextColor.GREEN));
+        rows.add(Row.important("Extra Hearts", String.valueOf(profile.totalExtraHearts()), NamedTextColor.GREEN));
         int damageBonus = (int) Math.round((profile.damageMultiplier() - 1.0) * 100);
         if (damageBonus > 0) {
-            rows.add(new Row("Power", "+" + damageBonus + "% damage", NamedTextColor.LIGHT_PURPLE));
+            rows.add(Row.important("Power", "+" + damageBonus + "% damage", NamedTextColor.LIGHT_PURPLE));
         }
         clans.clanOf(player.getUniqueId()).ifPresent(clan -> {
-            rows.add(new Row("Clan", clan.name(), clanColor(clan)));
-            addClanPerkRows(rows, perks.clanPerks(player.getUniqueId()));
+            rows.add(Row.important("Clan", clan.name(), clanColor(clan)));
+            SidebarLayout.Boosts boosts = SidebarLayout.boostsFor(
+                    boostTokens(perks.clanPerks(player.getUniqueId())), rotation);
+            if (boosts != null) {
+                rows.add(Row.important(boosts.label(), boosts.value(), GOLD));
+            }
         });
-        rows.add(new Row("STATS", null, null));
-        rows.add(new Row(
+        rows.add(Row.heading("STATS"));
+        rows.add(Row.essential(
                 "Kills",
                 String.valueOf(player.getStatistic(Statistic.PLAYER_KILLS)),
                 GOLD
         ));
-        rows.add(new Row(
+        rows.add(Row.essential(
                 "Deaths",
                 String.valueOf(player.getStatistic(Statistic.DEATHS)),
                 NamedTextColor.YELLOW
         ));
-        rows.add(new Row(
+        rows.add(Row.essential(
                 "Money",
                 EconomyFormat.dollars(money.balance(player.getUniqueId())),
                 GOLD
         ));
 
         String playerLine = " " + player.getName() + " (" + player.getPing() + "ms)";
-        int width = SidebarText.textWidth(playerLine, false);
-        for (Row row : rows) {
-            width = Math.max(width, row.width());
-        }
-
-        ArrayList<Component> lines = new ArrayList<>();
-        lines.add(Component.text(
-                SidebarText.centredToWidth("SMP X", width, true),
-                NamedTextColor.WHITE,
-                TextDecoration.BOLD
-        ));
-        lines.add(Component.empty());
-        lines.add(Component.text(" " + player.getName(), NamedTextColor.AQUA, TextDecoration.BOLD)
+        Component name = Component.text(" " + player.getName(), NamedTextColor.AQUA, TextDecoration.BOLD)
                 .append(Component.text(" (" + player.getPing() + "ms)", NamedTextColor.GRAY)
-                        .decoration(TextDecoration.BOLD, false)));
+                        .decoration(TextDecoration.BOLD, false));
+
+        List<Line> board = new ArrayList<>();
+        board.add(Line.of(SidebarLayout.Priority.ESSENTIAL, 0,
+                width -> Component.text(
+                        SidebarText.centredToWidth("SMP X", width, true),
+                        NamedTextColor.WHITE,
+                        TextDecoration.BOLD)));
+        board.add(Line.spacer());
+        board.add(Line.of(SidebarLayout.Priority.ESSENTIAL,
+                SidebarText.textWidth(playerLine, false), width -> name));
         for (Row row : rows) {
             if (row.isHeading()) {
-                lines.add(Component.empty());
+                board.add(Line.spacer());
             }
-            lines.add(row.render(width));
+            board.add(Line.of(row.priority(), row.width(), row::render));
+        }
+        board.add(Line.spacer());
+        board.add(Line.of(SidebarLayout.Priority.ESSENTIAL, 0,
+                width -> Component.text(
+                        SidebarText.centredToWidth(footer, width, true), ORANGE, TextDecoration.BOLD)));
+
+        SidebarLayout.Priority[] priorities = new SidebarLayout.Priority[board.size()];
+        for (int index = 0; index < board.size(); index++) {
+            priorities[index] = board.get(index).priority();
+        }
+        boolean[] keep = SidebarLayout.fit(priorities, MAX_LINES);
+
+        // Measured after trimming, so a board that gave up its widest row centres to
+        // what is actually left rather than to a line nobody can see.
+        int width = 0;
+        for (int index = 0; index < board.size(); index++) {
+            if (keep[index]) {
+                width = Math.max(width, board.get(index).width());
+            }
         }
 
-        lines.add(Component.empty());
-        lines.add(Component.text(
-                SidebarText.centredToWidth(footer, width, true), ORANGE, TextDecoration.BOLD
-        ));
-        // A player with every extra overflows the 15-row sidebar. Give up spacers from
-        // the top down: the gap above the footer is what separates it from the stats,
-        // so it is the last thing to go rather than the first.
-        while (lines.size() > MAX_LINES) {
-            int spacer = firstSpacerAfter(lines, 2);
-            if (spacer < 0) {
-                break;
+        List<Component> drawn = new ArrayList<>();
+        for (int index = 0; index < board.size(); index++) {
+            if (keep[index]) {
+                drawn.add(board.get(index).render(width));
             }
-            lines.remove(spacer);
         }
-        return lines;
+        return drawn;
     }
 
-    private static void addClanPerkRows(List<Row> rows, ClanLevel.Perks clanPerks) {
+    /** One drawn row, with what it costs the board and how readily it gives that up. */
+    private record Line(SidebarLayout.Priority priority, int width, IntFunction<Component> render) {
+        static Line of(SidebarLayout.Priority priority, int width, IntFunction<Component> render) {
+            return new Line(priority, width, render);
+        }
+
+        static Line spacer() {
+            return new Line(SidebarLayout.Priority.SPACER, 0, width -> Component.empty());
+        }
+
+        Component render(int boardWidth) {
+            return render.apply(boardWidth);
+        }
+    }
+
+    /**
+     * A clan's live boosts, shortened so several share one row.
+     *
+     * <p>Written short on purpose: the full names took six rows, which is what pushed
+     * kills, deaths and the balance off the bottom of the board. What each one means is
+     * spelled out on the /clans upgrade screen, where an item can carry a description.
+     */
+    private static List<String> boostTokens(ClanLevel.Perks clanPerks) {
+        List<String> tokens = new ArrayList<>();
         if (clanPerks == null || clanPerks.isNone()) {
-            return;
+            return tokens;
         }
         if (clanPerks.extraHearts() > 0) {
-            rows.add(new Row("Clan Hearts", "+" + clanPerks.extraHearts(), NamedTextColor.RED));
+            tokens.add("+" + clanPerks.extraHearts() + "HP");
         }
-        addClanPercent(rows, "Strength", clanPerks.strength());
-        addClanPercent(rows, "Saturation", clanPerks.saturation());
-        addClanPercent(rows, "Digging", clanPerks.diggingSpeed());
-        addClanPercent(rows, "Resistance", clanPerks.resistance());
-        addClanPercent(rows, "Speed", clanPerks.speed());
+        addBoost(tokens, clanPerks.strength(), "STR");
+        addBoost(tokens, clanPerks.saturation(), "SAT");
+        addBoost(tokens, clanPerks.diggingSpeed(), "DIG");
+        addBoost(tokens, clanPerks.resistance(), "RES");
+        addBoost(tokens, clanPerks.speed(), "SPD");
+        return tokens;
     }
 
-    private static void addClanPercent(List<Row> rows, String label, double fraction) {
+    private static void addBoost(List<String> tokens, double fraction, String code) {
         if (fraction > 0) {
-            rows.add(new Row(label, "+" + Math.round(fraction * 100) + "%", GOLD));
+            tokens.add(Math.round(fraction * 100) + "%" + code);
         }
     }
 
     /** A heading (no value) or a stat row, able to report its own rendered width. */
-    private record Row(String label, String value, TextColor valueColour) {
+    private record Row(
+            String label, String value, TextColor valueColour, SidebarLayout.Priority priority
+    ) {
+        static Row heading(String label) {
+            return new Row(label, null, null, SidebarLayout.Priority.HEADING);
+        }
+
+        static Row important(String label, String value, TextColor colour) {
+            return new Row(label, value, colour, SidebarLayout.Priority.IMPORTANT);
+        }
+
+        static Row essential(String label, String value, TextColor colour) {
+            return new Row(label, value, colour, SidebarLayout.Priority.ESSENTIAL);
+        }
+
         boolean isHeading() {
             return value == null;
         }
@@ -297,16 +350,6 @@ final class SidebarService {
             }
             return statLine(label, value, valueColour);
         }
-    }
-
-    /** Finds a blank line to sacrifice, never the gap immediately above the footer. */
-    private static int firstSpacerAfter(List<Component> lines, int from) {
-        for (int index = from; index < lines.size() - 2; index++) {
-            if (lines.get(index).equals(Component.empty())) {
-                return index;
-            }
-        }
-        return -1;
     }
 
     /**
