@@ -386,10 +386,6 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
      * spends anything.
      */
     void openBuy(Player player, ShopCatalog.Offer offer, ShopCatalog.Category category, int categoryPage, int quantity) {
-        openBuy(player, offer, category, categoryPage, quantity, false);
-    }
-
-    void openBuy(Player player, ShopCatalog.Offer offer, ShopCatalog.Category category, int categoryPage, int quantity, boolean bulk) {
         Material material = materialOf(offer.material());
         int space = spaceFor(player, material);
         int stackSize = material.getMaxStackSize();
@@ -398,9 +394,8 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         int wanted = Math.max(1, Math.min(Math.max(1, space), quantity));
         // Changing the amount disarms it, so the second click always confirms the
         // figure that was on screen when the first one was made.
-        boolean armed = armedFor(player, offer, wanted);
         pendingBuys.put(player.getUniqueId(),
-                new PendingBuy(offer, category, categoryPage, wanted, armed, bulk));
+                new PendingBuy(offer, category, categoryPage, wanted));
         long balance = money.balance(player.getUniqueId());
         long total = offer.costOfItems(wanted);
         boolean affordable = total <= balance;
@@ -426,7 +421,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                 List.of(
                         carryable + " " + readable(offer.material()),
                         EconomyFormat.dollars(offer.costOfItems(carryable)),
-                        "Nothing dropped."
+                        "As much as you can carry."
                 )
         ));
         AutoOrder standing = autoOrders.get(player.getUniqueId());
@@ -474,27 +469,11 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             confirmLore.add("");
             confirmLore.add("Room for " + space + " only.");
         }
-        // Filling the inventory in one press spends most of a balance and cannot be
-        // undone, so it takes two clicks. A pocketful takes one.
-        boolean twoStep = bulk;
-        Material face = Material.GRAY_CONCRETE;
-        String label = "You cannot afford that";
-        if (affordable && twoStep && !armed) {
-            face = Material.YELLOW_CONCRETE;
-            label = "Click to confirm";
-            confirmLore.add("");
-            confirmLore.add("Large order — click twice.");
-        } else if (affordable && twoStep) {
-            face = Material.LIME_CONCRETE;
-            label = "Click again to buy";
-            confirmLore.add("");
-            confirmLore.add("Sure? This spends "
-                    + EconomyFormat.dollars(total) + ".");
-        } else if (affordable) {
-            face = Material.LIME_CONCRETE;
-            label = "Buy it";
-        }
-        inventory.setItem(BUY_CONFIRM_SLOT, button(face, label, confirmLore));
+        inventory.setItem(BUY_CONFIRM_SLOT, button(
+                affordable ? Material.LIME_CONCRETE : Material.GRAY_CONCRETE,
+                affordable ? "Buy it" : "You cannot afford that",
+                confirmLore
+        ));
         MenuItems.back(inventory);
         MenuItems.show(plugin, player, inventory);
     }
@@ -685,14 +664,8 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             ShopCatalog.Offer offer,
             ShopCatalog.Category category,
             int categoryPage,
-            int quantity,
-            boolean armed,
-            /** Set by the fill button: a whole inventory in one press takes two clicks. */
-            boolean bulk
+            int quantity
     ) {
-        PendingBuy armed(boolean value) {
-            return new PendingBuy(offer, category, categoryPage, quantity, value, bulk);
-        }
     }
 
     void openSell(Player player) {
@@ -1080,10 +1053,8 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         }
         Material material = materialOf(pending.offer().material());
         if (slot == BUY_MAX_SLOT) {
-            openBuy(player, pending.offer(), pending.category(), pending.categoryPage(),
-                    pending.offer().maxItems(money.balance(player.getUniqueId()),
-                            spaceFor(player, material)),
-                    true);
+            redrawBuy(player, pending, pending.offer()
+                    .maxItems(money.balance(player.getUniqueId()), spaceFor(player, material)));
             return;
         }
         if (slot == AUTOBUY_SLOT) {
@@ -1099,28 +1070,13 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         if (slot != BUY_CONFIRM_SLOT) {
             return;
         }
-        if (pending.bulk() && !pending.armed()) {
-            pendingBuys.put(player.getUniqueId(), pending.armed(true));
-            redrawBuy(player, pending, pending.quantity());
-            return;
-        }
         buy(player, pending.offer(), pending.quantity());
         pendingBuys.remove(player.getUniqueId());
         openShopCategory(player, pending.category(), pending.categoryPage());
     }
 
     private void redrawBuy(Player player, PendingBuy pending, int quantity) {
-        openBuy(player, pending.offer(), pending.category(), pending.categoryPage(),
-                quantity, pending.bulk() && quantity == pending.quantity());
-    }
-
-    /** Whether the confirm is already half pressed for exactly this order. */
-    private boolean armedFor(Player player, ShopCatalog.Offer offer, int quantity) {
-        PendingBuy previous = pendingBuys.get(player.getUniqueId());
-        return previous != null
-                && previous.armed()
-                && previous.quantity() == quantity
-                && previous.offer().material().equals(offer.material());
+        openBuy(player, pending.offer(), pending.category(), pending.categoryPage(), quantity);
     }
 
     private void clickAuction(Player player, Menu menu, int slot) {
