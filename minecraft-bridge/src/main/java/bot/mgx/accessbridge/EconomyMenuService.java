@@ -16,7 +16,10 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.Action;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.Inventory;
@@ -73,6 +76,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     private static final int CONFIRM_NO = 15;
     private static final int CONFIRM_SIZE = 27;
     private static final int MAIL_COLLECT_SLOT = EconomySlots.MAIL_COLLECT;
+    private static final int CONTAINER_SELL_ALL_SLOT = 49;
     private static final int BUY_SIZE = 54;
     private static final int BUY_ITEM_SLOT = 22;
     private static final int BUY_CONFIRM_SLOT = 40;
@@ -91,6 +95,8 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     private final Map<UUID, String> auctionSearch = new ConcurrentHashMap<>();
     /** What each player is part-way through buying, cleared when the screen closes. */
     private final Map<UUID, PendingBuy> pendingBuys = new ConcurrentHashMap<>();
+    /** Which container each open sell screen belongs to. */
+    private final Map<UUID, org.bukkit.Location> containerSales = new ConcurrentHashMap<>();
     /** Orders still being handed over, a few stacks a tick. */
     private final Map<UUID, Delivery> deliveries = new ConcurrentHashMap<>();
 
@@ -136,7 +142,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     ) {
         String name = command.getName().toLowerCase(Locale.ROOT);
         if (name.equals("sell") && args.length == 1) {
-            return partial(args[0], List.of("hand", "all", "chest"));
+            return partial(args[0], List.of("hand", "all"));
         }
         if (name.equals("ah") && args.length == 1) {
             return partial(args[0], List.of("sell", "listings", "expired", "search"));
@@ -233,44 +239,170 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         switch (action) {
             case "hand" -> sellHand(player);
             case "all" -> sellInventory(player);
-            case "chest", "container", "shulker", "barrel" -> sellContainer(player);
             default -> throw new IllegalArgumentException(
-                    "Use /sell, /sell hand, /sell all or /sell chest.");
+                    "Use /sell, /sell hand or /sell all. For a chest, "
+                            + "crouch and right-click it.");
         }
     }
 
     /**
-     * Sells what the shop buys out of the container the player is looking at.
+     * Opens the sell screen for a container the player crouched and clicked.
      *
-     * <p>Anything it does not buy is left where it is, so this can be pointed at a
-     * mixed chest without sorting it first.
+     * <p>A button inside the chest itself is not possible: every slot of a container
+     * screen is real storage, so a button would have to occupy one, and a hopper could
+     * then pull it out. Mirroring the chest into a custom menu with a spare row does
+     * not work either — a double chest is already fifty-four slots, which is the
+     * largest inventory there is, so there is nowhere to put the row. This is a
+     * separate screen, which also means it never holds the items and so cannot lose
+     * them.
+     *
+     * <p>Crouch with an empty hand: crouching while holding something is how a block
+     * gets placed against a chest, and vanilla does nothing at all for the empty-handed
+     * version, so it was free to take.
      */
-    private void sellContainer(Player player) {
-        Block target = player.getTargetBlockExact(6);
-        if (target == null || !(target.getState() instanceof Container container)) {
-            throw new IllegalArgumentException("Look at a chest, barrel or shulker box first.");
+    @EventHandler(priority = EventPriority.NORMAL, ignoreCancelled = true)
+    public void onContainerPunch(PlayerInteractEvent event) {
+        if (event.getAction() != Action.RIGHT_CLICK_BLOCK
+                || event.getHand() != EquipmentSlot.HAND
+                || !event.getPlayer().isSneaking()) {
+            return;
         }
+        // Empty hand only. Crouching with a block held is how a builder places against
+        // a chest rather than opening it, and taking that over would be worse than
+        // having no shortcut at all.
+        ItemStack held = event.getPlayer().getInventory().getItemInMainHand();
+        if (held != null && !held.getType().isAir()) {
+            return;
+        }
+        Block block = event.getClickedBlock();
+        if (block == null || !(block.getState() instanceof Container)) {
+            return;
+        }
+        Player player = event.getPlayer();
+        if (!player.hasPermission("mgx.shop")) {
+            return;
+        }
+        // Cancelled so the chest does not open behind the screen.
+        event.setCancelled(true);
+        openContainerSell(player, block);
+    }
+
+    void openContainerSell(Player player, Block block) {
+        containerSales.put(player.getUniqueId(), block.getLocation());
+        List<ItemStack> sellable = sellableIn(block);
+        Inventory inventory = create(
+                Menu.Kind.SELL_CONTAINER, null, 1, BOARD_SIZE,
+                "Sell  •  " + EconomyFormat.dollars(previewTotal(sellable)),
+                null
+        );
+        int shown = Math.min(sellable.size(), PER_PAGE);
+        for (int index = 0; index < shown; index++) {
+            ItemStack stack = sellable.get(index).clone();
+            long credit = ShopCatalog.sellCredit(stack.getType().name(), stack.getAmount());
+            ItemMeta meta = stack.getItemMeta();
+            if (meta != null) {
+                meta.lore(List.of(
+                        line("Sell for " + EconomyFormat.dollars(credit)),
+                        line("Click to sell this stack.")
+                ));
+                stack.setItemMeta(meta);
+            }
+            inventory.setItem(index, stack);
+        }
+        if (sellable.isEmpty()) {
+            inventory.setItem(22, button(Material.BARRIER, "Nothing here sells",
+                    "The shop does not buy any of this."));
+        } else {
+            inventory.setItem(CONTAINER_SELL_ALL_SLOT, button(
+                    Material.LIME_CONCRETE, "Sell everything here",
+                    List.of(
+                            sellable.size() + " stack(s)",
+                            EconomyFormat.dollars(previewTotal(sellable)),
+                            "Anything the shop does not buy stays put."
+                    )
+            ));
+        }
+        MenuItems.show(plugin, player, inventory);
+    }
+
+    private void clickContainerSell(Player player, int slot) {
+        Container container = openContainer(player);
+        if (container == null) {
+            error(player, "That container is gone.");
+            player.closeInventory();
+            return;
+        }
+        if (slot == CONTAINER_SELL_ALL_SLOT) {
+            sellFrom(player, container, null);
+            openContainerSell(player, container.getBlock());
+            return;
+        }
+        List<ItemStack> sellable = sellableIn(container.getBlock());
+        if (slot < 0 || slot >= PER_PAGE || slot >= sellable.size()) {
+            return;
+        }
+        sellFrom(player, container, sellable.get(slot));
+        openContainerSell(player, container.getBlock());
+    }
+
+    /**
+     * Sells one stack out of the container, or everything when {@code only} is null.
+     *
+     * <p>Read straight off the block each time rather than from anything remembered:
+     * a hopper may have moved the contents since the screen was drawn.
+     */
+    private void sellFrom(Player player, Container container, ItemStack only) {
         Inventory contents = container.getInventory();
         List<ItemStack> offered = new ArrayList<>();
-        for (ItemStack item : contents.getContents()) {
-            if (isInstantSellable(item)) {
-                offered.add(item);
+        List<Integer> slots = new ArrayList<>();
+        for (int slot = 0; slot < contents.getSize(); slot++) {
+            ItemStack item = contents.getItem(slot);
+            if (!isInstantSellable(item)) {
+                continue;
+            }
+            if (only != null && !sameSellStack(item, only)) {
+                continue;
+            }
+            offered.add(item);
+            slots.add(slot);
+            if (only != null) {
+                break;
             }
         }
         Sold sold = sellStacks(player, offered);
         if (sold.count() == 0) {
-            throw new IllegalArgumentException("Nothing in there is bought here.");
+            error(player, "Nothing in there is bought here.");
+            return;
         }
-        for (int slot = 0; slot < contents.getSize(); slot++) {
-            if (isInstantSellable(contents.getItem(slot))) {
-                contents.setItem(slot, null);
-            }
+        for (int slot : slots) {
+            contents.setItem(slot, null);
         }
         money.deposit(player.getUniqueId(), sold.credit());
-        info(player, "Sold " + sold.describe() + " out of the "
-                + readable(target.getType().name()) + " for "
+        info(player, "Sold " + sold.describe() + " for "
                 + EconomyFormat.dollars(sold.credit()) + ".");
         logSale(player, sold);
+    }
+
+    /** The container the open screen belongs to, or null if it is no longer one. */
+    private Container openContainer(Player player) {
+        org.bukkit.Location at = containerSales.get(player.getUniqueId());
+        if (at == null || at.getWorld() == null) {
+            return null;
+        }
+        return at.getBlock().getState() instanceof Container container ? container : null;
+    }
+
+    private static List<ItemStack> sellableIn(Block block) {
+        List<ItemStack> stacks = new ArrayList<>();
+        if (!(block.getState() instanceof Container container)) {
+            return stacks;
+        }
+        for (ItemStack item : container.getInventory().getContents()) {
+            if (isInstantSellable(item)) {
+                stacks.add(item);
+            }
+        }
+        return stacks;
     }
 
     private void autoSellCommand(Player player) {
@@ -771,6 +903,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                 case SHOP_CATEGORY -> clickShopCategory(player, menu, slot);
                 case SHOP_BUY -> clickBuy(player, slot);
                 case SELL_PREVIEW -> clickSellPreview(player, slot);
+                case SELL_CONTAINER -> clickContainerSell(player, slot);
                 case SELL_PRICES -> clickSellPrices(player, menu, slot);
                 case AUCTION_HUB -> clickAuction(player, menu, slot);
                 case AUCTION_OWN -> clickOwn(player, menu, slot);
@@ -807,6 +940,10 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                     pendingBuys.remove(player.getUniqueId());
                 }
             });
+            return;
+        }
+        if (menu.kind() == Menu.Kind.SELL_CONTAINER) {
+            containerSales.remove(player.getUniqueId());
             return;
         }
         if (menu.kind() == Menu.Kind.SELL) {
@@ -1309,6 +1446,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                 || kind == Menu.Kind.SHOP_BUY
                 || kind == Menu.Kind.SELL
                 || kind == Menu.Kind.SELL_PREVIEW
+                || kind == Menu.Kind.SELL_CONTAINER
                 || kind == Menu.Kind.SELL_PRICES
                 || kind == Menu.Kind.AUCTION_HUB
                 || kind == Menu.Kind.AUCTION_OWN
