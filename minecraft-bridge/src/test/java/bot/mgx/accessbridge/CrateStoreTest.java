@@ -30,55 +30,6 @@ class CrateStoreTest {
     }
 
     @Test
-    void completedOpeningsFillTheRollingWindow(@TempDir Path directory) throws Exception {
-        CrateStore store = new CrateStore(directory.resolve("crates.json"));
-        UUID player = UUID.randomUUID();
-        long firstOpening = 1_000_000L;
-
-        for (int index = 0; index < CrateStore.OPENING_LIMIT; index++) {
-            UUID spin = UUID.randomUUID();
-            store.reserve(player, spin, "raw_copper", firstOpening + index);
-            assertTrue(store.complete(player, spin));
-        }
-
-        assertEquals(0, store.remaining(player, firstOpening + 10L));
-        CrateStore.LimitReachedException failure = assertThrows(
-                CrateStore.LimitReachedException.class,
-                () -> store.reserve(
-                        player, UUID.randomUUID(), "diamonds", firstOpening + 10L
-                )
-        );
-        assertEquals(firstOpening + CrateStore.WINDOW_MILLIS, failure.nextOpeningAt());
-        assertEquals(
-                firstOpening + CrateStore.WINDOW_MILLIS,
-                store.nextOpeningAt(player, firstOpening + 10L)
-        );
-    }
-
-    @Test
-    void oldestOpeningReopensExactlyAtTwentyFourHours(@TempDir Path directory) throws Exception {
-        CrateStore store = new CrateStore(directory.resolve("crates.json"));
-        UUID player = UUID.randomUUID();
-        long firstOpening = 10_000L;
-        for (int index = 0; index < CrateStore.OPENING_LIMIT; index++) {
-            UUID spin = UUID.randomUUID();
-            store.reserve(player, spin, "raw_iron", firstOpening + index * 1_000L);
-            store.complete(player, spin);
-        }
-
-        long boundary = firstOpening + CrateStore.WINDOW_MILLIS;
-        assertEquals(0, store.remaining(player, boundary - 1L));
-        assertEquals(1, store.remaining(player, boundary));
-
-        UUID replacement = UUID.randomUUID();
-        CrateStore.Pending pending = store.reserve(
-                player, replacement, "cosmetic_blood_burst", boundary
-        );
-        assertEquals(replacement, pending.spinId());
-        assertEquals(0, store.remaining(player, boundary));
-    }
-
-    @Test
     void pendingRewardSurvivesReloadAndOnlyItsSpinCanComplete(@TempDir Path directory)
             throws Exception {
         Path file = directory.resolve("crates.json");
@@ -98,7 +49,6 @@ class CrateStoreTest {
         assertTrue(new CrateStore(file).pending(player).isPresent());
         assertTrue(reloaded.complete(player, spin));
         assertTrue(new CrateStore(file).pending(player).isEmpty());
-        assertEquals(CrateStore.OPENING_LIMIT - 1, new CrateStore(file).remaining(player, reservedAt));
     }
 
     @Test
@@ -116,7 +66,6 @@ class CrateStoreTest {
 
         assertTrue(failure.getMessage().contains("already waiting"));
         assertEquals(first, store.pending(player).orElseThrow());
-        assertEquals(CrateStore.OPENING_LIMIT - 1, store.remaining(player, 2_000L));
     }
 
     @Test
@@ -169,7 +118,7 @@ class CrateStoreTest {
     }
 
     @Test
-    void clearingRemovesLimitsAndPendingRewardsAcrossReload(@TempDir Path directory)
+    void clearingRemovesPendingRewardsAcrossReload(@TempDir Path directory)
             throws Exception {
         Path file = directory.resolve("crates.json");
         CrateStore store = new CrateStore(file);
@@ -181,11 +130,11 @@ class CrateStoreTest {
         store.reserve(second, UUID.randomUUID(), "golden_apple", 200L);
         store.creditOnline(Map.of(first, CrateStore.HOURLY_KEY_MILLIS));
 
-        assertEquals(4, store.clearAll());
+        assertEquals(2, store.clearAll());
 
         CrateStore reloaded = new CrateStore(file);
-        assertEquals(CrateStore.OPENING_LIMIT, reloaded.remaining(first, 200L));
-        assertEquals(CrateStore.OPENING_LIMIT, reloaded.remaining(second, 200L));
+        assertTrue(reloaded.pending(first).isEmpty());
+        assertTrue(reloaded.pending(second).isEmpty());
         assertTrue(reloaded.pendingRewards().isEmpty());
         assertEquals(0, reloaded.bankedKeys(first));
         assertEquals(0, reloaded.clearAll());
