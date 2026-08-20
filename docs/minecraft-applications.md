@@ -123,7 +123,7 @@ runtime/minecraft/backups/
 
 For routine backups, stop only the Minecraft bot process and copy the entire `MINECRAFT_DATA_DIR`. To recover, stop that process, preserve the damaged directory separately, restore `minecraft.db` plus its `-wal`/`-shm` files when present, and start the process again. Do not copy a live database without using SQLite's backup API.
 
-Clan, lootbox, cosmetic, trophy, economy, and settings data are owned by Paper and
+Clan, crate, cosmetic, trophy, economy, and settings data are owned by Paper and
 saved atomically under `plugins/MGXAccessBridge/`. Include that entire directory
 when backing up the Minecraft server. The plugin fails closed instead of replacing
 malformed persistent data.
@@ -185,14 +185,16 @@ Paper 1.21.11 directly accepts 1.21.11 Java clients. Supporting Java 1.21.6 thro
 protocol before sending a Dialog. The UI is a server-provided modal and does not
 replace Minecraft's built-in Options screen.
 
-## Lootboxes, cosmetics, and trophy heads
+## Crates, cosmetics, and trophy heads
 
-`/lootbox` opens the animated reel, shows every exact public chance, and claims a
-saved reward. `/wardrobe` manages unique tradable cosmetic tokens and links to the
+`/crate` opens the animated wooden-crate reel, shows every exact public chance, and
+claims a saved reward. Players earn one physical key per online hour, while a
+rolling 12-opening cap protects the economy. `/wardrobe` manages unique tradable
+cosmetic tokens, displays global supply counts, and links to the
 cosmetic settings. PvP trophy heads and cosmetic effects share the same per-viewer
 settings system. The full reward table, rolling cap calculation, custody rules, and
 administrator key command are documented in
-[minecraft-lootboxes.md](minecraft-lootboxes.md).
+[minecraft-crates.md](minecraft-crates.md).
 
 The Java resource-pack source is under `assets/resourcepack/src`, with editable icon
 sources under `assets/resourcepack/icon-sources`. Rebuild

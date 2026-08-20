@@ -16,30 +16,38 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-/** Physical lootbox keys and neutral preview icons for the reel. */
-final class LootboxItems {
+/** Physical crate keys and neutral preview icons for the reel. */
+final class CrateItems {
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private final NamespacedKey keyMarker;
+    private final NamespacedKey legacyKeyMarker;
     private final NamespacedKey rewardSpinMarker;
+    private final NamespacedKey legacyRewardSpinMarker;
+    private final CosmeticStore cosmeticStore;
 
-    LootboxItems(MGXAccessBridge plugin) {
-        keyMarker = new NamespacedKey(plugin, "lootbox_key");
-        rewardSpinMarker = new NamespacedKey(plugin, "lootbox_reward_spin");
+    CrateItems(MGXAccessBridge plugin, CosmeticStore cosmeticStore) {
+        keyMarker = new NamespacedKey(plugin, "crate_key");
+        legacyKeyMarker = new NamespacedKey(plugin, "lootbox_key");
+        rewardSpinMarker = new NamespacedKey(plugin, "crate_reward_spin");
+        legacyRewardSpinMarker = new NamespacedKey(plugin, "lootbox_reward_spin");
+        this.cosmeticStore = cosmeticStore;
     }
 
     ItemStack key(int amount) {
         ItemStack item = new ItemStack(Material.TRIAL_KEY, Math.max(1, Math.min(64, amount)));
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.displayName(Component.text("Mysterious Lootbox Key", ORANGE, TextDecoration.BOLD)
+            meta.displayName(Component.text("Mysterious Crate Key", ORANGE, TextDecoration.BOLD)
                     .decoration(TextDecoration.ITALIC, false));
             meta.lore(List.of(
-                    line("One key opens one spin."),
-                    line("Use /lootbox to open it."),
-                    line("Tradable and not sold in /shop.")
+                    line("One key opens one crate."),
+                    line("Use /crate to open it."),
+                    line("Cannot be sold through /shop or /ah."),
+                    line("Cannot enter containers or hoppers."),
+                    line("Drop it to trade directly with a player.")
             ));
             meta.getPersistentDataContainer().set(keyMarker, PersistentDataType.BYTE, (byte) 1);
-            NamespacedKey model = NamespacedKey.fromString("mgx:lootbox_key");
+            NamespacedKey model = NamespacedKey.fromString("mgx:crate_key");
             if (model != null) {
                 meta.setItemModel(model);
             }
@@ -50,11 +58,12 @@ final class LootboxItems {
     }
 
     boolean isKey(ItemStack item) {
-        return item != null
-                && !item.getType().isAir()
-                && item.hasItemMeta()
-                && item.getItemMeta().getPersistentDataContainer()
-                        .has(keyMarker, PersistentDataType.BYTE);
+        if (item == null || item.getType().isAir() || !item.hasItemMeta()) {
+            return false;
+        }
+        var data = item.getItemMeta().getPersistentDataContainer();
+        return data.has(keyMarker, PersistentDataType.BYTE)
+                || data.has(legacyKeyMarker, PersistentDataType.BYTE);
     }
 
     int count(Player player) {
@@ -64,7 +73,35 @@ final class LootboxItems {
                 total += item.getAmount();
             }
         }
+        ItemStack offHand = player.getInventory().getItemInOffHand();
+        if (isKey(offHand)) {
+            total += offHand.getAmount();
+        }
         return total;
+    }
+
+    void upgradeLegacyKeys(Player player) {
+        ItemStack[] storage = player.getInventory().getStorageContents();
+        boolean changed = false;
+        for (int index = 0; index < storage.length; index++) {
+            ItemStack item = storage[index];
+            if (!isKey(item) || item == null || !item.hasItemMeta()) {
+                continue;
+            }
+            var data = item.getItemMeta().getPersistentDataContainer();
+            if (data.has(keyMarker, PersistentDataType.BYTE)) {
+                continue;
+            }
+            storage[index] = key(item.getAmount());
+            changed = true;
+        }
+        if (changed) {
+            player.getInventory().setStorageContents(storage);
+        }
+        ItemStack offHand = player.getInventory().getItemInOffHand();
+        if (isLegacyKey(offHand)) {
+            player.getInventory().setItemInOffHand(key(offHand.getAmount()));
+        }
     }
 
     boolean consume(Player player) {
@@ -82,13 +119,57 @@ final class LootboxItems {
             player.getInventory().setStorageContents(storage);
             return true;
         }
+        ItemStack offHand = player.getInventory().getItemInOffHand();
+        if (isKey(offHand)) {
+            if (offHand.getAmount() == 1) {
+                player.getInventory().setItemInOffHand(null);
+            } else {
+                offHand.setAmount(offHand.getAmount() - 1);
+            }
+            return true;
+        }
         return false;
     }
 
-    ItemStack preview(LootboxCatalog.Reward reward, CosmeticItems cosmetics) {
+    int remove(Player player, int requested) {
+        int remaining = Math.max(0, requested);
+        ItemStack[] storage = player.getInventory().getStorageContents();
+        for (int index = 0; index < storage.length && remaining > 0; index++) {
+            ItemStack item = storage[index];
+            if (!isKey(item)) {
+                continue;
+            }
+            int removed = Math.min(remaining, item.getAmount());
+            remaining -= removed;
+            if (removed == item.getAmount()) {
+                storage[index] = null;
+            } else {
+                item.setAmount(item.getAmount() - removed);
+            }
+        }
+        player.getInventory().setStorageContents(storage);
+        if (remaining > 0) {
+            ItemStack offHand = player.getInventory().getItemInOffHand();
+            if (isKey(offHand)) {
+                int removed = Math.min(remaining, offHand.getAmount());
+                remaining -= removed;
+                if (removed == offHand.getAmount()) {
+                    player.getInventory().setItemInOffHand(null);
+                } else {
+                    offHand.setAmount(offHand.getAmount() - removed);
+                }
+            }
+        }
+        return requested - remaining;
+    }
+
+    ItemStack preview(CrateCatalog.Reward reward, CosmeticItems cosmetics) {
         if (reward.cosmetic()) {
             return CosmeticCatalog.find(reward.cosmeticId())
-                    .map(definition -> cosmetics.preview(definition, true))
+                    .map(definition -> withSupply(
+                            cosmetics.preview(definition, true),
+                            cosmeticStore.inExistence(definition.id())
+                    ))
                     .orElseGet(() -> new ItemStack(Material.BARRIER));
         }
         Material material = Material.matchMaterial(reward.materialName());
@@ -109,15 +190,15 @@ final class LootboxItems {
         return item;
     }
 
-    ItemStack reward(LootboxCatalog.Reward reward, UUID spinId) {
+    ItemStack reward(CrateCatalog.Reward reward, UUID spinId) {
         Material material = Material.matchMaterial(reward.materialName());
         if (material == null) {
-            throw new IllegalStateException("Unknown lootbox material " + reward.materialName());
+            throw new IllegalStateException("Unknown crate material " + reward.materialName());
         }
         ItemStack item = new ItemStack(material, reward.amount());
         ItemMeta meta = item.getItemMeta();
         if (meta == null) {
-            throw new IllegalStateException("Lootbox reward has no item metadata.");
+            throw new IllegalStateException("Crate reward has no item metadata.");
         }
         meta.getPersistentDataContainer().set(
                 rewardSpinMarker, PersistentDataType.STRING, spinId.toString()
@@ -168,9 +249,11 @@ final class LootboxItems {
         if (item == null || item.getType().isAir() || !item.hasItemMeta()) {
             return Optional.empty();
         }
-        String raw = item.getItemMeta().getPersistentDataContainer().get(
-                rewardSpinMarker, PersistentDataType.STRING
-        );
+        var data = item.getItemMeta().getPersistentDataContainer();
+        String raw = data.get(rewardSpinMarker, PersistentDataType.STRING);
+        if (raw == null) {
+            raw = data.get(legacyRewardSpinMarker, PersistentDataType.STRING);
+        }
         if (raw == null) {
             return Optional.empty();
         }
@@ -181,16 +264,38 @@ final class LootboxItems {
         }
     }
 
+    private boolean isLegacyKey(ItemStack item) {
+        if (item == null || item.getType().isAir() || !item.hasItemMeta()) {
+            return false;
+        }
+        var data = item.getItemMeta().getPersistentDataContainer();
+        return data.has(legacyKeyMarker, PersistentDataType.BYTE)
+                && !data.has(keyMarker, PersistentDataType.BYTE);
+    }
+
     private void clearRewardSpin(ItemStack item) {
         ItemMeta meta = item.getItemMeta();
         if (meta == null) {
             return;
         }
         meta.getPersistentDataContainer().remove(rewardSpinMarker);
+        meta.getPersistentDataContainer().remove(legacyRewardSpinMarker);
         item.setItemMeta(meta);
     }
 
     private static Component line(String text) {
         return Component.text(text, NamedTextColor.GRAY).decoration(TextDecoration.ITALIC, false);
+    }
+
+    private static ItemStack withSupply(ItemStack item, int supply) {
+        ItemMeta meta = item.getItemMeta();
+        if (meta == null) {
+            return item;
+        }
+        List<Component> lore = new ArrayList<>(meta.lore() == null ? List.of() : meta.lore());
+        lore.add(line("In existence: " + supply));
+        meta.lore(lore);
+        item.setItemMeta(meta);
+        return item;
     }
 }

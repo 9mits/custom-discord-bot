@@ -15,8 +15,13 @@ import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.entity.EntityPickupItemEvent;
+import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.event.inventory.InventoryMoveItemEvent;
+import org.bukkit.event.inventory.InventoryPickupItemEvent;
+import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
@@ -35,18 +40,19 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
-/** One-key lootbox spins, published odds, the reel animation, and pending claims. */
-final class LootboxService implements CommandExecutor, TabCompleter, Listener {
+/** Physical crate openings, published odds, hourly keys, and crash-safe pending claims. */
+final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
+    private static final long ONLINE_PULSE_TICKS = 20L * 60L;
     private static final int HUB_OPEN_SLOT = 13;
     private static final int HUB_ODDS_SLOT = 15;
     private static final int ODDS_PER_PAGE = 45;
     private static final int PREVIOUS_SLOT = 45;
     private static final int NEXT_SLOT = 53;
-    private static final int REEL_FIRST = 9;
-    private static final int REEL_LAST = 17;
-    private static final int WINNING_SLOT = 13;
-    private static final int REEL_FRAMES = 29;
+    private static final int REEL_FIRST = 19;
+    private static final int REEL_LAST = 25;
+    private static final int WINNING_SLOT = 22;
+    private static final int REEL_FRAMES = 31;
 
     private enum Screen {
         HUB,
@@ -54,12 +60,12 @@ final class LootboxService implements CommandExecutor, TabCompleter, Listener {
         ROLL
     }
 
-    private static final class LootboxMenu implements InventoryHolder {
+    private static final class CrateMenu implements InventoryHolder {
         private final Screen screen;
         private final int page;
         private Inventory inventory;
 
-        LootboxMenu(Screen screen, int page) {
+        CrateMenu(Screen screen, int page) {
             this.screen = screen;
             this.page = page;
         }
@@ -72,16 +78,16 @@ final class LootboxService implements CommandExecutor, TabCompleter, Listener {
 
     private static final class RollSession {
         private final UUID playerId;
-        private final LootboxStore.Pending pending;
-        private final LootboxCatalog.Reward reward;
+        private final CrateStore.Pending pending;
+        private final CrateCatalog.Reward reward;
         private final Inventory inventory;
         private int frame;
         private BukkitTask task;
 
         RollSession(
                 UUID playerId,
-                LootboxStore.Pending pending,
-                LootboxCatalog.Reward reward,
+                CrateStore.Pending pending,
+                CrateCatalog.Reward reward,
                 Inventory inventory
         ) {
             this.playerId = playerId;
@@ -92,20 +98,24 @@ final class LootboxService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private final MGXAccessBridge plugin;
-    private final LootboxStore store;
-    private final LootboxItems items;
+    private final CrateStore store;
+    private final CrateItems items;
     private final CosmeticStore cosmetics;
     private final CosmeticItems cosmeticItems;
     private final CosmeticEffectService effects;
+    private final PlayerSettingsStore settings;
     private final Map<UUID, RollSession> sessions = new HashMap<>();
+    private final Map<UUID, Long> onlineCreditStarted = new HashMap<>();
+    private BukkitTask hourlyTask;
 
-    LootboxService(
+    CrateService(
             MGXAccessBridge plugin,
-            LootboxStore store,
-            LootboxItems items,
+            CrateStore store,
+            CrateItems items,
             CosmeticStore cosmetics,
             CosmeticItems cosmeticItems,
-            CosmeticEffectService effects
+            CosmeticEffectService effects,
+            PlayerSettingsStore settings
     ) {
         this.plugin = plugin;
         this.store = store;
@@ -113,6 +123,7 @@ final class LootboxService implements CommandExecutor, TabCompleter, Listener {
         this.cosmetics = cosmetics;
         this.cosmeticItems = cosmeticItems;
         this.effects = effects;
+        this.settings = settings;
     }
 
     @Override
@@ -123,7 +134,7 @@ final class LootboxService implements CommandExecutor, TabCompleter, Listener {
             return giveKey(sender, args);
         }
         if (!(sender instanceof Player player)) {
-            sender.sendMessage("Use /lootbox key <online player> [amount].");
+            sender.sendMessage("Use /crate key <online player> [amount].");
             return true;
         }
         if (args.length == 0) {
@@ -135,7 +146,7 @@ final class LootboxService implements CommandExecutor, TabCompleter, Listener {
             case "odds", "rewards" -> openOdds(player, parsePage(args));
             case "claim" -> {
                 if (sessions.containsKey(player.getUniqueId())) {
-                    PlayerMenuService.error(player, "Your lootbox is still spinning.");
+                    PlayerMenuService.error(player, "Your crate is still opening.");
                     return true;
                 }
                 if (!deliverPending(player, true)) {
@@ -145,7 +156,7 @@ final class LootboxService implements CommandExecutor, TabCompleter, Listener {
                 }
             }
             default -> PlayerMenuService.error(
-                    player, "Use /lootbox, /lootbox open, /lootbox odds, or /lootbox claim."
+                    player, "Use /crate, /crate open, /crate odds, or /crate claim."
             );
         }
         return true;
@@ -174,31 +185,40 @@ final class LootboxService implements CommandExecutor, TabCompleter, Listener {
     }
 
     void openHub(Player player) {
+        items.upgradeLegacyKeys(player);
         if (!sessions.containsKey(player.getUniqueId())) {
             deliverPending(player, false);
         }
-        LootboxMenu holder = new LootboxMenu(Screen.HUB, 1);
-        Inventory inventory = Bukkit.createInventory(holder, 27, Component.text("Lootbox", ORANGE));
+        deliverBankedKeys(player, false);
+        CrateMenu holder = new CrateMenu(Screen.HUB, 1);
+        Inventory inventory = Bukkit.createInventory(
+                holder, 27, Component.text("Mysterious Crates", ORANGE)
+        );
         holder.inventory = inventory;
+        fillHub(inventory);
         long now = System.currentTimeMillis();
         int remaining = store.remaining(player.getUniqueId(), now);
         inventory.setItem(11, named(
                 items.key(1),
                 "Your Keys",
                 "Keys in inventory: " + items.count(player),
-                "One key equals one spin."
+                "Banked hourly keys: " + store.bankedKeys(player.getUniqueId()),
+                "Next hourly key in " + remainingTime(
+                        store.millisUntilNextKey(player.getUniqueId())
+                ) + ".",
+                "One key opens one crate."
         ));
         List<String> openLore = new ArrayList<>();
         openLore.add("Consumes exactly one key.");
-        openLore.add("Spins left in your rolling window: " + remaining + "/" + LootboxStore.OPENING_LIMIT);
+        openLore.add("Openings left in 24h: " + remaining + "/" + CrateStore.OPENING_LIMIT);
         if (remaining == 0) {
-            openLore.add("Next spin in " + remainingTime(store.nextOpeningAt(
+            openLore.add("Next opening in " + remainingTime(store.nextOpeningAt(
                     player.getUniqueId(), now
             ) - now) + ".");
         }
         inventory.setItem(HUB_OPEN_SLOT, MenuItems.button(
-                remaining > 0 ? Material.LIME_STAINED_GLASS_PANE : Material.RED_STAINED_GLASS_PANE,
-                "Spin Lootbox",
+                remaining > 0 ? Material.CHEST : Material.BARRIER,
+                remaining > 0 ? "Open Mysterious Crate" : "Crate Limit Reached",
                 openLore
         ));
         inventory.setItem(HUB_ODDS_SLOT, MenuItems.button(
@@ -209,20 +229,21 @@ final class LootboxService implements CommandExecutor, TabCompleter, Listener {
         ));
         inventory.setItem(22, MenuItems.button(
                 Material.CLOCK,
-                "Economy Protection",
-                "Maximum: 3 spins in any rolling 24 hours.",
-                "Odds never decrease and there is no hidden pity rule."
+                "Hourly Keys and Economy Limit",
+                "One key is earned per online hour.",
+                "Maximum: " + CrateStore.OPENING_LIMIT + " openings in any rolling 24 hours.",
+                "Extra keys remain manually tradable."
         ));
         MenuItems.show(plugin, player, inventory);
     }
 
     private void openOdds(Player player, int requestedPage) {
-        List<LootboxCatalog.Reward> rewards = LootboxCatalog.all();
+        List<CrateCatalog.Reward> rewards = CrateCatalog.all();
         int pageCount = Math.max(1, (rewards.size() + ODDS_PER_PAGE - 1) / ODDS_PER_PAGE);
         int page = Math.max(1, Math.min(pageCount, requestedPage));
-        LootboxMenu holder = new LootboxMenu(Screen.ODDS, page);
+        CrateMenu holder = new CrateMenu(Screen.ODDS, page);
         Inventory inventory = Bukkit.createInventory(
-                holder, 54, Component.text("Lootbox Odds " + page + "/" + pageCount, ORANGE)
+                holder, 54, Component.text("Crate Odds " + page + "/" + pageCount, ORANGE)
         );
         holder.inventory = inventory;
         int first = (page - 1) * ODDS_PER_PAGE;
@@ -244,7 +265,7 @@ final class LootboxService implements CommandExecutor, TabCompleter, Listener {
     private void start(Player player) {
         UUID playerId = player.getUniqueId();
         if (sessions.containsKey(playerId)) {
-            PlayerMenuService.error(player, "Your lootbox is already spinning.");
+            PlayerMenuService.error(player, "Your crate is already opening.");
             return;
         }
         if (store.pending(playerId).isPresent()) {
@@ -254,46 +275,49 @@ final class LootboxService implements CommandExecutor, TabCompleter, Listener {
         }
         long now = System.currentTimeMillis();
         if (store.remaining(playerId, now) <= 0) {
-            PlayerMenuService.error(player, "Your next spin opens in " + remainingTime(
+            PlayerMenuService.error(player, "Your next crate opens in " + remainingTime(
                     store.nextOpeningAt(playerId, now) - now
             ) + ".");
             return;
         }
         if (items.count(player) <= 0) {
-            PlayerMenuService.error(player, "You need a Mysterious Lootbox Key to spin.");
+            PlayerMenuService.error(player, "You need a Mysterious Crate Key to open a crate.");
             return;
         }
-        LootboxCatalog.Reward reward = LootboxCatalog.rewardAt(
-                ThreadLocalRandom.current().nextInt(LootboxCatalog.TOTAL_WEIGHT)
+        CrateCatalog.Reward reward = CrateCatalog.rewardAt(
+                ThreadLocalRandom.current().nextInt(CrateCatalog.TOTAL_WEIGHT)
         );
         UUID spinId = UUID.randomUUID();
         if (!items.consume(player)) {
             PlayerMenuService.error(player, "Your key moved before it could be consumed.");
             return;
         }
-        LootboxStore.Pending pending;
+        CrateStore.Pending pending;
         try {
             pending = store.reserve(playerId, spinId, reward.id(), now);
-        } catch (LootboxStore.LimitReachedException exception) {
+        } catch (CrateStore.LimitReachedException exception) {
             player.getInventory().addItem(items.key(1));
-            PlayerMenuService.error(player, "Your next spin opens in " + remainingTime(
+            PlayerMenuService.error(player, "Your next crate opens in " + remainingTime(
                     exception.nextOpeningAt() - now
             ) + ".");
             return;
         } catch (IllegalStateException | UncheckedIOException exception) {
             player.getInventory().addItem(items.key(1));
-            plugin.getLogger().warning("Could not reserve a lootbox reward: " + exception.getMessage());
-            PlayerMenuService.error(player, "That spin could not be saved. Your key was returned.");
+            plugin.getLogger().warning("Could not reserve a crate reward: " + exception.getMessage());
+            PlayerMenuService.error(player, "That opening could not be saved. Your key was returned.");
             return;
         }
 
-        LootboxMenu holder = new LootboxMenu(Screen.ROLL, 1);
-        Inventory inventory = Bukkit.createInventory(holder, 27, Component.text("Lootbox Rolling", ORANGE));
+        CrateMenu holder = new CrateMenu(Screen.ROLL, 1);
+        Inventory inventory = Bukkit.createInventory(
+                holder, 45, Component.text("Opening Mysterious Crate", ORANGE)
+        );
         holder.inventory = inventory;
-        fillReel(inventory);
+        fillCrate(inventory);
         RollSession session = new RollSession(playerId, pending, reward, inventory);
         sessions.put(playerId, session);
         MenuItems.show(plugin, player, inventory);
+        player.playSound(player.getLocation(), Sound.BLOCK_CHEST_OPEN, 0.9f, 0.85f);
         advance(session);
     }
 
@@ -310,13 +334,15 @@ final class LootboxService implements CommandExecutor, TabCompleter, Listener {
         for (int slot = REEL_FIRST; slot < REEL_LAST; slot++) {
             session.inventory.setItem(slot, session.inventory.getItem(slot + 1));
         }
-        LootboxCatalog.Reward preview = LootboxCatalog.rewardAt(
-                ThreadLocalRandom.current().nextInt(LootboxCatalog.TOTAL_WEIGHT)
+        CrateCatalog.Reward preview = CrateCatalog.rewardAt(
+                ThreadLocalRandom.current().nextInt(CrateCatalog.TOTAL_WEIGHT)
         );
         session.inventory.setItem(REEL_LAST, items.preview(preview, cosmeticItems));
         player.playSound(
                 player.getLocation(),
-                session.frame < 23 ? Sound.BLOCK_NOTE_BLOCK_HAT : Sound.BLOCK_NOTE_BLOCK_PLING,
+                session.frame < 24
+                        ? Sound.BLOCK_WOODEN_BUTTON_CLICK_ON
+                        : Sound.BLOCK_NOTE_BLOCK_PLING,
                 0.55f,
                 Math.min(1.8f, 0.7f + session.frame * 0.035f)
         );
@@ -334,29 +360,35 @@ final class LootboxService implements CommandExecutor, TabCompleter, Listener {
         for (int slot = REEL_FIRST; slot <= REEL_LAST; slot++) {
             session.inventory.setItem(slot, slot == WINNING_SLOT
                     ? items.preview(session.reward, cosmeticItems)
-                    : MenuItems.button(Material.BLACK_STAINED_GLASS_PANE, " "));
+                    : MenuItems.button(Material.BROWN_STAINED_GLASS_PANE, "Crate Panel"));
         }
-        session.inventory.setItem(4, MenuItems.button(Material.SPECTRAL_ARROW, "Winning Reward"));
+        session.inventory.setItem(4, MenuItems.button(
+                Material.CHEST,
+                "Crate Opened",
+                "The centre item is your saved reward."
+        ));
+        session.inventory.setItem(13, MenuItems.button(Material.SPECTRAL_ARROW, "Winning Slot"));
+        session.inventory.setItem(31, MenuItems.button(Material.HOPPER, "Reward Locked In"));
         player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1f, 1.15f);
         session.task = plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
             sessions.remove(session.playerId);
             if (!deliverPending(player, true)) {
                 PlayerMenuService.error(
-                        player, "Your inventory is full. Make room, then use /lootbox claim."
+                        player, "Your inventory is full. Make room, then use /crate claim."
                 );
             }
         }, 20L);
     }
 
     private boolean deliverPending(Player player, boolean tellWhenFull) {
-        LootboxStore.Pending pending = store.pending(player.getUniqueId()).orElse(null);
+        CrateStore.Pending pending = store.pending(player.getUniqueId()).orElse(null);
         if (pending == null) {
             items.finishOrphanedRewards(player);
             return false;
         }
-        LootboxCatalog.Reward reward = LootboxCatalog.find(pending.rewardId()).orElse(null);
+        CrateCatalog.Reward reward = CrateCatalog.find(pending.rewardId()).orElse(null);
         if (reward == null) {
-            plugin.getLogger().severe("Unknown pending lootbox reward " + pending.rewardId());
+            plugin.getLogger().severe("Unknown pending crate reward " + pending.rewardId());
             PlayerMenuService.error(player, "Your saved reward needs an administrator to repair it.");
             return false;
         }
@@ -380,7 +412,7 @@ final class LootboxService implements CommandExecutor, TabCompleter, Listener {
             player.sendMessage(winMessage(reward).append(Component.text(
                     " It is stored in /wardrobe.", NamedTextColor.GRAY
             )));
-            auditWin(player, pending, reward);
+            recordWin(player, pending, reward);
             if (definition.secret()) {
                 effects.playSecretReveal(player);
             }
@@ -392,28 +424,28 @@ final class LootboxService implements CommandExecutor, TabCompleter, Listener {
                     return false;
                 }
             } catch (UncheckedIOException exception) {
-                plugin.getLogger().warning("Could not recover lootbox reward "
+                plugin.getLogger().warning("Could not recover crate reward "
                         + pending.spinId() + ": " + exception.getMessage());
                 PlayerMenuService.error(player, "Your saved reward could not be recovered yet.");
                 return false;
             }
             items.finishReward(player, pending.spinId());
             player.sendMessage(winMessage(reward));
-            auditWin(player, pending, reward);
+            recordWin(player, pending, reward);
             return true;
         }
         ItemStack prize = items.reward(reward, pending.spinId());
         if (!canFit(player.getInventory(), prize)) {
             if (tellWhenFull) {
                 PlayerMenuService.error(
-                        player, "Make room for " + reward.displayName() + ", then use /lootbox claim."
+                        player, "Make room for " + reward.displayName() + ", then use /crate claim."
                 );
             }
             return false;
         }
         Map<Integer, ItemStack> leftover = player.getInventory().addItem(prize);
         if (!leftover.isEmpty()) {
-            plugin.getLogger().warning("A capacity-checked lootbox reward did not fit for "
+            plugin.getLogger().warning("A capacity-checked crate reward did not fit for "
                     + player.getUniqueId());
             items.removeReward(player, pending.spinId());
             return false;
@@ -421,30 +453,65 @@ final class LootboxService implements CommandExecutor, TabCompleter, Listener {
         try {
             if (!store.complete(player.getUniqueId(), pending.spinId())) {
                 items.removeReward(player, pending.spinId());
-                plugin.getLogger().warning("Pending lootbox spin changed before delivery for "
+                plugin.getLogger().warning("Pending crate spin changed before delivery for "
                         + player.getUniqueId());
                 return false;
             }
         } catch (UncheckedIOException exception) {
             items.removeReward(player, pending.spinId());
-            plugin.getLogger().warning("Could not commit lootbox reward "
+            plugin.getLogger().warning("Could not commit crate reward "
                     + pending.spinId() + ": " + exception.getMessage());
             PlayerMenuService.error(player, "Your saved reward could not be delivered yet.");
             return false;
         }
         items.finishReward(player, pending.spinId());
         player.sendMessage(winMessage(reward));
-        auditWin(player, pending, reward);
+        recordWin(player, pending, reward);
         return true;
+    }
+
+    private void recordWin(
+            Player player, CrateStore.Pending pending, CrateCatalog.Reward reward
+    ) {
+        auditWin(player, pending, reward);
+        if (reward.rare()) {
+            announceRareWin(player, reward);
+        }
+    }
+
+    private void announceRareWin(Player player, CrateCatalog.Reward reward) {
+        Component announcement = PlayerMenuService.prefix()
+                .append(Component.text(player.getName(), NamedTextColor.GOLD, TextDecoration.BOLD))
+                .append(Component.text(" opened ", NamedTextColor.WHITE))
+                .append(Component.text(reward.displayName(), NamedTextColor.LIGHT_PURPLE,
+                        TextDecoration.BOLD))
+                .append(Component.text(" from a Mysterious Crate", NamedTextColor.WHITE))
+                .append(Component.text(
+                        " (chance: " + reward.displayedChance() + ")",
+                        NamedTextColor.GRAY
+                ));
+        if (reward.cosmetic()) {
+            announcement = announcement.append(Component.text(
+                    " • In existence: " + cosmetics.inExistence(reward.cosmeticId()),
+                    NamedTextColor.DARK_AQUA
+            ));
+        }
+        for (Player viewer : plugin.getServer().getOnlinePlayers()) {
+            viewer.sendMessage(announcement);
+            viewer.playSound(
+                    viewer.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f, 0.95f
+            );
+        }
+        plugin.getServer().getConsoleSender().sendMessage(announcement);
     }
 
     private boolean giveKey(CommandSender sender, String[] args) {
         if (!plugin.mayAdminister(sender)) {
-            sender.sendMessage("You do not have permission to issue lootbox keys.");
+            sender.sendMessage("You do not have permission to issue crate keys.");
             return true;
         }
         if (args.length < 2) {
-            sender.sendMessage("Use /lootbox key <online player> [amount].");
+            sender.sendMessage("Use /crate key <online player> [amount].");
             return true;
         }
         Player target = plugin.getServer().getPlayerExact(args[1]);
@@ -467,20 +534,20 @@ final class LootboxService implements CommandExecutor, TabCompleter, Listener {
         }
         Map<Integer, ItemStack> leftover = target.getInventory().addItem(items.key(amount));
         leftover.values().forEach(item -> target.getWorld().dropItemNaturally(target.getLocation(), item));
-        sender.sendMessage("Issued " + amount + " lootbox "
+        sender.sendMessage("Issued " + amount + " crate "
                 + (amount == 1 ? "key" : "keys") + " to " + target.getName() + ".");
         target.sendMessage(PlayerMenuService.prefix().append(Component.text(
-                "You received " + amount + " lootbox " + (amount == 1 ? "key" : "keys") + ".",
+                "You received " + amount + " crate " + (amount == 1 ? "key" : "keys") + ".",
                 NamedTextColor.GREEN
         )));
         UUID actor = sender instanceof Player player ? player.getUniqueId() : null;
         ServerEvent.of(
-                "lootbox_key_grant",
+                "crate_key_grant",
                 ServerEvent.CATEGORY_ADMIN,
                 actor,
                 sender.getName(),
                 plugin::recordServerEvent
-        ).summary("Issued " + amount + " lootbox " + (amount == 1 ? "key" : "keys")
+        ).summary("Issued " + amount + " crate " + (amount == 1 ? "key" : "keys")
                         + " to " + target.getName())
                 .detail("target", target.getName())
                 .detail("target_uuid", target.getUniqueId().toString())
@@ -490,27 +557,42 @@ final class LootboxService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void auditWin(
-            Player player, LootboxStore.Pending pending, LootboxCatalog.Reward reward
+            Player player, CrateStore.Pending pending, CrateCatalog.Reward reward
     ) {
         if (!reward.highImpact()) {
             return;
         }
         ServerEvent.of(
-                "lootbox_rare_win",
+                "crate_rare_win",
                 ServerEvent.CATEGORY_ECONOMY,
                 player.getUniqueId(),
                 player.getName(),
                 plugin::recordServerEvent
-        ).summary(player.getName() + " won " + reward.displayName() + " from a lootbox")
+        ).summary(player.getName() + " won " + reward.displayName() + " from a crate")
                 .detail("reward", reward.displayName())
                 .detail("chance", reward.displayedChance())
-                .detail("spin_id", pending.spinId().toString())
+                .detail("opening_id", pending.spinId().toString())
                 .record();
     }
 
     @EventHandler(priority = EventPriority.NORMAL)
     public void onClick(InventoryClickEvent event) {
-        if (!(event.getInventory().getHolder() instanceof LootboxMenu menu)
+        if (event.getWhoClicked() instanceof Player player
+                && movesKeyIntoExternalInventory(event, player)) {
+            event.setCancelled(true);
+            PlayerMenuService.error(
+                    player, "Crate keys stay in player inventories. Drop one to trade it directly."
+            );
+            return;
+        }
+        if (event.getWhoClicked() instanceof Player player && items.isKey(event.getCurrentItem())) {
+            plugin.getServer().getScheduler().runTask(plugin, () -> {
+                if (player.isOnline()) {
+                    items.upgradeLegacyKeys(player);
+                }
+            });
+        }
+        if (!(event.getInventory().getHolder() instanceof CrateMenu menu)
                 || !(event.getWhoClicked() instanceof Player player)) {
             return;
         }
@@ -539,14 +621,58 @@ final class LootboxService implements CommandExecutor, TabCompleter, Listener {
 
     @EventHandler(priority = EventPriority.NORMAL)
     public void onDrag(InventoryDragEvent event) {
-        if (event.getInventory().getHolder() instanceof LootboxMenu) {
+        if (event.getWhoClicked() instanceof Player player
+                && items.isKey(event.getOldCursor())
+                && isExternalInventory(event.getView().getTopInventory())
+                && event.getRawSlots().stream().anyMatch(
+                        slot -> slot < event.getView().getTopInventory().getSize()
+                )) {
+            event.setCancelled(true);
+            PlayerMenuService.error(
+                    player, "Crate keys stay in player inventories. Drop one to trade it directly."
+            );
+            return;
+        }
+        if (event.getInventory().getHolder() instanceof CrateMenu) {
             event.setCancelled(true);
         }
     }
 
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onInventoryMove(InventoryMoveItemEvent event) {
+        if (items.isKey(event.getItem())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onInventoryPickup(InventoryPickupItemEvent event) {
+        if (items.isKey(event.getItem().getItemStack())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPickup(EntityPickupItemEvent event) {
+        if (!(event.getEntity() instanceof Player player) || !items.isKey(event.getItem().getItemStack())) {
+            return;
+        }
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            if (player.isOnline()) {
+                items.upgradeLegacyKeys(player);
+            }
+        });
+    }
+
     @EventHandler(priority = EventPriority.MONITOR)
     public void onQuit(PlayerQuitEvent event) {
-        RollSession session = sessions.remove(event.getPlayer().getUniqueId());
+        Player player = event.getPlayer();
+        Long previous = onlineCreditStarted.remove(player.getUniqueId());
+        long now = System.currentTimeMillis();
+        if (previous != null && now > previous) {
+            creditOnline(Map.of(player.getUniqueId(), now - previous));
+        }
+        RollSession session = sessions.remove(player.getUniqueId());
         if (session != null && session.task != null) {
             session.task.cancel();
         }
@@ -554,14 +680,37 @@ final class LootboxService implements CommandExecutor, TabCompleter, Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
+        items.upgradeLegacyKeys(event.getPlayer());
+        onlineCreditStarted.put(event.getPlayer().getUniqueId(), System.currentTimeMillis());
         plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
             if (event.getPlayer().isOnline()) {
                 deliverPending(event.getPlayer(), true);
+                deliverBankedKeys(event.getPlayer(), true);
             }
         }, 40L);
     }
 
+    void start() {
+        if (hourlyTask != null) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        for (Player player : plugin.getServer().getOnlinePlayers()) {
+            items.upgradeLegacyKeys(player);
+            onlineCreditStarted.put(player.getUniqueId(), now);
+        }
+        hourlyTask = plugin.getServer().getScheduler().runTaskTimer(
+                plugin, this::creditOnlinePlayers, ONLINE_PULSE_TICKS, ONLINE_PULSE_TICKS
+        );
+    }
+
     void stop() {
+        creditOnlinePlayers();
+        if (hourlyTask != null) {
+            hourlyTask.cancel();
+            hourlyTask = null;
+        }
+        onlineCreditStarted.clear();
         for (RollSession session : sessions.values()) {
             if (session.task != null) {
                 session.task.cancel();
@@ -570,19 +719,141 @@ final class LootboxService implements CommandExecutor, TabCompleter, Listener {
         sessions.clear();
     }
 
-    private void fillReel(Inventory inventory) {
-        ItemStack filler = MenuItems.button(Material.BLACK_STAINED_GLASS_PANE, " ");
+    private void creditOnlinePlayers() {
+        long now = System.currentTimeMillis();
+        Map<UUID, Long> elapsed = new HashMap<>();
+        for (Player player : plugin.getServer().getOnlinePlayers()) {
+            Long previous = onlineCreditStarted.get(player.getUniqueId());
+            if (previous == null) {
+                onlineCreditStarted.put(player.getUniqueId(), now);
+            } else if (now > previous) {
+                elapsed.put(player.getUniqueId(), now - previous);
+            }
+        }
+        Map<UUID, CrateStore.KeyCredit> credits = creditOnline(elapsed);
+        if (credits == null) {
+            return;
+        }
+        elapsed.keySet().forEach(playerId -> onlineCreditStarted.put(playerId, now));
+        for (Map.Entry<UUID, CrateStore.KeyCredit> entry : credits.entrySet()) {
+            Player player = plugin.getServer().getPlayer(entry.getKey());
+            if (player == null) {
+                continue;
+            }
+            int delivered = deliverBankedKeys(player, entry.getValue().earned() > 0);
+            if (entry.getValue().earned() > 0
+                    && delivered == 0
+                    && settings.isEnabled(
+                            player.getUniqueId(), PlayerSettingsStore.Setting.CHAT_NOTIFICATIONS
+                    )) {
+                player.sendMessage(PlayerMenuService.prefix().append(Component.text(
+                        "Your hourly crate key is banked. Clear inventory space to receive it.",
+                        NamedTextColor.GOLD
+                )));
+            }
+        }
+    }
+
+    private Map<UUID, CrateStore.KeyCredit> creditOnline(Map<UUID, Long> elapsed) {
+        if (elapsed.isEmpty()) {
+            return Map.of();
+        }
+        try {
+            return store.creditOnline(elapsed);
+        } catch (IllegalArgumentException | ArithmeticException | UncheckedIOException exception) {
+            plugin.getLogger().warning("Could not save hourly crate-key progress: "
+                    + exception.getMessage());
+            return null;
+        }
+    }
+
+    private int deliverBankedKeys(Player player, boolean notify) {
+        int banked = store.bankedKeys(player.getUniqueId());
+        if (banked <= 0) {
+            return 0;
+        }
+        int remaining = banked;
+        int delivered = 0;
+        while (remaining > 0) {
+            int batch = Math.min(64, remaining);
+            Map<Integer, ItemStack> leftover = player.getInventory().addItem(items.key(batch));
+            int rejected = leftover.values().stream().mapToInt(ItemStack::getAmount).sum();
+            int accepted = batch - rejected;
+            delivered += accepted;
+            remaining -= accepted;
+            if (accepted < batch) {
+                break;
+            }
+        }
+        if (delivered == 0) {
+            return 0;
+        }
+        try {
+            int claimed = store.claimBankedKeys(player.getUniqueId(), delivered);
+            if (claimed != delivered) {
+                items.remove(player, delivered - claimed);
+                delivered = claimed;
+            }
+        } catch (UncheckedIOException exception) {
+            items.remove(player, delivered);
+            plugin.getLogger().warning("Could not claim banked crate keys: "
+                    + exception.getMessage());
+            return 0;
+        }
+        if (notify
+                && delivered > 0
+                && settings.isEnabled(
+                        player.getUniqueId(), PlayerSettingsStore.Setting.CHAT_NOTIFICATIONS
+                )) {
+            player.sendMessage(PlayerMenuService.prefix().append(Component.text(
+                    "You earned " + delivered + " hourly crate "
+                            + (delivered == 1 ? "key" : "keys") + ".",
+                    NamedTextColor.GREEN
+            )));
+            player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.8f, 1.15f);
+        }
+        return delivered;
+    }
+
+    private static void fillHub(Inventory inventory) {
+        ItemStack panel = MenuItems.button(Material.BROWN_STAINED_GLASS_PANE, "Crate Panel");
+        for (int slot = 0; slot < inventory.getSize(); slot++) {
+            inventory.setItem(slot, panel);
+        }
+        ItemStack brace = MenuItems.button(Material.IRON_BARS, "Iron Crate Brace");
+        for (int slot : List.of(0, 8, 18, 26)) {
+            inventory.setItem(slot, brace);
+        }
+        inventory.setItem(4, MenuItems.button(
+                Material.BARREL,
+                "Mysterious Crate",
+                "A reinforced crate with one saved reward inside."
+        ));
+    }
+
+    private void fillCrate(Inventory inventory) {
+        ItemStack filler = MenuItems.button(Material.BROWN_STAINED_GLASS_PANE, "Crate Panel");
         for (int slot = 0; slot < inventory.getSize(); slot++) {
             inventory.setItem(slot, filler);
         }
+        ItemStack brace = MenuItems.button(Material.IRON_BARS, "Iron Crate Brace");
+        for (int slot : List.of(0, 8, 9, 17, 27, 35, 36, 44)) {
+            inventory.setItem(slot, brace);
+        }
         for (int slot = REEL_FIRST; slot <= REEL_LAST; slot++) {
-            LootboxCatalog.Reward preview = LootboxCatalog.rewardAt(
-                    ThreadLocalRandom.current().nextInt(LootboxCatalog.TOTAL_WEIGHT)
+            CrateCatalog.Reward preview = CrateCatalog.rewardAt(
+                    ThreadLocalRandom.current().nextInt(CrateCatalog.TOTAL_WEIGHT)
             );
             inventory.setItem(slot, items.preview(preview, cosmeticItems));
         }
-        inventory.setItem(4, MenuItems.button(Material.SPECTRAL_ARROW, "Winning Slot"));
-        inventory.setItem(22, MenuItems.button(
+        inventory.setItem(4, MenuItems.button(
+                Material.BARREL,
+                "Locked Mysterious Crate",
+                "The key is turning and the lid is opening."
+        ));
+        inventory.setItem(13, MenuItems.button(Material.SPECTRAL_ARROW, "Winning Slot"));
+        inventory.setItem(31, MenuItems.button(Material.HOPPER, "Winning Slot"));
+        inventory.setItem(40, MenuItems.button(
                 Material.TRIPWIRE_HOOK,
                 "Key Consumed",
                 "The reward is already selected and saved.",
@@ -590,13 +861,43 @@ final class LootboxService implements CommandExecutor, TabCompleter, Listener {
         ));
     }
 
-    private static Component winMessage(LootboxCatalog.Reward reward) {
+    private static Component winMessage(CrateCatalog.Reward reward) {
         return PlayerMenuService.prefix()
                 .append(Component.text("You won ", NamedTextColor.WHITE))
                 .append(Component.text(reward.displayName(), NamedTextColor.GOLD, TextDecoration.BOLD))
                 .append(Component.text(
                         " (" + reward.displayedChance() + ").", NamedTextColor.GRAY
                 ));
+    }
+
+    private boolean movesKeyIntoExternalInventory(InventoryClickEvent event, Player player) {
+        Inventory top = event.getView().getTopInventory();
+        if (!isExternalInventory(top)) {
+            return false;
+        }
+        boolean clickedTop = event.getRawSlot() >= 0 && event.getRawSlot() < top.getSize();
+        if (clickedTop && items.isKey(event.getCursor())) {
+            return true;
+        }
+        if (clickedTop
+                && event.getClick() == ClickType.NUMBER_KEY
+                && event.getHotbarButton() >= 0
+                && items.isKey(player.getInventory().getItem(event.getHotbarButton()))) {
+            return true;
+        }
+        if (clickedTop
+                && event.getClick() == ClickType.SWAP_OFFHAND
+                && items.isKey(player.getInventory().getItemInOffHand())) {
+            return true;
+        }
+        return event.isShiftClick()
+                && event.getClickedInventory() == event.getView().getBottomInventory()
+                && items.isKey(event.getCurrentItem());
+    }
+
+    private static boolean isExternalInventory(Inventory inventory) {
+        return inventory.getType() != InventoryType.CRAFTING
+                && inventory.getType() != InventoryType.PLAYER;
     }
 
     private static ItemStack named(ItemStack item, String name, String... lore) {

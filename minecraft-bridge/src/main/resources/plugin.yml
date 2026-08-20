@@ -2,7 +2,7 @@ name: MGXAccessBridge
 version: ${version}
 main: bot.mgx.accessbridge.MGXAccessBridge
 api-version: "1.21.11"
-description: Signed access, economy, lootboxes, cosmetics, scoreboard, and clans.
+description: Signed access, economy, crates, cosmetics, scoreboard, and clans.
 authors: [9mits]
 depend: [floodgate]
 softdepend: [LuckPerms, ViaVersion]
@@ -39,11 +39,11 @@ commands:
     usage: /wardrobe [kill_effects|auras|trails|secret|deposit|settings]
     aliases: [cosmetics]
     permission: mgx.cosmetics
-  lootbox:
-    description: Open lootboxes, inspect exact odds and claim saved rewards.
-    usage: /lootbox [open|odds|claim]
-    aliases: [crate, crates]
-    permission: mgx.lootbox
+  crate:
+    description: Open Mysterious Crates, inspect exact odds and claim saved rewards.
+    usage: /crate [open|odds|claim]
+    aliases: [crates]
+    permission: mgx.crate
   whitelisted:
     description: List everyone with whitelist access and their Discord name.
     usage: /whitelisted [page]
@@ -111,8 +111,8 @@ permissions:
   mgx.cosmetics:
     description: Allows players to use the wardrobe and cosmetic effects.
     default: true
-  mgx.lootbox:
-    description: Allows players to open lootboxes and inspect their odds.
+  mgx.crate:
+    description: Allows players to open crates and inspect their odds.
     default: true
   mgxaccessbridge.admin:
     description: Allows rank holds, administrative data resets, and joining while the server is held for maintenance when granted explicitly in LuckPerms.

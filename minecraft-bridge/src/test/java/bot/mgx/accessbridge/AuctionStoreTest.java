@@ -118,6 +118,20 @@ class AuctionStoreTest {
     }
 
     @Test
+    void restrictedListingsReturnToTheirSellersMailbox() throws Exception {
+        AuctionStore auctions = new AuctionStore(temporaryDirectory.resolve("auctions.json"));
+        UUID seller = UUID.randomUUID();
+        auctions.list(seller, "Seller", 10, "TRIAL_KEY", 1, "Crate Key", "crate-key", 1L);
+        auctions.list(seller, "Seller", 10, "DIRT", 1, "Dirt", "normal-item", 2L);
+
+        assertEquals(1, auctions.returnRestrictedListings("crate-key"::equals, 3L));
+        assertEquals(1, auctions.browse("", 3L).size());
+        assertEquals("normal-item", auctions.browse("", 3L).get(0).itemData());
+        assertEquals(1, auctions.mailboxOf(seller).size());
+        assertEquals("restricted", auctions.mailboxOf(seller).get(0).reason());
+    }
+
+    @Test
     void aFourteenthListingIsTheLastOneAllowed() throws Exception {
         AuctionStore auctions = new AuctionStore(temporaryDirectory.resolve("auctions.json"));
         UUID seller = UUID.randomUUID();

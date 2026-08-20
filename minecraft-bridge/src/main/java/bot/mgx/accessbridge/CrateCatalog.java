@@ -8,13 +8,13 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * The single lootbox reward pool.
+ * The single crate reward pool.
  *
  * <p>Weights are exact integer portions of {@value #TOTAL_WEIGHT}; one point is
  * {@code 0.001%}. Rolling an integer ticket first and animating it afterwards keeps
  * the reel cosmetic: closing it cannot change what was won.
  */
-final class LootboxCatalog {
+final class CrateCatalog {
     static final int TOTAL_WEIGHT = 100_000;
 
     enum Category {
@@ -81,7 +81,11 @@ final class LootboxCatalog {
         }
 
         boolean highImpact() {
-            return secret() || (!cosmetic() && weight <= 500);
+            return rare();
+        }
+
+        boolean rare() {
+            return secret() || weight < 1_000;
         }
 
         String displayedChance() {
@@ -120,7 +124,7 @@ final class LootboxCatalog {
     private static final List<Reward> REWARDS = buildRewards();
     private static final Map<String, Reward> BY_ID = indexRewards();
 
-    private LootboxCatalog() {
+    private CrateCatalog() {
     }
 
     static Optional<Reward> find(String id) {
@@ -142,7 +146,7 @@ final class LootboxCatalog {
     static Reward rewardAt(int ticket) {
         if (ticket < 0 || ticket >= TOTAL_WEIGHT) {
             throw new IllegalArgumentException(
-                    "Lootbox ticket must be between 0 and " + (TOTAL_WEIGHT - 1)
+                    "Crate ticket must be between 0 and " + (TOTAL_WEIGHT - 1)
             );
         }
         int boundary = 0;
@@ -152,7 +156,7 @@ final class LootboxCatalog {
                 return reward;
             }
         }
-        throw new IllegalStateException("Lootbox reward weights do not cover every ticket");
+        throw new IllegalStateException("Crate reward weights do not cover every ticket");
     }
 
     static String percentage(int weight) {
@@ -162,23 +166,23 @@ final class LootboxCatalog {
     private static List<Reward> buildRewards() {
         List<Reward> rewards = new ArrayList<>();
         rewards.add(item(
-                "raw_copper", "16 Raw Copper", Category.RESOURCE, 12_700,
+                "raw_copper", "16 Raw Copper", Category.RESOURCE, 11_200,
                 "RAW_COPPER", 16, "A useful mining bundle without shop cash."
         ));
         rewards.add(item(
-                "raw_iron", "8 Raw Iron", Category.RESOURCE, 12_000,
+                "raw_iron", "8 Raw Iron", Category.RESOURCE, 10_800,
                 "RAW_IRON", 8, "A small bundle ready to smelt."
         ));
         rewards.add(item(
-                "raw_gold", "6 Raw Gold", Category.RESOURCE, 10_000,
+                "raw_gold", "6 Raw Gold", Category.RESOURCE, 9_200,
                 "RAW_GOLD", 6, "A restrained bundle of raw gold."
         ));
         rewards.add(item(
-                "emeralds", "4 Emeralds", Category.RESOURCE, 9_000,
+                "emeralds", "4 Emeralds", Category.RESOURCE, 8_700,
                 "EMERALD", 4, "Four emeralds for trading or building."
         ));
         rewards.add(item(
-                "diamonds", "2 Diamonds", Category.RESOURCE, 7_000,
+                "diamonds", "2 Diamonds", Category.RESOURCE, 6_800,
                 "DIAMOND", 2, "Two diamonds, kept well below equipment quantities."
         ));
         rewards.add(item(
@@ -210,31 +214,31 @@ final class LootboxCatalog {
                 "SHULKER_SHELL", 2, "Exactly enough shells for one shulker box."
         ));
         rewards.add(item(
-                "ancient_debris", "Ancient Debris", Category.RESOURCE, 1_500,
+                "ancient_debris", "Ancient Debris", Category.RESOURCE, 2_000,
                 "ANCIENT_DEBRIS", 1, "One piece of ancient debris."
         ));
         rewards.add(item(
-                "netherite_scrap", "Netherite Scrap", Category.RESOURCE, 1_250,
+                "netherite_scrap", "Netherite Scrap", Category.RESOURCE, 1_500,
                 "NETHERITE_SCRAP", 1, "One quarter of the scrap for an ingot."
         ));
         rewards.add(item(
-                "totem_of_undying", "Totem of Undying", Category.TREASURE, 500,
+                "totem_of_undying", "Totem of Undying", Category.TREASURE, 750,
                 "TOTEM_OF_UNDYING", 1, "A rare single-use survival item."
         ));
         rewards.add(item(
-                "netherite_ingot", "Netherite Ingot", Category.RESOURCE, 200,
+                "netherite_ingot", "Netherite Ingot", Category.RESOURCE, 300,
                 "NETHERITE_INGOT", 1, "One complete netherite ingot."
         ));
         rewards.add(item(
-                "enchanted_golden_apple", "Enchanted Golden Apple", Category.TREASURE, 150,
+                "enchanted_golden_apple", "Enchanted Golden Apple", Category.TREASURE, 200,
                 "ENCHANTED_GOLDEN_APPLE", 1, "One exceptionally rare enchanted apple."
         ));
         rewards.add(item(
-                "heavy_core", "Heavy Core", Category.TRIAL, 100,
+                "heavy_core", "Heavy Core", Category.TRIAL, 150,
                 "HEAVY_CORE", 1, "The rare crafting core for a mace."
         ));
         rewards.add(item(
-                "mace", "Mace", Category.TRIAL, 35,
+                "mace", "Mace", Category.TRIAL, 50,
                 "MACE", 1, "A complete mace at the table's lowest visible item chance."
         ));
         for (CosmeticCatalog.Definition cosmetic : CosmeticCatalog.all()) {
@@ -283,7 +287,7 @@ final class LootboxCatalog {
         Map<String, Reward> indexed = new LinkedHashMap<>();
         for (Reward reward : REWARDS) {
             if (indexed.putIfAbsent(reward.id(), reward) != null) {
-                throw new IllegalStateException("Duplicate lootbox reward ID " + reward.id());
+                throw new IllegalStateException("Duplicate crate reward ID " + reward.id());
             }
         }
         return Map.copyOf(indexed);

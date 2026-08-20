@@ -95,6 +95,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     private final MGXAccessBridge plugin;
     private final EconomyStore money;
     private final AuctionStore auctions;
+    private final CrateItems crateItems;
     private final Map<UUID, String> auctionSearch = new ConcurrentHashMap<>();
     /** What each player is part-way through buying, cleared when the screen closes. */
     private final Map<UUID, PendingBuy> pendingBuys = new ConcurrentHashMap<>();
@@ -109,12 +110,22 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             MGXAccessBridge plugin,
             EconomyStore money,
             AuctionStore auctions,
-            PlayerSettingsStore settings
+            PlayerSettingsStore settings,
+            CrateItems crateItems
     ) {
         this.plugin = plugin;
         this.money = money;
         this.auctions = auctions;
         this.settings = settings;
+        this.crateItems = crateItems;
+        int returnedKeys = auctions.returnRestrictedListings(
+                itemData -> crateItems.isKey(decodeItem(itemData)),
+                System.currentTimeMillis()
+        );
+        if (returnedKeys > 0) {
+            plugin.getLogger().info("Returned " + returnedKeys
+                    + " crate-key auction listings to seller mailboxes.");
+        }
     }
 
     @Override
@@ -1233,6 +1244,11 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
 
     private void sellHand(Player player) {
         ItemStack held = player.getInventory().getItemInMainHand();
+        if (crateItems.isKey(held)) {
+            throw new IllegalArgumentException(
+                    "Crate keys cannot be sold. Trade or drop them directly to another player."
+            );
+        }
         Sold sold = sellStacks(player, List.of(held));
         if (sold.count() == 0) {
             throw new IllegalArgumentException("That cannot be sold here.");
@@ -1319,6 +1335,11 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         ItemStack held = player.getInventory().getItemInMainHand();
         if (held == null || held.getType().isAir()) {
             throw new IllegalArgumentException("Hold the item you want to list.");
+        }
+        if (crateItems.isKey(held)) {
+            throw new IllegalArgumentException(
+                    "Crate keys cannot be listed in /ah. Trade or drop them directly."
+            );
         }
         ItemStack listing = held.clone();
         String encoded = encodeItem(listing);

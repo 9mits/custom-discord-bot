@@ -94,6 +94,7 @@ SERVER_EVENT_RISK: Mapping[str, str] = {
     "clan_demote": RISK_MODERATE,
     "clan_upgrade": RISK_MODERATE,
     "clan_roster_buy": RISK_MODERATE,
+    "crate_key_grant": RISK_MODERATE,
     "lootbox_key_grant": RISK_MODERATE,
 }
 
@@ -119,8 +120,10 @@ SERVER_EVENT_TITLES: Mapping[str, str] = {
     "data_reset": "Server Data Reset",
     "shop_buy": "Shop Purchase",
     "shop_sell": "Items Sold",
-    "lootbox_key_grant": "Lootbox Keys Issued",
-    "lootbox_rare_win": "Rare Lootbox Reward Won",
+    "crate_key_grant": "Crate Keys Issued",
+    "crate_rare_win": "Rare Crate Reward Won",
+    "lootbox_key_grant": "Crate Keys Issued",
+    "lootbox_rare_win": "Rare Crate Reward Won",
 }
 
 

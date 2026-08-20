@@ -110,6 +110,19 @@ final class CosmeticStore {
         return List.copyOf(owned);
     }
 
+    synchronized int inExistence(String cosmeticId) {
+        if (cosmeticId == null || cosmeticId.isBlank()) {
+            return 0;
+        }
+        int count = 0;
+        for (Token token : tokens.values()) {
+            if (token.generation() == generation && token.cosmeticId().equals(cosmeticId)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
     synchronized Optional<Token> withdraw(UUID owner, UUID serial) {
         Token token = tokens.get(serial);
         if (token == null || token.generation() != generation || !owner.equals(token.storedOwner())) {

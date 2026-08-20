@@ -140,7 +140,8 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
                     Material.BLACK_STAINED_GLASS_PANE,
                     "Unknown",
                     "A black silhouette hides this category.",
-                    "Chance: ???"
+                    "Chance: ???",
+                    "In existence: " + store.inExistence("event_horizon")
             ));
         }
         inventory.setItem(SETTINGS_SLOT, button(
@@ -183,7 +184,8 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
                         definition.secret() ? "???" : definition.displayName(),
                         definition.description(),
                         "Not owned",
-                        "Lootbox chance: " + definition.displayedChance()
+                        "Crate chance: " + definition.displayedChance(),
+                        "In existence: " + store.inExistence(definition.id())
                 );
                 inventory.setItem(slot++, locked);
                 continue;
@@ -193,6 +195,7 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
             ItemMeta meta = icon.getItemMeta();
             List<Component> lore = new ArrayList<>(meta.lore() == null ? List.of() : meta.lore());
             lore.add(Component.empty());
+            lore.add(line("In existence: " + store.inExistence(definition.id())));
             lore.add(line("Owned copies: " + copies.size()));
             lore.add(line(selected.stored() ? "Stored in wardrobe" : "Physical token in inventory"));
             lore.add(line("Left-click to equip."));
