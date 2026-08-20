@@ -61,6 +61,12 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private static final int REEL_LAST = 25;
     private static final int WINNING_SLOT = 22;
     private static final int REEL_FRAMES = 31;
+    /**
+     * An auto run keeps the reel and its slowdown — that is the part worth watching —
+     * but at roughly a quarter of the length, so a stack of keys is minutes rather than
+     * a quarter of an hour.
+     */
+    private static final int FAST_REEL_FRAMES = 15;
 
     private enum Screen {
         HUB,
@@ -91,6 +97,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         private final CrateStore.Pending pending;
         private final CrateCatalog.Reward reward;
         private final Inventory inventory;
+        private final boolean fast;
         private int frame;
         private BukkitTask task;
 
@@ -98,12 +105,31 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 UUID playerId,
                 CrateStore.Pending pending,
                 CrateCatalog.Reward reward,
-                Inventory inventory
+                Inventory inventory,
+                boolean fast
         ) {
             this.playerId = playerId;
             this.pending = pending;
             this.reward = reward;
             this.inventory = inventory;
+            this.fast = fast;
+        }
+
+        int frames() {
+            return fast ? FAST_REEL_FRAMES : REEL_FRAMES;
+        }
+
+        /** Ticks until the next frame. Both curves decelerate into the win. */
+        long delay() {
+            if (fast) {
+                return frame < 8 ? 1L : frame < 12 ? 2L : 3L;
+            }
+            return frame < 14 ? 2L : frame < 22 ? 3L : frame < 27 ? 5L : 8L;
+        }
+
+        /** The last few frames ping instead of click, wherever the reel ends. */
+        boolean settling() {
+            return frame >= frames() - (fast ? 4 : 7);
         }
     }
 
@@ -288,7 +314,9 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         );
         holder.inventory = inventory;
         fillCrate(inventory);
-        RollSession session = new RollSession(playerId, pending, reward, inventory);
+        RollSession session = new RollSession(
+                playerId, pending, reward, inventory, autoRuns.containsKey(playerId)
+        );
         sessions.put(playerId, session);
         MenuItems.show(plugin, player, inventory);
         player.playSound(player.getLocation(), Sound.BLOCK_CHEST_OPEN, 0.9f, 0.85f);
@@ -301,7 +329,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             sessions.remove(session.playerId);
             return;
         }
-        if (session.frame >= REEL_FRAMES) {
+        if (session.frame >= session.frames()) {
             finish(session, player);
             return;
         }
@@ -314,19 +342,17 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         session.inventory.setItem(REEL_LAST, items.preview(preview, cosmeticItems));
         player.playSound(
                 player.getLocation(),
-                session.frame < 24
-                        ? Sound.BLOCK_WOODEN_BUTTON_CLICK_ON
-                        : Sound.BLOCK_NOTE_BLOCK_PLING,
+                session.settling()
+                        ? Sound.BLOCK_NOTE_BLOCK_PLING
+                        : Sound.BLOCK_WOODEN_BUTTON_CLICK_ON,
                 0.55f,
-                Math.min(1.8f, 0.7f + session.frame * 0.035f)
+                // The rise is spread across however many frames this reel has, so the
+                // fast one climbs to the same pitch it would have reached slowly.
+                Math.min(1.8f, 0.7f + (1.1f * session.frame / session.frames()))
         );
         session.frame++;
-        long delay = session.frame < 14 ? 2L
-                : session.frame < 22 ? 3L
-                : session.frame < 27 ? 5L
-                : 8L;
         session.task = plugin.getServer().getScheduler().runTaskLater(
-                plugin, () -> advance(session), delay
+                plugin, () -> advance(session), session.delay()
         );
     }
 
