@@ -18,6 +18,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityPickupItemEvent;
 import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.event.inventory.InventoryMoveItemEvent;
 import org.bukkit.event.inventory.InventoryPickupItemEvent;
@@ -51,6 +52,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private static final int RESULT_AGAIN_SLOT = 11;
     private static final int RESULT_AUTO_SLOT = 15;
     private static final int RESULT_BACK_SLOT = 22;
+    private static final int CONFIRM_YES_SLOT = 11;
+    private static final int CONFIRM_NO_SLOT = 15;
     private static final int ODDS_PER_PAGE = 45;
     private static final int PREVIOUS_SLOT = 45;
     private static final int NEXT_SLOT = 53;
@@ -63,7 +66,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         HUB,
         ODDS,
         ROLL,
-        RESULT
+        RESULT,
+        CONFIRM
     }
 
     private static final class CrateMenu implements InventoryHolder {
@@ -111,6 +115,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private final CosmeticEffectService effects;
     private final PlayerSettingsStore settings;
     private final Map<UUID, RollSession> sessions = new HashMap<>();
+    /** Players part way through an auto run, and how many crates are still owed. */
+    private final Map<UUID, Integer> autoRuns = new HashMap<>();
     private final Map<UUID, Long> onlineCreditStarted = new HashMap<>();
     private BukkitTask hourlyTask;
 
@@ -337,13 +343,14 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         session.task = plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
             sessions.remove(session.playerId);
             if (!deliverPending(player, true)) {
+                autoRuns.remove(session.playerId);
                 PlayerMenuService.error(
                         player, "Your inventory is full. Make room, then use /crate claim."
                 );
                 return;
             }
-            openResult(player, session.reward);
-        }, 20L);
+            afterReward(player, session.reward);
+        }, autoRuns.containsKey(session.playerId) ? 10L : 20L);
     }
 
     /** Shown once a reward lands, so opening another crate never needs the hub. */
@@ -373,61 +380,72 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         MenuItems.show(plugin, player, inventory);
     }
 
-    /**
-     * Spends every key the player is holding in one pass. The animation is skipped on
-     * purpose: thirty-one frames per crate would take minutes for a full stack, and the
-     * reward is already decided before the reel starts either way.
-     */
-    private void autoOpen(Player player) {
-        UUID playerId = player.getUniqueId();
-        if (sessions.containsKey(playerId)) {
+    /** Asks once, because the answer spends every key the player owns. */
+    private void confirmAutoOpen(Player player) {
+        if (sessions.containsKey(player.getUniqueId())) {
             PlayerMenuService.error(player, "Your crate is already opening.");
             return;
         }
-        if (store.pending(playerId).isPresent() && !deliverPending(player, true)) {
-            return;
-        }
-        if (items.count(player) <= 0) {
+        int keys = items.count(player);
+        if (keys <= 0) {
             PlayerMenuService.error(player, "You need a Mysterious Crate Key to open a crate.");
             return;
         }
-        int opened = 0;
-        CrateCatalog.Reward last = null;
-        while (items.count(player) > 0) {
-            CrateCatalog.Reward reward = CrateCatalog.rewardAt(
-                    ThreadLocalRandom.current().nextInt(CrateCatalog.TOTAL_WEIGHT)
-            );
-            if (!items.consume(player)) {
-                break;
-            }
-            try {
-                store.reserve(playerId, UUID.randomUUID(), reward.id(), System.currentTimeMillis());
-            } catch (IllegalStateException | UncheckedIOException exception) {
-                returnKey(player);
-                plugin.getLogger().warning(
-                        "Could not reserve a crate reward: " + exception.getMessage()
-                );
-                PlayerMenuService.error(player, "That opening could not be saved. Your key was returned.");
-                break;
-            }
-            if (!deliverPending(player, true)) {
-                // The reward stays reserved, so /crate claim still hands it over.
-                PlayerMenuService.error(
-                        player, "Your inventory is full. Make room, then use /crate claim."
-                );
-                break;
-            }
-            opened++;
-            last = reward;
+        CrateMenu holder = new CrateMenu(Screen.CONFIRM, 1);
+        Inventory inventory = Bukkit.createInventory(
+                holder, 27, Component.text("Auto Open " + keys + " Crates", ORANGE)
+        );
+        holder.inventory = inventory;
+        ItemStack panel = MenuItems.button(Material.BROWN_STAINED_GLASS_PANE, "Crate Panel");
+        for (int slot = 0; slot < inventory.getSize(); slot++) {
+            inventory.setItem(slot, panel);
         }
-        if (opened > 0) {
+        inventory.setItem(CONFIRM_YES_SLOT, MenuItems.button(
+                Material.LIME_CONCRETE,
+                "Use all " + keys + " keys",
+                "Opens " + keys + " crates back to back.",
+                "Close the menu to stop early."
+        ));
+        inventory.setItem(CONFIRM_NO_SLOT, MenuItems.button(
+                Material.RED_CONCRETE, "Cancel", "Keeps your keys."
+        ));
+        inventory.setItem(4, items.key(1));
+        MenuItems.show(plugin, player, inventory);
+    }
+
+    /**
+     * Runs the reel once per key without stopping in between. The count is fixed when
+     * the run starts so a key arriving mid-run does not extend it, and closing the menu
+     * ends the run with the unspent keys still in the player's inventory.
+     */
+    private void beginAutoOpen(Player player) {
+        int keys = items.count(player);
+        if (keys <= 0) {
+            PlayerMenuService.error(player, "You need a Mysterious Crate Key to open a crate.");
+            return;
+        }
+        autoRuns.put(player.getUniqueId(), keys);
+        start(player);
+    }
+
+    /** Called once a reward lands: continues the run, or shows the result screen. */
+    private void afterReward(Player player, CrateCatalog.Reward reward) {
+        Integer remaining = autoRuns.get(player.getUniqueId());
+        if (remaining == null) {
+            openResult(player, reward);
+            return;
+        }
+        int left = remaining - 1;
+        if (left <= 0 || items.count(player) <= 0) {
+            autoRuns.remove(player.getUniqueId());
             player.sendMessage(PlayerMenuService.prefix().append(Component.text(
-                    "Opened " + opened + (opened == 1 ? " crate." : " crates."),
-                    NamedTextColor.GREEN
+                    "Auto open finished.", NamedTextColor.GREEN
             )));
-            player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1f, 1.15f);
-            openResult(player, last);
+            openResult(player, reward);
+            return;
         }
+        autoRuns.put(player.getUniqueId(), left);
+        start(player);
     }
 
     private boolean deliverPending(Player player, boolean tellWhenFull) {
@@ -605,15 +623,21 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             } else if (event.getSlot() == HUB_ODDS_SLOT) {
                 openOdds(player, 1);
             } else if (event.getSlot() == HUB_AUTO_SLOT) {
-                autoOpen(player);
+                confirmAutoOpen(player);
             }
         } else if (menu.screen == Screen.RESULT) {
             if (event.getSlot() == RESULT_AGAIN_SLOT) {
                 start(player);
             } else if (event.getSlot() == RESULT_AUTO_SLOT) {
-                autoOpen(player);
+                confirmAutoOpen(player);
             } else if (event.getSlot() == RESULT_BACK_SLOT) {
                 player.closeInventory();
+            }
+        } else if (menu.screen == Screen.CONFIRM) {
+            if (event.getSlot() == CONFIRM_YES_SLOT) {
+                beginAutoOpen(player);
+            } else if (event.getSlot() == CONFIRM_NO_SLOT) {
+                openHub(player);
             }
         } else if (menu.screen == Screen.ODDS) {
             if (event.getSlot() == PREVIOUS_SLOT) {
@@ -674,6 +698,31 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
+    public void onClose(InventoryCloseEvent event) {
+        if (!(event.getInventory().getHolder() instanceof CrateMenu)
+                || !(event.getPlayer() instanceof Player player)
+                || !autoRuns.containsKey(player.getUniqueId())) {
+            return;
+        }
+        // Every crate in the run replaces the previous screen, which fires a close of
+        // its own. Only a player who has not landed in another crate screen a few ticks
+        // later actually walked away, and that is what ends the run.
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            if (!player.isOnline()
+                    || player.getOpenInventory().getTopInventory().getHolder() instanceof CrateMenu) {
+                return;
+            }
+            Integer left = autoRuns.remove(player.getUniqueId());
+            if (left != null && left > 0) {
+                player.sendMessage(PlayerMenuService.prefix().append(Component.text(
+                        "Auto open stopped. " + items.count(player) + " keys left.",
+                        NamedTextColor.GRAY
+                )));
+            }
+        }, 3L);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
     public void onQuit(PlayerQuitEvent event) {
         Player player = event.getPlayer();
         Long previous = onlineCreditStarted.remove(player.getUniqueId());
@@ -681,6 +730,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         if (previous != null && now > previous) {
             creditOnline(Map.of(player.getUniqueId(), now - previous));
         }
+        autoRuns.remove(player.getUniqueId());
         RollSession session = sessions.remove(player.getUniqueId());
         if (session != null && session.task != null) {
             session.task.cancel();
