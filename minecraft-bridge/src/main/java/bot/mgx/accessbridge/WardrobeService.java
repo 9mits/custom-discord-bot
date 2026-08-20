@@ -145,8 +145,9 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
             if (entry.getValue().size() > 1) {
                 lore.add(line("You own " + entry.getValue().size() + " of these."));
             }
-            lore.add(line(active ? "Equipped. Click to take it off." : "Click to equip."));
-            lore.add(line("Shift-click to sell on the auction house."));
+            if (active) {
+                lore.add(line("Equipped"));
+            }
             meta.lore(lore);
             icon.setItemMeta(meta);
             inventory.setItem(slot, icon);
@@ -154,17 +155,9 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
             slot++;
         }
         if (owned.isEmpty()) {
-            inventory.setItem(22, button(
-                    Material.GRAY_DYE,
-                    "No cosmetics yet",
-                    "Open crates with /crate to win them."
-            ));
+            inventory.setItem(22, button(Material.GRAY_DYE, "No cosmetics yet"));
         }
-        inventory.setItem(SETTINGS_SLOT, button(
-                Material.COMPARATOR,
-                "Cosmetic Settings",
-                "Choose what you and others see."
-        ));
+        inventory.setItem(SETTINGS_SLOT, button(Material.COMPARATOR, "Cosmetic Settings"));
         MenuItems.show(plugin, player, inventory);
     }
 

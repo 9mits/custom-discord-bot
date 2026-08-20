@@ -63,7 +63,7 @@ final class PlayerMenuService implements Listener {
             PlayerSettingsStore.Category category = categories[index];
             inventory.setItem(CATEGORY_SLOTS[index], button(
                     categoryIcon(category), category.label(),
-                    category.description(), "", "Click to open"
+                    category.description()
             ));
         }
         MenuItems.show(plugin, player, inventory);

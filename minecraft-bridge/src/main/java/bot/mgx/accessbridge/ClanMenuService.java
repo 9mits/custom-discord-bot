@@ -235,8 +235,7 @@ final class ClanMenuService implements Listener {
                     List.of(
                             describeLevel(clan.level()),
                             clan.members().size() + "/" + clan.memberSlots() + " members.",
-                            "Treasury " + EconomyFormat.dollars(clan.balance()) + ".",
-                            "Click to open."
+                            "Treasury " + EconomyFormat.dollars(clan.balance()) + "."
                     )));
         }
         if (clans.isEmpty()) {
@@ -315,8 +314,9 @@ final class ClanMenuService implements Listener {
         lore.add("");
         lore.addAll(perkLines(ClanLevel.perksFor(next.get())));
         lore.add("");
-        lore.add(ClanLevel.shortfall(clan.balance(), cost) == 0L
-                ? "Click to buy." : "The treasury is short.");
+        if (ClanLevel.shortfall(clan.balance(), cost) > 0L) {
+            lore.add("The treasury is short.");
+        }
         return button(Material.NETHER_STAR, "Clan level", lore);
     }
 
@@ -333,8 +333,9 @@ final class ClanMenuService implements Listener {
         lore.add("Cost " + EconomyFormat.dollars(next.get().cost().dollars()));
         lore.add("Treasury " + EconomyFormat.dollars(clan.balance()));
         lore.add("");
-        lore.add(ClanLevel.shortfall(clan.balance(), next.get().cost()) == 0L
-                ? "Click to buy." : "The treasury is short.");
+        if (ClanLevel.shortfall(clan.balance(), next.get().cost()) > 0L) {
+            lore.add("The treasury is short.");
+        }
         return button(Material.PLAYER_HEAD, "Roster size", lore);
     }
 

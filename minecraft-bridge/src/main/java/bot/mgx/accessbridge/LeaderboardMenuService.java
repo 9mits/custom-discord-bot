@@ -88,13 +88,13 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
                 Menu.Kind.LEADERBOARD_HUB, null, 1, HUB_SIZE, "Leaderboard", null
         );
         inventory.setItem(HUB_CLANS_WEALTH, button(Material.GOLD_BLOCK, "Richest clan",
-                "Donated treasury, not member wallets.", "Hover a clan for details.", "Click a clan for its members."));
+                "Donated treasury, not member wallets."));
         inventory.setItem(HUB_CLANS_KILLS, button(Material.IRON_SWORD, "Clan with most kills",
-                "Kills summed across members.", "Hover a clan for details.", "Click a clan for its members."));
+                "Kills summed across members."));
         inventory.setItem(HUB_PLAYERS_WEALTH, button(Material.GOLD_INGOT, "Richest player",
-                "Who has the most money.", "Click to open."));
+                "Who has the most money."));
         inventory.setItem(HUB_PLAYERS_KILLS, button(Material.DIAMOND_SWORD, "Player with most kills",
-                "Player kills, highest first.", "Click to open."));
+                "Player kills, highest first."));
         MenuItems.show(plugin, player, inventory);
     }
 
@@ -153,8 +153,7 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
                             clan.members().size() + "/" + clan.memberSlots() + " members.",
                             board.equals("kills")
                                     ? "Balance " + String.format("%,d", clan.balance()) + "."
-                                    : "Treasury " + EconomyFormat.dollars(clan.balance()) + ".",
-                            "Click to see members."
+                                    : "Treasury " + EconomyFormat.dollars(clan.balance()) + "."
                     )));
         }
         if (ranked.isEmpty()) {

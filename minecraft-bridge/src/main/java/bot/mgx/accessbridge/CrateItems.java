@@ -39,10 +39,7 @@ final class CrateItems {
         if (meta != null) {
             meta.displayName(Component.text("Mysterious Crate Key", ORANGE, TextDecoration.BOLD)
                     .decoration(TextDecoration.ITALIC, false));
-            meta.lore(List.of(
-                    line("Opens one crate with /crate."),
-                    line("Not sellable. Drop it to trade it.")
-            ));
+            meta.lore(List.of(line("Opens one Mysterious Crate.")));
             meta.getPersistentDataContainer().set(keyMarker, PersistentDataType.BYTE, (byte) 1);
             NamespacedKey model = NamespacedKey.fromString("mgx:crate_key");
             if (model != null) {
