@@ -35,6 +35,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -101,6 +102,14 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     private final Map<UUID, PendingBuy> pendingBuys = new ConcurrentHashMap<>();
     /** Standing orders that keep buying on a timer. */
     private final Map<UUID, AutoOrder> autoOrders = new ConcurrentHashMap<>();
+    /**
+     * Counted here rather than read from {@code Server#getCurrentTick()}, so a standing
+     * order's schedule depends only on this task actually running. Both the order's
+     * start time and the due check then come from the same clock by construction.
+     */
+    private long autoTick;
+    /** Players already told their dropping order is waiting, so it is said once. */
+    private final Set<UUID> warnedGroundFull = ConcurrentHashMap.newKeySet();
     /** What each open standing-order screen is configuring. */
     private final Map<UUID, PendingAuto> pendingAuto = new ConcurrentHashMap<>();
 
@@ -174,6 +183,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
 
     /** Runs the standing orders that are due. Every tick, and nearly always empty. */
     void tickAutoOrders() {
+        autoTick++;
         runAutoOrders();
     }
 
@@ -241,7 +251,19 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                 + (order.drop() ? ", dropped at your feet." : ", into your inventory.")
                 + " " + EconomyFormat.dollars(each) + " each time, "
                 + EconomyFormat.dollars(each * (60L / Math.max(1, order.intervalSeconds())))
-                + " a minute. Use /autobuy stop to end it.");
+                + " a minute.");
+        // Turns "it is not working" into something the player can answer themselves.
+        if (order.drop() && itemsAround(player) >= AutoBuy.GROUND_LIMIT) {
+            info(player, "Waiting: " + AutoBuy.GROUND_LIMIT
+                    + " or more dropped items are already around you.");
+        } else if (!order.drop() && spaceFor(player, material0(order)) < order.quantity()) {
+            info(player, "Waiting: your inventory has room for fewer than "
+                    + order.quantity() + ".");
+        }
+    }
+
+    private static Material material0(AutoOrder order) {
+        return materialOf(order.material());
     }
 
     private void autoSellCommand(Player player) {
@@ -596,7 +618,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         // and the only other sign is a farm quietly going dry.
         AutoOrder replaced = autoOrders.put(player.getUniqueId(), new AutoOrder(
                 pending.offer().material(), pending.offer().unitPrice(), pending.quantity(),
-                pending.intervalSeconds(), pending.drop(), plugin.getServer().getCurrentTick()));
+                pending.intervalSeconds(), pending.drop(), autoTick));
         if (replaced != null) {
             info(player, "Stopped auto buying " + readable(replaced.material()) + ".");
         }
@@ -610,6 +632,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     }
 
     private void stopAutoBuy(Player player, String reason) {
+        warnedGroundFull.remove(player.getUniqueId());
         if (autoOrders.remove(player.getUniqueId()) != null && reason != null) {
             info(player, reason);
         }
@@ -625,7 +648,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         if (autoOrders.isEmpty()) {
             return;
         }
-        long now = plugin.getServer().getCurrentTick();
+        long now = autoTick;
         autoOrders.entrySet().removeIf(entry -> {
             Player player = plugin.getServer().getPlayer(entry.getKey());
             AutoOrder order = entry.getValue();
@@ -642,9 +665,16 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             Material material = materialOf(order.material());
             if (order.drop() && itemsAround(player) >= AutoBuy.GROUND_LIMIT) {
                 // The floor has not been cleared yet; try again next tick rather than
-                // stacking more on top of it.
+                // stacking more on top of it. Saying so once matters: waiting and being
+                // broken look identical from the player's side, and a full floor is the
+                // usual reason a dropping order appears to do nothing at all.
+                if (warnedGroundFull.add(entry.getKey())) {
+                    info(player, "Auto buy is waiting: " + AutoBuy.GROUND_LIMIT
+                            + " or more dropped items are already around you.");
+                }
                 return false;
             }
+            warnedGroundFull.remove(entry.getKey());
             if (!order.drop() && spaceFor(player, material) < order.quantity()) {
                 info(player, "Auto buy stopped: your inventory is full.");
                 return true;
@@ -968,6 +998,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         pendingBuys.remove(playerId);
         pendingAuto.remove(playerId);
         autoOrders.remove(playerId);
+        warnedGroundFull.remove(playerId);
     }
 
     private void clickSellPreview(Player player, int slot) {
