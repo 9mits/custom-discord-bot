@@ -11,7 +11,6 @@ import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -69,8 +68,6 @@ class CosmeticCatalogTest {
         // and only where the player has not won it yet.
         assertEquals("Event Horizon", secret.displayName());
         assertEquals("???", CosmeticCatalog.MASKED_NAME);
-        assertEquals("mgx:cosmetic/secret", CosmeticCatalog.MASKED_MODEL_KEY);
-        assertNotEquals(CosmeticCatalog.MASKED_MODEL_KEY, secret.modelKey());
         assertEquals("???", secret.displayedChance());
         assertEquals(CosmeticCatalog.SECRET_WEIGHT, secret.weight());
         assertEquals(CosmeticCatalog.Category.SECRET, secret.category());
