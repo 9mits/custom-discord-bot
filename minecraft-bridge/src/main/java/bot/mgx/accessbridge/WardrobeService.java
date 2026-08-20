@@ -37,6 +37,11 @@ import java.io.UncheckedIOException;
 /** The virtual wardrobe and the deposit/withdraw bridge to tradable bearer items. */
 final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
+    private static final int HUB_SIZE = 27;
+    private static final int KILL_EFFECT_SLOT = 10;
+    private static final int AURA_SLOT = 12;
+    private static final int TRAIL_SLOT = 14;
+    private static final int SECRET_SLOT = 16;
     private static final int SETTINGS_SLOT = 22;
 
     private enum Screen {
@@ -99,6 +104,16 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
             settings.openCosmeticSettings(player);
             return true;
         }
+        CosmeticCatalog.Category category = parseCategory(args[0]).orElse(null);
+        if (category != null) {
+            if (category == CosmeticCatalog.Category.SECRET
+                    && owned(player, category).isEmpty()) {
+                openHub(player);
+                return true;
+            }
+            openCategory(player, category);
+            return true;
+        }
         PlayerMenuService.error(player, "Use /wardrobe or /wardrobe settings.");
         return true;
     }
@@ -109,41 +124,75 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
             return List.of();
         }
         String prefix = args[0].toLowerCase(Locale.ROOT);
-        return List.of("settings").stream().filter(value -> value.startsWith(prefix)).toList();
+        return List.of("kill_effects", "auras", "trails", "secret", "settings").stream()
+                .filter(value -> value.startsWith(prefix))
+                .toList();
     }
 
     void openHub(Player player) {
-        List<Owned> owned = ownedAll(player);
+        vaultCarried(player);
         WardrobeMenu holder = new WardrobeMenu(Screen.HUB, null);
-        Inventory inventory = Bukkit.createInventory(holder, 54, Component.text("Wardrobe", ORANGE));
+        Inventory inventory = Bukkit.createInventory(
+                holder, HUB_SIZE, Component.text("Wardrobe", ORANGE)
+        );
+        holder.inventory = inventory;
+        inventory.setItem(KILL_EFFECT_SLOT, categoryButton(
+                Material.NETHERITE_SWORD, CosmeticCatalog.Category.KILL_EFFECT, player
+        ));
+        inventory.setItem(AURA_SLOT, categoryButton(
+                Material.NETHER_STAR, CosmeticCatalog.Category.AURA, player
+        ));
+        inventory.setItem(TRAIL_SLOT, categoryButton(
+                Material.WIND_CHARGE, CosmeticCatalog.Category.TRAIL, player
+        ));
+        if (!owned(player, CosmeticCatalog.Category.SECRET).isEmpty()) {
+            inventory.setItem(SECRET_SLOT, categoryButton(
+                    Material.BLACK_DYE, CosmeticCatalog.Category.SECRET, player
+            ));
+        } else {
+            inventory.setItem(SECRET_SLOT, button(Material.BLACK_STAINED_GLASS_PANE, "Unknown"));
+        }
+        inventory.setItem(SETTINGS_SLOT, button(Material.COMPARATOR, "Cosmetic Settings"));
+        MenuItems.show(plugin, player, inventory);
+    }
+
+    private void openCategory(Player player, CosmeticCatalog.Category category) {
+        vaultCarried(player);
+        List<Owned> owned = owned(player, category);
+        WardrobeMenu holder = new WardrobeMenu(Screen.CATEGORY, category);
+        Inventory inventory = Bukkit.createInventory(
+                holder, MenuItems.BOARD_SIZE, Component.text(category.displayName(), ORANGE)
+        );
         holder.inventory = inventory;
 
-        // Only what the player actually has. A grid of things they do not own is a
-        // catalogue, and /crate odds is already the catalogue.
+        // Only what the player actually has. Unowned entries belong in /crate odds.
         Map<String, List<Owned>> byCosmetic = new LinkedHashMap<>();
         for (Owned entry : owned) {
             byCosmetic.computeIfAbsent(entry.token().cosmeticId(), ignored -> new ArrayList<>())
                     .add(entry);
         }
         int slot = 0;
-        for (Map.Entry<String, List<Owned>> entry : byCosmetic.entrySet()) {
-            if (slot >= 45) {
-                break;
-            }
-            CosmeticCatalog.Definition definition = CosmeticCatalog.find(entry.getKey()).orElse(null);
-            if (definition == null) {
+        for (CosmeticCatalog.Definition definition : CosmeticCatalog.all()) {
+            if (definition.category() != category) {
                 continue;
             }
-            Owned selected = entry.getValue().get(0);
-            boolean active = store.equipped(player.getUniqueId(), definition.category().name())
+            if (slot >= MenuItems.PER_PAGE) {
+                break;
+            }
+            List<Owned> copies = byCosmetic.getOrDefault(definition.id(), List.of());
+            if (copies.isEmpty()) {
+                continue;
+            }
+            Owned selected = copies.get(0);
+            boolean active = store.equipped(player.getUniqueId(), category.name())
                     .map(current -> current.equals(selected.token().serial()))
                     .orElse(false);
             ItemStack icon = items.preview(definition, false);
             ItemMeta meta = icon.getItemMeta();
             List<Component> lore = new ArrayList<>(meta.lore() == null ? List.of() : meta.lore());
             lore.add(Component.empty());
-            if (entry.getValue().size() > 1) {
-                lore.add(line("You own " + entry.getValue().size() + " of these."));
+            if (copies.size() > 1) {
+                lore.add(line("You own " + copies.size() + " of these."));
             }
             if (active) {
                 lore.add(line("Equipped"));
@@ -157,7 +206,7 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         if (owned.isEmpty()) {
             inventory.setItem(22, button(Material.GRAY_DYE, "No cosmetics yet"));
         }
-        inventory.setItem(SETTINGS_SLOT, button(Material.COMPARATOR, "Cosmetic Settings"));
+        MenuItems.back(inventory);
         MenuItems.show(plugin, player, inventory);
     }
 
@@ -171,25 +220,37 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         if (event.getClickedInventory() != event.getInventory()) {
             return;
         }
-        if (event.getSlot() == SETTINGS_SLOT) {
-            settings.openCosmeticSettings(player);
+        if (menu.screen == Screen.HUB) {
+            switch (event.getSlot()) {
+                case KILL_EFFECT_SLOT -> openCategory(player, CosmeticCatalog.Category.KILL_EFFECT);
+                case AURA_SLOT -> openCategory(player, CosmeticCatalog.Category.AURA);
+                case TRAIL_SLOT -> openCategory(player, CosmeticCatalog.Category.TRAIL);
+                case SECRET_SLOT -> {
+                    if (!owned(player, CosmeticCatalog.Category.SECRET).isEmpty()) {
+                        openCategory(player, CosmeticCatalog.Category.SECRET);
+                    }
+                }
+                case SETTINGS_SLOT -> settings.openCosmeticSettings(player);
+                default -> { }
+            }
+            return;
+        }
+        if (event.getSlot() == MenuItems.backSlot(event.getInventory().getSize())) {
+            openHub(player);
             return;
         }
         UUID serial = menu.tokenSlots.get(event.getSlot());
         if (serial == null) {
             return;
         }
-        CosmeticCatalog.Category category = store.token(serial)
-                .flatMap(token -> CosmeticCatalog.find(token.cosmeticId()))
-                .map(CosmeticCatalog.Definition::category)
-                .orElse(null);
+        CosmeticCatalog.Category category = menu.category;
         if (category == null) {
             PlayerMenuService.error(player, "That cosmetic is no longer yours.");
             openHub(player);
             return;
         }
         if (event.isShiftClick()) {
-            promptSale(player, serial);
+            promptSale(player, serial, category);
             return;
         }
         boolean active = store.equipped(player.getUniqueId(), category.name())
@@ -213,7 +274,7 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         Optional<CosmeticStore.Token> token = store.token(serial);
         if (token.isEmpty() || !hasAccess(player, token.get())) {
             PlayerMenuService.error(player, "That cosmetic token is no longer yours.");
-            openHub(player);
+            openCategory(player, category);
             return;
         }
         CosmeticCatalog.Definition definition = CosmeticCatalog.find(token.get().cosmeticId()).orElse(null);
@@ -232,7 +293,7 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         player.sendMessage(PlayerMenuService.prefix().append(Component.text(
                 definition.displayName() + " equipped.", NamedTextColor.GREEN
         )));
-        openHub(player);
+        openCategory(player, category);
     }
 
     private void unequip(Player player, CosmeticCatalog.Category category) {
@@ -250,7 +311,7 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         try {
             if (!store.clearEquipped(player.getUniqueId(), category.name(), serial)) {
                 PlayerMenuService.error(player, "That cosmetic selection changed. Please try again.");
-                openHub(player);
+                openCategory(player, category);
                 return;
             }
         } catch (UncheckedIOException exception) {
@@ -262,7 +323,7 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         player.sendMessage(PlayerMenuService.prefix().append(Component.text(
                 name + " unequipped.", NamedTextColor.GREEN
         )));
-        openHub(player);
+        openCategory(player, category);
     }
 
 
@@ -271,16 +332,17 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         this.economyMenus = economyMenus;
     }
 
-    private List<Owned> ownedAll(Player player) {
-        vaultCarried(player);
-        List<Owned> result = new ArrayList<>();
-        for (CosmeticStore.Token token : store.stored(player.getUniqueId())) {
-            if (CosmeticCatalog.find(token.cosmeticId()).isPresent()) {
-                result.add(new Owned(token, true));
-            }
-        }
-        result.sort(Comparator.comparing(owned -> owned.token().cosmeticId()));
-        return List.copyOf(result);
+    private ItemStack categoryButton(
+            Material material, CosmeticCatalog.Category category, Player player
+    ) {
+        int count = owned(player, category).size();
+        List<String> lore = new ArrayList<>();
+        lore.add(count + (count == 1 ? " cosmetic owned" : " cosmetics owned"));
+        store.equipped(player.getUniqueId(), category.name())
+                .flatMap(store::token)
+                .flatMap(token -> CosmeticCatalog.find(token.cosmeticId()))
+                .ifPresent(definition -> lore.add("Equipped: " + definition.displayName()));
+        return MenuItems.button(material, category.displayName(), lore);
     }
 
     /**
@@ -309,10 +371,10 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         }
     }
 
-    private void promptSale(Player player, UUID serial) {
+    private void promptSale(Player player, UUID serial, CosmeticCatalog.Category category) {
         if (economyMenus == null || !store.isStoredBy(player.getUniqueId(), serial)) {
             PlayerMenuService.error(player, "That cosmetic cannot be listed right now.");
-            openHub(player);
+            openCategory(player, category);
             return;
         }
         awaitingPrice.put(player.getUniqueId(), serial);
