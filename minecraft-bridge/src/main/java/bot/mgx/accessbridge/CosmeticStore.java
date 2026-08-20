@@ -188,6 +188,46 @@ final class CosmeticStore {
         }
     }
 
+    /**
+     * Moves every cosmetic the loser had equipped into the winner's wardrobe and takes
+     * it off the loser. Custody moves as one write: a half-applied transfer would either
+     * duplicate a unique token or destroy one.
+     *
+     * @return the tokens that changed hands, in the order they were equipped
+     */
+    synchronized List<Token> transferEquipped(UUID from, UUID to) {
+        LinkedHashMap<String, UUID> selections = equipped.get(from);
+        if (selections == null || selections.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashMap<UUID, Token> tokensBefore = new LinkedHashMap<>(tokens);
+        LinkedHashMap<UUID, LinkedHashMap<String, UUID>> equippedBefore = copyEquipped();
+        List<Token> moved = new ArrayList<>();
+        for (UUID serial : List.copyOf(selections.values())) {
+            Token token = tokens.get(serial);
+            if (token == null || token.generation() != generation || !from.equals(token.storedOwner())) {
+                continue;
+            }
+            Token handed = new Token(serial, token.cosmeticId(), token.generation(), to);
+            tokens.put(serial, handed);
+            moved.add(handed);
+        }
+        if (moved.isEmpty()) {
+            return List.of();
+        }
+        equipped.remove(from);
+        try {
+            save();
+        } catch (RuntimeException exception) {
+            tokens.clear();
+            tokens.putAll(tokensBefore);
+            equipped.clear();
+            equipped.putAll(equippedBefore);
+            throw exception;
+        }
+        return List.copyOf(moved);
+    }
+
     synchronized Optional<UUID> equipped(UUID playerId, String category) {
         return Optional.ofNullable(equipped.getOrDefault(playerId, new LinkedHashMap<>()).get(category));
     }

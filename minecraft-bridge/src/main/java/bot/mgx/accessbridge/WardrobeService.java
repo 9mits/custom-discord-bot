@@ -9,11 +9,14 @@ import org.bukkit.Material;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import io.papermc.paper.event.player.AsyncChatEvent;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.Inventory;
@@ -35,8 +38,6 @@ import java.io.UncheckedIOException;
 final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private static final int SETTINGS_SLOT = 22;
-    private static final int DEPOSIT_SLOT = 26;
-    private static final int UNEQUIP_SLOT = 49;
 
     private enum Screen {
         HUB,
@@ -67,6 +68,9 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
     private final CosmeticStore store;
     private final CosmeticItems items;
     private final PlayerSettingsService settings;
+    private EconomyMenuService economyMenus;
+    /** Players who shift-clicked a cosmetic and owe a price in chat. */
+    private final Map<UUID, UUID> awaitingPrice = new LinkedHashMap<>();
 
     WardrobeService(
             MGXAccessBridge plugin,
@@ -95,16 +99,7 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
             settings.openCosmeticSettings(player);
             return true;
         }
-        if (args[0].equalsIgnoreCase("deposit")) {
-            depositHeld(player);
-            return true;
-        }
-        CosmeticCatalog.Category category = parseCategory(args[0]).orElse(null);
-        if (category != null) {
-            openCategory(player, category);
-            return true;
-        }
-        PlayerMenuService.error(player, "Use /wardrobe, /wardrobe deposit, or /wardrobe settings.");
+        PlayerMenuService.error(player, "Use /wardrobe or /wardrobe settings.");
         return true;
     }
 
@@ -114,118 +109,61 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
             return List.of();
         }
         String prefix = args[0].toLowerCase(Locale.ROOT);
-        return List.of("kill_effects", "auras", "trails", "secret", "deposit", "settings")
-                .stream().filter(value -> value.startsWith(prefix)).toList();
+        return List.of("settings").stream().filter(value -> value.startsWith(prefix)).toList();
     }
 
     void openHub(Player player) {
+        List<Owned> owned = ownedAll(player);
         WardrobeMenu holder = new WardrobeMenu(Screen.HUB, null);
-        Inventory inventory = Bukkit.createInventory(holder, 27, Component.text("Wardrobe", ORANGE));
-        holder.inventory = inventory;
-        inventory.setItem(10, categoryButton(
-                Material.NETHERITE_SWORD, CosmeticCatalog.Category.KILL_EFFECT, player
-        ));
-        inventory.setItem(12, categoryButton(
-                Material.NETHER_STAR, CosmeticCatalog.Category.AURA, player
-        ));
-        inventory.setItem(14, categoryButton(
-                Material.WIND_CHARGE, CosmeticCatalog.Category.TRAIL, player
-        ));
-        if (!owned(player, CosmeticCatalog.Category.SECRET).isEmpty()) {
-            inventory.setItem(16, categoryButton(
-                    Material.BLACK_DYE, CosmeticCatalog.Category.SECRET, player
-            ));
-        } else {
-            inventory.setItem(16, button(
-                    Material.BLACK_STAINED_GLASS_PANE,
-                    "Unknown",
-                    "A black silhouette hides this category.",
-                    "Chance: ???",
-                    "In existence: " + store.inExistence("event_horizon")
-            ));
-        }
-        inventory.setItem(SETTINGS_SLOT, button(
-                Material.COMPARATOR,
-                "Cosmetic Settings",
-                "Open the same cosmetic controls found in /settings."
-        ));
-        inventory.setItem(DEPOSIT_SLOT, button(
-                Material.ENDER_CHEST,
-                "Deposit Held Cosmetic",
-                "Hold a cosmetic token, then click here.",
-                "Vaulted tokens cannot be dropped or traded."
-        ));
-        MenuItems.show(plugin, player, inventory);
-    }
-
-    private void openCategory(Player player, CosmeticCatalog.Category category) {
-        List<Owned> owned = owned(player, category);
-        WardrobeMenu holder = new WardrobeMenu(Screen.CATEGORY, category);
-        Inventory inventory = Bukkit.createInventory(
-                holder, 54, Component.text(category.displayName(), ORANGE)
-        );
+        Inventory inventory = Bukkit.createInventory(holder, 54, Component.text("Wardrobe", ORANGE));
         holder.inventory = inventory;
 
+        // Only what the player actually has. A grid of things they do not own is a
+        // catalogue, and /crate odds is already the catalogue.
         Map<String, List<Owned>> byCosmetic = new LinkedHashMap<>();
-        for (Owned token : owned) {
-            byCosmetic.computeIfAbsent(token.token().cosmeticId(), ignored -> new ArrayList<>()).add(token);
+        for (Owned entry : owned) {
+            byCosmetic.computeIfAbsent(entry.token().cosmeticId(), ignored -> new ArrayList<>())
+                    .add(entry);
         }
-        List<CosmeticCatalog.Definition> definitions = category == CosmeticCatalog.Category.SECRET
-                ? CosmeticCatalog.all().stream().filter(CosmeticCatalog.Definition::secret).toList()
-                : CosmeticCatalog.publicEntries().stream()
-                        .filter(definition -> definition.category() == category)
-                        .toList();
         int slot = 0;
-        for (CosmeticCatalog.Definition definition : definitions) {
-            List<Owned> copies = byCosmetic.getOrDefault(definition.id(), List.of());
-            if (copies.isEmpty()) {
-                ItemStack locked = button(
-                        Material.GRAY_DYE,
-                        definition.secret() ? "???" : definition.displayName(),
-                        definition.description(),
-                        "Not owned",
-                        "Crate chance: " + definition.displayedChance(),
-                        "In existence: " + store.inExistence(definition.id())
-                );
-                inventory.setItem(slot++, locked);
+        for (Map.Entry<String, List<Owned>> entry : byCosmetic.entrySet()) {
+            if (slot >= 45) {
+                break;
+            }
+            CosmeticCatalog.Definition definition = CosmeticCatalog.find(entry.getKey()).orElse(null);
+            if (definition == null) {
                 continue;
             }
-            Owned selected = copies.get(0);
+            Owned selected = entry.getValue().get(0);
+            boolean active = store.equipped(player.getUniqueId(), definition.category().name())
+                    .map(current -> current.equals(selected.token().serial()))
+                    .orElse(false);
             ItemStack icon = items.preview(definition, false);
             ItemMeta meta = icon.getItemMeta();
             List<Component> lore = new ArrayList<>(meta.lore() == null ? List.of() : meta.lore());
             lore.add(Component.empty());
-            lore.add(line("In existence: " + store.inExistence(definition.id())));
-            lore.add(line("Owned copies: " + copies.size()));
-            lore.add(line(selected.stored() ? "Stored in wardrobe" : "Physical token in inventory"));
-            lore.add(line("Left-click to equip."));
-            lore.add(line(selected.stored()
-                    ? "Right-click to withdraw for trading."
-                    : "Right-click to deposit for safekeeping."));
+            if (entry.getValue().size() > 1) {
+                lore.add(line("You own " + entry.getValue().size() + " of these."));
+            }
+            lore.add(line(active ? "Equipped. Click to take it off." : "Click to equip."));
+            lore.add(line("Shift-click to sell on the auction house."));
             meta.lore(lore);
             icon.setItemMeta(meta);
             inventory.setItem(slot, icon);
             holder.tokenSlots.put(slot, selected.token().serial());
             slot++;
         }
-        inventory.setItem(45, button(Material.BARRIER, "Back", "Return to wardrobe categories."));
-        UUID equipped = store.equipped(player.getUniqueId(), category.name()).orElse(null);
-        String equippedName = equipped == null ? null : store.token(equipped)
-                .flatMap(token -> CosmeticCatalog.find(token.cosmeticId()))
-                .map(CosmeticCatalog.Definition::displayName)
-                .orElse("the current cosmetic");
-        inventory.setItem(UNEQUIP_SLOT, equipped == null
-                ? button(Material.GRAY_DYE, "Nothing Equipped", "No cosmetic in this category is active.")
-                : button(
-                        Material.LEVER,
-                        "Unequip Current",
-                        equippedName + " is active.",
-                        "Click to stop using it without moving the token."
-                ));
-        inventory.setItem(53, button(
+        if (owned.isEmpty()) {
+            inventory.setItem(22, button(
+                    Material.GRAY_DYE,
+                    "No cosmetics yet",
+                    "Open crates with /crate to win them."
+            ));
+        }
+        inventory.setItem(SETTINGS_SLOT, button(
                 Material.COMPARATOR,
                 "Cosmetic Settings",
-                "Open your cosmetic visibility controls."
+                "Choose what you and others see."
         ));
         MenuItems.show(plugin, player, inventory);
     }
@@ -240,42 +178,34 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         if (event.getClickedInventory() != event.getInventory()) {
             return;
         }
-        if (menu.screen == Screen.HUB) {
-            switch (event.getSlot()) {
-                case 10 -> openCategory(player, CosmeticCatalog.Category.KILL_EFFECT);
-                case 12 -> openCategory(player, CosmeticCatalog.Category.AURA);
-                case 14 -> openCategory(player, CosmeticCatalog.Category.TRAIL);
-                case 16 -> {
-                    if (!owned(player, CosmeticCatalog.Category.SECRET).isEmpty()) {
-                        openCategory(player, CosmeticCatalog.Category.SECRET);
-                    }
-                }
-                case SETTINGS_SLOT -> settings.openCosmeticSettings(player);
-                case DEPOSIT_SLOT -> depositHeld(player);
-                default -> { }
-            }
-            return;
-        }
-        if (event.getSlot() == 45) {
-            openHub(player);
-            return;
-        }
-        if (event.getSlot() == 53) {
+        if (event.getSlot() == SETTINGS_SLOT) {
             settings.openCosmeticSettings(player);
-            return;
-        }
-        if (event.getSlot() == UNEQUIP_SLOT) {
-            unequip(player, menu.category);
             return;
         }
         UUID serial = menu.tokenSlots.get(event.getSlot());
         if (serial == null) {
             return;
         }
-        if (event.isRightClick()) {
-            transferCustody(player, serial, menu.category);
+        CosmeticCatalog.Category category = store.token(serial)
+                .flatMap(token -> CosmeticCatalog.find(token.cosmeticId()))
+                .map(CosmeticCatalog.Definition::category)
+                .orElse(null);
+        if (category == null) {
+            PlayerMenuService.error(player, "That cosmetic is no longer yours.");
+            openHub(player);
+            return;
+        }
+        if (event.isShiftClick()) {
+            promptSale(player, serial);
+            return;
+        }
+        boolean active = store.equipped(player.getUniqueId(), category.name())
+                .map(current -> current.equals(serial))
+                .orElse(false);
+        if (active) {
+            unequip(player, category);
         } else {
-            equip(player, serial, menu.category);
+            equip(player, serial, category);
         }
     }
 
@@ -290,7 +220,7 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         Optional<CosmeticStore.Token> token = store.token(serial);
         if (token.isEmpty() || !hasAccess(player, token.get())) {
             PlayerMenuService.error(player, "That cosmetic token is no longer yours.");
-            openCategory(player, category);
+            openHub(player);
             return;
         }
         CosmeticCatalog.Definition definition = CosmeticCatalog.find(token.get().cosmeticId()).orElse(null);
@@ -309,7 +239,7 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         player.sendMessage(PlayerMenuService.prefix().append(Component.text(
                 definition.displayName() + " equipped.", NamedTextColor.GREEN
         )));
-        openCategory(player, category);
+        openHub(player);
     }
 
     private void unequip(Player player, CosmeticCatalog.Category category) {
@@ -327,7 +257,7 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         try {
             if (!store.clearEquipped(player.getUniqueId(), category.name(), serial)) {
                 PlayerMenuService.error(player, "That cosmetic selection changed. Please try again.");
-                openCategory(player, category);
+                openHub(player);
                 return;
             }
         } catch (UncheckedIOException exception) {
@@ -339,108 +269,180 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         player.sendMessage(PlayerMenuService.prefix().append(Component.text(
                 name + " unequipped.", NamedTextColor.GREEN
         )));
-        openCategory(player, category);
+        openHub(player);
     }
 
-    private void transferCustody(Player player, UUID serial, CosmeticCatalog.Category category) {
-        Optional<CosmeticStore.Token> found = store.token(serial);
-        if (found.isEmpty()) {
-            PlayerMenuService.error(player, "That cosmetic token is no longer valid.");
-            return;
+
+
+    void useAuctionHouse(EconomyMenuService economyMenus) {
+        this.economyMenus = economyMenus;
+    }
+
+    private List<Owned> ownedAll(Player player) {
+        vaultCarried(player);
+        List<Owned> result = new ArrayList<>();
+        for (CosmeticStore.Token token : store.stored(player.getUniqueId())) {
+            if (CosmeticCatalog.find(token.cosmeticId()).isPresent()) {
+                result.add(new Owned(token, true));
+            }
         }
-        CosmeticStore.Token token = found.get();
-        CosmeticCatalog.Definition definition = CosmeticCatalog.find(token.cosmeticId()).orElse(null);
-        if (definition == null) {
-            PlayerMenuService.error(player, "That cosmetic no longer exists.");
-            return;
-        }
-        if (token.stored()) {
-            if (!player.getUniqueId().equals(token.storedOwner())) {
-                PlayerMenuService.error(player, "That cosmetic is not stored in your wardrobe.");
-                return;
-            }
-            int emptySlot = player.getInventory().firstEmpty();
-            if (emptySlot < 0) {
-                PlayerMenuService.error(player, "Make one empty inventory slot before withdrawing.");
-                return;
-            }
-            CosmeticStore.Token physical;
-            try {
-                physical = store.withdraw(player.getUniqueId(), serial).orElse(null);
-            } catch (UncheckedIOException exception) {
-                plugin.getLogger().warning("Could not withdraw a cosmetic: " + exception.getMessage());
-                PlayerMenuService.error(player, "That cosmetic could not be withdrawn. Please try again.");
-                return;
-            }
-            if (physical == null) {
-                PlayerMenuService.error(player, "That cosmetic could not be withdrawn.");
-                return;
-            }
-            player.getInventory().setItem(emptySlot, items.token(definition, physical));
-            player.sendMessage(PlayerMenuService.prefix().append(Component.text(
-                    definition.displayName() + " is now a tradable item.", NamedTextColor.GREEN
-            )));
-        } else {
-            if (!items.removeOne(player, serial)) {
-                PlayerMenuService.error(player, "Keep the cosmetic token in your inventory to deposit it.");
-                return;
+        result.sort(Comparator.comparing(owned -> owned.token().cosmeticId()));
+        return List.copyOf(result);
+    }
+
+    /**
+     * Takes any cosmetic token sitting in the inventory into the wardrobe. Tokens still
+     * exist as items in transit — auction mail and drops from older versions produce
+     * them — but a player never has to deal with one.
+     */
+    void vaultCarried(Player player) {
+        for (CosmeticItems.TokenInfo info : items.carried(player)) {
+            CosmeticStore.Token token = store.token(info.serial()).orElse(null);
+            if (token == null || token.stored() || !token.cosmeticId().equals(info.cosmeticId())) {
+                continue;
             }
             try {
-                if (!store.deposit(player.getUniqueId(), serial, token.cosmeticId(), token.generation())) {
-                    refund(player, items.token(definition, token));
-                    PlayerMenuService.error(player, "That cosmetic could not be deposited.");
-                    return;
+                if (store.deposit(player.getUniqueId(), info.serial(), info.cosmeticId(), info.generation())
+                        && items.removeOne(player, info.serial())) {
+                    player.sendMessage(PlayerMenuService.prefix().append(Component.text(
+                            "Stored in your wardrobe.", NamedTextColor.GREEN
+                    )));
                 }
             } catch (UncheckedIOException exception) {
-                refund(player, items.token(definition, token));
-                plugin.getLogger().warning("Could not deposit a cosmetic: " + exception.getMessage());
-                PlayerMenuService.error(player, "That cosmetic could not be deposited.");
-                return;
+                plugin.getLogger().warning(
+                        "Could not vault a cosmetic token: " + exception.getMessage()
+                );
             }
-            player.sendMessage(PlayerMenuService.prefix().append(Component.text(
-                    definition.displayName() + " is protected in your wardrobe.", NamedTextColor.GREEN
-            )));
         }
-        openCategory(player, category);
     }
 
-    private void depositHeld(Player player) {
-        ItemStack held = player.getInventory().getItemInMainHand();
-        CosmeticItems.TokenInfo info = items.read(held).orElse(null);
-        if (info == null) {
-            PlayerMenuService.error(player, "Hold a cosmetic token in your main hand first.");
+    private void promptSale(Player player, UUID serial) {
+        if (economyMenus == null || !store.isStoredBy(player.getUniqueId(), serial)) {
+            PlayerMenuService.error(player, "That cosmetic cannot be listed right now.");
+            openHub(player);
             return;
         }
-        CosmeticStore.Token token = store.token(info.serial()).orElse(null);
-        if (token == null || token.stored() || !token.cosmeticId().equals(info.cosmeticId())) {
-            PlayerMenuService.error(player, "That cosmetic token is invalid or already stored.");
+        awaitingPrice.put(player.getUniqueId(), serial);
+        player.closeInventory();
+        player.sendMessage(PlayerMenuService.prefix().append(Component.text(
+                "Type a price in chat to list it, or type cancel.", NamedTextColor.GRAY
+        )));
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onChat(AsyncChatEvent event) {
+        Player player = event.getPlayer();
+        UUID serial = awaitingPrice.get(player.getUniqueId());
+        if (serial == null) {
             return;
         }
-        if (!items.removeOne(player, info.serial())) {
-            PlayerMenuService.error(player, "That cosmetic token could not be removed.");
+        event.setCancelled(true);
+        awaitingPrice.remove(player.getUniqueId());
+        String typed = PlainTextComponentSerializer.plainText().serialize(event.message()).trim();
+        // Chat arrives off the main thread; every inventory and store write below has to
+        // run back on it.
+        plugin.getServer().getScheduler().runTask(plugin, () -> completeSale(player, serial, typed));
+    }
+
+    private void completeSale(Player player, UUID serial, String typed) {
+        if (!player.isOnline()) {
+            return;
+        }
+        if (typed.equalsIgnoreCase("cancel")) {
+            player.sendMessage(PlayerMenuService.prefix().append(Component.text(
+                    "Listing cancelled.", NamedTextColor.GRAY
+            )));
+            return;
+        }
+        long price;
+        try {
+            price = EconomyFormat.parseAmount(typed);
+        } catch (IllegalArgumentException exception) {
+            PlayerMenuService.error(player, "That is not a price. Nothing was listed.");
+            return;
+        }
+        CosmeticStore.Token token = store.token(serial).orElse(null);
+        CosmeticCatalog.Definition definition = token == null
+                ? null
+                : CosmeticCatalog.find(token.cosmeticId()).orElse(null);
+        if (definition == null || !store.isStoredBy(player.getUniqueId(), serial)) {
+            PlayerMenuService.error(player, "That cosmetic is no longer yours.");
+            return;
+        }
+        CosmeticStore.Token physical = store.withdraw(player.getUniqueId(), serial).orElse(null);
+        if (physical == null) {
+            PlayerMenuService.error(player, "That cosmetic could not be listed. Please try again.");
             return;
         }
         try {
-            if (!store.deposit(player.getUniqueId(), info.serial(), info.cosmeticId(), info.generation())) {
-                CosmeticCatalog.find(info.cosmeticId()).ifPresent(
-                        definition -> refund(player, items.token(definition, token))
-                );
-                PlayerMenuService.error(player, "That cosmetic token could not be deposited.");
-                return;
+            economyMenus.listCosmetic(player, items.token(definition, physical), price);
+            player.sendMessage(PlayerMenuService.prefix()
+                    .append(Component.text("Listed ", NamedTextColor.WHITE))
+                    .append(Component.text(definition.displayName(), NamedTextColor.GOLD))
+                    .append(Component.text(" for " + EconomyFormat.dollars(price) + ".",
+                            NamedTextColor.WHITE)));
+        } catch (IllegalArgumentException | UncheckedIOException exception) {
+            // The token is out of the wardrobe at this point, so it has to go back or
+            // the player loses a unique cosmetic to a rejected price.
+            store.deposit(player.getUniqueId(), serial, definition.id(), physical.generation());
+            PlayerMenuService.error(player, exception.getMessage() == null
+                    ? "That cosmetic could not be listed." : exception.getMessage());
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onJoin(org.bukkit.event.player.PlayerJoinEvent event) {
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            if (event.getPlayer().isOnline()) {
+                vaultCarried(event.getPlayer());
             }
-        } catch (UncheckedIOException exception) {
-            CosmeticCatalog.find(info.cosmeticId()).ifPresent(
-                    definition -> refund(player, items.token(definition, token))
-            );
-            plugin.getLogger().warning("Could not deposit a held cosmetic: "
-                    + exception.getMessage());
-            PlayerMenuService.error(player, "That cosmetic token could not be deposited.");
+        }, 40L);
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPickup(org.bukkit.event.entity.EntityPickupItemEvent event) {
+        if (!(event.getEntity() instanceof Player player)
+                || items.read(event.getItem().getItemStack()).isEmpty()) {
             return;
         }
-        player.sendMessage(PlayerMenuService.prefix().append(Component.text(
-                "Cosmetic stored in your wardrobe.", NamedTextColor.GREEN
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            if (player.isOnline()) {
+                vaultCarried(player);
+            }
+        });
+    }
+
+    /** A kill hands the loser's equipped cosmetics to whoever killed them. */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onPlayerDeath(PlayerDeathEvent event) {
+        Player victim = event.getPlayer();
+        Player killer = victim.getKiller();
+        if (killer == null || killer.getUniqueId().equals(victim.getUniqueId())) {
+            return;
+        }
+        List<CosmeticStore.Token> moved;
+        try {
+            moved = store.transferEquipped(victim.getUniqueId(), killer.getUniqueId());
+        } catch (UncheckedIOException exception) {
+            plugin.getLogger().warning(
+                    "Could not transfer cosmetics on death: " + exception.getMessage()
+            );
+            return;
+        }
+        if (moved.isEmpty()) {
+            return;
+        }
+        String names = moved.stream()
+                .map(token -> CosmeticCatalog.find(token.cosmeticId())
+                        .map(CosmeticCatalog.Definition::displayName)
+                        .orElse(token.cosmeticId()))
+                .collect(java.util.stream.Collectors.joining(", "));
+        victim.sendMessage(PlayerMenuService.prefix().append(Component.text(
+                "You lost " + names + " to " + killer.getName() + ".", NamedTextColor.RED
         )));
-        openHub(player);
+        killer.sendMessage(PlayerMenuService.prefix().append(Component.text(
+                "You took " + names + " from " + victim.getName() + ".", NamedTextColor.GREEN
+        )));
     }
 
     private List<Owned> owned(Player player, CosmeticCatalog.Category category) {
@@ -471,17 +473,6 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
                 || (!token.stored() && items.carries(player, token.serial()));
     }
 
-    private ItemStack categoryButton(
-            Material material, CosmeticCatalog.Category category, Player player
-    ) {
-        int count = owned(player, category).size();
-        return button(
-                material,
-                category.displayName(),
-                count + (count == 1 ? " cosmetic owned" : " cosmetics owned"),
-                "Click to view and equip."
-        );
-    }
 
     private static Optional<CosmeticCatalog.Category> parseCategory(String raw) {
         String cleaned = raw.toLowerCase(Locale.ROOT).replace('-', '_');

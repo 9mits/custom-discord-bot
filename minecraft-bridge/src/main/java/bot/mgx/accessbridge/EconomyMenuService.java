@@ -1370,6 +1370,28 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         return new Sold(player.getUniqueId(), sold, credit, counts);
     }
 
+    /**
+     * Lists a cosmetic straight from the wardrobe. Encoding and the seller's listing cap
+     * live here, so the wardrobe never has to know how a listing is stored.
+     */
+    void listCosmetic(Player seller, ItemStack item, long price) {
+        String encoded = encodeItem(item);
+        ItemMeta meta = item.getItemMeta();
+        String customName = meta != null && meta.hasDisplayName()
+                ? PlainTextComponentSerializer.plainText().serialize(meta.displayName())
+                : null;
+        auctions.list(
+                seller.getUniqueId(),
+                seller.getName(),
+                price,
+                item.getType().name(),
+                item.getAmount(),
+                AuctionItemName.resolve(item.getType().name(), customName),
+                encoded,
+                System.currentTimeMillis()
+        );
+    }
+
     private void listHeld(Player player, long price) {
         ItemStack held = player.getInventory().getItemInMainHand();
         if (held == null || held.getType().isAir()) {

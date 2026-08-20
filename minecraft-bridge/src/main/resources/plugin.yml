@@ -35,8 +35,8 @@ commands:
     usage: /settings [setting]
     aliases: [mysettings, prefs]
   wardrobe:
-    description: View, equip, deposit and withdraw tradable cosmetics.
-    usage: /wardrobe [kill_effects|auras|trails|secret|deposit|settings]
+    description: Equip the cosmetics you own and list them in the auction house.
+    usage: /wardrobe [settings]
     aliases: [cosmetics]
     permission: mgx.cosmetics
   crate:
