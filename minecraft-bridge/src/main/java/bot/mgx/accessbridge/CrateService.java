@@ -17,13 +17,9 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityPickupItemEvent;
-import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
-import org.bukkit.event.inventory.InventoryMoveItemEvent;
-import org.bukkit.event.inventory.InventoryPickupItemEvent;
-import org.bukkit.event.inventory.InventoryType;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
@@ -243,8 +239,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         inventory.setItem(HUB_ODDS_SLOT, MenuItems.button(
                 Material.BOOK,
                 "View Exact Odds",
-                "Every percentage shown is exact.",
-                "The hidden cosmetic shows ??? by design."
+                "Every percentage shown is exact."
         ));
         inventory.setItem(HUB_AUTO_SLOT, MenuItems.button(
                 Material.HOPPER,
@@ -630,14 +625,6 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
 
     @EventHandler(priority = EventPriority.NORMAL)
     public void onClick(InventoryClickEvent event) {
-        if (event.getWhoClicked() instanceof Player player
-                && movesKeyIntoForbiddenSlot(event, player)) {
-            event.setCancelled(true);
-            PlayerMenuService.error(
-                    player, "Crate keys stay in player inventories. Drop one to trade it directly."
-            );
-            return;
-        }
         if (event.getWhoClicked() instanceof Player player && items.isKey(event.getCurrentItem())) {
             plugin.getServer().getScheduler().runTask(plugin, () -> {
                 if (player.isOnline()) {
@@ -690,33 +677,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
 
     @EventHandler(priority = EventPriority.NORMAL)
     public void onDrag(InventoryDragEvent event) {
-        if (event.getWhoClicked() instanceof Player player
-                && items.isKey(event.getOldCursor())
-                && isForbiddenKeyDestination(event.getView().getTopInventory())
-                && event.getRawSlots().stream().anyMatch(
-                        slot -> slot < event.getView().getTopInventory().getSize()
-                )) {
-            event.setCancelled(true);
-            PlayerMenuService.error(
-                    player, "Crate keys stay in player inventories. Drop one to trade it directly."
-            );
-            return;
-        }
         if (event.getInventory().getHolder() instanceof CrateMenu) {
-            event.setCancelled(true);
-        }
-    }
-
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    public void onInventoryMove(InventoryMoveItemEvent event) {
-        if (items.isKey(event.getItem())) {
-            event.setCancelled(true);
-        }
-    }
-
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    public void onInventoryPickup(InventoryPickupItemEvent event) {
-        if (items.isKey(event.getItem().getItemStack())) {
             event.setCancelled(true);
         }
     }
@@ -1017,7 +978,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         inventory.setItem(40, MenuItems.button(
                 Material.TRIPWIRE_HOOK,
                 "Key Consumed",
-                "The reward is already decided. Closing cannot reroll it."
+                "The reward is already decided."
         ));
     }
 
@@ -1030,38 +991,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 ));
     }
 
-    private boolean movesKeyIntoForbiddenSlot(InventoryClickEvent event, Player player) {
-        Inventory top = event.getView().getTopInventory();
-        boolean clickedTop = event.getRawSlot() >= 0 && event.getRawSlot() < top.getSize();
-        boolean forbiddenTopSlot = clickedTop && isForbiddenKeyDestination(top);
-        if (forbiddenTopSlot && items.isKey(event.getCursor())) {
-            return true;
-        }
-        if (forbiddenTopSlot
-                && event.getClick() == ClickType.NUMBER_KEY
-                && event.getHotbarButton() >= 0
-                && items.isKey(player.getInventory().getItem(event.getHotbarButton()))) {
-            return true;
-        }
-        if (forbiddenTopSlot
-                && event.getClick() == ClickType.SWAP_OFFHAND
-                && items.isKey(player.getInventory().getItemInOffHand())) {
-            return true;
-        }
-        return isExternalInventory(top)
-                && event.isShiftClick()
-                && event.getClickedInventory() == event.getView().getBottomInventory()
-                && items.isKey(event.getCurrentItem());
-    }
 
-    private static boolean isForbiddenKeyDestination(Inventory inventory) {
-        return inventory.getType() == InventoryType.CRAFTING || isExternalInventory(inventory);
-    }
 
-    private static boolean isExternalInventory(Inventory inventory) {
-        return inventory.getType() != InventoryType.CRAFTING
-                && inventory.getType() != InventoryType.PLAYER;
-    }
 
     private static ItemStack named(ItemStack item, String name, String... lore) {
         ItemMeta meta = item.getItemMeta();

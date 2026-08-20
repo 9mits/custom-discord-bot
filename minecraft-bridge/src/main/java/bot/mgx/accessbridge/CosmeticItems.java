@@ -48,7 +48,6 @@ final class CosmeticItems {
         List<Component> lore = new ArrayList<>(meta.lore() == null ? List.of() : meta.lore());
         lore.add(Component.empty());
         lore.add(line("Token " + token.serial().toString().substring(0, 8)));
-        lore.add(line("Hold it to own it. /wardrobe stores it safely."));
         meta.lore(lore);
         meta.setMaxStackSize(1);
         item.setItemMeta(meta);

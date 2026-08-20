@@ -7,9 +7,9 @@ player remains online earns one physical key, including AFK time. Partial hours 
 keys waiting for inventory space survive restarts. An administrator can also issue
 event keys with `/mgxadmin give <online-player> key [amount]`.
 
-Keys cannot be sold to `/shop`, listed in `/ah`, placed in containers, or moved by
-hoppers. They remain usable in a player's inventory or offhand and may be dropped
-for a direct player-to-player trade. Existing keys using the former lootbox marker
+Keys behave like any other item: they stack, go in chests and shulkers, and move
+through hoppers. The one restriction is that they cannot be sold to `/shop` or
+listed in `/ah`. Existing keys using the former lootbox marker
 are upgraded when they enter a player's inventory.
 
 Each player may reserve at most 12 openings in any rolling 24-hour window. The

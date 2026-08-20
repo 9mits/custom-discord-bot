@@ -347,8 +347,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                     materialOf(category.icon()),
                     category.title(),
                     List.of(
-                            ShopCatalog.offers(category).size() + " items.",
-                            "Click to browse."
+                            ShopCatalog.offers(category).size() + " items."
                     )
             ));
         }
@@ -384,9 +383,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                 long each = offer.unitPrice();
                 meta.lore(List.of(
                         line(EconomyFormat.dollars(each) + " each"),
-                        line(EconomyFormat.dollars(offer.costOfItems(64)) + " a stack"),
-                        line(""),
-                        line("Click to choose an amount.")
+                        line(EconomyFormat.dollars(offer.costOfItems(64)) + " a stack")
                 ));
                 item.setItemMeta(meta);
             }
@@ -463,8 +460,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                 running
                         ? List.of(
                                 standing.quantity() + " every " + standing.intervalSeconds() + "s",
-                                standing.drop() ? "Dropped at your feet" : "Into your inventory",
-                                "Click to change or stop.")
+                                standing.drop() ? "Dropped at your feet" : "Into your inventory")
                         : List.of(
                                 "Keep buying " + wanted + " on a timer.",
                                 "For farms — restock without",
@@ -531,7 +527,6 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         inventory.setItem(AUTO_INTERVAL_SLOT, button(
                 Material.CLOCK, "Every " + intervalSeconds + "s",
                 List.of(
-                        "Click to cycle 1, 2, 5, 10, 30.",
                         EconomyFormat.dollars(each * (60 / Math.max(1, intervalSeconds))) + " a minute"
                 )
         ));
@@ -553,8 +548,8 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                 drop ? Material.LIME_STAINED_GLASS_PANE : Material.RED_STAINED_GLASS_PANE,
                 drop ? "Dropping at your feet" : "Into your inventory",
                 drop
-                        ? List.of("Straight to the ground for", "hoppers to pick up.", "", "Click to keep them instead.")
-                        : List.of("Kept until your inventory", "is full, then stops.", "", "Click to drop them instead.")
+                        ? List.of("Straight to the ground for", "hoppers to pick up.")
+                        : List.of("Kept until your inventory", "is full, then stops.")
         ));
         inventory.setItem(AUTO_START_SLOT, button(
                 running ? Material.RED_CONCRETE : Material.LIME_CONCRETE,
@@ -728,8 +723,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             ItemMeta meta = stack.getItemMeta();
             if (meta != null) {
                 meta.lore(List.of(
-                        line("Sell for " + EconomyFormat.dollars(credit)),
-                        line("Click to sell this stack.")
+                        line("Sell for " + EconomyFormat.dollars(credit))
                 ));
                 stack.setItemMeta(meta);
             }
@@ -747,10 +741,8 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                 auto ? Material.LIME_STAINED_GLASS_PANE : Material.RED_STAINED_GLASS_PANE,
                 auto ? "Auto sell is on" : "Auto sell is off",
                 auto
-                        ? List.of("Anything the shop buys sells", "as it reaches your inventory.",
-                                "", "Click to turn off.")
-                        : List.of("Sell anything the shop buys", "as it reaches your inventory.",
-                                "", "Click to turn on.")
+                        ? List.of("Anything the shop buys sells", "as it reaches your inventory.")
+                        : List.of("Sell anything the shop buys", "as it reaches your inventory.")
         ));
         inventory.setItem(49, button(Material.CHEST, "Put items in",
                 "Drop extras in a chest to sell."));
@@ -805,13 +797,11 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         drawListings(inventory, rows, page, false);
         inventory.setItem(AH_SEARCH_SLOT, button(
                 Material.COMPASS, "Search",
-                "Use /ah search <name>.",
                 query.isBlank() ? "Showing every listing." : "Filter: " + query
         ));
         inventory.setItem(AH_OWN_SLOT, button(
                 Material.CHEST, "Your listings",
-                auctions.countBySeller(player.getUniqueId()) + " active.",
-                "Click to manage them."
+                auctions.countBySeller(player.getUniqueId()) + " active."
         ));
         inventory.setItem(AH_MAIL_SLOT, button(
                 Material.ENDER_CHEST, "Collect items",
@@ -1263,7 +1253,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         ItemStack held = player.getInventory().getItemInMainHand();
         if (crateItems.isKey(held)) {
             throw new IllegalArgumentException(
-                    "Crate keys cannot be sold. Trade or drop them directly to another player."
+                    "Crate keys cannot be sold."
             );
         }
         Sold sold = sellStacks(player, List.of(held));
@@ -1399,7 +1389,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         }
         if (crateItems.isKey(held)) {
             throw new IllegalArgumentException(
-                    "Crate keys cannot be listed in /ah. Trade or drop them directly."
+                    "Crate keys cannot be listed in the auction house."
             );
         }
         ItemStack listing = held.clone();
@@ -1507,7 +1497,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         lore.add(line("Seller: " + listing.sellerName()));
         lore.add(line("Price: " + EconomyFormat.dollars(listing.price())));
         lore.add(line("Time left: " + EconomyFormat.remaining(listing.expiresAt() - System.currentTimeMillis())));
-        lore.add(line(own ? "Click to cancel." : "Click to buy."));
+
         meta.lore(lore);
         item.setItemMeta(meta);
         return item;
