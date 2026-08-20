@@ -50,6 +50,7 @@ final class ServerDataResetService {
     private final PlayerSettingsStore settings;
     private final CrateStore crates;
     private final CosmeticStore cosmetics;
+    private final CosmeticItems cosmeticItems;
     private final TrophyHeadStore trophyHeads;
     private final VerifiedApplicationStore verifiedApplications;
     private final VerificationEventStore verificationEvents;
@@ -70,6 +71,7 @@ final class ServerDataResetService {
             PlayerSettingsStore settings,
             CrateStore crates,
             CosmeticStore cosmetics,
+            CosmeticItems cosmeticItems,
             TrophyHeadStore trophyHeads,
             VerifiedApplicationStore verifiedApplications,
             VerificationEventStore verificationEvents,
@@ -88,6 +90,7 @@ final class ServerDataResetService {
         this.settings = settings;
         this.crates = crates;
         this.cosmetics = cosmetics;
+        this.cosmeticItems = cosmeticItems;
         this.trophyHeads = trophyHeads;
         this.verifiedApplications = verifiedApplications;
         this.verificationEvents = verificationEvents;
@@ -176,7 +179,13 @@ final class ServerDataResetService {
             clear(ResetScope.CRATES, crates::clearAll, cleared, problems);
         }
         if (scopes.contains(ResetScope.COSMETICS)) {
-            clear(ResetScope.COSMETICS, cosmetics::clearAll, cleared, problems);
+            // Clearing the store bumps the generation, which makes any token still
+            // sitting in an auction listing or a mailbox a dead item rather than a
+            // missing one. Those go too, or the wipe leaves junk behind that nobody
+            // can deposit.
+            clear(ResetScope.COSMETICS,
+                    () -> cosmetics.clearAll() + auctions.removeMatching(this::holdsCosmetic),
+                    cleared, problems);
         }
         if (scopes.contains(ResetScope.TROPHIES)) {
             clear(ResetScope.TROPHIES, trophyHeads::clearAll, cleared, problems);
@@ -204,6 +213,10 @@ final class ServerDataResetService {
         }
         plugin.republishLeaderboard();
         return new Summary(cleared, problems);
+    }
+
+    private boolean holdsCosmetic(String itemData) {
+        return cosmeticItems.read(EconomyMenuService.decodeItem(itemData)).isPresent();
     }
 
     private static void clear(

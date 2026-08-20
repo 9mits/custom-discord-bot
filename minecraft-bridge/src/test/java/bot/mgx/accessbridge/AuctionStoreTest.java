@@ -206,4 +206,29 @@ class AuctionStoreTest {
         assertTrue(auctions.find(listing.id()).isPresent());
         assertTrue(auctions.mailboxOf(seller).isEmpty());
     }
+
+    @Test
+    void removeMatchingDeletesListingsAndMailInsteadOfReturningThem() throws Exception {
+        AuctionStore auctions = new AuctionStore(temporaryDirectory.resolve("auctions.json"));
+        UUID seller = UUID.randomUUID();
+        auctions.list(seller, "Seller", 100, "DIAMOND", 1, "Diamond", "keep-me", 1_000L);
+        AuctionStore.Listing doomed = auctions.list(
+                seller, "Seller", 100, "BLAZE_POWDER", 1, "Ember Trail", "cosmetic-token", 1_000L
+        );
+        // An expired listing lands in the mailbox, which is the second place a wiped
+        // cosmetic could otherwise survive.
+        auctions.list(seller, "Seller", 100, "REDSTONE", 1, "Crimson Orbit",
+                "cosmetic-token", 1_000L);
+        auctions.expire(Long.MAX_VALUE);
+
+        int removed = auctions.removeMatching("cosmetic-token"::equals);
+
+        assertEquals(2, removed);
+        assertTrue(auctions.find(doomed.id()).isEmpty());
+        assertTrue(auctions.mailboxOf(seller).stream()
+                .noneMatch(mail -> mail.itemData().equals("cosmetic-token")));
+        // Everything that did not match is untouched, including the expired diamond.
+        assertEquals(1, auctions.mailboxOf(seller).size());
+        assertEquals("keep-me", auctions.mailboxOf(seller).get(0).itemData());
+    }
 }
