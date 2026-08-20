@@ -80,8 +80,7 @@ final class CosmeticItems {
             lore.add(line("Chance: " + definition.displayedChance()));
         }
         meta.lore(lore);
-        NamespacedKey model = NamespacedKey.fromString(
-                masked ? CosmeticCatalog.MASKED_MODEL_KEY : definition.modelKey());
+        NamespacedKey model = NamespacedKey.fromString(definition.modelKey());
         if (model != null) {
             meta.setItemModel(model);
         }
