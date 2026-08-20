@@ -103,6 +103,8 @@ final class PlayerSettingsStore {
                 "Show your kills and deaths on the scoreboard.", true, Category.SCOREBOARD),
         SCOREBOARD_ECONOMY("scoreboard_economy", "Economy section",
                 "Show your money on the scoreboard.", true, Category.SCOREBOARD),
+        KEY_TIMER_BAR("key_timer_bar", "Key timer",
+                "Show a bar counting down to your next crate key.", true, Category.GENERAL),
         // Lives on the sell screen, not in /settings: it is a shop behaviour, and the
         // panel is for what you can see.
         AUTO_SELL("auto_sell_on", "Auto sell",
