@@ -64,18 +64,24 @@ final class CosmeticItems {
         if (meta == null) {
             return item;
         }
-        meta.displayName(Component.text(definition.displayName(), colour(definition), TextDecoration.BOLD)
+        // The secret is only a silhouette where it has not been won yet, which is the
+        // crate. Once it is in a wardrobe it is an ordinary cosmetic with a name.
+        boolean masked = oddsScreen && definition.secret();
+        meta.displayName(Component.text(
+                        masked ? CosmeticCatalog.MASKED_NAME : definition.displayName(),
+                        colour(definition), TextDecoration.BOLD)
                 .decoration(TextDecoration.ITALIC, false));
         List<Component> lore = new ArrayList<>();
-        lore.add(line(definition.secret() ? "Unknown Cosmetic" : definition.category().displayName()));
-        lore.add(line(definition.description()));
+        lore.add(line(masked ? "Unknown Cosmetic" : definition.category().displayName()));
+        lore.add(line(masked ? CosmeticCatalog.MASKED_DESCRIPTION : definition.description()));
         lore.add(Component.empty());
-        lore.add(line("Rarity: " + definition.rarityDisplay()));
+        lore.add(line("Rarity: " + (masked ? "???" : definition.rarityDisplay())));
         if (oddsScreen) {
             lore.add(line("Chance: " + definition.displayedChance()));
         }
         meta.lore(lore);
-        NamespacedKey model = NamespacedKey.fromString(definition.modelKey());
+        NamespacedKey model = NamespacedKey.fromString(
+                masked ? CosmeticCatalog.MASKED_MODEL_KEY : definition.modelKey());
         if (model != null) {
             meta.setItemModel(model);
         }
