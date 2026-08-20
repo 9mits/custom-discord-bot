@@ -239,10 +239,22 @@ final class AuctionStore {
         return own;
     }
 
-    synchronized List<Mail> collect(UUID owner) {
+    /**
+     * Hands back at most {@code limit} of an owner's mail, oldest first, and leaves the
+     * rest where it is.
+     *
+     * <p>Emptying the whole mailbox regardless of what the player could carry meant the
+     * overflow was dropped on the floor — into lava, off a ledge, or to despawn while
+     * they were sorting out the first stack. Mail that stays in the box is safe
+     * indefinitely, so refusing to hand it over is the kinder failure.
+     */
+    synchronized List<Mail> collect(UUID owner, int limit) {
         List<Mail> collected = new ArrayList<>();
+        if (limit <= 0) {
+            return collected;
+        }
         Iterator<Mail> iterator = mailbox.iterator();
-        while (iterator.hasNext()) {
+        while (iterator.hasNext() && collected.size() < limit) {
             Mail mail = iterator.next();
             if (mail.owner().equals(owner)) {
                 collected.add(mail);

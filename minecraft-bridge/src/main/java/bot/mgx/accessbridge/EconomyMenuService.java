@@ -17,6 +17,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.PlayerInventory;
@@ -415,15 +416,22 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                     wanted <= step ? "Back to 1" : EconomyFormat.dollars(offer.costOfItems(step)) + " less"
             ));
         }
-        int carryable = Math.max(1, offer.maxItems(balance, space));
-        inventory.setItem(BUY_MAX_SLOT, button(
-                Material.GOLD_INGOT, "Fill my inventory",
-                List.of(
-                        carryable + " " + readable(offer.material()),
-                        EconomyFormat.dollars(offer.costOfItems(carryable)),
-                        "As much as you can carry."
-                )
-        ));
+        int carryable = offer.maxItems(balance, space);
+        inventory.setItem(BUY_MAX_SLOT, carryable > 0
+                ? button(
+                        Material.GOLD_INGOT, "Fill my inventory",
+                        List.of(
+                                carryable + " " + readable(offer.material()),
+                                EconomyFormat.dollars(offer.costOfItems(carryable)),
+                                "As much as you can carry."
+                        ))
+                // Clamping this to one made the button offer a purchase that the confirm
+                // button, reading the same balance, then refused.
+                : button(
+                        Material.GRAY_CONCRETE, "Fill my inventory",
+                        List.of(space <= 0
+                                ? "No room for any."
+                                : "You cannot afford any.")));
         AutoOrder standing = autoOrders.get(player.getUniqueId());
         boolean running = standing != null && standing.material().equals(offer.material());
         inventory.setItem(AUTOBUY_SLOT, button(
@@ -565,9 +573,15 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                     pending.quantity(), pending.intervalSeconds(), pending.drop());
             return;
         }
-        autoOrders.put(player.getUniqueId(), new AutoOrder(
+        // One standing order per player, so starting this one ends any other. Saying so
+        // matters: the screen for the item being replaced is somewhere else entirely,
+        // and the only other sign is a farm quietly going dry.
+        AutoOrder replaced = autoOrders.put(player.getUniqueId(), new AutoOrder(
                 pending.offer().material(), pending.offer().unitPrice(), pending.quantity(),
                 pending.intervalSeconds(), pending.drop(), plugin.getServer().getCurrentTick()));
+        if (replaced != null) {
+            info(player, "Stopped auto buying " + readable(replaced.material()) + ".");
+        }
         info(player, "Auto buying " + pending.quantity() + " "
                 + readable(pending.offer().material()) + " every "
                 + pending.intervalSeconds() + "s"
@@ -927,6 +941,22 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         }
     }
 
+    /**
+     * Drops everything this service was holding for a player who left.
+     *
+     * <p>The standing order would be cleared by the next tick anyway, but the saved
+     * auction search would not: nothing ever removed it, so the map grew by one entry
+     * per player who had ever typed {@code /ah search} and never shrank.
+     */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onQuit(PlayerQuitEvent event) {
+        UUID playerId = event.getPlayer().getUniqueId();
+        auctionSearch.remove(playerId);
+        pendingBuys.remove(playerId);
+        pendingAuto.remove(playerId);
+        autoOrders.remove(playerId);
+    }
+
     private void clickSellPreview(Player player, int slot) {
         if (slot == 45) {
             sellInventory(player);
@@ -1150,13 +1180,23 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         if (slot != CONFIRM_YES) {
             return;
         }
+        // Decode before any money moves. The blob is what the buyer is paying for, and
+        // it survives a plugin or server version change on its own terms; if it can no
+        // longer be read, taking the money and handing over nothing is the one outcome
+        // that cannot be undone afterwards.
+        AuctionStore.Listing offered = auctions.find(menu.subject()).orElseThrow(
+                () -> new IllegalArgumentException("That listing is gone.")
+        );
+        ItemStack item = decodeItem(offered.itemData());
+        if (item == null) {
+            throw new IllegalArgumentException(
+                    "That listing cannot be handed over and was not charged for."
+            );
+        }
         AuctionStore.Purchase purchase = auctions.buy(
                 player.getUniqueId(), menu.subject(), money, System.currentTimeMillis()
         );
-        ItemStack item = decodeItem(purchase.listing().itemData());
-        if (item != null) {
-            give(player, item);
-        }
+        give(player, item);
         info(player, "Bought for " + EconomyFormat.dollars(purchase.paid()) + ".");
         Player seller = plugin.getServer().getPlayer(purchase.listing().seller());
         if (seller != null) {
@@ -1302,11 +1342,26 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                 + EconomyFormat.dollars(price) + ".");
     }
 
+    /**
+     * Hands back as much mail as the player can actually carry.
+     *
+     * <p>Bounded by empty slots rather than by what is waiting: each piece of mail is
+     * one stack, and anything {@code give} cannot fit ends up on the floor. Mail left in
+     * the box keeps indefinitely, so stopping at the inventory is safe where dropping
+     * the remainder into whatever the player is standing over is not.
+     */
     private void collectMail(Player player) {
-        List<AuctionStore.Mail> collected = auctions.collect(player.getUniqueId());
-        if (collected.isEmpty()) {
+        int waiting = auctions.mailboxOf(player.getUniqueId()).size();
+        if (waiting == 0) {
             throw new IllegalArgumentException("Nothing to collect.");
         }
+        int room = freeSlots(player);
+        if (room == 0) {
+            throw new IllegalArgumentException(
+                    "Your inventory is full. Your items are safe in the mailbox."
+            );
+        }
+        List<AuctionStore.Mail> collected = auctions.collect(player.getUniqueId(), room);
         int given = 0;
         for (AuctionStore.Mail mail : collected) {
             ItemStack item = decodeItem(mail.itemData());
@@ -1315,7 +1370,23 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                 given++;
             }
         }
-        info(player, "Collected " + given + " item(s).");
+        int left = waiting - collected.size();
+        info(player, "Collected " + given + " item(s)."
+                + (left > 0 ? " " + left + " left in the mailbox — make room and collect again." : ""));
+    }
+
+    private static int freeSlots(Player player) {
+        ItemStack[] storage = player.getInventory().getStorageContents();
+        if (storage == null) {
+            return 0;
+        }
+        int free = 0;
+        for (ItemStack stack : storage) {
+            if (stack == null || stack.getType().isAir()) {
+                free++;
+            }
+        }
+        return free;
     }
 
     private void drawListings(

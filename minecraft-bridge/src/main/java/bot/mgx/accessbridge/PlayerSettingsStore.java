@@ -19,23 +19,50 @@ import java.util.UUID;
 /**
  * Per-player display preferences.
  *
- * <p>Every setting defaults to "on", so the store only records the toggles a player has
- * actually turned off. That keeps the file small and means a missing entry is the
- * normal case rather than something to repair.
+ * <p>The file records only the settings a player has moved <em>away from their
+ * default</em>, so a missing entry is the normal case rather than something to repair.
+ * Which way that deviation points depends on the setting: for a display toggle that is
+ * on for everyone it means "hidden", and for an opt-in behaviour it means "switched on".
  */
 final class PlayerSettingsStore {
-    /** A toggle a player can turn off. Names are persisted, so do not rename casually. */
+    /**
+     * A toggle a player controls. Keys are persisted, so do not rename casually.
+     *
+     * <p>{@code enabledByDefault} is the part that has to be right. Auto sell empties
+     * an inventory into the shop every couple of seconds; defaulting it to on — which
+     * is what a single shared "everything starts enabled" rule did — meant every ore a
+     * player mined was sold out from under them before they noticed. Its key is
+     * deliberately not {@code auto_sell}: rows written under that name meant "turned
+     * off", which is now the default, so being unable to read them is the migration.
+     */
     enum Setting {
-        CLAN_TAGS("Clan tags", "Show other players' clan tags in chat and above their heads."),
-        DISCORD_CHAT("Discord chat", "Show messages sent from Discord in Minecraft chat."),
-        AUTO_SELL("Auto sell", "Sell anything the shop buys as soon as it reaches your inventory.");
+        CLAN_TAGS("clan_tags", "Clan tags",
+                "Show other players' clan tags in chat and above their heads.", true, true),
+        DISCORD_CHAT("discord_chat", "Discord chat",
+                "Show messages sent from Discord in Minecraft chat.", true, true),
+        // Lives on the sell screen, not in /settings: it is a shop behaviour, and the
+        // panel is for what you can see.
+        AUTO_SELL("auto_sell_on", "Auto sell",
+                "Sell anything the shop buys as soon as it reaches your inventory.", false, false);
 
+        private final String key;
         private final String label;
         private final String description;
+        private final boolean enabledByDefault;
+        private final boolean inSettingsPanel;
 
-        Setting(String label, String description) {
+        Setting(
+                String key,
+                String label,
+                String description,
+                boolean enabledByDefault,
+                boolean inSettingsPanel
+        ) {
+            this.key = key;
             this.label = label;
             this.description = description;
+            this.enabledByDefault = enabledByDefault;
+            this.inSettingsPanel = inSettingsPanel;
         }
 
         String label() {
@@ -46,8 +73,17 @@ final class PlayerSettingsStore {
             return description;
         }
 
+        boolean enabledByDefault() {
+            return enabledByDefault;
+        }
+
+        /** Whether {@code /settings} offers this one. */
+        boolean inSettingsPanel() {
+            return inSettingsPanel;
+        }
+
         String key() {
-            return name().toLowerCase(java.util.Locale.ROOT);
+            return key;
         }
 
         static java.util.Optional<Setting> fromKey(String raw) {
@@ -64,7 +100,8 @@ final class PlayerSettingsStore {
     }
 
     private final Path file;
-    private final LinkedHashMap<UUID, EnumSet<Setting>> disabled = new LinkedHashMap<>();
+    /** Per player, the settings they have moved away from {@link Setting#enabledByDefault}. */
+    private final LinkedHashMap<UUID, EnumSet<Setting>> overrides = new LinkedHashMap<>();
 
     PlayerSettingsStore(Path file) throws IOException {
         this.file = file;
@@ -75,11 +112,13 @@ final class PlayerSettingsStore {
         try {
             JsonObject root = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
             for (Map.Entry<String, JsonElement> entry : root.entrySet()) {
-                EnumSet<Setting> off = EnumSet.noneOf(Setting.class);
+                EnumSet<Setting> moved = EnumSet.noneOf(Setting.class);
                 for (JsonElement value : entry.getValue().getAsJsonArray()) {
-                    Setting.fromKey(value.getAsString()).ifPresent(off::add);
+                    Setting.fromKey(value.getAsString()).ifPresent(moved::add);
                 }
-                disabled.put(UUID.fromString(entry.getKey()), off);
+                if (!moved.isEmpty()) {
+                    overrides.put(UUID.fromString(entry.getKey()), moved);
+                }
             }
         } catch (RuntimeException exception) {
             throw new IOException("Player settings store is unreadable", exception);
@@ -87,24 +126,26 @@ final class PlayerSettingsStore {
     }
 
     synchronized boolean isEnabled(UUID playerId, Setting setting) {
-        return !disabled.getOrDefault(playerId, EnumSet.noneOf(Setting.class)).contains(setting);
+        boolean moved = overrides.getOrDefault(playerId, EnumSet.noneOf(Setting.class))
+                .contains(setting);
+        return moved != setting.enabledByDefault();
     }
 
     /** Flips one setting and returns its new state. */
     synchronized boolean toggle(UUID playerId, Setting setting) {
-        EnumSet<Setting> off = disabled.computeIfAbsent(
+        EnumSet<Setting> moved = overrides.computeIfAbsent(
                 playerId, ignored -> EnumSet.noneOf(Setting.class)
         );
         boolean nowEnabled;
-        if (off.contains(setting)) {
-            off.remove(setting);
-            nowEnabled = true;
+        if (moved.contains(setting)) {
+            moved.remove(setting);
+            nowEnabled = setting.enabledByDefault();
         } else {
-            off.add(setting);
-            nowEnabled = false;
+            moved.add(setting);
+            nowEnabled = !setting.enabledByDefault();
         }
-        if (off.isEmpty()) {
-            disabled.remove(playerId);
+        if (moved.isEmpty()) {
+            overrides.remove(playerId);
         }
         save();
         return nowEnabled;
@@ -112,20 +153,20 @@ final class PlayerSettingsStore {
 
     /** Forgets every player's toggles, so everyone starts back on the defaults. */
     synchronized int clearAll() {
-        int cleared = disabled.size();
+        int cleared = overrides.size();
         if (cleared == 0) {
             return 0;
         }
-        disabled.clear();
+        overrides.clear();
         save();
         return cleared;
     }
 
     private void save() {
         JsonObject root = new JsonObject();
-        disabled.forEach((playerId, off) -> {
+        overrides.forEach((playerId, moved) -> {
             com.google.gson.JsonArray array = new com.google.gson.JsonArray();
-            off.forEach(setting -> array.add(setting.key()));
+            moved.forEach(setting -> array.add(setting.key()));
             root.add(playerId.toString(), array);
         });
         try {

@@ -157,4 +157,52 @@ class ShopCatalogTest {
         assertEquals(7L, cobble.unitPrice());
         assertEquals(448L, cobble.costOfItems(64));
     }
+
+    /**
+     * Buyable items that turn into something else the shop pays for, and how many come
+     * out of one. Breaking counts as much as crafting: nobody needs a recipe to place a
+     * clay block and mine it back.
+     *
+     * <p>Only conversions a player can actually perform belong here. A quartz block
+     * holds four quartz but no recipe or drop gives them back, so it is not a way out.
+     */
+    private static final Map<String, Map<String, Integer>> DERIVED_FORMS = Map.of(
+            "CLAY", Map.of("CLAY_BALL", 4),
+            "HAY_BLOCK", Map.of("WHEAT", 9),
+            "COAL_BLOCK", Map.of("COAL", 9),
+            "REDSTONE_BLOCK", Map.of("REDSTONE", 9),
+            "LAPIS_BLOCK", Map.of("LAPIS_LAZULI", 9),
+            "IRON_BLOCK", Map.of("IRON_INGOT", 9),
+            "GOLD_BLOCK", Map.of("GOLD_INGOT", 9),
+            "COPPER_BLOCK", Map.of("COPPER_INGOT", 9),
+            "DRIED_KELP_BLOCK", Map.of("DRIED_KELP", 9),
+            "STONE", Map.of("COBBLESTONE", 1)
+    );
+
+    /**
+     * The shop must not sell a block for less than the shop itself pays for what comes
+     * out of it. Clay shipped at $14 a block and broke into four clay balls worth $40,
+     * which is an unattended money printer — buy, place, break, sell, repeat — and the
+     * buy-versus-sell check above could not see it, because clay the block is not on
+     * the sell counter at all. Only its pieces are.
+     */
+    @Test
+    void breakingOrCraftingWhatTheShopSellsNeverBeatsItsPrice() {
+        List<String> loops = new ArrayList<>();
+        DERIVED_FORMS.forEach((material, yields) -> {
+            ShopCatalog.Offer offer = ShopCatalog.offer(material).orElse(null);
+            if (offer == null) {
+                return;
+            }
+            long payout = 0L;
+            for (Map.Entry<String, Integer> yield : yields.entrySet()) {
+                payout += ShopCatalog.sellCredit(yield.getKey(), yield.getValue());
+            }
+            if (payout > offer.unitPrice()) {
+                loops.add(material + " costs " + offer.unitPrice()
+                        + " and breaks into " + payout + " of sellables");
+            }
+        });
+        assertEquals(List.of(), loops, "buy-break-sell loops that print money");
+    }
 }

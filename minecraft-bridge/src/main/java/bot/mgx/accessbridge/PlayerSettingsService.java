@@ -45,7 +45,9 @@ final class PlayerSettingsService implements CommandExecutor, TabCompleter {
             menus.openSettings(player);
             return true;
         }
-        PlayerSettingsStore.Setting setting = PlayerSettingsStore.Setting.fromKey(args[0]).orElse(null);
+        PlayerSettingsStore.Setting setting = PlayerSettingsStore.Setting.fromKey(args[0])
+                .filter(PlayerSettingsStore.Setting::inSettingsPanel)
+                .orElse(null);
         if (setting == null) {
             player.sendMessage(Component.text("That is not a setting. Use ", NamedTextColor.RED)
                     .append(Component.text("/settings", GOLD))
@@ -76,7 +78,7 @@ final class PlayerSettingsService implements CommandExecutor, TabCompleter {
         String prefix = args[0].toLowerCase(Locale.ROOT);
         List<String> matches = new ArrayList<>();
         for (PlayerSettingsStore.Setting setting : PlayerSettingsStore.Setting.values()) {
-            if (setting.key().startsWith(prefix)) {
+            if (setting.inSettingsPanel() && setting.key().startsWith(prefix)) {
                 matches.add(setting.key());
             }
         }
