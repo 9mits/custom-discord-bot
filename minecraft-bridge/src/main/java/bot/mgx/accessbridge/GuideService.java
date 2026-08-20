@@ -56,7 +56,12 @@ final class GuideService implements CommandExecutor, TabCompleter {
             new StaffCommand("/gamemode", "Change game mode", "essentials.gamemode"),
             new StaffCommand("/ban", "Ban a player", "essentials.ban"),
             new StaffCommand("/tempban", "Ban a player for a set time", "essentials.tempban"),
-            new StaffCommand("/unban", "Lift a ban", "essentials.unban")
+            new StaffCommand("/unban", "Lift a ban", "essentials.unban"),
+            new StaffCommand(
+                    "/lootbox key <player> [amount]",
+                    "Issue event lootbox keys",
+                    "mgxaccessbridge.admin"
+            )
     );
 
     private record StaffCommand(String usage, String summary, String permission) {
@@ -147,6 +152,8 @@ final class GuideService implements CommandExecutor, TabCompleter {
         player.sendMessage(guideLink("/shop", "Buy blocks, food, ores and more", ORANGE));
         player.sendMessage(guideLink("/sell", "Sell items to the server", GOLD));
         player.sendMessage(guideLink("/ah", "Player auction house", NamedTextColor.YELLOW));
+        player.sendMessage(guideLink("/lootbox", "Spin a key or inspect the exact odds", GOLD));
+        player.sendMessage(guideLink("/wardrobe", "Equip or trade your cosmetics", NamedTextColor.LIGHT_PURPLE));
         player.sendMessage(guideLink("/bal", "Your money", NamedTextColor.GREEN));
         player.sendMessage(guideLink("/bounty set <player> <amount>", "Put money on a player", NamedTextColor.RED));
         player.sendMessage(guideLink("/bounty clan <player> <amount>", "Clan owner: pay from the treasury", NamedTextColor.RED));
@@ -156,7 +163,7 @@ final class GuideService implements CommandExecutor, TabCompleter {
         player.sendMessage(guideLink("/claninfo [name]", "Open a clan information card", NamedTextColor.AQUA));
         player.sendMessage(guideLink("/whitelisted", "Everyone with access and their Discord name", NamedTextColor.YELLOW));
         player.sendMessage(guideLink("/perks", "View Discord level rewards", NamedTextColor.LIGHT_PURPLE));
-        player.sendMessage(guideLink("/settings", "Choose what you see in chat and nametags", NamedTextColor.GREEN));
+        player.sendMessage(guideLink("/settings", "Configure chat, cosmetics and scoreboard", NamedTextColor.GREEN));
         player.sendMessage(guideLink(
                 "/discordnames",
                 "Show or hide your Discord name to others",

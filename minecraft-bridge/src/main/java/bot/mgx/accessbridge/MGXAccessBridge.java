@@ -90,6 +90,11 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private WealthStore wealthStore;
     private EconomyStore economyStore;
     private EconomyMenuService economyMenus;
+    private LootboxStore lootboxStore;
+    private CosmeticStore cosmeticStore;
+    private TrophyHeadStore trophyHeadStore;
+    private LootboxService lootboxes;
+    private CosmeticEffectService cosmeticEffects;
     private RankSyncStore rankSyncStore;
     private MaintenanceStore maintenanceStore;
     private BukkitTask maintenanceSweep;
@@ -131,6 +136,11 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             );
             wealthStore = new WealthStore(getDataFolder().toPath().resolve("wealth.json"));
             economyStore = new EconomyStore(getDataFolder().toPath().resolve("balances.json"));
+            lootboxStore = new LootboxStore(getDataFolder().toPath().resolve("lootboxes.json"));
+            cosmeticStore = new CosmeticStore(getDataFolder().toPath().resolve("cosmetics.json"));
+            trophyHeadStore = new TrophyHeadStore(
+                    getDataFolder().toPath().resolve("trophy-heads.json")
+            );
             rankSyncStore = new RankSyncStore(getDataFolder().toPath().resolve("rank-sync.json"));
             maintenanceStore = new MaintenanceStore(
                     getDataFolder().toPath().resolve("maintenance.flag")
@@ -220,7 +230,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 || getCommand("ah") == null
                 || getCommand("bal") == null
                 || getCommand("pay") == null
-                || getCommand("bounty") == null) {
+                || getCommand("bounty") == null
+                || getCommand("lootbox") == null
+                || getCommand("wardrobe") == null) {
             getLogger().severe("A required Minecraft command is missing from plugin.yml.");
             getServer().getPluginManager().disablePlugin(this);
             return;
@@ -237,6 +249,31 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         PlayerSettingsService settingsService = new PlayerSettingsService(this, playerSettings, playerMenuService);
         getCommand("settings").setExecutor(settingsService);
         getCommand("settings").setTabCompleter(settingsService);
+        CosmeticItems cosmeticItems = new CosmeticItems(this);
+        WardrobeService wardrobeService = new WardrobeService(
+                this, cosmeticStore, cosmeticItems, settingsService
+        );
+        cosmeticEffects = new CosmeticEffectService(
+                this, cosmeticStore, cosmeticItems, wardrobeService, playerSettings
+        );
+        lootboxes = new LootboxService(
+                this,
+                lootboxStore,
+                new LootboxItems(this),
+                cosmeticStore,
+                cosmeticItems,
+                cosmeticEffects
+        );
+        getCommand("wardrobe").setExecutor(wardrobeService);
+        getCommand("wardrobe").setTabCompleter(wardrobeService);
+        getCommand("lootbox").setExecutor(lootboxes);
+        getCommand("lootbox").setTabCompleter(lootboxes);
+        getServer().getPluginManager().registerEvents(wardrobeService, this);
+        getServer().getPluginManager().registerEvents(cosmeticEffects, this);
+        getServer().getPluginManager().registerEvents(lootboxes, this);
+        getServer().getPluginManager().registerEvents(
+                new TrophyHeadService(this, trophyHeadStore, playerSettings), this
+        );
         WhitelistDirectoryService whitelistService = new WhitelistDirectoryService(whitelistDirectory, playerMenuService);
         getCommand("whitelisted").setExecutor(whitelistService);
         getCommand("whitelisted").setTabCompleter(whitelistService);
@@ -330,6 +367,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                         rankSyncStore,
                         identityStore,
                         playerSettings,
+                        lootboxStore,
+                        cosmeticStore,
+                        trophyHeadStore,
                         verifiedApplications,
                         verificationEvents,
                         processed,
@@ -343,6 +383,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("mgxadmin").setTabCompleter(adminService);
         launchService = new LaunchService(this, getDataFolder().toPath());
         launchService.restoreOnEnable();
+        cosmeticEffects.start();
         sidebarService.start();
         leaderboardService.start();
         capabilityService.start();
@@ -363,6 +404,12 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
+        if (lootboxes != null) {
+            lootboxes.stop();
+        }
+        if (cosmeticEffects != null) {
+            cosmeticEffects.stop();
+        }
         if (clanMenuService != null) {
             // Items sitting in an open donation window exist only in that inventory
             // object. Closing banks them; not closing loses them.

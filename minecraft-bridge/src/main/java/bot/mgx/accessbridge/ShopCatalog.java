@@ -422,7 +422,7 @@ final class ShopCatalog {
                 offer("SOUL_TORCH", 64, 1_400),
                 offer("LANTERN", 64, 4_000),
                 offer("SOUL_LANTERN", 64, 4_500),
-                offer("CHAIN", 64, 4_500),
+                offer("IRON_CHAIN", 64, 4_500),
                 offer("CANDLE", 64, 3_000),
                 offer("GLOW_ITEM_FRAME", 64, 6_000),
                 offer("FLOWER_POT", 64, 1_500),

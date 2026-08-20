@@ -24,12 +24,12 @@ final class PlayerSettingsService implements CommandExecutor, TabCompleter {
 
     private final MGXAccessBridge plugin;
     private final PlayerSettingsStore store;
-    private final PlayerMenuService menus;
+    private final PlayerSettingsDialogService panel;
 
     PlayerSettingsService(MGXAccessBridge plugin, PlayerSettingsStore store, PlayerMenuService menus) {
         this.plugin = plugin;
         this.store = store;
-        this.menus = menus;
+        this.panel = new PlayerSettingsDialogService(plugin, store, menus);
     }
 
     @Override
@@ -42,7 +42,7 @@ final class PlayerSettingsService implements CommandExecutor, TabCompleter {
         if (args.length == 0) {
             // The menu is the panel now; the named-setting form below stays for
             // anyone who prefers typing, and for tab completion.
-            menus.openSettings(player);
+            panel.open(player);
             return true;
         }
         PlayerSettingsStore.Setting setting = PlayerSettingsStore.Setting.fromKey(args[0])
@@ -68,6 +68,11 @@ final class PlayerSettingsService implements CommandExecutor, TabCompleter {
             ));
         }
         return true;
+    }
+
+    /** Entry point used by the wardrobe without exposing the whole settings panel. */
+    void openCosmeticSettings(Player player) {
+        panel.openCosmeticSettings(player);
     }
 
     @Override

@@ -1,11 +1,11 @@
 name: MGXAccessBridge
 version: ${version}
 main: bot.mgx.accessbridge.MGXAccessBridge
-api-version: "1.21"
-description: Signed Minecraft access, Discord chat and perks, scoreboard, and clans.
+api-version: "1.21.11"
+description: Signed access, economy, lootboxes, cosmetics, scoreboard, and clans.
 authors: [9mits]
 depend: [floodgate]
-softdepend: [LuckPerms]
+softdepend: [LuckPerms, ViaVersion]
 commands:
   clans:
     description: Create and manage Minecraft clans.
@@ -31,9 +31,19 @@ commands:
     usage: /discordnames
     aliases: [discordname]
   settings:
-    description: Change what you see in chat, nametags and the player list.
-    usage: /settings [clan_tags|discord_chat|discord_names]
+    description: Configure chat, notifications, cosmetics, privacy and scoreboard display.
+    usage: /settings [setting]
     aliases: [mysettings, prefs]
+  wardrobe:
+    description: View, equip, deposit and withdraw tradable cosmetics.
+    usage: /wardrobe [kill_effects|auras|trails|secret|deposit|settings]
+    aliases: [cosmetics]
+    permission: mgx.cosmetics
+  lootbox:
+    description: Open lootboxes, inspect exact odds and claim saved rewards.
+    usage: /lootbox [open|odds|claim]
+    aliases: [crate, crates]
+    permission: mgx.lootbox
   whitelisted:
     description: List everyone with whitelist access and their Discord name.
     usage: /whitelisted [page]
@@ -97,6 +107,12 @@ permissions:
     default: true
   mgx.auction:
     description: Allows players to use the auction house.
+    default: true
+  mgx.cosmetics:
+    description: Allows players to use the wardrobe and cosmetic effects.
+    default: true
+  mgx.lootbox:
+    description: Allows players to open lootboxes and inspect their odds.
     default: true
   mgxaccessbridge.admin:
     description: Allows rank holds, administrative data resets, and joining while the server is held for maintenance when granted explicitly in LuckPerms.

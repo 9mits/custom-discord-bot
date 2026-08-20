@@ -11,13 +11,15 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
 /**
- * Per-player display preferences.
+ * Per-player experience preferences.
  *
  * <p>The file records only the settings a player has moved <em>away from their
  * default</em>, so a missing entry is the normal case rather than something to repair.
@@ -25,6 +27,42 @@ import java.util.UUID;
  * on for everyone it means "hidden", and for an opt-in behaviour it means "switched on".
  */
 final class PlayerSettingsStore {
+    enum Category {
+        CHAT("Chat", "Choose which conversations and chat highlights reach you."),
+        NOTIFICATIONS("Notifications", "Choose which server notices appear in chat."),
+        PVP("PvP", "Control combat-related messages and effects."),
+        VISUALS("Visuals / Cosmetics", "Choose which equipped cosmetics are rendered."),
+        PRIVACY("Privacy", "Control which linked account details other players can see."),
+        SCOREBOARD("Scoreboard", "Choose whether the sidebar appears and which sections it shows."),
+        GENERAL("General", "Other presentation settings that apply across the server.");
+
+        private final String label;
+        private final String description;
+
+        Category(String label, String description) {
+            this.label = label;
+            this.description = description;
+        }
+
+        String label() {
+            return label;
+        }
+
+        String description() {
+            return description;
+        }
+
+        List<Setting> settings() {
+            List<Setting> found = new ArrayList<>();
+            for (Setting setting : Setting.values()) {
+                if (setting.category() == this) {
+                    found.add(setting);
+                }
+            }
+            return List.copyOf(found);
+        }
+    }
+
     /**
      * A toggle a player controls. Keys are persisted, so do not rename casually.
      *
@@ -37,32 +75,56 @@ final class PlayerSettingsStore {
      */
     enum Setting {
         CLAN_TAGS("clan_tags", "Clan tags",
-                "Show other players' clan tags in chat and above their heads.", true, true),
+                "Show other players' clan tags in chat and above their heads.", true, Category.GENERAL),
         DISCORD_CHAT("discord_chat", "Discord chat",
-                "Show messages sent from Discord in Minecraft chat.", true, true),
+                "Show messages sent from Discord in Minecraft chat.", true, Category.CHAT),
+        CHAT_MENTIONS("chat_mentions", "Chat mentions",
+                "Highlight relayed Discord messages that mention your Minecraft name.", true, Category.CHAT),
+        CHAT_NOTIFICATIONS("chat_notifications", "Chat notifications",
+                "Show rare cosmetic reveal notices in chat.", true, Category.NOTIFICATIONS),
+        TROPHY_MESSAGES("trophy_messages", "Trophy messages",
+                "Show messages when a player earns a trophy head.", true, Category.PVP),
+        COSMETICS_VISIBLE("cosmetics_visible", "Other players' cosmetics",
+                "Render cosmetics equipped by other players.", true, Category.VISUALS),
+        OWN_AURA_VISIBLE("own_aura_visible", "Your aura",
+                "Render your equipped aura for you.", true, Category.VISUALS),
+        OWN_TRAIL_VISIBLE("own_trail_visible", "Your trail",
+                "Render your equipped trail for you.", true, Category.VISUALS),
+        OWN_KILL_EFFECTS_VISIBLE("own_kill_effects_visible", "Your kill effects",
+                "Render your equipped kill effects for you.", true, Category.VISUALS),
+        COSMETIC_SOUNDS("cosmetic_sounds", "Cosmetic sounds",
+                "Play sounds from cosmetic reveals and kill effects.", true, Category.VISUALS),
+        SCOREBOARD_ENABLED("scoreboard_enabled", "Scoreboard",
+                "Show the Mysterious SMP X sidebar.", true, Category.SCOREBOARD),
+        SCOREBOARD_PROFILE("scoreboard_profile", "Profile section",
+                "Show your rank, level, hearts, and clan on the scoreboard.", true, Category.SCOREBOARD),
+        SCOREBOARD_STATS("scoreboard_stats", "Stats section",
+                "Show your kills and deaths on the scoreboard.", true, Category.SCOREBOARD),
+        SCOREBOARD_ECONOMY("scoreboard_economy", "Economy section",
+                "Show your money on the scoreboard.", true, Category.SCOREBOARD),
         // Lives on the sell screen, not in /settings: it is a shop behaviour, and the
         // panel is for what you can see.
         AUTO_SELL("auto_sell_on", "Auto sell",
-                "Sell anything the shop buys as soon as it reaches your inventory.", false, false);
+                "Sell anything the shop buys as soon as it reaches your inventory.", false, null);
 
         private final String key;
         private final String label;
         private final String description;
         private final boolean enabledByDefault;
-        private final boolean inSettingsPanel;
+        private final Category category;
 
         Setting(
                 String key,
                 String label,
                 String description,
                 boolean enabledByDefault,
-                boolean inSettingsPanel
+                Category category
         ) {
             this.key = key;
             this.label = label;
             this.description = description;
             this.enabledByDefault = enabledByDefault;
-            this.inSettingsPanel = inSettingsPanel;
+            this.category = category;
         }
 
         String label() {
@@ -79,7 +141,11 @@ final class PlayerSettingsStore {
 
         /** Whether {@code /settings} offers this one. */
         boolean inSettingsPanel() {
-            return inSettingsPanel;
+            return category != null;
+        }
+
+        Category category() {
+            return category;
         }
 
         String key() {
@@ -133,22 +199,48 @@ final class PlayerSettingsStore {
 
     /** Flips one setting and returns its new state. */
     synchronized boolean toggle(UUID playerId, Setting setting) {
-        EnumSet<Setting> moved = overrides.computeIfAbsent(
-                playerId, ignored -> EnumSet.noneOf(Setting.class)
-        );
-        boolean nowEnabled;
-        if (moved.contains(setting)) {
-            moved.remove(setting);
-            nowEnabled = setting.enabledByDefault();
-        } else {
-            moved.add(setting);
-            nowEnabled = !setting.enabledByDefault();
-        }
-        if (moved.isEmpty()) {
-            overrides.remove(playerId);
-        }
-        save();
+        boolean nowEnabled = !isEnabled(playerId, setting);
+        setEnabled(playerId, setting, nowEnabled);
         return nowEnabled;
+    }
+
+    /** Stores an explicit form value and returns the resulting state. */
+    synchronized boolean setEnabled(UUID playerId, Setting setting, boolean enabled) {
+        setEnabled(playerId, Map.of(setting, enabled));
+        return enabled;
+    }
+
+    /** Applies one dialog submission in memory and on disk as a single update. */
+    synchronized void setEnabled(UUID playerId, Map<Setting, Boolean> requested) {
+        EnumSet<Setting> before = overrides.containsKey(playerId)
+                ? EnumSet.copyOf(overrides.get(playerId))
+                : EnumSet.noneOf(Setting.class);
+        EnumSet<Setting> after = EnumSet.copyOf(before);
+        requested.forEach((setting, enabled) -> {
+            if (enabled == setting.enabledByDefault()) {
+                after.remove(setting);
+            } else {
+                after.add(setting);
+            }
+        });
+        if (after.equals(before)) {
+            return;
+        }
+        if (after.isEmpty()) {
+            overrides.remove(playerId);
+        } else {
+            overrides.put(playerId, after);
+        }
+        try {
+            save();
+        } catch (RuntimeException exception) {
+            if (before.isEmpty()) {
+                overrides.remove(playerId);
+            } else {
+                overrides.put(playerId, before);
+            }
+            throw exception;
+        }
     }
 
     /** Forgets every player's toggles, so everyone starts back on the defaults. */
@@ -157,8 +249,14 @@ final class PlayerSettingsStore {
         if (cleared == 0) {
             return 0;
         }
+        LinkedHashMap<UUID, EnumSet<Setting>> before = new LinkedHashMap<>(overrides);
         overrides.clear();
-        save();
+        try {
+            save();
+        } catch (RuntimeException exception) {
+            overrides.putAll(before);
+            throw exception;
+        }
         return cleared;
     }
 

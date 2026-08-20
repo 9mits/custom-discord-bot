@@ -100,7 +100,8 @@ Gson is shaded and relocated. Networking uses Java 21's built-in HTTP/WebSocket 
 ## Installing on GravelHost
 
 1. Stop the Paper server and back up the world and plugin directory.
-2. Confirm the server runs Paper 1.21.1 on Java 21 and that Floodgate and Geyser are already loading successfully.
+2. Confirm the server runs Paper 1.21.11 on Java 21 and that Floodgate, Geyser,
+   ViaVersion, and ViaBackwards are already loading successfully.
 3. Upload `minecraft-bridge/build/libs/MGXAccessBridge.jar` to the server's `plugins/` directory.
 4. Start once to create `plugins/MGXAccessBridge/config.yml`, then stop the server.
 5. Set `server-id`, the public `wss://.../minecraft-bridge` URL, and the shared secret. Keep `allow-insecure-localhost: false`.
@@ -122,9 +123,10 @@ runtime/minecraft/backups/
 
 For routine backups, stop only the Minecraft bot process and copy the entire `MINECRAFT_DATA_DIR`. To recover, stop that process, preserve the damaged directory separately, restore `minecraft.db` plus its `-wal`/`-shm` files when present, and start the process again. Do not copy a live database without using SQLite's backup API.
 
-Clan data is owned by Paper and saved atomically in
-`plugins/MGXAccessBridge/clans.json`. Include that file when backing up the Minecraft
-server. The plugin fails closed instead of replacing malformed clan data.
+Clan, lootbox, cosmetic, trophy, economy, and settings data are owned by Paper and
+saved atomically under `plugins/MGXAccessBridge/`. Include that entire directory
+when backing up the Minecraft server. The plugin fails closed instead of replacing
+malformed persistent data.
 
 The durable outbox makes approval and revocation safe across disconnects. `APPROVAL_QUEUED` does not mean a player is whitelisted. The status becomes `APPROVED`, and the Discord role is assigned, only after Paper confirms the typed action.
 
@@ -170,6 +172,34 @@ The footer accepts 1-32 characters. Refresh intervals accept 10-200 ticks; the d
 is every five seconds. View and simulation caps drop 1.21 chunk residency; set a
 distance to `0` to leave the panel value alone. The border is 100,000 blocks from
 spawn; set `border-radius: -1` to leave the panel value.
+
+`/settings` uses Minecraft's native custom Dialog UI for supported Java clients and
+retains the inventory UI for Floodgate/Bedrock or an unsupported translated protocol.
+It exposes chat, notification, PvP, cosmetic, privacy, scoreboard, and general
+categories. Scoreboard settings can hide the entire sidebar or its profile, stats,
+and economy sections independently. The same cosmetic controls are linked from
+`/wardrobe settings`.
+
+Paper 1.21.11 directly accepts 1.21.11 Java clients. Supporting Java 1.21.6 through
+1.21.10 requires ViaVersion plus ViaBackwards; the plugin checks the original client
+protocol before sending a Dialog. The UI is a server-provided modal and does not
+replace Minecraft's built-in Options screen.
+
+## Lootboxes, cosmetics, and trophy heads
+
+`/lootbox` opens the animated reel, shows every exact public chance, and claims a
+saved reward. `/wardrobe` manages unique tradable cosmetic tokens and links to the
+cosmetic settings. PvP trophy heads and cosmetic effects share the same per-viewer
+settings system. The full reward table, rolling cap calculation, custody rules, and
+administrator key command are documented in
+[minecraft-lootboxes.md](minecraft-lootboxes.md).
+
+The Java resource-pack source is under `assets/resourcepack/src`, with editable icon
+sources under `assets/resourcepack/icon-sources`. Rebuild
+`assets/resourcepack/MysteriousSMPX.zip` after changing either. Deployment must update
+`resource-pack-sha1` in `server.properties` to the exact SHA-1 of the committed zip.
+The tested Paper and plugin matrix, checksums, and stopped-server deployment order are
+in [minecraft-1.21.11-upgrade.md](minecraft-1.21.11-upgrade.md).
 
 ## Discord and Minecraft chat
 

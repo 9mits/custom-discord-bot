@@ -3,6 +3,7 @@ package bot.mgx.accessbridge;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.command.Command;
@@ -1321,7 +1322,11 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         }
         ItemStack listing = held.clone();
         String encoded = encodeItem(listing);
-        String name = readable(listing.getType().name());
+        ItemMeta listingMeta = listing.getItemMeta();
+        String customName = listingMeta != null && listingMeta.hasDisplayName()
+                ? PlainTextComponentSerializer.plainText().serialize(listingMeta.displayName())
+                : null;
+        String name = AuctionItemName.resolve(listing.getType().name(), customName);
         player.getInventory().setItemInMainHand(null);
         try {
             auctions.list(

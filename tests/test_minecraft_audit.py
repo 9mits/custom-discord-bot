@@ -417,6 +417,7 @@ class ServerEventClassificationTests(unittest.TestCase):
     def test_membership_and_rank_changes_are_tiered_between_the_two(self):
         self.assertEqual(server_event_risk("clan_kick"), RISK_MODERATE)
         self.assertEqual(server_event_risk("rank_hold"), RISK_CONFIGURATION)
+        self.assertEqual(server_event_risk("lootbox_key_grant"), RISK_MODERATE)
 
     def test_an_unknown_event_is_treated_as_routine(self):
         self.assertEqual(server_event_risk("something_new"), RISK_READ_ONLY)
@@ -425,6 +426,11 @@ class ServerEventClassificationTests(unittest.TestCase):
         self.assertEqual(server_event_title("clan_donate"), "Minecraft Clan Donation")
         self.assertEqual(server_event_title("shop_buy"), "Minecraft Shop Purchase")
         self.assertEqual(server_event_title("shop_sell"), "Minecraft Items Sold")
+        self.assertEqual(server_event_title("lootbox_key_grant"), "Minecraft Lootbox Keys Issued")
+        self.assertEqual(
+            server_event_title("lootbox_rare_win"),
+            "Minecraft Rare Lootbox Reward Won",
+        )
         self.assertEqual(server_event_title("brand_new_thing"), "Minecraft Brand New Thing")
         self.assertEqual(server_event_title(""), "Minecraft Server Action")
 

@@ -144,7 +144,13 @@ final class SidebarService {
         if (syncTeams) {
             syncClanTeams(board.scoreboard, player);
         }
-        board.update(lines(player));
+        boolean showSidebar = settings.isEnabled(
+                player.getUniqueId(), PlayerSettingsStore.Setting.SCOREBOARD_ENABLED
+        );
+        if (showSidebar) {
+            board.update(lines(player));
+        }
+        board.setSidebarVisible(showSidebar);
         if (player.getScoreboard() != board.scoreboard) {
             player.setScoreboard(board.scoreboard);
         }
@@ -183,44 +189,52 @@ final class SidebarService {
 
     private List<Component> lines(Player player) {
         PlayerProfile profile = perks.profile(player.getUniqueId());
+        UUID playerId = player.getUniqueId();
 
         List<Row> rows = new ArrayList<>();
-        rows.add(Row.heading("PROFILE"));
-        if (profile.hasRankLabel()) {
-            rows.add(Row.important("Rank", profile.rankLabel(), TextColor.color(profile.rankColour())));
+        if (settings.isEnabled(playerId, PlayerSettingsStore.Setting.SCOREBOARD_PROFILE)) {
+            rows.add(Row.heading("PROFILE"));
+            if (profile.hasRankLabel()) {
+                rows.add(Row.important("Rank", profile.rankLabel(), TextColor.color(profile.rankColour())));
+            }
+            rows.add(Row.important("Server Level", String.valueOf(profile.level()), NamedTextColor.GREEN));
+            // The total, not just the level half: level hearts and clan hearts are two
+            // separate attribute modifiers that stack in game, so reporting one of them
+            // understated what the player was actually carrying. The tab list breaks out
+            // the clan's share. Damage is not on the board at all — /perks covers it.
+            rows.add(Row.important(
+                    "Extra Hearts",
+                    String.valueOf(profile.totalExtraHearts()
+                            + perks.clanPerks(playerId).extraHearts()),
+                    NamedTextColor.GREEN));
+            // The level stands in for the boosts, which are spelled out in the tab list
+            // where there is room for their real names.
+            clans.clanOf(playerId).ifPresent(clan -> rows.add(Row.important(
+                    "Clan",
+                    clan.level() > 0 ? clan.name() + " Lv" + clan.level() : clan.name(),
+                    clanColor(clan))));
         }
-        rows.add(Row.important("Server Level", String.valueOf(profile.level()), NamedTextColor.GREEN));
-        // The total, not just the level half: level hearts and clan hearts are two
-        // separate attribute modifiers that stack in game, so reporting one of them
-        // understated what the player was actually carrying. The tab list breaks out
-        // the clan's share. Damage is not on the board at all — /perks covers it.
-        rows.add(Row.important(
-                "Extra Hearts",
-                String.valueOf(profile.totalExtraHearts()
-                        + perks.clanPerks(player.getUniqueId()).extraHearts()),
-                NamedTextColor.GREEN));
-        // The level stands in for the boosts, which are spelled out in the tab list
-        // where there is room for their real names.
-        clans.clanOf(player.getUniqueId()).ifPresent(clan -> rows.add(Row.important(
-                "Clan",
-                clan.level() > 0 ? clan.name() + " Lv" + clan.level() : clan.name(),
-                clanColor(clan))));
-        rows.add(Row.heading("STATS"));
-        rows.add(Row.essential(
-                "Kills",
-                String.valueOf(player.getStatistic(Statistic.PLAYER_KILLS)),
-                GOLD
-        ));
-        rows.add(Row.essential(
-                "Deaths",
-                String.valueOf(player.getStatistic(Statistic.DEATHS)),
-                NamedTextColor.YELLOW
-        ));
-        rows.add(Row.essential(
-                "Money",
-                EconomyFormat.dollars(money.balance(player.getUniqueId())),
-                GOLD
-        ));
+        if (settings.isEnabled(playerId, PlayerSettingsStore.Setting.SCOREBOARD_STATS)) {
+            rows.add(Row.heading("STATS"));
+            rows.add(Row.essential(
+                    "Kills",
+                    String.valueOf(player.getStatistic(Statistic.PLAYER_KILLS)),
+                    GOLD
+            ));
+            rows.add(Row.essential(
+                    "Deaths",
+                    String.valueOf(player.getStatistic(Statistic.DEATHS)),
+                    NamedTextColor.YELLOW
+            ));
+        }
+        if (settings.isEnabled(playerId, PlayerSettingsStore.Setting.SCOREBOARD_ECONOMY)) {
+            rows.add(Row.heading("ECONOMY"));
+            rows.add(Row.essential(
+                    "Money",
+                    EconomyFormat.dollars(money.balance(playerId)),
+                    GOLD
+            ));
+        }
 
         String playerLine = " " + player.getName() + " (" + player.getPing() + "ms)";
         Component name = Component.text(" " + player.getName(), NamedTextColor.AQUA, TextDecoration.BOLD)
@@ -533,6 +547,7 @@ final class SidebarService {
         private final Objective objective;
         private final List<String> entries = new ArrayList<>();
         private final List<Team> teams = new ArrayList<>();
+        private boolean sidebarVisible = true;
 
         PlayerBoard(Player player) {
             Scoreboard created = plugin.getServer().getScoreboardManager().getNewScoreboard();
@@ -567,6 +582,18 @@ final class SidebarService {
                 score.setScore(count - index);
                 score.numberFormat(NumberFormat.blank());
             }
+        }
+
+        void setSidebarVisible(boolean visible) {
+            if (sidebarVisible == visible) {
+                return;
+            }
+            if (visible) {
+                objective.setDisplaySlot(DisplaySlot.SIDEBAR);
+            } else {
+                scoreboard.clearSlot(DisplaySlot.SIDEBAR);
+            }
+            sidebarVisible = visible;
         }
     }
 
