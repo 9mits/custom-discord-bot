@@ -155,19 +155,24 @@ final class CosmeticCatalog {
             ),
             new Definition(
                     "event_horizon",
-                    "???",
+                    "Event Horizon",
                     Category.SECRET,
                     SECRET_WEIGHT,
                     true,
                     "BLACK_DYE",
                     "mgx:cosmetic/event_horizon",
-                    "A black silhouette conceals its true effect."
+                    "A sonic burst of dragon breath and starlight tears the air open."
             )
     );
     private static final Map<String, Definition> BY_ID = indexDefinitions();
 
     private CosmeticCatalog() {
     }
+
+    /** What the crate shows in place of a secret nobody owns yet. */
+    static final String MASKED_NAME = "???";
+    static final String MASKED_DESCRIPTION = "A black silhouette conceals its true effect.";
+    static final String MASKED_MODEL_KEY = "mgx:cosmetic/secret";
 
     static Optional<Definition> find(String id) {
         if (id == null || id.isBlank()) {
