@@ -1,5 +1,6 @@
 package bot.mgx.accessbridge;
 
+import net.kyori.adventure.bossbar.BossBar;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextColor;
@@ -38,6 +39,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Stream;
@@ -46,6 +48,8 @@ import java.util.stream.Stream;
 final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private static final long ONLINE_PULSE_TICKS = 20L * 60L;
+    /** One second is often enough for a bar measured in minutes, and costs nothing. */
+    private static final long KEY_BAR_TICKS = 20L;
     private static final int HUB_OPEN_SLOT = 13;
     private static final int HUB_ODDS_SLOT = 15;
     private static final int HUB_AUTO_SLOT = 22;
@@ -144,6 +148,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     /** Players part way through an auto run, and how many crates are still owed. */
     private final Map<UUID, Integer> autoRuns = new HashMap<>();
     private final Map<UUID, Long> onlineCreditStarted = new HashMap<>();
+    private final Map<UUID, BossBar> keyBars = new HashMap<>();
+    private BukkitTask keyBarTask;
     private BukkitTask hourlyTask;
 
     CrateService(
@@ -757,6 +763,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             creditOnline(Map.of(player.getUniqueId(), now - previous));
         }
         autoRuns.remove(player.getUniqueId());
+        hideKeyBar(player.getUniqueId());
         RollSession session = sessions.remove(player.getUniqueId());
         if (session != null && session.task != null) {
             session.task.cancel();
@@ -787,6 +794,9 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         hourlyTask = plugin.getServer().getScheduler().runTaskTimer(
                 plugin, this::creditOnlinePlayers, ONLINE_PULSE_TICKS, ONLINE_PULSE_TICKS
         );
+        keyBarTask = plugin.getServer().getScheduler().runTaskTimer(
+                plugin, this::refreshKeyBars, KEY_BAR_TICKS, KEY_BAR_TICKS
+        );
     }
 
     void stop() {
@@ -795,6 +805,13 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             hourlyTask.cancel();
             hourlyTask = null;
         }
+        if (keyBarTask != null) {
+            keyBarTask.cancel();
+            keyBarTask = null;
+        }
+        for (UUID playerId : Set.copyOf(keyBars.keySet())) {
+            hideKeyBar(playerId);
+        }
         onlineCreditStarted.clear();
         for (RollSession session : sessions.values()) {
             if (session.task != null) {
@@ -802,6 +819,64 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             }
         }
         sessions.clear();
+    }
+
+    /**
+     * A bar counting down to the next hourly key. The store only learns about elapsed
+     * time once a minute, so the seconds since that pulse are added here — otherwise
+     * the bar would sit still and then jump a minute at a time.
+     */
+    private void refreshKeyBars() {
+        long now = System.currentTimeMillis();
+        for (Player player : plugin.getServer().getOnlinePlayers()) {
+            UUID playerId = player.getUniqueId();
+            if (!settings.isEnabled(playerId, PlayerSettingsStore.Setting.KEY_TIMER_BAR)) {
+                hideKeyBar(playerId);
+                continue;
+            }
+            Long since = onlineCreditStarted.get(playerId);
+            long uncredited = since == null ? 0L : now - since;
+            long remaining = KeyTimer.remaining(store.millisUntilNextKey(playerId), uncredited);
+            float progress = KeyTimer.progress(remaining, CrateStore.HOURLY_KEY_MILLIS);
+            BossBar bar = keyBars.get(playerId);
+            if (bar == null) {
+                bar = BossBar.bossBar(
+                        keyBarTitle(remaining), progress,
+                        BossBar.Color.YELLOW, BossBar.Overlay.PROGRESS
+                );
+                keyBars.put(playerId, bar);
+                player.showBossBar(bar);
+            } else {
+                bar.name(keyBarTitle(remaining));
+                bar.progress(progress);
+            }
+        }
+        // A player who logged out between pulses still owns a bar in the map.
+        for (UUID playerId : Set.copyOf(keyBars.keySet())) {
+            if (plugin.getServer().getPlayer(playerId) == null) {
+                keyBars.remove(playerId);
+            }
+        }
+    }
+
+    private static Component keyBarTitle(long remaining) {
+        String left = KeyTimer.label(remaining);
+        if (left.isEmpty()) {
+            return Component.text("Crate key ready", NamedTextColor.GREEN, TextDecoration.BOLD);
+        }
+        return Component.text("Next crate key in ", NamedTextColor.WHITE)
+                .append(Component.text(left, ORANGE, TextDecoration.BOLD));
+    }
+
+    private void hideKeyBar(UUID playerId) {
+        BossBar bar = keyBars.remove(playerId);
+        if (bar == null) {
+            return;
+        }
+        Player player = plugin.getServer().getPlayer(playerId);
+        if (player != null) {
+            player.hideBossBar(bar);
+        }
     }
 
     private void creditOnlinePlayers() {
