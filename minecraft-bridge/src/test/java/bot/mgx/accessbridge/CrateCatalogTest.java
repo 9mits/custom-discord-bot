@@ -113,7 +113,7 @@ class CrateCatalogTest {
 
         assertTrue(secret.secret());
         assertEquals(5, secret.weight());
-        assertEquals("???", secret.displayName());
+        assertEquals("Event Horizon", secret.displayName());
         assertEquals("???", secret.displayedChance());
         assertEquals("0.005%", secret.actualChance());
         assertEquals("BLACK_DYE", secret.materialName());
