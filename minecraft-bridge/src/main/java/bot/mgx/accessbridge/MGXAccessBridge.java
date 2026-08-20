@@ -314,6 +314,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         economyMenus = new EconomyMenuService(
                 this, economyStore, auctionStore, playerSettings, crateItems
         );
+        wardrobeService.useAuctionHouse(economyMenus);
         EconomyCommandService economyCommands = new EconomyCommandService(economyStore);
         getCommand("shop").setExecutor(economyMenus);
         getCommand("shop").setTabCompleter(economyMenus);
