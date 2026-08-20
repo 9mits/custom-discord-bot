@@ -4,12 +4,17 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertIterableEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PlayerSettingsStoreTest {
@@ -57,12 +62,102 @@ class PlayerSettingsStoreTest {
         assertFalse(store.isEnabled(player, PlayerSettingsStore.Setting.CLAN_TAGS));
     }
 
-    /** Auto sell belongs on the sell screen; /settings is for what you can see. */
+    /** Auto sell belongs on the sell screen; /settings is for presentation choices. */
     @Test
-    void onlyDisplayTogglesAreOfferedBySettings() {
+    void onlyPresentationTogglesAreOfferedBySettings() {
         assertTrue(PlayerSettingsStore.Setting.CLAN_TAGS.inSettingsPanel());
         assertTrue(PlayerSettingsStore.Setting.DISCORD_CHAT.inSettingsPanel());
         assertFalse(PlayerSettingsStore.Setting.AUTO_SELL.inSettingsPanel());
+    }
+
+    @Test
+    void settingsCategoriesKeepThePlayerFacingOrder() {
+        assertIterableEquals(List.of(
+                PlayerSettingsStore.Category.CHAT,
+                PlayerSettingsStore.Category.NOTIFICATIONS,
+                PlayerSettingsStore.Category.PVP,
+                PlayerSettingsStore.Category.VISUALS,
+                PlayerSettingsStore.Category.PRIVACY,
+                PlayerSettingsStore.Category.SCOREBOARD,
+                PlayerSettingsStore.Category.GENERAL
+        ), List.of(PlayerSettingsStore.Category.values()));
+    }
+
+    @Test
+    void eachStoredPanelSettingBelongsToItsCategory() {
+        for (PlayerSettingsStore.Category category : PlayerSettingsStore.Category.values()) {
+            for (PlayerSettingsStore.Setting setting : category.settings()) {
+                assertTrue(setting.inSettingsPanel());
+                assertEquals(category, setting.category());
+            }
+        }
+        assertTrue(PlayerSettingsStore.Category.PRIVACY.settings().isEmpty());
+    }
+
+    @Test
+    void newPresentationSettingsHaveSafeVisibleDefaults(@TempDir Path directory) throws IOException {
+        PlayerSettingsStore store = new PlayerSettingsStore(directory.resolve("settings.json"));
+        UUID player = UUID.randomUUID();
+
+        for (PlayerSettingsStore.Setting setting : PlayerSettingsStore.Setting.values()) {
+            if (setting.inSettingsPanel()) {
+                assertTrue(store.isEnabled(player, setting), setting.key());
+            }
+        }
+    }
+
+    @Test
+    void explicitDialogValuesAreIdempotentAndPersist(@TempDir Path directory) throws IOException {
+        Path file = directory.resolve("settings.json");
+        UUID player = UUID.randomUUID();
+        PlayerSettingsStore store = new PlayerSettingsStore(file);
+
+        assertFalse(store.setEnabled(
+                player, PlayerSettingsStore.Setting.SCOREBOARD_ENABLED, false));
+        String once = Files.readString(file);
+        assertFalse(store.setEnabled(
+                player, PlayerSettingsStore.Setting.SCOREBOARD_ENABLED, false));
+        assertEquals(once, Files.readString(file));
+        assertFalse(new PlayerSettingsStore(file).isEnabled(
+                player, PlayerSettingsStore.Setting.SCOREBOARD_ENABLED));
+
+        assertTrue(store.setEnabled(
+                player, PlayerSettingsStore.Setting.SCOREBOARD_ENABLED, true));
+        assertEquals("{}", Files.readString(file));
+    }
+
+    @Test
+    void oneDialogSubmissionPersistsTogether(@TempDir Path directory) throws IOException {
+        Path file = directory.resolve("settings.json");
+        UUID player = UUID.randomUUID();
+        PlayerSettingsStore store = new PlayerSettingsStore(file);
+
+        store.setEnabled(player, Map.of(
+                PlayerSettingsStore.Setting.SCOREBOARD_PROFILE, false,
+                PlayerSettingsStore.Setting.SCOREBOARD_STATS, false,
+                PlayerSettingsStore.Setting.SCOREBOARD_ECONOMY, true
+        ));
+
+        PlayerSettingsStore reloaded = new PlayerSettingsStore(file);
+        assertFalse(reloaded.isEnabled(player, PlayerSettingsStore.Setting.SCOREBOARD_PROFILE));
+        assertFalse(reloaded.isEnabled(player, PlayerSettingsStore.Setting.SCOREBOARD_STATS));
+        assertTrue(reloaded.isEnabled(player, PlayerSettingsStore.Setting.SCOREBOARD_ECONOMY));
+    }
+
+    @Test
+    void failedDialogSaveRollsBackTheWholeSubmission(@TempDir Path directory) throws IOException {
+        Path file = directory.resolve("settings.json");
+        PlayerSettingsStore store = new PlayerSettingsStore(file);
+        UUID player = UUID.randomUUID();
+        Files.createDirectory(directory.resolve("settings.json.tmp"));
+
+        assertThrows(UncheckedIOException.class, () -> store.setEnabled(player, Map.of(
+                PlayerSettingsStore.Setting.SCOREBOARD_PROFILE, false,
+                PlayerSettingsStore.Setting.SCOREBOARD_STATS, false
+        )));
+
+        assertTrue(store.isEnabled(player, PlayerSettingsStore.Setting.SCOREBOARD_PROFILE));
+        assertTrue(store.isEnabled(player, PlayerSettingsStore.Setting.SCOREBOARD_STATS));
     }
 
     @Test

@@ -1,7 +1,9 @@
 {
   "pack": {
-    "pack_format": 32,
-    "supported_formats": [32, 99],
-    "description": "Mysterious SMP X — server branding"
+    "pack_format": 63,
+    "supported_formats": [63, 75],
+    "min_format": 63,
+    "max_format": 75,
+    "description": "Mysterious SMP X — branding and cosmetics"
   }
 }

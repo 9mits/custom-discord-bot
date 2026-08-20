@@ -48,6 +48,9 @@ final class ServerDataResetService {
     private final RankSyncStore rankSync;
     private final DiscordIdentityStore identities;
     private final PlayerSettingsStore settings;
+    private final LootboxStore lootboxes;
+    private final CosmeticStore cosmetics;
+    private final TrophyHeadStore trophyHeads;
     private final VerifiedApplicationStore verifiedApplications;
     private final VerificationEventStore verificationEvents;
     private final ProcessedActionStore processedActions;
@@ -65,6 +68,9 @@ final class ServerDataResetService {
             RankSyncStore rankSync,
             DiscordIdentityStore identities,
             PlayerSettingsStore settings,
+            LootboxStore lootboxes,
+            CosmeticStore cosmetics,
+            TrophyHeadStore trophyHeads,
             VerifiedApplicationStore verifiedApplications,
             VerificationEventStore verificationEvents,
             ProcessedActionStore processedActions,
@@ -80,6 +86,9 @@ final class ServerDataResetService {
         this.rankSync = rankSync;
         this.identities = identities;
         this.settings = settings;
+        this.lootboxes = lootboxes;
+        this.cosmetics = cosmetics;
+        this.trophyHeads = trophyHeads;
         this.verifiedApplications = verifiedApplications;
         this.verificationEvents = verificationEvents;
         this.processedActions = processedActions;
@@ -162,6 +171,15 @@ final class ServerDataResetService {
         }
         if (scopes.contains(ResetScope.SETTINGS)) {
             clear(ResetScope.SETTINGS, settings::clearAll, cleared, problems);
+        }
+        if (scopes.contains(ResetScope.LOOTBOXES)) {
+            clear(ResetScope.LOOTBOXES, lootboxes::clearAll, cleared, problems);
+        }
+        if (scopes.contains(ResetScope.COSMETICS)) {
+            clear(ResetScope.COSMETICS, cosmetics::clearAll, cleared, problems);
+        }
+        if (scopes.contains(ResetScope.TROPHIES)) {
+            clear(ResetScope.TROPHIES, trophyHeads::clearAll, cleared, problems);
         }
         if (scopes.contains(ResetScope.RANKS)) {
             // Only the record of what sync granted. Holds are deliberate operator
@@ -298,7 +316,7 @@ final class ServerDataResetService {
         for (PotionEffect effect : List.copyOf(player.getActivePotionEffects())) {
             player.removePotionEffect(effect.getType());
         }
-        AttributeInstance maximum = player.getAttribute(Attribute.GENERIC_MAX_HEALTH);
+        AttributeInstance maximum = player.getAttribute(Attribute.MAX_HEALTH);
         player.setHealth(maximum == null ? 20d : maximum.getValue());
         // A bed or anchor respawn is itself a trace of having played here.
         player.setRespawnLocation(null);

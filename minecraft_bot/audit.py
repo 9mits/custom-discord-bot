@@ -94,6 +94,7 @@ SERVER_EVENT_RISK: Mapping[str, str] = {
     "clan_demote": RISK_MODERATE,
     "clan_upgrade": RISK_MODERATE,
     "clan_roster_buy": RISK_MODERATE,
+    "lootbox_key_grant": RISK_MODERATE,
 }
 
 # Titles for the events Paper reports. Anything unmapped falls back to its own name,
@@ -118,6 +119,8 @@ SERVER_EVENT_TITLES: Mapping[str, str] = {
     "data_reset": "Server Data Reset",
     "shop_buy": "Shop Purchase",
     "shop_sell": "Items Sold",
+    "lootbox_key_grant": "Lootbox Keys Issued",
+    "lootbox_rare_win": "Rare Lootbox Reward Won",
 }
 
 

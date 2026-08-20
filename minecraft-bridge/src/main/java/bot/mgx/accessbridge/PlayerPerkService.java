@@ -62,23 +62,23 @@ final class PlayerPerkService implements Listener {
         ClanLevel.Perks applied = perks == null ? ClanLevel.Perks.NONE : perks;
         clanPerks.put(player.getUniqueId(), applied);
         applyHearts(player, CLAN_HEART_KEY, applied.extraHearts());
-        applyScalar(player, Attribute.GENERIC_MOVEMENT_SPEED, CLAN_SPEED_KEY, applied.speed());
-        applyScalar(player, Attribute.PLAYER_BLOCK_BREAK_SPEED, CLAN_DIG_KEY, applied.diggingSpeed());
+        applyScalar(player, Attribute.MOVEMENT_SPEED, CLAN_SPEED_KEY, applied.speed());
+        applyScalar(player, Attribute.BLOCK_BREAK_SPEED, CLAN_DIG_KEY, applied.diggingSpeed());
     }
 
     void clearOnline(Iterable<? extends Player> players) {
         for (Player player : players) {
             applyHearts(player, HEART_MODIFIER_KEY, 0);
             applyHearts(player, CLAN_HEART_KEY, 0);
-            applyScalar(player, Attribute.GENERIC_MOVEMENT_SPEED, CLAN_SPEED_KEY, 0);
-            applyScalar(player, Attribute.PLAYER_BLOCK_BREAK_SPEED, CLAN_DIG_KEY, 0);
+            applyScalar(player, Attribute.MOVEMENT_SPEED, CLAN_SPEED_KEY, 0);
+            applyScalar(player, Attribute.BLOCK_BREAK_SPEED, CLAN_DIG_KEY, 0);
         }
         profiles.clear();
         clanPerks.clear();
     }
 
     private void applyHearts(Player player, NamespacedKey key, int extraHearts) {
-        AttributeInstance health = player.getAttribute(Attribute.GENERIC_MAX_HEALTH);
+        AttributeInstance health = player.getAttribute(Attribute.MAX_HEALTH);
         if (health == null) {
             return;
         }

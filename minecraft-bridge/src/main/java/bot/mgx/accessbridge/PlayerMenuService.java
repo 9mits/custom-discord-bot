@@ -13,6 +13,7 @@ import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.Inventory;
 
+import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -32,10 +33,9 @@ import static bot.mgx.accessbridge.MenuItems.head;
  * draw through {@link MenuItems} so every screen looks the same.
  */
 final class PlayerMenuService implements Listener {
-    /** Toggle panes, laid out in a row. */
-    private static final int CLAN_TAGS_SLOT = 11;
-    private static final int DISCORD_CHAT_SLOT = 13;
-    private static final int DISCORD_NAME_SLOT = 15;
+    private static final int[] CATEGORY_SLOTS = {10, 11, 12, 13, 14, 15, 16};
+    private static final int[] SETTING_SLOTS = {10, 12, 14, 16, 19, 21};
+    private static final int BACK_SLOT = 22;
     private static final int SETTINGS_SIZE = 27;
 
     private final PlayerSettingsStore settings;
@@ -55,29 +55,53 @@ final class PlayerMenuService implements Listener {
         this.whitelist = whitelist;
     }
 
-    /**
-     * Every toggle a player controls, in one place.
-     *
-     * <p>Discord name visibility lives in a different store from the other two and
-     * has its own command, but a player does not care where a preference is kept —
-     * plugin.yml has always advertised it as a {@code /settings} option.
-     */
+    /** Category-first fallback for Bedrock and Java clients without dialog support. */
     void openSettings(Player player) {
         Inventory inventory = create(Menu.Kind.SETTINGS, 1, SETTINGS_SIZE, "Your Settings");
-        inventory.setItem(CLAN_TAGS_SLOT, toggle(
-                PlayerSettingsStore.Setting.CLAN_TAGS,
-                settings.isEnabled(player.getUniqueId(), PlayerSettingsStore.Setting.CLAN_TAGS)
-        ));
-        inventory.setItem(DISCORD_CHAT_SLOT, toggle(
-                PlayerSettingsStore.Setting.DISCORD_CHAT,
-                settings.isEnabled(player.getUniqueId(), PlayerSettingsStore.Setting.DISCORD_CHAT)
-        ));
-        inventory.setItem(DISCORD_NAME_SLOT, pane(
-                identities.isVisible(player.getUniqueId()),
-                "Discord name",
-                "Show your linked Discord name to other players."
-        ));
+        PlayerSettingsStore.Category[] categories = PlayerSettingsStore.Category.values();
+        for (int index = 0; index < categories.length; index++) {
+            PlayerSettingsStore.Category category = categories[index];
+            inventory.setItem(CATEGORY_SLOTS[index], button(
+                    categoryIcon(category), category.label(),
+                    category.description(), "", "Click to open"
+            ));
+        }
         MenuItems.show(plugin, player, inventory);
+    }
+
+    void openSettingsCategory(Player player, PlayerSettingsStore.Category category) {
+        Inventory inventory = create(
+                Menu.Kind.SETTINGS_CATEGORY,
+                category.ordinal() + 1,
+                SETTINGS_SIZE,
+                category.label() + " Settings"
+        );
+        List<PlayerSettingsStore.Setting> categorySettings = category.settings();
+        for (int index = 0; index < categorySettings.size() && index < SETTING_SLOTS.length; index++) {
+            PlayerSettingsStore.Setting setting = categorySettings.get(index);
+            inventory.setItem(SETTING_SLOTS[index], toggle(
+                    setting, settings.isEnabled(player.getUniqueId(), setting)
+            ));
+        }
+        if (category == PlayerSettingsStore.Category.PRIVACY) {
+            inventory.setItem(SETTING_SLOTS[0], pane(
+                    identities.isVisible(player.getUniqueId()),
+                    "Discord name",
+                    "Show your linked Discord name to other players."
+            ));
+        }
+        inventory.setItem(BACK_SLOT, button(Material.ARROW, "Back", "Return to all settings."));
+        MenuItems.show(plugin, player, inventory);
+    }
+
+    boolean discordNameVisible(java.util.UUID playerId) {
+        return identities.isVisible(playerId);
+    }
+
+    void toggleDiscordName(java.util.UUID playerId) {
+        identities.toggleVisibility(playerId);
+        // Nametags and the player list carry the name, so redraw them immediately.
+        plugin.refreshClans();
     }
 
     /** Everyone with access, their edition, and the Discord name they chose to show. */
@@ -162,7 +186,9 @@ final class PlayerMenuService implements Listener {
             return;
         }
         switch (menu.kind()) {
-            case SETTINGS -> flip(player, event.getSlot());
+            case SETTINGS -> openCategory(player, event.getSlot());
+            case SETTINGS_CATEGORY -> flip(
+                    player, categoryFromPage(menu.page()), event.getSlot());
             case WHITELIST -> {
                 if (event.getSlot() == PREVIOUS_SLOT) {
                     openWhitelist(player, menu.page() - 1);
@@ -174,23 +200,45 @@ final class PlayerMenuService implements Listener {
         }
     }
 
-    private void flip(Player player, int slot) {
-        switch (slot) {
-            case CLAN_TAGS_SLOT -> settings.toggle(
-                    player.getUniqueId(), PlayerSettingsStore.Setting.CLAN_TAGS);
-            case DISCORD_CHAT_SLOT -> settings.toggle(
-                    player.getUniqueId(), PlayerSettingsStore.Setting.DISCORD_CHAT);
-            case DISCORD_NAME_SLOT -> {
-                identities.toggleVisibility(player.getUniqueId());
-                // Nametags and the player list carry the name, so they have to be
-                // redrawn for everyone rather than just for this player.
-                plugin.refreshClans();
-            }
-            default -> {
+    private void openCategory(Player player, int slot) {
+        for (int index = 0; index < CATEGORY_SLOTS.length; index++) {
+            if (slot == CATEGORY_SLOTS[index]) {
+                openSettingsCategory(player, PlayerSettingsStore.Category.values()[index]);
                 return;
             }
         }
-        openSettings(player);
+    }
+
+    private void flip(Player player, PlayerSettingsStore.Category category, int slot) {
+        if (category == null) {
+            openSettings(player);
+            return;
+        }
+        if (slot == BACK_SLOT) {
+            openSettings(player);
+            return;
+        }
+        try {
+            if (category == PlayerSettingsStore.Category.PRIVACY && slot == SETTING_SLOTS[0]) {
+                toggleDiscordName(player.getUniqueId());
+            } else {
+                List<PlayerSettingsStore.Setting> categorySettings = category.settings();
+                int settingIndex = indexOf(SETTING_SLOTS, slot);
+                if (settingIndex < 0 || settingIndex >= categorySettings.size()) {
+                    return;
+                }
+                settings.toggle(player.getUniqueId(), categorySettings.get(settingIndex));
+                // Sidebar sections, nametags, and the player list should react on
+                // this click rather than on the next repeating refresh.
+                plugin.refreshClans();
+            }
+            openSettingsCategory(player, category);
+        } catch (IllegalStateException exception) {
+            error(player, exception.getMessage());
+        } catch (UncheckedIOException exception) {
+            plugin.getLogger().warning("Could not save a player setting: " + exception.getMessage());
+            error(player, "That setting could not be saved. Please try again.");
+        }
     }
 
     @EventHandler(priority = EventPriority.NORMAL)
@@ -202,8 +250,36 @@ final class PlayerMenuService implements Listener {
 
     private static boolean isPlayerMenu(Menu.Kind kind) {
         return kind == Menu.Kind.SETTINGS
+                || kind == Menu.Kind.SETTINGS_CATEGORY
                 || kind == Menu.Kind.WHITELIST
                 || kind == Menu.Kind.PERKS;
+    }
+
+    private static PlayerSettingsStore.Category categoryFromPage(int page) {
+        int index = page - 1;
+        PlayerSettingsStore.Category[] categories = PlayerSettingsStore.Category.values();
+        return index >= 0 && index < categories.length ? categories[index] : null;
+    }
+
+    private static int indexOf(int[] values, int wanted) {
+        for (int index = 0; index < values.length; index++) {
+            if (values[index] == wanted) {
+                return index;
+            }
+        }
+        return -1;
+    }
+
+    private static Material categoryIcon(PlayerSettingsStore.Category category) {
+        return switch (category) {
+            case CHAT -> Material.WRITABLE_BOOK;
+            case NOTIFICATIONS -> Material.BELL;
+            case PVP -> Material.IRON_SWORD;
+            case VISUALS -> Material.AMETHYST_SHARD;
+            case PRIVACY -> Material.SHIELD;
+            case SCOREBOARD -> Material.MAP;
+            case GENERAL -> Material.COMPARATOR;
+        };
     }
 
     private Inventory create(Menu.Kind kind, int page, int size, String title) {

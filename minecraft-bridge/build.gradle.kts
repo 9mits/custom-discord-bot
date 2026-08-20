@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "bot.mgx"
-version = "2.92.0"
+version = "3.0.0"
 
 repositories {
     mavenCentral()
@@ -13,7 +13,7 @@ repositories {
 }
 
 dependencies {
-    compileOnly("io.papermc.paper:paper-api:1.21.1-R0.1-SNAPSHOT")
+    compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
     compileOnly("org.geysermc.floodgate:api:2.2.5-SNAPSHOT")
     compileOnly("net.luckperms:api:5.4")
     implementation("com.google.code.gson:gson:2.11.0")
@@ -25,7 +25,7 @@ dependencies {
     // Lets ShopCatalogTest check every catalog name against the real Material enum. A
     // name that does not exist is not a crash — EconomyMenuService falls back to
     // BARRIER — so without this a typo ships as a buyable barrier block.
-    testImplementation("io.papermc.paper:paper-api:1.21.1-R0.1-SNAPSHOT")
+    testImplementation("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
 }
 
 java {

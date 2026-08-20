@@ -9,6 +9,7 @@ import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
+import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -19,6 +20,7 @@ import org.geysermc.floodgate.api.player.FloodgatePlayer;
 import java.net.URI;
 import java.util.Locale;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 final class ChatRelayService implements Listener {
     private static final TextColor BLURPLE = TextColor.color(0x5865F2);
@@ -85,10 +87,32 @@ final class ChatRelayService implements Listener {
         // simply never receives it.
         for (Player online : Bukkit.getOnlinePlayers()) {
             if (settings.isEnabled(online.getUniqueId(), PlayerSettingsStore.Setting.DISCORD_CHAT)) {
-                online.sendMessage(rendered);
+                boolean mentioned = mentionsPlayer(message, online.getName());
+                if (mentioned && settings.isEnabled(
+                        online.getUniqueId(), PlayerSettingsStore.Setting.CHAT_MENTIONS
+                )) {
+                    online.sendMessage(Component.text("MENTION  ", NamedTextColor.GOLD, TextDecoration.BOLD)
+                            .append(rendered));
+                    online.playSound(
+                            online.getLocation(), Sound.BLOCK_NOTE_BLOCK_BELL, 0.7f, 1.35f
+                    );
+                } else {
+                    online.sendMessage(rendered);
+                }
             }
         }
         Bukkit.getConsoleSender().sendMessage(rendered);
+    }
+
+    static boolean mentionsPlayer(String message, String playerName) {
+        if (message == null || playerName == null || playerName.isBlank()) {
+            return false;
+        }
+        Pattern mention = Pattern.compile(
+                "(?<![A-Za-z0-9_])@?" + Pattern.quote(playerName) + "(?![A-Za-z0-9_])",
+                Pattern.CASE_INSENSITIVE
+        );
+        return mention.matcher(message).find();
     }
 
     static boolean allowedAttachmentUrl(String url) {
