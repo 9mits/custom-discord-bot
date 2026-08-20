@@ -159,6 +159,7 @@ class MinecraftBridgeServer:
         if socket is not None and not socket.closed:
             await socket.close(code=1001, message=b"Bot shutting down")
         self._socket = None
+        self._fail_pending_results("The Minecraft bridge disconnected.")
         if self._runner is not None:
             await self._runner.cleanup()
             self._runner = None
@@ -228,6 +229,7 @@ class MinecraftBridgeServer:
                     "protocol_version": negotiated_protocol_version,
                 },
                 idempotency_key=envelope["idempotency_key"],
+                expected_socket=socket,
             )
             await self.send_full_pending_sync()
             await self.dispatch_outbox()
@@ -248,7 +250,9 @@ class MinecraftBridgeServer:
                         logger.warning("Rejected invalid signed bridge message")
                         await socket.close(code=1008, message=b"Invalid signature, timestamp, or nonce")
                         break
-                    await self._handle_message(incoming)
+                    if self._socket is not socket:
+                        break
+                    await self._handle_message(incoming, source_socket=socket)
                 elif message.type in {WSMsgType.CLOSE, WSMsgType.CLOSED, WSMsgType.ERROR}:
                     break
         except asyncio.TimeoutError:
@@ -264,6 +268,7 @@ class MinecraftBridgeServer:
                     self._sent_this_connection.clear()
                     self._connected_at = None
                     self._peer_protocol_version = 1
+                    self._fail_pending_results("The Minecraft bridge disconnected.")
             logger.info("Minecraft bridge disconnected")
         return socket
 
@@ -282,7 +287,14 @@ class MinecraftBridgeServer:
             expires_at=timestamp + MAX_CLOCK_SKEW_SECONDS + 1,
         )
 
-    async def _handle_message(self, envelope: dict[str, Any]) -> None:
+    async def _handle_message(
+        self,
+        envelope: dict[str, Any],
+        *,
+        source_socket: Optional[web.WebSocketResponse] = None,
+    ) -> None:
+        if source_socket is not None and self._socket is not source_socket:
+            return
         message_type = envelope["type"]
         payload = envelope["payload"]
         if message_type == "HEARTBEAT":
@@ -291,6 +303,7 @@ class MinecraftBridgeServer:
                 "HEARTBEAT_ACK",
                 {"server_id": self.config.server_id},
                 idempotency_key=envelope["idempotency_key"],
+                expected_socket=source_socket,
             )
             return
         if message_type == "VERIFICATION":
@@ -310,6 +323,7 @@ class MinecraftBridgeServer:
                 "VERIFICATION_ACK",
                 {"application_id": int(payload["application_id"])},
                 idempotency_key=envelope["idempotency_key"],
+                expected_socket=source_socket,
             )
             return
         if message_type in {"PLAYER_JOIN", "PLAYER_LEAVE"}:
@@ -324,46 +338,61 @@ class MinecraftBridgeServer:
                 )
             except Exception:
                 logger.exception("Player event handler failed")
+                await self._release_failed_event(envelope["idempotency_key"], message_type)
+                return
             await self._send(
                 "PLAYER_EVENT_ACK",
                 {"event_idempotency_key": envelope["idempotency_key"]},
                 idempotency_key=envelope["idempotency_key"],
+                expected_socket=source_socket,
             )
             return
         if message_type == "MINECRAFT_CHAT":
-            if self.chat_message_handler is not None:
-                await self.chat_message_handler(
-                    minecraft_uuid=str(payload["minecraft_uuid"]),
-                    current_username=str(payload["current_username"]),
-                    edition=str(payload["edition"]).upper(),
-                    message=str(payload["message"]),
-                    event_idempotency_key=envelope["idempotency_key"],
-                )
+            try:
+                if self.chat_message_handler is not None:
+                    await self.chat_message_handler(
+                        minecraft_uuid=str(payload["minecraft_uuid"]),
+                        current_username=str(payload["current_username"]),
+                        edition=str(payload["edition"]).upper(),
+                        message=str(payload["message"]),
+                        event_idempotency_key=envelope["idempotency_key"],
+                    )
+            except Exception:
+                logger.exception("Minecraft chat handler failed")
+                await self._release_failed_event(envelope["idempotency_key"], message_type)
+                return
             await self._send(
                 "MINECRAFT_CHAT_ACK",
                 {"event_idempotency_key": envelope["idempotency_key"]},
                 idempotency_key=envelope["idempotency_key"],
+                expected_socket=source_socket,
             )
             return
         if message_type == "SERVER_EVENT":
             # Something a player did in game rather than through Discord. Acked only
             # after the handler runs, so an event dropped mid-write is resent rather
             # than silently lost from the activity log.
-            if self.server_event_handler is not None:
-                await self.server_event_handler(
-                    event=str(payload.get("event") or ""),
-                    category=str(payload.get("category") or "server"),
-                    actor_uuid=str(payload.get("actor_uuid") or ""),
-                    actor_name=str(payload.get("actor_name") or ""),
-                    summary=str(payload.get("summary") or ""),
-                    details=dict(payload.get("details") or {}),
-                    occurred_at=int(payload.get("occurred_at") or time.time()),
-                    event_idempotency_key=envelope["idempotency_key"],
-                )
+            try:
+                if self.server_event_handler is not None:
+                    await self.server_event_handler(
+                        event=str(payload.get("event") or ""),
+                        category=str(payload.get("category") or "server"),
+                        actor_uuid=str(payload.get("actor_uuid") or ""),
+                        actor_name=str(payload.get("actor_name") or ""),
+                        summary=str(payload.get("summary") or ""),
+                        details=dict(payload.get("details") or {}),
+                        occurred_at=int(payload.get("occurred_at") or time.time()),
+                        event_idempotency_key=envelope["idempotency_key"],
+                    )
+            except Exception:
+                logger.exception("Minecraft server-event handler failed")
+                await self._release_failed_event(envelope["idempotency_key"], message_type)
+                return
             await self._send(
                 "SERVER_EVENT_ACK",
                 {"event_idempotency_key": envelope["idempotency_key"]},
                 idempotency_key=envelope["idempotency_key"],
+                expected_socket=source_socket,
             )
             return
         if message_type == "CAPABILITY_SNAPSHOT":
@@ -376,7 +405,10 @@ class MinecraftBridgeServer:
             # one is simply replaced by the next push.
             self.latest_leaderboard = payload
             if self.leaderboard_handler is not None:
-                await self.leaderboard_handler(payload)
+                try:
+                    await self.leaderboard_handler(payload)
+                except Exception:
+                    logger.exception("Minecraft leaderboard handler failed")
             return
         if message_type == "ACTION_RESULT":
             action_key = str(payload.get("action_idempotency_key", ""))
@@ -419,10 +451,8 @@ class MinecraftBridgeServer:
         payload: dict[str, Any],
         *,
         idempotency_key: Optional[str] = None,
+        expected_socket: Optional[web.WebSocketResponse] = None,
     ) -> None:
-        socket = self._socket
-        if socket is None or socket.closed:
-            raise ConnectionError("Minecraft bridge is offline")
         envelope = create_envelope(
             self.config.bridge_secret,
             message_type,
@@ -430,7 +460,33 @@ class MinecraftBridgeServer:
             idempotency_key=idempotency_key,
         )
         async with self._send_lock:
-            await socket.send_json(envelope)
+            socket = self._socket
+            if (
+                socket is None
+                or socket.closed
+                or (expected_socket is not None and socket is not expected_socket)
+            ):
+                raise ConnectionError("Minecraft bridge is offline")
+            try:
+                await socket.send_json(envelope)
+            except (ConnectionError, OSError, RuntimeError) as error:
+                raise ConnectionError("Minecraft bridge disconnected while sending") from error
+
+    def _fail_pending_results(self, message: str) -> None:
+        pending = list(self._pending_results.values())
+        self._pending_results.clear()
+        for future in pending:
+            if not future.done():
+                future.set_result((False, message))
+
+    async def _release_failed_event(self, idempotency_key: str, message_type: str) -> None:
+        release = getattr(self.data, "release_bridge_event", None)
+        if release is None:
+            return
+        try:
+            await release(idempotency_key, message_type)
+        except Exception:
+            logger.exception("Could not release failed %s reservation", message_type)
 
     async def send_full_pending_sync(self) -> None:
         pending = await self.data.list_pending_verifications()
@@ -582,7 +638,9 @@ class MinecraftBridgeServer:
         )
 
     async def send_maintenance(self, enabled: bool) -> bool:
-        """Opens or closes the server to everybody, with no exemption.
+        """Opens or closes the server to regular players.
+
+        Operators and explicitly authorised administrators retain emergency access.
 
         Verification is unaffected: a player joining to verify is turned away in
         either case, so the plugin reads their account and queues the verification

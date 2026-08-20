@@ -62,6 +62,10 @@ final class VerifiedApplicationStore {
                 .findFirst();
     }
 
+    synchronized Optional<VerifiedApplication> get(long applicationId) {
+        return Optional.ofNullable(applications.get(applicationId));
+    }
+
     synchronized void remove(long applicationId) {
         VerifiedApplication previous = applications.remove(applicationId);
         if (previous != null) {

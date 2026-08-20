@@ -3,6 +3,7 @@ package bot.mgx.accessbridge;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -38,7 +39,7 @@ final class MaintenanceStore {
     }
 
     /** @return true when this actually changed the state. */
-    boolean set(boolean value) {
+    synchronized boolean set(boolean value) {
         if (enabled == value) {
             return false;
         }
@@ -47,7 +48,7 @@ final class MaintenanceStore {
             Files.writeString(temporary, Boolean.toString(value), StandardCharsets.UTF_8);
             try {
                 Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-            } catch (IOException unsupportedAtomicMove) {
+            } catch (AtomicMoveNotSupportedException unsupportedAtomicMove) {
                 Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING);
             }
         } catch (IOException exception) {

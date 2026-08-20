@@ -76,7 +76,7 @@ record BridgeConfig(
             throw new IllegalArgumentException("scoreboard.footer must contain 1-32 characters");
         }
         if (leaderboardRefreshTicks < 1_200 || leaderboardRefreshTicks > 72_000) {
-            throw new IllegalStateException(
+            throw new IllegalArgumentException(
                     "leaderboard.refresh-ticks must be between 1200 (1m) and 72000 (1h)"
             );
         }

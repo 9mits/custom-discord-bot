@@ -55,6 +55,7 @@ final class TrophyHeadStore {
         if (killer.equals(victim)) {
             return false;
         }
+        LinkedHashMap<Pair, Long> before = new LinkedHashMap<>(awards);
         prune(now);
         Pair pair = new Pair(killer, victim);
         Long previous = awards.get(pair);
@@ -65,11 +66,8 @@ final class TrophyHeadStore {
         try {
             save();
         } catch (RuntimeException exception) {
-            if (previous == null) {
-                awards.remove(pair);
-            } else {
-                awards.put(pair, previous);
-            }
+            awards.clear();
+            awards.putAll(before);
             throw exception;
         }
         return true;

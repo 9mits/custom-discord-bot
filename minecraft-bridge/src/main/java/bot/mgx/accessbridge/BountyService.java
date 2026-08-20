@@ -202,11 +202,35 @@ final class BountyService implements CommandExecutor, TabCompleter, Listener {
         if (killer == null || killer.getUniqueId().equals(victim.getUniqueId())) {
             return;
         }
+        long available = bounties.amountOn(victim.getUniqueId());
+        if (available <= 0L) {
+            return;
+        }
+        if (!money.canDeposit(killer.getUniqueId(), available)) {
+            error(killer, "Your wallet is at its limit. The bounty was left unclaimed.");
+            return;
+        }
         long payout = bounties.collect(victim.getUniqueId());
         if (payout <= 0L) {
             return;
         }
-        money.deposit(killer.getUniqueId(), payout);
+        try {
+            money.deposit(killer.getUniqueId(), payout);
+        } catch (RuntimeException failure) {
+            try {
+                bounties.add(victim.getUniqueId(), payout, false);
+            } catch (RuntimeException restoreFailure) {
+                failure.addSuppressed(restoreFailure);
+                plugin.getLogger().severe(
+                        "Could not restore a failed bounty payout on " + victim.getName()
+                );
+            }
+            plugin.getLogger().warning(
+                    "Could not pay " + killer.getName() + " a bounty: " + failure.getMessage()
+            );
+            error(killer, "The bounty payment could not be saved and was left unclaimed.");
+            return;
+        }
         info(killer, "Collected " + EconomyFormat.dollars(payout) + " bounty on " + victim.getName() + ".");
         info(victim, killer.getName() + " claimed the " + EconomyFormat.dollars(payout) + " bounty on you.");
         Bukkit.broadcast(prefix().append(Component.text(
@@ -262,7 +286,11 @@ final class BountyService implements CommandExecutor, TabCompleter, Listener {
                     "Bounties start at " + EconomyFormat.dollars(BountyStore.MIN_BOUNTY) + "."
             );
         }
+        if (!bounties.canAdd(target.getUniqueId(), amount)) {
+            throw new IllegalArgumentException("That bounty has reached the value limit.");
+        }
         String source;
+        boolean clanFunded = false;
         if (fromClan) {
             ClanStore.ClanView clan = clans.clanOf(player.getUniqueId()).orElseThrow(
                     () -> new IllegalArgumentException("You are not in a clan.")
@@ -281,13 +309,29 @@ final class BountyService implements CommandExecutor, TabCompleter, Listener {
                 throw new IllegalArgumentException("The clan treasury could not be saved. Try again.");
             }
             source = clan.name();
+            clanFunded = true;
         } else {
             if (!money.tryWithdraw(player.getUniqueId(), amount)) {
                 throw new IllegalArgumentException("You need " + EconomyFormat.dollars(amount) + ".");
             }
             source = player.getName();
         }
-        long total = bounties.add(target.getUniqueId(), amount);
+        long total;
+        try {
+            total = bounties.add(target.getUniqueId(), amount);
+        } catch (RuntimeException failure) {
+            try {
+                if (clanFunded) {
+                    clans.restoreTreasurySpend(player.getUniqueId(), amount);
+                } else {
+                    money.deposit(player.getUniqueId(), amount);
+                }
+            } catch (RuntimeException | java.io.IOException restoreFailure) {
+                failure.addSuppressed(restoreFailure);
+                plugin.getLogger().severe("Could not restore funds after a failed bounty placement.");
+            }
+            throw failure;
+        }
         info(player, source + " added " + EconomyFormat.dollars(amount) + " to " + target.getName()
                 + ". Total: " + EconomyFormat.dollars(total) + ".");
         info(target, source + " put " + EconomyFormat.dollars(amount)

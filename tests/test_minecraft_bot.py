@@ -558,7 +558,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
             data=SimpleNamespace(create_application=AsyncMock(return_value=application)),
             settings=SimpleNamespace(),
             remember_application_message=Mock(),
-            finish_application_submission=Mock(return_value=asyncio.sleep(0)),
+            finish_application_submission=AsyncMock(),
         )
 
         def close_background_work(work, *, name):
@@ -597,7 +597,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
                 submit_answers=AsyncMock(return_value=application, side_effect=fails)
             ),
             settings=SimpleNamespace(),
-            finish_answers_submission=Mock(return_value=asyncio.sleep(0)),
+            finish_answers_submission=AsyncMock(),
             replace_application_card=AsyncMock(),
         )
 
@@ -1178,7 +1178,6 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
 
         await bot.handle_player_event(**payload)
         await bot.handle_player_event(**payload)
-        await asyncio.gather(*bot._background_tasks)
 
         bot._send_configured_log.assert_awaited_once()
         self.assertEqual(bot._send_configured_log.await_args.args[0], 55)
@@ -1224,7 +1223,6 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
             xuid=None,
             event_idempotency_key="player-event-unlinked",
         )
-        await asyncio.gather(*bot._background_tasks)
 
         kwargs = bot.bridge.send_player_profile.await_args.kwargs
         self.assertTrue(kwargs["link_known"])

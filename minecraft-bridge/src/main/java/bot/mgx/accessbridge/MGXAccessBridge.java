@@ -1,28 +1,28 @@
 package bot.mgx.accessbridge;
 
+import io.papermc.paper.event.player.AsyncPlayerSpawnLocationEvent;
 import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.Difficulty;
-import org.bukkit.GameRule;
+import org.bukkit.GameRules;
 import org.bukkit.Location;
+import org.bukkit.OfflinePlayer;
 import org.bukkit.World;
+import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.AsyncPlayerPreLoginEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerLoginEvent;
-import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerRespawnEvent;
 import org.bukkit.event.world.SpawnChangeEvent;
 import org.bukkit.event.world.WorldLoadEvent;
-import org.bukkit.scheduler.BukkitTask;
-import org.spigotmc.event.player.PlayerSpawnLocationEvent;
-import org.bukkit.OfflinePlayer;
-import org.bukkit.command.CommandSender;
-import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitTask;
 import org.geysermc.floodgate.api.FloodgateApi;
 import org.geysermc.floodgate.api.player.FloodgatePlayer;
 
@@ -334,7 +334,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("bounty").setTabCompleter(bountyService);
         getServer().getPluginManager().registerEvents(bountyService, this);
         getServer().getPluginManager().registerEvents(
-                new JoinGrantService(economyStore, bountyStore, joinGrants), this
+                new JoinGrantService(this, economyStore, bountyStore, joinGrants), this
         );
         getServer().getPluginManager().registerEvents(economyMenus, this);
         getServer().getScheduler().runTaskTimer(
@@ -880,6 +880,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    @SuppressWarnings("deprecation") // Floodgate can rewrite this legacy event after async pre-login.
     public void onPlayerLogin(PlayerLoginEvent event) {
         PlayerLoginEvent.Result result = event.getResult();
         // A ban or a full server is somebody else's refusal and carries a more
@@ -931,6 +932,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
      * mutating it is the only way to undo a re-allow that happens after us.
      */
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = false)
+    @SuppressWarnings("deprecation") // Deliberate final guard against Floodgate re-allowing the login.
     public void onPlayerLoginMonitor(PlayerLoginEvent event) {
         if (!MaintenanceGate.shouldRefuse(maintenanceHeld(), bypassesMaintenance(event.getPlayer()))) {
             return;
@@ -1093,21 +1095,13 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             getLogger().info("World spawn locked to "
                     + WorldSpawn.X + " " + WorldSpawn.Y + " " + WorldSpawn.Z + ".");
         }
-        Integer radius = world.getGameRuleValue(GameRule.SPAWN_RADIUS);
+        Integer radius = world.getGameRuleValue(GameRules.RESPAWN_RADIUS);
         if (radius == null || radius != WorldSpawn.RADIUS) {
-            world.setGameRule(GameRule.SPAWN_RADIUS, WorldSpawn.RADIUS);
+            world.setGameRule(GameRules.RESPAWN_RADIUS, WorldSpawn.RADIUS);
         }
     }
 
     private void applyWorldMemory(World world) {
-        boolean keepSpawn = getConfig().getBoolean(
-                "world.keep-spawn-loaded", WorldMemory.KEEP_SPAWN_IN_MEMORY
-        );
-        if (world.getKeepSpawnInMemory() != keepSpawn) {
-            world.setKeepSpawnInMemory(keepSpawn);
-            getLogger().info((keepSpawn ? "Keeping" : "Not keeping")
-                    + " spawn chunks loaded in " + world.getName() + ".");
-        }
         int view = WorldMemory.capDistance(
                 world.getViewDistance(),
                 getConfig().getInt("world.max-view-distance", WorldMemory.MAX_VIEW_DISTANCE)
@@ -1180,9 +1174,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         if (world.getEnvironment() == World.Environment.THE_END) {
             return;
         }
-        Boolean spawning = world.getGameRuleValue(GameRule.DO_MOB_SPAWNING);
+        Boolean spawning = world.getGameRuleValue(GameRules.SPAWN_MOBS);
         if (spawning == null || !spawning) {
-            world.setGameRule(GameRule.DO_MOB_SPAWNING, true);
+            world.setGameRule(GameRules.SPAWN_MOBS, true);
             getLogger().info("Enabled mob spawning in " + world.getName() + ".");
         }
         if (world.getDifficulty() == Difficulty.PEACEFUL) {
@@ -1226,8 +1220,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         lockWorldSpawn(event.getWorld());
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    public void onPlayerSpawnLocation(PlayerSpawnLocationEvent event) {
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onPlayerSpawnLocation(AsyncPlayerSpawnLocationEvent event) {
         Location loc = event.getSpawnLocation();
         World world = loc.getWorld();
         if (world == null || world.getEnvironment() != World.Environment.NORMAL) {
@@ -1241,7 +1235,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerDeath(PlayerDeathEvent event) {
-        Location bed = event.getPlayer().getPotentialBedLocation();
+        Location bed = event.getPlayer().getRespawnLocation();
         if (bed != null) {
             loadChunk(bed);
         }

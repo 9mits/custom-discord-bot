@@ -1,3 +1,4 @@
+import asyncio
 import tempfile
 import unittest
 from dataclasses import replace
@@ -306,6 +307,23 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         )
         await socket.close()
 
+    async def test_failed_player_activity_is_not_acknowledged(self):
+        self.player_event_handler.side_effect = RuntimeError("database unavailable")
+        self.server._send = AsyncMock()
+
+        await self.server._handle_message({
+            "type": "PLAYER_LEAVE",
+            "payload": {
+                "edition": "JAVA",
+                "minecraft_uuid": "123e4567-e89b-12d3-a456-426614174000",
+                "current_username": "TestPlayer",
+                "xuid": None,
+            },
+            "idempotency_key": "player-leave-failed",
+        })
+
+        self.server._send.assert_not_awaited()
+
     async def test_protocol_v4_relays_chat_in_both_directions(self):
         socket = await self.session.ws_connect(
             f"http://127.0.0.1:{self.port}/minecraft-bridge"
@@ -358,6 +376,23 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(action["payload"]["minecraft_username"], "TestPlayer")
         self.assertEqual(action["payload"]["attachment_count"], 1)
         await socket.close()
+
+    async def test_failed_chat_relay_is_not_acknowledged(self):
+        self.chat_message_handler.side_effect = RuntimeError("Discord unavailable")
+        self.server._send = AsyncMock()
+
+        await self.server._handle_message({
+            "type": "MINECRAFT_CHAT",
+            "payload": {
+                "edition": "JAVA",
+                "minecraft_uuid": "123e4567-e89b-12d3-a456-426614174000",
+                "current_username": "TestPlayer",
+                "message": "retry me",
+            },
+            "idempotency_key": "minecraft-chat-failed",
+        })
+
+        self.server._send.assert_not_awaited()
 
     async def test_plaintext_non_development_connection_is_rejected(self):
         secure_config = replace(self.config, allow_insecure_localhost=False)
@@ -416,6 +451,49 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(forwarded["details"]["clan"], "MGX")
         self.assertEqual(forwarded["event_idempotency_key"], "server-event-1")
         await socket.close()
+
+    async def test_failed_server_event_is_not_acknowledged(self):
+        self.server_event_handler.side_effect = RuntimeError("activity log unavailable")
+        self.server._send = AsyncMock()
+
+        await self.server._handle_message({
+            "type": "SERVER_EVENT",
+            "payload": {"event": "crate_rare_win", "details": {}},
+            "idempotency_key": "server-event-failed",
+        })
+
+        self.server._send.assert_not_awaited()
+
+    async def test_disconnect_resolves_actions_waiting_for_paper(self):
+        future = asyncio.get_running_loop().create_future()
+        self.server._pending_results["clan-action"] = future
+
+        self.server._fail_pending_results("The Minecraft bridge disconnected.")
+
+        self.assertEqual(
+            await future,
+            (False, "The Minecraft bridge disconnected."),
+        )
+        self.assertEqual(self.server._pending_results, {})
+
+    async def test_message_from_superseded_socket_is_ignored(self):
+        current_socket = object()
+        stale_socket = object()
+        self.server._socket = current_socket
+        self.server._send = AsyncMock()
+        try:
+            await self.server._handle_message(
+                {
+                    "type": "HEARTBEAT",
+                    "payload": {},
+                    "idempotency_key": "stale-heartbeat",
+                },
+                source_socket=stale_socket,
+            )
+        finally:
+            self.server._socket = None
+
+        self.server._send.assert_not_awaited()
 
     async def test_a_v6_plugin_is_not_offered_server_events(self):
         # An older plugin must keep working rather than being cut off, so the bot has

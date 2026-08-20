@@ -3,12 +3,15 @@ package bot.mgx.accessbridge;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class JoinGrantStoreTest {
     @TempDir
@@ -48,5 +51,24 @@ class JoinGrantStoreTest {
         store.disable(JoinGrantStore.Kind.MONEY);
 
         assertFalse(store.tryClaim(JoinGrantStore.Kind.MONEY, UUID.randomUUID()));
+    }
+
+    @Test
+    void failedWritesDoNotChangeTheToggleOrConsumeAClaim() throws Exception {
+        Path path = temporaryDirectory.resolve("grants.json");
+        JoinGrantStore store = new JoinGrantStore(path);
+        UUID player = UUID.randomUUID();
+        store.enable(JoinGrantStore.Kind.MONEY, 500);
+        Files.createDirectory(path.resolveSibling("grants.json.tmp"));
+
+        assertThrows(UncheckedIOException.class,
+                () -> store.enable(JoinGrantStore.Kind.MONEY, 1_000));
+        assertEquals(500L, store.amount(JoinGrantStore.Kind.MONEY));
+        assertTrue(store.enabled(JoinGrantStore.Kind.MONEY));
+
+        assertThrows(UncheckedIOException.class,
+                () -> store.tryClaim(JoinGrantStore.Kind.MONEY, player));
+        Files.delete(path.resolveSibling("grants.json.tmp"));
+        assertTrue(store.tryClaim(JoinGrantStore.Kind.MONEY, player));
     }
 }

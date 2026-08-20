@@ -16,7 +16,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
@@ -85,7 +85,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
 
     void start() {
         connect();
-        networkExecutor.scheduleAtFixedRate(this::heartbeat, 15, 15, TimeUnit.SECONDS);
+        networkExecutor.scheduleAtFixedRate(this::safeHeartbeat, 15, 15, TimeUnit.SECONDS);
     }
 
     boolean isConnected() {
@@ -115,6 +115,9 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
     public void onOpen(WebSocket webSocket) {
         this.socket = webSocket;
         this.authenticated = false;
+        synchronized (inbound) {
+            inbound.setLength(0);
+        }
         JsonObject hello = new JsonObject();
         hello.addProperty("server_id", config.serverId());
         hello.addProperty("protocol_version", PROTOCOL_VERSION);
@@ -124,6 +127,9 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
 
     @Override
     public CompletionStage<?> onText(WebSocket webSocket, CharSequence data, boolean last) {
+        if (socket != webSocket || stopping) {
+            return null;
+        }
         synchronized (inbound) {
             inbound.append(data);
             if (inbound.length() > 1024 * 1024) {
@@ -137,13 +143,20 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             }
             String message = inbound.toString();
             inbound.setLength(0);
-            networkExecutor.execute(() -> handleMessage(message));
+            try {
+                networkExecutor.execute(() -> handleMessage(webSocket, message));
+            } catch (RejectedExecutionException ignored) {
+                return null;
+            }
         }
         webSocket.request(1);
         return null;
     }
 
-    private void handleMessage(String text) {
+    private void handleMessage(WebSocket source, String text) {
+        if (socket != source || stopping) {
+            return;
+        }
         JsonObject envelope;
         try {
             envelope = protocol.verify(text);
@@ -575,12 +588,30 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         } else {
             payload.addProperty("xuid", xuid);
         }
+        Optional<VerifiedApplicationStore.VerifiedApplication> previous =
+                verifiedApplications.get(application.applicationId());
+        boolean verifiedSaved = false;
         try {
             verifiedApplications.put(
                     application.applicationId(), minecraftUuid, currentUsername
             );
+            verifiedSaved = true;
             verificationOutbox.put(key, payload);
         } catch (RuntimeException exception) {
+            if (verifiedSaved) {
+                try {
+                    if (previous.isPresent()) {
+                        VerifiedApplicationStore.VerifiedApplication restored = previous.get();
+                        verifiedApplications.put(
+                                restored.applicationId(), restored.minecraftUuid(), restored.username()
+                        );
+                    } else {
+                        verifiedApplications.remove(application.applicationId());
+                    }
+                } catch (RuntimeException rollbackFailure) {
+                    exception.addSuppressed(rollbackFailure);
+                }
+            }
             plugin.getLogger().severe("Could not persist verification event: " + safeError(exception));
             return false;
         }
@@ -744,20 +775,37 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         sendRaw(protocol.create("HEARTBEAT", UUID.randomUUID().toString(), payload));
     }
 
+    private void safeHeartbeat() {
+        try {
+            heartbeat();
+        } catch (RuntimeException exception) {
+            plugin.getLogger().warning("Minecraft bridge heartbeat failed: " + safeError(exception));
+        }
+    }
+
     private void sendRaw(String message) {
         WebSocket current = socket;
         if (current == null || current.isOutputClosed()) {
             return;
         }
-        current.sendText(message, true).whenComplete((ignored, error) -> {
-            if (error != null && config.debug()) {
-                plugin.getLogger().warning("Bridge send failed: " + safeError(error));
+        try {
+            current.sendText(message, true).whenComplete((ignored, error) -> {
+                if (error != null && config.debug()) {
+                    plugin.getLogger().warning("Bridge send failed: " + safeError(error));
+                }
+            });
+        } catch (RuntimeException exception) {
+            if (config.debug()) {
+                plugin.getLogger().warning("Bridge send failed: " + safeError(exception));
             }
-        });
+        }
     }
 
     @Override
     public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
+        if (socket != webSocket) {
+            return null;
+        }
         authenticated = false;
         socket = null;
         if (!stopping) {
@@ -769,6 +817,9 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
 
     @Override
     public void onError(WebSocket webSocket, Throwable error) {
+        if (socket != webSocket) {
+            return;
+        }
         authenticated = false;
         socket = null;
         if (!stopping) {
@@ -784,13 +835,21 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         int attempt = Math.min(++reconnectAttempts, 20);
         long base = Math.min(config.reconnectMaxSeconds(), 1L << Math.min(attempt - 1, 16));
         long delayMillis = base * 1000L + ThreadLocalRandom.current().nextLong(250, 1250);
-        networkExecutor.schedule(this::connect, delayMillis, TimeUnit.MILLISECONDS);
+        try {
+            networkExecutor.schedule(this::connect, delayMillis, TimeUnit.MILLISECONDS);
+        } catch (RejectedExecutionException ignored) {
+            // The executor is already stopping with the plugin.
+        }
     }
 
     private void closeSocket(int code, String reason) {
         WebSocket current = socket;
         if (current != null) {
-            current.sendClose(code, reason);
+            try {
+                current.sendClose(code, reason);
+            } catch (RuntimeException ignored) {
+                // It closed between the liveness check and this request.
+            }
         }
     }
 
@@ -817,7 +876,11 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         WebSocket current = socket;
         socket = null;
         if (current != null && !current.isOutputClosed()) {
-            current.sendClose(WebSocket.NORMAL_CLOSURE, "Plugin shutting down");
+            try {
+                current.sendClose(WebSocket.NORMAL_CLOSURE, "Plugin shutting down");
+            } catch (RuntimeException ignored) {
+                // The peer won the close race.
+            }
         }
     }
 }

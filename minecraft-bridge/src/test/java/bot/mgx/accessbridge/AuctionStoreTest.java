@@ -3,6 +3,8 @@ package bot.mgx.accessbridge;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
 
@@ -148,5 +150,60 @@ class AuctionStoreTest {
         assertEquals(0L, AuctionStore.taxOn(19));
         assertEquals(5L, AuctionStore.taxOn(100));
         assertEquals(1L, AuctionStore.taxOn(20));
+    }
+
+    @Test
+    void sellerWalletOverflowLeavesTheListingAndBuyerUntouched() throws Exception {
+        EconomyStore money = new EconomyStore(temporaryDirectory.resolve("balances.json"));
+        AuctionStore auctions = new AuctionStore(temporaryDirectory.resolve("auctions.json"));
+        UUID seller = UUID.randomUUID();
+        UUID buyer = UUID.randomUUID();
+        money.set(seller, Long.MAX_VALUE);
+        money.deposit(buyer, 100);
+        AuctionStore.Listing listing = auctions.list(
+                seller, "Seller", 100, "DIAMOND", 1, "Diamond", "item", 1L
+        );
+
+        assertThrows(IllegalArgumentException.class,
+                () -> auctions.buy(buyer, listing.id(), money, 2L));
+        assertEquals(100L, money.balance(buyer));
+        assertEquals(Long.MAX_VALUE, money.balance(seller));
+        assertEquals(1, auctions.browse("", 2L).size());
+    }
+
+    @Test
+    void failedEconomyWriteRestoresTheAuctionListing() throws Exception {
+        Path balancesPath = temporaryDirectory.resolve("balances.json");
+        EconomyStore money = new EconomyStore(balancesPath);
+        AuctionStore auctions = new AuctionStore(temporaryDirectory.resolve("auctions.json"));
+        UUID seller = UUID.randomUUID();
+        UUID buyer = UUID.randomUUID();
+        money.deposit(buyer, 100);
+        AuctionStore.Listing listing = auctions.list(
+                seller, "Seller", 100, "DIAMOND", 1, "Diamond", "item", 1L
+        );
+        Files.createDirectory(balancesPath.resolveSibling("balances.json.tmp"));
+
+        assertThrows(UncheckedIOException.class,
+                () -> auctions.buy(buyer, listing.id(), money, 2L));
+        assertEquals(100L, money.balance(buyer));
+        assertEquals(0L, money.balance(seller));
+        assertEquals(listing.id(), auctions.browse("", 2L).get(0).id());
+    }
+
+    @Test
+    void failedAuctionWriteRollsBackListingAndMailboxChanges() throws Exception {
+        Path path = temporaryDirectory.resolve("auctions.json");
+        AuctionStore auctions = new AuctionStore(path);
+        UUID seller = UUID.randomUUID();
+        AuctionStore.Listing listing = auctions.list(
+                seller, "Seller", 10, "STONE", 1, "Stone", "item", 1L
+        );
+        Files.createDirectory(path.resolveSibling("auctions.json.tmp"));
+
+        assertThrows(UncheckedIOException.class,
+                () -> auctions.cancel(seller, listing.id(), 2L));
+        assertTrue(auctions.find(listing.id()).isPresent());
+        assertTrue(auctions.mailboxOf(seller).isEmpty());
     }
 }

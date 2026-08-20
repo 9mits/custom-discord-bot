@@ -426,11 +426,22 @@ final class ClanStore {
         if (amount <= 0L) {
             throw new ClanException("Donate a whole dollar amount.");
         }
-        clan.treasury = treasuryOf(clan) + amount;
+        long treasury;
+        long donated;
+        try {
+            treasury = Math.addExact(treasuryOf(clan), amount);
+            donated = Math.addExact(
+                    clan.donations == null ? 0L : clan.donations.getOrDefault(actor.toString(), 0L),
+                    amount
+            );
+        } catch (ArithmeticException exception) {
+            throw new ClanException("That clan has reached the treasury value limit.");
+        }
+        clan.treasury = treasury;
         if (clan.donations == null) {
             clan.donations = new LinkedHashMap<>();
         }
-        clan.donations.merge(actor.toString(), amount, Long::sum);
+        clan.donations.put(actor.toString(), donated);
         persist();
         return amount;
     }
@@ -492,6 +503,17 @@ final class ClanStore {
         clan.treasury = held - amount;
         persist();
         return view(clan);
+    }
+
+    /** Reverses a failed cross-store bounty payment without changing donor history. */
+    synchronized void restoreTreasurySpend(UUID actor, long amount) throws IOException {
+        SavedClan clan = requireLeader(actor);
+        try {
+            clan.treasury = Math.addExact(treasuryOf(clan), amount);
+        } catch (ArithmeticException exception) {
+            throw new IOException("Clan treasury overflow while restoring a failed payment", exception);
+        }
+        persist();
     }
 
     private static int slotsOf(SavedClan clan) {
@@ -770,13 +792,24 @@ final class ClanStore {
     }
 
     private void persist() throws IOException {
-        Files.createDirectories(path.getParent());
-        Path temporary = path.resolveSibling(path.getFileName() + ".tmp");
-        Files.writeString(temporary, gson.toJson(state), StandardCharsets.UTF_8);
         try {
-            Files.move(temporary, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-        } catch (AtomicMoveNotSupportedException exception) {
-            Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING);
+            Files.createDirectories(path.getParent());
+            Path temporary = path.resolveSibling(path.getFileName() + ".tmp");
+            Files.writeString(temporary, gson.toJson(state), StandardCharsets.UTF_8);
+            try {
+                Files.move(temporary, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException exception) {
+                Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (IOException failure) {
+            try {
+                state = load(path);
+                memberIndex.clear();
+                rebuildIndex();
+            } catch (IOException recoveryFailure) {
+                failure.addSuppressed(recoveryFailure);
+            }
+            throw failure;
         }
     }
 

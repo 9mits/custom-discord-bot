@@ -4,12 +4,15 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class RankSyncStoreTest {
     @TempDir
@@ -108,5 +111,23 @@ class RankSyncStoreTest {
         store.clearApplied();
 
         assertTrue(store.isHeld(player));
+    }
+
+    @Test
+    void failedWritesRollBackHoldsAndAppliedRanks() throws Exception {
+        Path path = directory.resolve("rank-sync.json");
+        RankSyncStore store = new RankSyncStore(path);
+        UUID heldPlayer = UUID.randomUUID();
+        UUID rankedPlayer = UUID.randomUUID();
+        store.hold(heldPlayer, "Steve");
+        store.recordApplied(rankedPlayer, "legend");
+        Files.createDirectory(path.resolveSibling("rank-sync.json.tmp"));
+
+        assertThrows(UncheckedIOException.class, () -> store.release(heldPlayer));
+        assertThrows(UncheckedIOException.class, () -> store.recordApplied(rankedPlayer, "staff"));
+        assertThrows(UncheckedIOException.class, store::clearApplied);
+
+        assertTrue(store.isHeld(heldPlayer));
+        assertEquals("legend", store.appliedRank(rankedPlayer).orElseThrow());
     }
 }

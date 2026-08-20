@@ -480,6 +480,37 @@ class ClanStoreTest {
                         "\"treasury\": -1,")));
     }
 
+    @Test
+    void donationOverflowIsRejectedWithoutChangingTheTreasury() throws Exception {
+        ClanStore store = new ClanStore(temporaryDirectory.resolve("clans.json"));
+        UUID leader = UUID.randomUUID();
+        store.create(leader, "Leader", "LIMIT");
+        store.donate(leader, Long.MAX_VALUE);
+
+        assertThrows(ClanStore.ClanException.class, () -> store.donate(leader, 1L));
+        assertEquals(Long.MAX_VALUE, store.clanOf(leader).orElseThrow().balance());
+        assertEquals(Long.MAX_VALUE,
+                store.clanOf(leader).orElseThrow().donations().get(leader));
+    }
+
+    @Test
+    void failedPersistenceReloadsTheLastDurableClanState() throws Exception {
+        Path path = temporaryDirectory.resolve("clans.json");
+        UUID leader = UUID.randomUUID();
+        ClanStore store = new ClanStore(path);
+        store.create(leader, "Leader", "SAFE");
+        Files.createDirectory(path.resolveSibling("clans.json.tmp"));
+
+        assertThrows(java.io.IOException.class, () -> store.rename(leader, "BROKE"));
+        assertThrows(java.io.IOException.class, () -> store.donate(leader, 500L));
+
+        ClanStore.ClanView unchanged = store.clanOf(leader).orElseThrow();
+        assertEquals("SAFE", unchanged.name());
+        assertEquals(0L, unchanged.balance());
+        Files.delete(path.resolveSibling("clans.json.tmp"));
+        assertEquals("SAFE", new ClanStore(path).clanOf(leader).orElseThrow().name());
+    }
+
     private Path writeClan(Path path, UUID leader, String extraFields) throws Exception {
         Files.writeString(path, """
                 {

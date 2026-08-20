@@ -1,14 +1,12 @@
 package bot.mgx.accessbridge;
 
 /**
- * Caps how much of each world Paper keeps resident.
+ * Caps each world's player-driven chunk load.
  *
- * <p>View and simulation distance are the usual 1.21 RAM cost. Spawn chunks stay
- * loaded even when the world is empty unless {@link #KEEP_SPAWN_IN_MEMORY} is
- * false. Zero for a cap means "do not change what the panel already set".
+ * <p>View and simulation distance are the usual 1.21 RAM cost. Zero for a cap
+ * means "do not change what the panel already set".
  */
 final class WorldMemory {
-    static final boolean KEEP_SPAWN_IN_MEMORY = false;
     static final int MAX_VIEW_DISTANCE = 6;
     static final int MAX_SIMULATION_DISTANCE = 4;
     static final int MIN_DISTANCE = 2;

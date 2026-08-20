@@ -966,19 +966,17 @@ class MinecraftAccessBot(commands.Bot):
             discord_user_id = await self.data.get_account_owner(edition, minecraft_uuid)
         if joined:
             await self.sync_player_profile(minecraft_uuid, discord_user_id)
-        self.spawn_background_task(
-            self._send_configured_log(
-                self.settings.player_log_channel_id,
-                player_activity_embed(
-                    joined=joined,
-                    username=current_username,
-                    minecraft_uuid=minecraft_uuid,
-                    edition=edition,
-                    xuid=xuid,
-                    discord_user_id=discord_user_id,
-                ),
+        await self._send_configured_log(
+            self.settings.player_log_channel_id,
+            player_activity_embed(
+                joined=joined,
+                username=current_username,
+                minecraft_uuid=minecraft_uuid,
+                edition=edition,
+                xuid=xuid,
+                discord_user_id=discord_user_id,
             ),
-            name="minecraft-player-log",
+            dedupe_key=f"player-event:{event_idempotency_key}",
         )
 
     async def handle_server_event(
@@ -1073,7 +1071,7 @@ class MinecraftAccessBot(commands.Bot):
         channel = await self._configured_channel(self.settings.chat_channel_id)
         if not isinstance(channel, discord.TextChannel):
             logger.warning("Configured Minecraft chat channel %s is unavailable", self.settings.chat_channel_id)
-            return
+            raise RuntimeError("The configured Minecraft chat channel is unavailable")
         owner_id = await self.data.get_account_owner(edition, minecraft_uuid)
         linked_user: Optional[discord.User | discord.Member] = None
         if owner_id is not None:
@@ -1117,6 +1115,7 @@ class MinecraftAccessBot(commands.Bot):
             )
         except (discord.Forbidden, discord.NotFound, discord.HTTPException):
             logger.exception("Could not relay Minecraft chat into Discord channel %s", channel.id)
+            raise
 
     async def _chat_webhook(self, channel: discord.TextChannel) -> discord.Webhook:
         cached = self._chat_webhooks.get(channel.id)

@@ -8,11 +8,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class WorldMemoryTest {
     @Test
-    void spawnChunksAreNotKeptResident() {
-        assertFalse(WorldMemory.KEEP_SPAWN_IN_MEMORY);
-    }
-
-    @Test
     void defaultCapsAreBelowPaperStockDistances() {
         assertEquals(6, WorldMemory.MAX_VIEW_DISTANCE);
         assertEquals(4, WorldMemory.MAX_SIMULATION_DISTANCE);

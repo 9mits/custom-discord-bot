@@ -64,9 +64,33 @@ final class BountyStore {
                     "Bounties start at " + EconomyFormat.dollars(MIN_BOUNTY) + "."
             );
         }
-        long total = bounties.merge(target, amount, Long::sum);
-        persist();
+        long before = amountOn(target);
+        long total;
+        try {
+            total = Math.addExact(before, amount);
+        } catch (ArithmeticException exception) {
+            throw new IllegalArgumentException("That bounty has reached the value limit.", exception);
+        }
+        bounties.put(target, total);
+        try {
+            persist();
+        } catch (RuntimeException failure) {
+            restore(target, before);
+            throw failure;
+        }
         return total;
+    }
+
+    synchronized boolean canAdd(UUID target, long amount) {
+        if (amount <= 0L) {
+            return false;
+        }
+        try {
+            Math.addExact(amountOn(target), amount);
+            return true;
+        } catch (ArithmeticException ignored) {
+            return false;
+        }
     }
 
     synchronized long collect(UUID target) {
@@ -74,7 +98,12 @@ final class BountyStore {
         if (amount == null || amount <= 0L) {
             return 0L;
         }
-        persist();
+        try {
+            persist();
+        } catch (RuntimeException failure) {
+            bounties.put(target, amount);
+            throw failure;
+        }
         return amount;
     }
 
@@ -91,9 +120,26 @@ final class BountyStore {
 
     synchronized int clearAll() {
         int cleared = bounties.size();
+        if (cleared == 0) {
+            return 0;
+        }
+        Map<UUID, Long> before = Map.copyOf(bounties);
         bounties.clear();
-        persist();
+        try {
+            persist();
+        } catch (RuntimeException failure) {
+            bounties.putAll(before);
+            throw failure;
+        }
         return cleared;
+    }
+
+    private void restore(UUID target, long amount) {
+        if (amount <= 0L) {
+            bounties.remove(target);
+        } else {
+            bounties.put(target, amount);
+        }
     }
 
     private void persist() {

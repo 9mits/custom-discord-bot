@@ -81,6 +81,7 @@ final class RankSyncStore {
 
     /** @return true when the player was not already held. */
     synchronized boolean hold(UUID playerId, String name) {
+        StateSnapshot before = snapshot();
         boolean added = held.add(playerId);
         boolean renamed = false;
         if (name != null && !name.isBlank()) {
@@ -89,19 +90,20 @@ final class RankSyncStore {
         }
         // The bridge no longer owns anything it gave them: releasing later must not
         // retroactively strip a group an admin has since set by hand.
-        applied.remove(playerId);
-        if (added || renamed) {
-            save();
+        boolean grantRemoved = applied.remove(playerId) != null;
+        if (added || renamed || grantRemoved) {
+            saveOrRollback(before);
         }
         return added;
     }
 
     /** @return true when the player was actually held. */
     synchronized boolean release(UUID playerId) {
+        StateSnapshot before = snapshot();
         boolean removed = held.remove(playerId);
-        heldNames.remove(playerId);
-        if (removed) {
-            save();
+        boolean nameRemoved = heldNames.remove(playerId) != null;
+        if (removed || nameRemoved) {
+            saveOrRollback(before);
         }
         return removed;
     }
@@ -127,6 +129,7 @@ final class RankSyncStore {
 
     /** Records the group sync just granted; an empty group records that it granted none. */
     synchronized void recordApplied(UUID playerId, String group) {
+        StateSnapshot before = snapshot();
         String previous;
         if (group == null || group.isBlank()) {
             previous = applied.remove(playerId);
@@ -135,7 +138,7 @@ final class RankSyncStore {
         }
         String current = applied.get(playerId);
         if (previous == null ? current != null : !previous.equals(current)) {
-            save();
+            saveOrRollback(before);
         }
     }
 
@@ -143,10 +146,40 @@ final class RankSyncStore {
     synchronized int clearApplied() {
         int cleared = applied.size();
         if (cleared > 0) {
+            StateSnapshot before = snapshot();
             applied.clear();
-            save();
+            saveOrRollback(before);
         }
         return cleared;
+    }
+
+    private StateSnapshot snapshot() {
+        return new StateSnapshot(
+                new LinkedHashMap<>(applied),
+                new LinkedHashSet<>(held),
+                new LinkedHashMap<>(heldNames)
+        );
+    }
+
+    private void saveOrRollback(StateSnapshot before) {
+        try {
+            save();
+        } catch (RuntimeException failure) {
+            applied.clear();
+            applied.putAll(before.applied());
+            held.clear();
+            held.addAll(before.held());
+            heldNames.clear();
+            heldNames.putAll(before.heldNames());
+            throw failure;
+        }
+    }
+
+    private record StateSnapshot(
+            Map<UUID, String> applied,
+            Set<UUID> held,
+            Map<UUID, String> heldNames
+    ) {
     }
 
     private void save() {

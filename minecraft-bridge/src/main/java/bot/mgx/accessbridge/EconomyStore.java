@@ -34,7 +34,10 @@ final class EconomyStore {
         try {
             JsonObject root = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
             for (Map.Entry<String, JsonElement> entry : root.entrySet()) {
-                balances.put(UUID.fromString(entry.getKey()), Math.max(0L, entry.getValue().getAsLong()));
+                long balance = Math.max(0L, entry.getValue().getAsLong());
+                if (balance > 0L) {
+                    balances.put(UUID.fromString(entry.getKey()), balance);
+                }
             }
         } catch (RuntimeException exception) {
             throw new IOException("Economy store is unreadable", exception);
@@ -53,7 +56,7 @@ final class EconomyStore {
     long totalOf(Iterable<UUID> players) {
         long total = 0L;
         for (UUID playerId : players) {
-            total += balance(playerId);
+            total = Math.addExact(total, balance(playerId));
         }
         return total;
     }
@@ -62,8 +65,15 @@ final class EconomyStore {
         if (amount <= 0L) {
             throw new IllegalArgumentException("Deposit must be a positive amount.");
         }
-        balances.merge(playerId, amount, Long::sum);
-        persist();
+        long before = balance(playerId);
+        long after = checkedAdd(before, amount);
+        balances.put(playerId, after);
+        try {
+            persist();
+        } catch (RuntimeException failure) {
+            restoreBalance(playerId, before);
+            throw failure;
+        }
     }
 
     synchronized boolean tryWithdraw(UUID playerId, long amount) {
@@ -74,8 +84,13 @@ final class EconomyStore {
         if (current < amount) {
             return false;
         }
-        balances.put(playerId, current - amount);
-        persist();
+        restoreBalance(playerId, current - amount);
+        try {
+            persist();
+        } catch (RuntimeException failure) {
+            restoreBalance(playerId, current);
+            throw failure;
+        }
         return true;
     }
 
@@ -83,24 +98,59 @@ final class EconomyStore {
         if (from.equals(to)) {
             throw new IllegalArgumentException("You cannot pay yourself.");
         }
-        if (!tryWithdrawUnlocked(from, amount)) {
+        return tryPayment(from, to, amount, amount);
+    }
+
+    /** Charges one wallet and credits another in one persisted economy transaction. */
+    synchronized boolean tryPayment(UUID from, UUID to, long charged, long credited) {
+        if (from.equals(to)) {
+            throw new IllegalArgumentException("The payer and recipient must be different.");
+        }
+        if (charged <= 0L || credited < 0L || credited > charged) {
+            throw new IllegalArgumentException("Payment amounts are invalid.");
+        }
+        long fromBefore = balance(from);
+        if (fromBefore < charged) {
             return false;
         }
-        balances.merge(to, amount, Long::sum);
-        persist();
+        long toBefore = balance(to);
+        long toAfter = checkedAdd(toBefore, credited);
+        restoreBalance(from, fromBefore - charged);
+        restoreBalance(to, toAfter);
+        try {
+            persist();
+        } catch (RuntimeException failure) {
+            restoreBalance(from, fromBefore);
+            restoreBalance(to, toBefore);
+            throw failure;
+        }
         return true;
+    }
+
+    synchronized boolean canDeposit(UUID playerId, long amount) {
+        if (amount <= 0L) {
+            return false;
+        }
+        try {
+            Math.addExact(balance(playerId), amount);
+            return true;
+        } catch (ArithmeticException ignored) {
+            return false;
+        }
     }
 
     synchronized void set(UUID playerId, long amount) {
         if (amount < 0L) {
             throw new IllegalArgumentException("A balance cannot be negative.");
         }
-        if (amount == 0L) {
-            balances.remove(playerId);
-        } else {
-            balances.put(playerId, amount);
+        long before = balance(playerId);
+        restoreBalance(playerId, amount);
+        try {
+            persist();
+        } catch (RuntimeException failure) {
+            restoreBalance(playerId, before);
+            throw failure;
         }
-        persist();
     }
 
     synchronized int clearAll() {
@@ -108,18 +158,31 @@ final class EconomyStore {
         if (cleared == 0) {
             return 0;
         }
+        Map<UUID, Long> before = Map.copyOf(balances);
         balances.clear();
-        persist();
+        try {
+            persist();
+        } catch (RuntimeException failure) {
+            balances.putAll(before);
+            throw failure;
+        }
         return cleared;
     }
 
-    private boolean tryWithdrawUnlocked(UUID playerId, long amount) {
-        long current = balance(playerId);
-        if (current < amount) {
-            return false;
+    private static long checkedAdd(long current, long amount) {
+        try {
+            return Math.addExact(current, amount);
+        } catch (ArithmeticException exception) {
+            throw new IllegalArgumentException("That wallet has reached the balance limit.", exception);
         }
-        balances.put(playerId, current - amount);
-        return true;
+    }
+
+    private void restoreBalance(UUID playerId, long amount) {
+        if (amount == 0L) {
+            balances.remove(playerId);
+        } else {
+            balances.put(playerId, amount);
+        }
     }
 
     private void persist() {

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -81,13 +82,11 @@ SERVER_TAGLINE = "\n\n".join(SERVER_TAGLINE_PARAGRAPHS)
 #: The version the Paper server itself runs. ViaBackwards translates older Java
 #: clients down to it and Geyser handles Bedrock, so player-facing text should
 #: always pair this with the supported range below rather than stand alone.
-SERVER_VERSION = "1.21.1"
-#: Every version joins: ViaBackwards translates older clients down, ViaVersion
-#: translates newer ones up. The cap that used to sit here was removed on
-#: 2026-08-15 — it could not be applied to Java alone, because Geyser injects
-#: Bedrock players at the newest Java protocol, so it was turning away every
-#: mobile player too. GrimAC polices up-translated sessions regardless.
-JAVA_SUPPORTED_RANGE = "1.8 and newer"
+SERVER_VERSION = "1.21.11"
+#: ViaBackwards covers the older Dialog-capable releases and ViaVersion translates
+#: newer ones. The mandatory Java resource pack also starts at pack format 63, so
+#: advertising pre-1.21.6 clients would promise an experience the pack cannot serve.
+JAVA_SUPPORTED_RANGE = "1.21.6 and newer"
 
 #: Official download pages, used to hyperlink mod and version names in embeds.
 #: Only well-known official pages belong here — never guess a link.
@@ -142,68 +141,42 @@ def _set_minecraft_thumbnail(embed: discord.Embed, thumbnail_url: Optional[str])
 
 
 def brand_logo_file() -> discord.File:
-    return discord.File(
-        LOGO_PATH,
-        filename=LOGO_FILENAME,
-        description=f"{BRAND_NAME} logo",
-    )
+    return _asset_file(LOGO_PATH, LOGO_FILENAME, f"{BRAND_NAME} logo")
 
 
 def brand_mark_file() -> discord.File:
     """The standalone X, which reads better than the wordmark at thumbnail size."""
-    return discord.File(
-        MARK_PATH,
-        filename=MARK_FILENAME,
-        description=f"{BRAND_NAME} mark",
-    )
+    return _asset_file(MARK_PATH, MARK_FILENAME, f"{BRAND_NAME} mark")
 
 
 def brand_icon_file() -> discord.File:
-    return discord.File(
-        ICON_PATH,
-        filename=ICON_FILENAME,
-        description=f"{BRAND_NAME} icon",
-    )
+    return _asset_file(ICON_PATH, ICON_FILENAME, f"{BRAND_NAME} icon")
 
 
 def brand_footer_file() -> discord.File:
-    return discord.File(
-        FOOTER_PATH,
-        filename=FOOTER_FILENAME,
-        description=f"{BRAND_NAME} footer icon",
-    )
+    return _asset_file(FOOTER_PATH, FOOTER_FILENAME, f"{BRAND_NAME} footer icon")
 
 
 def rules_image_file() -> discord.File:
-    return discord.File(
-        RULES_PATH,
-        filename=RULES_FILENAME,
-        description=f"{BRAND_NAME} rules",
-    )
+    return _asset_file(RULES_PATH, RULES_FILENAME, f"{BRAND_NAME} rules")
 
 
 def about_image_file() -> discord.File:
-    return discord.File(
-        ABOUT_PATH,
-        filename=ABOUT_FILENAME,
-        description=f"{BRAND_NAME} information mark",
-    )
+    return _asset_file(ABOUT_PATH, ABOUT_FILENAME, f"{BRAND_NAME} information mark")
 
 
 def apply_image_file() -> discord.File:
-    return discord.File(
-        APPLY_PATH,
-        filename=APPLY_FILENAME,
-        description=f"{BRAND_NAME} application mark",
-    )
+    return _asset_file(APPLY_PATH, APPLY_FILENAME, f"{BRAND_NAME} application mark")
 
 
 def verification_image_file() -> discord.File:
-    return discord.File(
-        VERIFY_PATH,
-        filename=VERIFY_FILENAME,
-        description=f"{BRAND_NAME} verification",
-    )
+    return _asset_file(VERIFY_PATH, VERIFY_FILENAME, f"{BRAND_NAME} verification")
+
+
+def _asset_file(path: Path, filename: str, description: str) -> discord.File:
+    # Memory-backed attachments cannot leak an OS file descriptor if a Discord send
+    # is cancelled before discord.py gets the opportunity to close the File wrapper.
+    return discord.File(io.BytesIO(path.read_bytes()), filename=filename, description=description)
 
 
 def branded_send(embed: discord.Embed) -> dict[str, object]:

@@ -35,6 +35,7 @@ python run_test.py             # staging: test bot on this machine, loads .env.t
 python -m unittest discover -s tests       # no Discord connection needed
 python -m pyflakes core/ cogs/ minecraft_bot/ tests/
 python -m py_compile cogs/*.py minecraft_bot/*.py minecraft_main.py
+(cd minecraft-bridge && ./gradlew clean test shadowJar)
 
 # Optional local quality pass (ruff config in pyproject.toml; not yet in CI)
 ruff check core/ cogs/ minecraft_bot/ tests/
@@ -238,9 +239,8 @@ Read the relevant file when you touch an area; these are the non-obvious points.
 - **Overworld spawn is locked to `0 69 0`.** `WorldSpawn` sets the block and
   `spawnRadius` 0 so vanilla cannot scatter joins. `SpawnChangeEvent` puts it
   back if anything else moves it. Bed and respawn-anchor deaths are left alone.
-  `WorldMemory` then drops spawn-chunk residency and caps view/simulation
-  distance (defaults 6 / 4) so an empty or far-from-spawn world does not keep
-  a 1.21 neighborhood resident. A 3x3 plugin ticket stays on the spawn chunk
+  `WorldMemory` caps view/simulation distance (defaults 6 / 4). A 3x3 plugin
+  ticket stays around the spawn chunk
   so a death far from 0,0 can still respawn. `WorldLimits` sets the overworld
   border to 100,000 blocks from spawn (nether 1/8) — the red fog and sounds
   past a small border are vanilla's warning, not a broken world.

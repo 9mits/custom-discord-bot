@@ -2,6 +2,7 @@ package bot.mgx.accessbridge;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import org.bukkit.OfflinePlayer;
 import org.bukkit.entity.Player;
 
 import java.util.ArrayList;
@@ -11,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Builds ranked standings and pushes them to the Discord bot.
@@ -30,8 +32,9 @@ final class LeaderboardService {
     private final PlayerStatsService stats;
     private final ClanStore clans;
     private final long refreshTicks;
+    private final AtomicBoolean publishing = new AtomicBoolean();
     private int taskId = -1;
-    private JsonObject latest = new JsonObject();
+    private volatile JsonObject latest = new JsonObject();
 
     LeaderboardService(
             MGXAccessBridge plugin,
@@ -56,13 +59,19 @@ final class LeaderboardService {
         );
     }
 
-    /** Online names are captured on the main thread; wallets are already on disk. */
-    private Map<UUID, String> snapshotOnlinePlayers() {
-        Map<UUID, String> onlineNames = new HashMap<>();
-        for (Player online : plugin.getServer().getOnlinePlayers()) {
-            onlineNames.put(online.getUniqueId(), online.getName());
+    /** Bukkit's player directory is captured on the main thread before disk work begins. */
+    private Map<UUID, String> snapshotKnownPlayerNames() {
+        Map<UUID, String> knownNames = new HashMap<>();
+        for (OfflinePlayer offline : plugin.getServer().getOfflinePlayers()) {
+            String name = offline.getName();
+            if (name != null && !name.isBlank()) {
+                knownNames.put(offline.getUniqueId(), name);
+            }
         }
-        return onlineNames;
+        for (Player online : plugin.getServer().getOnlinePlayers()) {
+            knownNames.put(online.getUniqueId(), online.getName());
+        }
+        return knownNames;
     }
 
     void stop() {
@@ -78,15 +87,30 @@ final class LeaderboardService {
     }
 
     private void publish() {
-        Map<UUID, String> onlineNames = snapshotOnlinePlayers();
-        plugin.getServer().getScheduler().runTaskAsynchronously(
-                plugin,
-                () -> buildAndSend(onlineNames)
-        );
+        if (!publishing.compareAndSet(false, true)) {
+            return;
+        }
+        Map<UUID, String> knownNames = snapshotKnownPlayerNames();
+        try {
+            plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
+                try {
+                    buildAndSend(knownNames);
+                } catch (RuntimeException exception) {
+                    plugin.getLogger().warning(
+                            "Could not publish Minecraft standings: " + exception.getMessage()
+                    );
+                } finally {
+                    publishing.set(false);
+                }
+            });
+        } catch (RuntimeException exception) {
+            publishing.set(false);
+            throw exception;
+        }
     }
 
-    private void buildAndSend(Map<UUID, String> onlineNames) {
-        List<PlayerStats> everyone = stats.everyKnownPlayer(onlineNames);
+    private void buildAndSend(Map<UUID, String> knownNames) {
+        List<PlayerStats> everyone = stats.everyKnownPlayer(knownNames);
         JsonObject snapshot = new JsonObject();
         snapshot.addProperty("generated_at", System.currentTimeMillis());
 

@@ -5,6 +5,7 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
 import org.bukkit.Chunk;
+import org.bukkit.GameRules;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Block;
@@ -229,7 +230,7 @@ final class LaunchService {
 
     private void setPvp(boolean enabled) {
         for (World world : Bukkit.getWorlds()) {
-            world.setPVP(enabled);
+            world.setGameRule(GameRules.PVP, enabled);
         }
     }
 

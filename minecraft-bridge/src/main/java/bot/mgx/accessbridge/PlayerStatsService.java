@@ -1,8 +1,5 @@
 package bot.mgx.accessbridge;
 
-import org.bukkit.Bukkit;
-import org.bukkit.OfflinePlayer;
-
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -46,18 +43,18 @@ final class PlayerStatsService {
     /**
      * Every player the server has a statistics file for.
      *
-     * <p>Safe to call off the main thread: {@code onlineNames} is captured by the caller
-     * beforehand so this never has to ask Bukkit who is online.
+     * <p>Safe to call off the main thread: {@code knownNames} is captured by the caller
+     * beforehand, so this never touches Bukkit's player directory.
      */
-    List<PlayerStats> everyKnownPlayer(Map<UUID, String> onlineNames) {
+    List<PlayerStats> everyKnownPlayer(Map<UUID, String> knownNames) {
         List<PlayerStats> all = new ArrayList<>();
-        rememberedNames.putAll(onlineNames);
+        rememberedNames.putAll(knownNames);
         Set<UUID> seen = new HashSet<>();
         if (!Files.isDirectory(statsDirectory)) {
             plugin.getLogger().warning("No statistics directory at " + statsDirectory);
         } else try (Stream<Path> files = Files.list(statsDirectory)) {
             for (Path file : files.filter(path -> path.toString().endsWith(".json")).toList()) {
-                statsFor(file, onlineNames).ifPresent(row -> {
+                statsFor(file, knownNames).ifPresent(row -> {
                     seen.add(row.minecraftUuid());
                     all.add(row);
                 });
@@ -70,14 +67,14 @@ final class PlayerStatsService {
                 continue;
             }
             seen.add(wallet.getKey());
-            all.add(PlayerStats.empty(wallet.getKey(), usernameOf(wallet.getKey(), onlineNames))
+            all.add(PlayerStats.empty(wallet.getKey(), usernameOf(wallet.getKey(), knownNames))
                     .withWealth(wallet.getValue()));
         }
         cache.keySet().removeIf(uuid -> !seen.contains(uuid));
         return all;
     }
 
-    private java.util.Optional<PlayerStats> statsFor(Path file, Map<UUID, String> onlineNames) {
+    private java.util.Optional<PlayerStats> statsFor(Path file, Map<UUID, String> knownNames) {
         java.util.Optional<UUID> parsedUuid = PlayerStatsParser.uuidFromFileName(file);
         if (parsedUuid.isEmpty()) {
             return java.util.Optional.empty();
@@ -99,7 +96,7 @@ final class PlayerStatsService {
             }
             return java.util.Optional.of(new PlayerStats(
                     uuid,
-                    usernameOf(uuid, onlineNames),
+                    usernameOf(uuid, knownNames),
                     snapshot.kills(),
                     snapshot.deaths(),
                     snapshot.playTimeTicks(),
@@ -115,18 +112,13 @@ final class PlayerStatsService {
         }
     }
 
-    private String usernameOf(UUID uuid, Map<UUID, String> onlineNames) {
-        String cached = PlayerStatsParser.cachedUsername(uuid, onlineNames, rememberedNames);
+    private String usernameOf(UUID uuid, Map<UUID, String> knownNames) {
+        String cached = PlayerStatsParser.cachedUsername(uuid, knownNames, rememberedNames);
         if (!cached.isEmpty()) {
             rememberedNames.put(uuid, cached);
             return cached;
         }
-        // Safe off the main thread: a UUID lookup reads the local cache and never
-        // makes a web request, unlike looking a player up by name. Remembered after
-        // the first hit so later passes do not keep Paper's offline-player map warm.
-        OfflinePlayer offline = Bukkit.getOfflinePlayer(uuid);
-        String name = offline.getName();
-        String resolved = name == null ? PlayerStatsParser.fallbackUsername(uuid) : name;
+        String resolved = PlayerStatsParser.fallbackUsername(uuid);
         rememberedNames.put(uuid, resolved);
         return resolved;
     }
