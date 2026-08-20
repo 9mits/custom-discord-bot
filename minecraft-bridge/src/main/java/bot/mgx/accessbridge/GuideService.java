@@ -58,8 +58,8 @@ final class GuideService implements CommandExecutor, TabCompleter {
             new StaffCommand("/tempban", "Ban a player for a set time", "essentials.tempban"),
             new StaffCommand("/unban", "Lift a ban", "essentials.unban"),
             new StaffCommand(
-                    "/crate key <player> [amount]",
-                    "Issue event crate keys",
+                    "/mgxadmin give <player> <money|key|cosmetic>",
+                    "Hand anything to a player",
                     "mgxaccessbridge.admin"
             )
     );
