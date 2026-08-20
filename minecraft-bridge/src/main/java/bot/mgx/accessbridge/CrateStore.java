@@ -1,6 +1,5 @@
 package bot.mgx.accessbridge;
 
-import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -13,18 +12,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.time.Duration;
-import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
-/** Rolling opening limits and crash-safe rewards selected before an animation starts. */
+/** Hourly key credit and crash-safe rewards selected before an animation starts. */
 final class CrateStore {
-    static final int OPENING_LIMIT = 12;
-    static final long WINDOW_MILLIS = Duration.ofHours(24).toMillis();
     static final long HOURLY_KEY_MILLIS = Duration.ofHours(1).toMillis();
 
     record Pending(UUID spinId, String rewardId, long reservedAt) {
@@ -33,21 +28,7 @@ final class CrateStore {
     record KeyCredit(int earned, int banked, long millisUntilNext) {
     }
 
-    static final class LimitReachedException extends IllegalStateException {
-        private final long nextOpeningAt;
-
-        LimitReachedException(long nextOpeningAt) {
-            super("The rolling crate limit has been reached.");
-            this.nextOpeningAt = nextOpeningAt;
-        }
-
-        long nextOpeningAt() {
-            return nextOpeningAt;
-        }
-    }
-
     private final Path file;
-    private final LinkedHashMap<UUID, List<Long>> openings = new LinkedHashMap<>();
     private final LinkedHashMap<UUID, Pending> pending = new LinkedHashMap<>();
     private final LinkedHashMap<UUID, Long> onlineProgress = new LinkedHashMap<>();
     private final LinkedHashMap<UUID, Integer> bankedKeys = new LinkedHashMap<>();
@@ -70,18 +51,6 @@ final class CrateStore {
         }
         try {
             JsonObject root = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
-            JsonObject savedOpenings = object(root, "openings");
-            for (Map.Entry<String, JsonElement> entry : savedOpenings.entrySet()) {
-                UUID playerId = UUID.fromString(entry.getKey());
-                List<Long> times = new ArrayList<>();
-                for (JsonElement value : entry.getValue().getAsJsonArray()) {
-                    times.add(value.getAsLong());
-                }
-                times.sort(Comparator.naturalOrder());
-                if (!times.isEmpty()) {
-                    openings.put(playerId, times);
-                }
-            }
             JsonObject savedPending = object(root, "pending");
             for (Map.Entry<String, JsonElement> entry : savedPending.entrySet()) {
                 JsonObject value = entry.getValue().getAsJsonObject();
@@ -114,21 +83,13 @@ final class CrateStore {
         if (pending.containsKey(playerId)) {
             throw new IllegalStateException("A reward is already waiting for this player.");
         }
-        LinkedHashMap<UUID, List<Long>> openingsBefore = copyOpenings();
         LinkedHashMap<UUID, Pending> pendingBefore = new LinkedHashMap<>(pending);
-        prune(playerId, now);
-        List<Long> recent = openings.computeIfAbsent(playerId, ignored -> new ArrayList<>());
-        if (recent.size() >= OPENING_LIMIT) {
-            throw new LimitReachedException(recent.get(0) + WINDOW_MILLIS);
-        }
         Pending reservation = new Pending(spinId, rewardId, now);
-        recent.add(now);
-        recent.sort(Comparator.naturalOrder());
         pending.put(playerId, reservation);
         try {
             save();
         } catch (RuntimeException exception) {
-            restore(openingsBefore, pendingBefore);
+            restore(pendingBefore);
             throw exception;
         }
         return reservation;
@@ -155,17 +116,6 @@ final class CrateStore {
             throw exception;
         }
         return true;
-    }
-
-    synchronized int remaining(UUID playerId, long now) {
-        prune(playerId, now);
-        return Math.max(0, OPENING_LIMIT - openings.getOrDefault(playerId, List.of()).size());
-    }
-
-    synchronized long nextOpeningAt(UUID playerId, long now) {
-        prune(playerId, now);
-        List<Long> recent = openings.getOrDefault(playerId, List.of());
-        return recent.size() < OPENING_LIMIT ? now : recent.get(0) + WINDOW_MILLIS;
     }
 
     synchronized Map<UUID, KeyCredit> creditOnline(Map<UUID, Long> elapsedByPlayer) {
@@ -251,48 +201,27 @@ final class CrateStore {
     }
 
     synchronized int clearAll() {
-        int cleared = openings.size() + pending.size() + onlineProgress.size() + bankedKeys.size();
+        int cleared = pending.size() + onlineProgress.size() + bankedKeys.size();
         if (cleared == 0) {
             return 0;
         }
-        LinkedHashMap<UUID, List<Long>> openingsBefore = copyOpenings();
         LinkedHashMap<UUID, Pending> pendingBefore = new LinkedHashMap<>(pending);
         LinkedHashMap<UUID, Long> progressBefore = new LinkedHashMap<>(onlineProgress);
         LinkedHashMap<UUID, Integer> bankedBefore = new LinkedHashMap<>(bankedKeys);
-        openings.clear();
         pending.clear();
         onlineProgress.clear();
         bankedKeys.clear();
         try {
             save();
         } catch (RuntimeException exception) {
-            restore(openingsBefore, pendingBefore, progressBefore, bankedBefore);
+            restore(pendingBefore, progressBefore, bankedBefore);
             throw exception;
         }
         return cleared;
     }
 
-    private void prune(UUID playerId, long now) {
-        List<Long> recent = openings.get(playerId);
-        if (recent == null) {
-            return;
-        }
-        long cutoff = now - WINDOW_MILLIS;
-        recent.removeIf(timestamp -> timestamp <= cutoff);
-        if (recent.isEmpty()) {
-            openings.remove(playerId);
-        }
-    }
-
     private void save() {
         JsonObject root = new JsonObject();
-        JsonObject savedOpenings = new JsonObject();
-        openings.forEach((playerId, times) -> {
-            JsonArray array = new JsonArray();
-            times.forEach(array::add);
-            savedOpenings.add(playerId.toString(), array);
-        });
-        root.add("openings", savedOpenings);
         JsonObject savedPending = new JsonObject();
         pending.forEach((playerId, reward) -> {
             JsonObject value = new JsonObject();
@@ -313,29 +242,17 @@ final class CrateStore {
         writeAtomically(root.toString());
     }
 
-    private LinkedHashMap<UUID, List<Long>> copyOpenings() {
-        LinkedHashMap<UUID, List<Long>> copy = new LinkedHashMap<>();
-        openings.forEach((playerId, times) -> copy.put(playerId, new ArrayList<>(times)));
-        return copy;
-    }
-
-    private void restore(
-            LinkedHashMap<UUID, List<Long>> savedOpenings,
-            LinkedHashMap<UUID, Pending> savedPending
-    ) {
-        openings.clear();
-        openings.putAll(savedOpenings);
+    private void restore(LinkedHashMap<UUID, Pending> savedPending) {
         pending.clear();
         pending.putAll(savedPending);
     }
 
     private void restore(
-            LinkedHashMap<UUID, List<Long>> savedOpenings,
             LinkedHashMap<UUID, Pending> savedPending,
             LinkedHashMap<UUID, Long> savedProgress,
             LinkedHashMap<UUID, Integer> savedBanked
     ) {
-        restore(savedOpenings, savedPending);
+        restore(savedPending);
         onlineProgress.clear();
         onlineProgress.putAll(savedProgress);
         bankedKeys.clear();

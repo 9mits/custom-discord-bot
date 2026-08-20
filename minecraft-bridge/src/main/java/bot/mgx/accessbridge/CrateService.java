@@ -46,6 +46,10 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private static final long ONLINE_PULSE_TICKS = 20L * 60L;
     private static final int HUB_OPEN_SLOT = 13;
     private static final int HUB_ODDS_SLOT = 15;
+    private static final int HUB_AUTO_SLOT = 22;
+    private static final int RESULT_AGAIN_SLOT = 11;
+    private static final int RESULT_AUTO_SLOT = 15;
+    private static final int RESULT_BACK_SLOT = 22;
     private static final int ODDS_PER_PAGE = 45;
     private static final int PREVIOUS_SLOT = 45;
     private static final int NEXT_SLOT = 53;
@@ -57,7 +61,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private enum Screen {
         HUB,
         ODDS,
-        ROLL
+        ROLL,
+        RESULT
     }
 
     private static final class CrateMenu implements InventoryHolder {
@@ -196,43 +201,32 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         );
         holder.inventory = inventory;
         fillHub(inventory);
-        long now = System.currentTimeMillis();
-        int remaining = store.remaining(player.getUniqueId(), now);
         inventory.setItem(11, named(
                 items.key(1),
                 "Your Keys",
-                "Keys in inventory: " + items.count(player),
-                "Banked hourly keys: " + store.bankedKeys(player.getUniqueId()),
+                "In inventory: " + items.count(player),
+                "Banked: " + store.bankedKeys(player.getUniqueId()),
                 "Next hourly key in " + remainingTime(
                         store.millisUntilNextKey(player.getUniqueId())
                 ) + ".",
-                "One key opens one crate."
+                "One key is earned per online hour."
         ));
-        List<String> openLore = new ArrayList<>();
-        openLore.add("Consumes exactly one key.");
-        openLore.add("Openings left in 24h: " + remaining + "/" + CrateStore.OPENING_LIMIT);
-        if (remaining == 0) {
-            openLore.add("Next opening in " + remainingTime(store.nextOpeningAt(
-                    player.getUniqueId(), now
-            ) - now) + ".");
-        }
         inventory.setItem(HUB_OPEN_SLOT, MenuItems.button(
-                remaining > 0 ? Material.CHEST : Material.BARRIER,
-                remaining > 0 ? "Open Mysterious Crate" : "Crate Limit Reached",
-                openLore
+                Material.CHEST,
+                "Open Mysterious Crate",
+                "Spends one key."
         ));
         inventory.setItem(HUB_ODDS_SLOT, MenuItems.button(
                 Material.BOOK,
                 "View Exact Odds",
-                "Every visible percentage is exact.",
-                "The hidden cosmetic displays ??? by design."
+                "Every percentage shown is exact.",
+                "The hidden cosmetic shows ??? by design."
         ));
-        inventory.setItem(22, MenuItems.button(
-                Material.CLOCK,
-                "Hourly Keys and Economy Limit",
-                "One key is earned per online hour.",
-                "Maximum: " + CrateStore.OPENING_LIMIT + " openings in any rolling 24 hours.",
-                "Extra keys remain manually tradable."
+        inventory.setItem(HUB_AUTO_SLOT, MenuItems.button(
+                Material.HOPPER,
+                "Auto Open",
+                "Spends every key you are holding.",
+                "Rewards arrive without the animation."
         ));
         MenuItems.show(plugin, player, inventory);
     }
@@ -274,12 +268,6 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             }
         }
         long now = System.currentTimeMillis();
-        if (store.remaining(playerId, now) <= 0) {
-            PlayerMenuService.error(player, "Your next crate opens in " + remainingTime(
-                    store.nextOpeningAt(playerId, now) - now
-            ) + ".");
-            return;
-        }
         if (items.count(player) <= 0) {
             PlayerMenuService.error(player, "You need a Mysterious Crate Key to open a crate.");
             return;
@@ -295,12 +283,6 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         CrateStore.Pending pending;
         try {
             pending = store.reserve(playerId, spinId, reward.id(), now);
-        } catch (CrateStore.LimitReachedException exception) {
-            returnKey(player);
-            PlayerMenuService.error(player, "Your next crate opens in " + remainingTime(
-                    exception.nextOpeningAt() - now
-            ) + ".");
-            return;
         } catch (IllegalStateException | UncheckedIOException exception) {
             returnKey(player);
             plugin.getLogger().warning("Could not reserve a crate reward: " + exception.getMessage());
@@ -362,11 +344,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                     ? items.preview(session.reward, cosmeticItems)
                     : MenuItems.button(Material.BROWN_STAINED_GLASS_PANE, "Crate Panel"));
         }
-        session.inventory.setItem(4, MenuItems.button(
-                Material.CHEST,
-                "Crate Opened",
-                "The centre item is your saved reward."
-        ));
+        session.inventory.setItem(4, MenuItems.button(Material.CHEST, "Crate Opened"));
         session.inventory.setItem(13, MenuItems.button(Material.SPECTRAL_ARROW, "Winning Slot"));
         session.inventory.setItem(31, MenuItems.button(Material.HOPPER, "Reward Locked In"));
         player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1f, 1.15f);
@@ -376,8 +354,94 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 PlayerMenuService.error(
                         player, "Your inventory is full. Make room, then use /crate claim."
                 );
+                return;
             }
+            openResult(player, session.reward);
         }, 20L);
+    }
+
+    /** Shown once a reward lands, so opening another crate never needs the hub. */
+    private void openResult(Player player, CrateCatalog.Reward reward) {
+        CrateMenu holder = new CrateMenu(Screen.RESULT, 1);
+        Inventory inventory = Bukkit.createInventory(
+                holder, 27, Component.text("Crate Opened", ORANGE)
+        );
+        holder.inventory = inventory;
+        ItemStack panel = MenuItems.button(Material.BROWN_STAINED_GLASS_PANE, "Crate Panel");
+        for (int slot = 0; slot < inventory.getSize(); slot++) {
+            inventory.setItem(slot, panel);
+        }
+        inventory.setItem(4, items.preview(reward, cosmeticItems));
+        int keys = items.count(player);
+        inventory.setItem(RESULT_AGAIN_SLOT, MenuItems.button(
+                keys > 0 ? Material.CHEST : Material.BARRIER,
+                keys > 0 ? "Open Again" : "No Keys Left",
+                keys > 0 ? "Spends one of your " + keys + " keys." : "Earn one per online hour."
+        ));
+        inventory.setItem(RESULT_AUTO_SLOT, MenuItems.button(
+                keys > 0 ? Material.HOPPER : Material.BARRIER,
+                "Auto Open",
+                keys > 0 ? "Spends all " + keys + " keys now." : "You have no keys to spend."
+        ));
+        inventory.setItem(RESULT_BACK_SLOT, MenuItems.button(Material.BARRIER, "Close"));
+        MenuItems.show(plugin, player, inventory);
+    }
+
+    /**
+     * Spends every key the player is holding in one pass. The animation is skipped on
+     * purpose: thirty-one frames per crate would take minutes for a full stack, and the
+     * reward is already decided before the reel starts either way.
+     */
+    private void autoOpen(Player player) {
+        UUID playerId = player.getUniqueId();
+        if (sessions.containsKey(playerId)) {
+            PlayerMenuService.error(player, "Your crate is already opening.");
+            return;
+        }
+        if (store.pending(playerId).isPresent() && !deliverPending(player, true)) {
+            return;
+        }
+        if (items.count(player) <= 0) {
+            PlayerMenuService.error(player, "You need a Mysterious Crate Key to open a crate.");
+            return;
+        }
+        int opened = 0;
+        CrateCatalog.Reward last = null;
+        while (items.count(player) > 0) {
+            CrateCatalog.Reward reward = CrateCatalog.rewardAt(
+                    ThreadLocalRandom.current().nextInt(CrateCatalog.TOTAL_WEIGHT)
+            );
+            if (!items.consume(player)) {
+                break;
+            }
+            try {
+                store.reserve(playerId, UUID.randomUUID(), reward.id(), System.currentTimeMillis());
+            } catch (IllegalStateException | UncheckedIOException exception) {
+                returnKey(player);
+                plugin.getLogger().warning(
+                        "Could not reserve a crate reward: " + exception.getMessage()
+                );
+                PlayerMenuService.error(player, "That opening could not be saved. Your key was returned.");
+                break;
+            }
+            if (!deliverPending(player, true)) {
+                // The reward stays reserved, so /crate claim still hands it over.
+                PlayerMenuService.error(
+                        player, "Your inventory is full. Make room, then use /crate claim."
+                );
+                break;
+            }
+            opened++;
+            last = reward;
+        }
+        if (opened > 0) {
+            player.sendMessage(PlayerMenuService.prefix().append(Component.text(
+                    "Opened " + opened + (opened == 1 ? " crate." : " crates."),
+                    NamedTextColor.GREEN
+            )));
+            player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1f, 1.15f);
+            openResult(player, last);
+        }
     }
 
     private boolean deliverPending(Player player, boolean tellWhenFull) {
@@ -605,6 +669,16 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 start(player);
             } else if (event.getSlot() == HUB_ODDS_SLOT) {
                 openOdds(player, 1);
+            } else if (event.getSlot() == HUB_AUTO_SLOT) {
+                autoOpen(player);
+            }
+        } else if (menu.screen == Screen.RESULT) {
+            if (event.getSlot() == RESULT_AGAIN_SLOT) {
+                start(player);
+            } else if (event.getSlot() == RESULT_AUTO_SLOT) {
+                autoOpen(player);
+            } else if (event.getSlot() == RESULT_BACK_SLOT) {
+                player.closeInventory();
             }
         } else if (menu.screen == Screen.ODDS) {
             if (event.getSlot() == PREVIOUS_SLOT) {
@@ -829,11 +903,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         for (int slot : List.of(0, 8, 18, 26)) {
             inventory.setItem(slot, brace);
         }
-        inventory.setItem(4, MenuItems.button(
-                Material.BARREL,
-                "Mysterious Crate",
-                "A reinforced crate with one saved reward inside."
-        ));
+        inventory.setItem(4, MenuItems.button(Material.BARREL, "Mysterious Crates"));
     }
 
     private void fillCrate(Inventory inventory) {
@@ -851,18 +921,13 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             );
             inventory.setItem(slot, items.preview(preview, cosmeticItems));
         }
-        inventory.setItem(4, MenuItems.button(
-                Material.BARREL,
-                "Locked Mysterious Crate",
-                "The key is turning and the lid is opening."
-        ));
+        inventory.setItem(4, MenuItems.button(Material.BARREL, "Opening"));
         inventory.setItem(13, MenuItems.button(Material.SPECTRAL_ARROW, "Winning Slot"));
         inventory.setItem(31, MenuItems.button(Material.HOPPER, "Winning Slot"));
         inventory.setItem(40, MenuItems.button(
                 Material.TRIPWIRE_HOOK,
                 "Key Consumed",
-                "The reward is already selected and saved.",
-                "Closing the animation cannot reroll it."
+                "The reward is already decided. Closing cannot reroll it."
         ));
     }
 
