@@ -61,6 +61,23 @@ final class PlayerSettingsStore {
             }
             return List.copyOf(found);
         }
+
+        /**
+         * Resolves the id sent back by the settings dropdown. The value crosses the
+         * network as free text, so an unknown or missing one falls back to the category
+         * the player was already looking at rather than throwing them somewhere else.
+         */
+        static Category fromId(String raw, Category fallback) {
+            if (raw == null) {
+                return fallback;
+            }
+            for (Category category : values()) {
+                if (category.name().equalsIgnoreCase(raw.trim())) {
+                    return category;
+                }
+            }
+            return fallback;
+        }
     }
 
     /**

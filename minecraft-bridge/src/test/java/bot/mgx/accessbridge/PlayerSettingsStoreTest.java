@@ -227,4 +227,40 @@ class PlayerSettingsStoreTest {
                 PlayerSettingsStore.Setting.fromKey("  Clan_Tags  ").orElseThrow()
         );
     }
+
+    @Test
+    void categoryFromIdResolvesEveryCategory() {
+        for (PlayerSettingsStore.Category category : PlayerSettingsStore.Category.values()) {
+            assertEquals(
+                    category,
+                    PlayerSettingsStore.Category.fromId(
+                            category.name(), PlayerSettingsStore.Category.CHAT
+                    )
+            );
+        }
+    }
+
+    @Test
+    void categoryFromIdIgnoresCaseAndPadding() {
+        assertEquals(
+                PlayerSettingsStore.Category.VISUALS,
+                PlayerSettingsStore.Category.fromId(
+                        "  visuals ", PlayerSettingsStore.Category.CHAT
+                )
+        );
+    }
+
+    @Test
+    void categoryFromIdFallsBackOnUnknownOrMissingValues() {
+        // The dropdown id arrives as free text from the client, so a value that no
+        // longer maps to a category must leave the player where they already were.
+        assertEquals(
+                PlayerSettingsStore.Category.PVP,
+                PlayerSettingsStore.Category.fromId("retired_category", PlayerSettingsStore.Category.PVP)
+        );
+        assertEquals(
+                PlayerSettingsStore.Category.PVP,
+                PlayerSettingsStore.Category.fromId(null, PlayerSettingsStore.Category.PVP)
+        );
+    }
 }
