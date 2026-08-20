@@ -4,9 +4,13 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.junit.jupiter.api.Test;
 
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -52,6 +56,35 @@ class ResourcePackCatalogTest {
                     assertArrayEquals(Files.readAllBytes(source), input.readAllBytes(), relative);
                 }
             }
+        }
+    }
+
+    @Test
+    void customItemIconsStayAtVanillaScaleWithARestrictedPalette() throws Exception {
+        Path textures = SOURCE.resolve("assets/mgx/textures/item");
+        for (String name : Set.of("aura", "kill_effect", "lootbox_key", "secret", "trail")) {
+            BufferedImage image = ImageIO.read(textures.resolve(name + ".png").toFile());
+            assertNotNull(image, name);
+            assertEquals(16, image.getWidth(), name);
+            assertEquals(16, image.getHeight(), name);
+
+            Set<Integer> opaqueColors = new HashSet<>();
+            boolean hasTransparentPixel = false;
+            for (int y = 0; y < image.getHeight(); y++) {
+                for (int x = 0; x < image.getWidth(); x++) {
+                    int argb = image.getRGB(x, y);
+                    int alpha = argb >>> 24;
+                    assertTrue(alpha == 0 || alpha == 255,
+                            name + " has an antialiased pixel at " + x + "," + y);
+                    if (alpha == 0) {
+                        hasTransparentPixel = true;
+                    } else {
+                        opaqueColors.add(argb);
+                    }
+                }
+            }
+            assertTrue(hasTransparentPixel, name + " needs transparent inventory padding");
+            assertTrue(opaqueColors.size() <= 8, name + " uses too many colors: " + opaqueColors.size());
         }
     }
 
