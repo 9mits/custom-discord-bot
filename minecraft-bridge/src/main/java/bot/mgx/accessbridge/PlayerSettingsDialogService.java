@@ -7,6 +7,7 @@ import io.papermc.paper.registry.data.dialog.DialogBase;
 import io.papermc.paper.registry.data.dialog.action.DialogAction;
 import io.papermc.paper.registry.data.dialog.body.DialogBody;
 import io.papermc.paper.registry.data.dialog.input.DialogInput;
+import io.papermc.paper.registry.data.dialog.input.SingleOptionDialogInput;
 import io.papermc.paper.registry.data.dialog.type.DialogType;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickCallback;
@@ -31,6 +32,11 @@ final class PlayerSettingsDialogService {
             .uses(1)
             .lifetime(Duration.ofMinutes(10))
             .build();
+
+    /** Dropdown holding the category. Namespaced so it cannot collide with a setting key. */
+    private static final String CATEGORY_KEY = "mgx_category";
+    /** Privacy has no stored Setting, so its one toggle needs a key of its own. */
+    private static final String DISCORD_NAME_KEY = "mgx_discord_name";
 
     private final MGXAccessBridge plugin;
     private final PlayerSettingsStore store;
@@ -58,18 +64,7 @@ final class PlayerSettingsDialogService {
     }
 
     void open(Player player) {
-        if (!clientSupport.supportsDialogs(player)) {
-            menus.openSettings(player);
-            return;
-        }
-        try {
-            showRootDialog(player);
-        } catch (RuntimeException | LinkageError exception) {
-            plugin.getLogger().warning(
-                    "Could not open the native settings dialog: " + exception.getMessage()
-            );
-            menus.openSettings(player);
-        }
+        openCategory(player, PlayerSettingsStore.Category.values()[0]);
     }
 
     void openCosmeticSettings(Player player) {
@@ -82,158 +77,143 @@ final class PlayerSettingsDialogService {
             return;
         }
         try {
-            if (category == PlayerSettingsStore.Category.PRIVACY) {
-                showPrivacyDialog(player);
-            } else {
-                showCategoryDialog(player, category);
-            }
+            showSettingsDialog(player, category);
         } catch (RuntimeException | LinkageError exception) {
             plugin.getLogger().warning(
-                    "Could not open the native " + category.label() + " settings dialog: "
-                            + exception.getMessage()
+                    "Could not open the native settings dialog: " + exception.getMessage()
             );
             menus.openSettingsCategory(player, category);
         }
     }
 
-    private void showRootDialog(Player player) {
-        List<ActionButton> categories = new ArrayList<>();
-        for (PlayerSettingsStore.Category category : PlayerSettingsStore.Category.values()) {
-            categories.add(ActionButton.builder(Component.text(category.label(), NamedTextColor.WHITE))
-                    .tooltip(Component.text(category.description(), NamedTextColor.GRAY))
-                    .width(280)
-                    .action(callback((response, audience) -> openCategory(audience, category)))
-                    .build());
-        }
-        Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(Component.text("Settings", ORANGE, TextDecoration.BOLD))
-                        .body(List.of(DialogBody.plainMessage(Component.text(
-                                "Choose a category to configure your server experience.",
-                                NamedTextColor.GRAY
-                        ), 360)))
-                        .afterAction(DialogBase.DialogAfterAction.WAIT_FOR_RESPONSE)
-                        .build())
-                .type(DialogType.multiAction(categories)
-                        .columns(1)
-                        .exitAction(ActionButton.create(
-                                Component.text("Close", NamedTextColor.GRAY),
-                                null,
-                                100,
-                                callback((response, audience) -> audience.closeDialog())
-                        ))
-                        .build()));
-        player.showDialog(dialog);
-    }
+    /**
+     * One page for every category. The dropdown swaps which toggles are shown, so a
+     * player changing two things in different categories never walks a menu tree.
+     */
+    private void showSettingsDialog(Player player, PlayerSettingsStore.Category current) {
+        List<PlayerSettingsStore.Setting> settings = current.settings();
+        boolean privacy = current == PlayerSettingsStore.Category.PRIVACY;
 
-    private void showCategoryDialog(Player player, PlayerSettingsStore.Category category) {
-        List<PlayerSettingsStore.Setting> settings = category.settings();
+        List<SingleOptionDialogInput.OptionEntry> options = new ArrayList<>();
+        for (PlayerSettingsStore.Category category : PlayerSettingsStore.Category.values()) {
+            options.add(SingleOptionDialogInput.OptionEntry.create(
+                    category.name(),
+                    Component.text(category.label()),
+                    category == current
+            ));
+        }
+
         List<DialogInput> inputs = new ArrayList<>();
+        inputs.add(DialogInput.singleOption(
+                        CATEGORY_KEY,
+                        Component.text("Category", GOLD, TextDecoration.BOLD),
+                        options
+                )
+                .width(300)
+                .labelVisible(true)
+                .build());
         for (PlayerSettingsStore.Setting setting : settings) {
             inputs.add(DialogInput.bool(setting.key(), Component.text(setting.label()))
                     .initial(store.isEnabled(player.getUniqueId(), setting))
                     .build());
         }
+        if (privacy) {
+            inputs.add(DialogInput.bool(DISCORD_NAME_KEY, Component.text("Show Discord name"))
+                    .initial(menus.discordNameVisible(player.getUniqueId()))
+                    .build());
+        }
 
         Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(Component.text(category.label(), ORANGE, TextDecoration.BOLD))
-                        .body(List.of(DialogBody.plainMessage(settingDescriptions(settings), 420)))
+                .base(DialogBase.builder(Component.text("Settings", ORANGE, TextDecoration.BOLD))
+                        .body(List.of(DialogBody.plainMessage(body(current, settings, privacy), 420)))
                         .inputs(inputs)
                         .afterAction(DialogBase.DialogAfterAction.WAIT_FOR_RESPONSE)
                         .build())
                 .type(DialogType.confirmation(
                         ActionButton.create(
-                                Component.text("Save", NamedTextColor.GREEN, TextDecoration.BOLD),
-                                Component.text("Save these settings.", NamedTextColor.GRAY),
-                                120,
-                                callback((response, audience) -> save(audience, category, settings, response))
+                                Component.text("Apply", NamedTextColor.GREEN, TextDecoration.BOLD),
+                                Component.text(
+                                        "Save these toggles and show the selected category.",
+                                        NamedTextColor.GRAY
+                                ),
+                                140,
+                                callback((response, audience) ->
+                                        apply(audience, current, settings, privacy, response))
                         ),
                         ActionButton.create(
-                                Component.text("Back", NamedTextColor.GRAY),
-                                Component.text("Return to all settings.", NamedTextColor.GRAY),
-                                120,
-                                callback((response, audience) -> open(audience))
+                                Component.text("Close", NamedTextColor.GRAY),
+                                null,
+                                140,
+                                callback((response, audience) -> audience.closeDialog())
                         )
                 )));
         player.showDialog(dialog);
     }
 
-    private void showPrivacyDialog(Player player) {
-        boolean visible = menus.discordNameVisible(player.getUniqueId());
-        ActionButton toggle = ActionButton.create(
-                Component.text(
-                        visible ? "Discord name: ON" : "Discord name: OFF",
-                        visible ? NamedTextColor.GREEN : NamedTextColor.RED,
-                        TextDecoration.BOLD
-                ),
-                Component.text(
-                        visible ? "Click to hide your linked name." : "Click to show your linked name.",
-                        NamedTextColor.GRAY
-                ),
-                260,
-                callback((response, audience) -> toggleDiscordName(audience))
-        );
-        ActionButton back = ActionButton.create(
-                Component.text("Back", NamedTextColor.GRAY),
-                Component.text("Return to all settings.", NamedTextColor.GRAY),
-                120,
-                callback((response, audience) -> open(audience))
-        );
-        Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(Component.text("Privacy", ORANGE, TextDecoration.BOLD))
-                        .body(List.of(DialogBody.plainMessage(Component.text(
-                                "Control whether other players can see your linked Discord name.",
-                                NamedTextColor.GRAY
-                        ), 380)))
-                        .afterAction(DialogBase.DialogAfterAction.WAIT_FOR_RESPONSE)
-                        .build())
-                .type(DialogType.multiAction(List.of(toggle, back))
-                        .columns(1)
-                        .build()));
-        player.showDialog(dialog);
-    }
-
-    private void save(
+    private void apply(
             Player player,
-            PlayerSettingsStore.Category category,
+            PlayerSettingsStore.Category shown,
             List<PlayerSettingsStore.Setting> settings,
+            boolean privacy,
             DialogResponseView response
     ) {
+        // The dropdown is read first so a failed save still lands the player where they
+        // asked to go, rather than bouncing them back to the category they were leaving.
+        PlayerSettingsStore.Category next = PlayerSettingsStore.Category.fromId(
+                response.getText(CATEGORY_KEY), shown
+        );
         Map<PlayerSettingsStore.Setting, Boolean> requested = new LinkedHashMap<>();
         for (PlayerSettingsStore.Setting setting : settings) {
             Boolean enabled = response.getBoolean(setting.key());
             if (enabled == null) {
                 PlayerMenuService.error(player, "That settings response was incomplete. Please try again.");
-                openCategory(player, category);
+                openCategory(player, shown);
                 return;
             }
             requested.put(setting, enabled);
         }
         try {
-            store.setEnabled(player.getUniqueId(), requested);
-            plugin.refreshClans();
-            player.sendMessage(PlayerMenuService.prefix().append(Component.text(
-                    "Settings saved.", NamedTextColor.GREEN
-            )));
-            openCategory(player, category);
+            if (!requested.isEmpty()) {
+                store.setEnabled(player.getUniqueId(), requested);
+                plugin.refreshClans();
+            }
         } catch (UncheckedIOException exception) {
             plugin.getLogger().warning("Could not save player settings: " + exception.getMessage());
             PlayerMenuService.error(player, "Those settings could not be saved. Please try again.");
-            openCategory(player, category);
+            openCategory(player, shown);
+            return;
         }
+        if (privacy && !applyDiscordName(player, response)) {
+            openCategory(player, shown);
+            return;
+        }
+        if (!requested.isEmpty() || privacy) {
+            player.sendMessage(PlayerMenuService.prefix().append(Component.text(
+                    "Settings saved.", NamedTextColor.GREEN
+            )));
+        }
+        openCategory(player, next);
     }
 
-    private void toggleDiscordName(Player player) {
+    /** Returns false when the preference could not be stored and the player was told. */
+    private boolean applyDiscordName(Player player, DialogResponseView response) {
+        Boolean wanted = response.getBoolean(DISCORD_NAME_KEY);
+        if (wanted == null || wanted == menus.discordNameVisible(player.getUniqueId())) {
+            return true;
+        }
         try {
             menus.toggleDiscordName(player.getUniqueId());
+            return true;
         } catch (IllegalStateException exception) {
             PlayerMenuService.error(player, exception.getMessage());
+            return false;
         } catch (UncheckedIOException exception) {
             plugin.getLogger().warning(
                     "Could not save a Discord-name preference: " + exception.getMessage()
             );
             PlayerMenuService.error(player, "That setting could not be saved. Please try again.");
+            return false;
         }
-        openCategory(player, PlayerSettingsStore.Category.PRIVACY);
     }
 
     private DialogAction callback(BiConsumer<DialogResponseView, Player> callback) {
@@ -244,17 +224,24 @@ final class PlayerSettingsDialogService {
         }, CALLBACK_OPTIONS);
     }
 
-    private static Component settingDescriptions(List<PlayerSettingsStore.Setting> settings) {
-        Component descriptions = Component.empty();
-        for (int index = 0; index < settings.size(); index++) {
-            PlayerSettingsStore.Setting setting = settings.get(index);
-            if (index > 0) {
-                descriptions = descriptions.append(Component.newline());
-            }
-            descriptions = descriptions
+    private static Component body(
+            PlayerSettingsStore.Category category,
+            List<PlayerSettingsStore.Setting> settings,
+            boolean privacy
+    ) {
+        Component body = Component.text(category.description(), NamedTextColor.GRAY);
+        if (privacy) {
+            return body.append(Component.newline())
+                    .append(Component.text("Show Discord name: ", GOLD, TextDecoration.BOLD))
+                    .append(Component.text(
+                            "Let other players see the account you linked.", NamedTextColor.GRAY
+                    ));
+        }
+        for (PlayerSettingsStore.Setting setting : settings) {
+            body = body.append(Component.newline())
                     .append(Component.text(setting.label() + ": ", GOLD, TextDecoration.BOLD))
                     .append(Component.text(setting.description(), NamedTextColor.GRAY));
         }
-        return descriptions;
+        return body;
     }
 }
