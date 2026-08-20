@@ -377,6 +377,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                         playerSettings,
                         crateStore,
                         cosmeticStore,
+                        cosmeticItems,
                         trophyHeadStore,
                         verifiedApplications,
                         verificationEvents,

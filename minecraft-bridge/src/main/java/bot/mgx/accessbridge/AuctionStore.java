@@ -299,6 +299,35 @@ final class AuctionStore {
         return moved;
     }
 
+    /**
+     * Deletes every listing and mailbox entry whose item matches, rather than returning
+     * them to their owners. Used when the thing they hold has stopped existing: handing
+     * a wiped cosmetic back to its seller would only move the dead item somewhere else.
+     */
+    synchronized int removeMatching(Predicate<String> matches) {
+        List<Listing> listingsBefore = List.copyOf(listings);
+        List<Mail> mailboxBefore = List.copyOf(mailbox);
+        int removed = 0;
+        Iterator<Listing> listingIterator = listings.iterator();
+        while (listingIterator.hasNext()) {
+            if (matches.test(listingIterator.next().itemData())) {
+                listingIterator.remove();
+                removed++;
+            }
+        }
+        Iterator<Mail> mailIterator = mailbox.iterator();
+        while (mailIterator.hasNext()) {
+            if (matches.test(mailIterator.next().itemData())) {
+                mailIterator.remove();
+                removed++;
+            }
+        }
+        if (removed > 0) {
+            persistOrRestore(listingsBefore, mailboxBefore);
+        }
+        return removed;
+    }
+
     synchronized int returnRestrictedListings(Predicate<String> restricted, long now) {
         List<Listing> listingsBefore = List.copyOf(listings);
         List<Mail> mailboxBefore = List.copyOf(mailbox);
