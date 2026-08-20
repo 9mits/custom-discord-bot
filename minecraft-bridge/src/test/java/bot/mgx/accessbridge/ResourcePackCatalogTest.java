@@ -38,7 +38,7 @@ class ResourcePackCatalogTest {
 
     @Test
     void everyCatalogModelResolvesToARealDefinitionModelAndTexture() throws Exception {
-        assertModelResolves("mgx:lootbox_key");
+        assertModelResolves("mgx:crate_key");
         for (CosmeticCatalog.Definition definition : CosmeticCatalog.all()) {
             assertModelResolves(definition.modelKey());
         }
@@ -62,7 +62,7 @@ class ResourcePackCatalogTest {
     @Test
     void customItemIconsStayAtVanillaScaleWithARestrictedPalette() throws Exception {
         Path textures = SOURCE.resolve("assets/mgx/textures/item");
-        for (String name : Set.of("aura", "kill_effect", "lootbox_key", "secret", "trail")) {
+        for (String name : Set.of("aura", "kill_effect", "crate_key", "secret", "trail")) {
             BufferedImage image = ImageIO.read(textures.resolve(name + ".png").toFile());
             assertNotNull(image, name);
             assertEquals(16, image.getWidth(), name);

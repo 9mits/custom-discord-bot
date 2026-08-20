@@ -16,23 +16,23 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CosmeticCatalogTest {
     private static final Map<String, Integer> EXPECTED_WEIGHTS = Map.ofEntries(
-            Map.entry("blood_burst", 2_000),
-            Map.entry("frozen_shatter", 750),
-            Map.entry("shining_light", 350),
-            Map.entry("void_collapse", 100),
-            Map.entry("soul_requiem", 30),
-            Map.entry("solar_orbit", 1_500),
-            Map.entry("crimson_orbit", 500),
-            Map.entry("emerald_orbit", 250),
-            Map.entry("amethyst_orbit", 100),
-            Map.entry("celestial_crown", 20),
+            Map.entry("blood_burst", 2_500),
+            Map.entry("frozen_shatter", 1_000),
+            Map.entry("shining_light", 500),
+            Map.entry("void_collapse", 150),
+            Map.entry("soul_requiem", 50),
+            Map.entry("solar_orbit", 2_000),
+            Map.entry("crimson_orbit", 750),
+            Map.entry("emerald_orbit", 400),
+            Map.entry("amethyst_orbit", 150),
+            Map.entry("celestial_crown", 30),
             Map.entry("ember_trail", 5_000),
-            Map.entry("blood_trail", 750),
-            Map.entry("frost_trail", 500),
-            Map.entry("cherry_blossom_trail", 350),
-            Map.entry("drool_trail", 250),
-            Map.entry("ender_trail", 100),
-            Map.entry("prismatic_trail", 10),
+            Map.entry("blood_trail", 1_000),
+            Map.entry("frost_trail", 750),
+            Map.entry("cherry_blossom_trail", 500),
+            Map.entry("drool_trail", 400),
+            Map.entry("ender_trail", 150),
+            Map.entry("prismatic_trail", 15),
             Map.entry("event_horizon", 5)
     );
 
@@ -42,7 +42,7 @@ class CosmeticCatalogTest {
         CosmeticCatalog.all().forEach(definition -> actual.put(definition.id(), definition.weight()));
 
         assertEquals(EXPECTED_WEIGHTS, actual);
-        assertEquals(12_565, actual.values().stream().mapToInt(Integer::intValue).sum());
+        assertEquals(15_350, actual.values().stream().mapToInt(Integer::intValue).sum());
     }
 
     @Test

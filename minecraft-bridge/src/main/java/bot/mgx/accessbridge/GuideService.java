@@ -58,8 +58,8 @@ final class GuideService implements CommandExecutor, TabCompleter {
             new StaffCommand("/tempban", "Ban a player for a set time", "essentials.tempban"),
             new StaffCommand("/unban", "Lift a ban", "essentials.unban"),
             new StaffCommand(
-                    "/lootbox key <player> [amount]",
-                    "Issue event lootbox keys",
+                    "/crate key <player> [amount]",
+                    "Issue event crate keys",
                     "mgxaccessbridge.admin"
             )
     );
@@ -152,7 +152,7 @@ final class GuideService implements CommandExecutor, TabCompleter {
         player.sendMessage(guideLink("/shop", "Buy blocks, food, ores and more", ORANGE));
         player.sendMessage(guideLink("/sell", "Sell items to the server", GOLD));
         player.sendMessage(guideLink("/ah", "Player auction house", NamedTextColor.YELLOW));
-        player.sendMessage(guideLink("/lootbox", "Spin a key or inspect the exact odds", GOLD));
+        player.sendMessage(guideLink("/crate", "Open a crate or inspect the exact odds", GOLD));
         player.sendMessage(guideLink("/wardrobe", "Equip or trade your cosmetics", NamedTextColor.LIGHT_PURPLE));
         player.sendMessage(guideLink("/bal", "Your money", NamedTextColor.GREEN));
         player.sendMessage(guideLink("/bounty set <player> <amount>", "Put money on a player", NamedTextColor.RED));

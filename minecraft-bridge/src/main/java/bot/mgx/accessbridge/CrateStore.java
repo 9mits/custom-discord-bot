@@ -22,18 +22,22 @@ import java.util.Optional;
 import java.util.UUID;
 
 /** Rolling opening limits and crash-safe rewards selected before an animation starts. */
-final class LootboxStore {
-    static final int OPENING_LIMIT = 3;
+final class CrateStore {
+    static final int OPENING_LIMIT = 12;
     static final long WINDOW_MILLIS = Duration.ofHours(24).toMillis();
+    static final long HOURLY_KEY_MILLIS = Duration.ofHours(1).toMillis();
 
     record Pending(UUID spinId, String rewardId, long reservedAt) {
+    }
+
+    record KeyCredit(int earned, int banked, long millisUntilNext) {
     }
 
     static final class LimitReachedException extends IllegalStateException {
         private final long nextOpeningAt;
 
         LimitReachedException(long nextOpeningAt) {
-            super("The rolling lootbox limit has been reached.");
+            super("The rolling crate limit has been reached.");
             this.nextOpeningAt = nextOpeningAt;
         }
 
@@ -45,8 +49,20 @@ final class LootboxStore {
     private final Path file;
     private final LinkedHashMap<UUID, List<Long>> openings = new LinkedHashMap<>();
     private final LinkedHashMap<UUID, Pending> pending = new LinkedHashMap<>();
+    private final LinkedHashMap<UUID, Long> onlineProgress = new LinkedHashMap<>();
+    private final LinkedHashMap<UUID, Integer> bankedKeys = new LinkedHashMap<>();
 
-    LootboxStore(Path file) throws IOException {
+    static CrateStore open(Path dataFolder) throws IOException {
+        Path crateFile = dataFolder.resolve("crates.json");
+        Path legacyLootboxFile = dataFolder.resolve("lootboxes.json");
+        Files.createDirectories(dataFolder);
+        if (!Files.exists(crateFile) && Files.isRegularFile(legacyLootboxFile)) {
+            Files.move(legacyLootboxFile, crateFile);
+        }
+        return new CrateStore(crateFile);
+    }
+
+    CrateStore(Path file) throws IOException {
         this.file = file;
         Files.createDirectories(file.getParent());
         if (!Files.isRegularFile(file) || Files.size(file) == 0L) {
@@ -75,8 +91,22 @@ final class LootboxStore {
                         value.get("reserved_at").getAsLong()
                 ));
             }
+            JsonObject savedProgress = object(root, "online_progress_millis");
+            for (Map.Entry<String, JsonElement> entry : savedProgress.entrySet()) {
+                long progress = Math.max(0L, entry.getValue().getAsLong()) % HOURLY_KEY_MILLIS;
+                if (progress > 0L) {
+                    onlineProgress.put(UUID.fromString(entry.getKey()), progress);
+                }
+            }
+            JsonObject savedBanked = object(root, "banked_keys");
+            for (Map.Entry<String, JsonElement> entry : savedBanked.entrySet()) {
+                int count = Math.max(0, entry.getValue().getAsInt());
+                if (count > 0) {
+                    bankedKeys.put(UUID.fromString(entry.getKey()), count);
+                }
+            }
         } catch (RuntimeException exception) {
-            throw new IOException("Lootbox store is unreadable", exception);
+            throw new IOException("Crate store is unreadable", exception);
         }
     }
 
@@ -138,19 +168,105 @@ final class LootboxStore {
         return recent.size() < OPENING_LIMIT ? now : recent.get(0) + WINDOW_MILLIS;
     }
 
+    synchronized Map<UUID, KeyCredit> creditOnline(Map<UUID, Long> elapsedByPlayer) {
+        LinkedHashMap<UUID, Long> progressBefore = new LinkedHashMap<>(onlineProgress);
+        LinkedHashMap<UUID, Integer> bankedBefore = new LinkedHashMap<>(bankedKeys);
+        LinkedHashMap<UUID, KeyCredit> credits = new LinkedHashMap<>();
+        boolean changed = false;
+        try {
+            for (Map.Entry<UUID, Long> entry : elapsedByPlayer.entrySet()) {
+                UUID playerId = entry.getKey();
+                long elapsed = entry.getValue() == null ? 0L : entry.getValue();
+                if (playerId == null || elapsed <= 0L) {
+                    continue;
+                }
+                changed = true;
+                long total = Math.addExact(onlineProgress.getOrDefault(playerId, 0L), elapsed);
+                long earnedLong = total / HOURLY_KEY_MILLIS;
+                if (earnedLong > Integer.MAX_VALUE) {
+                    throw new IllegalArgumentException("Online-time credit is too large.");
+                }
+                int earned = (int) earnedLong;
+                long remainder = total % HOURLY_KEY_MILLIS;
+                if (remainder == 0L) {
+                    onlineProgress.remove(playerId);
+                } else {
+                    onlineProgress.put(playerId, remainder);
+                }
+                int banked = bankedKeys.getOrDefault(playerId, 0);
+                if (earned > 0) {
+                    banked = Math.addExact(banked, earned);
+                    bankedKeys.put(playerId, banked);
+                }
+                credits.put(playerId, new KeyCredit(
+                        earned,
+                        banked,
+                        HOURLY_KEY_MILLIS - remainder
+                ));
+            }
+            if (!changed) {
+                return Map.copyOf(credits);
+            }
+            save();
+        } catch (RuntimeException exception) {
+            onlineProgress.clear();
+            onlineProgress.putAll(progressBefore);
+            bankedKeys.clear();
+            bankedKeys.putAll(bankedBefore);
+            throw exception;
+        }
+        return Map.copyOf(credits);
+    }
+
+    synchronized int bankedKeys(UUID playerId) {
+        return bankedKeys.getOrDefault(playerId, 0);
+    }
+
+    synchronized long millisUntilNextKey(UUID playerId) {
+        return HOURLY_KEY_MILLIS - onlineProgress.getOrDefault(playerId, 0L);
+    }
+
+    synchronized int claimBankedKeys(UUID playerId, int requested) {
+        if (requested <= 0) {
+            return 0;
+        }
+        int before = bankedKeys.getOrDefault(playerId, 0);
+        int claimed = Math.min(before, requested);
+        if (claimed == 0) {
+            return 0;
+        }
+        int after = before - claimed;
+        if (after == 0) {
+            bankedKeys.remove(playerId);
+        } else {
+            bankedKeys.put(playerId, after);
+        }
+        try {
+            save();
+        } catch (RuntimeException exception) {
+            bankedKeys.put(playerId, before);
+            throw exception;
+        }
+        return claimed;
+    }
+
     synchronized int clearAll() {
-        int cleared = openings.size() + pending.size();
+        int cleared = openings.size() + pending.size() + onlineProgress.size() + bankedKeys.size();
         if (cleared == 0) {
             return 0;
         }
         LinkedHashMap<UUID, List<Long>> openingsBefore = copyOpenings();
         LinkedHashMap<UUID, Pending> pendingBefore = new LinkedHashMap<>(pending);
+        LinkedHashMap<UUID, Long> progressBefore = new LinkedHashMap<>(onlineProgress);
+        LinkedHashMap<UUID, Integer> bankedBefore = new LinkedHashMap<>(bankedKeys);
         openings.clear();
         pending.clear();
+        onlineProgress.clear();
+        bankedKeys.clear();
         try {
             save();
         } catch (RuntimeException exception) {
-            restore(openingsBefore, pendingBefore);
+            restore(openingsBefore, pendingBefore, progressBefore, bankedBefore);
             throw exception;
         }
         return cleared;
@@ -186,6 +302,14 @@ final class LootboxStore {
             savedPending.add(playerId.toString(), value);
         });
         root.add("pending", savedPending);
+        JsonObject savedProgress = new JsonObject();
+        onlineProgress.forEach((playerId, millis) ->
+                savedProgress.addProperty(playerId.toString(), millis));
+        root.add("online_progress_millis", savedProgress);
+        JsonObject savedBanked = new JsonObject();
+        bankedKeys.forEach((playerId, count) ->
+                savedBanked.addProperty(playerId.toString(), count));
+        root.add("banked_keys", savedBanked);
         writeAtomically(root.toString());
     }
 
@@ -203,6 +327,19 @@ final class LootboxStore {
         openings.putAll(savedOpenings);
         pending.clear();
         pending.putAll(savedPending);
+    }
+
+    private void restore(
+            LinkedHashMap<UUID, List<Long>> savedOpenings,
+            LinkedHashMap<UUID, Pending> savedPending,
+            LinkedHashMap<UUID, Long> savedProgress,
+            LinkedHashMap<UUID, Integer> savedBanked
+    ) {
+        restore(savedOpenings, savedPending);
+        onlineProgress.clear();
+        onlineProgress.putAll(savedProgress);
+        bankedKeys.clear();
+        bankedKeys.putAll(savedBanked);
     }
 
     private void writeAtomically(String json) {

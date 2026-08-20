@@ -115,17 +115,6 @@ final class CosmeticEffectService implements Listener {
                 Component.text("Chance: ???", NamedTextColor.GRAY),
                 Title.Times.times(Duration.ofMillis(250), Duration.ofSeconds(3), Duration.ofSeconds(1))
         ));
-        Component announcement = PlayerMenuService.prefix()
-                .append(Component.text(player.getName(), NamedTextColor.LIGHT_PURPLE))
-                .append(Component.text(" uncovered an unknown cosmetic.", NamedTextColor.WHITE));
-        for (Player viewer : plugin.getServer().getOnlinePlayers()) {
-            if (settings.isEnabled(
-                    viewer.getUniqueId(), PlayerSettingsStore.Setting.CHAT_NOTIFICATIONS
-            )) {
-                viewer.sendMessage(announcement);
-            }
-        }
-        plugin.getServer().getConsoleSender().sendMessage(announcement);
         for (int pulse = 0; pulse < 8; pulse++) {
             int step = pulse;
             plugin.getServer().getScheduler().runTaskLater(plugin, () -> {

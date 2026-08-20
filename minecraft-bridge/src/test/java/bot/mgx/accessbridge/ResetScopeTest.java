@@ -64,7 +64,8 @@ class ResetScopeTest {
 
         assertTrue(all.contains(ResetScope.IDENTITIES));
         assertTrue(all.contains(ResetScope.SETTINGS));
-        assertTrue(all.contains(ResetScope.LOOTBOXES));
+        assertTrue(all.contains(ResetScope.CRATES));
+        assertEquals(ResetScope.CRATES, ResetScope.fromKey("lootboxes").orElseThrow());
         assertTrue(all.contains(ResetScope.COSMETICS));
         assertTrue(all.contains(ResetScope.TROPHIES));
         assertTrue(all.contains(ResetScope.RANKS));

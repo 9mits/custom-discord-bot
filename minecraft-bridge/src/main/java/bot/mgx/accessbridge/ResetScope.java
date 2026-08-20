@@ -37,8 +37,8 @@ enum ResetScope {
     IDENTITIES("identities", "linked Discord names shown beside Minecraft names"),
     /** Per-player display toggles, so everyone returns to the defaults. */
     SETTINGS("settings", "per-player chat, nametag and Discord-name toggles"),
-    /** Rolling opening history and rewards that were selected but not yet claimed. */
-    LOOTBOXES("lootboxes", "lootbox opening windows and pending rewards"),
+    /** Opening history, hourly-key progress and rewards selected but not yet claimed. */
+    CRATES("crates", "crate limits, hourly keys and pending rewards"),
     /** Vaulted and equipped cosmetics; physical tokens are invalidated by generation. */
     COSMETICS("cosmetics", "wardrobes, equipped cosmetics and token validity"),
     /** Anti-farming cooldowns for PvP trophy heads. */
@@ -90,6 +90,9 @@ enum ResetScope {
             return Optional.empty();
         }
         String cleaned = raw.strip().toLowerCase(Locale.ROOT);
+        if (cleaned.equals("lootboxes")) {
+            return Optional.of(CRATES);
+        }
         for (ResetScope scope : values()) {
             if (scope.key.equals(cleaned)) {
                 return Optional.of(scope);

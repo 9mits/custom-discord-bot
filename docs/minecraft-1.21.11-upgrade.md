@@ -16,7 +16,7 @@ cleanly in a clone of the production configuration.
 | Component | Production before upgrade | Tested target |
 |---|---|---|
 | Paper | 1.21.1 build 133 | 1.21.11 build 132 |
-| MGXAccessBridge | 2.92.0 | 3.0.0 from this repository |
+| MGXAccessBridge | 2.92.0 | 3.1.0 from this repository |
 | CombatLog | 1.9 | 1.19 |
 | Geyser | 2.11.1 build 1218 | 2.11.1 build 1225 |
 | GrimAC | 2.3.74-5920e74 | 2.3.74-98be8c1 |
@@ -61,7 +61,7 @@ WorldGuard 7.0.17  3f14562509bf01e7680571b6f56932239157ff938f257c3226df3b4088ae5
 6. Install the prepared CombatLog 1.19 `config.yml` and `messages.yml`; its own
    version-1 migration does not preserve every old restriction.
 7. Set `resource-pack-sha1` to
-   `02bd8bf67bc42315454197754f0d7cf0d4bc0c62` in `server.properties`.
+   `0481fe5d4400fd9ae871342b3af25a9bcff693bd` in `server.properties`.
 8. Start once, inspect the complete startup log, and confirm all 14 plugins enable.
    Then test Java 1.21.11, a translated Java 1.21.6 client, and Bedrock before
    reopening normal access.

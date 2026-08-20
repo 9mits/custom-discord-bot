@@ -48,7 +48,7 @@ final class ServerDataResetService {
     private final RankSyncStore rankSync;
     private final DiscordIdentityStore identities;
     private final PlayerSettingsStore settings;
-    private final LootboxStore lootboxes;
+    private final CrateStore crates;
     private final CosmeticStore cosmetics;
     private final TrophyHeadStore trophyHeads;
     private final VerifiedApplicationStore verifiedApplications;
@@ -68,7 +68,7 @@ final class ServerDataResetService {
             RankSyncStore rankSync,
             DiscordIdentityStore identities,
             PlayerSettingsStore settings,
-            LootboxStore lootboxes,
+            CrateStore crates,
             CosmeticStore cosmetics,
             TrophyHeadStore trophyHeads,
             VerifiedApplicationStore verifiedApplications,
@@ -86,7 +86,7 @@ final class ServerDataResetService {
         this.rankSync = rankSync;
         this.identities = identities;
         this.settings = settings;
-        this.lootboxes = lootboxes;
+        this.crates = crates;
         this.cosmetics = cosmetics;
         this.trophyHeads = trophyHeads;
         this.verifiedApplications = verifiedApplications;
@@ -172,8 +172,8 @@ final class ServerDataResetService {
         if (scopes.contains(ResetScope.SETTINGS)) {
             clear(ResetScope.SETTINGS, settings::clearAll, cleared, problems);
         }
-        if (scopes.contains(ResetScope.LOOTBOXES)) {
-            clear(ResetScope.LOOTBOXES, lootboxes::clearAll, cleared, problems);
+        if (scopes.contains(ResetScope.CRATES)) {
+            clear(ResetScope.CRATES, crates::clearAll, cleared, problems);
         }
         if (scopes.contains(ResetScope.COSMETICS)) {
             clear(ResetScope.COSMETICS, cosmetics::clearAll, cleared, problems);

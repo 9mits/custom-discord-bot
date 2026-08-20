@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Predicate;
 
 /**
  * Player-to-player listings and the mailbox expired items return to.
@@ -274,6 +275,23 @@ final class AuctionStore {
             Listing listing = iterator.next();
             if (listing.expired(now)) {
                 mailbox.add(new Mail(listing.seller(), listing.itemData(), "expired", now));
+                iterator.remove();
+                moved++;
+            }
+        }
+        if (moved > 0) {
+            persist();
+        }
+        return moved;
+    }
+
+    synchronized int returnRestrictedListings(Predicate<String> restricted, long now) {
+        int moved = 0;
+        Iterator<Listing> iterator = listings.iterator();
+        while (iterator.hasNext()) {
+            Listing listing = iterator.next();
+            if (restricted.test(listing.itemData())) {
+                mailbox.add(new Mail(listing.seller(), listing.itemData(), "restricted", now));
                 iterator.remove();
                 moved++;
             }

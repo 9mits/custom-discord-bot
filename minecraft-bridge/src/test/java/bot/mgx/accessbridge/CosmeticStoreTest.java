@@ -25,6 +25,8 @@ class CosmeticStoreTest {
 
         assertEquals(first, repeated);
         assertEquals(1, store.stored(owner).size());
+        assertEquals(1, store.inExistence("blood_burst"));
+        assertEquals(0, store.inExistence("frozen_shatter"));
         assertEquals(first, store.token(serial).orElseThrow());
         assertThrows(
                 IllegalArgumentException.class,

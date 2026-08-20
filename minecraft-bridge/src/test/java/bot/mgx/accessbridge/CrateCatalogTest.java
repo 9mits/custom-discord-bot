@@ -15,13 +15,13 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-class LootboxCatalogTest {
+class CrateCatalogTest {
     private static final Map<String, Integer> EXPECTED_ITEM_WEIGHTS = Map.ofEntries(
-            Map.entry("raw_copper", 12_700),
-            Map.entry("raw_iron", 12_000),
-            Map.entry("raw_gold", 10_000),
-            Map.entry("emeralds", 9_000),
-            Map.entry("diamonds", 7_000),
+            Map.entry("raw_copper", 11_200),
+            Map.entry("raw_iron", 10_800),
+            Map.entry("raw_gold", 9_200),
+            Map.entry("emeralds", 8_700),
+            Map.entry("diamonds", 6_800),
             Map.entry("wind_charges", 7_000),
             Map.entry("breeze_rods", 6_000),
             Map.entry("golden_apple", 6_000),
@@ -29,36 +29,36 @@ class LootboxCatalogTest {
             Map.entry("ominous_bottle", 4_000),
             Map.entry("heart_of_the_sea", 3_000),
             Map.entry("shulker_shells", 2_000),
-            Map.entry("ancient_debris", 1_500),
-            Map.entry("netherite_scrap", 1_250),
-            Map.entry("totem_of_undying", 500),
-            Map.entry("netherite_ingot", 200),
-            Map.entry("enchanted_golden_apple", 150),
-            Map.entry("heavy_core", 100),
-            Map.entry("mace", 35)
+            Map.entry("ancient_debris", 2_000),
+            Map.entry("netherite_scrap", 1_500),
+            Map.entry("totem_of_undying", 750),
+            Map.entry("netherite_ingot", 300),
+            Map.entry("enchanted_golden_apple", 200),
+            Map.entry("heavy_core", 150),
+            Map.entry("mace", 50)
     );
 
     @Test
     void completePoolTotalsExactlyOneHundredPercent() {
-        assertEquals(100_000, LootboxCatalog.totalWeight());
-        assertEquals("100.000%", LootboxCatalog.percentage(LootboxCatalog.totalWeight()));
-        assertEquals(87_435, LootboxCatalog.all().stream()
+        assertEquals(100_000, CrateCatalog.totalWeight());
+        assertEquals("100.000%", CrateCatalog.percentage(CrateCatalog.totalWeight()));
+        assertEquals(84_650, CrateCatalog.all().stream()
                 .filter(reward -> !reward.cosmetic())
-                .mapToInt(LootboxCatalog.Reward::weight)
+                .mapToInt(CrateCatalog.Reward::weight)
                 .sum());
-        assertEquals(12_565, LootboxCatalog.all().stream()
-                .filter(LootboxCatalog.Reward::cosmetic)
-                .mapToInt(LootboxCatalog.Reward::weight)
+        assertEquals(15_350, CrateCatalog.all().stream()
+                .filter(CrateCatalog.Reward::cosmetic)
+                .mapToInt(CrateCatalog.Reward::weight)
                 .sum());
     }
 
     @Test
     void everyIntegerTicketMapsToExactlyItsConfiguredReward() {
         Map<String, Integer> observed = new HashMap<>();
-        for (int ticket = 0; ticket < LootboxCatalog.TOTAL_WEIGHT; ticket++) {
-            observed.merge(LootboxCatalog.rewardAt(ticket).id(), 1, Integer::sum);
+        for (int ticket = 0; ticket < CrateCatalog.TOTAL_WEIGHT; ticket++) {
+            observed.merge(CrateCatalog.rewardAt(ticket).id(), 1, Integer::sum);
         }
-        for (LootboxCatalog.Reward reward : LootboxCatalog.all()) {
+        for (CrateCatalog.Reward reward : CrateCatalog.all()) {
             assertEquals(reward.weight(), observed.getOrDefault(reward.id(), 0), reward.id());
         }
     }
@@ -66,23 +66,23 @@ class LootboxCatalogTest {
     @Test
     void rewardBoundariesAreContiguousAndDeterministic() {
         int first = 0;
-        for (LootboxCatalog.Reward reward : LootboxCatalog.all()) {
-            assertSame(reward, LootboxCatalog.rewardAt(first));
-            assertSame(reward, LootboxCatalog.rewardAt(first + reward.weight() - 1));
+        for (CrateCatalog.Reward reward : CrateCatalog.all()) {
+            assertSame(reward, CrateCatalog.rewardAt(first));
+            assertSame(reward, CrateCatalog.rewardAt(first + reward.weight() - 1));
             first += reward.weight();
         }
-        assertEquals(LootboxCatalog.TOTAL_WEIGHT, first);
-        assertThrows(IllegalArgumentException.class, () -> LootboxCatalog.rewardAt(-1));
+        assertEquals(CrateCatalog.TOTAL_WEIGHT, first);
+        assertThrows(IllegalArgumentException.class, () -> CrateCatalog.rewardAt(-1));
         assertThrows(
                 IllegalArgumentException.class,
-                () -> LootboxCatalog.rewardAt(LootboxCatalog.TOTAL_WEIGHT)
+                () -> CrateCatalog.rewardAt(CrateCatalog.TOTAL_WEIGHT)
         );
     }
 
     @Test
     void exactItemOddsArePinned() {
         Map<String, Integer> actual = new LinkedHashMap<>();
-        LootboxCatalog.all().stream()
+        CrateCatalog.all().stream()
                 .filter(reward -> !reward.cosmetic())
                 .forEach(reward -> actual.put(reward.id(), reward.weight()));
 
@@ -92,7 +92,7 @@ class LootboxCatalogTest {
     @Test
     void cosmeticsMirrorTheCosmeticCatalogWithoutDrift() {
         for (CosmeticCatalog.Definition cosmetic : CosmeticCatalog.all()) {
-            LootboxCatalog.Reward reward = LootboxCatalog.find(
+            CrateCatalog.Reward reward = CrateCatalog.find(
                     "cosmetic_" + cosmetic.id()
             ).orElseThrow();
 
@@ -107,7 +107,7 @@ class LootboxCatalogTest {
 
     @Test
     void secretIsAHiddenSilhouetteButItsActualWeightIsPinned() {
-        LootboxCatalog.Reward secret = LootboxCatalog.find(
+        CrateCatalog.Reward secret = CrateCatalog.find(
                 "cosmetic_event_horizon"
         ).orElseThrow();
 
@@ -117,13 +117,13 @@ class LootboxCatalogTest {
         assertEquals("???", secret.displayedChance());
         assertEquals("0.005%", secret.actualChance());
         assertEquals("BLACK_DYE", secret.materialName());
-        assertEquals(LootboxCatalog.Category.SECRET, secret.category());
-        assertEquals(1, LootboxCatalog.all().stream().filter(LootboxCatalog.Reward::secret).count());
+        assertEquals(CrateCatalog.Category.SECRET, secret.category());
+        assertEquals(1, CrateCatalog.all().stream().filter(CrateCatalog.Reward::secret).count());
     }
 
     @Test
     void progressionRewardsStayOutOfTheShopAndElytraIsForbidden() {
-        for (LootboxCatalog.Reward reward : LootboxCatalog.all()) {
+        for (CrateCatalog.Reward reward : CrateCatalog.all()) {
             if (reward.cosmetic()) {
                 continue;
             }
@@ -133,41 +133,42 @@ class LootboxCatalogTest {
             );
             assertFalse(
                     reward.materialName().equals("ELYTRA"),
-                    "Elytra must never enter the lootbox pool"
+                    "Elytra must never enter the crate pool"
             );
         }
     }
 
     @Test
     void highImpactRewardsStayUnderTheirEconomicCaps() {
-        assertTrue(weight("totem_of_undying") <= 500);
-        assertTrue(weight("netherite_ingot") <= 200);
-        assertTrue(weight("enchanted_golden_apple") <= 150);
-        assertTrue(weight("heavy_core") <= 100);
-        assertTrue(weight("mace") <= 35);
+        assertTrue(weight("totem_of_undying") <= 750);
+        assertTrue(weight("netherite_ingot") <= 300);
+        assertTrue(weight("enchanted_golden_apple") <= 200);
+        assertTrue(weight("heavy_core") <= 150);
+        assertTrue(weight("mace") <= 50);
     }
 
     @Test
-    void auditBoundaryIncludesHighImpactItemsAndOnlyTheSecretCosmetic() {
+    void rareBoundaryIsStrictlyBelowOnePercentAndMatchesAudit() {
         Set<String> audited = new HashSet<>();
-        LootboxCatalog.all().stream()
-                .filter(LootboxCatalog.Reward::highImpact)
-                .map(LootboxCatalog.Reward::id)
+        CrateCatalog.all().stream()
+                .filter(CrateCatalog.Reward::highImpact)
+                .map(CrateCatalog.Reward::id)
                 .forEach(audited::add);
+        Set<String> expected = new HashSet<>();
+        CrateCatalog.all().stream()
+                .filter(reward -> reward.weight() < 1_000)
+                .map(CrateCatalog.Reward::id)
+                .forEach(expected::add);
 
-        assertEquals(Set.of(
-                "totem_of_undying",
-                "netherite_ingot",
-                "enchanted_golden_apple",
-                "heavy_core",
-                "mace",
-                "cosmetic_event_horizon"
-        ), audited);
+        assertEquals(expected, audited);
+        assertTrue(CrateCatalog.all().stream()
+                .filter(reward -> reward.weight() == 1_000)
+                .noneMatch(CrateCatalog.Reward::rare));
     }
 
     @Test
     void everyRewardUsesARealItemMaterial() {
-        for (LootboxCatalog.Reward reward : LootboxCatalog.all()) {
+        for (CrateCatalog.Reward reward : CrateCatalog.all()) {
             Material material = Material.getMaterial(reward.materialName());
             assertTrue(material != null, reward.id() + " has no material");
             assertFalse(material.isLegacy(), reward.id() + " uses a legacy material");
@@ -179,7 +180,7 @@ class LootboxCatalogTest {
     void stableIdsAndModelKeysAreUnique() {
         Set<String> ids = new HashSet<>();
         Set<String> models = new HashSet<>();
-        for (LootboxCatalog.Reward reward : LootboxCatalog.all()) {
+        for (CrateCatalog.Reward reward : CrateCatalog.all()) {
             assertTrue(ids.add(reward.id()), "duplicate ID " + reward.id());
             assertTrue(models.add(reward.modelKey()), "duplicate model " + reward.modelKey());
         }
@@ -190,8 +191,8 @@ class LootboxCatalogTest {
 
     @Test
     void allEntriesCarryCategoryChanceRarityAndDescriptionMetadata() {
-        Set<LootboxCatalog.Category> present = new HashSet<>();
-        for (LootboxCatalog.Reward reward : LootboxCatalog.all()) {
+        Set<CrateCatalog.Category> present = new HashSet<>();
+        for (CrateCatalog.Reward reward : CrateCatalog.all()) {
             present.add(reward.category());
             assertFalse(reward.category().displayName().isBlank());
             assertFalse(reward.displayedChance().isBlank());
@@ -199,19 +200,19 @@ class LootboxCatalogTest {
             assertFalse(reward.description().isBlank());
             assertEquals(reward.secret(), reward.displayedChance().equals("???"));
         }
-        assertEquals(Set.of(LootboxCatalog.Category.values()), present);
+        assertEquals(Set.of(CrateCatalog.Category.values()), present);
     }
 
     @Test
     void lookupAcceptsCommandCaseAndRejectsMissingIds() {
-        LootboxCatalog.Reward mace = LootboxCatalog.find("mace").orElseThrow();
+        CrateCatalog.Reward mace = CrateCatalog.find("mace").orElseThrow();
 
-        assertSame(mace, LootboxCatalog.find("  MACE ").orElseThrow());
-        assertTrue(LootboxCatalog.find(null).isEmpty());
-        assertTrue(LootboxCatalog.find("not_a_reward").isEmpty());
+        assertSame(mace, CrateCatalog.find("  MACE ").orElseThrow());
+        assertTrue(CrateCatalog.find(null).isEmpty());
+        assertTrue(CrateCatalog.find("not_a_reward").isEmpty());
     }
 
     private static int weight(String id) {
-        return LootboxCatalog.find(id).orElseThrow().weight();
+        return CrateCatalog.find(id).orElseThrow().weight();
     }
 }
