@@ -39,6 +39,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.Stream;
 
 /** Physical crate openings, published odds, hourly keys, and crash-safe pending claims. */
 final class CrateService implements CommandExecutor, TabCompleter, Listener {
@@ -134,12 +135,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         args = CommandArgs.withoutEchoedSender(sender.getName(), args);
-        if (args.length > 0 && (args[0].equalsIgnoreCase("key")
-                || args[0].equalsIgnoreCase("give"))) {
-            return giveKey(sender, args);
-        }
         if (!(sender instanceof Player player)) {
-            sender.sendMessage("Use /crate key <online player> [amount].");
+            sender.sendMessage("Only players open crates. Use /mgxadmin give to issue keys.");
             return true;
         }
         if (args.length == 0) {
@@ -170,20 +167,9 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
-            List<String> values = new ArrayList<>(List.of("open", "odds", "claim"));
-            if (plugin.mayAdminister(sender)) {
-                values.add("key");
-            }
             String prefix = args[0].toLowerCase(Locale.ROOT);
-            return values.stream().filter(value -> value.startsWith(prefix)).toList();
-        }
-        if (args.length == 2 && (args[0].equalsIgnoreCase("key")
-                || args[0].equalsIgnoreCase("give")) && plugin.mayAdminister(sender)) {
-            String prefix = args[1].toLowerCase(Locale.ROOT);
-            return plugin.getServer().getOnlinePlayers().stream()
-                    .map(Player::getName)
-                    .filter(name -> name.toLowerCase(Locale.ROOT).startsWith(prefix))
-                    .sorted(String.CASE_INSENSITIVE_ORDER)
+            return Stream.of("open", "odds", "claim")
+                    .filter(value -> value.startsWith(prefix))
                     .toList();
         }
         return List.of();
@@ -567,57 +553,6 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             );
         }
         plugin.getServer().getConsoleSender().sendMessage(announcement);
-    }
-
-    private boolean giveKey(CommandSender sender, String[] args) {
-        if (!plugin.mayAdminister(sender)) {
-            sender.sendMessage("You do not have permission to issue crate keys.");
-            return true;
-        }
-        if (args.length < 2) {
-            sender.sendMessage("Use /crate key <online player> [amount].");
-            return true;
-        }
-        Player target = plugin.getServer().getPlayerExact(args[1]);
-        if (target == null) {
-            sender.sendMessage("That player is not online.");
-            return true;
-        }
-        int amount = 1;
-        if (args.length >= 3) {
-            try {
-                amount = Integer.parseInt(args[2]);
-            } catch (NumberFormatException exception) {
-                sender.sendMessage("The key amount must be a whole number.");
-                return true;
-            }
-        }
-        if (amount < 1 || amount > 64) {
-            sender.sendMessage("Issue between 1 and 64 keys at a time.");
-            return true;
-        }
-        Map<Integer, ItemStack> leftover = target.getInventory().addItem(items.key(amount));
-        leftover.values().forEach(item -> target.getWorld().dropItemNaturally(target.getLocation(), item));
-        sender.sendMessage("Issued " + amount + " crate "
-                + (amount == 1 ? "key" : "keys") + " to " + target.getName() + ".");
-        target.sendMessage(PlayerMenuService.prefix().append(Component.text(
-                "You received " + amount + " crate " + (amount == 1 ? "key" : "keys") + ".",
-                NamedTextColor.GREEN
-        )));
-        UUID actor = sender instanceof Player player ? player.getUniqueId() : null;
-        ServerEvent.of(
-                "crate_key_grant",
-                ServerEvent.CATEGORY_ADMIN,
-                actor,
-                sender.getName(),
-                plugin::recordServerEvent
-        ).summary("Issued " + amount + " crate " + (amount == 1 ? "key" : "keys")
-                        + " to " + target.getName())
-                .detail("target", target.getName())
-                .detail("target_uuid", target.getUniqueId().toString())
-                .detail("amount", amount)
-                .record();
-        return true;
     }
 
     private void auditWin(

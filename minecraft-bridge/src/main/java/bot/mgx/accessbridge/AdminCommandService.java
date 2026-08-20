@@ -38,7 +38,8 @@ import static bot.mgx.accessbridge.MenuItems.ORANGE;
 final class AdminCommandService implements CommandExecutor, TabCompleter {
     static final String PERMISSION = "mgxaccessbridge.admin";
     private static final List<String> SUBCOMMANDS = List.of(
-            "startserver", "teststart", "ranks", "eco", "bounty", "hologram", "reset", "help"
+            "startserver", "teststart", "give", "ranks", "eco", "bounty", "hologram", "reset",
+            "help"
     );
     private static final List<String> RANK_ACTIONS = List.of("hold", "release", "list");
     private static final List<String> ECO_ACTIONS = List.of("give", "take", "set", "join");
@@ -52,6 +53,9 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     private final MGXAccessBridge plugin;
     private final RankSyncStore rankSync;
     private final EconomyStore economy;
+    private final CrateItems crateItems;
+    private final CosmeticStore cosmetics;
+    private final CosmeticItems cosmeticItems;
     private final BountyStore bounties;
     private final JoinGrantStore joinGrants;
     private final HologramService holograms;
@@ -61,6 +65,9 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             MGXAccessBridge plugin,
             RankSyncStore rankSync,
             EconomyStore economy,
+            CrateItems crateItems,
+            CosmeticStore cosmetics,
+            CosmeticItems cosmeticItems,
             BountyStore bounties,
             JoinGrantStore joinGrants,
             HologramService holograms,
@@ -69,6 +76,9 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         this.plugin = plugin;
         this.rankSync = rankSync;
         this.economy = economy;
+        this.crateItems = crateItems;
+        this.cosmetics = cosmetics;
+        this.cosmeticItems = cosmeticItems;
         this.bounties = bounties;
         this.joinGrants = joinGrants;
         this.holograms = holograms;
@@ -93,6 +103,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                     plugin.startLaunchTest(sender);
                     success(sender, "Test countdown started. Barriers return in 1 minute.");
                 }
+                case "give" -> give(sender, args);
                 case "ranks" -> ranks(sender, args);
                 case "eco" -> eco(sender, args);
                 case "bounty" -> bounty(sender, args);
@@ -104,6 +115,64 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             error(sender, exception.getMessage());
         }
         return true;
+    }
+
+    // ------------------------------------------------------------------
+    // One give for everything an operator hands out
+    // ------------------------------------------------------------------
+
+    private void give(CommandSender sender, String[] args) {
+        if (args.length < 3) {
+            throw new IllegalArgumentException(AdminGive.usage());
+        }
+        String targets = args[1];
+        AdminGive.Request request = AdminGive.parse(args[2], args.length >= 4 ? args[3] : null);
+        switch (request.type()) {
+            case MONEY -> {
+                int count = forEachTarget(
+                        targets, player -> economy.deposit(player.getUniqueId(), request.amount())
+                );
+                String what = EconomyFormat.dollars(request.amount());
+                success(sender, "Gave " + what + " to " + describeTargets(targets, count) + ".");
+                audit(sender, targets, what, count);
+            }
+            case KEY -> {
+                int amount = (int) request.amount();
+                int count = forEachTarget(targets, player -> hand(player, crateItems.key(amount)));
+                String what = amount + (amount == 1 ? " crate key" : " crate keys");
+                success(sender, "Gave " + what + " to " + describeTargets(targets, count) + ".");
+                audit(sender, targets, what, count);
+            }
+            case COSMETIC -> {
+                CosmeticCatalog.Definition definition = CosmeticCatalog.find(request.cosmeticId())
+                        .orElseThrow(() -> new IllegalArgumentException(
+                                "No cosmetic called '" + request.cosmeticId() + "'."
+                        ));
+                int count = forEachTarget(targets, player -> hand(
+                        player,
+                        cosmeticItems.token(definition, cosmetics.mint(
+                                player.getUniqueId(), definition.id(), UUID.randomUUID()
+                        ))
+                ));
+                success(sender, "Gave " + definition.displayName() + " to "
+                        + describeTargets(targets, count) + ".");
+                audit(sender, targets, definition.displayName(), count);
+            }
+        }
+    }
+
+    /** Anything that will not fit drops at the player's feet rather than vanishing. */
+    private void hand(Player player, org.bukkit.inventory.ItemStack item) {
+        player.getInventory().addItem(item).values().forEach(overflow ->
+                player.getWorld().dropItemNaturally(player.getLocation(), overflow));
+    }
+
+    private void audit(CommandSender sender, String targets, String what, int count) {
+        report(sender, "admin_give", "Gave " + what + " to " + describeTargets(targets, count))
+                .detail("target", targets)
+                .detail("granted", what)
+                .detail("players", count)
+                .record();
     }
 
     // ------------------------------------------------------------------
@@ -429,8 +498,12 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 .append(Component.text("  hand them back to Discord rank sync", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin ranks list", ORANGE)
                 .append(Component.text("  everyone currently held", NamedTextColor.GRAY)));
-        sender.sendMessage(Component.text("  /mgxadmin eco give <player|everyone> <amount>", ORANGE)
+        sender.sendMessage(Component.text("  /mgxadmin give <player|everyone> money <amount>", ORANGE)
                 .append(Component.text("  add money", NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin give <player|everyone> key [amount]", ORANGE)
+                .append(Component.text("  hand over crate keys", NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin give <player|everyone> cosmetic <id>", ORANGE)
+                .append(Component.text("  mint a cosmetic straight to them", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin eco join on|off [amount]", ORANGE)
                 .append(Component.text("  pay everyone who joins", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin bounty set <player|everyone> <amount>", ORANGE)
@@ -454,6 +527,21 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             return partial(args[0], SUBCOMMANDS);
         }
         String action = args[0].toLowerCase(Locale.ROOT);
+        if (action.equals("give")) {
+            if (args.length == 2) {
+                List<String> names = new ArrayList<>(EVERYONE);
+                Bukkit.getOnlinePlayers().forEach(player -> names.add(player.getName()));
+                return partial(args[1], names);
+            }
+            if (args.length == 3) {
+                return partial(args[2], AdminGive.TYPES);
+            }
+            if (args.length == 4 && args[2].toLowerCase(Locale.ROOT).startsWith("cosmetic")) {
+                return partial(args[3], CosmeticCatalog.all().stream()
+                        .map(CosmeticCatalog.Definition::id).toList());
+            }
+            return List.of();
+        }
         if (action.equals("ranks")) {
             if (args.length == 2) {
                 return partial(args[1], RANK_ACTIONS);
