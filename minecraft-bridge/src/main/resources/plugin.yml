@@ -36,7 +36,7 @@ commands:
     aliases: [mysettings, prefs]
   wardrobe:
     description: Equip the cosmetics you own and list them in the auction house.
-    usage: /wardrobe [settings]
+    usage: /wardrobe [settings|kill_effects|auras|trails]
     aliases: [cosmetics]
     permission: mgx.cosmetics
   crate:
