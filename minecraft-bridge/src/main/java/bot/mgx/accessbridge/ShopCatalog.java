@@ -70,27 +70,11 @@ final class ShopCatalog {
             return Math.max(1L, price / amount);
         }
 
-        long costOf(int orders) {
-            if (orders <= 0) {
-                return 0L;
-            }
-            return Math.multiplyExact(price, orders);
-        }
-
         long costOfItems(int items) {
             if (items <= 0) {
                 return 0L;
             }
             return Math.multiplyExact(unitPrice(), items);
-        }
-
-        int maxOrders(long balance, int inventorySpace) {
-            if (price <= 0L || amount <= 0 || balance < price || inventorySpace < amount) {
-                return 0;
-            }
-            long affordable = balance / price;
-            int bySpace = inventorySpace / amount;
-            return (int) Math.min(bySpace, Math.min(Integer.MAX_VALUE, affordable));
         }
 
         int maxItems(long balance, int inventorySpace) {
@@ -229,7 +213,11 @@ final class ShopCatalog {
                 offer("SAND", 64, 720),
                 offer("RED_SAND", 64, 1_000),
                 offer("GRAVEL", 64, 540),
-                offer("CLAY", 64, 900),
+                // Breaks into four clay balls, which are on the sell counter, so this
+                // block is priced against those four and not against the earth around
+                // it. At 900 a block cost $14 and broke into $40, which is a money
+                // printer a crafter can run unattended.
+                offer("CLAY", 64, 1_920),
                 offer("MUD", 64, 800),
                 offer("PACKED_MUD", 64, 1_000),
                 offer("MUD_BRICKS", 64, 1_800),
@@ -505,7 +493,9 @@ final class ShopCatalog {
         putSell(sell, "Ores", "GOLD_INGOT", 160);
         putSell(sell, "Ores", "AMETHYST_SHARD", 50);
         putSell(sell, "Ores", "FLINT", 12);
-        putSell(sell, "Ores", "CLAY_BALL", 10);
+        // Four of these come out of one bought clay block, so this figure and the
+        // shop's clay price are one decision. See DERIVED_FORMS in ShopCatalogTest.
+        putSell(sell, "Ores", "CLAY_BALL", 6);
         putSell(sell, "Stone", "COBBLESTONE", 5);
         putSell(sell, "Stone", "STONE", 7);
         putSell(sell, "Stone", "COBBLED_DEEPSLATE", 8);

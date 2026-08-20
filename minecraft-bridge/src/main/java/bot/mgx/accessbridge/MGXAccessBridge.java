@@ -981,7 +981,15 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                                 : uuid
                 );
             }
-            if (identity.edition() == MinecraftEdition.BEDROCK && (identity.xuid() == null || identity.xuid().isBlank())) {
+            // Not on the main thread. This is a network round trip to Floodgate's
+            // account service and PlayerLoginEvent is synchronous, so waiting here
+            // freezes the whole server — every player, not just this one — for up to
+            // five seconds. Pre-login is asynchronous and is where the lookup belongs;
+            // by the time the synchronous event runs, an answer was already found or
+            // there was never going to be one. Same rule as hasExplicitAdmin.
+            if (identity.edition() == MinecraftEdition.BEDROCK
+                    && (identity.xuid() == null || identity.xuid().isBlank())
+                    && !Bukkit.isPrimaryThread()) {
                 String lookupName = VerificationIdentity.bedrockUsername(
                         identity.username().isBlank() ? loginName : identity.username()
                 );

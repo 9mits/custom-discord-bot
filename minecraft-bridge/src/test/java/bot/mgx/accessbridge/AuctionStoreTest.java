@@ -61,8 +61,48 @@ class AuctionStoreTest {
         assertEquals(1, moved);
         assertTrue(auctions.browse("", System.currentTimeMillis()).isEmpty());
         assertEquals(1, auctions.mailboxOf(seller).size());
-        assertEquals(1, auctions.collect(seller).size());
+        assertEquals(1, auctions.collect(seller, 36).size());
         assertTrue(auctions.mailboxOf(seller).isEmpty());
+    }
+
+    /**
+     * Collecting used to empty the mailbox no matter how much the player could hold,
+     * and the caller dropped the overflow on the floor — into lava, off a ledge, or to
+     * despawn. Mail keeps forever where it is, so the limit is the safe failure.
+     */
+    @Test
+    void collectingHandsBackOnlyWhatWasAskedForAndKeepsTheRest() throws Exception {
+        AuctionStore auctions = new AuctionStore(temporaryDirectory.resolve("auctions.json"));
+        UUID seller = UUID.randomUUID();
+        for (int index = 0; index < 5; index++) {
+            auctions.list(seller, "Seller", 10, "STONE", 64, "Stone", "item-" + index, 1_000L);
+        }
+        auctions.expire(1_000L + AuctionStore.LISTING_DURATION_MILLIS + 1L);
+        assertEquals(5, auctions.mailboxOf(seller).size());
+
+        assertEquals(2, auctions.collect(seller, 2).size());
+        assertEquals(3, auctions.mailboxOf(seller).size());
+
+        assertEquals(0, auctions.collect(seller, 0).size());
+        assertEquals(3, auctions.mailboxOf(seller).size());
+
+        assertEquals(3, auctions.collect(seller, 36).size());
+        assertTrue(auctions.mailboxOf(seller).isEmpty());
+    }
+
+    /** One player's full inventory must not stop another's mail from being handed back. */
+    @Test
+    void collectingIsScopedToOneOwner() throws Exception {
+        AuctionStore auctions = new AuctionStore(temporaryDirectory.resolve("auctions.json"));
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        auctions.list(first, "First", 10, "STONE", 64, "Stone", "first-item", 1_000L);
+        auctions.list(second, "Second", 10, "DIRT", 64, "Dirt", "second-item", 1_000L);
+        auctions.expire(1_000L + AuctionStore.LISTING_DURATION_MILLIS + 1L);
+
+        assertEquals(1, auctions.collect(first, 1).size());
+        assertTrue(auctions.mailboxOf(first).isEmpty());
+        assertEquals(1, auctions.mailboxOf(second).size());
     }
 
     @Test

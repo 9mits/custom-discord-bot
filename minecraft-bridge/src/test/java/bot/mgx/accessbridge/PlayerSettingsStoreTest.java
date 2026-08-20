@@ -14,12 +14,68 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PlayerSettingsStoreTest {
     @Test
-    void everythingIsShownUntilAPlayerSaysOtherwise(@TempDir Path directory) throws IOException {
+    void whatYouCanSeeIsShownUntilAPlayerSaysOtherwise(@TempDir Path directory) throws IOException {
         PlayerSettingsStore store = new PlayerSettingsStore(directory.resolve("settings.json"));
 
-        for (PlayerSettingsStore.Setting setting : PlayerSettingsStore.Setting.values()) {
-            assertTrue(store.isEnabled(UUID.randomUUID(), setting));
-        }
+        assertTrue(store.isEnabled(UUID.randomUUID(), PlayerSettingsStore.Setting.CLAN_TAGS));
+        assertTrue(store.isEnabled(UUID.randomUUID(), PlayerSettingsStore.Setting.DISCORD_CHAT));
+    }
+
+    /**
+     * Auto sell empties an inventory into the shop every couple of seconds. Under one
+     * shared "everything starts enabled" rule it was on for everybody who had never
+     * heard of it, so ore went to cash on the way out of the ground. Nothing that
+     * spends or destroys a player's things may default to on.
+     */
+    @Test
+    void anythingThatActsOnItemsStaysOffUntilAskedFor(@TempDir Path directory) throws IOException {
+        PlayerSettingsStore store = new PlayerSettingsStore(directory.resolve("settings.json"));
+        UUID player = UUID.randomUUID();
+
+        assertFalse(store.isEnabled(player, PlayerSettingsStore.Setting.AUTO_SELL));
+        assertTrue(store.toggle(player, PlayerSettingsStore.Setting.AUTO_SELL));
+        assertTrue(store.isEnabled(player, PlayerSettingsStore.Setting.AUTO_SELL));
+        assertFalse(store.toggle(player, PlayerSettingsStore.Setting.AUTO_SELL));
+        assertFalse(store.isEnabled(player, PlayerSettingsStore.Setting.AUTO_SELL));
+    }
+
+    /**
+     * The file records deviations from the default, so the same key cannot mean "off"
+     * for one setting and "on" for another. Auto sell was written as {@code auto_sell}
+     * meaning off; under the opt-in default that name would now read as on and switch
+     * it on for exactly the people who had turned it off, which is why it moved key.
+     */
+    @Test
+    void theOldAutoSellKeyDoesNotSurviveAsAnOptIn(@TempDir Path directory) throws IOException {
+        Path file = directory.resolve("settings.json");
+        UUID player = UUID.randomUUID();
+        Files.writeString(file, "{\"" + player + "\":[\"auto_sell\",\"clan_tags\"]}");
+
+        PlayerSettingsStore store = new PlayerSettingsStore(file);
+
+        assertFalse(store.isEnabled(player, PlayerSettingsStore.Setting.AUTO_SELL));
+        assertFalse(store.isEnabled(player, PlayerSettingsStore.Setting.CLAN_TAGS));
+    }
+
+    /** Auto sell belongs on the sell screen; /settings is for what you can see. */
+    @Test
+    void onlyDisplayTogglesAreOfferedBySettings() {
+        assertTrue(PlayerSettingsStore.Setting.CLAN_TAGS.inSettingsPanel());
+        assertTrue(PlayerSettingsStore.Setting.DISCORD_CHAT.inSettingsPanel());
+        assertFalse(PlayerSettingsStore.Setting.AUTO_SELL.inSettingsPanel());
+    }
+
+    @Test
+    void clearingPutsEveryoneBackOnTheDefaults(@TempDir Path directory) throws IOException {
+        PlayerSettingsStore store = new PlayerSettingsStore(directory.resolve("settings.json"));
+        UUID player = UUID.randomUUID();
+
+        store.toggle(player, PlayerSettingsStore.Setting.AUTO_SELL);
+        store.toggle(player, PlayerSettingsStore.Setting.CLAN_TAGS);
+        assertEquals(1, store.clearAll());
+
+        assertFalse(store.isEnabled(player, PlayerSettingsStore.Setting.AUTO_SELL));
+        assertTrue(store.isEnabled(player, PlayerSettingsStore.Setting.CLAN_TAGS));
     }
 
     @Test
