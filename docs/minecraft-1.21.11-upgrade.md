@@ -61,7 +61,7 @@ WorldGuard 7.0.17  3f14562509bf01e7680571b6f56932239157ff938f257c3226df3b4088ae5
 6. Install the prepared CombatLog 1.19 `config.yml` and `messages.yml`; its own
    version-1 migration does not preserve every old restriction.
 7. Set `resource-pack-sha1` to
-   `882358444dab2f4cc8db3ecce833868b32f466ce` in `server.properties`.
+   `02bd8bf67bc42315454197754f0d7cf0d4bc0c62` in `server.properties`.
 8. Start once, inspect the complete startup log, and confirm all 14 plugins enable.
    Then test Java 1.21.11, a translated Java 1.21.6 client, and Bedrock before
    reopening normal access.
