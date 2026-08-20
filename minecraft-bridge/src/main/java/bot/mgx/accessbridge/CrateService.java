@@ -249,8 +249,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         inventory.setItem(HUB_AUTO_SLOT, MenuItems.button(
                 Material.HOPPER,
                 "Auto Open",
-                "Spends every key you are holding.",
-                "Rewards arrive without the animation."
+                "Opens a crate with every key you hold.",
+                "You confirm the number before anything is spent."
         ));
         MenuItems.show(plugin, player, inventory);
     }
@@ -406,7 +406,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         inventory.setItem(RESULT_AUTO_SLOT, MenuItems.button(
                 keys > 0 ? Material.HOPPER : Material.BARRIER,
                 "Auto Open",
-                keys > 0 ? "Spends all " + keys + " keys now." : "You have no keys to spend."
+                keys > 0 ? "Opens all " + keys + " of your keys." : "You have no keys to spend.",
+                keys > 0 ? "You confirm before anything is spent." : "Earn one per online hour."
         ));
         inventory.setItem(RESULT_BACK_SLOT, MenuItems.button(Material.BARRIER, "Close"));
         MenuItems.show(plugin, player, inventory);
@@ -425,7 +426,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         }
         CrateMenu holder = new CrateMenu(Screen.CONFIRM, 1);
         Inventory inventory = Bukkit.createInventory(
-                holder, 27, Component.text("Auto Open " + keys + " Crates", ORANGE)
+                holder, 27, Component.text("Use all " + keys + " keys?", ORANGE)
         );
         holder.inventory = inventory;
         ItemStack panel = MenuItems.button(Material.BROWN_STAINED_GLASS_PANE, "Crate Panel");
@@ -434,12 +435,15 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         }
         inventory.setItem(CONFIRM_YES_SLOT, MenuItems.button(
                 Material.LIME_CONCRETE,
-                "Use all " + keys + " keys",
-                "Opens " + keys + " crates back to back.",
-                "Close the menu to stop early."
+                "Confirm: spend all " + keys + " keys",
+                "Opens " + keys + " crates one after another.",
+                "Every key you are holding will be used.",
+                "Close the menu part way to keep the rest."
         ));
         inventory.setItem(CONFIRM_NO_SLOT, MenuItems.button(
-                Material.RED_CONCRETE, "Cancel", "Keeps your keys."
+                Material.RED_CONCRETE,
+                "Cancel",
+                "Spends nothing. Keeps all " + keys + " keys."
         ));
         inventory.setItem(4, items.key(1));
         MenuItems.show(plugin, player, inventory);
