@@ -162,7 +162,6 @@ scoreboard:
   footer: "discord.gg/mgx"
   update-ticks: 100
 world:
-  keep-spawn-loaded: false
   max-view-distance: 6
   max-simulation-distance: 4
   border-radius: 100000

@@ -26,10 +26,8 @@ import org.bukkit.inventory.meta.BlockStateMeta;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.util.StringUtil;
 import org.bukkit.util.io.BukkitObjectInputStream;
-import org.bukkit.util.io.BukkitObjectOutputStream;
 
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -57,6 +55,8 @@ import static bot.mgx.accessbridge.MenuItems.button;
  * board of the listed items themselves.
  */
 final class EconomyMenuService implements CommandExecutor, TabCompleter, Listener {
+    private static final String ITEM_BYTES_PREFIX = "item-v2:";
+    private static final int MAX_ENCODED_ITEM_LENGTH = 1_000_000;
     private static final int SHOP_HUB_SIZE = 54;
     private static final int[] CATEGORY_SLOTS = {
             10, 11, 12, 13, 14, 15, 16,
@@ -268,9 +268,11 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             }
             PlayerInventory inventory = player.getInventory();
             List<ItemStack> offered = new ArrayList<>();
+            Map<Integer, ItemStack> removed = new LinkedHashMap<>();
             for (int slot = 0; slot < 36; slot++) {
                 if (isInstantSellable(inventory.getItem(slot))) {
                     offered.add(inventory.getItem(slot));
+                    removed.put(slot, inventory.getItem(slot).clone());
                 }
             }
             if (offered.isEmpty()) {
@@ -285,7 +287,16 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                     inventory.setItem(slot, null);
                 }
             }
-            money.deposit(player.getUniqueId(), sold.credit());
+            try {
+                money.deposit(player.getUniqueId(), sold.credit());
+            } catch (RuntimeException failure) {
+                removed.forEach(inventory::setItem);
+                plugin.getLogger().warning(
+                        "Auto sell failed for " + player.getName() + ": " + failure.getMessage()
+                );
+                error(player, "Auto sell could not save your payment. Your items were returned.");
+                continue;
+            }
             // The action bar rather than chat: this fires every few seconds while a
             // farm is running, and chat would be unreadable within a minute.
             player.sendActionBar(Component.text(
@@ -1003,8 +1014,14 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             if (sold.count() == 0) {
                 throw new IllegalArgumentException("That cannot be sold here.");
             }
+            ItemStack removed = item.clone();
             inventory.setItem(index, null);
-            money.deposit(player.getUniqueId(), sold.credit());
+            try {
+                money.deposit(player.getUniqueId(), sold.credit());
+            } catch (RuntimeException failure) {
+                inventory.setItem(index, removed);
+                throw failure;
+            }
             info(player, "Sold " + sold.describe() + " for " + EconomyFormat.dollars(sold.credit()) + ".");
             logSale(player, sold);
             openSellPreview(player);
@@ -1253,8 +1270,14 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         if (sold.count() == 0) {
             throw new IllegalArgumentException("That cannot be sold here.");
         }
+        ItemStack removed = held.clone();
         player.getInventory().setItemInMainHand(null);
-        money.deposit(player.getUniqueId(), sold.credit());
+        try {
+            money.deposit(player.getUniqueId(), sold.credit());
+        } catch (RuntimeException failure) {
+            player.getInventory().setItemInMainHand(removed);
+            throw failure;
+        }
         info(player, "Sold " + sold.describe() + " for " + EconomyFormat.dollars(sold.credit()) + ".");
         logSale(player, sold);
     }
@@ -1262,10 +1285,14 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     private void sellInventory(Player player) {
         PlayerInventory inventory = player.getInventory();
         List<ItemStack> stacks = new ArrayList<>();
+        Map<Integer, ItemStack> removed = new LinkedHashMap<>();
         for (int slot = 0; slot < 36; slot++) {
             ItemStack item = inventory.getItem(slot);
             if (item != null && !item.getType().isAir()) {
                 stacks.add(item);
+                if (isInstantSellable(item)) {
+                    removed.put(slot, item.clone());
+                }
             }
         }
         Sold sold = sellStacks(player, stacks);
@@ -1278,7 +1305,12 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                 inventory.setItem(slot, null);
             }
         }
-        money.deposit(player.getUniqueId(), sold.credit());
+        try {
+            money.deposit(player.getUniqueId(), sold.credit());
+        } catch (RuntimeException failure) {
+            removed.forEach(inventory::setItem);
+            throw failure;
+        }
         info(player, "Sold " + sold.describe() + " for " + EconomyFormat.dollars(sold.credit()) + ".");
         logSale(player, sold);
     }
@@ -1307,7 +1339,14 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             }
             return;
         }
-        money.deposit(player.getUniqueId(), sold.credit());
+        try {
+            money.deposit(player.getUniqueId(), sold.credit());
+        } catch (RuntimeException failure) {
+            for (ItemStack item : offered) {
+                give(player, item);
+            }
+            throw failure;
+        }
         info(player, "Sold " + sold.describe() + " for " + EconomyFormat.dollars(sold.credit()) + ".");
         logSale(player, sold);
     }
@@ -1324,8 +1363,8 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             if (value <= 0L) {
                 continue;
             }
-            credit += value;
-            sold += item.getAmount();
+            credit = Math.addExact(credit, value);
+            sold = Math.addExact(sold, item.getAmount());
             counts.merge(item.getType().name(), item.getAmount(), Integer::sum);
         }
         return new Sold(player.getUniqueId(), sold, credit, counts);
@@ -1595,19 +1634,30 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     }
 
     static String encodeItem(ItemStack item) {
-        try (ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-             BukkitObjectOutputStream output = new BukkitObjectOutputStream(bytes)) {
-            output.writeObject(item);
-            return Base64.getEncoder().encodeToString(bytes.toByteArray());
-        } catch (IOException exception) {
+        try {
+            return ITEM_BYTES_PREFIX + Base64.getEncoder().encodeToString(item.serializeAsBytes());
+        } catch (RuntimeException exception) {
             throw new IllegalArgumentException("That item could not be listed.");
         }
     }
 
     static ItemStack decodeItem(String data) {
-        if (data == null || data.isBlank()) {
+        if (data == null || data.isBlank() || data.length() > MAX_ENCODED_ITEM_LENGTH) {
             return null;
         }
+        if (data.startsWith(ITEM_BYTES_PREFIX)) {
+            try {
+                byte[] value = Base64.getDecoder().decode(data.substring(ITEM_BYTES_PREFIX.length()));
+                return ItemStack.deserializeBytes(value);
+            } catch (RuntimeException ignored) {
+                return null;
+            }
+        }
+        return decodeLegacyItem(data);
+    }
+
+    @SuppressWarnings("deprecation")
+    private static ItemStack decodeLegacyItem(String data) {
         try (ByteArrayInputStream bytes = new ByteArrayInputStream(Base64.getDecoder().decode(data));
              BukkitObjectInputStream input = new BukkitObjectInputStream(bytes)) {
             Object value = input.readObject();

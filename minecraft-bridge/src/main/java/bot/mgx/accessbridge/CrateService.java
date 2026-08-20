@@ -296,13 +296,13 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         try {
             pending = store.reserve(playerId, spinId, reward.id(), now);
         } catch (CrateStore.LimitReachedException exception) {
-            player.getInventory().addItem(items.key(1));
+            returnKey(player);
             PlayerMenuService.error(player, "Your next crate opens in " + remainingTime(
                     exception.nextOpeningAt() - now
             ) + ".");
             return;
         } catch (IllegalStateException | UncheckedIOException exception) {
-            player.getInventory().addItem(items.key(1));
+            returnKey(player);
             plugin.getLogger().warning("Could not reserve a crate reward: " + exception.getMessage());
             PlayerMenuService.error(player, "That opening could not be saved. Your key was returned.");
             return;
@@ -578,7 +578,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     @EventHandler(priority = EventPriority.NORMAL)
     public void onClick(InventoryClickEvent event) {
         if (event.getWhoClicked() instanceof Player player
-                && movesKeyIntoExternalInventory(event, player)) {
+                && movesKeyIntoForbiddenSlot(event, player)) {
             event.setCancelled(true);
             PlayerMenuService.error(
                     player, "Crate keys stay in player inventories. Drop one to trade it directly."
@@ -623,7 +623,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     public void onDrag(InventoryDragEvent event) {
         if (event.getWhoClicked() instanceof Player player
                 && items.isKey(event.getOldCursor())
-                && isExternalInventory(event.getView().getTopInventory())
+                && isForbiddenKeyDestination(event.getView().getTopInventory())
                 && event.getRawSlots().stream().anyMatch(
                         slot -> slot < event.getView().getTopInventory().getSize()
                 )) {
@@ -815,6 +815,11 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         return delivered;
     }
 
+    private void returnKey(Player player) {
+        player.getInventory().addItem(items.key(1)).values().forEach(overflow ->
+                player.getWorld().dropItemNaturally(player.getLocation(), overflow));
+    }
+
     private static void fillHub(Inventory inventory) {
         ItemStack panel = MenuItems.button(Material.BROWN_STAINED_GLASS_PANE, "Crate Panel");
         for (int slot = 0; slot < inventory.getSize(); slot++) {
@@ -870,29 +875,32 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 ));
     }
 
-    private boolean movesKeyIntoExternalInventory(InventoryClickEvent event, Player player) {
+    private boolean movesKeyIntoForbiddenSlot(InventoryClickEvent event, Player player) {
         Inventory top = event.getView().getTopInventory();
-        if (!isExternalInventory(top)) {
-            return false;
-        }
         boolean clickedTop = event.getRawSlot() >= 0 && event.getRawSlot() < top.getSize();
-        if (clickedTop && items.isKey(event.getCursor())) {
+        boolean forbiddenTopSlot = clickedTop && isForbiddenKeyDestination(top);
+        if (forbiddenTopSlot && items.isKey(event.getCursor())) {
             return true;
         }
-        if (clickedTop
+        if (forbiddenTopSlot
                 && event.getClick() == ClickType.NUMBER_KEY
                 && event.getHotbarButton() >= 0
                 && items.isKey(player.getInventory().getItem(event.getHotbarButton()))) {
             return true;
         }
-        if (clickedTop
+        if (forbiddenTopSlot
                 && event.getClick() == ClickType.SWAP_OFFHAND
                 && items.isKey(player.getInventory().getItemInOffHand())) {
             return true;
         }
-        return event.isShiftClick()
+        return isExternalInventory(top)
+                && event.isShiftClick()
                 && event.getClickedInventory() == event.getView().getBottomInventory()
                 && items.isKey(event.getCurrentItem());
+    }
+
+    private static boolean isForbiddenKeyDestination(Inventory inventory) {
+        return inventory.getType() == InventoryType.CRAFTING || isExternalInventory(inventory);
     }
 
     private static boolean isExternalInventory(Inventory inventory) {

@@ -2020,6 +2020,21 @@ class MinecraftDataManager:
                 await db.rollback()
                 raise
 
+    async def release_bridge_event(self, idempotency_key: str, message_type: str) -> None:
+        """Releases a failed event reservation so Paper can retry it safely."""
+        async with self._write_lock:
+            db = self._connection()
+            try:
+                await db.execute(
+                    "DELETE FROM minecraft_bridge_events "
+                    "WHERE idempotency_key=? AND message_type=?",
+                    (str(idempotency_key), str(message_type)[:64]),
+                )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+
     async def application_status_counts(self) -> dict[str, int]:
         rows = await self._connection().execute_fetchall(
             "SELECT status, COUNT(*) AS count FROM minecraft_applications GROUP BY status"

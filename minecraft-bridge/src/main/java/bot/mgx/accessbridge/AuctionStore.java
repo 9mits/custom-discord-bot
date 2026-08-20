@@ -134,7 +134,12 @@ final class AuctionStore {
                 itemData
         );
         listings.add(listing);
-        persist();
+        try {
+            persist();
+        } catch (RuntimeException failure) {
+            listings.remove(listing);
+            throw failure;
+        }
         return listing;
     }
 
@@ -194,6 +199,10 @@ final class AuctionStore {
                     "You need " + EconomyFormat.dollars(listing.price()) + "."
             );
         }
+        long received = listing.price() - taxOn(listing.price());
+        if (received > 0L && !economy.canDeposit(listing.seller(), received)) {
+            throw new IllegalArgumentException("The seller's wallet cannot receive this payment.");
+        }
         listings.removeIf(row -> row.id().equals(listingId));
         try {
             persist();
@@ -201,16 +210,16 @@ final class AuctionStore {
             listings.add(listing);
             throw failure;
         }
-        if (!economy.tryWithdraw(buyer, listing.price())) {
-            listings.add(listing);
-            persist();
-            throw new IllegalArgumentException(
-                    "You need " + EconomyFormat.dollars(listing.price()) + "."
-            );
+        boolean paid;
+        try {
+            paid = economy.tryPayment(buyer, listing.seller(), listing.price(), received);
+        } catch (RuntimeException failure) {
+            throw restoreListing(listing, failure);
         }
-        long received = listing.price() - taxOn(listing.price());
-        if (received > 0L) {
-            economy.deposit(listing.seller(), received);
+        if (!paid) {
+            throw restoreListing(listing, new IllegalArgumentException(
+                    "You need " + EconomyFormat.dollars(listing.price()) + "."
+            ));
         }
         return new Purchase(listing, listing.price(), received);
     }
@@ -224,9 +233,11 @@ final class AuctionStore {
         if (!listing.seller().equals(actor)) {
             throw new IllegalArgumentException("That listing is not yours.");
         }
+        List<Listing> listingsBefore = List.copyOf(listings);
+        List<Mail> mailboxBefore = List.copyOf(mailbox);
         listings.removeIf(row -> row.id().equals(listingId));
         mailbox.add(new Mail(actor, listing.itemData(), "cancelled", now));
-        persist();
+        persistOrRestore(listingsBefore, mailboxBefore);
         return Optional.of(listing);
     }
 
@@ -250,6 +261,7 @@ final class AuctionStore {
      * indefinitely, so refusing to hand it over is the kinder failure.
      */
     synchronized List<Mail> collect(UUID owner, int limit) {
+        List<Mail> mailboxBefore = List.copyOf(mailbox);
         List<Mail> collected = new ArrayList<>();
         if (limit <= 0) {
             return collected;
@@ -263,12 +275,14 @@ final class AuctionStore {
             }
         }
         if (!collected.isEmpty()) {
-            persist();
+            persistOrRestore(List.copyOf(listings), mailboxBefore);
         }
         return collected;
     }
 
     synchronized int expire(long now) {
+        List<Listing> listingsBefore = List.copyOf(listings);
+        List<Mail> mailboxBefore = List.copyOf(mailbox);
         int moved = 0;
         Iterator<Listing> iterator = listings.iterator();
         while (iterator.hasNext()) {
@@ -280,12 +294,14 @@ final class AuctionStore {
             }
         }
         if (moved > 0) {
-            persist();
+            persistOrRestore(listingsBefore, mailboxBefore);
         }
         return moved;
     }
 
     synchronized int returnRestrictedListings(Predicate<String> restricted, long now) {
+        List<Listing> listingsBefore = List.copyOf(listings);
+        List<Mail> mailboxBefore = List.copyOf(mailbox);
         int moved = 0;
         Iterator<Listing> iterator = listings.iterator();
         while (iterator.hasNext()) {
@@ -297,16 +313,21 @@ final class AuctionStore {
             }
         }
         if (moved > 0) {
-            persist();
+            persistOrRestore(listingsBefore, mailboxBefore);
         }
         return moved;
     }
 
     synchronized int clearAll() {
         int cleared = listings.size() + mailbox.size();
+        if (cleared == 0) {
+            return 0;
+        }
+        List<Listing> listingsBefore = List.copyOf(listings);
+        List<Mail> mailboxBefore = List.copyOf(mailbox);
         listings.clear();
         mailbox.clear();
-        persist();
+        persistOrRestore(listingsBefore, mailboxBefore);
         return cleared;
     }
 
@@ -343,6 +364,34 @@ final class AuctionStore {
             ));
         } catch (RuntimeException ignored) {
             return Optional.empty();
+        }
+    }
+
+    private RuntimeException restoreListing(Listing listing, RuntimeException failure) {
+        if (find(listing.id()).isEmpty()) {
+            listings.add(listing);
+        }
+        try {
+            persist();
+        } catch (RuntimeException restoreFailure) {
+            failure.addSuppressed(restoreFailure);
+            return new IllegalStateException(
+                    "The auction payment failed and its listing could not be restored.",
+                    failure
+            );
+        }
+        return failure;
+    }
+
+    private void persistOrRestore(List<Listing> listingsBefore, List<Mail> mailboxBefore) {
+        try {
+            persist();
+        } catch (RuntimeException failure) {
+            listings.clear();
+            listings.addAll(listingsBefore);
+            mailbox.clear();
+            mailbox.addAll(mailboxBefore);
+            throw failure;
         }
     }
 

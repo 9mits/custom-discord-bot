@@ -3,6 +3,7 @@ package bot.mgx.accessbridge;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
@@ -26,6 +27,19 @@ final class ProcessedActionStore {
                 properties.load(input);
             }
         }
+        boolean interrupted = false;
+        for (String key : properties.stringPropertyNames()) {
+            if (IN_PROGRESS.equals(properties.getProperty(key))) {
+                properties.setProperty(
+                        key,
+                        "false:Previous attempt was interrupted and was not replayed automatically."
+                );
+                interrupted = true;
+            }
+        }
+        if (interrupted) {
+            persist();
+        }
     }
 
     private static final String IN_PROGRESS = "IN_PROGRESS";
@@ -41,20 +55,44 @@ final class ProcessedActionStore {
         return Optional.of(new Result(success, error));
     }
 
-    /** Claims a key in memory before the side effect. Does not persist. */
+    /** Durably claims a key before its side effect, preventing replay after a crash. */
     synchronized boolean reserve(String idempotencyKey) {
         if (properties.containsKey(idempotencyKey)) {
             return false;
         }
         properties.setProperty(idempotencyKey, IN_PROGRESS);
+        try {
+            persist();
+        } catch (RuntimeException failure) {
+            properties.remove(idempotencyKey);
+            throw failure;
+        }
         return true;
     }
 
     CompletableFuture<Void> put(String idempotencyKey, Result result) {
+        String encoded = result.success() + ":" + result.error().replace('\n', ' ');
+        String before;
         synchronized (this) {
-            properties.setProperty(idempotencyKey, result.success() + ":" + result.error().replace('\n', ' '));
+            before = properties.getProperty(idempotencyKey);
+            properties.setProperty(idempotencyKey, encoded);
         }
-        return CompletableFuture.runAsync(this::persist, ioExecutor);
+        return CompletableFuture.runAsync(() -> {
+            try {
+                persist();
+            } catch (RuntimeException failure) {
+                synchronized (this) {
+                    if (encoded.equals(properties.getProperty(idempotencyKey))) {
+                        if (before == null) {
+                            properties.remove(idempotencyKey);
+                        } else {
+                            properties.setProperty(idempotencyKey, before);
+                        }
+                    }
+                }
+                throw failure;
+            }
+        }, ioExecutor);
     }
 
     /**
@@ -65,14 +103,23 @@ final class ProcessedActionStore {
      */
     int clearAll() {
         int cleared;
+        Properties before = new Properties();
         synchronized (this) {
             cleared = properties.size();
             if (cleared == 0) {
                 return 0;
             }
+            before.putAll(properties);
             properties.clear();
         }
-        persist();
+        try {
+            persist();
+        } catch (RuntimeException failure) {
+            synchronized (this) {
+                properties.putAll(before);
+            }
+            throw failure;
+        }
         return cleared;
     }
 
@@ -89,7 +136,7 @@ final class ProcessedActionStore {
             }
             try {
                 Files.move(temporary, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-            } catch (IOException unsupportedAtomicMove) {
+            } catch (AtomicMoveNotSupportedException unsupportedAtomicMove) {
                 Files.move(temporary, path, StandardCopyOption.REPLACE_EXISTING);
             }
         } catch (IOException exception) {

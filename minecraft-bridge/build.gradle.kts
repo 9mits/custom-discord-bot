@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "bot.mgx"
-version = "3.1.0"
+version = "3.1.1"
 
 repositories {
     mavenCentral()
@@ -20,6 +20,7 @@ dependencies {
 
     testImplementation(platform("org.junit:junit-bom:5.11.4"))
     testImplementation("org.junit.jupiter:junit-jupiter")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     // compileOnly at runtime is absent, so tests touching LuckPermsService need the API.
     testImplementation("net.luckperms:api:5.4")
     // Lets ShopCatalogTest check every catalog name against the real Material enum. A
@@ -36,6 +37,7 @@ tasks {
     compileJava {
         options.encoding = "UTF-8"
         options.release.set(21)
+        options.compilerArgs.add("-Xlint:deprecation")
     }
     processResources {
         filteringCharset = "UTF-8"

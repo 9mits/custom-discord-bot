@@ -16,7 +16,7 @@ cleanly in a clone of the production configuration.
 | Component | Production before upgrade | Tested target |
 |---|---|---|
 | Paper | 1.21.1 build 133 | 1.21.11 build 132 |
-| MGXAccessBridge | 2.92.0 | 3.1.0 from this repository |
+| MGXAccessBridge | 2.92.0 | 3.1.1 from this repository |
 | CombatLog | 1.9 | 1.19 |
 | Geyser | 2.11.1 build 1218 | 2.11.1 build 1225 |
 | GrimAC | 2.3.74-5920e74 | 2.3.74-98be8c1 |

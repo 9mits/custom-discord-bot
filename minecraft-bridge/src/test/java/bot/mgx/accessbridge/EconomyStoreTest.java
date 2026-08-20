@@ -3,12 +3,15 @@ package bot.mgx.accessbridge;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class EconomyStoreTest {
@@ -63,5 +66,39 @@ class EconomyStoreTest {
 
         assertEquals(55L, store.totalOf(List.of(one, two)));
         assertEquals(40L, store.totalOf(List.of(one, UUID.randomUUID())));
+    }
+
+    @Test
+    void invalidOrOverflowingTransfersNeverChangeEitherWallet() throws Exception {
+        EconomyStore store = new EconomyStore(temporaryDirectory.resolve("balances.json"));
+        UUID from = UUID.randomUUID();
+        UUID to = UUID.randomUUID();
+        store.deposit(from, 20);
+        store.set(to, Long.MAX_VALUE);
+
+        assertThrows(IllegalArgumentException.class, () -> store.transfer(from, to, -1));
+        assertThrows(IllegalArgumentException.class, () -> store.transfer(from, to, 1));
+        assertEquals(20L, store.balance(from));
+        assertEquals(Long.MAX_VALUE, store.balance(to));
+        assertFalse(store.canDeposit(to, 1));
+    }
+
+    @Test
+    void failedPersistenceRollsBackEveryWalletMutation() throws Exception {
+        Path path = temporaryDirectory.resolve("balances.json");
+        EconomyStore store = new EconomyStore(path);
+        UUID from = UUID.randomUUID();
+        UUID to = UUID.randomUUID();
+        store.deposit(from, 40);
+        store.deposit(to, 10);
+        Files.createDirectory(path.resolveSibling("balances.json.tmp"));
+
+        assertThrows(UncheckedIOException.class, () -> store.deposit(from, 5));
+        assertThrows(UncheckedIOException.class, () -> store.tryWithdraw(from, 5));
+        assertThrows(UncheckedIOException.class, () -> store.transfer(from, to, 5));
+        assertThrows(UncheckedIOException.class, store::clearAll);
+
+        assertEquals(40L, store.balance(from));
+        assertEquals(10L, store.balance(to));
     }
 }

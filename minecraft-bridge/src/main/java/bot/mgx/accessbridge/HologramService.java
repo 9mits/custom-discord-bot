@@ -104,14 +104,16 @@ final class HologramService {
         if (world == null) {
             throw new IllegalArgumentException("Stand in a world first.");
         }
+        List<Placement> before = List.copyOf(placements);
         placements.removeIf(row -> row.board() == board);
         placements.add(new Placement(board, world.getUID(), at.getX(), at.getY(), at.getZ()));
-        persist();
+        persistOrRestore(before);
         refresh();
     }
 
     void removeNearby(Player player) throws IOException {
         Location at = player.getLocation();
+        List<Placement> before = List.copyOf(placements);
         boolean removed = placements.removeIf(row ->
                 row.worldId().equals(at.getWorld() == null ? null : at.getWorld().getUID())
                         && distanceSquared(row, at) <= 16
@@ -119,7 +121,7 @@ final class HologramService {
         if (!removed) {
             throw new IllegalArgumentException("No hologram within 4 blocks.");
         }
-        persist();
+        persistOrRestore(before);
         refresh();
     }
 
@@ -277,6 +279,16 @@ final class HologramService {
             Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         } catch (AtomicMoveNotSupportedException ignored) {
             Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    private void persistOrRestore(List<Placement> before) throws IOException {
+        try {
+            persist();
+        } catch (IOException exception) {
+            placements.clear();
+            placements.addAll(before);
+            throw exception;
         }
     }
 

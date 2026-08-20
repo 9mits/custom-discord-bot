@@ -24,10 +24,14 @@ scoreboard:
   footer: "discord.gg/mgx"
   update-ticks: 100
 
-# Caps how much of each world Paper keeps in RAM. 0 on a distance leaves the panel value.
+# Rebuild standings every five minutes. Statistics are read asynchronously and unchanged
+# files are cached, so this keeps Discord current without creating unnecessary disk load.
+leaderboard:
+  refresh-ticks: 6000
+
+# Reduces active world chunk load. 0 on a distance leaves the panel value unchanged.
 # border-radius is blocks from spawn (nether is 1/8). Set -1 to leave the panel border.
 world:
-  keep-spawn-loaded: false
   max-view-distance: 6
   max-simulation-distance: 4
   border-radius: 100000

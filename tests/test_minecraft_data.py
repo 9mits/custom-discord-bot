@@ -137,6 +137,11 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(first)
         self.assertFalse(duplicate)
 
+        await self.data.release_bridge_event("player-event-1", "PLAYER_JOIN")
+        self.assertTrue(
+            await self.data.claim_bridge_event("player-event-1", "PLAYER_JOIN", now=1002)
+        )
+
     async def test_java_verification_transitions_and_is_idempotent(self):
         application = await self.create_pending()
         verified, changed = await self.data.record_verification(

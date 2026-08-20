@@ -36,35 +36,49 @@ final class WealthStore {
         try {
             JsonObject root = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
             for (Map.Entry<String, JsonElement> entry : root.entrySet()) {
-                wealth.put(UUID.fromString(entry.getKey()), entry.getValue().getAsLong());
+                long value = Math.max(0L, entry.getValue().getAsLong());
+                if (value > 0L) {
+                    wealth.put(UUID.fromString(entry.getKey()), value);
+                }
             }
         } catch (RuntimeException exception) {
             throw new IOException("Wealth store is unreadable", exception);
         }
     }
 
-    Map<UUID, Long> snapshots() {
-        return wealth;
+    synchronized Map<UUID, Long> snapshots() {
+        return Map.copyOf(wealth);
     }
 
     /** Forgets every recorded figure, so the wealth board starts from nothing again. */
-    int clearAll() {
+    synchronized int clearAll() {
         int cleared = wealth.size();
+        if (cleared == 0) {
+            return 0;
+        }
+        Map<UUID, Long> before = Map.copyOf(wealth);
         wealth.clear();
         dirty = true;
-        saveIfChanged();
+        try {
+            saveIfChanged();
+        } catch (RuntimeException failure) {
+            wealth.putAll(before);
+            dirty = true;
+            throw failure;
+        }
         return cleared;
     }
 
-    void record(UUID playerId, long value) {
-        Long previous = wealth.put(playerId, Math.max(0L, value));
-        if (previous == null || previous != value) {
+    synchronized void record(UUID playerId, long value) {
+        long normalized = Math.max(0L, value);
+        Long previous = normalized == 0L ? wealth.remove(playerId) : wealth.put(playerId, normalized);
+        if (previous == null ? normalized != 0L : previous != normalized) {
             dirty = true;
         }
     }
 
     /** Writes only when something changed, since this runs on every publish. */
-    void saveIfChanged() {
+    synchronized void saveIfChanged() {
         if (!dirty) {
             return;
         }

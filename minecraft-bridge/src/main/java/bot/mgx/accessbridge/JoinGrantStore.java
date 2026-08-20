@@ -61,16 +61,18 @@ final class JoinGrantStore {
             throw new IllegalArgumentException("The amount must be at least $1.");
         }
         Grant grant = grant(kind);
+        GrantState before = snapshot(grant);
         grant.enabled = true;
         grant.amount = amount;
         grant.claimed.clear();
-        persist();
+        persistOrRestore(grant, before);
     }
 
     synchronized void disable(Kind kind) {
         Grant grant = grant(kind);
+        GrantState before = snapshot(grant);
         grant.enabled = false;
-        persist();
+        persistOrRestore(grant, before);
     }
 
     /** True when this player should receive the grant right now. */
@@ -79,8 +81,26 @@ final class JoinGrantStore {
         if (!grant.enabled || grant.amount <= 0L || !grant.claimed.add(playerId)) {
             return false;
         }
-        persist();
+        try {
+            persist();
+        } catch (RuntimeException failure) {
+            grant.claimed.remove(playerId);
+            throw failure;
+        }
         return true;
+    }
+
+    synchronized void releaseClaim(Kind kind, UUID playerId) {
+        Grant grant = grant(kind);
+        if (!grant.claimed.remove(playerId)) {
+            return;
+        }
+        try {
+            persist();
+        } catch (RuntimeException failure) {
+            grant.claimed.add(playerId);
+            throw failure;
+        }
     }
 
     private Grant grant(Kind kind) {
@@ -129,6 +149,25 @@ final class JoinGrantStore {
         grant.claimed.forEach(id -> claimed.add(id.toString()));
         json.add("claimed", claimed);
         return json;
+    }
+
+    private void persistOrRestore(Grant grant, GrantState before) {
+        try {
+            persist();
+        } catch (RuntimeException failure) {
+            grant.enabled = before.enabled();
+            grant.amount = before.amount();
+            grant.claimed.clear();
+            grant.claimed.addAll(before.claimed());
+            throw failure;
+        }
+    }
+
+    private static GrantState snapshot(Grant grant) {
+        return new GrantState(grant.enabled, grant.amount, Set.copyOf(grant.claimed));
+    }
+
+    private record GrantState(boolean enabled, long amount, Set<UUID> claimed) {
     }
 
     private static final class Grant {

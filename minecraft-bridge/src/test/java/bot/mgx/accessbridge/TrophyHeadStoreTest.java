@@ -8,6 +8,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TrophyHeadStoreTest {
@@ -80,5 +81,22 @@ class TrophyHeadStoreTest {
         TrophyHeadStore reloaded = new TrophyHeadStore(file);
         assertTrue(reloaded.claim(first, second, 101L));
         assertFalse(reloaded.claim(first, second, 102L));
+    }
+
+    @Test
+    void failedWriteRestoresPrunedAndNewClaims(@TempDir Path directory) throws Exception {
+        Path file = directory.resolve("trophies.json");
+        TrophyHeadStore store = new TrophyHeadStore(file);
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        UUID third = UUID.randomUUID();
+        store.claim(first, second, 100L);
+        java.nio.file.Files.createDirectory(directory.resolve("trophies.json.tmp"));
+
+        assertThrows(RuntimeException.class, () -> store.claim(
+                third, second, 100L + TrophyHeadStore.PAIR_COOLDOWN_MILLIS
+        ));
+
+        assertFalse(store.claim(first, second, 101L));
     }
 }

@@ -481,13 +481,10 @@ async def deliver_server_event(
 ) -> None:
     """Persists an in-game action and writes it to the activity log.
 
-    Best-effort in the same way command auditing is: a logging failure must never take
-    the bridge connection down with it.
+    Persistence completes before Paper acknowledges the event. Channel delivery remains
+    queued/best-effort, so a temporary Discord outage does not lose the audit record.
     """
-    try:
-        await _persist(client, record)
-    except Exception:
-        logger.exception("Could not persist Minecraft server event %s", record.command)
+    await _persist(client, record)
 
     settings = getattr(client, "settings", None)
     if settings is None:

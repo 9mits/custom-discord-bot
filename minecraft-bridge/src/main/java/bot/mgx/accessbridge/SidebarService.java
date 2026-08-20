@@ -6,7 +6,6 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
-import org.bukkit.ChatColor;
 import org.bukkit.Statistic;
 import org.bukkit.entity.Player;
 import org.bukkit.scoreboard.Criteria;
@@ -44,11 +43,9 @@ final class SidebarService {
     private static final String LOGO_LARGE = "\uE000";
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private static final TextColor GOLD = TextColor.color(0xFFB52E);
-    private static final ChatColor[] ENTRY_COLOURS = {
-            ChatColor.BLACK, ChatColor.DARK_BLUE, ChatColor.DARK_GREEN, ChatColor.DARK_AQUA,
-            ChatColor.DARK_RED, ChatColor.DARK_PURPLE, ChatColor.GOLD, ChatColor.GRAY,
-            ChatColor.DARK_GRAY, ChatColor.BLUE, ChatColor.GREEN, ChatColor.AQUA,
-            ChatColor.RED, ChatColor.LIGHT_PURPLE, ChatColor.WHITE
+    private static final String[] ENTRY_KEYS = {
+            "\u00A70", "\u00A71", "\u00A72", "\u00A73", "\u00A74", "\u00A75", "\u00A76", "\u00A77",
+            "\u00A78", "\u00A79", "\u00A7a", "\u00A7b", "\u00A7c", "\u00A7d", "\u00A7f"
     };
 
     private final MGXAccessBridge plugin;
@@ -558,7 +555,7 @@ final class SidebarService {
             Objective createdObjective = created.registerNewObjective("mgx", Criteria.DUMMY, title);
             createdObjective.setDisplaySlot(DisplaySlot.SIDEBAR);
             for (int index = 0; index < MAX_LINES; index++) {
-                String entry = ENTRY_COLOURS[index].toString();
+                String entry = ENTRY_KEYS[index];
                 Team team = created.registerNewTeam("line_" + index);
                 team.addEntry(entry);
                 entries.add(entry);

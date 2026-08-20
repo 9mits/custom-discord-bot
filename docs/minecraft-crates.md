@@ -2,7 +2,7 @@
 
 ## Opening rules
 
-One `Mysterious Crate Key` opens exactly one crate. Every uninterrupted hour a
+One `Mysterious Crate Key` opens exactly one crate. Every accumulated hour a
 player remains online earns one physical key, including AFK time. Partial hours and
 keys waiting for inventory space survive restarts. An administrator can also issue
 event keys with `/crate key <online-player> [amount]`.
