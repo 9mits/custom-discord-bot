@@ -672,5 +672,38 @@ class MobileLayoutTests(unittest.TestCase):
 
 
 
+class PrivateAddressTests(unittest.TestCase):
+    """The connect address is private — applying is how a player gets it."""
+
+    PAGES = sorted((Path(__file__).resolve().parents[1] / "pages").glob("*.md"))
+
+    def test_there_are_pages_to_check(self):
+        self.assertTrue(self.PAGES, "no pages found to scan")
+
+    def test_no_page_publishes_an_ip_literal(self):
+        for path in self.PAGES:
+            found = re.findall(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", path.read_text(encoding="utf-8"))
+            self.assertEqual(found, [], "%s leaks %s" % (path.name, found))
+
+    def test_the_web_rewrite_actually_ran(self):
+        # If the bot's fallback wording reaches the page, the rewrite silently
+        # stopped matching and the guide is telling players the wrong thing.
+        import sync_from_bot
+
+        for before, _after in sync_from_bot.WEB_REWRITES:
+            for path in self.PAGES:
+                self.assertNotIn(before, path.read_text(encoding="utf-8"), path.name)
+
+    def test_the_shipped_config_keeps_the_address_private(self):
+        import config
+
+        self.assertEqual(
+            config.SERVER_ADDRESS, "",
+            "SERVER_ADDRESS publishes the connect address in the footer of every "
+            "page and as a Copy IP button; the address is private",
+        )
+
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -416,7 +416,7 @@ No launcher changes needed; play on whatever you already use
 
 Add the server under **Multiplayer → Add Server**
 ```text
-ask staff for the address
+given to you when your application is accepted
 ```
 
 ### Bedrock Edition
@@ -426,7 +426,7 @@ Add it as an external server with both values below
 
 **Address**
 ```text
-ask staff for the address
+given to you when your application is accepted
 ```
 **Port**
 ```text
