@@ -23,25 +23,35 @@ ROOT = Path(__file__).resolve().parent
 REPO = ROOT.parent
 sys.path.insert(0, str(REPO))
 
-try:
-    from minecraft_bot import information as info
-    from minecraft_bot import presentation as pres
-    from minecraft_bot.perks import LEVEL_ROLE_MILESTONES, RANK_ROLES
-except ModuleNotFoundError as exc:  # pragma: no cover - guidance beats a traceback
-    sys.exit(
-        "Could not import the bot package (%s).\n"
-        "Run this from the repo root with the bot's dependencies installed:\n"
-        "    pip install -r requirements.txt" % exc
-    )
+# The bot is imported lazily, inside load_bot(), rather than at module scope.
+# Only this script needs discord.py; the site build does not, and the blog's CI
+# job installs nothing but Markdown. Importing at module scope meant merely
+# reading a constant from this file — as the tests do — blew up there.
 
-# Discord renders <@&id> as a role chip. The web cannot, so every id the copy
-# mentions has to resolve to a name here or the sync fails rather than shipping
-# a raw snowflake.
-ROLE_LABELS = {}
-for _role_id, _level in LEVEL_ROLE_MILESTONES:
-    ROLE_LABELS[int(_role_id)] = "Level %d" % _level
-for _entry in RANK_ROLES:
-    ROLE_LABELS[int(_entry[0])] = str(_entry[2]).title()
+
+def load_bot():
+    """The bot modules plus the role-id lookup, or a clear exit if unavailable."""
+    try:
+        from minecraft_bot import information as info
+        from minecraft_bot import presentation as pres
+        from minecraft_bot.perks import LEVEL_ROLE_MILESTONES, RANK_ROLES
+    except ModuleNotFoundError as exc:  # pragma: no cover - guidance beats a traceback
+        sys.exit(
+            "Could not import the bot package (%s).\n"
+            "Run this from the repo root with the bot's dependencies installed:\n"
+            "    pip install -r requirements.txt" % exc
+        )
+
+    # Discord renders <@&id> as a role chip. The web cannot, so every id the copy
+    # mentions has to resolve to a name here or the sync fails rather than
+    # shipping a raw snowflake.
+    labels = {}
+    for role_id, level in LEVEL_ROLE_MILESTONES:
+        labels[int(role_id)] = "Level %d" % level
+    for entry in RANK_ROLES:
+        labels[int(entry[0])] = str(entry[2]).title()
+    return info, pres, labels
+
 
 GUIDE_PAGES = ("commands", "clans", "levels", "boosting", "mods", "versions")
 
@@ -54,7 +64,7 @@ WEB_REWRITES = (
 )
 
 
-def discord_to_markdown(text: str) -> str:
+def discord_to_markdown(text: str, role_labels: dict) -> str:
     """Undo the Discord-only parts of an embed's copy."""
     if not text:
         return ""
@@ -67,12 +77,12 @@ def discord_to_markdown(text: str) -> str:
 
     def role(match: "re.Match[str]") -> str:
         rid = int(match.group(1))
-        if rid not in ROLE_LABELS:
+        if rid not in role_labels:
             raise SystemExit(
-                "Unknown role id %d in the bot copy. Add it to ROLE_LABELS in "
+                "Unknown role id %d in the bot copy. Add it to load_bot() in "
                 "devblog/sync_from_bot.py so the page does not ship a raw id." % rid
             )
-        return "**%s**" % ROLE_LABELS[rid]
+        return "**%s**" % role_labels[rid]
 
     out = re.sub(r"<@&(\d+)>", role, out)
     for before, after in WEB_REWRITES:
@@ -83,17 +93,17 @@ def discord_to_markdown(text: str) -> str:
     return out.strip()
 
 
-def embed_to_markdown(embed, level: int = 2) -> str:
+def embed_to_markdown(embed, role_labels: dict, level: int = 2) -> str:
     """One embed becomes a heading, its intro, and a sub-heading per field."""
     parts = []
     if embed.title:
         parts.append("%s %s" % ("#" * level, embed.title))
-    description = discord_to_markdown(embed.description or "")
+    description = discord_to_markdown(embed.description or "", role_labels)
     if description:
         parts.append(description)
     for field in embed.fields:
         parts.append("%s %s" % ("#" * (level + 1), field.name))
-        value = discord_to_markdown(field.value or "")
+        value = discord_to_markdown(field.value or "", role_labels)
         if value:
             parts.append(value)
     return "\n\n".join(parts)
@@ -103,7 +113,7 @@ def front_matter(**keys: str) -> str:
     return "---\n%s\n---" % "\n".join("%s: %s" % (k, v) for k, v in keys.items())
 
 
-def build_guide() -> str:
+def build_guide(info, role_labels: dict) -> str:
     blocks = [
         front_matter(
             title="Server Guide",
@@ -116,14 +126,14 @@ def build_guide() -> str:
         "from the bot's own copy, so the two never drift.",
     ]
     for key in GUIDE_PAGES:
-        label, factory = info.PAGES[key]
-        blocks.append(embed_to_markdown(factory(None), level=2))
+        _label, factory = info.PAGES[key]
+        blocks.append(embed_to_markdown(factory(None), role_labels, level=2))
         for _section_key, (_section_label, section_factory) in info.SECTIONS.get(key, {}).items():
-            blocks.append(embed_to_markdown(section_factory(None), level=3))
+            blocks.append(embed_to_markdown(section_factory(None), role_labels, level=3))
     return "\n\n".join(blocks).rstrip() + "\n"
 
 
-def build_rules() -> str:
+def build_rules(pres, role_labels: dict) -> str:
     blocks = [
         front_matter(
             title="Server Rules",
@@ -136,16 +146,17 @@ def build_rules() -> str:
     for heading, body in pres.SERVER_RULES:
         # The rule number already leads the heading in the bot's copy.
         blocks.append("## %s" % heading)
-        blocks.append(discord_to_markdown(body))
+        blocks.append(discord_to_markdown(body, role_labels))
     blocks.append("## Enforcement")
-    blocks.append(discord_to_markdown(pres.ENFORCEMENT_NOTE))
+    blocks.append(discord_to_markdown(pres.ENFORCEMENT_NOTE, role_labels))
     return "\n\n".join(blocks).rstrip() + "\n"
 
 
 def main() -> int:
+    info, pres, role_labels = load_bot()
     targets = {
-        ROOT / "pages" / "guide.md": build_guide(),
-        ROOT / "pages" / "rules.md": build_rules(),
+        ROOT / "pages" / "guide.md": build_guide(info, role_labels),
+        ROOT / "pages" / "rules.md": build_rules(pres, role_labels),
     }
     for path, text in targets.items():
         path.parent.mkdir(parents=True, exist_ok=True)

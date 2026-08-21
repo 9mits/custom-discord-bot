@@ -27,6 +27,22 @@ python devblog/tests/test_build.py      # 88 tests
 python devblog/sync_from_bot.py        # regenerate guide.md and rules.md
 ```
 
+**The blog's CI job installs `devblog/requirements.txt` and nothing else** — no
+discord.py. Anything under `devblog/` that only works because the bot's deps
+happen to be in your local venv will pass here and fail there. To check the way
+CI will see it:
+
+```bash
+python3 -m venv /tmp/civenv
+/tmp/civenv/bin/pip install -r devblog/requirements.txt pyflakes
+/tmp/civenv/bin/python devblog/tests/test_build.py
+```
+
+This is also why `sync_from_bot.py` imports the bot inside `load_bot()` rather
+than at module scope: the tests read a constant out of that module, and a
+module-scope import took the whole suite down on CI.
+```
+
 `dist/` is git-ignored — the workflow rebuilds it. Never commit it.
 
 ## Write a post
