@@ -4,8 +4,13 @@ A dependency-light static site for update posts, modelled on the BIG Games /
 Pet Simulator 99 update-post layout: Outfit throughout, `rgb(255,157,67)` orange
 full-width underlined section headers, a category pill and date above a
 left-aligned title, centred line-per-beat body copy with a screenshot after every
-section, a sticky server card down the right, and index cards built from a
-blurred backdrop with a crisp square icon centred on top.
+section, and index cards built from a blurred backdrop with a crisp square
+icon centred on top.
+
+The home page follows the same studio's landing page: a hero with the wordmark,
+a headline and two calls to action beside a framed shot of the newest update,
+then that update called out again with its category and date, then the archive
+grid, then a community band holding every social link.
 
 Published to GitHub Pages by a workflow on every push to `main` that touches
 `devblog/`. That workflow ships here as `deploy.yml` and needs installing once
@@ -18,7 +23,7 @@ pip install -r devblog/requirements.txt
 python devblog/build.py                 # writes devblog/dist/
 python devblog/build.py --serve         # build, then http://127.0.0.1:8000
 python devblog/build.py --drafts        # include posts marked draft
-python devblog/tests/test_build.py      # 63 tests
+python devblog/tests/test_build.py      # 73 tests
 ```
 
 `dist/` is git-ignored — the workflow rebuilds it. Never commit it.
@@ -28,16 +33,34 @@ python devblog/tests/test_build.py      # 63 tests
 Two things go in: **one markdown file** and **one folder of images**.
 
 ```
-devblog/posts/2026-08-21-fiesta-forever.md      <- the post
-devblog/media/fiesta-forever/                    <- its images, slug-named
+devblog/posts/2026-08-21-update-1.md      <- the post
+devblog/media/update-1/                    <- its images, slug-named
     hero.png
+    icon.png
     eternal-maze.png
-    cursed-pinata.png
 ```
 
 The folder under `media/` must match the post's slug, which is the filename with
-the date prefix stripped (`2026-08-21-fiesta-forever.md` → `fiesta-forever`).
-Inside the post, reference images by bare filename — the build rewrites them.
+the date prefix stripped (`2026-08-21-update-1.md` → `update-1`). Inside the
+post, reference images by bare filename — the build rewrites them.
+
+## URLs
+
+Posts sit at the **site root**, one folder each:
+
+| | |
+|---|---|
+| `https://mysterioussmpx.blog` | the home page |
+| `https://mysterioussmpx.blog/update-1` | the post whose slug is `update-1` |
+
+The slug is an internal codename — `update-1`, `update-2` — while the `title`
+carries the real name players see (`Fiesta Forever!`). Name post files
+`YYYY-MM-DD-update-N.md` and the slug follows automatically.
+
+Because posts share the root namespace with the build's own output, a slug may
+not be `assets`, `media`, `feed`, `index` or `404`, and must be lowercase
+letters, digits and hyphens. The build fails loudly rather than silently
+overwriting something.
 
 ### Front matter
 
@@ -105,8 +128,7 @@ link or an empty box — so the site is honest before you have filled it in.
 
 | Setting | Drives |
 |---|---|
-| `SERVER_ADDRESS` | The whole sticky server card, its Copy IP button, and the footer address. Empty hides the card. |
-| `SERVER_EDITIONS` / `SERVER_VERSION` | The stat row inside the server card. |
+| `SERVER_ADDRESS` | The Copy IP button in the community band, and the footer address. |
 | `DISCORD_URL` | Top-bar button, sidebar button, footer link. |
 | `APPLY_URL`, `REDDIT_URL`, `TWITTER_URL`, `YOUTUBE_URL` | A brand-coloured button each in the sidebar grid, plus a footer link. Set order is fixed; unset ones vanish and the grid re-flows. |
 | `DEFAULT_CATEGORY` | The pill on posts that do not set `category`. |

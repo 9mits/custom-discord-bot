@@ -41,6 +41,10 @@ DIST_DIR = ROOT / "dist"
 # Front matter keys that hold a comma-separated list rather than a single value.
 LIST_KEYS = {"tags"}
 
+# Posts sit at the site root now, so a slug must not shadow anything the build
+# writes there itself.
+RESERVED_SLUGS = {"assets", "media", "index", "404", "feed", "feed.xml", "index.html"}
+
 MD_EXTENSIONS = [
     "extra",        # tables, footnotes, attr_list, fenced code
     "nl2br",        # a single newline is a line break: posts read line-per-beat
@@ -98,7 +102,7 @@ class Post:
 
     @property
     def url(self) -> str:
-        return "posts/%s/" % self.slug
+        return "%s/" % self.slug
 
     @property
     def media_dir(self) -> Path:
@@ -154,6 +158,18 @@ def load_posts(include_drafts: bool = False) -> List[Post]:
     duplicates = {s for s in slugs if slugs.count(s) > 1}
     if duplicates:
         raise PostError("two posts share the slug(s): %s" % ", ".join(sorted(duplicates)))
+
+    for post in posts:
+        if post.slug.lower() in RESERVED_SLUGS:
+            raise PostError(
+                "%s: the slug %r is reserved by the site itself; pick another"
+                % (post.path.name, post.slug)
+            )
+        if not re.match(r"^[a-z0-9][a-z0-9-]*$", post.slug):
+            raise PostError(
+                "%s: the slug %r must be lowercase letters, digits and hyphens"
+                % (post.path.name, post.slug)
+            )
 
     posts.sort(key=lambda p: (p.date, p.slug), reverse=True)
     return posts
@@ -286,8 +302,8 @@ def build(site_url: str, include_drafts: bool = False) -> List[Post]:
     copy_tree(STATIC_DIR, DIST_DIR / "assets")
     copy_tree(MEDIA_DIR, DIST_DIR / "media")
 
-    for index, post in enumerate(posts):
-        prefix = "../../"
+    for post in posts:
+        prefix = "../"
         # Up to three other updates, newest first, skipping this one.
         related = [card_for(other, prefix) for other in posts if other is not post][:3]
         page = theme.render_post(
@@ -298,13 +314,19 @@ def build(site_url: str, include_drafts: bool = False) -> List[Post]:
             site_url=site_url,
             related=related,
         )
-        out = DIST_DIR / "posts" / post.slug / "index.html"
+        out = DIST_DIR / post.slug / "index.html"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(page, encoding="utf-8")
 
     cards = [card_for(post, "") for post in posts]
     (DIST_DIR / "index.html").write_text(
-        theme.render_index(cards, prefix="", site_url=site_url), encoding="utf-8"
+        theme.render_index(
+            featured=cards[0] if cards else None,
+            cards=cards[1:],
+            prefix="",
+            site_url=site_url,
+        ),
+        encoding="utf-8",
     )
     (DIST_DIR / "404.html").write_text(
         theme.render_404(prefix="/"), encoding="utf-8"
