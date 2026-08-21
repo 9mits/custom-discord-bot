@@ -11,6 +11,7 @@ the update-post theme in `theme.py`, and writes a self-contained site to
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -33,6 +34,7 @@ import theme
 ROOT = Path(__file__).resolve().parent
 POSTS_DIR = ROOT / "posts"
 PAGES_DIR = ROOT / "pages"
+DATA_DIR = ROOT / "data"
 MEDIA_DIR = ROOT / "media"
 STATIC_DIR = ROOT / "static"
 DIST_DIR = ROOT / "dist"
@@ -186,6 +188,24 @@ def load_posts(include_drafts: bool = False) -> List[Post]:
     return posts
 
 
+def load_stats() -> Optional[Dict[str, object]]:
+    """Server numbers written by `server_status.py`, if CI managed to fetch them.
+
+    Absent on any local build without the secrets, and absent when the query
+    failed — the panel simply does not render rather than showing zeros.
+    """
+    path = DATA_DIR / "stats.json"
+    if not path.exists():
+        return None
+    try:
+        stats = json.loads(path.read_text(encoding="utf-8"))
+    except ValueError:
+        return None
+    if not isinstance(stats.get("online"), int) or not isinstance(stats.get("max"), int):
+        return None
+    return stats
+
+
 def load_pages() -> List[Page]:
     pages: List[Page] = []
     if not PAGES_DIR.exists():
@@ -311,6 +331,7 @@ def build(site_url: str, include_drafts: bool = False) -> List[Post]:
     copy_tree(MEDIA_DIR, DIST_DIR / "media")
 
     nav = [{"url": "%s" % page.url, "label": page.nav, "slug": page.slug} for page in pages]
+    stats = load_stats()
 
     for page in pages:
         prefix = "../"
@@ -353,6 +374,7 @@ def build(site_url: str, include_drafts: bool = False) -> List[Post]:
             prefix="",
             site_url=site_url,
             nav=nav,
+            stats=stats,
         ),
         encoding="utf-8",
     )

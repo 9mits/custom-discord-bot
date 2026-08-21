@@ -373,6 +373,32 @@ a { color: inherit; }
 }
 .hero-feature .veil p { margin: 0; color: #fff; font-weight: 700; font-size: 1.5rem; text-shadow: 0 2px 6px rgba(0,0,0,.6); }
 
+/* ===== live server stats ================================================= */
+.stats { padding: 0 var(--rail); margin-top: -.5rem; }
+.stats-card {
+  max-width: var(--page-max); margin: 0 auto; padding: 1.5rem 1.25rem 1.25rem;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: var(--card-radius); box-shadow: var(--lift-1);
+}
+.stats-row {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;
+}
+.stat { display: flex; flex-direction: column; align-items: center; text-align: center; gap: .15rem; }
+.stat-v {
+  font-size: 2rem; font-weight: 800; letter-spacing: -.02em; line-height: 1;
+  font-variant-numeric: tabular-nums;
+  background: var(--brand-ramp); -webkit-background-clip: text;
+  background-clip: text; color: transparent;
+}
+@media (min-width: 768px) { .stat-v { font-size: 2.75rem; } }
+.stat-k {
+  font-size: .8125rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .08em; color: var(--grey);
+}
+.stat-note {
+  margin: 1rem 0 0; text-align: center; font-size: .8125rem; color: var(--grey);
+}
+
 /* ===== featured strip ==================================================== */
 .eyebrow {
   margin: 0; font-weight: 700; font-size: .9375rem; text-transform: uppercase;
@@ -708,6 +734,28 @@ THEME_SCRIPT = """
 </script>
 """
 
+AGO_SCRIPT = """
+<script>
+(function () {
+  var el = document.querySelector("[data-ago]");
+  if (!el) return;
+  var then = Date.parse(el.getAttribute("data-ago"));
+  if (isNaN(then)) return;               // leave the absolute stamp in place
+  var mins = Math.round((Date.now() - then) / 60000);
+  if (mins < 0) return;                  // clock skew; the stamp is safer
+  var text;
+  if (mins < 1) text = "just now";
+  else if (mins < 60) text = mins + (mins === 1 ? " minute ago" : " minutes ago");
+  else {
+    var hrs = Math.round(mins / 60);
+    if (hrs < 24) text = hrs + (hrs === 1 ? " hour ago" : " hours ago");
+    else { var d = Math.round(hrs / 24); text = d + (d === 1 ? " day ago" : " days ago"); }
+  }
+  el.textContent = text;
+})();
+</script>
+"""
+
 COPY_SCRIPT = """
 <script>
 (function () {
@@ -942,6 +990,35 @@ def _thumb(card: Dict[str, object]) -> str:
     )
 
 
+def _stats_band(stats: Optional[Dict[str, object]]) -> str:
+    """Three figures from the live server, or nothing at all.
+
+    Rendered at build time, so it is honest about being a snapshot: the page
+    prints when it was checked rather than implying a live read.
+    """
+    if not stats:
+        return ""
+    tiles = [("Players online", str(stats["online"])), ("Server slots", str(stats["max"]))]
+    if stats.get("version"):
+        tiles.append(("Running", str(stats["version"])))
+    cells = "".join(
+        '<div class="stat"><span class="stat-v">%s</span>'
+        '<span class="stat-k">%s</span></div>' % (_esc(value), _esc(key))
+        for key, value in tiles
+    )
+    checked = _esc(str(stats.get("checked_at") or ""))
+    caption = (
+        '<p class="stat-note">Checked <time datetime="%s" data-ago="%s">%s</time></p>'
+        % (checked, checked, checked.replace("T", " ").replace("Z", " UTC"))
+        if checked
+        else ""
+    )
+    return (
+        '<section class="stats"><div class="stats-card">'
+        '<div class="stats-row">%s</div>%s</div></section>' % (cells, caption)
+    )
+
+
 def render_card(card: Dict[str, object], prefix: str) -> str:
     thumb = _thumb(card)
 
@@ -1012,7 +1089,8 @@ def render_post(post, body_html: str, hero: Optional[str], prefix: str, site_url
 
 
 def render_index(featured: Optional[Dict[str, object]], cards: Sequence[Dict[str, object]],
-                 prefix: str, site_url: str, nav: Sequence[Dict[str, str]] = ()) -> str:
+                 prefix: str, site_url: str, nav: Sequence[Dict[str, str]] = (),
+                 stats: Optional[Dict[str, object]] = None) -> str:
     """The landing page: hero, the newest update called out, then the archive."""
     if featured:
         hero_art = featured.get("hero") or featured.get("icon")
@@ -1089,12 +1167,12 @@ def render_index(featured: Optional[Dict[str, object]], cards: Sequence[Dict[str
     else:
         archive = '<div class="empty">No updates posted yet. Check back soon.</div>'
 
-    body = '<div class="page">%s%s%s%s</div>' % (
-        hero, featured_strip, archive, _community(prefix)
+    body = '<div class="page">%s%s%s%s%s</div>' % (
+        hero, _stats_band(stats), featured_strip, archive, _community(prefix)
     )
     return _page(
         "%s Dev Blog" % SITE_NAME, SITE_TAGLINE, prefix, body, None, site_url,
-        current="index", scripts=COPY_SCRIPT, nav=nav,
+        current="index", scripts=COPY_SCRIPT + AGO_SCRIPT, nav=nav,
     )
 
 

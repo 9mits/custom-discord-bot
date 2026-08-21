@@ -776,5 +776,104 @@ class MotionTests(unittest.TestCase):
 
 
 
+class ServerStatsTests(unittest.TestCase):
+    """The address is private; only counts may reach the page."""
+
+    STATUS = {
+        "players": {"online": 11, "max": 50},
+        "version": {"name": "Paper 1.21.11", "protocol": 767},
+        "description": {"text": "Mysterious Server X"},
+        "favicon": "data:image/png;base64,AAAA",
+    }
+
+    def test_it_extracts_the_numbers(self):
+        import server_status
+
+        stats = server_status.stats_from(self.STATUS)
+        self.assertEqual(stats["online"], 11)
+        self.assertEqual(stats["max"], 50)
+        self.assertEqual(stats["version"], "1.21.11")
+        self.assertTrue(stats["checked_at"].endswith("Z"))
+
+    def test_it_keeps_only_the_numbers(self):
+        import server_status
+
+        # No MOTD, no favicon, no player list, and above all no address.
+        self.assertEqual(
+            set(server_status.stats_from(self.STATUS)),
+            {"online", "max", "version", "checked_at"},
+        )
+
+    def test_a_missing_player_count_is_an_error_not_a_zero(self):
+        import server_status
+
+        with self.assertRaises(server_status.QueryError):
+            server_status.stats_from({"version": {"name": "Paper 1.21.11"}})
+
+    def test_the_version_drops_the_server_software(self):
+        import server_status
+
+        self.assertEqual(server_status._version_number("Paper 1.21.11"), "1.21.11")
+        self.assertEqual(server_status._version_number("1.21.1"), "1.21.1")
+
+    def test_the_band_is_omitted_without_stats(self):
+        self.assertEqual(theme._stats_band(None), "")
+        self.assertEqual(theme._stats_band({}), "")
+
+    def test_the_band_shows_the_figures_and_when_they_were_checked(self):
+        band = theme._stats_band(
+            {"online": 11, "max": 50, "version": "1.21.11",
+             "checked_at": "2026-08-21T10:45:04Z"}
+        )
+        self.assertIn(">11<", band)
+        self.assertIn(">50<", band)
+        self.assertIn("1.21.11", band)
+        self.assertIn("Players online", band)
+        self.assertIn("Checked", band)
+        self.assertIn('data-ago="2026-08-21T10:45:04Z"', band)
+
+    def test_the_band_never_carries_an_address(self):
+        band = theme._stats_band(
+            {"online": 1, "max": 2, "version": "1.21.11",
+             "checked_at": "2026-08-21T10:45:04Z",
+             "host": "10.0.0.1", "port": 25565}
+        )
+        self.assertNotIn("10.0.0.1", band)
+        self.assertNotIn("25565", band)
+
+    def test_a_missing_stats_file_simply_means_no_panel(self):
+        saved = build.DATA_DIR
+        build.DATA_DIR = Path(tempfile.mkdtemp())
+        try:
+            self.assertIsNone(build.load_stats())
+        finally:
+            build.DATA_DIR = saved
+
+    def test_a_corrupt_stats_file_is_ignored_rather_than_fatal(self):
+        saved = build.DATA_DIR
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / "stats.json").write_text("{not json", encoding="utf-8")
+        build.DATA_DIR = tmp
+        try:
+            self.assertIsNone(build.load_stats())
+        finally:
+            build.DATA_DIR = saved
+
+    def test_stats_without_counts_are_ignored(self):
+        saved = build.DATA_DIR
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / "stats.json").write_text('{"version": "1.21.11"}', encoding="utf-8")
+        build.DATA_DIR = tmp
+        try:
+            self.assertIsNone(build.load_stats())
+        finally:
+            build.DATA_DIR = saved
+
+    def test_the_stats_file_is_git_ignored(self):
+        ignore = (Path(__file__).resolve().parents[1] / ".gitignore").read_text(encoding="utf-8")
+        self.assertIn("data/", ignore)
+
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

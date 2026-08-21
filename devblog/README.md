@@ -23,8 +23,9 @@ pip install -r devblog/requirements.txt
 python devblog/build.py                 # writes devblog/dist/
 python devblog/build.py --serve         # build, then http://127.0.0.1:8000
 python devblog/build.py --drafts        # include posts marked draft
-python devblog/tests/test_build.py      # 88 tests
+python devblog/tests/test_build.py      # 109 tests
 python devblog/sync_from_bot.py        # regenerate guide.md and rules.md
+MC_SERVER_HOST=... MC_SERVER_PORT=... python devblog/server_status.py
 ```
 
 **The blog's CI job installs `devblog/requirements.txt` and nothing else** — no
@@ -60,6 +61,30 @@ devblog/media/update-1/                    <- its images, slug-named
 The folder under `media/` must match the post's slug, which is the filename with
 the date prefix stripped (`2026-08-21-update-1.md` → `update-1`). Inside the
 post, reference images by bare filename — the build rewrites them.
+
+## Live server stats
+
+The home page shows players online, server slots and the running version.
+
+**A static site cannot query the server when someone visits it** — there is no
+backend. So CI queries it just before each build and bakes the numbers in, and a
+`*/30 * * * *` schedule rebuilds so they stay fresh. The page prints when the
+figures were checked rather than pretending they are live.
+
+`server_status.py` speaks the Server List Ping protocol over a plain socket —
+stdlib only, and no third-party service is told the address either.
+
+**The address is private and must stay that way.** It reaches the script through
+`MC_SERVER_HOST` / `MC_SERVER_PORT`, supplied by encrypted repository secrets,
+and is never written to the output: `data/stats.json` holds counts, a version and
+a timestamp, nothing else. `devblog/data/` is git-ignored, and tests assert the
+band can never render an address even if one appeared in the file.
+
+If the query fails, **no stats are written and the panel simply disappears**. A
+failure is ambiguous — the server may be down, or the runner may just not be able
+to reach it — and neither justifies telling visitors the server is offline.
+
+A local build without the secrets has no stats and renders without the panel.
 
 ## Standing pages
 
