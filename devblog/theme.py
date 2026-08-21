@@ -142,18 +142,20 @@ a { color: inherit; }
 
 .topbar nav { display: flex; align-items: center; gap: .25rem; }
 .topbar nav a {
+  --nav-pad: .75rem;
   position: relative; text-decoration: none; font-weight: 500; font-size: 1.0625rem;
-  color: var(--grey); padding: .5rem .75rem; transition: color .15s ease;
+  color: var(--grey); padding: .5rem var(--nav-pad); white-space: nowrap;
+  transition: color .15s ease;
 }
 .topbar nav a:hover, .topbar nav a[aria-current="page"] { color: var(--ink); }
 /* The orange underline that grows in on hover is the BIG Games nav signature. */
 .topbar nav a::before {
-  content: ""; position: absolute; left: .75rem; bottom: -.35rem; height: 2px; width: 0;
+  content: ""; position: absolute; left: var(--nav-pad); bottom: -.35rem; height: 2px; width: 0;
   background: var(--brand-ramp); border-radius: 100px 100px 0 0; opacity: 0;
   transition: width .2s ease, opacity .2s ease;
 }
-.topbar nav a:hover::before { width: calc(100% - 1.5rem); opacity: 1; }
-.topbar nav a[aria-current="page"]::before { width: calc(100% - 1.5rem); opacity: 1; }
+.topbar nav a:hover::before { width: calc(100% - var(--nav-pad) * 2); opacity: 1; }
+.topbar nav a[aria-current="page"]::before { width: calc(100% - var(--nav-pad) * 2); opacity: 1; }
 
 .topbar .spacer { margin-left: auto; }
 
@@ -252,7 +254,10 @@ a { color: inherit; }
 }
 .post-body pre code { background: none; padding: 0; }
 
-.post-body table { margin: 1.25rem auto; border-collapse: collapse; text-align: left; font-size: .95rem; }
+.post-body table {
+  display: block; width: max-content; max-width: 100%; overflow-x: auto;
+  margin: 1.25rem auto; border-collapse: collapse; text-align: left; font-size: .95rem;
+}
 .post-body .table-wrap { overflow-x: auto; }
 .post-body th, .post-body td { padding: .55rem .875rem; border-bottom: 1px solid var(--line); }
 .post-body th { color: var(--ink); font-weight: 700; white-space: nowrap; }
@@ -287,9 +292,9 @@ a { color: inherit; }
 .hero-copy { position: relative; max-width: 36rem; text-align: center; margin: 0 auto; }
 @media (min-width: 1024px) { .hero-copy { flex: 1; text-align: left; margin: 0; } }
 /* The wordmark leads the page, at real size. */
-.hero-copy .wordmark { width: auto; height: auto; max-width: 26rem; max-height: 9rem; margin: 0 auto 1.5rem; }
+.hero-copy .wordmark { width: auto; height: auto; max-width: min(26rem, 100%); max-height: 9rem; margin: 0 auto 1.5rem; }
 @media (min-width: 1024px) {
-  .hero-copy .wordmark { margin: 0 0 1.75rem; max-width: 30rem; max-height: 10.5rem; }
+  .hero-copy .wordmark { margin: 0 0 1.75rem; max-width: min(30rem, 100%); max-height: 10.5rem; }
 }
 .hero-copy h1 {
   margin: 0; font-size: 2.25rem; line-height: 1.1; font-weight: 700;
@@ -488,7 +493,7 @@ a { color: inherit; }
 
 .footer-base { display: flex; flex-direction: column; gap: .75rem; align-items: center; padding-top: 1.5rem; }
 @media (min-width: 1024px) { .footer-base { align-items: flex-start; } }
-.footer-base img.mark { width: auto; height: auto; max-width: 11rem; max-height: 2.75rem; opacity: .9; }
+.footer-base img.mark { width: auto; height: auto; max-width: min(11rem, 100%); max-height: 2.75rem; opacity: .9; }
 .footer-base p { margin: 0; color: var(--text-muted); font-weight: 500; font-size: .9375rem; }
 .footer-addr {
   display: inline-block; padding: .25rem .75rem; border-radius: 999px;
@@ -511,6 +516,92 @@ a { color: inherit; }
 .theme-switch button:hover { color: var(--ink); }
 .theme-switch button[aria-checked="true"] { background: var(--orange); color: #fff; }
 .theme-switch button:focus-visible { outline: 2px solid var(--orange); outline-offset: 2px; }
+
+/* ===== standing pages (guide / rules / apply) ============================ */
+.doc { max-width: var(--column); margin: 0 auto; padding: 2.5rem 0 1rem; }
+.doc-head { padding-bottom: 1.25rem; border-bottom: 1px solid var(--line); margin-bottom: 1.75rem; }
+.doc-head h1 {
+  margin: 0; font-size: 2.25rem; line-height: 1.1; font-weight: 700;
+  letter-spacing: -.02em; color: var(--ink);
+}
+@media (min-width: 768px) { .doc-head h1 { font-size: 3rem; } }
+.page-tagline { margin: .75rem 0 0; font-size: 1.125rem; color: var(--text-muted); line-height: 1.5; }
+
+.doc-body { color: var(--text-muted); }
+.doc-body h2 {
+  margin: 2.5rem 0 .75rem; font-size: 1.625rem; font-weight: 700;
+  color: var(--orange); letter-spacing: -.01em; line-height: 1.2;
+  scroll-margin-top: calc(var(--nav-h) + 1rem);
+}
+.doc-body h2:first-child { margin-top: 0; }
+.doc-body h3 {
+  margin: 1.75rem 0 .5rem; font-size: 1.1875rem; font-weight: 700; color: var(--ink);
+  scroll-margin-top: calc(var(--nav-h) + 1rem);
+}
+.doc-body h4 { margin: 1.25rem 0 .35rem; font-size: 1.0625rem; font-weight: 700; color: var(--ink); }
+.doc-body p { margin: 0 0 .9rem; line-height: 1.6; }
+.doc-body strong { color: var(--ink); font-weight: 700; }
+.doc-body ul, .doc-body ol { margin: .5rem 0 1.1rem; padding-left: 1.35rem; }
+.doc-body li { margin: .3rem 0; line-height: 1.55; }
+.doc-body a { color: var(--orange-deep); }
+.doc-body hr { border: 0; border-top: 1px solid var(--line); margin: 2rem 0; }
+.doc-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em;
+  background: var(--surface-raised); border-radius: 6px; padding: .1em .4em; color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.doc-body pre {
+  overflow-x: auto; padding: 1rem 1.125rem; background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--img-radius);
+}
+.doc-body pre code { background: none; padding: 0; }
+.doc-body blockquote {
+  margin: 1.25rem 0; padding: .875rem 1.125rem;
+  background: var(--surface); border: 1px solid var(--line);
+  border-left: 4px solid var(--orange); border-radius: var(--img-radius);
+}
+.doc-body blockquote p:last-child { margin-bottom: 0; }
+.doc-body table {
+  display: block; width: max-content; max-width: 100%; overflow-x: auto;
+  border-collapse: collapse; margin: 1.25rem 0; font-size: .95rem;
+}
+.doc-body th, .doc-body td { padding: .55rem .875rem; border-bottom: 1px solid var(--line); text-align: left; }
+.doc-body th { color: var(--ink); font-weight: 700; white-space: nowrap; }
+.doc-body img { border-radius: var(--img-radius); margin: 1.25rem 0; }
+
+/* ===== narrow screens ==================================================== */
+@media (max-width: 900px) {
+  /* Brand text, four nav items and a button do not fit a phone. The wordmark
+     text goes first because the icon still identifies the site. */
+  .brand span { display: none; }
+  .nav-divider { display: none; }
+  .topbar-inner { gap: .5rem; }
+  .topbar nav {
+    flex: 1 1 auto; min-width: 0; overflow-x: auto;
+    scrollbar-width: none; -ms-overflow-style: none;
+  }
+  .topbar nav::-webkit-scrollbar { display: none; }
+  .topbar nav a { --nav-pad: .55rem; font-size: .9375rem; }
+}
+@media (max-width: 560px) {
+  /* Discord is reachable from the community band and the footer on every page. */
+  .nav-cta { display: none; }
+}
+@media (max-width: 640px) {
+  :root { --rail: 16px; }
+  .post-body h2 { font-size: 1.75rem; }
+  .post-body h3 { font-size: 1.1875rem; }
+  .doc-head h1, .post-title { font-size: 2rem; }
+  .community-card { padding: 2rem 1.25rem; border-radius: 22px; }
+  .community-card h2 { font-size: 1.625rem; }
+  .community-card p { font-size: 1.0625rem; }
+  .social-btn { min-width: 0; flex: 1 1 auto; padding: 0 1.125rem; }
+  .footer-cols { gap: 1.5rem; justify-content: space-between; }
+  .hero-inner { padding: 1rem 0 0; gap: 2rem; }
+  .featured { padding-top: 2.5rem; }
+  .section-head { padding-top: 2rem; }
+  .cta { width: 100%; }
+}
 
 /* ===== 404 =============================================================== */
 .notfound { text-align: center; padding: 6rem 0 3rem; }
@@ -634,8 +725,6 @@ def _head(title: str, description: str, prefix: str, og_image: Optional[str], ur
         tags.append('<meta name="twitter:image" content="%s">' % _esc(og_image))
     tags += [
         '<link rel="icon" href="%sassets/icon.png">' % prefix,
-        '<link rel="alternate" type="application/rss+xml" title="%s" href="%sfeed.xml">'
-        % (_esc(SITE_NAME), prefix),
         '<link rel="preconnect" href="https://fonts.googleapis.com">',
         '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>',
         '<link rel="stylesheet" href="%s">' % FONT_URL,
@@ -645,13 +734,22 @@ def _head(title: str, description: str, prefix: str, og_image: Optional[str], ur
     return "\n".join(tags)
 
 
-def _topbar(prefix: str, current: str = "") -> str:
-    def link(href: str, label: str, key: str) -> str:
-        mark = ' aria-current="page"' if key == current else ""
-        return '<a href="%s"%s>%s</a>' % (href, mark, label)
-
+def _topbar(prefix: str, current: str = "", nav: Sequence[Dict[str, str]] = ()) -> str:
+    items = ['<a href="%sindex.html"%s>Updates</a>'
+             % (prefix, ' aria-current="page"' if current == "index" else "")]
+    for entry in nav:
+        items.append(
+            '<a href="%s%s"%s>%s</a>'
+            % (
+                prefix,
+                _esc(str(entry["url"])),
+                ' aria-current="page"' if current == entry["slug"] else "",
+                _esc(str(entry["label"])),
+            )
+        )
     cta = (
-        '<a class="btn btn-orange btn-sm" href="%s" rel="noopener">Discord</a>' % _esc(DISCORD_URL)
+        '<a class="btn btn-orange btn-sm nav-cta" href="%s" rel="noopener">Discord</a>'
+        % _esc(DISCORD_URL)
         if DISCORD_URL
         else ""
     )
@@ -660,15 +758,10 @@ def _topbar(prefix: str, current: str = "") -> str:
         '<a class="brand" href="%sindex.html" aria-label="%s home">'
         '<img src="%sassets/icon.png" alt=""><span>%s</span></a>'
         '<span class="nav-divider"></span>'
-        "<nav>%s%s</nav>"
+        '<nav aria-label="Primary">%s</nav>'
         '<span class="spacer"></span>%s'
         "</div></header>"
-        % (
-            prefix, _esc(SITE_NAME), prefix, _esc(SITE_NAME),
-            link("%sindex.html" % prefix, "Updates", "index"),
-            link("%sfeed.xml" % prefix, "RSS", "rss"),
-            cta,
-        )
+        % (prefix, _esc(SITE_NAME), prefix, _esc(SITE_NAME), "".join(items), cta)
     )
 
 
@@ -711,10 +804,10 @@ def _community(prefix: str) -> str:
     )
 
 
-def _footer(prefix: str) -> str:
-    site_links = [
-        ('%sindex.html' % prefix, "Updates"),
-        ('%sfeed.xml' % prefix, "RSS feed"),
+def _footer(prefix: str, nav: Sequence[Dict[str, str]] = ()) -> str:
+    site_links = [("%sindex.html" % prefix, "Updates")]
+    site_links += [
+        ("%s%s" % (prefix, entry["url"]), str(entry["label"])) for entry in nav
     ]
     connect = [(url, label) for url, label, _ in _social_links()]
 
@@ -760,16 +853,16 @@ def _footer(prefix: str) -> str:
 
 def _page(title: str, description: str, prefix: str, body: str,
           og_image: Optional[str] = None, url: str = "", current: str = "",
-          scripts: str = "") -> str:
+          scripts: str = "", nav: Sequence[Dict[str, str]] = ()) -> str:
     return (
         "<!doctype html>\n"
         '<html lang="en">\n<head>\n%s\n</head>\n<body>\n%s%s\n%s\n%s\n%s%s\n</body>\n</html>\n'
         % (
             _head(title, description, prefix, og_image, url),
             '<div class="brandbar"></div>',
-            _topbar(prefix, current),
+            _topbar(prefix, current, nav),
             body,
-            _footer(prefix),
+            _footer(prefix, nav),
             THEME_SCRIPT,
             scripts,
         )
@@ -809,7 +902,8 @@ def render_card(card: Dict[str, object], prefix: str) -> str:
 
 
 def render_post(post, body_html: str, hero: Optional[str], prefix: str, site_url: str,
-                related: Sequence[Dict[str, object]] = ()) -> str:
+                related: Sequence[Dict[str, object]] = (),
+                nav: Sequence[Dict[str, str]] = ()) -> str:
     tagline = '<p class="post-tagline">%s</p>' % _esc(post.tagline) if post.tagline else ""
     hero_block = (
         '<figure class="shot hero"><img src="%s" alt="%s"></figure>'
@@ -854,12 +948,12 @@ def render_post(post, body_html: str, hero: Optional[str], prefix: str, site_url
     return _page(
         "%s | %s" % (post.title, SITE_NAME), description, prefix, body,
         absolute_hero, "%s/%s" % (site_url.rstrip("/"), post.url),
-        scripts=COPY_SCRIPT,
+        scripts=COPY_SCRIPT, nav=nav,
     )
 
 
 def render_index(featured: Optional[Dict[str, object]], cards: Sequence[Dict[str, object]],
-                 prefix: str, site_url: str) -> str:
+                 prefix: str, site_url: str, nav: Sequence[Dict[str, str]] = ()) -> str:
     """The landing page: hero, the newest update called out, then the archive."""
     if featured:
         hero_art = featured.get("hero") or featured.get("icon")
@@ -941,15 +1035,33 @@ def render_index(featured: Optional[Dict[str, object]], cards: Sequence[Dict[str
     )
     return _page(
         "%s Dev Blog" % SITE_NAME, SITE_TAGLINE, prefix, body, None, site_url,
-        current="index", scripts=COPY_SCRIPT,
+        current="index", scripts=COPY_SCRIPT, nav=nav,
     )
 
 
-def render_404(prefix: str) -> str:
+def render_page(page, body_html: str, prefix: str, site_url: str,
+                nav: Sequence[Dict[str, str]] = ()) -> str:
+    """A guide, rules or how-to page: left-aligned prose, no dateline."""
+    tagline = '<p class="page-tagline">%s</p>' % _esc(page.tagline) if page.tagline else ""
+    body = (
+        '<div class="page"><div class="shell"><div class="doc">'
+        '<header class="doc-head"><h1>%s</h1>%s</header>'
+        '<article class="doc-body">%s</article>'
+        "</div></div></div>" % (_esc(page.title), tagline, body_html)
+    )
+    return _page(
+        "%s | %s" % (page.title, SITE_NAME),
+        page.tagline or "%s — %s" % (SITE_NAME, page.title),
+        prefix, body, None, "%s/%s" % (site_url.rstrip("/"), page.url),
+        current=page.slug, nav=nav,
+    )
+
+
+def render_404(prefix: str, nav: Sequence[Dict[str, str]] = ()) -> str:
     body = (
         '<div class="page"><div class="shell"><div class="notfound"><h1>404</h1>'
         "<p>That update does not exist &mdash; or it has not shipped yet.</p>"
         '<a class="btn btn-orange" href="%sindex.html">Back to updates</a>'
         "</div></div></div>" % prefix
     )
-    return _page("Not found | %s" % SITE_NAME, "Page not found.", prefix, body)
+    return _page("Not found | %s" % SITE_NAME, "Page not found.", prefix, body, nav=nav)

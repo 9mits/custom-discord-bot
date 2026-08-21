@@ -8,6 +8,7 @@ or:
 
 from __future__ import annotations
 
+import re
 import shutil
 import sys
 import tempfile
@@ -189,7 +190,6 @@ class BuildTests(unittest.TestCase):
         for expected in (
             "index.html",
             "404.html",
-            "feed.xml",
             ".nojekyll",
             "assets/style.css",
             "fiesta-forever/index.html",
@@ -225,13 +225,6 @@ class BuildTests(unittest.TestCase):
         build.build("https://example.com")
         page = (build.DIST_DIR / "index.html").read_text(encoding="utf-8")
         self.assertIn("No updates posted yet", page)
-
-    def test_feed_lists_the_post(self):
-        self.write("2026-08-21-fiesta-forever.md", VALID)
-        build.build("https://example.com/blog")
-        feed = (build.DIST_DIR / "feed.xml").read_text(encoding="utf-8")
-        self.assertIn("<title>Fiesta Forever</title>", feed)
-        self.assertIn("https://example.com/blog/fiesta-forever/", feed)
 
     def test_index_links_and_titles_the_post(self):
         self.write("2026-08-21-fiesta-forever.md", VALID)
@@ -522,11 +515,6 @@ class SlugSafetyTests(unittest.TestCase):
         with self.assertRaises(build.PostError):
             build.build("https://example.com")
 
-    def test_a_slug_may_not_shadow_the_feed(self):
-        self.write("2026-01-01-x.md", "---\ntitle: T\nslug: feed\n---\n\nbody")
-        with self.assertRaises(build.PostError):
-            build.build("https://example.com")
-
     def test_a_slug_must_be_url_safe(self):
         self.write("2026-01-01-x.md", "---\ntitle: T\nslug: Update One\n---\n\nbody")
         with self.assertRaises(build.PostError):
@@ -563,6 +551,124 @@ class HomePageTests(unittest.TestCase):
         page = theme.render_index(featured=None, cards=[], prefix="", site_url="https://e.com")
         self.assertIn("No updates posted yet", page)
         self.assertNotIn("Read Latest Update", page)
+
+
+
+class PageTests(unittest.TestCase):
+    """Standing pages: guide, rules, how to apply."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self._saved = (build.POSTS_DIR, build.PAGES_DIR, build.MEDIA_DIR,
+                       build.STATIC_DIR, build.DIST_DIR)
+        build.POSTS_DIR = self.tmp / "posts"
+        build.PAGES_DIR = self.tmp / "pages"
+        build.MEDIA_DIR = self.tmp / "media"
+        build.STATIC_DIR = self.tmp / "static"
+        build.DIST_DIR = self.tmp / "dist"
+        for folder in (build.POSTS_DIR, build.PAGES_DIR, build.MEDIA_DIR, build.STATIC_DIR):
+            folder.mkdir(parents=True)
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        (build.POSTS_DIR, build.PAGES_DIR, build.MEDIA_DIR,
+         build.STATIC_DIR, build.DIST_DIR) = self._saved
+
+    def page(self, name, body="---\ntitle: T\n---\n\nbody"):
+        (build.PAGES_DIR / name).write_text(body, encoding="utf-8")
+
+    def post(self, name, body="---\ntitle: P\n---\n\nbody"):
+        (build.POSTS_DIR / name).write_text(body, encoding="utf-8")
+
+    def test_a_page_lands_at_its_own_root_url(self):
+        self.page("guide.md", "---\ntitle: Server Guide\nnav: Guide\n---\n\nHello")
+        build.build("https://example.com")
+        out = build.DIST_DIR / "guide" / "index.html"
+        self.assertTrue(out.exists())
+        self.assertIn("Server Guide", out.read_text(encoding="utf-8"))
+
+    def test_pages_sort_by_order_then_slug(self):
+        self.page("apply.md", "---\ntitle: A\nnav: Apply\norder: 3\n---\n\nx")
+        self.page("guide.md", "---\ntitle: G\nnav: Guide\norder: 1\n---\n\nx")
+        self.page("rules.md", "---\ntitle: R\nnav: Rules\norder: 2\n---\n\nx")
+        self.assertEqual([p.nav for p in build.load_pages()], ["Guide", "Rules", "Apply"])
+
+    def test_a_bad_order_is_an_error(self):
+        self.page("guide.md", "---\ntitle: G\norder: soon\n---\n\nx")
+        with self.assertRaises(build.PostError):
+            build.load_pages()
+
+    def test_nav_appears_on_every_rendered_page(self):
+        self.page("guide.md", "---\ntitle: G\nnav: Guide\n---\n\nx")
+        self.post("2026-01-01-p1.md")
+        build.build("https://example.com")
+        for rel in ("index.html", "404.html", "p1/index.html", "guide/index.html"):
+            page = (build.DIST_DIR / rel).read_text(encoding="utf-8")
+            self.assertIn(">Guide</a>", page, rel)
+
+    def test_the_current_page_is_marked(self):
+        self.page("guide.md", "---\ntitle: G\nnav: Guide\n---\n\nx")
+        build.build("https://example.com")
+        page = (build.DIST_DIR / "guide" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('href="../guide/" aria-current="page"', page)
+
+    def test_a_page_may_not_collide_with_a_post(self):
+        self.page("guide.md", "---\ntitle: G\n---\n\nx")
+        self.post("2026-01-01-guide.md")
+        with self.assertRaises(build.PostError):
+            build.build("https://example.com")
+
+    def test_a_page_slug_may_not_be_reserved(self):
+        self.page("assets.md", "---\ntitle: A\n---\n\nx")
+        with self.assertRaises(build.PostError):
+            build.build("https://example.com")
+
+    def test_no_feed_is_written(self):
+        self.post("2026-01-01-p1.md")
+        build.build("https://example.com")
+        self.assertFalse((build.DIST_DIR / "feed.xml").exists())
+
+    def test_nothing_links_to_a_feed(self):
+        self.post("2026-01-01-p1.md")
+        build.build("https://example.com")
+        for rel in ("index.html", "404.html", "p1/index.html"):
+            page = (build.DIST_DIR / rel).read_text(encoding="utf-8")
+            self.assertNotIn("feed.xml", page, rel)
+            self.assertNotIn("rss", page.lower(), rel)
+
+
+class MobileLayoutTests(unittest.TestCase):
+    """Guards for the overflow class of bug, which has no browser here to catch it."""
+
+    def test_no_image_rule_sets_a_bare_rem_max_width(self):
+        # `max-width: 26rem` on an img beats the global `img { max-width: 100% }`,
+        # so on a 360px phone the wordmark pushed the page wider than the viewport.
+        offenders = []
+        for rule in re.findall(r"([^{}]+)\{([^{}]*)\}", theme.STYLESHEET):
+            selector, block = rule[0].strip(), rule[1]
+            if "img" not in selector and "wordmark" not in selector and "mark" not in selector:
+                continue
+            for decl in block.split(";"):
+                decl = decl.strip()
+                if decl.startswith("max-width:") and "rem" in decl and "min(" not in decl:
+                    offenders.append("%s { %s }" % (selector, decl))
+        self.assertEqual(offenders, [], "image widths must be clamped with min(...)")
+
+    def test_wide_tables_scroll_instead_of_widening_the_page(self):
+        for selector in (".post-body table", ".doc-body table"):
+            block = theme.STYLESHEET.split(selector + " {")[1].split("}")[0]
+            self.assertIn("overflow-x: auto", block, selector)
+            self.assertIn("max-width: 100%", block, selector)
+
+    def test_the_nav_underline_tracks_its_padding(self):
+        # Mobile shrinks the padding; a hard-coded 1.5rem left the rule misaligned.
+        self.assertIn("--nav-pad", theme.STYLESHEET)
+        self.assertNotIn("width: calc(100% - 1.5rem)", theme.STYLESHEET)
+
+    def test_narrow_screens_get_their_own_rules(self):
+        self.assertIn("@media (max-width: 900px)", theme.STYLESHEET)
+        self.assertIn("@media (max-width: 640px)", theme.STYLESHEET)
 
 
 
