@@ -245,7 +245,7 @@ class ThemeTests(unittest.TestCase):
         try:
             page = theme.render_404(prefix="/")
             self.assertNotIn("discord.gg", page)
-            self.assertNotIn('class="addr"', page)
+            self.assertNotIn('class="footer-addr"', page)
         finally:
             theme.DISCORD_URL, theme.SERVER_ADDRESS = saved
 
@@ -257,6 +257,7 @@ class ThemeTests(unittest.TestCase):
             page = theme.render_404(prefix="/")
             self.assertIn("https://discord.gg/example", page)
             self.assertIn("play.example.com", page)
+            self.assertIn('class="footer-addr"', page)
         finally:
             theme.DISCORD_URL, theme.SERVER_ADDRESS = saved
 
@@ -267,6 +268,119 @@ class ThemeTests(unittest.TestCase):
     def test_stylesheet_defines_light_and_dark(self):
         self.assertIn("prefers-color-scheme: dark", theme.STYLESHEET)
         self.assertIn('[data-theme="dark"]', theme.STYLESHEET)
+
+
+class PostFieldTests(unittest.TestCase):
+    def make(self, text: str, name: str = "2026-08-21-x.md"):
+        path = Path(name)
+        meta, body = build.parse_front_matter(text, path)
+        return build.Post(path, meta, body)
+
+    def test_category_defaults_to_the_config_value(self):
+        post = self.make("---\ntitle: T\n---\n\nbody")
+        self.assertEqual(post.category, build.config.DEFAULT_CATEGORY)
+
+    def test_category_can_be_overridden(self):
+        post = self.make("---\ntitle: T\ncategory: Event\n---\n\nbody")
+        self.assertEqual(post.category, "Event")
+
+    def test_icon_and_signoff_default_to_empty(self):
+        post = self.make("---\ntitle: T\n---\n\nbody")
+        self.assertEqual(post.icon, "")
+        self.assertEqual(post.signoff, "")
+
+    def test_media_url_uses_the_post_slug(self):
+        post = self.make("---\ntitle: T\nicon: i.png\n---\n\nbody", "2026-01-01-fiesta.md")
+        self.assertEqual(build.media_url(post, post.icon, "../../"),
+                         "../../media/fiesta/i.png")
+
+    def test_media_url_passes_absolute_through(self):
+        post = self.make("---\ntitle: T\n---\n\nbody")
+        self.assertEqual(build.media_url(post, "https://x/y.png", "../../"),
+                         "https://x/y.png")
+
+    def test_media_url_is_none_when_unset(self):
+        post = self.make("---\ntitle: T\n---\n\nbody")
+        self.assertIsNone(build.media_url(post, "", "../../"))
+
+
+class CardTests(unittest.TestCase):
+    def make_card(self, prefix: str):
+        path = Path("2026-08-21-fiesta-forever.md")
+        meta, body = build.parse_front_matter(VALID, path)
+        return build.card_for(build.Post(path, meta, body), prefix)
+
+    def test_index_card_url_is_relative_to_root(self):
+        self.assertEqual(self.make_card("")["url"], "posts/fiesta-forever/")
+
+    def test_related_card_url_climbs_out_of_the_post_folder(self):
+        self.assertEqual(self.make_card("../../")["url"], "../../posts/fiesta-forever/")
+
+    def test_card_falls_back_to_the_hero_for_its_icon(self):
+        card = self.make_card("")
+        self.assertIsNone(card["icon"])
+        html = theme.render_card(card, "")
+        # No explicit icon, so both layers use the hero art.
+        self.assertEqual(html.count("media/fiesta-forever/hero.png"), 2)
+
+    def test_card_uses_an_explicit_icon_when_given(self):
+        path = Path("2026-08-21-fiesta-forever.md")
+        meta, body = build.parse_front_matter(
+            VALID.replace("hero: hero.png", "hero: hero.png\nicon: icon.png"), path
+        )
+        html = theme.render_card(build.card_for(build.Post(path, meta, body), ""), "")
+        self.assertIn("media/fiesta-forever/icon.png", html)
+        self.assertIn("media/fiesta-forever/hero.png", html)
+
+    def test_card_renders_the_blurred_backdrop_and_square(self):
+        html = theme.render_card(self.make_card(""), "")
+        self.assertIn('class="blur"', html)
+        self.assertIn('class="icon"', html)
+
+
+class RelatedTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self._saved = (build.POSTS_DIR, build.MEDIA_DIR, build.STATIC_DIR, build.DIST_DIR)
+        build.POSTS_DIR = self.tmp / "posts"
+        build.MEDIA_DIR = self.tmp / "media"
+        build.STATIC_DIR = self.tmp / "static"
+        build.DIST_DIR = self.tmp / "dist"
+        for folder in (build.POSTS_DIR, build.MEDIA_DIR, build.STATIC_DIR):
+            folder.mkdir(parents=True)
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        build.POSTS_DIR, build.MEDIA_DIR, build.STATIC_DIR, build.DIST_DIR = self._saved
+
+    def write(self, name: str, title: str):
+        (build.POSTS_DIR / name).write_text(
+            "---\ntitle: %s\n---\n\nbody" % title, encoding="utf-8"
+        )
+
+    def test_a_post_never_lists_itself_as_related(self):
+        for n in range(1, 4):
+            self.write("2026-0%d-01-p%d.md" % (n, n), "Post %d" % n)
+        build.build("https://example.com")
+        page = (build.DIST_DIR / "posts/p2/index.html").read_text(encoding="utf-8")
+        self.assertIn("More Updates", page)
+        self.assertNotIn('href="../../posts/p2/"', page)
+        self.assertIn('href="../../posts/p3/"', page)
+
+    def test_a_lone_post_has_no_more_updates_strip(self):
+        self.write("2026-01-01-only.md", "Only")
+        build.build("https://example.com")
+        page = (build.DIST_DIR / "posts/only/index.html").read_text(encoding="utf-8")
+        self.assertNotIn("More Updates", page)
+
+    def test_related_is_capped_at_three(self):
+        for n in range(1, 7):
+            self.write("2026-0%d-01-p%d.md" % (n, n), "Post %d" % n)
+        build.build("https://example.com")
+        page = (build.DIST_DIR / "posts/p1/index.html").read_text(encoding="utf-8")
+        self.assertEqual(page.count('class="card" href="../../posts/'), 3)
+
 
 
 if __name__ == "__main__":

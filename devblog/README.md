@@ -1,8 +1,11 @@
 # Mysterious SMP X — Dev Blog
 
-A dependency-light static site for update posts, styled after the Pet Simulator 99
-update notes: big hero image, centred line-per-beat copy, orange section headers,
-and a screenshot between every section.
+A dependency-light static site for update posts, modelled on the BIG Games /
+Pet Simulator 99 update-post layout: Outfit throughout, `rgb(255,157,67)` orange
+full-width underlined section headers, a category pill and date above a
+left-aligned title, centred line-per-beat body copy with a screenshot after every
+section, a sticky server card down the right, and index cards built from a
+blurred backdrop with a crisp square icon centred on top.
 
 Published to GitHub Pages by a workflow on every push to `main` that touches
 `devblog/`. That workflow ships here as `deploy.yml` and needs installing once
@@ -15,7 +18,7 @@ pip install -r devblog/requirements.txt
 python devblog/build.py                 # writes devblog/dist/
 python devblog/build.py --serve         # build, then http://127.0.0.1:8000
 python devblog/build.py --drafts        # include posts marked draft
-python devblog/tests/test_build.py      # 36 tests
+python devblog/tests/test_build.py      # 50 tests
 ```
 
 `dist/` is git-ignored — the workflow rebuilds it. Never commit it.
@@ -43,18 +46,24 @@ Inside the post, reference images by bare filename — the build rewrites them.
 title: Fiesta Forever!
 tagline: Go DEEP in the ETERNAL MAZE! Race to the GARGANTUAN!
 date: 2026-08-21
+category: Event
 hero: hero.png
+icon: icon.png
+signoff: SEE YOU IN THE MAZE!
 tags: event, update
 ---
 ```
 
 | Key | Required | Notes |
 |---|---|---|
-| `title` | yes | The big heading and the browser title. |
+| `title` | yes | The big left-aligned heading and the browser title. |
 | `date` | yes* | `YYYY-MM-DD`. *Optional if the filename starts with a date. |
 | `tagline` | no | Grey subtitle under the title; also the card excerpt and share description. |
-| `hero` | no | Filename in the post's media folder. Shown full-width under the title. |
-| `tags` | no | Comma separated. Rendered as pills next to the date. |
+| `hero` | no | Filename in the post's media folder. Opens the post, and becomes the blurred backdrop on the index card. |
+| `icon` | no | Square art centred on the index card. Falls back to `hero`. |
+| `category` | no | The pill above the title. Defaults to `DEFAULT_CATEGORY` in `config.py`. |
+| `signoff` | no | Bold closing line, e.g. `SEE YOU ON THE SERVER!` |
+| `tags` | no | Comma separated. |
 | `slug` | no | Override the URL. Defaults to the filename minus the date. |
 | `draft` | no | `true` keeps it out of the build until you remove the line. |
 
@@ -90,13 +99,28 @@ them — useful for balance tables in a patch post.
 
 ## Site settings
 
-`config.py` holds the site name, tagline, published URL, Discord invite and
-server address. **`DISCORD_URL` and `SERVER_ADDRESS` are empty** — fill them in
-and the Discord button, the "Discuss on Discord" link, and the footer address
-appear. Left empty, they are omitted rather than rendered as dead links.
+Everything configurable lives in `config.py`. **Every link and server field
+ships empty**, and an empty value is omitted rather than rendered as a dead
+link or an empty box — so the site is honest before you have filled it in.
+
+| Setting | Drives |
+|---|---|
+| `SERVER_ADDRESS` | The whole sticky server card, its Copy IP button, and the footer address. Empty hides the card. |
+| `SERVER_EDITIONS` / `SERVER_VERSION` | The stat row inside the server card. |
+| `DISCORD_URL` | Top-bar button, sidebar button, footer link. |
+| `APPLY_URL` | Sidebar button and footer link. |
+| `YOUTUBE_URL` / `TWITTER_URL` | Footer links. |
+| `DEFAULT_CATEGORY` | The pill on posts that do not set `category`. |
+| `DEFAULT_SITE_URL` | Feed and share tags. CI overrides it with the `DEVBLOG_SITE_URL` repo variable. |
 
 `theme.py` holds the stylesheet and page shells. Colours are CSS custom
-properties at the top; light and dark are both defined.
+properties at the top of the stylesheet; light, dark, and a three-state theme
+switch (light / system / dark, remembered in `localStorage`) are all wired up.
+
+**Emoji.** The reference posts put an emoji at the front of each `###`
+sub-header. Nothing stops you — write it in the markdown and it renders. The
+repo's own no-decorative-emoji convention in `AGENTS.md` is about the Discord
+bot's output, not this site, so it is your call per post.
 
 ## Publishing
 
