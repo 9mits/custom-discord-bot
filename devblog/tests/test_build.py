@@ -705,5 +705,76 @@ class PrivateAddressTests(unittest.TestCase):
 
 
 
+class LongTokenTests(unittest.TestCase):
+    """A single unbreakable token wider than a phone widens the whole page.
+
+    The guide shipped a bare 68-character Discord channel URL, which let phones
+    zoom out of the layout — on that page only, because that is the only page
+    the URL appeared on.
+    """
+
+    PAGES = sorted((Path(__file__).resolve().parents[1] / "pages").glob("*.md"))
+
+    def test_no_generated_page_carries_a_bare_url(self):
+        for path in self.PAGES:
+            text = path.read_text(encoding="utf-8")
+            # A URL not preceded by "(" is not inside a markdown link.
+            bare = re.findall(r"(?<!\()https?://[^\s)\]]+", text)
+            self.assertEqual(bare, [], "%s has a bare URL: %s" % (path.name, bare))
+
+    def test_bare_urls_get_link_text(self):
+        import sync_from_bot
+
+        out = sync_from_bot._link_bare_urls("See https://example.com/a/b now")
+        self.assertEqual(out, "See [example.com](https://example.com/a/b) now")
+
+    def test_a_discord_channel_url_reads_as_discord(self):
+        import sync_from_bot
+
+        out = sync_from_bot._link_bare_urls("Here: https://discord.com/channels/1/2")
+        self.assertIn("[read it in Discord](https://discord.com/channels/1/2)", out)
+
+    def test_an_existing_markdown_link_is_left_alone(self):
+        import sync_from_bot
+
+        text = "[Paper](https://papermc.io) is the server"
+        self.assertEqual(sync_from_bot._link_bare_urls(text), text)
+
+    def test_prose_wraps_long_tokens_as_a_backstop(self):
+        for selector in (".post-body {", ".doc-body {"):
+            block = theme.STYLESHEET.split(selector)[1].split("}")[0]
+            self.assertIn("overflow-wrap: anywhere", block, selector)
+
+
+class MotionTests(unittest.TestCase):
+    def test_one_motion_vocabulary_is_defined_and_used(self):
+        for token in ("--ease:", "--ease-out:", "--dur:", "--dur-slow:"):
+            self.assertIn(token, theme.STYLESHEET, token)
+        self.assertGreater(theme.STYLESHEET.count("var(--ease"), 10)
+
+    def test_elevation_tokens_are_defined(self):
+        for token in ("--lift-1:", "--lift-2:", "--lift-3:"):
+            self.assertIn(token, theme.STYLESHEET, token)
+
+    def test_buttons_lift_rather_than_jump_at_the_cursor(self):
+        # scale(1.05) on hover is the toy feel; buttons should translate instead.
+        for selector in (".btn:hover", ".cta-primary:hover", ".social-btn:hover"):
+            block = theme.STYLESHEET.split(selector + " {")[1].split("}")[0]
+            self.assertNotIn("scale(1.", block, selector)
+            self.assertIn("translateY(-", block, selector)
+
+    def test_every_animation_is_disabled_for_reduced_motion(self):
+        block = theme.STYLESHEET.split("@media (prefers-reduced-motion: reduce) {")[1]
+        self.assertIn("animation: none !important", block)
+        self.assertIn("transition: none !important", block)
+
+    def test_the_entrance_is_opt_in(self):
+        # Guarded by no-preference, so it never runs for someone who opted out.
+        self.assertIn("@media (prefers-reduced-motion: no-preference)", theme.STYLESHEET)
+        head, _sep, tail = theme.STYLESHEET.partition("@keyframes rise")
+        self.assertIn("no-preference", head.rsplit("@media", 1)[-1])
+
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

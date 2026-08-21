@@ -54,6 +54,16 @@ STYLESHEET = """
   --green: #34c46b;
   --line: rgba(110, 110, 110, .20);
   --shadow-rgb: 27, 29, 33;
+  /* One motion vocabulary for the whole site. Buttons, cards and the nav all
+     use these, so nothing feels like it came from a different page. */
+  --ease: cubic-bezier(.2, .7, .3, 1);
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --dur-fast: .14s;
+  --dur: .24s;
+  --dur-slow: .45s;
+  --lift-1: 0 1px 2px rgb(var(--shadow-rgb) / .08), 0 2px 6px rgb(var(--shadow-rgb) / .06);
+  --lift-2: 0 2px 4px rgb(var(--shadow-rgb) / .10), 0 8px 20px rgb(var(--shadow-rgb) / .12);
+  --lift-3: 0 4px 8px rgb(var(--shadow-rgb) / .12), 0 18px 40px rgb(var(--shadow-rgb) / .18);
   --card-radius: 1.875rem;
   --img-radius: 1.25rem;
   --page-max: 1240px;
@@ -145,14 +155,14 @@ a { color: inherit; }
   --nav-pad: .75rem;
   position: relative; text-decoration: none; font-weight: 500; font-size: 1.0625rem;
   color: var(--grey); padding: .5rem var(--nav-pad); white-space: nowrap;
-  transition: color .15s ease;
+  transition: color var(--dur) var(--ease);
 }
 .topbar nav a:hover, .topbar nav a[aria-current="page"] { color: var(--ink); }
 /* The orange underline that grows in on hover is the BIG Games nav signature. */
 .topbar nav a::before {
   content: ""; position: absolute; left: var(--nav-pad); bottom: -.35rem; height: 2px; width: 0;
   background: var(--brand-ramp); border-radius: 100px 100px 0 0; opacity: 0;
-  transition: width .2s ease, opacity .2s ease;
+  transition: width var(--dur) var(--ease), opacity var(--dur) var(--ease);
 }
 .topbar nav a:hover::before { width: calc(100% - var(--nav-pad) * 2); opacity: 1; }
 .topbar nav a[aria-current="page"]::before { width: calc(100% - var(--nav-pad) * 2); opacity: 1; }
@@ -162,11 +172,12 @@ a { color: inherit; }
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: .4375rem;
   font-weight: 700; text-decoration: none; border: 0; cursor: pointer;
-  border-radius: 999px; transition: transform .2s ease, filter .2s ease, background .2s ease;
-  box-shadow: 0 3px 6px 0 rgb(var(--shadow-rgb) / .15);
+  border-radius: 999px; box-shadow: var(--lift-1);
+  transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease),
+              filter var(--dur) var(--ease);
 }
-.btn:hover { transform: scale(1.05); filter: brightness(1.06); }
-.btn:active { transform: scale(.96); }
+.btn:hover { transform: translateY(-1px); box-shadow: var(--lift-2); filter: brightness(1.04); }
+.btn:active { transform: translateY(0) scale(.985); box-shadow: var(--lift-1); }
 .btn-orange { background: var(--brand-ramp); color: #fff; height: 3.125rem; padding: 0 1.5rem; font-size: 1.0625rem; }
 .btn-sm { height: 2.5rem; padding: 0 1.125rem; font-size: .95rem; }
 
@@ -198,7 +209,7 @@ a { color: inherit; }
 }
 
 /* The body is centred, one beat per line — that rhythm is the whole look. */
-.post-body { text-align: center; }
+.post-body { text-align: center; overflow-wrap: anywhere; }
 .post-body p { margin: 0 0 .55rem; font-size: 1.0625rem; color: var(--text-muted); }
 .post-body strong { color: var(--ink); font-weight: 700; }
 .post-body em, .post-body i { color: var(--grey); }
@@ -309,16 +320,32 @@ a { color: inherit; }
 @media (min-width: 640px) { .hero-cta { flex-direction: row; justify-content: center; } }
 @media (min-width: 1024px) { .hero-cta { justify-content: flex-start; } }
 .cta {
-  display: inline-flex; align-items: center; justify-content: center;
+  position: relative; display: inline-flex; align-items: center; justify-content: center;
   height: 3.125rem; padding: 0 1.75rem; border-radius: 999px;
   font-weight: 700; font-size: 1.0625rem; text-decoration: none;
-  transition: transform .2s ease, filter .2s ease;
+  letter-spacing: -.005em;
+  transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease),
+              background-position var(--dur-slow) var(--ease), border-color var(--dur) var(--ease);
 }
-@media (min-width: 1024px) { .cta { height: 3.75rem; padding: 0 2rem; } }
-.cta:hover { transform: translateY(-2px); filter: brightness(1.08); }
-.cta:active { transform: scale(.96); }
-.cta-primary { background: var(--brand-ramp); color: #fff; box-shadow: 0 8px 24px rgba(240, 96, 0, .28); }
-.cta-ghost { background: var(--surface); color: var(--ink); border: 1px solid var(--line); }
+@media (min-width: 1024px) { .cta { height: 3.5rem; padding: 0 2rem; } }
+.cta:active { transform: translateY(0) scale(.985); }
+/* The ramp is oversized and slides on hover, which reads as depth rather than
+   the button jumping at the cursor. */
+.cta-primary {
+  background: var(--brand-ramp); background-size: 200% 100%; background-position: 0% 50%;
+  color: #fff; box-shadow: 0 4px 10px rgba(200, 60, 0, .22), 0 12px 28px rgba(200, 60, 0, .18);
+}
+.cta-primary:hover {
+  transform: translateY(-2px); background-position: 100% 50%;
+  box-shadow: 0 6px 14px rgba(200, 60, 0, .26), 0 18px 40px rgba(200, 60, 0, .24);
+}
+.cta-ghost {
+  background: var(--surface); color: var(--ink);
+  border: 1px solid var(--line); box-shadow: var(--lift-1);
+}
+.cta-ghost:hover {
+  transform: translateY(-2px); border-color: var(--brand-orange); box-shadow: var(--lift-2);
+}
 
 /* The framed featured card on the right of the hero. */
 .hero-feature { position: relative; width: 100%; }
@@ -327,14 +354,17 @@ a { color: inherit; }
   display: block; overflow: hidden; border-radius: 2rem; padding: .75rem;
   background: var(--surface); text-decoration: none;
   box-shadow: 0 20px 50px rgb(var(--shadow-rgb) / .16);
-  transition: transform .3s ease;
+  transition: transform var(--dur-slow) var(--ease-out), box-shadow var(--dur-slow) var(--ease-out);
 }
-.hero-feature a:hover { transform: scale(1.02); }
+.hero-feature a:hover { transform: translateY(-4px); box-shadow: var(--lift-3); }
 .hero-feature .frame {
   position: relative; overflow: hidden; aspect-ratio: 16 / 9;
   border-radius: 1.5rem; background: var(--surface-raised);
 }
-.hero-feature .frame img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: transform .5s ease; }
+.hero-feature .frame img {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+  transition: transform var(--dur-slow) var(--ease-out);
+}
 .hero-feature a:hover .frame img { transform: scale(1.04); }
 .hero-feature .veil {
   position: absolute; inset: 0 0 auto 0; padding: .9rem 1.25rem 2rem;
@@ -386,22 +416,24 @@ a { color: inherit; }
   display: flex; flex-direction: column; gap: .75rem;
   padding: 1rem 0 1.25rem; text-decoration: none; color: inherit;
   max-width: 480px; width: 100%; margin: 0 auto;
-  transition: transform .2s ease;
+  transition: transform var(--dur) var(--ease);
 }
-@media (min-width: 1024px) { .card:hover { transform: translateY(-4px); } }
+@media (min-width: 1024px) { .card:hover { transform: translateY(-6px); } }
 
 /* Blurred, scaled copy of the art fills the tile; a crisp square sits on top. */
 .card-thumb {
   position: relative; overflow: hidden; width: 100%;
   aspect-ratio: 13 / 8; border-radius: var(--card-radius);
   background: var(--surface-raised);
-  transition: box-shadow .2s ease;
+  transition: box-shadow var(--dur) var(--ease);
 }
 .card:hover .card-thumb { box-shadow: 0 0 0 2px var(--brand-orange), 0 18px 40px rgb(var(--shadow-rgb) / .18); }
 .card-thumb .blur {
   position: absolute; inset: 0; width: 100%; height: 100%;
   object-fit: cover; filter: blur(18px) saturate(1.15); transform: scale(1.18);
+  transition: transform var(--dur-slow) var(--ease-out);
 }
+.card:hover .card-thumb .blur { transform: scale(1.24); }
 /* Warms the blurred backdrop toward the brand so every card reads as a set. */
 .card-thumb::after {
   content: ""; position: absolute; inset: 0; pointer-events: none;
@@ -413,7 +445,7 @@ a { color: inherit; }
 }
 .card-thumb .icon {
   width: 50%; aspect-ratio: 1 / 1; object-fit: cover;
-  border-radius: 1.25rem; transition: transform .2s ease;
+  border-radius: 1.25rem; transition: transform var(--dur-slow) var(--ease-out);
 }
 @media (min-width: 1024px) { .card:hover .card-thumb .icon { transform: scale(1.05); } }
 
@@ -452,11 +484,12 @@ a { color: inherit; }
   display: inline-flex; align-items: center; justify-content: center;
   height: 3.125rem; min-width: 8.5rem; padding: 0 1.5rem; border-radius: 999px;
   color: #fff; font-weight: 700; font-size: 1.0625rem; text-decoration: none;
-  box-shadow: 0 3px 6px 0 rgb(var(--shadow-rgb) / .15);
-  transition: transform .2s ease, filter .2s ease;
+  box-shadow: var(--lift-1);
+  transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease),
+              filter var(--dur) var(--ease);
 }
-.social-btn:hover { transform: translateY(-2px); filter: brightness(1.1); }
-.social-btn:active { transform: scale(.96); }
+.social-btn:hover { transform: translateY(-2px); box-shadow: var(--lift-2); filter: brightness(1.06); }
+.social-btn:active { transform: translateY(0) scale(.985); box-shadow: var(--lift-1); }
 .social-btn.discord { background: #5865f2; }
 .social-btn.apply { background: var(--brand-ramp); }
 .social-btn.reddit { background: #ff4500; }
@@ -511,7 +544,7 @@ a { color: inherit; }
   display: inline-flex; align-items: center; justify-content: center;
   height: 1.75rem; width: 2.25rem; border: 0; cursor: pointer; padding: 0;
   border-radius: 999px; background: transparent; color: var(--grey);
-  transition: background .15s ease, color .15s ease;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 .theme-switch button:hover { color: var(--ink); }
 .theme-switch button[aria-checked="true"] { background: var(--orange); color: #fff; }
@@ -527,7 +560,7 @@ a { color: inherit; }
 @media (min-width: 768px) { .doc-head h1 { font-size: 3rem; } }
 .page-tagline { margin: .75rem 0 0; font-size: 1.125rem; color: var(--text-muted); line-height: 1.5; }
 
-.doc-body { color: var(--text-muted); }
+.doc-body { color: var(--text-muted); overflow-wrap: anywhere; }
 .doc-body h2 {
   margin: 2.5rem 0 .75rem; font-size: 1.625rem; font-weight: 700;
   color: var(--orange); letter-spacing: -.01em; line-height: 1.2;
@@ -543,7 +576,13 @@ a { color: inherit; }
 .doc-body strong { color: var(--ink); font-weight: 700; }
 .doc-body ul, .doc-body ol { margin: .5rem 0 1.1rem; padding-left: 1.35rem; }
 .doc-body li { margin: .3rem 0; line-height: 1.55; }
-.doc-body a { color: var(--orange-deep); }
+.doc-body a, .post-body a {
+  color: var(--orange-deep); text-decoration: none;
+  background-image: linear-gradient(currentColor, currentColor);
+  background-repeat: no-repeat; background-position: 0 100%; background-size: 0% 1.5px;
+  transition: background-size var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.doc-body a:hover, .post-body a:hover { background-size: 100% 1.5px; }
 .doc-body hr { border: 0; border-top: 1px solid var(--line); margin: 2rem 0; }
 .doc-body code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em;
@@ -608,7 +647,27 @@ a { color: inherit; }
 .notfound h1 { margin: 0; font-size: 4.5rem; font-weight: 800; color: var(--ink); }
 .notfound p { color: var(--grey); }
 
-a:focus-visible, button:focus-visible { outline: 2px solid var(--orange); outline-offset: 3px; }
+a:focus-visible, button:focus-visible {
+  outline: 2px solid var(--brand-orange); outline-offset: 3px; border-radius: 4px;
+}
+::selection { background: rgba(240, 96, 0, .22); color: var(--ink); }
+
+/* Content settles in on load. Opt-in only: prefers-reduced-motion below turns
+   every animation off, and nothing depends on these having run. */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: none; }
+  }
+  .hero-copy > *, .hero-feature, .featured-inner > *, .doc-head, .post-head, .post-topline {
+    animation: rise var(--dur-slow) var(--ease-out) both;
+  }
+  .hero-copy > *:nth-child(2) { animation-delay: .05s; }
+  .hero-copy > *:nth-child(3) { animation-delay: .1s; }
+  .hero-copy > *:nth-child(4) { animation-delay: .15s; }
+  .hero-feature { animation-delay: .12s; }
+  .featured-inner > *:nth-child(2) { animation-delay: .06s; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
