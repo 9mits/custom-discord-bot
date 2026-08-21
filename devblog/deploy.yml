@@ -1,0 +1,61 @@
+name: Dev Blog
+
+on:
+  push:
+    branches: ["main"]
+    paths: ["devblog/**", ".github/workflows/devblog.yml"]
+  pull_request:
+    branches: ["main"]
+    paths: ["devblog/**", ".github/workflows/devblog.yml"]
+  workflow_dispatch:
+
+# Allow one deploy at a time; a newer push supersedes a queued one.
+concurrency:
+  group: "devblog-pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r devblog/requirements.txt pyflakes
+
+      - name: Lint
+        run: python3 -m pyflakes devblog/
+
+      - name: Tests
+        run: python3 devblog/tests/test_build.py
+
+      - name: Build site
+        env:
+          # Set the repo variable DEVBLOG_SITE_URL once a custom domain is live.
+          DEVBLOG_SITE_URL: ${{ vars.DEVBLOG_SITE_URL || format('https://{0}.github.io/{1}', github.repository_owner, github.event.repository.name) }}
+        run: python3 devblog/build.py
+
+      - name: Upload Pages artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: devblog/dist
+
+  deploy:
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
