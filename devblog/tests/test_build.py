@@ -414,5 +414,74 @@ class RelatedTests(unittest.TestCase):
 
 
 
+class SocialLinkTests(unittest.TestCase):
+    """The one table that feeds both the sidebar grid and the footer column."""
+
+    FIELDS = ("DISCORD_URL", "APPLY_URL", "REDDIT_URL", "TWITTER_URL", "YOUTUBE_URL")
+
+    def setUp(self):
+        self._saved = {f: getattr(theme, f) for f in self.FIELDS}
+        for f in self.FIELDS:
+            setattr(theme, f, "")
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        for f, v in self._saved.items():
+            setattr(theme, f, v)
+
+    def test_unset_links_are_dropped(self):
+        self.assertEqual(theme._social_links(), [])
+
+    def test_only_set_links_come_back(self):
+        theme.REDDIT_URL = "https://reddit.com/r/example"
+        self.assertEqual(
+            theme._social_links(), [("https://reddit.com/r/example", "Reddit", "reddit")]
+        )
+
+    def test_order_is_stable(self):
+        theme.DISCORD_URL = "d"
+        theme.REDDIT_URL = "r"
+        theme.YOUTUBE_URL = "y"
+        self.assertEqual([label for _, label, _ in theme._social_links()],
+                         ["Discord", "Reddit", "YouTube"])
+
+    def test_reddit_reaches_the_sidebar_and_the_footer(self):
+        theme.REDDIT_URL = "https://reddit.com/r/example"
+        page = theme.render_post(
+            _stub_post(), "<p>x</p>", None, "", "https://e.com"
+        )
+        self.assertIn('class="side-btn reddit"', page)
+        self.assertEqual(page.count("https://reddit.com/r/example"), 2)
+
+    def test_an_even_grid_is_not_marked_odd(self):
+        theme.DISCORD_URL = "d"
+        theme.REDDIT_URL = "r"
+        page = theme.render_post(_stub_post(), "<p>x</p>", None, "", "https://e.com")
+        self.assertIn('class="side-row"', page)
+        self.assertNotIn("side-row-odd", page)
+
+    def test_an_odd_grid_is_marked_so_the_last_button_spans(self):
+        theme.DISCORD_URL = "d"
+        page = theme.render_post(_stub_post(), "<p>x</p>", None, "", "https://e.com")
+        self.assertIn("side-row-odd", page)
+        self.assertIn(".side-row-odd > .side-btn:last-child", theme.STYLESHEET)
+
+    def test_no_sidebar_at_all_when_nothing_is_configured(self):
+        saved = theme.SERVER_ADDRESS
+        theme.SERVER_ADDRESS = ""
+        try:
+            page = theme.render_post(_stub_post(), "<p>x</p>", None, "", "https://e.com")
+            self.assertNotIn('<aside class="sidebar">', page)
+        finally:
+            theme.SERVER_ADDRESS = saved
+
+
+def _stub_post():
+    path = Path("2026-08-21-fiesta-forever.md")
+    meta, body = build.parse_front_matter(VALID, path)
+    return build.Post(path, meta, body)
+
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

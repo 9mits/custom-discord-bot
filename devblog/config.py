@@ -24,7 +24,11 @@ SERVER_EDITIONS = "Java & Bedrock"
 SERVER_VERSION = ""            # e.g. "1.21.1"
 
 # --- links ------------------------------------------------------------------
-DISCORD_URL = ""               # e.g. "https://discord.gg/xxxxxxx"
-APPLY_URL = ""                 # e.g. a whitelist application form
+DISCORD_URL = "https://discord.gg/mgx"
+APPLY_URL = (
+    "https://discord.com/channels/1476839721731620938"
+    "/1537882766597955594/1538269923988471919"
+)
+REDDIT_URL = ""                # e.g. "https://reddit.com/r/yoursub"
 YOUTUBE_URL = ""
-TWITTER_URL = ""
+TWITTER_URL = "https://x.com/mgxarchives"
