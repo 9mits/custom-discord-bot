@@ -45,6 +45,12 @@ STYLESHEET = """
   --grey: #8b93a1;
   --orange: #ff9d43;
   --orange-deep: #ef8420;
+  /* Sampled from the logo art: a red-to-amber ramp with a deep red shadow. */
+  --brand-red: #f03000;
+  --brand-orange: #f06000;
+  --brand-amber: #f09030;
+  --brand-deep: #a01000;
+  --brand-ramp: linear-gradient(100deg, var(--brand-red), var(--brand-orange) 45%, var(--brand-amber));
   --blue: #3b82f6;
   --green: #34c46b;
   --line: rgba(110, 110, 110, .20);
@@ -110,6 +116,9 @@ a { color: inherit; }
 }
 
 /* ===== top bar =========================================================== */
+/* Brand ramp pinned above the nav — the first thing that reads as "ours". */
+.brandbar { height: 3px; background: var(--brand-ramp); }
+
 .topbar {
   position: sticky; top: 0; z-index: 200;
   background: color-mix(in srgb, var(--page-bg) 78%, transparent);
@@ -141,7 +150,7 @@ a { color: inherit; }
 /* The orange underline that grows in on hover is the BIG Games nav signature. */
 .topbar nav a::before {
   content: ""; position: absolute; left: .75rem; bottom: -.35rem; height: 2px; width: 0;
-  background: var(--orange); border-radius: 100px 100px 0 0; opacity: 0;
+  background: var(--brand-ramp); border-radius: 100px 100px 0 0; opacity: 0;
   transition: width .2s ease, opacity .2s ease;
 }
 .topbar nav a:hover::before { width: calc(100% - 1.5rem); opacity: 1; }
@@ -157,11 +166,11 @@ a { color: inherit; }
 }
 .btn:hover { transform: scale(1.05); filter: brightness(1.06); }
 .btn:active { transform: scale(.96); }
-.btn-orange { background: var(--orange); color: #fff; height: 3.125rem; padding: 0 1.5rem; font-size: 1.0625rem; }
+.btn-orange { background: var(--brand-ramp); color: #fff; height: 3.125rem; padding: 0 1.5rem; font-size: 1.0625rem; }
 .btn-sm { height: 2.5rem; padding: 0 1.125rem; font-size: .95rem; }
 
 /* ===== post layout ======================================================= */
-.post-layout { display: flex; align-items: flex-start; gap: 5rem; padding-top: 2.5rem; }
+.post-layout { display: flex; align-items: flex-start; gap: 5rem; padding-top: 2rem; }
 .post-main { flex: 1; min-width: 0; }
 
 .post-topline {
@@ -176,7 +185,7 @@ a { color: inherit; }
 }
 .post-date { font-weight: 600; color: var(--text-muted); font-size: .95rem; }
 
-.post-head { padding-bottom: 1.5rem; }
+.post-head { padding-bottom: 1rem; }
 .post-title {
   margin: 0; font-size: 2.25rem; line-height: 1.1; font-weight: 700;
   letter-spacing: -.02em; color: var(--ink); text-wrap: balance;
@@ -206,12 +215,21 @@ a { color: inherit; }
 }
 .post-body h4 { margin: 1.25rem 0 .5rem; font-size: 1.0625rem; font-weight: 700; color: var(--ink); }
 
-.post-body figure.shot { margin: 1.5rem 0 1.75rem; }
+.post-body figure.shot { margin: 1.75rem 0 2rem; }
+/* width:auto with both maxes means a wide screenshot fills the column while a
+   square logo is capped instead of blowing up to 730x730 and eating the page.
+   Nothing is ever upscaled past its natural size, so nothing goes soft. */
 .post-body figure.shot img {
-  width: 100%; border-radius: var(--img-radius);
-  box-shadow: 0 15px 35px rgb(var(--shadow-rgb) / .10);
+  width: auto; max-width: 100%; max-height: 26rem;
+  margin-left: auto; margin-right: auto;
+  border-radius: var(--img-radius);
+  box-shadow: 0 15px 35px rgb(var(--shadow-rgb) / .12);
 }
 .post-body figure.shot img + img { margin-top: .875rem; }
+
+/* The opening image is allowed a little more height than an inline one. */
+.post-body figure.shot.hero { margin-top: .5rem; }
+.post-body figure.shot.hero img { max-height: 30rem; }
 
 .post-body ul, .post-body ol { display: inline-block; text-align: left; margin: .5rem 0 1rem; padding-left: 1.35rem; }
 .post-body li { margin: .2rem 0; }
@@ -289,7 +307,7 @@ a { color: inherit; }
 }
 .side-btn:hover { transform: translateY(-2px); filter: brightness(1.1); }
 .side-btn.discord { background: #5865f2; }
-.side-btn.apply { background: var(--orange); }
+.side-btn.apply { background: var(--brand-ramp); }
 
 .side-facts {
   background: var(--surface); border: 1px solid var(--line);
@@ -300,11 +318,24 @@ a { color: inherit; }
 .side-facts dd { margin: 0; color: var(--ink); font-size: .9375rem; font-weight: 700; text-align: right; }
 
 /* ===== index ============================================================= */
-.masthead { padding: 3.5rem 0 2rem; text-align: center; }
-.masthead img { width: 5.5rem; height: 5.5rem; margin: 0 auto 1rem; border-radius: 1.25rem; }
+.masthead { position: relative; padding: 3.5rem 0 2.5rem; text-align: center; }
+/* Soft brand glow behind the wordmark. */
+.masthead::before {
+  content: ""; position: absolute; left: 50%; top: 0;
+  width: min(46rem, 100%); height: 22rem; transform: translateX(-50%);
+  background: radial-gradient(closest-side, rgba(240, 96, 0, .18), transparent 72%);
+  pointer-events: none; z-index: 0;
+}
+.masthead > * { position: relative; z-index: 1; }
+.masthead img {
+  width: auto; height: auto; max-width: 20rem; max-height: 5.5rem;
+  margin: 0 auto 1.25rem; border-radius: 0;
+}
 .masthead h1 {
   margin: 0 0 .5rem; font-size: 2.75rem; font-weight: 800;
-  letter-spacing: -.03em; color: var(--ink); line-height: 1.05;
+  letter-spacing: -.03em; line-height: 1.05;
+  background: var(--brand-ramp); -webkit-background-clip: text;
+  background-clip: text; color: transparent;
 }
 @media (min-width: 768px) { .masthead h1 { font-size: 3.5rem; } }
 .masthead p { margin: 0 auto; max-width: 34rem; color: var(--text-muted); font-size: 1.125rem; }
@@ -328,13 +359,19 @@ a { color: inherit; }
   background: var(--surface-raised);
   transition: box-shadow .2s ease;
 }
-.card:hover .card-thumb { box-shadow: 0 0 0 1px var(--orange), 0 18px 40px rgb(var(--shadow-rgb) / .16); }
+.card:hover .card-thumb { box-shadow: 0 0 0 2px var(--brand-orange), 0 18px 40px rgb(var(--shadow-rgb) / .18); }
 .card-thumb .blur {
   position: absolute; inset: 0; width: 100%; height: 100%;
-  object-fit: cover; filter: blur(12px); transform: scale(1.1);
+  object-fit: cover; filter: blur(18px) saturate(1.15); transform: scale(1.18);
+}
+/* Warms the blurred backdrop toward the brand so every card reads as a set. */
+.card-thumb::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background: linear-gradient(160deg, rgba(240, 48, 0, .12), rgba(240, 144, 48, .06));
 }
 .card-thumb .icon-wrap {
-  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  position: absolute; inset: 0; z-index: 1;
+  display: flex; align-items: center; justify-content: center;
 }
 .card-thumb .icon {
   width: 50%; aspect-ratio: 1 / 1; object-fit: cover;
@@ -367,6 +404,10 @@ a { color: inherit; }
 
 /* ===== footer ============================================================ */
 .site-footer { margin-top: 3rem; padding: 0 var(--rail) 3rem; }
+.site-footer::before {
+  content: ""; display: block; height: 2px; max-width: var(--page-max);
+  margin: 0 auto; background: var(--brand-ramp); opacity: .55; border-radius: 2px;
+}
 .footer-inner { max-width: var(--page-max); margin: 0 auto; }
 .footer-cols { display: flex; gap: 3rem; justify-content: space-evenly; padding: 2rem 0; }
 @media (min-width: 1024px) { .footer-cols { justify-content: flex-end; gap: 5rem; } }
@@ -380,7 +421,7 @@ a { color: inherit; }
 
 .footer-base { display: flex; flex-direction: column; gap: .75rem; align-items: center; padding-top: 1.5rem; }
 @media (min-width: 1024px) { .footer-base { align-items: flex-start; } }
-.footer-base img.mark { width: 2.35rem; height: 2.35rem; border-radius: .625rem; }
+.footer-base img.mark { width: auto; height: auto; max-width: 11rem; max-height: 2.75rem; opacity: .9; }
 .footer-base p { margin: 0; color: var(--text-muted); font-weight: 500; font-size: .9375rem; }
 .footer-addr {
   display: inline-block; padding: .25rem .75rem; border-radius: 999px;
@@ -654,9 +695,10 @@ def _footer(prefix: str) -> str:
         '<footer class="site-footer"><div class="footer-inner">'
         '<div class="footer-cols">%s</div>'
         '<div class="footer-base">'
-        '<img class="mark" src="%sassets/icon.png" alt="">'
+        '<img class="mark" src="%sassets/logo.png" alt="%s">'
         "%s<p>&copy; %s</p>%s</div>"
-        "</div></footer>" % ("".join(cols), prefix, address, _esc(SITE_NAME), switch)
+        "</div></footer>"
+        % ("".join(cols), prefix, _esc(SITE_NAME), address, _esc(SITE_NAME), switch)
     )
 
 
@@ -665,9 +707,10 @@ def _page(title: str, description: str, prefix: str, body: str,
           scripts: str = "") -> str:
     return (
         "<!doctype html>\n"
-        '<html lang="en">\n<head>\n%s\n</head>\n<body>\n%s\n%s\n%s\n%s%s\n</body>\n</html>\n'
+        '<html lang="en">\n<head>\n%s\n</head>\n<body>\n%s%s\n%s\n%s\n%s%s\n</body>\n</html>\n'
         % (
             _head(title, description, prefix, og_image, url),
+            '<div class="brandbar"></div>',
             _topbar(prefix, current),
             body,
             _footer(prefix),
@@ -709,7 +752,8 @@ def render_post(post, body_html: str, hero: Optional[str], prefix: str, site_url
                 related: Sequence[Dict[str, object]] = ()) -> str:
     tagline = '<p class="post-tagline">%s</p>' % _esc(post.tagline) if post.tagline else ""
     hero_block = (
-        '<figure class="shot"><img src="%s" alt="%s"></figure>' % (_esc(hero), _esc(post.title))
+        '<figure class="shot hero"><img src="%s" alt="%s"></figure>'
+        % (_esc(hero), _esc(post.title))
         if hero
         else ""
     )

@@ -16,7 +16,7 @@ Now every change gets a **permanent page** with **screenshots**, **numbers**, an
 
 *Bookmark it. Link it in arguments.*
 
-![](rules.png)
+![](apply.png)
 
 ## What Lands Here
 
@@ -40,7 +40,7 @@ What broke, what we tried, and what we'd do differently.
 
 *The honest version.*
 
-![](apply.png)
+![](rules.png)
 
 ## How to Follow
 

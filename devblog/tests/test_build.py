@@ -137,6 +137,10 @@ class RenderTests(unittest.TestCase):
         html = build.render_body(self.post, "")
         self.assertIn('<figure class="shot">', html)
 
+    def test_hero_figure_is_marked_as_the_hero(self):
+        html = theme.render_post(self.post, "<p>x</p>", "hero.png", "", "https://e.com")
+        self.assertIn('<figure class="shot hero">', html)
+
     def test_single_newlines_become_line_breaks(self):
         html = build.render_body(self.post, "")
         self.assertIn("<br", html)
@@ -268,6 +272,33 @@ class ThemeTests(unittest.TestCase):
     def test_stylesheet_defines_light_and_dark(self):
         self.assertIn("prefers-color-scheme: dark", theme.STYLESHEET)
         self.assertIn('[data-theme="dark"]', theme.STYLESHEET)
+
+    def test_shot_images_are_height_capped(self):
+        # The bug this guards: a square 512x512 logo used as art was upscaled to
+        # the full 730px column and swallowed the page.
+        css = theme.STYLESHEET
+        block = css.split(".post-body figure.shot img {")[1].split("}")[0]
+        decls = [d.strip() for d in block.split(";") if d.strip()]
+        self.assertIn("width: auto", decls)
+        self.assertIn("max-width: 100%", decls)
+        self.assertNotIn("width: 100%", decls)
+        self.assertTrue(any(d.startswith("max-height:") for d in decls), decls)
+
+    def test_hero_gets_its_own_height_cap(self):
+        self.assertIn(".post-body figure.shot.hero img", theme.STYLESHEET)
+
+    def test_masthead_logo_keeps_its_aspect(self):
+        block = theme.STYLESHEET.split(".masthead img {")[1].split("}")[0]
+        self.assertIn("width: auto", block)
+        self.assertIn("height: auto", block)
+
+    def test_brand_ramp_is_defined_and_used(self):
+        self.assertIn("--brand-ramp:", theme.STYLESHEET)
+        self.assertIn(".brandbar", theme.STYLESHEET)
+        self.assertIn('<div class="brandbar"></div>', theme.render_404(prefix="/"))
+
+    def test_footer_uses_the_wordmark(self):
+        self.assertIn('class="mark" src="/assets/logo.png"', theme.render_404(prefix="/"))
 
 
 class PostFieldTests(unittest.TestCase):
