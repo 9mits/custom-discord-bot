@@ -337,7 +337,7 @@ Milestones add up — the figure beside each role is your total
 
 `/perks` — your level, hearts and damage bonus
 The sidebar shows the same while you play
-How levelling works: https://discord.com/channels/1476839721731620938/1476839722734190647
+How levelling works: [read it in Discord](https://discord.com/channels/1476839721731620938/1476839722734190647)
 
 ## Boosting
 

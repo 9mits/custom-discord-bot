@@ -87,10 +87,31 @@ def discord_to_markdown(text: str, role_labels: dict) -> str:
     out = re.sub(r"<@&(\d+)>", role, out)
     for before, after in WEB_REWRITES:
         out = out.replace(before, after)
+    out = _link_bare_urls(out)
     leftover = re.search(r"<[@#][!&]?\d+>", out)
     if leftover:
         raise SystemExit("Unresolved Discord mention %r in the bot copy." % leftover.group(0))
     return out.strip()
+
+
+def _link_bare_urls(text: str) -> str:
+    """Give every bare URL link text, so none of them can widen the page.
+
+    A raw URL is fine in Discord, which renders it as a chip. In HTML it is one
+    unbreakable token — the guide's Discord channel link is 68 characters, which
+    is wider than a phone.
+    """
+    def repl(match: "re.Match[str]") -> str:
+        url = match.group(0).rstrip(".,")
+        trailing = match.group(0)[len(url):]
+        if "discord.com/channels" in url:
+            label = "read it in Discord"
+        else:
+            label = re.sub(r"^www\.", "", url.split("/")[2])
+        return "[%s](%s)%s" % (label, url, trailing)
+
+    # Skip URLs already inside a markdown link, i.e. preceded by "(".
+    return re.sub(r"(?<!\()https?://[^\s)\]]+", repl, text)
 
 
 def embed_to_markdown(embed, role_labels: dict, level: int = 2) -> str:
