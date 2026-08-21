@@ -18,7 +18,7 @@ pip install -r devblog/requirements.txt
 python devblog/build.py                 # writes devblog/dist/
 python devblog/build.py --serve         # build, then http://127.0.0.1:8000
 python devblog/build.py --drafts        # include posts marked draft
-python devblog/tests/test_build.py      # 50 tests
+python devblog/tests/test_build.py      # 63 tests
 ```
 
 `dist/` is git-ignored — the workflow rebuilds it. Never commit it.
@@ -108,8 +108,7 @@ link or an empty box — so the site is honest before you have filled it in.
 | `SERVER_ADDRESS` | The whole sticky server card, its Copy IP button, and the footer address. Empty hides the card. |
 | `SERVER_EDITIONS` / `SERVER_VERSION` | The stat row inside the server card. |
 | `DISCORD_URL` | Top-bar button, sidebar button, footer link. |
-| `APPLY_URL` | Sidebar button and footer link. |
-| `YOUTUBE_URL` / `TWITTER_URL` | Footer links. |
+| `APPLY_URL`, `REDDIT_URL`, `TWITTER_URL`, `YOUTUBE_URL` | A brand-coloured button each in the sidebar grid, plus a footer link. Set order is fixed; unset ones vanish and the grid re-flows. |
 | `DEFAULT_CATEGORY` | The pill on posts that do not set `category`. |
 | `DEFAULT_SITE_URL` | Feed and share tags. CI overrides it with the `DEVBLOG_SITE_URL` repo variable. |
 

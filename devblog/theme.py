@@ -18,6 +18,7 @@ from config import (
     APPLY_URL,
     DEFAULT_CATEGORY,
     DISCORD_URL,
+    REDDIT_URL,
     SERVER_ADDRESS,
     SERVER_EDITIONS,
     SERVER_VERSION,
@@ -297,7 +298,6 @@ a { color: inherit; }
 .btn-join.copied { background: var(--green); }
 
 .side-row { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
-.side-row-single { grid-template-columns: 1fr; }
 .side-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: .5rem;
   height: 3.125rem; border-radius: 1rem; text-decoration: none;
@@ -308,6 +308,11 @@ a { color: inherit; }
 .side-btn:hover { transform: translateY(-2px); filter: brightness(1.1); }
 .side-btn.discord { background: #5865f2; }
 .side-btn.apply { background: var(--brand-ramp); }
+.side-btn.reddit { background: #ff4500; }
+.side-btn.youtube { background: #ff0000; }
+.side-btn.x { background: #101215; border: 1px solid rgba(255, 255, 255, .18); }
+/* A trailing odd button spans both columns so the grid never ends ragged. */
+.side-row-odd > .side-btn:last-child { grid-column: 1 / -1; }
 
 .side-facts {
   background: var(--surface); border: 1px solid var(--line);
@@ -605,6 +610,21 @@ def _topbar(prefix: str, current: str = "") -> str:
     )
 
 
+def _social_links() -> List["tuple[str, str, str]"]:
+    """(url, label, css class) for every social that has actually been set."""
+    return [
+        (url, label, cls)
+        for url, label, cls in (
+            (DISCORD_URL, "Discord", "discord"),
+            (APPLY_URL, "Apply", "apply"),
+            (REDDIT_URL, "Reddit", "reddit"),
+            (TWITTER_URL, "X", "x"),
+            (YOUTUBE_URL, "YouTube", "youtube"),
+        )
+        if url
+    ]
+
+
 def _sidebar(prefix: str) -> str:
     """The sticky right rail: server card, join button, links."""
     blocks: List[str] = []
@@ -634,16 +654,15 @@ def _sidebar(prefix: str) -> str:
             % (_esc(SERVER_ADDRESS), _icon("copy"), _esc(SERVER_ADDRESS))
         )
 
-    row = []
-    if DISCORD_URL:
-        row.append('<a class="side-btn discord" href="%s" rel="noopener">Discord</a>' % _esc(DISCORD_URL))
-    if APPLY_URL:
-        row.append('<a class="side-btn apply" href="%s" rel="noopener">Apply</a>' % _esc(APPLY_URL))
-    if len(row) == 2:
-        blocks.append('<div class="side-row">%s</div>' % "".join(row))
-    elif row:
-        # One link alone spans the rail rather than sitting in a half-width cell.
-        blocks.append('<div class="side-row side-row-single">%s</div>' % row[0])
+    links = _social_links()
+    if links:
+        buttons = "".join(
+            '<a class="side-btn %s" href="%s" rel="noopener">%s</a>' % (cls, _esc(url), _esc(label))
+            for url, label, cls in links
+        )
+        # An odd one out spans the rail rather than sitting in a half-width cell.
+        odd = " side-row-odd" if len(links) % 2 else ""
+        blocks.append('<div class="side-row%s">%s</div>' % (odd, buttons))
 
     if not blocks:
         return ""
@@ -655,12 +674,7 @@ def _footer(prefix: str) -> str:
         ('%sindex.html' % prefix, "Updates"),
         ('%sfeed.xml' % prefix, "RSS feed"),
     ]
-    connect = [(url, label) for url, label in (
-        (DISCORD_URL, "Discord"),
-        (YOUTUBE_URL, "YouTube"),
-        (TWITTER_URL, "Twitter"),
-        (APPLY_URL, "Apply"),
-    ) if url]
+    connect = [(url, label) for url, label, _ in _social_links()]
 
     cols = [
         '<div class="footer-col"><h6>Site</h6><ul>%s</ul></div>'
