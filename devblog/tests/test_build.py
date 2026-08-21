@@ -106,7 +106,7 @@ class PostTests(unittest.TestCase):
         self.assertEqual(post.display_date(), "January 2, 2026")
 
     def test_url_points_at_the_slug_folder(self):
-        self.assertEqual(self.make().url, "posts/fiesta-forever/")
+        self.assertEqual(self.make().url, "fiesta-forever/")
 
 
 class RenderTests(unittest.TestCase):
@@ -116,17 +116,17 @@ class RenderTests(unittest.TestCase):
         self.post = build.Post(path, meta, body)
 
     def test_relative_images_get_the_media_prefix(self):
-        html = build.render_body(self.post, "../../")
-        self.assertIn('src="../../media/fiesta-forever/maze.png"', html)
+        html = build.render_body(self.post, "../")
+        self.assertIn('src="../media/fiesta-forever/maze.png"', html)
 
     def test_absolute_urls_are_left_alone(self):
         html = build.rewrite_media_urls(
-            '<img src="https://cdn.example.com/a.png">', self.post, "../../"
+            '<img src="https://cdn.example.com/a.png">', self.post, "../"
         )
         self.assertIn('src="https://cdn.example.com/a.png"', html)
 
     def test_root_relative_urls_are_left_alone(self):
-        html = build.rewrite_media_urls('<a href="/about/">x</a>', self.post, "../../")
+        html = build.rewrite_media_urls('<a href="/about/">x</a>', self.post, "../")
         self.assertIn('href="/about/"', html)
 
     def test_anchors_are_left_alone(self):
@@ -192,7 +192,7 @@ class BuildTests(unittest.TestCase):
             "feed.xml",
             ".nojekyll",
             "assets/style.css",
-            "posts/fiesta-forever/index.html",
+            "fiesta-forever/index.html",
         ):
             self.assertTrue((dist / expected).exists(), "missing %s" % expected)
 
@@ -231,13 +231,13 @@ class BuildTests(unittest.TestCase):
         build.build("https://example.com/blog")
         feed = (build.DIST_DIR / "feed.xml").read_text(encoding="utf-8")
         self.assertIn("<title>Fiesta Forever</title>", feed)
-        self.assertIn("https://example.com/blog/posts/fiesta-forever/", feed)
+        self.assertIn("https://example.com/blog/fiesta-forever/", feed)
 
     def test_index_links_and_titles_the_post(self):
         self.write("2026-08-21-fiesta-forever.md", VALID)
         build.build("https://example.com")
         page = (build.DIST_DIR / "index.html").read_text(encoding="utf-8")
-        self.assertIn('href="posts/fiesta-forever/"', page)
+        self.assertIn('href="fiesta-forever/"', page)
         self.assertIn("Fiesta Forever", page)
         self.assertIn("August 21, 2026", page)
 
@@ -287,10 +287,12 @@ class ThemeTests(unittest.TestCase):
     def test_hero_gets_its_own_height_cap(self):
         self.assertIn(".post-body figure.shot.hero img", theme.STYLESHEET)
 
-    def test_masthead_logo_keeps_its_aspect(self):
-        block = theme.STYLESHEET.split(".masthead img {")[1].split("}")[0]
+    def test_hero_wordmark_keeps_its_aspect(self):
+        # It is a 3:1 wordmark; forcing it into a square squashed it once before.
+        block = theme.STYLESHEET.split(".hero-copy .wordmark {")[1].split("}")[0]
         self.assertIn("width: auto", block)
         self.assertIn("height: auto", block)
+        self.assertIn("max-height", block)
 
     def test_brand_ramp_is_defined_and_used(self):
         self.assertIn("--brand-ramp:", theme.STYLESHEET)
@@ -322,17 +324,17 @@ class PostFieldTests(unittest.TestCase):
 
     def test_media_url_uses_the_post_slug(self):
         post = self.make("---\ntitle: T\nicon: i.png\n---\n\nbody", "2026-01-01-fiesta.md")
-        self.assertEqual(build.media_url(post, post.icon, "../../"),
-                         "../../media/fiesta/i.png")
+        self.assertEqual(build.media_url(post, post.icon, "../"),
+                         "../media/fiesta/i.png")
 
     def test_media_url_passes_absolute_through(self):
         post = self.make("---\ntitle: T\n---\n\nbody")
-        self.assertEqual(build.media_url(post, "https://x/y.png", "../../"),
+        self.assertEqual(build.media_url(post, "https://x/y.png", "../"),
                          "https://x/y.png")
 
     def test_media_url_is_none_when_unset(self):
         post = self.make("---\ntitle: T\n---\n\nbody")
-        self.assertIsNone(build.media_url(post, "", "../../"))
+        self.assertIsNone(build.media_url(post, "", "../"))
 
 
 class CardTests(unittest.TestCase):
@@ -342,10 +344,10 @@ class CardTests(unittest.TestCase):
         return build.card_for(build.Post(path, meta, body), prefix)
 
     def test_index_card_url_is_relative_to_root(self):
-        self.assertEqual(self.make_card("")["url"], "posts/fiesta-forever/")
+        self.assertEqual(self.make_card("")["url"], "fiesta-forever/")
 
     def test_related_card_url_climbs_out_of_the_post_folder(self):
-        self.assertEqual(self.make_card("../../")["url"], "../../posts/fiesta-forever/")
+        self.assertEqual(self.make_card("../")["url"], "../fiesta-forever/")
 
     def test_card_falls_back_to_the_hero_for_its_icon(self):
         card = self.make_card("")
@@ -394,23 +396,23 @@ class RelatedTests(unittest.TestCase):
         for n in range(1, 4):
             self.write("2026-0%d-01-p%d.md" % (n, n), "Post %d" % n)
         build.build("https://example.com")
-        page = (build.DIST_DIR / "posts/p2/index.html").read_text(encoding="utf-8")
+        page = (build.DIST_DIR / "p2/index.html").read_text(encoding="utf-8")
         self.assertIn("More Updates", page)
-        self.assertNotIn('href="../../posts/p2/"', page)
-        self.assertIn('href="../../posts/p3/"', page)
+        self.assertNotIn('href="../p2/"', page)
+        self.assertIn('href="../p3/"', page)
 
     def test_a_lone_post_has_no_more_updates_strip(self):
         self.write("2026-01-01-only.md", "Only")
         build.build("https://example.com")
-        page = (build.DIST_DIR / "posts/only/index.html").read_text(encoding="utf-8")
+        page = (build.DIST_DIR / "only/index.html").read_text(encoding="utf-8")
         self.assertNotIn("More Updates", page)
 
     def test_related_is_capped_at_three(self):
         for n in range(1, 7):
             self.write("2026-0%d-01-p%d.md" % (n, n), "Post %d" % n)
         build.build("https://example.com")
-        page = (build.DIST_DIR / "posts/p1/index.html").read_text(encoding="utf-8")
-        self.assertEqual(page.count('class="card" href="../../posts/'), 3)
+        page = (build.DIST_DIR / "p1/index.html").read_text(encoding="utf-8")
+        self.assertEqual(page.count('class="card" href="../'), 3)
 
 
 
@@ -445,41 +447,122 @@ class SocialLinkTests(unittest.TestCase):
         self.assertEqual([label for _, label, _ in theme._social_links()],
                          ["Discord", "Reddit", "YouTube"])
 
-    def test_reddit_reaches_the_sidebar_and_the_footer(self):
+    def test_reddit_reaches_the_community_band_and_the_footer(self):
         theme.REDDIT_URL = "https://reddit.com/r/example"
-        page = theme.render_post(
-            _stub_post(), "<p>x</p>", None, "", "https://e.com"
-        )
-        self.assertIn('class="side-btn reddit"', page)
+        page = _home()
+        self.assertIn('class="social-btn reddit"', page)
         self.assertEqual(page.count("https://reddit.com/r/example"), 2)
 
-    def test_an_even_grid_is_not_marked_odd(self):
-        theme.DISCORD_URL = "d"
-        theme.REDDIT_URL = "r"
-        page = theme.render_post(_stub_post(), "<p>x</p>", None, "", "https://e.com")
-        self.assertIn('class="side-row"', page)
-        self.assertNotIn("side-row-odd", page)
-
-    def test_an_odd_grid_is_marked_so_the_last_button_spans(self):
-        theme.DISCORD_URL = "d"
-        page = theme.render_post(_stub_post(), "<p>x</p>", None, "", "https://e.com")
-        self.assertIn("side-row-odd", page)
-        self.assertIn(".side-row-odd > .side-btn:last-child", theme.STYLESHEET)
-
-    def test_no_sidebar_at_all_when_nothing_is_configured(self):
+    def test_the_band_is_dropped_when_nothing_is_configured(self):
         saved = theme.SERVER_ADDRESS
         theme.SERVER_ADDRESS = ""
         try:
-            page = theme.render_post(_stub_post(), "<p>x</p>", None, "", "https://e.com")
-            self.assertNotIn('<aside class="sidebar">', page)
+            self.assertNotIn("Join our community", _home())
         finally:
             theme.SERVER_ADDRESS = saved
+
+    def test_a_server_address_alone_still_renders_the_band(self):
+        saved = theme.SERVER_ADDRESS
+        theme.SERVER_ADDRESS = "play.example.com"
+        try:
+            page = _home()
+            self.assertIn("Join our community", page)
+            self.assertIn('data-copy="play.example.com"', page)
+        finally:
+            theme.SERVER_ADDRESS = saved
+
+    def test_posts_no_longer_carry_a_rail(self):
+        theme.DISCORD_URL = "d"
+        page = theme.render_post(_stub_post(), "<p>x</p>", None, "", "https://e.com")
+        self.assertNotIn("sidebar", page)
+        self.assertNotIn("side-btn", page)
 
 
 def _stub_post():
     path = Path("2026-08-21-fiesta-forever.md")
     meta, body = build.parse_front_matter(VALID, path)
     return build.Post(path, meta, body)
+
+
+def _home():
+    return theme.render_index(
+        featured=build.card_for(_stub_post(), ""), cards=[], prefix="", site_url="https://e.com"
+    )
+
+
+
+class SlugSafetyTests(unittest.TestCase):
+    """Posts sit at the site root now, so slugs share a namespace with assets."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self._saved = (build.POSTS_DIR, build.MEDIA_DIR, build.STATIC_DIR, build.DIST_DIR)
+        build.POSTS_DIR = self.tmp / "posts"
+        build.MEDIA_DIR = self.tmp / "media"
+        build.STATIC_DIR = self.tmp / "static"
+        build.DIST_DIR = self.tmp / "dist"
+        for folder in (build.POSTS_DIR, build.MEDIA_DIR, build.STATIC_DIR):
+            folder.mkdir(parents=True)
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        build.POSTS_DIR, build.MEDIA_DIR, build.STATIC_DIR, build.DIST_DIR = self._saved
+
+    def write(self, name: str, body: str):
+        (build.POSTS_DIR / name).write_text(body, encoding="utf-8")
+
+    def test_a_slug_may_not_shadow_the_assets_folder(self):
+        self.write("2026-01-01-x.md", "---\ntitle: T\nslug: assets\n---\n\nbody")
+        with self.assertRaises(build.PostError):
+            build.build("https://example.com")
+
+    def test_a_slug_may_not_shadow_the_media_folder(self):
+        self.write("2026-01-01-x.md", "---\ntitle: T\nslug: media\n---\n\nbody")
+        with self.assertRaises(build.PostError):
+            build.build("https://example.com")
+
+    def test_a_slug_may_not_shadow_the_feed(self):
+        self.write("2026-01-01-x.md", "---\ntitle: T\nslug: feed\n---\n\nbody")
+        with self.assertRaises(build.PostError):
+            build.build("https://example.com")
+
+    def test_a_slug_must_be_url_safe(self):
+        self.write("2026-01-01-x.md", "---\ntitle: T\nslug: Update One\n---\n\nbody")
+        with self.assertRaises(build.PostError):
+            build.build("https://example.com")
+
+    def test_a_codename_slug_lands_at_the_site_root(self):
+        self.write("2026-01-01-x.md", "---\ntitle: Fiesta\nslug: update-1\n---\n\nbody")
+        posts = build.build("https://example.com")
+        self.assertEqual(posts[0].url, "update-1/")
+        self.assertTrue((build.DIST_DIR / "update-1" / "index.html").exists())
+
+
+class HomePageTests(unittest.TestCase):
+    def test_the_newest_post_leads_the_hero(self):
+        page = _home()
+        self.assertIn('class="hero-band"', page)
+        self.assertIn("Read Latest Update", page)
+        self.assertIn('href="fiesta-forever/"', page)
+
+    def test_the_featured_strip_carries_a_date(self):
+        self.assertIn("August 21, 2026", _home())
+
+    def test_the_archive_is_hidden_when_there_is_only_one_post(self):
+        self.assertNotIn("All Updates", _home())
+
+    def test_the_archive_appears_once_there_is_a_second_post(self):
+        card = build.card_for(_stub_post(), "")
+        page = theme.render_index(
+            featured=card, cards=[card], prefix="", site_url="https://e.com"
+        )
+        self.assertIn("All Updates", page)
+
+    def test_an_empty_site_says_so(self):
+        page = theme.render_index(featured=None, cards=[], prefix="", site_url="https://e.com")
+        self.assertIn("No updates posted yet", page)
+        self.assertNotIn("Read Latest Update", page)
 
 
 

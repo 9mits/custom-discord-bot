@@ -20,8 +20,6 @@ from config import (
     DISCORD_URL,
     REDDIT_URL,
     SERVER_ADDRESS,
-    SERVER_EDITIONS,
-    SERVER_VERSION,
     SITE_NAME,
     SITE_TAGLINE,
     TWITTER_URL,
@@ -171,8 +169,8 @@ a { color: inherit; }
 .btn-sm { height: 2.5rem; padding: 0 1.125rem; font-size: .95rem; }
 
 /* ===== post layout ======================================================= */
-.post-layout { display: flex; align-items: flex-start; gap: 5rem; padding-top: 2rem; }
-.post-main { flex: 1; min-width: 0; }
+.post-layout { padding-top: 2rem; }
+.post-main { max-width: var(--column); margin: 0 auto; }
 
 .post-topline {
   display: flex; align-items: center; justify-content: space-between;
@@ -262,90 +260,120 @@ a { color: inherit; }
 .signoff { margin: 2rem 0 0; text-align: center; font-size: 1.0625rem; color: var(--text-muted); }
 .signoff strong { color: var(--ink); }
 
-/* ===== sidebar =========================================================== */
-.sidebar { display: none; position: sticky; top: calc(var(--nav-h) + 1.5rem); width: 410px; flex-shrink: 0; }
-@media (min-width: 1024px) { .sidebar { display: block; } }
-.sidebar-stack { display: flex; flex-direction: column; gap: 1rem; }
+/* ===== landing hero ====================================================== */
+.hero-band { position: relative; overflow: hidden; padding: 2.5rem var(--rail) 3rem; }
+/* Three soft colour orbs behind the hero, as on the reference landing page. */
+.hero-band .orb { position: absolute; width: 18rem; height: 18rem; border-radius: 50%; filter: blur(100px); pointer-events: none; }
+.hero-band .orb-1 { left: -5rem; top: -5rem; background: rgba(240, 96, 0, .30); }
+.hero-band .orb-2 { right: -6rem; top: 2.5rem; background: rgba(59, 130, 246, .22); }
+.hero-band .orb-3 { left: 33%; bottom: -6rem; background: rgba(52, 196, 107, .16); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .hero-band .orb-1 { background: rgba(240, 96, 0, .22); }
+  :root:not([data-theme="light"]) .hero-band .orb-2 { background: rgba(59, 130, 246, .14); }
+  :root:not([data-theme="light"]) .hero-band .orb-3 { background: rgba(52, 196, 107, .10); }
+}
+:root[data-theme="dark"] .hero-band .orb-1 { background: rgba(240, 96, 0, .22); }
+:root[data-theme="dark"] .hero-band .orb-2 { background: rgba(59, 130, 246, .14); }
+:root[data-theme="dark"] .hero-band .orb-3 { background: rgba(52, 196, 107, .10); }
 
-.server-card { background: #000; border-radius: var(--card-radius); overflow: hidden; }
-.server-hero { position: relative; height: 14.5rem; }
-.server-hero img { width: 100%; height: 100%; object-fit: cover; }
-.server-hero .veil {
+.hero-inner {
+  position: relative; max-width: var(--page-max); margin: 0 auto; padding: 2rem 0;
+  display: flex; flex-direction: column; gap: 2.5rem;
+}
+@media (min-width: 1024px) {
+  .hero-inner { flex-direction: row; align-items: center; justify-content: space-between; gap: 3rem; padding: 3.5rem 0; }
+}
+
+.hero-copy { position: relative; max-width: 36rem; text-align: center; margin: 0 auto; }
+@media (min-width: 1024px) { .hero-copy { flex: 1; text-align: left; margin: 0; } }
+/* The wordmark leads the page, at real size. */
+.hero-copy .wordmark { width: auto; height: auto; max-width: 26rem; max-height: 9rem; margin: 0 auto 1.5rem; }
+@media (min-width: 1024px) {
+  .hero-copy .wordmark { margin: 0 0 1.75rem; max-width: 30rem; max-height: 10.5rem; }
+}
+.hero-copy h1 {
+  margin: 0; font-size: 2.25rem; line-height: 1.1; font-weight: 700;
+  letter-spacing: -.02em; color: var(--ink);
+}
+@media (min-width: 768px) { .hero-copy h1 { font-size: 3rem; } }
+@media (min-width: 1024px) { .hero-copy h1 { font-size: 3.75rem; line-height: 1.05; } }
+.hero-copy .lede { margin: 1rem 0 0; font-size: 1.25rem; color: var(--text-muted); }
+@media (min-width: 1024px) { .hero-copy .lede { font-size: 1.4rem; } }
+
+.hero-cta { display: flex; flex-direction: column; align-items: center; gap: .75rem; margin-top: 2rem; }
+@media (min-width: 640px) { .hero-cta { flex-direction: row; justify-content: center; } }
+@media (min-width: 1024px) { .hero-cta { justify-content: flex-start; } }
+.cta {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 3.125rem; padding: 0 1.75rem; border-radius: 999px;
+  font-weight: 700; font-size: 1.0625rem; text-decoration: none;
+  transition: transform .2s ease, filter .2s ease;
+}
+@media (min-width: 1024px) { .cta { height: 3.75rem; padding: 0 2rem; } }
+.cta:hover { transform: translateY(-2px); filter: brightness(1.08); }
+.cta:active { transform: scale(.96); }
+.cta-primary { background: var(--brand-ramp); color: #fff; box-shadow: 0 8px 24px rgba(240, 96, 0, .28); }
+.cta-ghost { background: var(--surface); color: var(--ink); border: 1px solid var(--line); }
+
+/* The framed featured card on the right of the hero. */
+.hero-feature { position: relative; width: 100%; }
+@media (min-width: 1024px) { .hero-feature { width: 36rem; max-width: 52%; } }
+.hero-feature a {
+  display: block; overflow: hidden; border-radius: 2rem; padding: .75rem;
+  background: var(--surface); text-decoration: none;
+  box-shadow: 0 20px 50px rgb(var(--shadow-rgb) / .16);
+  transition: transform .3s ease;
+}
+.hero-feature a:hover { transform: scale(1.02); }
+.hero-feature .frame {
+  position: relative; overflow: hidden; aspect-ratio: 16 / 9;
+  border-radius: 1.5rem; background: var(--surface-raised);
+}
+.hero-feature .frame img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: transform .5s ease; }
+.hero-feature a:hover .frame img { transform: scale(1.04); }
+.hero-feature .veil {
   position: absolute; inset: 0 0 auto 0; padding: .9rem 1.25rem 2rem;
   background: linear-gradient(to bottom, rgba(0,0,0,.7), rgba(0,0,0,.3), transparent);
   pointer-events: none;
 }
-.server-hero .veil p {
-  margin: 0; color: #fff; font-weight: 700; font-size: 1.5rem;
-  text-shadow: 0 2px 6px rgba(0,0,0,.6);
-}
-.server-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: .5rem; padding: .75rem 1.25rem 1rem; }
-.server-stats div { display: flex; flex-direction: column; align-items: center; text-align: center; }
-.server-stats .k { font-size: .875rem; color: rgba(255,255,255,.6); font-weight: 500; }
-.server-stats .v { font-size: 1.5rem; color: #fff; font-weight: 700; font-variant-numeric: tabular-nums; }
+.hero-feature .veil p { margin: 0; color: #fff; font-weight: 700; font-size: 1.5rem; text-shadow: 0 2px 6px rgba(0,0,0,.6); }
 
-.btn-join {
-  display: flex; align-items: center; justify-content: center; gap: .75rem;
-  width: 100%; height: 5rem; border-radius: 1rem; border: 0; cursor: pointer;
-  background: var(--blue); color: #fff; font-weight: 700; font-size: 1.5rem;
-  font-family: inherit; text-decoration: none;
-  box-shadow: 0 3px 6px 0 rgb(var(--shadow-rgb) / .15);
-  transition: transform .2s ease, filter .2s ease;
+/* ===== featured strip ==================================================== */
+.eyebrow {
+  margin: 0; font-weight: 700; font-size: .9375rem; text-transform: uppercase;
+  letter-spacing: .14em; color: var(--brand-orange);
 }
-.btn-join:hover { transform: translateY(-2px); filter: brightness(1.1); }
-.btn-join:active { transform: scale(.97); }
-.btn-join .addr { font-size: 1.125rem; font-weight: 600; opacity: .85; }
-.btn-join.copied { background: var(--green); }
+.featured { padding: 4rem var(--rail) 1rem; }
+.featured-inner { max-width: 64rem; margin: 0 auto; display: flex; flex-direction: column; gap: 1.5rem; }
+@media (min-width: 1024px) { .featured-inner { flex-direction: row; align-items: flex-start; gap: 3rem; } }
+.featured-art { width: 100%; max-width: 28rem; margin: 0 auto; }
+@media (min-width: 1024px) { .featured-art { margin: 0; flex: 0 0 28rem; } }
+.featured-art .card-thumb { aspect-ratio: 4 / 3; }
+.featured-art .card-thumb .icon { width: 60%; }
+.featured-body { text-align: center; }
+@media (min-width: 1024px) { .featured-body { text-align: left; flex: 1; } }
+.featured-body h2 {
+  margin: .75rem 0; font-size: 1.75rem; font-weight: 700;
+  color: var(--ink); letter-spacing: -.02em; line-height: 1.15;
+}
+@media (min-width: 1024px) { .featured-body h2 { font-size: 3rem; } }
+.featured-body .lede { margin: 0; font-size: 1.125rem; color: var(--grey); line-height: 1.4; }
+.featured-meta {
+  display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
+  justify-content: center; margin-top: .75rem;
+}
+@media (min-width: 1024px) { .featured-meta { justify-content: flex-start; } }
+.featured-meta .date { font-weight: 700; color: var(--text-muted); font-size: .9375rem; }
+.featured-body .cta { margin-top: 1.5rem; }
 
-.side-row { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
-.side-btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: .5rem;
-  height: 3.125rem; border-radius: 1rem; text-decoration: none;
-  font-weight: 700; font-size: 1.0625rem; color: #fff;
-  box-shadow: 0 3px 6px 0 rgb(var(--shadow-rgb) / .15);
-  transition: transform .2s ease, filter .2s ease;
-}
-.side-btn:hover { transform: translateY(-2px); filter: brightness(1.1); }
-.side-btn.discord { background: #5865f2; }
-.side-btn.apply { background: var(--brand-ramp); }
-.side-btn.reddit { background: #ff4500; }
-.side-btn.youtube { background: #ff0000; }
-.side-btn.x { background: #101215; border: 1px solid rgba(255, 255, 255, .18); }
-/* A trailing odd button spans both columns so the grid never ends ragged. */
-.side-row-odd > .side-btn:last-child { grid-column: 1 / -1; }
+/* ===== index grid ======================================================== */
+.section-head { max-width: var(--page-max); margin: 0 auto; padding: 3rem var(--rail) 1.25rem; }
+.section-head h2 { margin: .25rem 0 0; font-size: 1.875rem; font-weight: 700; color: var(--ink); }
 
-.side-facts {
-  background: var(--surface); border: 1px solid var(--line);
-  border-radius: var(--card-radius); padding: 1.125rem 1.375rem;
+.card-grid {
+  display: grid; grid-template-columns: 1fr; gap: 1.25rem;
+  max-width: var(--page-max); margin: 0 auto; padding: 0 var(--rail);
 }
-.side-facts dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: .4rem 1rem; }
-.side-facts dt { color: var(--grey); font-size: .9375rem; font-weight: 600; }
-.side-facts dd { margin: 0; color: var(--ink); font-size: .9375rem; font-weight: 700; text-align: right; }
-
-/* ===== index ============================================================= */
-.masthead { position: relative; padding: 3.5rem 0 2.5rem; text-align: center; }
-/* Soft brand glow behind the wordmark. */
-.masthead::before {
-  content: ""; position: absolute; left: 50%; top: 0;
-  width: min(46rem, 100%); height: 22rem; transform: translateX(-50%);
-  background: radial-gradient(closest-side, rgba(240, 96, 0, .18), transparent 72%);
-  pointer-events: none; z-index: 0;
-}
-.masthead > * { position: relative; z-index: 1; }
-.masthead img {
-  width: auto; height: auto; max-width: 20rem; max-height: 5.5rem;
-  margin: 0 auto 1.25rem; border-radius: 0;
-}
-.masthead h1 {
-  margin: 0 0 .5rem; font-size: 2.75rem; font-weight: 800;
-  letter-spacing: -.03em; line-height: 1.05;
-  background: var(--brand-ramp); -webkit-background-clip: text;
-  background-clip: text; color: transparent;
-}
-@media (min-width: 768px) { .masthead h1 { font-size: 3.5rem; } }
-.masthead p { margin: 0 auto; max-width: 34rem; color: var(--text-muted); font-size: 1.125rem; }
-
-.card-grid { display: grid; grid-template-columns: 1fr; gap: 1.25rem; }
 @media (min-width: 640px) { .card-grid { grid-template-columns: 1fr 1fr; } }
 @media (min-width: 1024px) { .card-grid { grid-template-columns: repeat(3, 1fr); } }
 
@@ -400,7 +428,41 @@ a { color: inherit; }
 .empty {
   text-align: center; padding: 4rem 1.25rem; color: var(--grey);
   border: 1px dashed var(--line); border-radius: var(--card-radius);
+  max-width: var(--page-max); margin: 0 auto;
 }
+
+/* ===== community band ==================================================== */
+.community { padding: 4rem var(--rail) 0; }
+.community-card {
+  max-width: var(--page-max); margin: 0 auto; padding: 3rem 2rem;
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 30px; text-align: center;
+  box-shadow: 0 20px 50px rgb(var(--shadow-rgb) / .10);
+}
+.community-card h2 { margin: 0 0 .5rem; font-size: 2rem; font-weight: 700; color: var(--ink); }
+@media (min-width: 1024px) { .community-card h2 { font-size: 2.75rem; } }
+.community-card p { margin: 0 0 1.75rem; font-size: 1.25rem; color: var(--text-muted); }
+.community-links { display: flex; flex-wrap: wrap; gap: .75rem; justify-content: center; }
+.social-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 3.125rem; min-width: 8.5rem; padding: 0 1.5rem; border-radius: 999px;
+  color: #fff; font-weight: 700; font-size: 1.0625rem; text-decoration: none;
+  box-shadow: 0 3px 6px 0 rgb(var(--shadow-rgb) / .15);
+  transition: transform .2s ease, filter .2s ease;
+}
+.social-btn:hover { transform: translateY(-2px); filter: brightness(1.1); }
+.social-btn:active { transform: scale(.96); }
+.social-btn.discord { background: #5865f2; }
+.social-btn.apply { background: var(--brand-ramp); }
+.social-btn.reddit { background: #ff4500; }
+.social-btn.youtube { background: #ff0000; }
+.social-btn.x { background: #101215; border: 1px solid rgba(255, 255, 255, .18); }
+.social-btn.ip {
+  gap: .5rem; border: 0; cursor: pointer; font-family: inherit;
+  background: var(--ink); color: var(--surface);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .95rem;
+}
+.social-btn.ip.copied { background: var(--green); color: #fff; }
 
 /* ===== more-updates strip ================================================ */
 .more { margin-top: 3rem; }
@@ -499,7 +561,7 @@ THEME_SCRIPT = """
 COPY_SCRIPT = """
 <script>
 (function () {
-  var btn = document.querySelector('.btn-join[data-copy]');
+  var btn = document.querySelector('[data-copy]');
   if (!btn) return;
   var label = btn.querySelector('.label');
   var original = label.textContent;
@@ -507,7 +569,7 @@ COPY_SCRIPT = """
     var value = btn.dataset.copy;
     var done = function () {
       btn.classList.add('copied');
-      label.textContent = 'Copied';
+      label.textContent = 'Copied!';
       setTimeout(function () { btn.classList.remove('copied'); label.textContent = original; }, 1600);
     };
     if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -625,48 +687,28 @@ def _social_links() -> List["tuple[str, str, str]"]:
     ]
 
 
-def _sidebar(prefix: str) -> str:
-    """The sticky right rail: server card, join button, links."""
-    blocks: List[str] = []
-
-    if SERVER_ADDRESS:
-        facts = []
-        if SERVER_EDITIONS:
-            facts.append(("Editions", SERVER_EDITIONS))
-        if SERVER_VERSION:
-            facts.append(("Version", SERVER_VERSION))
-        stats = "".join(
-            '<div><span class="k">%s</span><span class="v">%s</span></div>'
-            % (_esc(k), _esc(v))
-            for k, v in facts
-        )
-        blocks.append(
-            '<div class="server-card">'
-            '<div class="server-hero"><img src="%sassets/banner.png" alt="">'
-            '<div class="veil"><p>%s</p></div></div>'
-            '<div class="server-stats">%s</div></div>'
-            % (prefix, _esc(SITE_NAME), stats)
-        )
-        blocks.append(
-            '<button type="button" class="btn-join" data-copy="%s">'
-            '%s<span><span class="label">Copy IP</span><br>'
-            '<span class="addr">%s</span></span></button>'
-            % (_esc(SERVER_ADDRESS), _icon("copy"), _esc(SERVER_ADDRESS))
-        )
-
+def _community(prefix: str) -> str:
+    """The join-us band that closes the home page, holding every social link."""
     links = _social_links()
-    if links:
-        buttons = "".join(
-            '<a class="side-btn %s" href="%s" rel="noopener">%s</a>' % (cls, _esc(url), _esc(label))
-            for url, label, cls in links
-        )
-        # An odd one out spans the rail rather than sitting in a half-width cell.
-        odd = " side-row-odd" if len(links) % 2 else ""
-        blocks.append('<div class="side-row%s">%s</div>' % (odd, buttons))
-
-    if not blocks:
+    if not links and not SERVER_ADDRESS:
         return ""
-    return '<aside class="sidebar"><div class="sidebar-stack">%s</div></aside>' % "".join(blocks)
+    buttons = "".join(
+        '<a class="social-btn %s" href="%s" rel="noopener">%s</a>' % (cls, _esc(url), _esc(label))
+        for url, label, cls in links
+    )
+    if SERVER_ADDRESS:
+        buttons = (
+            '<button type="button" class="social-btn ip" data-copy="%s">'
+            '%s<span class="label">%s</span></button>'
+            % (_esc(SERVER_ADDRESS), _icon("copy"), _esc(SERVER_ADDRESS))
+        ) + buttons
+    return (
+        '<section class="community"><div class="community-card">'
+        "<h2>Join our community!</h2>"
+        "<p>Get the latest updates and more.</p>"
+        '<div class="community-links">%s</div>'
+        "</div></section>" % buttons
+    )
 
 
 def _footer(prefix: str) -> str:
@@ -734,18 +776,22 @@ def _page(title: str, description: str, prefix: str, body: str,
     )
 
 
-def render_card(card: Dict[str, object], prefix: str) -> str:
+def _thumb(card: Dict[str, object]) -> str:
+    """Blurred backdrop with the crisp square centred on top."""
     hero = card.get("hero")
     icon = card.get("icon") or hero
-    if hero:
-        thumb = (
-            '<div class="card-thumb">'
-            '<img class="blur" src="%s" alt="" aria-hidden="true" loading="lazy">'
-            '<div class="icon-wrap"><img class="icon" src="%s" alt="" loading="lazy"></div>'
-            "</div>" % (_esc(str(hero)), _esc(str(icon)))
-        )
-    else:
-        thumb = '<div class="card-thumb"></div>'
+    if not hero:
+        return '<div class="card-thumb"></div>'
+    return (
+        '<div class="card-thumb">'
+        '<img class="blur" src="%s" alt="" aria-hidden="true" loading="lazy">'
+        '<div class="icon-wrap"><img class="icon" src="%s" alt="" loading="lazy"></div>'
+        "</div>" % (_esc(str(hero)), _esc(str(icon)))
+    )
+
+
+def render_card(card: Dict[str, object], prefix: str) -> str:
+    thumb = _thumb(card)
 
     return (
         '<a class="card" href="%s">%s'
@@ -791,11 +837,10 @@ def render_post(post, body_html: str, hero: Optional[str], prefix: str, site_url
         '<time class="post-date" datetime="%s">%s</time></div>'
         '<div class="post-head"><h1 class="post-title">%s</h1>%s</div>'
         '<article class="post-body">%s%s</article>%s'
-        "</main>%s</div>%s</div></div>"
+        "</main></div>%s</div></div>"
         % (
             _esc(post.category), post.date.strftime("%Y-%m-%d"), _esc(post.display_date()),
-            _esc(post.title), tagline, hero_block, body_html, signoff,
-            _sidebar(prefix), more,
+            _esc(post.title), tagline, hero_block, body_html, signoff, more,
         )
     )
 
@@ -813,22 +858,90 @@ def render_post(post, body_html: str, hero: Optional[str], prefix: str, site_url
     )
 
 
-def render_index(cards: Sequence[Dict[str, object]], prefix: str, site_url: str) -> str:
-    if cards:
-        feed = '<div class="card-grid">%s</div>' % "".join(
-            render_card(card, prefix) for card in cards
+def render_index(featured: Optional[Dict[str, object]], cards: Sequence[Dict[str, object]],
+                 prefix: str, site_url: str) -> str:
+    """The landing page: hero, the newest update called out, then the archive."""
+    if featured:
+        hero_art = featured.get("hero") or featured.get("icon")
+        frame = (
+            '<div class="frame"><img src="%s" alt="">'
+            '<div class="veil"><p>%s</p></div></div>'
+            % (_esc(str(hero_art)), _esc(str(featured["title"])))
+            if hero_art
+            else '<div class="frame"><div class="veil"><p>%s</p></div></div>'
+            % _esc(str(featured["title"]))
+        )
+        hero_feature = (
+            '<div class="hero-feature"><a href="%s">%s</a></div>'
+            % (_esc(str(featured["url"])), frame)
+        )
+        read_latest = (
+            '<a class="cta cta-primary" href="%s">Read Latest Update</a>'
+            % _esc(str(featured["url"]))
         )
     else:
-        feed = '<div class="empty">No updates posted yet. Check back soon.</div>'
+        hero_feature = ""
+        read_latest = ""
 
-    body = (
-        '<div class="page"><div class="shell">'
-        '<div class="masthead"><img src="%sassets/logo.png" alt="">'
-        "<h1>Dev Blog</h1><p>%s</p></div>%s"
-        "</div></div>" % (prefix, _esc(SITE_TAGLINE), feed)
+    second_cta = (
+        '<a class="cta cta-ghost" href="%s" rel="noopener">Join the Discord</a>' % _esc(DISCORD_URL)
+        if DISCORD_URL
+        else ""
+    )
+
+    hero = (
+        '<section class="hero-band">'
+        '<span class="orb orb-1"></span><span class="orb orb-2"></span><span class="orb orb-3"></span>'
+        '<div class="hero-inner"><div class="hero-copy">'
+        '<img class="wordmark" src="%sassets/logo.png" alt="%s">'
+        "<h1>The latest SMP news!</h1>"
+        '<p class="lede">%s</p>'
+        '<div class="hero-cta">%s%s</div>'
+        "</div>%s</div></section>"
+        % (prefix, _esc(SITE_NAME), _esc(SITE_TAGLINE), read_latest, second_cta, hero_feature)
+    )
+
+    featured_strip = ""
+    if featured:
+        featured_strip = (
+            '<section class="featured"><div class="featured-inner">'
+            '<div class="featured-art">%s</div>'
+            '<div class="featured-body">'
+            '<p class="eyebrow">Latest Dev Blog</p>'
+            '<div class="featured-meta"><span class="pill">%s</span>'
+            '<span class="date">%s</span></div>'
+            "<h2>%s</h2>"
+            '<p class="lede">%s</p>'
+            '<a class="cta cta-primary" href="%s">Read More</a>'
+            "</div></div></section>"
+            % (
+                _thumb(featured),
+                _esc(str(featured.get("category") or DEFAULT_CATEGORY)),
+                _esc(str(featured["date"])),
+                _esc(str(featured["title"])),
+                _esc(str(featured["excerpt"])),
+                _esc(str(featured["url"])),
+            )
+        )
+
+    if cards:
+        archive = (
+            '<section><div class="section-head"><p class="eyebrow">Archive</p>'
+            "<h2>All Updates</h2></div>"
+            '<div class="card-grid">%s</div></section>'
+            % "".join(render_card(card, prefix) for card in cards)
+        )
+    elif featured:
+        archive = ""
+    else:
+        archive = '<div class="empty">No updates posted yet. Check back soon.</div>'
+
+    body = '<div class="page">%s%s%s%s</div>' % (
+        hero, featured_strip, archive, _community(prefix)
     )
     return _page(
-        "%s Dev Blog" % SITE_NAME, SITE_TAGLINE, prefix, body, None, site_url, current="index"
+        "%s Dev Blog" % SITE_NAME, SITE_TAGLINE, prefix, body, None, site_url,
+        current="index", scripts=COPY_SCRIPT,
     )
 
 
