@@ -8,6 +8,11 @@ on:
     branches: ["main"]
     paths: ["devblog/**", ".github/workflows/devblog.yml"]
   workflow_dispatch:
+  # Refresh the live server figures on the home page. The build is ~40s, so this
+  # is cheap; GitHub may skip runs when the repo is quiet, which only means the
+  # numbers age rather than break — the page prints when they were checked.
+  schedule:
+    - cron: "*/30 * * * *"
 
 # Allow one deploy at a time; a newer push supersedes a queued one.
 concurrency:
@@ -33,6 +38,15 @@ jobs:
 
       - name: Tests
         run: python3 devblog/tests/test_build.py
+
+      - name: Fetch live server stats
+        # The address is private and never leaves this step: server_status.py
+        # writes counts and a timestamp only, and devblog/data/ is git-ignored.
+        # A failure here is not fatal — the stats panel simply does not render.
+        env:
+          MC_SERVER_HOST: ${{ secrets.MC_SERVER_HOST }}
+          MC_SERVER_PORT: ${{ secrets.MC_SERVER_PORT }}
+        run: python3 devblog/server_status.py
 
       - name: Build site
         env:
