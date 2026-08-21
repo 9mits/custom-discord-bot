@@ -45,6 +45,14 @@ for _entry in RANK_ROLES:
 
 GUIDE_PAGES = ("commands", "clans", "levels", "boosting", "mods", "versions")
 
+#: Web-specific rewording. The bot falls back to "ask staff for the address"
+#: when it has no settings, which is the right answer inside Discord but not on
+#: a public page — there the answer is that applying is how you get it. The
+#: address itself is private and is never published here.
+WEB_REWRITES = (
+    ("ask staff for the address", "given to you when your application is accepted"),
+)
+
 
 def discord_to_markdown(text: str) -> str:
     """Undo the Discord-only parts of an embed's copy."""
@@ -67,6 +75,8 @@ def discord_to_markdown(text: str) -> str:
         return "**%s**" % ROLE_LABELS[rid]
 
     out = re.sub(r"<@&(\d+)>", role, out)
+    for before, after in WEB_REWRITES:
+        out = out.replace(before, after)
     leftover = re.search(r"<[@#][!&]?\d+>", out)
     if leftover:
         raise SystemExit("Unresolved Discord mention %r in the bot copy." % leftover.group(0))

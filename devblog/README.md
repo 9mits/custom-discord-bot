@@ -23,7 +23,7 @@ pip install -r devblog/requirements.txt
 python devblog/build.py                 # writes devblog/dist/
 python devblog/build.py --serve         # build, then http://127.0.0.1:8000
 python devblog/build.py --drafts        # include posts marked draft
-python devblog/tests/test_build.py      # 84 tests
+python devblog/tests/test_build.py      # 88 tests
 python devblog/sync_from_bot.py        # regenerate guide.md and rules.md
 ```
 
@@ -69,6 +69,11 @@ information copy changes**, then commit the regenerated pages.
 
 It resolves Discord role mentions to names via `ROLE_LABELS`; an unknown role id
 fails the sync rather than shipping a raw `<@&123>` to the page.
+
+`WEB_REWRITES` handles copy that is right in Discord but wrong on a public page —
+the bot's "ask staff for the address" fallback becomes "given to you when your
+application is accepted", because the connect address is private and applying is
+how a player gets it. A test fails if a rewrite stops matching.
 
 `pages/apply.md` is hand-written and `sync_from_bot.py` does not touch it.
 
@@ -160,7 +165,7 @@ link or an empty box — so the site is honest before you have filled it in.
 
 | Setting | Drives |
 |---|---|
-| `SERVER_ADDRESS` | The Copy IP button in the community band, and the footer address. |
+| `SERVER_ADDRESS` | **Leave empty.** The connect address is private — players get it from the bot when their application is accepted. Setting this puts a Copy IP button in the community band and the address in every page footer. A test enforces the blank. |
 | `DISCORD_URL` | Top-bar button, sidebar button, footer link. |
 | `APPLY_URL`, `REDDIT_URL`, `TWITTER_URL`, `YOUTUBE_URL` | A brand-coloured button each in the sidebar grid, plus a footer link. Set order is fixed; unset ones vanish and the grid re-flows. |
 | `DEFAULT_CATEGORY` | The pill on posts that do not set `category`. |

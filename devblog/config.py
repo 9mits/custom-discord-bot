@@ -17,9 +17,12 @@ DEFAULT_SITE_URL = "https://mysterioussmpx.blog"
 DEFAULT_CATEGORY = "Mysterious SMP X"
 
 # --- the server ---------------------------------------------------------
-# Drives the Copy IP button in the community band and the footer address.
-# Empty hides both.
-SERVER_ADDRESS = ""            # e.g. "play.mysterioussmpx.com"
+# DELIBERATELY EMPTY. The connect address is private: players receive it from
+# the bot during the application flow, and publishing it here would hand it to
+# anyone who never applied. Setting this turns on a Copy IP button in the
+# community band and prints the address in the footer of every page, so leave
+# it blank unless the server is opened to the public.
+SERVER_ADDRESS = ""
 
 # --- links ------------------------------------------------------------------
 DISCORD_URL = "https://discord.gg/mgx"
