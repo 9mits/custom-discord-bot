@@ -67,6 +67,10 @@ class Post:
         self.tagline = str(meta.get("tagline") or "").strip()
         self.date = self._parse_date(meta.get("date"), path)
         self.hero = str(meta.get("hero") or "").strip()
+        # The square art shown on the index card; falls back to the hero.
+        self.icon = str(meta.get("icon") or "").strip()
+        self.category = str(meta.get("category") or config.DEFAULT_CATEGORY).strip()
+        self.signoff = str(meta.get("signoff") or "").strip()
         self.tags = list(meta.get("tags") or [])  # type: ignore[arg-type]
         self.draft = str(meta.get("draft") or "").lower() in {"1", "true", "yes"}
 
@@ -195,12 +199,31 @@ def excerpt(post: Post, limit: int = 190) -> str:
     return text[:limit].rsplit(" ", 1)[0] + "…"
 
 
-def hero_url(post: Post, prefix: str) -> Optional[str]:
-    if not post.hero:
+def media_url(post: Post, filename: str, prefix: str) -> Optional[str]:
+    if not filename:
         return None
-    if re.match(r"^(https?:|//|/)", post.hero):
-        return post.hero
-    return "%smedia/%s/%s" % (prefix, post.slug, post.hero)
+    if re.match(r"^(https?:|//|/)", filename):
+        return filename
+    return "%smedia/%s/%s" % (prefix, post.slug, filename)
+
+
+def hero_url(post: Post, prefix: str) -> Optional[str]:
+    return media_url(post, post.hero, prefix)
+
+
+def card_for(post: Post, prefix: str) -> Dict[str, object]:
+    """The shape both the index grid and the more-updates strip render from."""
+    return {
+        "url": ("%s%s" % (prefix, post.url)) if prefix else post.url,
+        "title": post.title,
+        "date": post.display_date(),
+        "iso": post.date.strftime("%Y-%m-%d"),
+        "excerpt": excerpt(post),
+        "hero": media_url(post, post.hero, prefix),
+        "icon": media_url(post, post.icon, prefix),
+        "category": post.category,
+        "tags": post.tags,
+    }
 
 
 def build_feed(posts: List[Post], site_url: str) -> str:
@@ -263,31 +286,23 @@ def build(site_url: str, include_drafts: bool = False) -> List[Post]:
     copy_tree(STATIC_DIR, DIST_DIR / "assets")
     copy_tree(MEDIA_DIR, DIST_DIR / "media")
 
-    for post in posts:
+    for index, post in enumerate(posts):
         prefix = "../../"
+        # Up to three other updates, newest first, skipping this one.
+        related = [card_for(other, prefix) for other in posts if other is not post][:3]
         page = theme.render_post(
             post=post,
             body_html=render_body(post, prefix),
             hero=hero_url(post, prefix),
             prefix=prefix,
             site_url=site_url,
+            related=related,
         )
         out = DIST_DIR / "posts" / post.slug / "index.html"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(page, encoding="utf-8")
 
-    cards = [
-        {
-            "url": post.url,
-            "title": post.title,
-            "date": post.display_date(),
-            "iso": post.date.strftime("%Y-%m-%d"),
-            "excerpt": excerpt(post),
-            "hero": hero_url(post, ""),
-            "tags": post.tags,
-        }
-        for post in posts
-    ]
+    cards = [card_for(post, "") for post in posts]
     (DIST_DIR / "index.html").write_text(
         theme.render_index(cards, prefix="", site_url=site_url), encoding="utf-8"
     )
