@@ -23,7 +23,8 @@ pip install -r devblog/requirements.txt
 python devblog/build.py                 # writes devblog/dist/
 python devblog/build.py --serve         # build, then http://127.0.0.1:8000
 python devblog/build.py --drafts        # include posts marked draft
-python devblog/tests/test_build.py      # 73 tests
+python devblog/tests/test_build.py      # 84 tests
+python devblog/sync_from_bot.py        # regenerate guide.md and rules.md
 ```
 
 `dist/` is git-ignored — the workflow rebuilds it. Never commit it.
@@ -44,6 +45,33 @@ The folder under `media/` must match the post's slug, which is the filename with
 the date prefix stripped (`2026-08-21-update-1.md` → `update-1`). Inside the
 post, reference images by bare filename — the build rewrites them.
 
+## Standing pages
+
+Alongside the dated updates, `pages/*.md` become top-level pages that appear in
+the nav, ordered by their `order` key:
+
+| Page | URL | Source |
+|---|---|---|
+| Server Guide | `/guide` | **generated** from the bot's information panel |
+| Server Rules | `/rules` | **generated** from `SERVER_RULES` in the bot |
+| How to Apply | `/apply` | hand-written |
+
+Guide and rules are generated so the site and Discord can never drift:
+
+```bash
+python devblog/sync_from_bot.py
+```
+
+That script imports `minecraft_bot` and renders its embeds to markdown, so it
+needs the bot's dependencies. Its output is committed, which is why the site
+build itself never imports discord.py. **Re-run it whenever the bot's rules or
+information copy changes**, then commit the regenerated pages.
+
+It resolves Discord role mentions to names via `ROLE_LABELS`; an unknown role id
+fails the sync rather than shipping a raw `<@&123>` to the page.
+
+`pages/apply.md` is hand-written and `sync_from_bot.py` does not touch it.
+
 ## URLs
 
 Posts sit at the **site root**, one folder each:
@@ -52,15 +80,19 @@ Posts sit at the **site root**, one folder each:
 |---|---|
 | `https://mysterioussmpx.blog` | the home page |
 | `https://mysterioussmpx.blog/update-1` | the post whose slug is `update-1` |
+| `https://mysterioussmpx.blog/guide` | a standing page from `pages/guide.md` |
 
 The slug is an internal codename — `update-1`, `update-2` — while the `title`
 carries the real name players see (`Fiesta Forever!`). Name post files
 `YYYY-MM-DD-update-N.md` and the slug follows automatically.
 
-Because posts share the root namespace with the build's own output, a slug may
-not be `assets`, `media`, `feed`, `index` or `404`, and must be lowercase
-letters, digits and hyphens. The build fails loudly rather than silently
-overwriting something.
+Posts and pages share the root namespace with the build's own output, so a slug
+may not be `assets`, `media`, `index` or `404`, may not be claimed by both a page
+and a post, and must be lowercase letters, digits and hyphens. The build fails
+loudly rather than silently overwriting something.
+
+There is **no RSS feed** — it was removed deliberately, and a test asserts
+nothing links to one.
 
 ### Front matter
 

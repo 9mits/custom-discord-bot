@@ -11,15 +11,13 @@ the update-post theme in `theme.py`, and writes a self-contained site to
 from __future__ import annotations
 
 import argparse
-import html
 import os
 import re
 import shutil
 import sys
 from datetime import datetime, timezone
-from email.utils import format_datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Sequence
 
 try:
     import markdown
@@ -34,6 +32,7 @@ import theme
 
 ROOT = Path(__file__).resolve().parent
 POSTS_DIR = ROOT / "posts"
+PAGES_DIR = ROOT / "pages"
 MEDIA_DIR = ROOT / "media"
 STATIC_DIR = ROOT / "static"
 DIST_DIR = ROOT / "dist"
@@ -43,7 +42,7 @@ LIST_KEYS = {"tags"}
 
 # Posts sit at the site root now, so a slug must not shadow anything the build
 # writes there itself.
-RESERVED_SLUGS = {"assets", "media", "index", "404", "feed", "feed.xml", "index.html"}
+RESERVED_SLUGS = {"assets", "media", "index", "404", "index.html"}
 
 MD_EXTENSIONS = [
     "extra",        # tables, footnotes, attr_list, fenced code
@@ -113,6 +112,28 @@ class Post:
         return "%s %d, %d" % (self.date.strftime("%B"), self.date.day, self.date.year)
 
 
+class Page:
+    """A standing page — guide, rules, apply — rather than a dated update."""
+
+    def __init__(self, path: Path, meta: Dict[str, object], body_md: str):
+        self.path = path
+        self.slug = str(meta.get("slug") or path.stem)
+        self.title = str(meta.get("title") or "").strip()
+        if not self.title:
+            raise PostError("%s: front matter is missing a 'title'" % path.name)
+        self.nav = str(meta.get("nav") or self.title).strip()
+        self.tagline = str(meta.get("tagline") or "").strip()
+        try:
+            self.order = int(str(meta.get("order") or "99"))
+        except ValueError:
+            raise PostError("%s: 'order' must be a whole number" % path.name)
+        self.body_md = body_md
+
+    @property
+    def url(self) -> str:
+        return "%s/" % self.slug
+
+
 def parse_front_matter(text: str, path: Path) -> "tuple[Dict[str, object], str]":
     """Split `---` delimited front matter off the top of a post."""
     if not text.startswith("---"):
@@ -159,20 +180,21 @@ def load_posts(include_drafts: bool = False) -> List[Post]:
     if duplicates:
         raise PostError("two posts share the slug(s): %s" % ", ".join(sorted(duplicates)))
 
-    for post in posts:
-        if post.slug.lower() in RESERVED_SLUGS:
-            raise PostError(
-                "%s: the slug %r is reserved by the site itself; pick another"
-                % (post.path.name, post.slug)
-            )
-        if not re.match(r"^[a-z0-9][a-z0-9-]*$", post.slug):
-            raise PostError(
-                "%s: the slug %r must be lowercase letters, digits and hyphens"
-                % (post.path.name, post.slug)
-            )
+    check_slugs([post.slug for post in posts], "posts")
 
     posts.sort(key=lambda p: (p.date, p.slug), reverse=True)
     return posts
+
+
+def load_pages() -> List[Page]:
+    pages: List[Page] = []
+    if not PAGES_DIR.exists():
+        return pages
+    for path in sorted(PAGES_DIR.glob("*.md")):
+        meta, body = parse_front_matter(path.read_text(encoding="utf-8"), path)
+        pages.append(Page(path, meta, body))
+    pages.sort(key=lambda page: (page.order, page.slug))
+    return pages
 
 
 def rewrite_media_urls(html_body: str, post: Post, prefix: str) -> str:
@@ -242,40 +264,6 @@ def card_for(post: Post, prefix: str) -> Dict[str, object]:
     }
 
 
-def build_feed(posts: List[Post], site_url: str) -> str:
-    items = []
-    for post in posts[:20]:
-        link = site_url.rstrip("/") + "/" + post.url
-        items.append(
-            "<item>"
-            "<title>%s</title>"
-            "<link>%s</link>"
-            "<guid isPermaLink=\"true\">%s</guid>"
-            "<pubDate>%s</pubDate>"
-            "<description>%s</description>"
-            "</item>"
-            % (
-                html.escape(post.title),
-                html.escape(link),
-                html.escape(link),
-                format_datetime(post.date),
-                html.escape(excerpt(post)),
-            )
-        )
-    return (
-        '<?xml version="1.0" encoding="utf-8"?>\n'
-        '<rss version="2.0"><channel>'
-        "<title>%s</title><link>%s</link><description>%s</description>%s"
-        "</channel></rss>\n"
-        % (
-            html.escape(theme.SITE_NAME),
-            html.escape(site_url),
-            html.escape(theme.SITE_TAGLINE),
-            "".join(items),
-        )
-    )
-
-
 def copy_tree(src: Path, dest: Path) -> None:
     if not src.exists():
         return
@@ -290,8 +278,28 @@ def copy_tree(src: Path, dest: Path) -> None:
             shutil.copy2(item, target)
 
 
+def check_slugs(names: Sequence[str], what: str) -> None:
+    for name in names:
+        if name.lower() in RESERVED_SLUGS:
+            raise PostError(
+                "%s: the slug %r is reserved by the site itself; pick another" % (what, name)
+            )
+        if not re.match(r"^[a-z0-9][a-z0-9-]*$", name):
+            raise PostError(
+                "%s: the slug %r must be lowercase letters, digits and hyphens" % (what, name)
+            )
+
+
 def build(site_url: str, include_drafts: bool = False) -> List[Post]:
     posts = load_posts(include_drafts=include_drafts)
+    pages = load_pages()
+
+    # Posts and pages share the root namespace, so they must not collide.
+    page_slugs = [page.slug for page in pages]
+    check_slugs(page_slugs, "pages")
+    clash = sorted(set(page_slugs) & {post.slug for post in posts})
+    if clash:
+        raise PostError("a page and a post share the slug(s): %s" % ", ".join(clash))
 
     if DIST_DIR.exists():
         shutil.rmtree(DIST_DIR)
@@ -301,6 +309,24 @@ def build(site_url: str, include_drafts: bool = False) -> List[Post]:
     (DIST_DIR / "assets" / "style.css").write_text(theme.STYLESHEET, encoding="utf-8")
     copy_tree(STATIC_DIR, DIST_DIR / "assets")
     copy_tree(MEDIA_DIR, DIST_DIR / "media")
+
+    nav = [{"url": "%s" % page.url, "label": page.nav, "slug": page.slug} for page in pages]
+
+    for page in pages:
+        prefix = "../"
+        md = markdown.Markdown(extensions=MD_EXTENSIONS)
+        out = DIST_DIR / page.slug / "index.html"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(
+            theme.render_page(
+                page=page,
+                body_html=md.convert(page.body_md),
+                prefix=prefix,
+                site_url=site_url,
+                nav=nav,
+            ),
+            encoding="utf-8",
+        )
 
     for post in posts:
         prefix = "../"
@@ -313,6 +339,7 @@ def build(site_url: str, include_drafts: bool = False) -> List[Post]:
             prefix=prefix,
             site_url=site_url,
             related=related,
+            nav=nav,
         )
         out = DIST_DIR / post.slug / "index.html"
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -325,13 +352,13 @@ def build(site_url: str, include_drafts: bool = False) -> List[Post]:
             cards=cards[1:],
             prefix="",
             site_url=site_url,
+            nav=nav,
         ),
         encoding="utf-8",
     )
     (DIST_DIR / "404.html").write_text(
-        theme.render_404(prefix="/"), encoding="utf-8"
+        theme.render_404(prefix="/", nav=nav), encoding="utf-8"
     )
-    (DIST_DIR / "feed.xml").write_text(build_feed(posts, site_url), encoding="utf-8")
     # Tell GitHub Pages not to run Jekyll over the output.
     (DIST_DIR / ".nojekyll").write_text("", encoding="utf-8")
 
@@ -343,7 +370,7 @@ def main() -> int:
     parser.add_argument(
         "--site-url",
         default=os.environ.get("DEVBLOG_SITE_URL", config.DEFAULT_SITE_URL),
-        help="Absolute base URL used for the feed and share tags.",
+        help="Absolute base URL used for canonical and share tags.",
     )
     parser.add_argument("--drafts", action="store_true", help="Include posts marked draft.")
     parser.add_argument("--serve", action="store_true", help="Serve dist/ after building.")
