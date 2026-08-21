@@ -9,7 +9,7 @@ SITE_TAGLINE = "Update notes, patch logs, and behind-the-scenes from the SMP."
 
 # Where the site is published. Used for the RSS feed and social share tags.
 # Override per build with --site-url or the DEVBLOG_SITE_URL env var.
-DEFAULT_SITE_URL = "https://9mits.github.io/custom-discord-bot"
+DEFAULT_SITE_URL = "https://mysteriousgirlfriendx.blog"
 
 # TODO: fill these in. Empty means the link is left out entirely.
 DISCORD_URL = ""       # e.g. "https://discord.gg/xxxxxxx"
