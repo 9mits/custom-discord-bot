@@ -74,6 +74,8 @@ class CosmeticCatalogTest {
         for (CosmeticCatalog.Definition secret : secrets) {
             assertEquals("???", secret.displayedChance());
             assertEquals(CosmeticCatalog.SECRET_WEIGHT, secret.weight());
+            assertEquals("BLACK_DYE", secret.materialName());
+            assertEquals("mgx:cosmetic/secret_silhouette", secret.modelKey());
             assertFalse(CosmeticCatalog.publicEntries().contains(secret));
             assertEquals("0.005%", CosmeticCatalog.percentage(secret.weight()));
         }
@@ -93,13 +95,13 @@ class CosmeticCatalogTest {
         Set<String> ids = CosmeticCatalog.all().stream()
                 .map(CosmeticCatalog.Definition::id)
                 .collect(Collectors.toSet());
-        Set<String> models = CosmeticCatalog.all().stream()
+        Set<String> publicModels = CosmeticCatalog.publicEntries().stream()
                 .map(CosmeticCatalog.Definition::modelKey)
                 .collect(Collectors.toSet());
 
         assertEquals(EXPECTED_WEIGHTS.keySet(), ids);
-        assertEquals(CosmeticCatalog.all().size(), models.size());
-        for (CosmeticCatalog.Definition definition : CosmeticCatalog.all()) {
+        assertEquals(CosmeticCatalog.publicEntries().size(), publicModels.size());
+        for (CosmeticCatalog.Definition definition : CosmeticCatalog.publicEntries()) {
             assertEquals("mgx:cosmetic/" + definition.id(), definition.modelKey());
         }
     }

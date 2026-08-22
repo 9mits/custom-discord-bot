@@ -47,8 +47,16 @@ class ResourcePackCatalogTest {
         for (CosmeticCatalog.Definition definition : CosmeticCatalog.all()) {
             assertModelResolves(definition.modelKey());
             String texture = resolvedTexture(definition.modelKey());
-            assertTrue(textures.putIfAbsent(texture, definition.id()) == null,
-                    definition.id() + " reuses the icon for " + textures.get(texture));
+            if (definition.secret()) {
+                assertEquals(
+                        "assets/mgx/textures/item/cosmetic/secret_silhouette.png",
+                        texture,
+                        definition.id()
+                );
+            } else {
+                assertTrue(textures.putIfAbsent(texture, definition.id()) == null,
+                        definition.id() + " reuses the icon for " + textures.get(texture));
+            }
         }
     }
 
