@@ -139,7 +139,7 @@ the nav, ordered by their `order` key:
 | Events | `/events` | generated from draftable `events/*.md` announcements |
 | Server Guide | `/guide` | **generated** from the bot's information panel |
 | Server Rules | `/rules` | **generated** from `SERVER_RULES` in the bot |
-| How to Apply | `/apply` | hand-written |
+| How to Join | `/apply` | hand-written |
 
 Guide and rules are generated so the site and Discord can never drift:
 

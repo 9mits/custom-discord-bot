@@ -1029,7 +1029,7 @@ def _social_links() -> List["tuple[str, str, str]"]:
         (url, label, cls)
         for url, label, cls in (
             (DISCORD_URL, "Discord", "discord"),
-            (APPLY_URL, "Apply", "apply"),
+            (APPLY_URL, "Join", "apply"),
             (REDDIT_URL, "Reddit", "reddit"),
             (TWITTER_URL, "X", "x"),
             (YOUTUBE_URL, "YouTube", "youtube"),

@@ -275,7 +275,7 @@ class MinecraftAccessBot(commands.Bot):
                 logger.exception("Could not refresh the Minecraft application panel")
             else:
                 self._application_panel_refreshed = True
-        await self.change_presence(activity=discord.Game(name="Mysterious SMP X applications"))
+        await self.change_presence(activity=discord.Game(name="Mysterious SMP X"))
         print(f"Minecraft access bot connected as {self.user} — successfully finished startup", flush=True)
 
     async def on_tree_error(self, interaction: discord.Interaction, error: app_commands.AppCommandError) -> None:
@@ -666,16 +666,8 @@ class MinecraftAccessBot(commands.Bot):
     #: is adding a second edition or their first account.
     _LINK_STEPS = (
         "\n> **1.** Press the button below and enter your exact account name.\n"
-        "> **2.** Join the server once using that account. You will be disconnected "
-        "automatically — that is how we verify it.\n"
-        "> **3.** Your account is now verified."
-    )
-    #: Added only when the member holds no approved application. Promising instant
-    #: access to somebody who has never been accepted would be untrue: verification
-    #: sends them to the written form and a staff review instead.
-    _LINK_REVIEW_NOTE = (
-        "> A short application form follows, and staff review it before access is "
-        "granted."
+        "> **2.** Join the server once using that account.\n"
+        "> **3.** You will be let straight in, and the account is verified."
     )
 
     async def build_link_edition_prompt(
@@ -687,13 +679,9 @@ class MinecraftAccessBot(commands.Bot):
         correctly whether they hold one edition, both, or none. Linking only ever
         adds; unlinking stays a staff action.
         """
-        accounts, applications, approved = await asyncio.gather(
+        accounts, applications = await asyncio.gather(
             self.data.list_accounts_for_user(user_id),
             self.data.list_access_for_user(user_id, limit=1),
-            # Asked rather than inferred from holding a linked account. The two
-            # come apart: an account can be linked without approval, and a member
-            # approved before a data wipe holds neither.
-            self.data.has_verified_access(user_id),
         )
         linked = {str(row["edition"]).upper() for row in accounts}
         if len(linked) >= len(Edition):
@@ -710,29 +698,25 @@ class MinecraftAccessBot(commands.Bot):
         if latest is not None and latest.status in ACTIVE_STATUSES:
             return (
                 info_embed(
-                    "Application Already Active",
-                    "> An application of yours is already in progress, so a second "
+                    "Verification Already Active",
+                    "> A verification of yours is already in progress, so a second "
                     "one cannot be started.\n"
                     "> Complete or cancel it first. Use `/minecraft account` to "
-                    "review its status.",
+                    "check its status.",
                     error=True,
                 ),
                 None,
             )
         if not linked:
             # Linking starts here rather than being sent elsewhere. Members lose the
-            # application channel once they are accepted, so pointing them at it was
-            # a dead end for the very people who needed this. Offering the flow is
-            # safe: verification only links an account outright for somebody who
-            # already holds an approved application, and anybody else still gets the
-            # written form and a staff review.
+            # verification channel once they can play, so pointing them at it was
+            # a dead end for the very people who needed this.
             return (
                 info_embed(
                     "Link Your Minecraft Account",
                     "> No Minecraft account is linked to your Discord account yet. "
                     "Select the edition you play on to begin.\n"
-                    + self._LINK_STEPS
-                    + ("" if approved else "\n\n" + self._LINK_REVIEW_NOTE),
+                    + self._LINK_STEPS,
                 ),
                 LinkEditionView(user_id, *Edition),
             )
@@ -740,8 +724,7 @@ class MinecraftAccessBot(commands.Bot):
         return (
             info_embed(
                 f"Link Your {missing.value.title()} Account",
-                self._LINK_STEPS.lstrip("\n")
-                + ("" if approved else "\n\n" + self._LINK_REVIEW_NOTE),
+                self._LINK_STEPS.lstrip("\n"),
             ),
             LinkEditionView(user_id, missing),
         )
@@ -756,22 +739,18 @@ class MinecraftAccessBot(commands.Bot):
             for row in accounts
         ] or ["No linked Minecraft accounts yet."]
         latest = applications[0] if applications else None
-        status = latest.status.value.replace("_", " ").title() if latest else "No application"
+        status = latest.status.value.replace("_", " ").title() if latest else "None"
         panel_hint = (
             f"<#{self.settings.application_channel_id}>"
             if self.settings.application_channel_id
-            else "the application channel"
+            else "the verification panel"
         )
         status_note = ""
         if latest is not None and latest.status is AccessStatus.EXPIRED:
-            reason = (
-                "nobody joined the Minecraft server in time to verify the account"
-                if not latest.verified_at
-                else "the written form was not finished in time"
-            )
             status_note = (
-                f"\n> **Application Expired** means it timed out: {reason}. "
-                f"Nothing is lost — press **Apply** in {panel_hint} to start again."
+                "\n> This verification expired: nobody joined the Minecraft "
+                f"server in time to verify the account. Press **Verify** in "
+                f"{panel_hint} to start again."
             )
         elif latest is not None and latest.status is AccessStatus.VERIFIED:
             status_note = (
@@ -780,8 +759,8 @@ class MinecraftAccessBot(commands.Bot):
             )
         return info_embed(
             "Your Minecraft Account",
-            "> One private place for your application and linked accounts.\n\n"
-            f"**Application**\n{status}{status_note}\n\n**Linked Accounts**\n" + "\n".join(account_lines),
+            "> One private place for your access and linked accounts.\n\n"
+            f"**Access**\n{status}{status_note}\n\n**Linked Accounts**\n" + "\n".join(account_lines),
         )
 
     async def build_whitelist_embed(self) -> discord.Embed:
@@ -789,7 +768,7 @@ class MinecraftAccessBot(commands.Bot):
         if not rows:
             return info_embed(
                 "Whitelisted Players",
-                "> Nobody is whitelisted yet. Approved applications appear here automatically.",
+                "> Nobody is whitelisted yet. Verified accounts appear here automatically.",
             )
         sections: list[str] = []
         for edition, label in (("JAVA", "Java"), ("BEDROCK", "Bedrock")):
@@ -1624,7 +1603,7 @@ class MinecraftAccessBot(commands.Bot):
         if not accounts:
             return info_embed(
                 "No Linked Account",
-                "> Link a Minecraft account first. Apply from the application panel, "
+                "> Link a Minecraft account first. Press **Verify** on the panel, "
                 "then check `/minecraft account`.",
                 error=True,
             )
@@ -2079,7 +2058,7 @@ class MinecraftAccessBot(commands.Bot):
         """
         group = app_commands.Group(
             name="minecraft",
-            description="Minecraft applications, accounts, and clans.",
+            description="Minecraft access, accounts, and clans.",
         )
         staff_group = app_commands.Group(
             name="mcstaff",
@@ -2366,7 +2345,7 @@ class MinecraftAccessBot(commands.Bot):
         @app_commands.choices(
             server=[
                 app_commands.Choice(name="Closed — nobody can join", value="closed"),
-                app_commands.Choice(name="Open — everybody accepted can join", value="open"),
+                app_commands.Choice(name="Open — everybody verified can join", value="open"),
             ]
         )
         async def maintenance(
@@ -2386,9 +2365,8 @@ class MinecraftAccessBot(commands.Bot):
                             "Choose an option to change it. While the server is held "
                             "closed, only operators and staff with an explicit "
                             "in-game admin grant can still join — everyone else is "
-                            "turned away on both editions. Applications, "
-                            "verification and acceptance all carry on as normal — "
-                            "only playing is blocked.",
+                            "turned away on both editions. Verification still "
+                            "carries on as normal — only playing is blocked.",
                         )
                     )
                 )
@@ -2398,16 +2376,15 @@ class MinecraftAccessBot(commands.Bot):
             if closing:
                 summary = (
                     "> The server is now **held closed**.\n\n"
-                    "Members can still apply, join once to verify, and be accepted. "
-                    "Regular players cannot play until you open it again, on either "
-                    "edition, and anyone online who is not an operator or holding "
-                    "an explicit `mgxaccessbridge.admin` grant in LuckPerms was "
-                    "disconnected."
+                    "Members can still verify an account. Regular players cannot "
+                    "play until you open it again, on either edition, and anyone "
+                    "online who is not an operator or holding an explicit "
+                    "`mgxaccessbridge.admin` grant in LuckPerms was disconnected."
                 )
             else:
                 summary = (
                     "> The server is now **open**.\n\n"
-                    "Everybody already accepted can join straight away."
+                    "Everybody already verified can join straight away."
                 )
             if not delivered:
                 summary += (
@@ -2426,7 +2403,7 @@ class MinecraftAccessBot(commands.Bot):
                 )
             )
 
-        @group.command(name="account", description="Open your private Minecraft account and application panel.")
+        @group.command(name="account", description="Open your private Minecraft account panel.")
         async def account(interaction: discord.Interaction) -> None:
             await interaction.response.defer(ephemeral=True)
             await interaction.edit_original_response(
@@ -2824,8 +2801,8 @@ class MinecraftAccessBot(commands.Bot):
                 **branded_edit(
                     info_embed(
                         "Verification Cancelled",
-                        "> Your pending Minecraft verification was cancelled successfully.\n\n"
-                        "Return to the application panel and press **Apply** when you are ready to enter the correct username.",
+                        "> Your pending Minecraft verification was cancelled successfully.\n"
+                        "> Press **Verify** on the panel when you are ready to enter the correct username.",
                         success=True,
                     )
                 )
@@ -2872,7 +2849,7 @@ class MinecraftAccessBot(commands.Bot):
 
             member_lines = [
                 "`/minecraft help` — this list",
-                "`/minecraft account` — your application and linked account",
+                "`/minecraft account` — your access and linked account",
                 "`/minecraft server` — server address and how to connect",
                 "`/minecraft whitelist` — everyone with access and their Discord account",
                 "`/minecraft clan view` — your clan and the actions your role allows",
@@ -2975,15 +2952,15 @@ class MinecraftAccessBot(commands.Bot):
                 **branded_send(
                     info_embed(
                         "Minecraft Server Details",
-                        "> Connection details for approved members.\n\n"
+                        "> Connection details for verified members.\n\n"
                         "**Java server address**\n"
                         f"```text\n{self.settings.java_address}\n```\n"
                         "**Bedrock server address**\n"
                         f"```text\n{self.settings.bedrock_address}\n```\n"
                         "**Bedrock port**\n"
                         f"```text\n{self.settings.bedrock_port}\n```\n"
-                        "If the server rejects your connection, make sure your application "
-                        "was approved and that you are joining with the username you applied with.",
+                        "If the server rejects your connection, make sure your account "
+                        "is verified and that you are joining with the username you verified.",
                     )
                 ),
                 ephemeral=True,
