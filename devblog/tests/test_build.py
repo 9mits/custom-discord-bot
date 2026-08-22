@@ -886,6 +886,13 @@ class ArtworkTests(unittest.TestCase):
             block = theme.STYLESHEET.split(selector)[1].split("}")[0]
             self.assertIn("var(--art-plate)", block, selector.strip())
 
+    def test_the_hero_frame_contains_rather_than_crops(self):
+        # cover cropped a wordmark to fill the 16:9 frame. A correctly-shaped
+        # screenshot fills the frame under contain anyway.
+        block = theme.STYLESHEET.split(".hero-feature .frame img {")[1].split("}")[0]
+        self.assertIn("object-fit: contain", block)
+        self.assertNotIn("object-fit: cover", block)
+
     def test_the_card_icon_is_contained_not_cropped(self):
         # cover on a 1.6:1 wordmark cut the ends off the words.
         block = theme.STYLESHEET.split("\n.card-thumb .icon {")[1].split("}")[0]
