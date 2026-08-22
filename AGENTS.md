@@ -48,6 +48,10 @@ python -m py_compile cogs/*.py minecraft_bot/*.py minecraft_main.py
 # Optional local quality pass (ruff config in pyproject.toml; not yet in CI)
 ruff check core/ cogs/ minecraft_bot/ tests/
 
+# Local Minecraft test server (Paper 1.21.11, same build as production)
+python scripts/testserver.py setup   # once: fetch Paper, Floodgate, Geyser, LuckPerms
+python scripts/testserver.py run     # build the plugin, install it, start the server
+
 # Deploy (BisectHosting panel auto-pulls main on restart)
 python panel.py restart
 python panel.py status         # expect: running
@@ -194,6 +198,17 @@ convention does not apply — that rule is about the Discord bot's own output.
 | local | `python -m unittest …` | none | dev machine |
 | staging | `python run_test.py` | `.env.test` only | dev machine |
 | production | `python panel.py restart` | `.env.bot1` + `.env.bot2` + optional `.env.minecraft` | BisectHosting panel |
+
+`minecraft-bridge/` has its own local stage: `scripts/testserver.py` runs the
+same pinned Paper build as production in the git-ignored `runtime/testserver/`,
+with Floodgate (a hard `depend:`), Geyser and LuckPerms alongside. It is
+deliberately not a copy of production — offline mode and no whitelist so alt
+accounts can join to test the multiplayer events, no resource pack so a slow
+GitHub cannot stall a test, and a bridge URL pointing at a local port that need
+not be listening. Everything that does not need Discord works without a bot.
+Use it before the SFTP deploy in non-negotiable 2, not instead of it.
+
+The Minecraft EULA is left unaccepted; flipping `eula=true` is the user's to do.
 
 The staging bot runs locally, not on the panel. The panel runs `start.py`, which
 picks up `.env.bot1`, `.env.bot2`, and `.env.minecraft` when present (`.env.test`
