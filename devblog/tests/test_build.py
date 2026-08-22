@@ -1209,5 +1209,76 @@ class ContrastTests(unittest.TestCase):
 
 
 
+class LightDefaultTests(unittest.TestCase):
+    """Light is the default; dark is opt-in rather than inherited from the OS."""
+
+    def test_no_stored_choice_resolves_to_light(self):
+        self.assertIn("r.setAttribute('data-theme','light')", theme.THEME_BOOT)
+        self.assertIn("s!=='system'", theme.THEME_BOOT)
+
+    def test_an_explicit_choice_is_still_honoured(self):
+        self.assertIn("s==='light'||s==='dark'", theme.THEME_BOOT)
+
+    def test_system_is_the_only_value_that_defers_to_the_os(self):
+        # It alone leaves the attribute off, which is what lets the
+        # prefers-color-scheme block apply.
+        self.assertIn("else if(s!=='system')", theme.THEME_BOOT)
+
+    def test_a_storage_failure_still_lands_on_light(self):
+        catch = theme.THEME_BOOT.split("catch(e){")[1]
+        self.assertIn("data-theme','light'", catch)
+
+    def test_the_switch_ships_with_light_selected(self):
+        page = theme.render_404(prefix="/")
+        switch = re.search(r'<div class="theme-switch".*?</div>', page, re.S).group(0)
+        pairs = dict(zip(re.findall(r'data-theme="(\w+)"', switch),
+                         re.findall(r'aria-checked="(\w+)"', switch)))
+        self.assertEqual(pairs["light"], "true")
+        self.assertEqual(pairs["system"], "false")
+        self.assertEqual(pairs["dark"], "false")
+
+    def test_the_script_falls_back_to_light_too(self):
+        self.assertIn("localStorage.getItem('theme') || 'light'", theme.THEME_SCRIPT)
+
+
+class LightDepthTests(unittest.TestCase):
+    """Stop the light theme reading as white slapped on white."""
+
+    def test_cards_sit_clearly_above_the_page(self):
+        import colorsys
+
+        block = theme.STYLESHEET.split("\n:root {")[1].split("}")[0]
+        tokens = dict(re.findall(r"(--[a-z-]+):\s*(#[0-9a-f]{6})", block))
+
+        def light(value):
+            return colorsys.rgb_to_hls(
+                *[int(value[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+            )[1] * 100
+
+        gap = light(tokens["--surface"]) - light(tokens["--page-bg"])
+        self.assertGreater(gap, 4, "only %.1f points between page and surface" % gap)
+
+    def test_shadows_are_layered_rather_than_one_blur(self):
+        # A single blurred box never reads as height.
+        for token in ("--lift-1", "--lift-2", "--lift-3"):
+            value = theme.STYLESHEET.split(token + ":")[1].split(";")[0]
+            self.assertGreaterEqual(
+                value.count("rgb(var(--shadow-rgb)"), 3, "%s has too few stops" % token
+            )
+
+    def test_the_light_shadow_has_colour_in_it(self):
+        # A neutral grey shadow on a warm page looks like dirt.
+        block = theme.STYLESHEET.split("\n:root {")[1].split("}")[0]
+        red, green, blue = re.search(r"--shadow-rgb:\s*(\d+),\s*(\d+),\s*(\d+)", block).groups()
+        self.assertGreater(int(red), int(blue))
+
+    def test_raised_surfaces_carry_an_edge(self):
+        for selector in (".stats-card {", ".community-card {", ".hero-feature a {"):
+            block = theme.STYLESHEET.split(selector)[1].split("}")[0]
+            self.assertIn("border", block, selector)
+            self.assertIn("box-shadow", block, selector)
+
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

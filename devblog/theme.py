@@ -35,13 +35,16 @@ FONT_URL = (
 STYLESHEET = """
 /* ===== tokens ============================================================ */
 :root {
-  --page-bg: #fdfcfa;
-  --canvas: #f8f3ee;
+  /* The page is a warm off-white and cards stay pure white, so a card reads as
+     raised rather than as the same sheet with a line drawn on it. That gap was
+     1.2 points of lightness before; it is 6.3 now. */
+  --page-bg: #f4f0ea;
+  --canvas: #e9e2d9;
   --surface: #ffffff;
-  --surface-raised: #f9f4ef;
-  --ink: #201d1a;
-  --text-muted: #6b625b;
-  --grey: #7a736b;
+  --surface-raised: #faf6f1;
+  --ink: #1f1c19;
+  --text-muted: #655c55;
+  --grey: #736c64;
   /* Ambient brand bloom behind every page. */
   --bloom: rgba(255, 106, 0, .14);
   --bloom-2: rgba(255, 150, 40, .09);
@@ -55,8 +58,8 @@ STYLESHEET = """
   --brand-ramp: linear-gradient(100deg, var(--brand-red), var(--brand-orange) 45%, var(--brand-amber));
   --blue: #3b82f6;
   --green: #34c46b;
-  --line: rgba(120, 96, 72, .17);
-  --shadow-rgb: 40, 28, 18;
+  --line: rgba(120, 96, 72, .22);
+  --shadow-rgb: 62, 42, 26;
   /* One motion vocabulary for the whole site. Buttons, cards and the nav all
      use these, so nothing feels like it came from a different page. */
   --ease: cubic-bezier(.2, .7, .3, 1);
@@ -64,9 +67,20 @@ STYLESHEET = """
   --dur-fast: .14s;
   --dur: .24s;
   --dur-slow: .45s;
-  --lift-1: 0 1px 2px rgb(var(--shadow-rgb) / .08), 0 2px 6px rgb(var(--shadow-rgb) / .06);
-  --lift-2: 0 2px 4px rgb(var(--shadow-rgb) / .10), 0 8px 20px rgb(var(--shadow-rgb) / .12);
-  --lift-3: 0 4px 8px rgb(var(--shadow-rgb) / .12), 0 18px 40px rgb(var(--shadow-rgb) / .18);
+  /* Three stops each: a tight contact shadow, a mid, and a wide ambient one.
+     One blurred box never reads as height. */
+  --lift-1:
+    0 1px 1px rgb(var(--shadow-rgb) / .05),
+    0 2px 6px rgb(var(--shadow-rgb) / .07),
+    0 6px 14px rgb(var(--shadow-rgb) / .05);
+  --lift-2:
+    0 1px 2px rgb(var(--shadow-rgb) / .06),
+    0 6px 14px rgb(var(--shadow-rgb) / .10),
+    0 16px 32px rgb(var(--shadow-rgb) / .10);
+  --lift-3:
+    0 2px 4px rgb(var(--shadow-rgb) / .07),
+    0 12px 26px rgb(var(--shadow-rgb) / .13),
+    0 28px 60px rgb(var(--shadow-rgb) / .15);
   /* Art plate. Post artwork is often a transparent PNG with light ink, which
      is invisible on the light theme's near-white page. Opaque art covers this
      completely, so it costs nothing there. */
@@ -259,7 +273,7 @@ a { color: inherit; }
   margin-left: auto; margin-right: auto;
   background: var(--art-plate);
   border-radius: var(--img-radius);
-  box-shadow: 0 15px 35px rgb(var(--shadow-rgb) / .12);
+  box-shadow: var(--lift-2);
 }
 .post-body figure.shot img + img { margin-top: .875rem; }
 
@@ -377,7 +391,7 @@ a { color: inherit; }
 .hero-feature a {
   display: block; overflow: hidden; border-radius: 2rem; padding: .75rem;
   background: var(--surface); text-decoration: none;
-  box-shadow: 0 20px 50px rgb(var(--shadow-rgb) / .16);
+  border: 1px solid var(--line); box-shadow: var(--lift-2);
   transition: transform var(--dur-slow) var(--ease-out), box-shadow var(--dur-slow) var(--ease-out);
 }
 .hero-feature a:hover { transform: translateY(-4px); box-shadow: var(--lift-3); }
@@ -451,7 +465,7 @@ a { color: inherit; }
 .stats-card {
   max-width: var(--page-max); margin: 0 auto; padding: 1.5rem 1.25rem 1.25rem;
   background: var(--surface); border: 1px solid var(--line);
-  border-radius: var(--card-radius); box-shadow: var(--lift-1);
+  border-radius: var(--card-radius); box-shadow: var(--lift-2);
 }
 .stats-row {
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem;
@@ -523,7 +537,7 @@ a { color: inherit; }
 .card-thumb {
   position: relative; overflow: hidden; width: 100%;
   aspect-ratio: 13 / 8; border-radius: var(--card-radius);
-  background: var(--art-plate);
+  background: var(--art-plate); box-shadow: var(--lift-1);
   transition: box-shadow var(--dur) var(--ease);
 }
 .card:hover .card-thumb { box-shadow: 0 0 0 2px var(--brand-orange), 0 18px 40px rgb(var(--shadow-rgb) / .18); }
@@ -576,7 +590,7 @@ a { color: inherit; }
   max-width: var(--page-max); margin: 0 auto; padding: 3rem 2rem;
   background: var(--surface); border: 1px solid var(--line);
   border-radius: 30px; text-align: center;
-  box-shadow: 0 20px 50px rgb(var(--shadow-rgb) / .10);
+  box-shadow: var(--lift-3);
 }
 .community-card h2 { margin: 0 0 .5rem; font-size: 2rem; font-weight: 700; color: var(--ink); }
 @media (min-width: 1024px) { .community-card h2 { font-size: 2.75rem; } }
@@ -781,11 +795,16 @@ a:focus-visible, button:focus-visible {
 """
 
 
-# Painted before first render so a dark-mode visitor never sees a white flash.
+# Painted before first render, so a returning dark-mode visitor never sees a
+# white flash. An explicit "system" is the only value that leaves the attribute
+# off and lets the media query decide; no stored choice at all means light, so
+# dark is opt-in rather than inherited from the operating system.
 THEME_BOOT = (
-    "<script>(function(){try{var s=localStorage.getItem('theme');"
-    "if(s==='light'||s==='dark'){document.documentElement.setAttribute('data-theme',s);}"
-    "}catch(e){}})();</script>"
+    "<script>(function(){var r=document.documentElement;try{"
+    "var s=localStorage.getItem('theme');"
+    "if(s==='light'||s==='dark'){r.setAttribute('data-theme',s);}"
+    "else if(s!=='system'){r.setAttribute('data-theme','light');}"
+    "}catch(e){r.setAttribute('data-theme','light');}})();</script>"
 )
 
 THEME_SCRIPT = """
@@ -793,7 +812,7 @@ THEME_SCRIPT = """
 (function () {
   var root = document.documentElement;
   var buttons = document.querySelectorAll('.theme-switch button');
-  function stored() { try { return localStorage.getItem('theme') || 'system'; } catch (e) { return 'system'; } }
+  function stored() { try { return localStorage.getItem('theme') || 'light'; } catch (e) { return 'light'; } }
   function paint(choice) {
     if (choice === 'system') { root.removeAttribute('data-theme'); }
     else { root.setAttribute('data-theme', choice); }
@@ -1059,9 +1078,9 @@ def _footer(prefix: str, nav: Sequence[Dict[str, str]] = ()) -> str:
     )
     switch = (
         '<div class="theme-switch" role="radiogroup" aria-label="Theme">'
-        '<button type="button" role="radio" aria-checked="false" tabindex="-1"'
-        ' data-theme="light" aria-label="Light theme">%s</button>'
         '<button type="button" role="radio" aria-checked="true" tabindex="0"'
+        ' data-theme="light" aria-label="Light theme">%s</button>'
+        '<button type="button" role="radio" aria-checked="false" tabindex="-1"'
         ' data-theme="system" aria-label="System theme">%s</button>'
         '<button type="button" role="radio" aria-checked="false" tabindex="-1"'
         ' data-theme="dark" aria-label="Dark theme">%s</button>'
