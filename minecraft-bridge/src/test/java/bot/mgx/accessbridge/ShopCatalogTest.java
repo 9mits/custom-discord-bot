@@ -158,6 +158,13 @@ class ShopCatalogTest {
         assertEquals(448L, cobble.costOfItems(64));
     }
 
+    @Test
+    void phantomMembraneIsExpensiveBecausePhantomsAreGone() {
+        ShopCatalog.Offer membrane = ShopCatalog.offer("PHANTOM_MEMBRANE").orElseThrow();
+        assertEquals(8_000L, membrane.unitPrice());
+        assertTrue(membrane.unitPrice() >= ShopCatalog.offer("NAME_TAG").orElseThrow().unitPrice());
+    }
+
     /**
      * Buyable items that turn into something else the shop pays for, and how many come
      * out of one. Breaking counts as much as crafting: nobody needs a recipe to place a

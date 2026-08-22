@@ -445,6 +445,7 @@ final class ShopCatalog {
                 offer("LEAD", 1, 1_500),
                 offer("NAME_TAG", 1, 8_000),
                 offer("SADDLE", 1, 6_000),
+                offer("PHANTOM_MEMBRANE", 8, 64_000),
                 offer("EXPERIENCE_BOTTLE", 1, 600),
                 offer("GLASS_BOTTLE", 16, 700),
                 offer("PAPER", 16, 1_000),
