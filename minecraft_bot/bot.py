@@ -212,14 +212,12 @@ class MinecraftAccessBot(commands.Bot):
         # that the bot did not respond in time.
         from .information import InformationButton, LinkEditionButton, SectionButton
         from .leaderboard import BoardSelect
-        from .ui import ContinueApplicationButton
 
         self.add_dynamic_items(
             BoardSelect,
             InformationButton,
             LinkEditionButton,
             SectionButton,
-            ContinueApplicationButton,
         )
         await self.bridge.start()
         self.application_maintenance.start()

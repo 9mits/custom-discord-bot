@@ -151,9 +151,9 @@ _UI_NAME_SUFFIXES = ("Button", "Select", "Modal", "View", "Container")
 # modal are navigation within one workflow. The application lifecycle has its
 # own detailed submission, verification, and decision logs, so logging these
 # clicks as separate commands only creates misleading duplicates.
-_ROUTINE_APPLICATION_ITEMS = {"ApplyButton", "EditionSelection", "ContinueApplicationButton"}
+_ROUTINE_APPLICATION_ITEMS = {"VerifyButton", "EditionSelection"}
 _ROUTINE_APPLICATION_VIEWS = {"RulesAgreementView"}
-_ROUTINE_APPLICATION_MODALS = {"MinecraftApplicationModal", "ApplicationQuestionsModal"}
+_ROUTINE_APPLICATION_MODALS = {"MinecraftApplicationModal"}
 
 
 @dataclass(frozen=True)
