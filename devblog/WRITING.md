@@ -57,6 +57,11 @@ screenshot — the real textures live in
 need upscaling with nearest-neighbour, not a smooth resize. Ask me and I will
 prepare them.
 
+There are **five** textures in total: `crate_key`, and one each for `aura`,
+`trail`, `kill_effect` and `secret`. Every cosmetic shares its category's icon —
+per-cosmetic art was tried and deliberately reverted — so there is no such thing
+as eighteen separate cosmetic icons to publish.
+
 Screenshots of a **menu or an effect in play** still have to come from you —
 but `/mgxadmin devblog` in game makes that far less painful:
 
