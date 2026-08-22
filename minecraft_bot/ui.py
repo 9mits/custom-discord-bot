@@ -32,8 +32,8 @@ async def _validate_application_panel(interaction: discord.Interaction) -> bool:
         await interaction.response.send_message(
             **branded_send(
                 info_embed(
-                    "Applications Unavailable",
-                    "> Minecraft applications are not available in this Discord "
+                    "Verification Unavailable",
+                    "> Minecraft verification is not available in this Discord "
                     "server.",
                     error=True,
                 )
@@ -51,8 +51,8 @@ async def _validate_application_panel(interaction: discord.Interaction) -> bool:
             **branded_send(
                 info_embed(
                     "Panel No Longer Active",
-                    "> This application panel has been replaced.\n"
-                    "> Please use the most recent panel in the application channel.",
+                    "> This verification panel has been replaced.\n"
+                    "> Please use the most recent panel in the channel.",
                     error=True,
                 )
             ),
@@ -105,7 +105,7 @@ class VerifyButton(discord.ui.Button):
                 **branded_send(
                     info_embed(
                         "Please Wait",
-                        "> The application form was opened moments ago.\n"
+                        "> Verification was started moments ago.\n"
                         "> Please wait a few seconds before opening it again.",
                     )
                 ),
@@ -132,7 +132,7 @@ class RulesAgreementView(discord.ui.View):
             **branded_send(
                 info_embed(
                     "Agreement Unavailable",
-                    "> This rules agreement belongs to another applicant.",
+                    "> This rules agreement belongs to another member.",
                     error=True,
                 )
             ),
@@ -151,11 +151,10 @@ class RulesAgreementView(discord.ui.View):
         await interaction.response.edit_message(
             **branded_edit(
                 info_embed(
-                    "Application Closed",
-                    "> The server rules were not accepted, so no application was "
-                    "started.\n"
-                    "> Press **Apply** on the application panel whenever you wish "
-                    "to begin again.",
+                    "Verification Closed",
+                    "> The server rules were not accepted, so verification was "
+                    "not started.\n"
+                    "> Press **Verify** on the panel to begin again.",
                 )
             ),
             attachments=[],
@@ -175,7 +174,7 @@ class CancelPendingConfirmationView(discord.ui.View):
                 **branded_send(
                     info_embed(
                         "Confirmation Unavailable",
-                        "> This cancellation prompt belongs to another applicant.",
+                        "> This cancellation prompt belongs to another member.",
                         error=True,
                     )
                 ),
@@ -201,7 +200,7 @@ class CancelPendingConfirmationView(discord.ui.View):
                 info_embed(
                     "Verification Cancelled",
                     "> Your pending verification has been cancelled.\n"
-                    "> Press **Apply** on the application panel to begin again with "
+                    "> Press **Verify** on the panel to begin again with "
                     "the correct account name.",
                     success=True,
                 )
@@ -230,7 +229,7 @@ class EditionSelection(discord.ui.Select):
                 **branded_send(
                     info_embed(
                         "Edition Selection Unavailable",
-                        "> This edition selector belongs to another applicant.",
+                        "> This edition selector belongs to another member.",
                         error=True,
                     )
                 ),
@@ -288,8 +287,8 @@ class LinkEditionView(discord.ui.View):
         return False
 
 
-class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Application"):
-    """Stage one: just the account name. The written form follows verification."""
+class MinecraftApplicationModal(discord.ui.Modal, title="Verify Your Minecraft Account"):
+    """The account name is the only thing asked. Verification grants access."""
 
     def __init__(
         self,
@@ -356,11 +355,10 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
             )
             await edit_card(
                 embed=info_embed(
-                    "Application Already Active",
-                    "> An application of yours is already being verified or "
-                    "reviewed.\n"
-                    "> If it is still awaiting verification, it can be cancelled "
-                    "below so that you may apply again.",
+                    "Verification Already Active",
+                    "> A verification of yours is already in progress.\n"
+                    "> If it is still awaiting a join, it can be cancelled "
+                    "below so that you may start again.",
                     error=True,
                 ),
                 attachments=[],
@@ -381,15 +379,15 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
             return
         except ValueError as exc:
             await edit_card(
-                embed=info_embed("Application Invalid", f"> {exc}", error=True),
+                embed=info_embed("Verification Invalid", f"> {exc}", error=True),
                 attachments=[],
             )
             return
         except Exception:
             await edit_card(
                 embed=info_embed(
-                    "Application Failed",
-                    "> The application could not be started. Wait a moment and try again.",
+                    "Verification Failed",
+                    "> Verification could not be started. Wait a moment and try again.",
                     error=True,
                 ),
                 attachments=[],
@@ -418,11 +416,11 @@ class SupportConfirmationView(discord.ui.View):
     @discord.ui.button(label="Open Support Ticket", style=discord.ButtonStyle.danger)
     async def confirm(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
         if interaction.user.id != self.requester_id:
-            await interaction.response.send_message("This confirmation belongs to another applicant.", ephemeral=True)
+            await interaction.response.send_message("This confirmation belongs to another member.", ephemeral=True)
             return
         application = await interaction.client.data.get_access(self.access_id)
         if application is None or int(application.discord_user_id) != interaction.user.id:
-            await interaction.response.send_message("This application is no longer available.", ephemeral=True)
+            await interaction.response.send_message("This verification is no longer available.", ephemeral=True)
             return
         try:
             enqueue_support_request(
@@ -474,8 +472,8 @@ class LiveApplicationView(discord.ui.View):
         if application is None or int(application.discord_user_id) != interaction.user.id:
             await interaction.response.send_message(
                 **branded_send(info_embed(
-                    "Application Unavailable",
-                    "> This card is no longer connected to an application.",
+                    "Verification Unavailable",
+                    "> This card is no longer connected to a verification.",
                     error=True,
                 )),
                 ephemeral=True,
@@ -519,7 +517,7 @@ class LiveApplicationView(discord.ui.View):
                 info_embed(
                     "Verification Cancelled",
                     "> Your pending verification has been cancelled.\n"
-                    "> Press **Apply** on the application panel to begin again with "
+                    "> Press **Verify** on the panel to begin again with "
                     "the correct account name.",
                     success=True,
                 )
@@ -539,7 +537,7 @@ class LiveApplicationView(discord.ui.View):
                 **branded_send(info_embed(
                     "Open a Support Ticket?",
                     "> A private support ticket will be opened, with your "
-                    "application status attached.\n"
+                    "verification status attached.\n"
                     "> Press the button below to confirm.",
                 )),
                 view=SupportConfirmationView(application.id, interaction.user.id),
@@ -599,7 +597,7 @@ class AccountView(discord.ui.View):
     @discord.ui.button(label="Cancel Verification", style=discord.ButtonStyle.danger)
     async def cancel(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
         await interaction.response.send_message(
-            **branded_send(info_embed("Cancel Verification?", "> This only cancels an application that has not yet been verified.")),
+            **branded_send(info_embed("Cancel Verification?", "> This only cancels a verification that has not yet been completed.")),
             view=CancelPendingConfirmationView(interaction.user.id),
             ephemeral=True,
         )

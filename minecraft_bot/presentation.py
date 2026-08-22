@@ -247,7 +247,7 @@ def _panel_embed(title: str, description: str) -> discord.Embed:
 #: Each feature as (name, one line on what it is). Someone reading this is
 #: deciding whether the server suits them, so it lists what is actually here
 #: rather than describing the atmosphere twice. How any of it works belongs in
-#: the information panel they get after acceptance.
+#: the information panel they get after they can play.
 SERVER_FEATURES: tuple[tuple[str, str], ...] = (
     ("Economy", "Shop, sell, player auctions and bounties"),
     ("Clans", "Your own name, tag and colour, funded by a shared treasury"),
@@ -275,9 +275,8 @@ def application_welcome_embed() -> discord.Embed:
     welcome.add_field(
         name="Joining",
         value=(
-            "> A private server: everyone applies and is reviewed before "
-            "joining. Acceptance is intentionally straightforward — if you would "
-            "like to play, apply."
+            "> A private server: verify the Minecraft account you play on, then "
+            "join. Press **Verify** when you are ready."
         ),
         inline=False,
     )
@@ -286,16 +285,16 @@ def application_welcome_embed() -> discord.Embed:
 
 
 def application_guide_embed() -> discord.Embed:
-    """What the server is actually like, for somebody deciding whether to apply.
+    """What the server is actually like, for somebody deciding whether to join.
 
     Laid out like the information panel so the two feel like one product, but they
-    answer different questions. Information *teaches* accepted members how to play —
+    answer different questions. Information *teaches* members how to play —
     commands, limits, costs. This *explains*: what a clan is for, that you can save
     places and travel to friends, what levelling earns you. The pages behind these
     buttons live in `about.py` and never name a command, because a command is no use
     to somebody who cannot join yet.
     """
-    embed = _panel_embed("Before You Apply", "")
+    embed = _panel_embed("Before You Join", "")
     embed.add_field(
         name="Can I play on my version?",
         value=(
@@ -346,8 +345,8 @@ def application_guide_embed() -> discord.Embed:
     embed.add_field(
         name="Read the rules first",
         value=(
-            "> You accept them as part of applying, and they are what staff "
-            "enforce once you are in."
+            "> You accept them when you verify, and they are what staff "
+            "enforce on the server."
         ),
         inline=False,
     )
@@ -358,17 +357,16 @@ def application_guide_embed() -> discord.Embed:
 def application_apply_embed() -> discord.Embed:
     """The step-by-step, kept on its own message so the button stands alone."""
     embed = _panel_embed(
-        "Apply to Mysterious SMP X",
-        "Applying takes a few minutes and is completed entirely within Discord.\n\n"
+        "Join Mysterious SMP X",
+        "Verification is completed in Discord, then one join on the server.\n\n"
         "**How it works**\n"
-        "> **1.** Press **Apply** and accept the server rules.\n"
+        "> **1.** Press **Verify** and accept the server rules.\n"
         "> **2.** Enter your exact Java username or Xbox gamertag.\n"
-        "> **3.** Join the server once within **10 minutes**. You will be disconnected automatically — that is how we verify the account.\n"
-        "> **4.** Return to Discord and complete a short form.\n"
-        "> **5.** Staff review it and send the outcome by direct message.\n\n"
+        "> **3.** Join the server once within **10 minutes** using that account.\n"
+        "> **4.** You will be let straight in, and your access is active from that moment.\n\n"
         "**Before you begin**\n"
         "> Enable direct messages from server members so the bot can reach you.\n"
-        "> Entered the wrong username? Press **Apply** again to cancel privately.",
+        "> Entered the wrong username? Press **Verify** again to cancel privately.",
     )
     embed.set_thumbnail(url=APPLY_ATTACHMENT_URI)
     return embed
@@ -532,7 +530,7 @@ def rules_embed(*, agreement: bool = False) -> discord.Embed:
 
 
 def application_panel() -> discord.ui.View:
-    """Just Apply. The reading lives on its own message above this one."""
+    """Just Verify. The reading lives on its own message above this one."""
     from .ui import VerifyButton
 
     view = discord.ui.View(timeout=None)
@@ -543,8 +541,8 @@ def application_panel() -> discord.ui.View:
 def application_guide_view() -> discord.ui.View:
     """The information panel's own buttons, so both surfaces show the same pages.
 
-    Everything except Link Your Other Edition, which needs an account that an
-    applicant does not have yet.
+    Everything except Link Your Other Edition, which needs an account that a
+    visitor does not have yet.
 
     Imported inside the function because `information` reads its embeds back out
     of this module, and importing it at module scope would close the loop.
@@ -595,11 +593,9 @@ def verification_embed(application: MinecraftAccess, settings) -> discord.Embed:
         "**What happens next**\n"
         "1. Add the server using the details above.\n"
         f"2. Connect once with the account named `{_safe(application.claimed_username, 100)}`.\n"
-        "3. That first connection is turned away on purpose — it only proves ownership.\n"
-        "4. Then come back to Discord and fill out the short application form. "
-        "A DM with a button will be waiting for you.\n\n"
-        "**Wrong username?** Press **Apply** again on the application panel to reveal the private "
-        "**Cancel Pending Verification** option, or run `/minecraft cancel`, then apply again.",
+        "3. You will be let straight in, and your access is active from that moment.\n\n"
+        "**Wrong username?** Press **Verify** on the panel to reveal the private "
+        "**Cancel Pending Verification** option, or run `/minecraft cancel`, then start again.",
     )
     embed.set_image(url=VERIFY_ATTACHMENT_URI)
     return embed
@@ -729,8 +725,8 @@ def approval_embed(settings) -> discord.Embed:
     # in somebody's inbox for good. The server states its own closure, on the kick
     # screen, at the moment it is true.
     return info_embed(
-        "Application Approved",
-        "> Your Minecraft application has been approved and your access is now "
+        "Access Active",
+        "> Your Minecraft account is verified and your access is now "
         "active.\n"
         "> Connect using the address for your edition below, with the same account "
         "you verified.\n"

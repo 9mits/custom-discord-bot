@@ -125,12 +125,12 @@ def _addresses(settings) -> tuple[str, str, str]:
 
 
 def overview_embed(settings=None) -> discord.Embed:
-    # This message lives in a channel members only see after they are accepted,
+    # This message lives in a channel members only see after they can play,
     # so it reads as the server handbook — never as joining instructions.
-    # No feature columns here. This panel is read by members who have already been
-    # accepted and are playing, so a pitch for the features they are using is a
-    # screenful in front of what they actually opened it for. The welcome panel
-    # still carries them, for the people deciding whether to apply.
+    # No feature columns here. This panel is read by members who are already
+    # playing, so a pitch for the features they are using is a screenful in
+    # front of what they actually opened it for. The welcome panel still
+    # carries them, for the people deciding whether to join.
     embed = _embed("Information", "\n\n".join(SERVER_TAGLINE_PARAGRAPHS))
     embed.add_field(
         name="Client versions",
@@ -350,7 +350,7 @@ def commands_account_embed(settings=None) -> discord.Embed:
             ),
             (
                 "In Discord",
-                "> `/minecraft account` — your application and linked account\n"
+                "> `/minecraft account` — your access and linked account\n"
                 "> `/minecraft whitelist` — everyone with access\n"
                 "> `/minecraft clan view` — your clan and permitted actions",
             ),

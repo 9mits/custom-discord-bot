@@ -653,7 +653,7 @@ class MinecraftDataManager:
                 )
                 if claimed_name and str(claimed_name[0]["discord_user_id"]) != str(discord_user_id):
                     raise ValueError(
-                        "That Minecraft name is already being used on another application"
+                        "That Minecraft name is already being used on another verification"
                     )
                 placeholders = ",".join("?" for _ in ACTIVE_STATUSES)
                 active = await db.execute_fetchall(

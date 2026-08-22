@@ -150,7 +150,7 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertTrue(FOOTER_PATH.is_file())
         self.assertTrue(RULES_PATH.is_file())
         self.assertTrue(VERIFY_PATH.is_file())
-        self.assertTrue(ABOUT_PATH.is_file(), "the Before You Apply mark must ship with the repo")
+        self.assertTrue(ABOUT_PATH.is_file(), "the Before You Join mark must ship with the repo")
         self.assertTrue(APPLY_PATH.is_file(), "the Apply mark must ship with the repo")
 
     def test_minecraft_brand_assets_stay_lightweight(self):
@@ -635,8 +635,8 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
             titles,
             [
                 "Welcome to Mysterious SMP X",
-                "Before You Apply",
-                "Apply to Mysterious SMP X",
+                "Before You Join",
+                "Join Mysterious SMP X",
             ],
         )
         # Apply is returned and tracked, because that is the message a press is
@@ -2599,15 +2599,15 @@ class LinkEditionPromptTests(unittest.IsolatedAsyncioTestCase):
         )
         return bot
 
-    async def test_acceptance_is_looked_up_rather_than_assumed(self):
-        # Somebody who has never been accepted is told a form and a review follow;
-        # promising them instant access would be untrue, and having a linked
-        # account is not the same fact as holding an approved application.
+    async def test_verification_is_the_same_whether_or_not_they_already_play(self):
         unapproved, _view = await self._bot(approved=False).build_link_edition_prompt(99)
         accepted, _view = await self._bot(approved=True).build_link_edition_prompt(99)
 
-        self.assertIn("staff review", unapproved.description)
-        self.assertNotIn("staff review", accepted.description)
+        for embed in (unapproved, accepted):
+            with self.subTest(title=embed.title):
+                self.assertNotIn("staff review", embed.description)
+                self.assertNotIn("application form", embed.description)
+                self.assertIn("let straight in", embed.description)
 
     async def test_the_steps_are_the_same_three_either_way(self):
         for accounts in ([], [{"edition": "JAVA"}]):
@@ -2616,7 +2616,7 @@ class LinkEditionPromptTests(unittest.IsolatedAsyncioTestCase):
 
                 for step in ("**1.**", "**2.**", "**3.**"):
                     self.assertIn(step, embed.description)
-                self.assertIn("disconnected automatically", embed.description)
+                self.assertIn("let straight in", embed.description)
 
     async def test_a_member_with_nothing_linked_can_link_from_here(self):
         embed, view = await self._bot().build_link_edition_prompt(99)
@@ -2658,7 +2658,7 @@ class LinkEditionPromptTests(unittest.IsolatedAsyncioTestCase):
                 embed, view = await bot.build_link_edition_prompt(99)
 
                 self.assertIsNone(view)
-                self.assertEqual(embed.title, "Application Already Active")
+                self.assertEqual(embed.title, "Verification Already Active")
 
 class QuoteFormattingTests(unittest.TestCase):
     """The quote bar is what stops a page of headings running together."""
@@ -2849,11 +2849,43 @@ class ApplicantVoiceTests(unittest.TestCase):
         yield "dm:approved", approval_embed(settings)
         yield "dm:approved-held", approval_embed(held)
 
+    def _every_public_panel_embed(self):
+        from minecraft_bot.presentation import (
+            application_apply_embed,
+            application_guide_embed,
+            application_welcome_embed,
+        )
+
+        yield "welcome", application_welcome_embed()
+        yield "guide", application_guide_embed()
+        yield "join", application_apply_embed()
+
     def test_no_applicant_embed_slips_back_into_chattiness(self):
         for name, embed in self._every_applicant_embed():
             described = f"{embed.title} {embed.description}".casefold()
             for phrase in self.CHATTY:
                 with self.subTest(embed=name, phrase=phrase):
+                    self.assertNotIn(phrase, described)
+
+    def test_the_public_panel_describes_verification_not_an_application(self):
+        leftover = (
+            "press **apply**",
+            "staff review",
+            "application form",
+            "disconnected automatically",
+            "before you apply",
+            "apply to mysterious",
+        )
+        for name, embed in self._every_public_panel_embed():
+            described = f"{embed.title} {embed.description}".casefold()
+            described += " " + " ".join(
+                f"{field.name} {field.value}".casefold() for field in embed.fields
+            )
+            for phrase in leftover:
+                with self.subTest(embed=name, phrase=phrase):
+                    self.assertNotIn(phrase, described)
+            for phrase in self.CHATTY:
+                with self.subTest(embed=name, chatty=phrase):
                     self.assertNotIn(phrase, described)
 
     def test_every_applicant_embed_leads_with_a_quote(self):
@@ -3002,7 +3034,7 @@ class WelcomePanelTests(unittest.TestCase):
 
 
 class ApplicationGuideButtonTests(unittest.TestCase):
-    """Before You Apply shows the information panel's own pages.
+    """Before You Join shows the information panel's own pages.
 
     One set of pages behind both surfaces, so a change to a page reaches
     applicants and members alike instead of drifting between two copies.
