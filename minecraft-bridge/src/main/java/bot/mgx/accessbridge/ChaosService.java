@@ -53,6 +53,8 @@ import java.util.function.LongConsumer;
  * the player file, so not even a crash mid-effect can leave somebody the wrong
  * size. A floor of lava is a {@link Player#sendBlockChange} lie told to one
  * client — the real world is untouched and a relog corrects the view by itself.
+ * The faked blocks are deliberately solid ones, so the client's own collision
+ * still agrees with the server's and nobody gets rubber-banded.
  * Lightning is {@link World#strikeLightningEffect}, which lights no fires and
  * deals no damage. The only creature spawned is a bat: it never lands, so it
  * cannot trample farmland, and it is invulnerable, so it cannot be farmed.
@@ -141,8 +143,16 @@ final class ChaosService implements Listener {
             case DISCO -> { disco(session, ticks); yield started("Disco", seconds); }
             case BLACKOUT -> { blackout(session, ticks); yield started("Blackout", seconds); }
             case THUNDERDOME -> { thunderdome(session, ticks); yield started("Thunderdome", seconds); }
-            case LAVAFLOOR -> { fakeFloor(session, ticks, Material.LAVA); yield started("Lava floor", seconds); }
-            case VOIDFLOOR -> { fakeFloor(session, ticks, Material.AIR); yield started("Void floor", seconds); }
+            case LAVAFLOOR -> {
+                fakeFloor(session, ticks, Material.MAGMA_BLOCK, 0, true);
+                yield started("Lava floor", seconds);
+            }
+            case VOIDFLOOR -> {
+                // Barrier is invisible but solid, so the hole is only ever a
+                // picture — the client still walks on the floor that is there.
+                fakeFloor(session, ticks, Material.BARRIER, 4, false);
+                yield started("Void floor", seconds);
+            }
             case GIANTS -> {
                 scale(session, ticks, 2.0d, "GIANTS", "Mind the ceiling.");
                 yield started("Giants", seconds);
@@ -246,8 +256,21 @@ final class ChaosService implements Listener {
         });
     }
 
-    private void fakeFloor(Session session, long ticks, Material material) {
-        boolean lava = material == Material.LAVA;
+    /**
+     * Fakes the floor for each client. Nothing is written to the world.
+     *
+     * <p>{@code surface} must be a block the client considers <em>solid</em>.
+     * Sending real lava or real air desyncs the illusion from the server: the
+     * client runs its own collision against what it was told, so it predicts
+     * sinking or falling, sends those positions, and gets rubber-banded back —
+     * which looks broken and reads to an anticheat as impossible movement.
+     * Magma block and barrier both collide exactly like the floor really there.
+     *
+     * @param depth how many blocks below the surface to hollow out visually.
+     *              The player stands on {@code surface}, so they never reach
+     *              these and the illusion costs nothing in prediction.
+     */
+    private void fakeFloor(Session session, long ticks, Material surface, int depth, boolean lava) {
         announce(lava
                 ? Component.text("THE FLOOR IS LAVA!", NamedTextColor.GOLD, TextDecoration.BOLD)
                         .append(Component.text(" It is not. Probably.", NamedTextColor.WHITE))
@@ -282,12 +305,16 @@ final class ChaosService implements Listener {
                         if (x * x + z * z > 36) {
                             continue;
                         }
-                        Location at = feet.clone().add(x, -1d, z);
-                        if (at.getBlock().getType().isAir()) {
-                            continue;
+                        for (int down = 1; down <= 1 + depth; down++) {
+                            Location at = feet.clone().add(x, -down, z);
+                            if (at.getBlock().getType().isAir()) {
+                                continue;
+                            }
+                            player.sendBlockChange(at, down == 1
+                                    ? surface.createBlockData()
+                                    : Material.AIR.createBlockData());
+                            mine.add(at.clone());
                         }
-                        player.sendBlockChange(at, material.createBlockData());
-                        mine.add(at.clone());
                     }
                 }
                 if (lava && frame % 4 == 0) {
