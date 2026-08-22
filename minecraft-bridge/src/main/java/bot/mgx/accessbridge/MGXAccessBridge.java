@@ -77,6 +77,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private PendingVerificationCache pending;
     private PlayerPerkService perkService;
     private SidebarService sidebarService;
+    private DevBlogService devBlogService;
+    private DevBlogStore devBlogStore;
     private VerifiedApplicationStore verifiedApplications;
     private DiscordIdentityService identityService;
     private ChatRelayService chatRelayService;
@@ -131,6 +133,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                     getDataFolder().toPath().resolve("verified-applications.json")
             );
             clanStore = new ClanStore(getDataFolder().toPath().resolve("clans.json"));
+            devBlogStore = new DevBlogStore(
+                    getDataFolder().toPath().resolve("devblog-sessions.json")
+            );
             playerSettings = new PlayerSettingsStore(
                     getDataFolder().toPath().resolve("player-settings.json")
             );
@@ -355,6 +360,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getScheduler().runTaskTimer(
                 this, economyMenus::sweepAutoSell, 40L, 40L
         );
+        devBlogService = new DevBlogService(this, devBlogStore, sidebarService);
         AdminCommandService adminService = new AdminCommandService(
                 this,
                 rankSyncStore,
@@ -386,7 +392,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                         // Where the worlds live is also where whitelist.json and
                         // usercache.json sit, which is what the reset needs.
                         getServer().getWorldContainer().toPath()
-                )
+                ),
+                devBlogService
         );
         getCommand("mgxadmin").setExecutor(adminService);
         getCommand("mgxadmin").setTabCompleter(adminService);
@@ -434,6 +441,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         if (leaderboardService != null) {
             leaderboardService.stop();
+        }
+        if (devBlogService != null) {
+            devBlogService.endEverySession(getServer().getOnlinePlayers());
         }
         if (sidebarService != null) {
             sidebarService.stop();
@@ -1295,12 +1305,23 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerJoin(PlayerJoinEvent event) {
+        if (devBlogService != null) {
+            // A crash or restart can leave a session open; this is
+            // where the belongings come back.
+            devBlogService.restoreIfStranded(event.getPlayer());
+        }
         queuePlayerActivity(event.getPlayer().getUniqueId(), event.getPlayer().getName(), true);
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
         verificationKicks.remove(event.getPlayer().getUniqueId());
+        if (devBlogService != null) {
+            // Restores their belongings before they leave, so logging out of
+            // screenshot mode is not a way to lose an inventory.
+            devBlogService.endSession(event.getPlayer());
+            devBlogService.forget(event.getPlayer().getUniqueId());
+        }
         if (sidebarService != null) {
             sidebarService.forget(event.getPlayer().getUniqueId());
         }

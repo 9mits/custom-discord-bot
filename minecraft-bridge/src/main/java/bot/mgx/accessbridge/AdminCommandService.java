@@ -39,9 +39,16 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     static final String PERMISSION = "mgxaccessbridge.admin";
     private static final List<String> SUBCOMMANDS = List.of(
             "startserver", "teststart", "give", "ranks", "eco", "bounty", "hologram", "reset",
-            "help"
+            "devblog", "help"
     );
     private static final List<String> RANK_ACTIONS = List.of("hold", "release", "list");
+    private static final List<String> DEVBLOG_ACTIONS = List.of(
+            "on", "off", "cam", "time", "weather", "players", "status"
+    );
+    private static final List<String> DEVBLOG_TIMES = List.of(
+            "day", "noon", "dusk", "night", "midnight", "dawn", "reset"
+    );
+    private static final List<String> DEVBLOG_WEATHER = List.of("clear", "rain", "reset");
     private static final List<String> ECO_ACTIONS = List.of("give", "take", "set", "join");
     private static final List<String> BOUNTY_ACTIONS = List.of("set", "join");
     private static final List<String> JOIN_ACTIONS = List.of("on", "off");
@@ -60,6 +67,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     private final JoinGrantStore joinGrants;
     private final HologramService holograms;
     private final ServerDataResetService resets;
+    private final DevBlogService devBlog;
 
     AdminCommandService(
             MGXAccessBridge plugin,
@@ -71,7 +79,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             BountyStore bounties,
             JoinGrantStore joinGrants,
             HologramService holograms,
-            ServerDataResetService resets
+            ServerDataResetService resets,
+            DevBlogService devBlog
     ) {
         this.plugin = plugin;
         this.rankSync = rankSync;
@@ -83,6 +92,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         this.joinGrants = joinGrants;
         this.holograms = holograms;
         this.resets = resets;
+        this.devBlog = devBlog;
     }
 
     @Override
@@ -109,12 +119,26 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 case "bounty" -> bounty(sender, args);
                 case "hologram", "holograms", "lb" -> hologram(sender, args);
                 case "reset" -> reset(sender, args);
+                case "devblog", "screenshot" -> devBlog(sender, args);
                 default -> sendHelp(sender);
             }
         } catch (IllegalArgumentException exception) {
             error(sender, exception.getMessage());
         }
         return true;
+    }
+
+    // ------------------------------------------------------------------
+    // Screenshot mode, for photographing an update
+    // ------------------------------------------------------------------
+
+    private void devBlog(CommandSender sender, String[] args) {
+        if (!(sender instanceof org.bukkit.entity.Player player)) {
+            throw new IllegalArgumentException(
+                    "Screenshot mode changes what you can see, so it has to be run in game."
+            );
+        }
+        devBlog.handle(player, args);
     }
 
     // ------------------------------------------------------------------
@@ -514,6 +538,9 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 .append(Component.text("  place or remove a spawn leaderboard", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin reset", ORANGE)
                 .append(Component.text("  clear progress, keeping the world", NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin devblog", ORANGE)
+                .append(Component.text("  screenshot mode: stash your gear, clear the screen",
+                        NamedTextColor.GRAY)));
     }
 
     @Override
@@ -527,6 +554,20 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             return partial(args[0], SUBCOMMANDS);
         }
         String action = args[0].toLowerCase(Locale.ROOT);
+        if (action.equals("devblog") || action.equals("screenshot")) {
+            if (args.length == 2) {
+                return partial(args[1], DEVBLOG_ACTIONS);
+            }
+            if (args.length == 3) {
+                return switch (args[1].toLowerCase(Locale.ROOT)) {
+                    case "time" -> partial(args[2], DEVBLOG_TIMES);
+                    case "weather" -> partial(args[2], DEVBLOG_WEATHER);
+                    case "on", "start" -> partial(args[2], List.of("keeparmour"));
+                    default -> List.of();
+                };
+            }
+            return List.of();
+        }
         if (action.equals("give")) {
             if (args.length == 2) {
                 List<String> names = new ArrayList<>(EVERYONE);

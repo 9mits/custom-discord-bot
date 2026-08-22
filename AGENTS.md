@@ -130,6 +130,9 @@ convention does not apply — that rule is about the Discord bot's own output.
 - **Never invent a feature, number, or reward.** Only what is in the changelog
   or the commit range.
 - **Never fabricate a screenshot**, and never describe one that does not exist.
+  In game, `/mgxadmin devblog` is the screenshot mode that makes taking a real
+  one easy — it stashes the operator's gear, hides the sidebar and other
+  players, and fixes their sky.
   Images are supplied by a human, or come from real assets in this repo (see
   `devblog/README.md`). A missing image is a missing image; `blog.py check`
   fails on a reference to one, which is the correct outcome.

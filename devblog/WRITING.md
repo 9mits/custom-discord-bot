@@ -57,7 +57,26 @@ screenshot — the real textures live in
 need upscaling with nearest-neighbour, not a smooth resize. Ask me and I will
 prepare them.
 
-Screenshots of a **menu or an effect in play** still have to come from you.
+Screenshots of a **menu or an effect in play** still have to come from you —
+but `/mgxadmin devblog` in game makes that far less painful:
+
+| | |
+|---|---|
+| `/mgxadmin devblog` | stash your gear, hide the sidebar and other players |
+| `/mgxadmin devblog on keeparmour` | same, but keep your armour on for the shot |
+| `/mgxadmin devblog time noon` | fix your sky — `day`, `noon`, `dusk`, `night`, `midnight`, `dawn` |
+| `/mgxadmin devblog weather clear` | stop the rain, for you only |
+| `/mgxadmin devblog cam` | spectator, and back to the exact spot you left |
+| `/mgxadmin devblog players` | show the others again |
+| `/mgxadmin devblog off` | put everything back |
+
+Time and weather are **yours alone** — nobody else's sky changes, so you can
+shoot a night scene at noon without touching the server.
+
+Press **F1** to hide the HUD once you are set up.
+
+Your belongings are written to disk the moment the session starts, so a crash
+or a restart cannot eat them; they come back the next time you join.
 
 ## 3. Write it
 
