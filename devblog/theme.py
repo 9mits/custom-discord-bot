@@ -379,6 +379,54 @@ a { color: inherit; }
 }
 .hero-feature .veil p { margin: 0; color: #fff; font-weight: 700; font-size: 1.5rem; text-shadow: 0 2px 6px rgba(0,0,0,.6); }
 
+/* ===== blog archive ====================================================== */
+.blog-head { padding: 3rem 0 1.5rem; }
+.blog-head h1 {
+  margin: 0; font-size: 2.5rem; font-weight: 800; letter-spacing: -.03em;
+  line-height: 1.05; color: var(--ink);
+}
+@media (min-width: 768px) { .blog-head h1 { font-size: 3.125rem; } }
+.blog-lede { margin: .75rem 0 0; font-size: 1.125rem; color: var(--text-muted); max-width: 40rem; }
+
+.cat-tabs {
+  display: flex; gap: 1.75rem; align-items: stretch;
+  overflow-x: auto; scrollbar-width: none; -ms-overflow-style: none;
+  border-bottom: 1px solid var(--line); margin-bottom: .5rem;
+}
+.cat-tabs::-webkit-scrollbar { display: none; }
+.cat-tabs button {
+  position: relative; flex: 0 0 auto; appearance: none; border: 0; cursor: pointer;
+  background: none; font: inherit; font-weight: 700; font-size: 1.0625rem;
+  color: var(--grey); padding: 0 0 .75rem; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: .5rem;
+  transition: color var(--dur) var(--ease);
+}
+.cat-tabs button::after {
+  content: ""; position: absolute; left: 0; bottom: -1px; height: 2px; width: 0;
+  background: var(--brand-ramp); border-radius: 999px;
+  transition: width var(--dur) var(--ease);
+}
+.cat-tabs button:hover { color: var(--ink); }
+.cat-tabs button[aria-selected="true"] { color: var(--orange); }
+.cat-tabs button[aria-selected="true"]::after { width: 100%; }
+.cat-tabs .count {
+  font-size: .75rem; font-weight: 800; line-height: 1;
+  padding: .25rem .45rem; border-radius: 999px;
+  background: var(--surface-raised); color: var(--grey);
+}
+.cat-tabs button[aria-selected="true"] .count { background: rgba(240, 96, 0, .14); color: var(--orange); }
+
+.no-match {
+  margin: 2rem auto; text-align: center; color: var(--grey);
+  max-width: var(--page-max); padding: 0 var(--rail);
+}
+
+@media (max-width: 640px) {
+  .blog-head { padding: 2rem 0 1rem; }
+  .cat-tabs { gap: 1.25rem; }
+  .cat-tabs button { font-size: .9375rem; }
+}
+
 /* ===== live server stats ================================================= */
 .stats { padding: 0 var(--rail); margin-top: -.5rem; }
 .stats-card {
@@ -743,6 +791,53 @@ THEME_SCRIPT = """
 </script>
 """
 
+FILTER_SCRIPT = """
+<script>
+(function () {
+  var tabs = Array.prototype.slice.call(document.querySelectorAll(".cat-tabs [data-cat]"));
+  var grid = document.getElementById("all-posts");
+  if (!tabs.length || !grid) return;
+  var cards = Array.prototype.slice.call(grid.querySelectorAll(".card"));
+  var featured = document.getElementById("featured");
+  var empty = document.querySelector(".no-match");
+
+  function apply(cat) {
+    var shown = 0;
+    cards.forEach(function (card) {
+      // In the "all" view the newest post is already called out above, so its
+      // card stays hidden here rather than appearing twice.
+      var show = cat === "*"
+        ? card.dataset.featured !== "1"
+        : card.dataset.category === cat;
+      card.hidden = !show;
+      if (show) shown++;
+    });
+    if (featured) featured.hidden = cat !== "*";
+    if (empty) empty.hidden = shown > 0;
+    tabs.forEach(function (t) {
+      t.setAttribute("aria-selected", String(t.dataset.cat === cat));
+    });
+    try {
+      var url = new URL(window.location);
+      if (cat === "*") url.searchParams.delete("category");
+      else url.searchParams.set("category", cat);
+      history.replaceState(null, "", url);
+    } catch (e) {}
+  }
+
+  tabs.forEach(function (t) {
+    t.addEventListener("click", function () { apply(t.dataset.cat); });
+  });
+
+  // Honour ?category= so a filtered view can be linked to.
+  try {
+    var wanted = new URL(window.location).searchParams.get("category");
+    if (wanted && tabs.some(function (t) { return t.dataset.cat === wanted; })) apply(wanted);
+  } catch (e) {}
+})();
+</script>
+"""
+
 AGO_SCRIPT = """
 <script>
 (function () {
@@ -851,18 +946,16 @@ def _head(title: str, description: str, prefix: str, og_image: Optional[str], ur
 
 
 def _topbar(prefix: str, current: str = "", nav: Sequence[Dict[str, str]] = ()) -> str:
-    items = ['<a href="%sindex.html"%s>Updates</a>'
-             % (prefix, ' aria-current="page"' if current == "index" else "")]
-    for entry in nav:
-        items.append(
-            '<a href="%s%s"%s>%s</a>'
-            % (
-                prefix,
-                _esc(str(entry["url"])),
-                ' aria-current="page"' if current == entry["slug"] else "",
-                _esc(str(entry["label"])),
-            )
+    items = "".join(
+        '<a href="%s%s"%s>%s</a>'
+        % (
+            prefix,
+            _esc(str(entry["url"])),
+            ' aria-current="page"' if current == entry["slug"] else "",
+            _esc(str(entry["label"])),
         )
+        for entry in nav
+    )
     cta = (
         '<a class="btn btn-orange btn-sm nav-cta" href="%s" rel="noopener">Discord</a>'
         % _esc(DISCORD_URL)
@@ -877,7 +970,7 @@ def _topbar(prefix: str, current: str = "", nav: Sequence[Dict[str, str]] = ()) 
         '<nav aria-label="Primary">%s</nav>'
         '<span class="spacer"></span>%s'
         "</div></header>"
-        % (prefix, _esc(SITE_NAME), prefix, _esc(SITE_NAME), "".join(items), cta)
+        % (prefix, _esc(SITE_NAME), prefix, _esc(SITE_NAME), items, cta)
     )
 
 
@@ -921,10 +1014,7 @@ def _community(prefix: str) -> str:
 
 
 def _footer(prefix: str, nav: Sequence[Dict[str, str]] = ()) -> str:
-    site_links = [("%sindex.html" % prefix, "Updates")]
-    site_links += [
-        ("%s%s" % (prefix, entry["url"]), str(entry["label"])) for entry in nav
-    ]
+    site_links = [("%s%s" % (prefix, entry["url"]), str(entry["label"])) for entry in nav]
     connect = [(url, label) for url, label, _ in _social_links()]
 
     cols = [
@@ -1031,14 +1121,17 @@ def _stats_band(stats: Optional[Dict[str, object]]) -> str:
 def render_card(card: Dict[str, object], prefix: str) -> str:
     thumb = _thumb(card)
 
+    category = str(card.get("category") or DEFAULT_CATEGORY)
     return (
-        '<a class="card" href="%s">%s'
+        '<a class="card" data-category="%s"%s href="%s">%s'
         '<div class="card-meta"><span class="pill">%s</span>'
         '<span class="date">%s</span></div>'
         "<h3>%s</h3><p>%s</p></a>"
         % (
+            _esc(category),
+            ' data-featured="1" hidden' if card.get("featured") else "",
             _esc(str(card["url"])), thumb,
-            _esc(str(card.get("category") or DEFAULT_CATEGORY)),
+            _esc(category),
             _esc(str(card["date"])),
             _esc(str(card["title"])),
             _esc(str(card["excerpt"])),
@@ -1048,7 +1141,7 @@ def render_card(card: Dict[str, object], prefix: str) -> str:
 
 def render_post(post, body_html: str, hero: Optional[str], prefix: str, site_url: str,
                 related: Sequence[Dict[str, object]] = (),
-                nav: Sequence[Dict[str, str]] = ()) -> str:
+                nav: Sequence[Dict[str, str]] = (), current: str = "") -> str:
     tagline = '<p class="post-tagline">%s</p>' % _esc(post.tagline) if post.tagline else ""
     hero_block = (
         '<figure class="shot hero"><img src="%s" alt="%s"></figure>'
@@ -1093,7 +1186,96 @@ def render_post(post, body_html: str, hero: Optional[str], prefix: str, site_url
     return _page(
         "%s | %s" % (post.title, SITE_NAME), description, prefix, body,
         absolute_hero, "%s/%s" % (site_url.rstrip("/"), post.url),
-        scripts=COPY_SCRIPT, nav=nav,
+        scripts=COPY_SCRIPT, nav=nav, current=current,
+    )
+
+
+def _featured_strip(featured: Dict[str, object], eyebrow: str = "Latest Dev Blog") -> str:
+    return (
+        '<section class="featured" id="featured"><div class="featured-inner">'
+        '<div class="featured-art">%s</div>'
+        '<div class="featured-body">'
+        '<p class="eyebrow">%s</p>'
+        '<div class="featured-meta"><span class="pill">%s</span>'
+        '<span class="date">%s</span></div>'
+        "<h2>%s</h2>"
+        '<p class="lede">%s</p>'
+        '<a class="cta cta-primary" href="%s">Read More</a>'
+        "</div></div></section>"
+        % (
+            _thumb(featured),
+            _esc(eyebrow),
+            _esc(str(featured.get("category") or DEFAULT_CATEGORY)),
+            _esc(str(featured["date"])),
+            _esc(str(featured["title"])),
+            _esc(str(featured["excerpt"])),
+            _esc(str(featured["url"])),
+        )
+    )
+
+
+def render_blog(featured: Optional[Dict[str, object]], cards: Sequence[Dict[str, object]],
+                prefix: str, site_url: str, nav: Sequence[Dict[str, str]] = ()) -> str:
+    """Every update, with a category filter across the top.
+
+    The grid holds every post; the newest is also called out above it and its
+    card starts hidden so it does not appear twice. Filtering to a category
+    hides the callout and reveals the full set for that category.
+    """
+    if not cards:
+        body = (
+            '<div class="page"><div class="shell"><div class="blog-head">'
+            "<h1>Dev Blog</h1></div>"
+            '<div class="empty">No updates posted yet. Check back soon.</div>'
+            "</div></div>"
+        )
+        return _page("Dev Blog | %s" % SITE_NAME, SITE_TAGLINE, prefix, body,
+                     None, "%s/blog/" % site_url.rstrip("/"), current="blog", nav=nav)
+
+    counts: Dict[str, int] = {}
+    for card in cards:
+        name = str(card.get("category") or DEFAULT_CATEGORY)
+        counts[name] = counts.get(name, 0) + 1
+
+    tabs = ['<button type="button" role="tab" aria-selected="true" data-cat="*">'
+            'All Posts<span class="count">%d</span></button>' % len(cards)]
+    for name in sorted(counts):
+        tabs.append(
+            '<button type="button" role="tab" aria-selected="false" data-cat="%s">'
+            '%s<span class="count">%d</span></button>'
+            % (_esc(name), _esc(name), counts[name])
+        )
+    filter_bar = (
+        '<div class="cat-tabs" role="tablist" aria-label="Filter by category">%s</div>'
+        % "".join(tabs)
+        if len(counts) > 1
+        else ""
+    )
+
+    marked = []
+    for index, card in enumerate(cards):
+        entry = dict(card)
+        entry["featured"] = index == 0 and featured is not None
+        marked.append(entry)
+
+    body = (
+        '<div class="page"><div class="shell">'
+        '<div class="blog-head"><h1>Dev Blog</h1>'
+        '<p class="blog-lede">%s</p></div>%s</div>'
+        "%s"
+        '<div class="shell"><div class="card-grid" id="all-posts">%s</div>'
+        '<p class="no-match" hidden>Nothing in that category yet.</p></div>'
+        "</div>"
+        % (
+            _esc(SITE_TAGLINE),
+            filter_bar,
+            _featured_strip(featured) if featured else "",
+            "".join(render_card(card, prefix) for card in marked),
+        )
+    )
+    return _page(
+        "Dev Blog | %s" % SITE_NAME, SITE_TAGLINE, prefix, body, None,
+        "%s/blog/" % site_url.rstrip("/"), current="blog", nav=nav, scripts=FILTER_SCRIPT,
     )
 
 
@@ -1141,28 +1323,7 @@ def render_index(featured: Optional[Dict[str, object]], cards: Sequence[Dict[str
         % (prefix, _esc(SITE_NAME), _esc(SITE_TAGLINE), read_latest, second_cta, hero_feature)
     )
 
-    featured_strip = ""
-    if featured:
-        featured_strip = (
-            '<section class="featured"><div class="featured-inner">'
-            '<div class="featured-art">%s</div>'
-            '<div class="featured-body">'
-            '<p class="eyebrow">Latest Dev Blog</p>'
-            '<div class="featured-meta"><span class="pill">%s</span>'
-            '<span class="date">%s</span></div>'
-            "<h2>%s</h2>"
-            '<p class="lede">%s</p>'
-            '<a class="cta cta-primary" href="%s">Read More</a>'
-            "</div></div></section>"
-            % (
-                _thumb(featured),
-                _esc(str(featured.get("category") or DEFAULT_CATEGORY)),
-                _esc(str(featured["date"])),
-                _esc(str(featured["title"])),
-                _esc(str(featured["excerpt"])),
-                _esc(str(featured["url"])),
-            )
-        )
+    featured_strip = _featured_strip(featured) if featured else ""
 
     if cards:
         archive = (

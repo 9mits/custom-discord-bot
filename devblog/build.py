@@ -44,7 +44,7 @@ LIST_KEYS = {"tags"}
 
 # Posts sit at the site root now, so a slug must not shadow anything the build
 # writes there itself.
-RESERVED_SLUGS = {"assets", "media", "index", "404", "index.html"}
+RESERVED_SLUGS = {"assets", "media", "index", "404", "index.html", "blog"}
 
 MD_EXTENSIONS = [
     "extra",        # tables, footnotes, attr_list, fenced code
@@ -330,7 +330,11 @@ def build(site_url: str, include_drafts: bool = False) -> List[Post]:
     copy_tree(STATIC_DIR, DIST_DIR / "assets")
     copy_tree(MEDIA_DIR, DIST_DIR / "media")
 
-    nav = [{"url": "%s" % page.url, "label": page.nav, "slug": page.slug} for page in pages]
+    nav = [
+        {"url": "index.html", "label": "Home", "slug": "index"},
+        {"url": "blog/", "label": "Blog", "slug": "blog"},
+    ]
+    nav += [{"url": page.url, "label": page.nav, "slug": page.slug} for page in pages]
     stats = load_stats()
 
     for page in pages:
@@ -361,6 +365,7 @@ def build(site_url: str, include_drafts: bool = False) -> List[Post]:
             site_url=site_url,
             related=related,
             nav=nav,
+            current="blog",
         )
         out = DIST_DIR / post.slug / "index.html"
         out.parent.mkdir(parents=True, exist_ok=True)
@@ -375,6 +380,17 @@ def build(site_url: str, include_drafts: bool = False) -> List[Post]:
             site_url=site_url,
             nav=nav,
             stats=stats,
+        ),
+        encoding="utf-8",
+    )
+    (DIST_DIR / "blog" / "index.html").parent.mkdir(parents=True, exist_ok=True)
+    (DIST_DIR / "blog" / "index.html").write_text(
+        theme.render_blog(
+            featured=card_for(posts[0], "../") if posts else None,
+            cards=[card_for(post, "../") for post in posts],
+            prefix="../",
+            site_url=site_url,
+            nav=nav,
         ),
         encoding="utf-8",
     )

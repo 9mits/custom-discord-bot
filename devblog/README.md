@@ -23,7 +23,7 @@ pip install -r devblog/requirements.txt
 python devblog/build.py                 # writes devblog/dist/
 python devblog/build.py --serve         # build, then http://127.0.0.1:8000
 python devblog/build.py --drafts        # include posts marked draft
-python devblog/tests/test_build.py      # 109 tests
+python devblog/tests/test_build.py      # 123 tests
 python devblog/sync_from_bot.py        # regenerate guide.md and rules.md
 MC_SERVER_HOST=... MC_SERVER_PORT=... python devblog/server_status.py
 ```
@@ -86,6 +86,23 @@ to reach it — and neither justifies telling visitors the server is offline.
 
 A local build without the secrets has no stats and renders without the panel.
 
+## The archive
+
+`/blog` lists every update. The newest is called out at the top and the rest sit
+in the grid below; when there is more than one `category` in play, a tab strip
+appears across the top.
+
+Filtering is client-side, so it is instant and needs no extra pages. The grid
+holds **every** post — the called-out one included, starting hidden so it does
+not appear twice — and the tabs toggle visibility. Selecting a category also
+writes `?category=` into the URL so a filtered view can be linked to, and that
+parameter is honoured on load.
+
+With JavaScript off the page still works: the callout and the full grid render,
+just without the filter.
+
+`blog` is a reserved slug, so no post can take that URL.
+
 ## Standing pages
 
 Alongside the dated updates, `pages/*.md` become top-level pages that appear in
@@ -125,6 +142,7 @@ Posts sit at the **site root**, one folder each:
 | | |
 |---|---|
 | `https://mysterioussmpx.blog` | the home page |
+| `https://mysterioussmpx.blog/blog` | the archive: every update, filterable by category |
 | `https://mysterioussmpx.blog/update-1` | the post whose slug is `update-1` |
 | `https://mysterioussmpx.blog/guide` | a standing page from `pages/guide.md` |
 
