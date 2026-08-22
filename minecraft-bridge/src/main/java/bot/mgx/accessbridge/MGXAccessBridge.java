@@ -233,6 +233,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 this, updateNoticeStore, broadcastDisplayService
         );
         getServer().getPluginManager().registerEvents(updateNoticeService, this);
+        PhantomService phantomService = new PhantomService(this);
+        getServer().getPluginManager().registerEvents(phantomService, this);
+        phantomService.start();
         afkService = new AfkService(this, getConfig().getLong("afk-timeout-seconds", 300L));
         sidebarService.useAfkService(afkService);
         getServer().getPluginManager().registerEvents(afkService, this);
