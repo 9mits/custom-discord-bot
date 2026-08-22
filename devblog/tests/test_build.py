@@ -1119,6 +1119,17 @@ class AuthoringToolTests(unittest.TestCase):
         for key in ("title:", "tagline:", "date:", "category:", "hero:", "icon:"):
             self.assertIn(key, blog.TEMPLATE)
 
+    def test_publish_waits_for_checks_to_register(self):
+        # GitHub takes seconds to queue a new PR's checks; until it does,
+        # `gh pr checks` exits non-zero saying none were reported. Treating that
+        # as a failure aborted a publish whose checks then went on to pass.
+        import blog
+
+        source = Path(blog.__file__).read_text(encoding="utf-8")
+        body = source.split("def cmd_publish")[1]
+        self.assertIn("no checks reported", body)
+        self.assertIn("time.sleep", body)
+
     def test_every_template_front_matter_line_is_one_key_value(self):
         import blog
 
