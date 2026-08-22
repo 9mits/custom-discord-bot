@@ -1158,5 +1158,56 @@ class PostContentTests(unittest.TestCase):
 
 
 
+class ContrastTests(unittest.TestCase):
+    """Brightening a background costs contrast; this is what stops it going too far."""
+
+    PAIRS = (
+        ("--ink", "--page-bg"),
+        ("--text-muted", "--page-bg"),
+        ("--grey", "--page-bg"),
+        ("--ink", "--surface"),
+        ("--text-muted", "--surface-raised"),
+        ("--grey", "--surface"),
+    )
+
+    def tokens(self, selector):
+        block = theme.STYLESHEET.split(selector)[1].split("}")[0]
+        return dict(re.findall(r"(--[a-z-]+):\s*(#[0-9a-f]{6})", block))
+
+    @staticmethod
+    def luminance(value):
+        def channel(index):
+            c = int(value[index:index + 2], 16) / 255
+            return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+        return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5)
+
+    def ratio(self, foreground, background):
+        high, low = sorted((self.luminance(foreground), self.luminance(background)),
+                           reverse=True)
+        return (high + 0.05) / (low + 0.05)
+
+    def test_every_text_pair_clears_wcag_aa(self):
+        for selector in (':root[data-theme="dark"] {', "\n:root {"):
+            tokens = self.tokens(selector)
+            for foreground, background in self.PAIRS:
+                got = self.ratio(tokens[foreground], tokens[background])
+                self.assertGreaterEqual(
+                    got, 4.5,
+                    "%s on %s is %.2f:1 in %s" % (foreground, background, got, selector.strip()),
+                )
+
+    def test_the_dark_theme_is_not_near_black(self):
+        # It was 5.7% lightness, which read as black rather than dark.
+        import colorsys
+
+        tokens = self.tokens(':root[data-theme="dark"] {')
+        for name in ("--page-bg", "--canvas", "--surface"):
+            value = tokens[name]
+            rgb = [int(value[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+            lightness = colorsys.rgb_to_hls(*rgb)[1]
+            self.assertGreater(lightness, 0.09, "%s (%s) is too dark" % (name, value))
+
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
