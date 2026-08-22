@@ -103,7 +103,17 @@ final class ChaosService implements Listener {
 
     /** One run of one effect: the frames it owns and the undo stack it owes. */
     private final class Session {
+        private final Location anchor;
+        private final double radius;
+        private final boolean physical;
         private final List<BukkitTask> tasks = new ArrayList<>();
+
+        Session(Location anchor, double radius, boolean physical) {
+            this.anchor = anchor;
+            this.radius = radius;
+            this.physical = physical;
+        }
+
         private final Deque<Runnable> restores = new ArrayDeque<>();
         private final Map<UUID, Deque<Runnable>> perPlayer = new HashMap<>();
         private final Set<UUID> spawned = new HashSet<>();
@@ -148,13 +158,16 @@ final class ChaosService implements Listener {
 
     // ---------------------------------------------------------------- routing
 
-    String run(ChaosCatalog effect, int seconds) {
+    String run(Player operator, ChaosCatalog effect, int seconds, double radius) {
         if (effect == ChaosCatalog.CHAOS) {
-            return chaos(seconds);
+            return chaos(operator, seconds, radius);
         }
-        Session session = new Session();
+        Session session = new Session(operator.getLocation().clone(), radius, effect.physical());
         active.add(session);
         long ticks = Math.max(20L, seconds * 20L);
+        // Every effect, not only the ones that move people: blindness or
+        // slowness while a mob is chewing on you is as lethal as a low ceiling.
+        protect(session);
         String summary = switch (effect) {
             case DISCO -> { disco(session, ticks); yield started("Disco", seconds); }
             case BLACKOUT -> { blackout(session, ticks); yield started("Blackout", seconds); }
@@ -184,10 +197,10 @@ final class ChaosService implements Listener {
             case DRUNK -> { drunk(session, ticks); yield started("Drunk", seconds); }
             case GHOSTS -> { ghosts(session, ticks); yield started("Ghosts", seconds); }
             case RAVE -> { rave(session, ticks); yield started("Rave", seconds); }
-            case SWAP -> { swap(); yield "Swapped everybody"; }
+            case SWAP -> { swap(session); yield "Swapped everybody"; }
             case MOBSTORM -> { batStorm(session, ticks); yield started("Bat storm", seconds); }
             case METEORS -> { meteors(session, ticks); yield started("Meteors", seconds); }
-            case CONFETTI -> { confetti(); yield "Fired the confetti"; }
+            case CONFETTI -> { confetti(session); yield "Fired the confetti"; }
             case HEADS -> { heads(session, ticks); yield started("Heads", seconds); }
             default -> throw new IllegalArgumentException(effect.id() + " is not handled here.");
         };
@@ -198,34 +211,36 @@ final class ChaosService implements Listener {
         return summary;
     }
 
-    private String chaos(int seconds) {
+    private String chaos(Player operator, int seconds, double radius) {
         List<ChaosCatalog> pool = new ArrayList<>(ChaosCatalog.chaosPool());
         Collections.shuffle(pool);
         List<ChaosCatalog> picked = List.copyOf(pool.subList(0, Math.min(5, pool.size())));
-        announce(Component.text("TOTAL CHAOS!", NamedTextColor.RED, TextDecoration.BOLD)
+        // A throwaway session, used only to work out who should hear the shout.
+        Session heralds = new Session(operator.getLocation().clone(), radius, false);
+        announce(heralds, Component.text("TOTAL CHAOS!", NamedTextColor.RED, TextDecoration.BOLD)
                 .append(Component.text(" Everything at once. Good luck.", NamedTextColor.WHITE)));
         for (ChaosCatalog effect : picked) {
             try {
-                run(effect, seconds);
+                run(operator, effect, seconds, radius);
             } catch (RuntimeException exception) {
                 plugin.getLogger().warning("Chaos component " + effect.id() + " failed: "
                         + exception.getClass().getSimpleName());
             }
         }
-        return "Started Chaos for " + seconds + "s: "
+        return "Started Chaos for " + seconds + "s within " + (int) radius + " blocks: "
                 + String.join(", ", picked.stream().map(ChaosCatalog::id).toList());
     }
 
     // ---------------------------------------------------------------- effects
 
     private void disco(Session session, long ticks) {
-        announce(Component.text("DISCO!", NamedTextColor.LIGHT_PURPLE, TextDecoration.BOLD)
+        announce(session, Component.text("DISCO!", NamedTextColor.LIGHT_PURPLE, TextDecoration.BOLD)
                 .append(Component.text(" The sun has lost the plot.", NamedTextColor.WHITE)));
-        forEveryone(player -> session.undoFor(player, player::resetPlayerTime));
+        forTargets(session, player -> session.undoFor(player, player::resetPlayerTime));
         repeat(session, 2L, ticks, frame -> {
             long time = (frame * 900L) % 24000L;
             ThreadLocalRandom random = ThreadLocalRandom.current();
-            for (Player player : online()) {
+            for (Player player : targets(session)) {
                 player.setPlayerTime(time, false);
                 Location at = player.getLocation().add(0d, 1.2d, 0d);
                 player.spawnParticle(Particle.DUST, at, 25, 1.2d, 1.2d, 1.2d, 0d,
@@ -239,9 +254,9 @@ final class ChaosService implements Listener {
     }
 
     private void blackout(Session session, long ticks) {
-        announce(Component.text("BLACKOUT!", NamedTextColor.DARK_GRAY, TextDecoration.BOLD)
+        announce(session, Component.text("BLACKOUT!", NamedTextColor.DARK_GRAY, TextDecoration.BOLD)
                 .append(Component.text(" Who turned the sun off?", NamedTextColor.WHITE)));
-        forEveryone(player -> {
+        forTargets(session, player -> {
             player.setPlayerTime(18000L, false);
             player.addPotionEffect(potion(PotionEffectType.BLINDNESS, ticks, 0));
             player.playSound(player.getLocation(), Sound.AMBIENT_CAVE, 1f, 0.5f);
@@ -253,16 +268,15 @@ final class ChaosService implements Listener {
     }
 
     private void thunderdome(Session session, long ticks) {
-        announce(Component.text("THUNDERDOME!", NamedTextColor.AQUA, TextDecoration.BOLD)
+        announce(session, Component.text("THUNDERDOME!", NamedTextColor.AQUA, TextDecoration.BOLD)
                 .append(Component.text(" It is all bark. Mostly.", NamedTextColor.WHITE)));
-        forEveryone(player -> {
+        forTargets(session, player -> {
             player.setPlayerWeather(WeatherType.DOWNFALL);
             session.undoFor(player, player::resetPlayerWeather);
         });
-        protect(session);
         repeat(session, 10L, ticks, frame -> {
             ThreadLocalRandom random = ThreadLocalRandom.current();
-            for (Player player : online()) {
+            for (Player player : targets(session)) {
                 Location at = player.getLocation().add(
                         random.nextDouble(-9d, 9d), 0d, random.nextDouble(-9d, 9d)
                 );
@@ -287,7 +301,7 @@ final class ChaosService implements Listener {
      *              these and the illusion costs nothing in prediction.
      */
     private void fakeFloor(Session session, long ticks, Material surface, int depth, boolean lava) {
-        announce(lava
+        announce(session, lava
                 ? Component.text("THE FLOOR IS LAVA!", NamedTextColor.GOLD, TextDecoration.BOLD)
                         .append(Component.text(" It is not. Probably.", NamedTextColor.WHITE))
                 : Component.text("THE FLOOR IS GONE!", NamedTextColor.DARK_PURPLE, TextDecoration.BOLD)
@@ -303,7 +317,7 @@ final class ChaosService implements Listener {
         }));
         Map<UUID, Location> lastSeen = new HashMap<>();
         repeat(session, 10L, ticks, frame -> {
-            for (Player player : online()) {
+            for (Player player : targets(session)) {
                 Set<Location> mine = faked.computeIfAbsent(player.getUniqueId(), id -> new HashSet<>());
                 Location feet = player.getLocation();
                 // Standing still means the illusion is already on their screen.
@@ -341,19 +355,17 @@ final class ChaosService implements Listener {
     }
 
     private void scale(Session session, long ticks, double delta, String title, String subtitle) {
-        announce(Component.text(title + "!", NamedTextColor.YELLOW, TextDecoration.BOLD)
+        announce(session, Component.text(title + "!", NamedTextColor.YELLOW, TextDecoration.BOLD)
                 .append(Component.text(" " + subtitle, NamedTextColor.WHITE)));
-        protect(session);
-        forEveryone(player -> applyScale(session, player, delta));
+        forTargets(session, player -> applyScale(session, player, delta));
     }
 
     private void yoyo(Session session, long ticks) {
-        announce(Component.text("YO-YO!", NamedTextColor.GREEN, TextDecoration.BOLD)
+        announce(session, Component.text("YO-YO!", NamedTextColor.GREEN, TextDecoration.BOLD)
                 .append(Component.text(" Pick a size and stick with it.", NamedTextColor.WHITE)));
-        protect(session);
         repeat(session, 20L, ticks, frame -> {
             boolean big = frame % 2 == 0;
-            for (Player player : online()) {
+            for (Player player : targets(session)) {
                 applyScale(session, player, big ? 1.5d : -0.6d);
                 player.playSound(player.getLocation(),
                         big ? Sound.ENTITY_ENDER_DRAGON_GROWL : Sound.ENTITY_BAT_TAKEOFF,
@@ -363,9 +375,9 @@ final class ChaosService implements Listener {
     }
 
     private void launch(Session session) {
-        announce(Component.text("LIFTOFF!", NamedTextColor.AQUA, TextDecoration.BOLD)
+        announce(session, Component.text("LIFTOFF!", NamedTextColor.AQUA, TextDecoration.BOLD)
                 .append(Component.text(" See you on the way down.", NamedTextColor.WHITE)));
-        forEveryone(player -> {
+        forTargets(session, player -> {
             // Slow falling goes on first, so the landing is a joke not a death.
             player.addPotionEffect(potion(PotionEffectType.SLOW_FALLING, 400L, 0));
             player.setVelocity(player.getVelocity().add(new Vector(0d, 2.2d, 0d)));
@@ -376,9 +388,9 @@ final class ChaosService implements Listener {
     }
 
     private void drift(Session session, long ticks) {
-        announce(Component.text("FLOAT!", NamedTextColor.LIGHT_PURPLE, TextDecoration.BOLD)
+        announce(session, Component.text("FLOAT!", NamedTextColor.LIGHT_PURPLE, TextDecoration.BOLD)
                 .append(Component.text(" Gravity is taking a break.", NamedTextColor.WHITE)));
-        forEveryone(player -> {
+        forTargets(session, player -> {
             player.addPotionEffect(potion(PotionEffectType.LEVITATION, ticks, 1));
             session.undoFor(player, () -> {
                 player.removePotionEffect(PotionEffectType.LEVITATION);
@@ -389,10 +401,10 @@ final class ChaosService implements Listener {
     }
 
     private void spin(Session session, long ticks) {
-        announce(Component.text("SPIN!", NamedTextColor.GOLD, TextDecoration.BOLD)
+        announce(session, Component.text("SPIN!", NamedTextColor.GOLD, TextDecoration.BOLD)
                 .append(Component.text(" Try walking in a straight line now.", NamedTextColor.WHITE)));
         repeat(session, 2L, ticks, frame -> {
-            for (Player player : online()) {
+            for (Player player : targets(session)) {
                 Location at = player.getLocation();
                 player.setRotation(at.getYaw() + 28f, at.getPitch());
             }
@@ -400,9 +412,9 @@ final class ChaosService implements Listener {
     }
 
     private void drunk(Session session, long ticks) {
-        announce(Component.text("WOBBLE!", NamedTextColor.DARK_GREEN, TextDecoration.BOLD)
+        announce(session, Component.text("WOBBLE!", NamedTextColor.DARK_GREEN, TextDecoration.BOLD)
                 .append(Component.text(" The world is fine. You are not.", NamedTextColor.WHITE)));
-        forEveryone(player -> {
+        forTargets(session, player -> {
             player.addPotionEffect(potion(PotionEffectType.NAUSEA, ticks, 0));
             player.addPotionEffect(potion(PotionEffectType.SLOWNESS, ticks, 1));
             session.undoFor(player, () -> {
@@ -413,9 +425,9 @@ final class ChaosService implements Listener {
     }
 
     private void ghosts(Session session, long ticks) {
-        announce(Component.text("GHOSTS!", NamedTextColor.WHITE, TextDecoration.BOLD)
+        announce(session, Component.text("GHOSTS!", NamedTextColor.WHITE, TextDecoration.BOLD)
                 .append(Component.text(" Nobody is where you think they are.", NamedTextColor.GRAY)));
-        forEveryone(player -> {
+        forTargets(session, player -> {
             player.addPotionEffect(potion(PotionEffectType.INVISIBILITY, ticks, 0));
             player.addPotionEffect(potion(PotionEffectType.GLOWING, ticks, 0));
             session.undoFor(player, () -> {
@@ -426,15 +438,15 @@ final class ChaosService implements Listener {
     }
 
     private void rave(Session session, long ticks) {
-        announce(Component.text("RAVE!", NamedTextColor.LIGHT_PURPLE, TextDecoration.BOLD)
+        announce(session, Component.text("RAVE!", NamedTextColor.LIGHT_PURPLE, TextDecoration.BOLD)
                 .append(Component.text(" Hands up.", NamedTextColor.WHITE)));
-        forEveryone(player -> {
+        forTargets(session, player -> {
             player.addPotionEffect(potion(PotionEffectType.GLOWING, ticks, 0));
             session.undoFor(player, () -> player.removePotionEffect(PotionEffectType.GLOWING));
         });
         repeat(session, 4L, ticks, frame -> {
             ThreadLocalRandom random = ThreadLocalRandom.current();
-            for (Player player : online()) {
+            for (Player player : targets(session)) {
                 Location at = player.getLocation().add(0d, 1d, 0d);
                 for (int point = 0; point < 12; point++) {
                     double angle = (Math.PI * 2d / 12d) * point + frame * 0.35d;
@@ -449,12 +461,12 @@ final class ChaosService implements Listener {
         });
     }
 
-    private void swap() {
-        List<Player> players = new ArrayList<>(online());
+    private void swap(Session session) {
+        List<Player> players = new ArrayList<>(targets(session));
         if (players.size() < 2) {
             throw new IllegalArgumentException("Swap needs at least two players online.");
         }
-        announce(Component.text("SWAP!", NamedTextColor.RED, TextDecoration.BOLD)
+        announce(session, Component.text("SWAP!", NamedTextColor.RED, TextDecoration.BOLD)
                 .append(Component.text(" You are somebody else's problem now.", NamedTextColor.WHITE)));
         List<Location> where = players.stream().map(player -> player.getLocation().clone()).toList();
         for (int index = 0; index < players.size(); index++) {
@@ -467,12 +479,12 @@ final class ChaosService implements Listener {
     }
 
     private void batStorm(Session session, long ticks) {
-        announce(Component.text("BAT STORM!", NamedTextColor.DARK_PURPLE, TextDecoration.BOLD)
+        announce(session, Component.text("BAT STORM!", NamedTextColor.DARK_PURPLE, TextDecoration.BOLD)
                 .append(Component.text(" They are friendly. They are also everywhere.",
                         NamedTextColor.WHITE)));
         repeat(session, 20L, ticks, frame -> {
             ThreadLocalRandom random = ThreadLocalRandom.current();
-            for (Player player : online()) {
+            for (Player player : targets(session)) {
                 // Hard ceiling. Without it a full-length storm is hundreds of
                 // entities per player and the server stops keeping up.
                 if (session.spawned.size() >= MAX_SWARM) {
@@ -497,12 +509,11 @@ final class ChaosService implements Listener {
     }
 
     private void meteors(Session session, long ticks) {
-        announce(Component.text("METEORS!", NamedTextColor.RED, TextDecoration.BOLD)
+        announce(session, Component.text("METEORS!", NamedTextColor.RED, TextDecoration.BOLD)
                 .append(Component.text(" Incoming. Harmlessly.", NamedTextColor.WHITE)));
-        protect(session);
         repeat(session, 8L, ticks, frame -> {
             ThreadLocalRandom random = ThreadLocalRandom.current();
-            List<Player> watching = online();
+            List<Player> watching = targets(session);
             if (!watching.isEmpty()) {
                 // One meteor a frame, aimed near somebody at random. Per-player
                 // meteors put a 1-tick task in the air for every rock alive.
@@ -540,10 +551,10 @@ final class ChaosService implements Listener {
         });
     }
 
-    private void confetti() {
-        announce(Component.text("CONFETTI!", NamedTextColor.LIGHT_PURPLE, TextDecoration.BOLD)
+    private void confetti(Session session) {
+        announce(session, Component.text("CONFETTI!", NamedTextColor.LIGHT_PURPLE, TextDecoration.BOLD)
                 .append(Component.text(" No reason. None needed.", NamedTextColor.WHITE)));
-        forEveryone(player -> {
+        forTargets(session, player -> {
             ThreadLocalRandom random = ThreadLocalRandom.current();
             Location at = player.getLocation().add(0d, 1.5d, 0d);
             for (int burst = 0; burst < 8; burst++) {
@@ -556,10 +567,17 @@ final class ChaosService implements Listener {
     }
 
     private void heads(Session session, long ticks) {
-        announce(Component.text("HEADS!", NamedTextColor.GOLD, TextDecoration.BOLD)
+        announce(session, Component.text("HEADS!", NamedTextColor.GOLD, TextDecoration.BOLD)
                 .append(Component.text(" A new look for everyone.", NamedTextColor.WHITE)));
-        forEveryone(player -> {
+        forTargets(session, player -> {
             ItemStack previous = player.getInventory().getHelmet();
+            // Never take a helmet somebody is wearing. A pumpkin is what stops
+            // endermen aggroing at a farm, and a real helmet is armour points,
+            // Respiration and Aqua Affinity. Swapping either could get a player
+            // killed doing something entirely reasonable.
+            if (previous != null && !previous.getType().isAir()) {
+                return;
+            }
             ItemStack head = new ItemStack(
                     HEAD_MATERIALS.get(ThreadLocalRandom.current().nextInt(HEAD_MATERIALS.size()))
             );
@@ -622,12 +640,14 @@ final class ChaosService implements Listener {
     }
 
     /**
-     * Makes everyone briefly untouchable, for the effects that resize or move
-     * players. A scaled-up player can suffocate in a low ceiling, and dying to an
-     * admin event is the one change that really would stick.
+     * Makes every target briefly untouchable and non-colliding, for the whole
+     * length of any effect. Dying to an admin event is the one change that
+     * really would stick, and almost every effect can cause one: a scaled-up
+     * player suffocates in a low ceiling, and blindness or slowness is lethal
+     * anywhere a mob is already swinging.
      */
     private void protect(Session session) {
-        forEveryone(player -> {
+        forTargets(session, player -> {
             boolean wasInvulnerable = player.isInvulnerable();
             boolean wasCollidable = player.isCollidable();
             player.setInvulnerable(true);
@@ -674,7 +694,8 @@ final class ChaosService implements Listener {
             session.end();
         }
         active.clear();
-        // Belt and braces: anything a failed restore missed is cleared here.
+        // Belt and braces, and deliberately everyone rather than the last
+        // event's targets: a player may have walked out of range mid-effect.
         for (Player player : online()) {
             player.resetPlayerTime();
             player.resetPlayerWeather();
@@ -797,8 +818,39 @@ final class ChaosService implements Listener {
         return List.copyOf(plugin.getServer().getOnlinePlayers());
     }
 
-    private void forEveryone(Consumer<Player> body) {
+    /**
+     * Everyone this event may touch, recomputed every frame so somebody who
+     * wanders in joins and somebody who leaves is dropped.
+     */
+    private List<Player> targets(Session session) {
+        World world = session.anchor.getWorld();
+        List<Player> found = new ArrayList<>();
         for (Player player : online()) {
+            boolean sameWorld = world != null && world.equals(player.getWorld());
+            double distanceSquared = sameWorld
+                    ? player.getLocation().distanceSquared(session.anchor)
+                    : Double.MAX_VALUE;
+            if (ChaosTargeting.eligible(
+                    sameWorld,
+                    distanceSquared,
+                    session.radius,
+                    isAfk(player),
+                    player.isInsideVehicle(),
+                    session.physical
+            )) {
+                found.add(player);
+            }
+        }
+        return found;
+    }
+
+    private boolean isAfk(Player player) {
+        AfkService afk = plugin.afkService();
+        return afk != null && afk.isAfk(player.getUniqueId());
+    }
+
+    private void forTargets(Session session, Consumer<Player> body) {
+        for (Player player : targets(session)) {
             try {
                 body.accept(player);
             } catch (RuntimeException exception) {
@@ -821,9 +873,13 @@ final class ChaosService implements Listener {
         return "Started " + name + " for " + seconds + "s";
     }
 
-    private void announce(Component message) {
+    /**
+     * Only the people the event reaches are told about it. A server-wide
+     * "THE FLOOR IS LAVA" read as a bug to anybody whose floor stayed put.
+     */
+    private void announce(Session session, Component message) {
         Component announcement = Component.text("SERVER » ", ORANGE, TextDecoration.BOLD).append(message);
-        plugin.getServer().getOnlinePlayers().forEach(player -> player.sendMessage(announcement));
+        targets(session).forEach(player -> player.sendMessage(announcement));
         plugin.getServer().getConsoleSender().sendMessage(announcement);
     }
 }

@@ -42,6 +42,7 @@ enum ChaosCatalog {
 
     private final String id;
     private final String blurb;
+    private boolean physical;
     private final int defaultSeconds;
     private final int minimumSeconds;
     private final int maximumSeconds;
@@ -61,6 +62,19 @@ enum ChaosCatalog {
         this.minimumSeconds = minimumSeconds;
         this.maximumSeconds = maximumSeconds;
         this.aliases = Set.copyOf(new LinkedHashSet<>(Arrays.asList(aliases)));
+    }
+
+    static {
+        // Effects that pick players up or put them somewhere else. These skip
+        // anybody riding a boat or minecart, because moving a rider ejects them.
+        for (ChaosCatalog effect : new ChaosCatalog[]{LAUNCH, FLOAT, SWAP}) {
+            effect.physical = true;
+        }
+    }
+
+    /** Whether this effect physically moves the players it touches. */
+    boolean physical() {
+        return physical;
     }
 
     String id() {
