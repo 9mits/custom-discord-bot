@@ -41,6 +41,7 @@ title: {title}
 tagline: One or two sentences that sell the update - this is what shows on the home page card and in link previews. Keep it on one line.
 date: {today}
 category: {category}
+covers: {covers}
 hero: hero.png
 icon: icon.png
 signoff: SEE YOU ON THE SERVER!
@@ -117,6 +118,56 @@ def gh(*args: str, check: bool = True) -> str:
 
 # --- new ------------------------------------------------------------------
 
+def previous_post() -> "Path | None":
+    posts = sorted((ROOT / "posts").glob("*.md"))
+    return posts[-1] if posts else None
+
+
+def covers_of(path: Path) -> str:
+    """The commit a post recorded as its end point, if it recorded one."""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if not lines or lines[0].strip() != "---":
+        return ""
+    for line in lines[1:]:
+        if line.strip() == "---":       # end of the front matter block
+            break
+        if line.startswith("covers:"):
+            return line.split(":", 1)[1].strip()
+    return ""
+
+
+def report_range(previous: "Path | None") -> None:
+    """Print what has landed since the last post, which is what to write about."""
+    head = git("rev-parse", "--short", "HEAD")
+    if previous is None:
+        print("\nNo earlier post, so this one covers everything up to %s." % head)
+        return
+
+    start = covers_of(previous)
+    if start:
+        span, label = "%s..HEAD" % start, "since %s (recorded by %s)" % (start, previous.name)
+    else:
+        # Older posts predate the covers key; fall back to their date.
+        date = previous.stem[:10]
+        span, label = '--since=%s' % date, "since %s, the date of %s" % (date, previous.name)
+
+    # The blog's own commits are not server news, so they are excluded — a post
+    # should never end up describing a change to the site it is published on.
+    log = run(["git", "log", "--oneline", "--no-merges", span,
+               "--", ".", ":(exclude)devblog"])
+    lines = [ln for ln in log.stdout.strip().splitlines() if ln]
+    print("\nWhat has landed %s:" % label)
+    if not lines:
+        print("  (nothing)")
+        return
+    for line in lines[:40]:
+        print("  %s" % line)
+    if len(lines) > 40:
+        print("  ... and %d more" % (len(lines) - 40))
+    print("\nThat range is what this post should describe. Anything not in it")
+    print("belongs to an earlier post or has not shipped.")
+
+
 def next_slug() -> str:
     highest = 0
     for path in (ROOT / "posts").glob("*.md"):
@@ -127,6 +178,7 @@ def next_slug() -> str:
 
 
 def cmd_new(args: argparse.Namespace) -> int:
+    previous = previous_post()
     slug = args.slug or next_slug()
     if not re.match(r"^[a-z0-9][a-z0-9-]*$", slug):
         fail("The slug %r must be lowercase letters, digits and hyphens." % slug)
@@ -141,6 +193,7 @@ def cmd_new(args: argparse.Namespace) -> int:
             title=args.title,
             today=date.today().isoformat(),
             category=args.category,
+            covers=git("rev-parse", "--short", "HEAD"),
             tag=args.category.lower(),
         ),
         encoding="utf-8",
@@ -157,6 +210,7 @@ def cmd_new(args: argparse.Namespace) -> int:
     print("  3. python devblog/blog.py preview")
     print("  4. python devblog/blog.py publish")
     print("\nThe post will be live at %s/%s" % (SITE_URL, slug))
+    report_range(previous)
     return 0
 
 

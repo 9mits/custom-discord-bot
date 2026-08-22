@@ -80,6 +80,63 @@ python panel.py restart && python panel.py status
 `main` is protected by GitHub ruleset `18121569`: PR required, both CI checks
 required, 0 approvals (so solo merge works), no force-push or deletion.
 
+## Workflow — posting a server update to the dev blog
+
+When asked to put an update on the dev blog, the whole job is
+`devblog/blog.py`. Never hand-edit git for this.
+
+```bash
+python devblog/blog.py new "Crates & Cosmetics!" --category Update
+# ...write the post...
+python devblog/blog.py preview
+python devblog/blog.py publish
+```
+
+### Work out what the update actually is
+
+`new` prints it. Every post records a `covers:` commit in its front matter, so
+the next post knows exactly where the previous one stopped, and `new` reports
+`git log covers..HEAD` with the blog's own commits excluded — a post about the
+server must never describe a change to the website.
+
+**That range is the post.** Anything outside it either shipped in an earlier
+post or has not shipped at all. If the user also pastes a Discord changelog,
+that is the authoritative wording of what players get; the commit range is how
+you check nothing was missed. Where the two disagree, ask rather than guess.
+
+Posts written before `covers:` existed fall back to the previous post's date.
+
+### The house style
+
+Modelled on the BIG Games / Pet Simulator 99 update posts. Read a published one
+first — `devblog/posts/2026-08-22-update-2.md` is the reference.
+
+- **`## Section`** — the big orange underlined header. One per beat of the
+  update: `Featuring`, `Changes`, whatever the update needs.
+- **`### 🎁 Feature`** — bold sub-header, usually emoji-led. One per feature.
+- **One idea per line.** Single newlines are real line breaks, and that centred
+  line-per-beat rhythm *is* the format. A paragraph of prose breaks it.
+- **Bold the nouns that matter** — commands, item names, numbers.
+- **An italic line closes a section**, and often lands a joke.
+- `tagline:` is the emoji-led hype line; it becomes the card excerpt and the
+  link preview, so it carries the whole update in one sentence.
+- `signoff:` is the bold closing line.
+
+Emoji are correct here and are the one place this repo's no-decorative-emoji
+convention does not apply — that rule is about the Discord bot's own output.
+
+### Rules
+
+- **Never invent a feature, number, or reward.** Only what is in the changelog
+  or the commit range.
+- **Never fabricate a screenshot**, and never describe one that does not exist.
+  Images are supplied by a human, or come from real assets in this repo (see
+  `devblog/README.md`). A missing image is a missing image; `blog.py check`
+  fails on a reference to one, which is the correct outcome.
+- **`publish` stops on a failing check** and nothing reaches the site. Fix the
+  cause, then run it again — it reuses the open pull request.
+- Not shipped yet? `draft: true` keeps it in `preview` and off the live site.
+
 ## Environments
 
 | Stage | Entry point | Tokens | Runs on |

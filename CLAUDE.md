@@ -14,6 +14,9 @@ cross-tool source of truth. It is imported below so Claude Code loads it in full
   is not committed and does not travel with the repo. A repo-level `.claude/memory/`
   folder is **not** auto-loaded, so don't create one expecting it to be read.
 - Prefer plan mode before large, multi-file changes.
+- The **dev blog workflow** in AGENTS.md is the whole procedure for posting a
+  server update: `devblog/blog.py` decides the range, scaffolds, validates and
+  publishes. Do not drive git by hand for a post.
 - For substantial Minecraft integrations, it is acceptable to study, import,
   and adapt suitably licensed open-source plugins such as TAB or DiscordSRV
   instead of recreating established behavior. Verify license compatibility,

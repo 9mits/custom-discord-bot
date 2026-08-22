@@ -1103,7 +1103,8 @@ class AuthoringToolTests(unittest.TestCase):
         import blog
 
         text = blog.TEMPLATE.format(
-            title="Fiesta Forever", today="2026-08-22", category="Event", tag="event"
+            title="Fiesta Forever", today="2026-08-22", category="Event",
+            covers="abc1234", tag="event"
         )
         meta, body = build.parse_front_matter(text, Path("2026-08-22-update-2.md"))
         self.assertEqual(meta["title"], "Fiesta Forever")
@@ -1118,6 +1119,48 @@ class AuthoringToolTests(unittest.TestCase):
         self.assertIn("![](", blog.TEMPLATE)
         for key in ("title:", "tagline:", "date:", "category:", "hero:", "icon:"):
             self.assertIn(key, blog.TEMPLATE)
+
+    def test_new_records_the_commit_it_covers(self):
+        import blog
+
+        self.assertIn("covers: {covers}", blog.TEMPLATE)
+
+    def test_the_range_excludes_the_blog_itself(self):
+        # A server update post must never describe a change to the website.
+        import blog
+
+        source = Path(blog.__file__).read_text(encoding="utf-8")
+        body = source.split("def report_range")[1].split("def next_slug")[0]
+        self.assertIn(":(exclude)devblog", body)
+
+    def test_the_range_falls_back_for_posts_without_the_key(self):
+        import blog
+
+        body = Path(blog.__file__).read_text(encoding="utf-8")
+        body = body.split("def report_range")[1].split("def next_slug")[0]
+        self.assertIn("--since=", body)
+
+    def test_covers_is_read_back_off_a_post(self):
+        import blog
+
+        tmp = Path(tempfile.mkdtemp()) / "2026-01-01-x.md"
+        tmp.write_text("---\ntitle: T\ncovers: abc1234\n---\n\nbody", encoding="utf-8")
+        self.assertEqual(blog.covers_of(tmp), "abc1234")
+
+    def test_a_post_without_covers_reads_as_empty(self):
+        import blog
+
+        tmp = Path(tempfile.mkdtemp()) / "2026-01-01-x.md"
+        tmp.write_text("---\ntitle: T\n---\n\nbody", encoding="utf-8")
+        self.assertEqual(blog.covers_of(tmp), "")
+
+    def test_covers_does_not_break_the_build(self):
+        # It is metadata for the next author; the generator must ignore it.
+        meta, _body = build.parse_front_matter(
+            "---\ntitle: T\ncovers: abc1234\n---\n\nbody", Path("2026-01-01-x.md")
+        )
+        post = build.Post(Path("2026-01-01-x.md"), meta, "body")
+        self.assertEqual(post.title, "T")
 
     def test_publish_waits_for_checks_to_register(self):
         # GitHub takes seconds to queue a new PR's checks; until it does,
