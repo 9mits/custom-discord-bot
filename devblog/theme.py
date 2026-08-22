@@ -70,7 +70,7 @@ STYLESHEET = """
   /* Art plate. Post artwork is often a transparent PNG with light ink, which
      is invisible on the light theme's near-white page. Opaque art covers this
      completely, so it costs nothing there. */
-  --art-plate: #241e1a;
+  --art-plate: #292220;
   --card-radius: 1.875rem;
   --img-radius: 1.25rem;
   --page-max: 1240px;
@@ -82,13 +82,13 @@ STYLESHEET = """
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --page-bg: #1f1b18;
-    --canvas: #272220;
-    --surface: #2f2926;
-    --grey: #a09891;
-    --surface-raised: #3d3530;
-    --ink: #fbf9f7;
-    --text-muted: #c6bfb9;
+    --page-bg: #332d29;
+    --canvas: #3b3430;
+    --surface: #443b36;
+    --grey: #c0b8af;
+    --surface-raised: #554b44;
+    --ink: #fefdfc;
+    --text-muted: #ded7d1;
     --line: rgba(255, 186, 130, .20);
     --shadow-rgb: 0, 0, 0;
     --bloom: rgba(255, 106, 0, .30);
@@ -97,13 +97,13 @@ STYLESHEET = """
 }
 
 :root[data-theme="dark"] {
-  --page-bg: #1f1b18;
-  --canvas: #272220;
-  --surface: #2f2926;
-  --grey: #a09891;
-  --surface-raised: #3d3530;
-  --ink: #fbf9f7;
-  --text-muted: #c6bfb9;
+  --page-bg: #332d29;
+  --canvas: #3b3430;
+  --surface: #443b36;
+  --grey: #c0b8af;
+  --surface-raised: #554b44;
+  --ink: #fefdfc;
+  --text-muted: #ded7d1;
   --line: rgba(255, 186, 130, .20);
   --shadow-rgb: 0, 0, 0;
   --bloom: rgba(255, 106, 0, .30);
