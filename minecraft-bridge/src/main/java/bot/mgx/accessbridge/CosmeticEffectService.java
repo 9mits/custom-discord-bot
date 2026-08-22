@@ -88,9 +88,6 @@ final class CosmeticEffectService implements Listener {
                         definition -> drawTrail(player, definition, previous)
                 );
             }
-            active(player, CosmeticCatalog.Category.SECRET).ifPresent(
-                    definition -> drawSecretAura(player)
-            );
         }
     }
 
@@ -104,9 +101,6 @@ final class CosmeticEffectService implements Listener {
         active(killer, CosmeticCatalog.Category.KILL_EFFECT).ifPresent(
                 definition -> drawKillEffect(killer, definition, centre)
         );
-        if (active(killer, CosmeticCatalog.Category.SECRET).isPresent()) {
-            drawSecretKill(killer, centre);
-        }
     }
 
     void playSecretReveal(Player player) {
@@ -181,6 +175,10 @@ final class CosmeticEffectService implements Listener {
     private void drawAura(Player owner, CosmeticCatalog.Definition definition) {
         Location centre = owner.getLocation().add(0d, 1.05d, 0d);
         double phase = frame * 0.32d;
+        if (definition.secret()) {
+            drawSecretAura(owner, definition, centre, phase);
+            return;
+        }
         if (definition.id().equals("celestial_crown")) {
             drawCelestialCrown(owner, centre, phase);
             return;
@@ -339,6 +337,10 @@ final class CosmeticEffectService implements Listener {
 
     private void drawTrail(Player owner, CosmeticCatalog.Definition definition, Location previous) {
         Location at = previous.clone().add(0d, 0.18d, 0d);
+        if (definition.secret()) {
+            drawSecretTrail(owner, definition, at);
+            return;
+        }
         int tier = visualTier(definition);
         switch (definition.id()) {
             case "ember_trail" -> spawn(owner, at, Particle.SMALL_FLAME,
@@ -437,6 +439,10 @@ final class CosmeticEffectService implements Listener {
     private void drawKillEffect(
             Player owner, CosmeticCatalog.Definition definition, Location centre
     ) {
+        if (definition.secret()) {
+            drawSecretKill(owner, definition, centre);
+            return;
+        }
         switch (definition.id()) {
             case "blood_burst" -> {
                 dustBurst(owner, centre, Color.fromRGB(190, 0, 28), 38);
@@ -601,45 +607,184 @@ final class CosmeticEffectService implements Listener {
         }
     }
 
-    private void drawSecretAura(Player owner) {
-        if (frame % 2L != 0L) {
-            return;
+    private void drawSecretAura(
+            Player owner, CosmeticCatalog.Definition definition, Location centre, double phase
+    ) {
+        switch (definition.id()) {
+            case "astral_sovereign" -> {
+                for (int point = 0; point < 12; point++) {
+                    double angle = phase * 0.55d + point * Math.PI * 2d / 12d;
+                    double radius = point % 3 == 0 ? 1.55d : 1.05d;
+                    Location at = centre.clone().add(
+                            Math.cos(angle) * radius,
+                            Math.sin(angle * 2d + phase) * 0.75d,
+                            Math.sin(angle) * radius
+                    );
+                    dust(owner, at, point % 2 == 0
+                                    ? Color.fromRGB(120, 85, 255) : Color.fromRGB(120, 235, 255),
+                            point % 3 == 0 ? 1.45f : 1.05f,
+                            PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+                    if (point % 4 == 0) {
+                        spawn(owner, at, Particle.END_ROD, 1, 0d, 0d, 0d, 0d, null,
+                                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+                    }
+                }
+                spawn(owner, centre, Particle.ENCHANT,
+                        5, 0.65d, 1d, 0.65d, 0.05d, null,
+                        PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            }
+            case "infernal_dominion" -> {
+                for (int point = 0; point < 16; point++) {
+                    double angle = -phase * 0.8d + point * Math.PI * 2d / 16d;
+                    double radius = 1.15d + Math.sin(phase + point) * 0.12d;
+                    Location at = centre.clone().add(
+                            Math.cos(angle) * radius, -0.85d, Math.sin(angle) * radius
+                    );
+                    dust(owner, at, Color.fromRGB(255, point % 2 == 0 ? 55 : 145, 8),
+                            1.25f, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+                }
+                Location crown = centre.clone().add(0d, 1.05d, 0d);
+                spawn(owner, crown, Particle.FLAME,
+                        7, 0.38d, 0.16d, 0.38d, 0.015d, null,
+                        PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+                spawn(owner, centre, Particle.LAVA,
+                        2, 0.75d, 0.5d, 0.75d, 0d, null,
+                        PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            }
+            case "abyssal_seraph" -> {
+                Vector backwards = owner.getLocation().getDirection().setY(0d);
+                if (backwards.lengthSquared() < 0.001d) {
+                    backwards = new Vector(0d, 0d, 1d);
+                }
+                backwards.normalize().multiply(-1d);
+                Vector side = new Vector(-backwards.getZ(), 0d, backwards.getX()).normalize();
+                for (int wing = 0; wing < 3; wing++) {
+                    for (double direction : new double[]{-1d, 1d}) {
+                        for (int point = 0; point < 6; point++) {
+                            double progress = point / 5d;
+                            Location at = centre.clone()
+                                    .add(backwards.clone().multiply(0.25d + progress * 0.6d))
+                                    .add(side.clone().multiply(direction * progress * (0.8d + wing * 0.4d)))
+                                    .add(0d, -0.25d + wing * 0.58d + Math.sin(phase + point) * 0.08d, 0d);
+                            dust(owner, at, wing == 1
+                                            ? Color.fromRGB(105, 35, 205) : Color.fromRGB(25, 0, 45),
+                                    1.25f, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+                        }
+                    }
+                }
+                spawn(owner, centre, Particle.DRAGON_BREATH,
+                        5, 0.45d, 0.8d, 0.45d, 0.025d, null,
+                        PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            }
+            default -> { }
         }
-        Location centre = owner.getLocation().add(0d, 1d, 0d);
-        double angle = frame * 0.22d;
-        for (int point = 0; point < 6; point++) {
-            double atAngle = angle + point * Math.PI / 3d;
-            Location at = centre.clone().add(
-                    Math.cos(atAngle) * 1.15d,
-                    Math.sin(angle + point) * 0.65d,
-                    Math.sin(atAngle) * 1.15d
-            );
-            dust(owner, at, Color.fromRGB(25, 0, 40), 1.35f,
-                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
-        }
-        spawn(owner, centre, Particle.REVERSE_PORTAL,
-                4, 0.45d, 0.8d, 0.45d, 0.08d, null,
-                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
     }
 
-    private void drawSecretKill(Player owner, Location centre) {
-        spawn(owner, centre, Particle.FLASH, 2, 0d, 0d, 0d, 0d, null,
-                PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
-        spawn(owner, centre, Particle.SONIC_BOOM, 1, 0d, 0d, 0d, 0d, null,
-                PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
-        spawn(owner, centre, Particle.TOTEM_OF_UNDYING,
-                65, 1.3d, 1.5d, 1.3d, 0.18d, null,
-                PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
-        spawn(owner, centre, Particle.DRAGON_BREATH,
-                55, 1.1d, 1.3d, 1.1d, 0.08d, null,
-                PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
-        spawn(owner, centre, Particle.END_ROD,
-                50, 1d, 1.6d, 1d, 0.2d, null,
-                PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
-        sound(owner, centre, Sound.ENTITY_ENDER_DRAGON_GROWL, 1.4f, 0.65f,
-                PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
-        sound(owner, centre, Sound.BLOCK_END_PORTAL_SPAWN, 1.2f, 1.25f,
-                PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+    private void drawSecretTrail(
+            Player owner, CosmeticCatalog.Definition definition, Location at
+    ) {
+        switch (definition.id()) {
+            case "galaxy_wake" -> {
+                dust(owner, at.clone().add(0d, 0.35d, 0d), rainbow(frame), 1.55f,
+                        PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+                spawn(owner, at, Particle.REVERSE_PORTAL,
+                        9, 0.35d, 0.3d, 0.35d, 0.08d, null,
+                        PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+                spawn(owner, at.clone().add(0d, 0.5d, 0d), Particle.END_ROD,
+                        2, 0.25d, 0.25d, 0.25d, 0d, null,
+                        PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+            }
+            case "phantom_chains" -> {
+                Vector backwards = owner.getLocation().getDirection().setY(0d);
+                if (backwards.lengthSquared() < 0.001d) {
+                    backwards = new Vector(0d, 0d, 1d);
+                }
+                backwards.normalize().multiply(-1d);
+                for (int link = 0; link < 4; link++) {
+                    Location chain = at.clone().add(backwards.clone().multiply(link * 0.38d))
+                            .add(0d, 0.25d + Math.sin(frame * 0.6d + link) * 0.18d, 0d);
+                    dust(owner, chain, Color.fromRGB(55, 220, 235), 1.15f,
+                            PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+                }
+                spawn(owner, at, Particle.SOUL_FIRE_FLAME,
+                        3, 0.24d, 0.18d, 0.24d, 0.01d, null,
+                        PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+            }
+            case "reality_fracture" -> {
+                Vector side = owner.getLocation().getDirection().setY(0d);
+                if (side.lengthSquared() < 0.001d) {
+                    side = new Vector(1d, 0d, 0d);
+                }
+                side = new Vector(-side.getZ(), 0d, side.getX()).normalize();
+                for (int crack = -2; crack <= 2; crack++) {
+                    Location fracture = at.clone().add(side.clone().multiply(crack * 0.24d))
+                            .add(0d, 0.18d + Math.abs(crack) * 0.16d, 0d);
+                    dust(owner, fracture, crack % 2 == 0
+                                    ? Color.fromRGB(255, 35, 220) : Color.fromRGB(45, 220, 255),
+                            1.35f, PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+                }
+                spawn(owner, at, Particle.ELECTRIC_SPARK,
+                        4, 0.45d, 0.35d, 0.45d, 0.06d, null,
+                        PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+            }
+            default -> { }
+        }
+    }
+
+    private void drawSecretKill(
+            Player owner, CosmeticCatalog.Definition definition, Location centre
+    ) {
+        switch (definition.id()) {
+            case "event_horizon" -> {
+                spawn(owner, centre, Particle.FLASH, 2, 0d, 0d, 0d, 0d, null,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                spawn(owner, centre, Particle.SONIC_BOOM, 1, 0d, 0d, 0d, 0d, null,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                spawn(owner, centre, Particle.DRAGON_BREATH,
+                        65, 1.2d, 1.5d, 1.2d, 0.1d, null,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                spawn(owner, centre, Particle.REVERSE_PORTAL,
+                        80, 1.4d, 1.6d, 1.4d, 0.18d, null,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                sound(owner, centre, Sound.ENTITY_ENDER_DRAGON_GROWL, 1.4f, 0.65f,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                sound(owner, centre, Sound.BLOCK_END_PORTAL_SPAWN, 1.2f, 1.25f,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            }
+            case "reapers_verdict" -> {
+                spawn(owner, centre, Particle.SWEEP_ATTACK,
+                        14, 1.25d, 1.1d, 1.25d, 0d, null,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                spawn(owner, centre, Particle.SOUL,
+                        70, 1.1d, 1.7d, 1.1d, 0.12d, null,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                spawn(owner, centre, Particle.SQUID_INK,
+                        45, 0.9d, 1.1d, 0.9d, 0.08d, null,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                sound(owner, centre, Sound.ENTITY_WITHER_SPAWN, 1.15f, 1.45f,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                sound(owner, centre, Sound.ENTITY_PLAYER_ATTACK_SWEEP, 1.4f, 0.55f,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            }
+            case "divine_rupture" -> {
+                spawn(owner, centre, Particle.FLASH, 3, 0d, 0.6d, 0d, 0d, null,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                spawn(owner, centre, Particle.ELECTRIC_SPARK,
+                        85, 1.25d, 2.1d, 1.25d, 0.18d, null,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                spawn(owner, centre, Particle.END_ROD,
+                        65, 0.65d, 2.6d, 0.65d, 0.14d, null,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                spawn(owner, centre, Particle.TOTEM_OF_UNDYING,
+                        55, 1.15d, 1.6d, 1.15d, 0.16d, null,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                sound(owner, centre, Sound.ENTITY_LIGHTNING_BOLT_THUNDER, 1.5f, 0.75f,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                sound(owner, centre, Sound.UI_TOAST_CHALLENGE_COMPLETE, 1.1f, 1.15f,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            }
+            default -> { }
+        }
     }
 
     private void dust(

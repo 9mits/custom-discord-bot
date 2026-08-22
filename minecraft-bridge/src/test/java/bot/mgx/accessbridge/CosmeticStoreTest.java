@@ -232,14 +232,35 @@ class CosmeticStoreTest {
         store.withdraw(firstPlayer, serial).orElseThrow();
 
         store.equip(firstPlayer, "AURA", serial);
-        store.equip(nextPlayer, "SECRET", serial);
+        store.equip(nextPlayer, "KILL_EFFECT", serial);
 
         assertTrue(store.equipped(firstPlayer, "AURA").isEmpty());
-        assertEquals(serial, store.equipped(nextPlayer, "SECRET").orElseThrow());
+        assertEquals(serial, store.equipped(nextPlayer, "KILL_EFFECT").orElseThrow());
 
         CosmeticStore reloaded = new CosmeticStore(directory.resolve("cosmetics.json"));
         assertTrue(reloaded.equipped(firstPlayer, "AURA").isEmpty());
-        assertEquals(serial, reloaded.equipped(nextPlayer, "SECRET").orElseThrow());
+        assertEquals(serial, reloaded.equipped(nextPlayer, "KILL_EFFECT").orElseThrow());
+    }
+
+    @Test
+    void legacyEventHorizonSelectionMovesIntoKillEffects(@TempDir Path directory)
+            throws Exception {
+        Path file = directory.resolve("cosmetics.json");
+        UUID owner = UUID.randomUUID();
+        CosmeticStore original = new CosmeticStore(file);
+        CosmeticStore.Token eventHorizon = original.mint(
+                owner, "event_horizon", UUID.randomUUID()
+        );
+        original.equip(owner, "SECRET", eventHorizon.serial());
+
+        CosmeticStore migrated = new CosmeticStore(file);
+
+        assertTrue(migrated.equipped(owner, "SECRET").isEmpty());
+        assertEquals(
+                eventHorizon.serial(),
+                migrated.equipped(owner, "KILL_EFFECT").orElseThrow()
+        );
+        assertFalse(Files.readString(file).contains("\"SECRET\""));
     }
 
     @Test
@@ -252,22 +273,22 @@ class CosmeticStoreTest {
         UUID unrelated = UUID.randomUUID();
         store.mint(firstPlayer, "event_horizon", serial);
         store.mint(firstPlayer, "ember_trail", unrelated);
-        store.equip(firstPlayer, "SECRET", serial);
+        store.equip(firstPlayer, "KILL_EFFECT", serial);
         store.equip(firstPlayer, "TRAIL", unrelated);
         Files.createDirectory(file.resolveSibling(file.getFileName() + ".tmp"));
 
         assertThrows(
                 UncheckedIOException.class,
-                () -> store.equip(nextPlayer, "SECRET", serial)
+                () -> store.equip(nextPlayer, "KILL_EFFECT", serial)
         );
-        assertEquals(serial, store.equipped(firstPlayer, "SECRET").orElseThrow());
+        assertEquals(serial, store.equipped(firstPlayer, "KILL_EFFECT").orElseThrow());
         assertEquals(unrelated, store.equipped(firstPlayer, "TRAIL").orElseThrow());
-        assertTrue(store.equipped(nextPlayer, "SECRET").isEmpty());
+        assertTrue(store.equipped(nextPlayer, "KILL_EFFECT").isEmpty());
 
         CosmeticStore reloaded = new CosmeticStore(file);
-        assertEquals(serial, reloaded.equipped(firstPlayer, "SECRET").orElseThrow());
+        assertEquals(serial, reloaded.equipped(firstPlayer, "KILL_EFFECT").orElseThrow());
         assertEquals(unrelated, reloaded.equipped(firstPlayer, "TRAIL").orElseThrow());
-        assertTrue(reloaded.equipped(nextPlayer, "SECRET").isEmpty());
+        assertTrue(reloaded.equipped(nextPlayer, "KILL_EFFECT").isEmpty());
     }
 
     @Test

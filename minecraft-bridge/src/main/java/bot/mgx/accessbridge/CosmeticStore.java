@@ -81,6 +81,7 @@ final class CosmeticStore {
                         owner
                 ));
             }
+            boolean migratedSecretCategory = false;
             JsonObject savedEquipped = object(root, "equipped");
             for (Map.Entry<String, JsonElement> entry : savedEquipped.entrySet()) {
                 LinkedHashMap<String, UUID> selections = new LinkedHashMap<>();
@@ -88,11 +89,19 @@ final class CosmeticStore {
                         : entry.getValue().getAsJsonObject().entrySet()) {
                     selections.put(selected.getKey(), UUID.fromString(selected.getValue().getAsString()));
                 }
+                UUID legacySecret = selections.remove(CosmeticCatalog.Category.SECRET.name());
+                if (legacySecret != null) {
+                    Token token = tokens.get(legacySecret);
+                    CosmeticCatalog.find(token == null ? null : token.cosmeticId()).ifPresent(
+                            definition -> selections.put(definition.category().name(), legacySecret)
+                    );
+                    migratedSecretCategory = true;
+                }
                 if (!selections.isEmpty()) {
                     equipped.put(UUID.fromString(entry.getKey()), selections);
                 }
             }
-            if (migratedSerialNumbers) {
+            if (migratedSerialNumbers || migratedSecretCategory) {
                 save();
             }
         } catch (RuntimeException exception) {

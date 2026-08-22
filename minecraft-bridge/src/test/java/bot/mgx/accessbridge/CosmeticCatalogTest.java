@@ -33,7 +33,15 @@ class CosmeticCatalogTest {
             Map.entry("drool_trail", 400),
             Map.entry("ender_trail", 150),
             Map.entry("prismatic_trail", 15),
-            Map.entry("event_horizon", 5)
+            Map.entry("event_horizon", 5),
+            Map.entry("reapers_verdict", 5),
+            Map.entry("divine_rupture", 5),
+            Map.entry("astral_sovereign", 5),
+            Map.entry("infernal_dominion", 5),
+            Map.entry("abyssal_seraph", 5),
+            Map.entry("galaxy_wake", 5),
+            Map.entry("phantom_chains", 5),
+            Map.entry("reality_fracture", 5)
     );
 
     @Test
@@ -42,7 +50,7 @@ class CosmeticCatalogTest {
         CosmeticCatalog.all().forEach(definition -> actual.put(definition.id(), definition.weight()));
 
         assertEquals(EXPECTED_WEIGHTS, actual);
-        assertEquals(15_350, actual.values().stream().mapToInt(Integer::intValue).sum());
+        assertEquals(15_390, actual.values().stream().mapToInt(Integer::intValue).sum());
     }
 
     @Test
@@ -56,24 +64,28 @@ class CosmeticCatalogTest {
     }
 
     @Test
-    void theOnlySecretHasHiddenPublicOddsAndFiveActualWeight() {
+    void everyEffectCategoryHasThreeSecretsAtTheHiddenWeight() {
         List<CosmeticCatalog.Definition> secrets = CosmeticCatalog.all().stream()
                 .filter(CosmeticCatalog.Definition::secret)
                 .toList();
 
-        assertEquals(1, secrets.size());
-        CosmeticCatalog.Definition secret = secrets.get(0);
-        assertEquals("event_horizon", secret.id());
-        // The catalog now holds the real identity; "???" is applied at render time
-        // and only where the player has not won it yet.
-        assertEquals("Event Horizon", secret.displayName());
+        assertEquals(9, secrets.size());
         assertEquals("???", CosmeticCatalog.MASKED_NAME);
-        assertEquals("???", secret.displayedChance());
-        assertEquals(CosmeticCatalog.SECRET_WEIGHT, secret.weight());
-        assertEquals(CosmeticCatalog.Category.SECRET, secret.category());
-        assertEquals("BLACK_DYE", secret.materialName());
-        assertFalse(CosmeticCatalog.publicEntries().contains(secret));
-        assertEquals("0.005%", CosmeticCatalog.percentage(secret.weight()));
+        for (CosmeticCatalog.Definition secret : secrets) {
+            assertEquals("???", secret.displayedChance());
+            assertEquals(CosmeticCatalog.SECRET_WEIGHT, secret.weight());
+            assertFalse(CosmeticCatalog.publicEntries().contains(secret));
+            assertEquals("0.005%", CosmeticCatalog.percentage(secret.weight()));
+        }
+        for (CosmeticCatalog.Category category : List.of(
+                CosmeticCatalog.Category.KILL_EFFECT,
+                CosmeticCatalog.Category.AURA,
+                CosmeticCatalog.Category.TRAIL
+        )) {
+            assertEquals(3, secrets.stream()
+                    .filter(secret -> secret.category() == category)
+                    .count(), category.name());
+        }
     }
 
     @Test
@@ -103,10 +115,10 @@ class CosmeticCatalogTest {
 
     @Test
     void everyNormalCategoryHasSeveralChoices() {
-        assertEquals(5, in(CosmeticCatalog.Category.KILL_EFFECT));
-        assertEquals(5, in(CosmeticCatalog.Category.AURA));
-        assertEquals(7, in(CosmeticCatalog.Category.TRAIL));
-        assertEquals(1, in(CosmeticCatalog.Category.SECRET));
+        assertEquals(8, in(CosmeticCatalog.Category.KILL_EFFECT));
+        assertEquals(8, in(CosmeticCatalog.Category.AURA));
+        assertEquals(10, in(CosmeticCatalog.Category.TRAIL));
+        assertEquals(0, in(CosmeticCatalog.Category.SECRET));
         assertEquals(17, CosmeticCatalog.publicEntries().size());
     }
 

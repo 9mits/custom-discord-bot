@@ -104,6 +104,35 @@ class ResourcePackCatalogTest {
         }
     }
 
+    @Test
+    void trailIconsUseTheLargerFifteenPixelFootprint() throws Exception {
+        Path textures = SOURCE.resolve("assets/mgx/textures/item/cosmetic");
+        for (CosmeticCatalog.Definition definition : CosmeticCatalog.all()) {
+            if (definition.category() != CosmeticCatalog.Category.TRAIL || definition.secret()) {
+                continue;
+            }
+            BufferedImage image = ImageIO.read(
+                    textures.resolve(definition.id() + ".png").toFile()
+            );
+            int minX = image.getWidth();
+            int minY = image.getHeight();
+            int maxX = -1;
+            int maxY = -1;
+            for (int y = 0; y < image.getHeight(); y++) {
+                for (int x = 0; x < image.getWidth(); x++) {
+                    if ((image.getRGB(x, y) >>> 24) == 0) {
+                        continue;
+                    }
+                    minX = Math.min(minX, x);
+                    minY = Math.min(minY, y);
+                    maxX = Math.max(maxX, x);
+                    maxY = Math.max(maxY, y);
+                }
+            }
+            assertEquals(15, Math.max(maxX - minX + 1, maxY - minY + 1), definition.id());
+        }
+    }
+
     private static void assertModelResolves(String modelKey) throws Exception {
         String[] key = modelKey.split(":", 2);
         assertEquals(2, key.length, modelKey);
