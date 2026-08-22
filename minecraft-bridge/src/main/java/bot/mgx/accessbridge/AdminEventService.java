@@ -21,10 +21,12 @@ final class AdminEventService {
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private final MGXAccessBridge plugin;
     private final CrateItems crateItems;
+    private final ChaosService chaosService;
 
-    AdminEventService(MGXAccessBridge plugin, CrateItems crateItems) {
+    AdminEventService(MGXAccessBridge plugin, CrateItems crateItems, ChaosService chaosService) {
         this.plugin = plugin;
         this.crateItems = crateItems;
+        this.chaosService = chaosService;
     }
 
     String run(CommandSender sender, String[] args) {
@@ -32,31 +34,52 @@ final class AdminEventService {
             throw new IllegalArgumentException("Admin events must be started in game.");
         }
         if (args.length < 2) {
-            throw new IllegalArgumentException(
-                    "Usage: /mgxadmin abuse <keyrain [amount] [radius]|skyburst [seconds]|chaos>"
-            );
+            throw new IllegalArgumentException(usage());
         }
-        return switch (args[1].toLowerCase(Locale.ROOT)) {
-            case "keyrain", "keys" -> {
+        String token = args[1].toLowerCase(Locale.ROOT);
+        if (token.equals("list") || token.equals("help")) {
+            return menu();
+        }
+        ChaosCatalog effect = ChaosCatalog.resolve(token)
+                .orElseThrow(() -> new IllegalArgumentException(usage()));
+        return switch (effect) {
+            case STOP -> {
+                chaosService.stopAll();
+                yield "Stopped every running event and restored everything";
+            }
+            case KEYRAIN -> {
                 int amount = bounded(args, 2, 50, 1, 250, "key amount");
                 int radius = bounded(args, 3, 12, 4, 30, "radius");
                 keyRain(player, amount, radius);
                 yield "Started a " + amount + "-key rain within " + radius + " blocks";
             }
-            case "skyburst", "fireworks" -> {
+            case SKYBURST -> {
                 int seconds = bounded(args, 2, 15, 3, 60, "duration");
                 skyBurst(player, seconds);
                 yield "Started a " + seconds + "-second skyburst";
             }
-            case "chaos" -> {
-                keyRain(player, 75, 16);
-                skyBurst(player, 20);
-                yield "Started Chaos: 75 keys and a 20-second skyburst";
-            }
-            default -> throw new IllegalArgumentException(
-                    "Usage: /mgxadmin abuse <keyrain [amount] [radius]|skyburst [seconds]|chaos>"
+            default -> chaosService.run(
+                    effect,
+                    effect.secondsOrThrow(args.length > 2 ? args[2] : null)
             );
         };
+    }
+
+    /** The one-line reminder, and the full menu behind {@code abuse list}. */
+    private static String usage() {
+        return "Usage: /mgxadmin abuse <effect> [seconds] — try /mgxadmin abuse list";
+    }
+
+    private static String menu() {
+        StringBuilder text = new StringBuilder("Admin events:");
+        for (ChaosCatalog effect : ChaosCatalog.menu()) {
+            text.append("\n  ").append(effect.id());
+            if (effect.timed()) {
+                text.append(" [seconds, default ").append(effect.defaultSeconds()).append("]");
+            }
+            text.append(" - ").append(effect.blurb());
+        }
+        return text.toString();
     }
 
     private void keyRain(Player anchor, int amount, int radius) {

@@ -670,8 +670,14 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         sender.sendMessage(Component.text("  /mgxadmin devblog", ORANGE)
                 .append(Component.text("  screenshot mode: stash your gear, clear the screen",
                         NamedTextColor.GRAY)));
-        sender.sendMessage(Component.text("  /mgxadmin abuse <keyrain|skyburst|chaos>", ORANGE)
+        sender.sendMessage(Component.text("  /mgxadmin abuse <effect> [seconds]", ORANGE)
                 .append(Component.text("  run a live admin event", NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin abuse list", ORANGE)
+                .append(Component.text("  every effect and how long it may run",
+                        NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin abuse stop", ORANGE)
+                .append(Component.text("  end everything and restore it all",
+                        NamedTextColor.GRAY)));
     }
 
     @Override
@@ -701,7 +707,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         }
         if (action.equals("abuse") || action.equals("event")) {
             if (args.length == 2) {
-                return partial(args[1], List.of("keyrain", "skyburst", "chaos"));
+                return partial(args[1], ChaosCatalog.menu().stream().map(ChaosCatalog::id).toList());
             }
             return List.of();
         }
