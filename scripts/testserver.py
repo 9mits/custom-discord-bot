@@ -22,6 +22,8 @@ import argparse
 import json
 import os
 import platform
+import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -41,6 +43,10 @@ PAPER_API = "https://fill.papermc.io/v3/projects/paper/versions/{v}/builds/{b}"
 
 GEYSER_API = "https://download.geysermc.org/v2/projects/{p}/versions/latest/builds/latest/downloads/spigot"
 LUCKPERMS_META = "https://metadata.luckperms.net/data/all"
+VIAVERSION_API = (
+    "https://api.modrinth.com/v2/project/viaversion/version"
+    "?loaders=%5B%22paper%22%5D&game_versions=%5B%22{v}%22%5D"
+)
 
 #: Floodgate is a hard `depend:` in plugin.yml — without it the plugin will not
 #: load at all. Geyser and LuckPerms are soft, but the bridge talks to both.
@@ -79,7 +85,7 @@ BRIDGE_CONFIG = """\
 # Discord — the abuse events, AFK, shop, clans — works regardless.
 server-id: "mgx-local-test"
 bridge-url: "ws://127.0.0.1:8765/minecraft-bridge"
-bridge-secret: "local-test-secret"
+bridge-secret: "{secret}"
 bridge-certificate-sha256: ""
 allow-insecure-localhost: true
 verification-expiry-seconds: 600
@@ -162,6 +168,36 @@ def java_binary() -> Path:
     return java_home() / "bin" / "java"
 
 
+def config_problem(config: Path) -> str | None:
+    """Mirrors BridgeConfig.load, which disables the plugin on a bad value.
+
+    Without this the only symptom is `/mgxadmin` reporting the plugin is
+    disabled, twenty minutes after the mistake was made.
+    """
+    text = config.read_text()
+
+    def value(key: str) -> str:
+        # Leading whitespace matters: scoreboard.footer is a nested key.
+        found = re.search(rf'^\s*{re.escape(key)}:\s*"?([^"\n]*)"?\s*$', text, re.MULTILINE)
+        return found.group(1).strip() if found else ""
+
+    secret = value("bridge-secret")
+    if len(secret) != 64 or not all(c in "0123456789abcdefABCDEF" for c in secret):
+        return "bridge-secret must be 64 hexadecimal characters"
+    url = value("bridge-url")
+    if not url.startswith("wss://") and not (
+        url.startswith("ws://") and "allow-insecure-localhost: true" in text
+    ):
+        return "bridge-url must be wss://, or ws:// with allow-insecure-localhost: true"
+    server_id = value("server-id")
+    if not 1 <= len(server_id) <= 64:
+        return "server-id must contain 1-64 characters"
+    footer = value("footer")
+    if not 1 <= len(footer) <= 32:
+        return "scoreboard.footer must contain 1-32 characters"
+    return None
+
+
 def setup(_: argparse.Namespace) -> int:
     SERVER.mkdir(parents=True, exist_ok=True)
     PLUGINS.mkdir(parents=True, exist_ok=True)
@@ -181,6 +217,14 @@ def setup(_: argparse.Namespace) -> int:
     if not luckperms.exists():
         fetch(read_json(LUCKPERMS_META)["downloads"]["bukkit"], luckperms)
 
+    # Geyser refuses to serve Bedrock clients without it on this Paper version,
+    # and Bedrock-on-a-phone is the cheapest way to get a second test player.
+    via = PLUGINS / "ViaVersion.jar"
+    if not via.exists():
+        builds = read_json(VIAVERSION_API.format(v=PAPER_VERSION))
+        if builds:
+            fetch(builds[0]["files"][0]["url"], via)
+
     properties = SERVER / "server.properties"
     if not properties.exists():
         properties.write_text(SERVER_PROPERTIES)
@@ -188,7 +232,13 @@ def setup(_: argparse.Namespace) -> int:
     config = PLUGINS / "MGXAccessBridge" / "config.yml"
     if not config.exists():
         config.parent.mkdir(parents=True, exist_ok=True)
-        config.write_text(BRIDGE_CONFIG)
+        # BridgeConfig requires 32 bytes of hex. Nothing listens on the local
+        # port, so the value only has to be well-formed, but "well-formed" is
+        # exactly the check that rejected a placeholder here.
+        config.write_text(BRIDGE_CONFIG.format(secret=secrets.token_hex(32)))
+    problem = config_problem(config)
+    if problem:
+        log(f"WARNING: {config.name} would stop the plugin enabling: {problem}")
 
     eula = SERVER / "eula.txt"
     if not eula.exists():
@@ -216,6 +266,11 @@ def deploy(_: argparse.Namespace) -> int:
     if result.returncode != 0:
         log("build failed; nothing installed")
         return result.returncode
+    config = PLUGINS / "MGXAccessBridge" / "config.yml"
+    if config.exists():
+        problem = config_problem(config)
+        if problem:
+            log(f"WARNING: the plugin will refuse to enable: {problem}")
     built = BRIDGE / "build" / "libs" / "MGXAccessBridge.jar"
     PLUGINS.mkdir(parents=True, exist_ok=True)
     shutil.copy2(built, PLUGINS / "MGXAccessBridge.jar")
