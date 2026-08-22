@@ -196,7 +196,7 @@ final class CrateCatalog {
     private static List<Reward> buildRewards() {
         List<Reward> rewards = new ArrayList<>();
         rewards.add(item(
-                "raw_copper", "16 Raw Copper", Category.RESOURCE, 10_400,
+                "raw_copper", "16 Raw Copper", Category.RESOURCE, 10_360,
                 "RAW_COPPER", 16, "A useful mining bundle without shop cash."
         ));
         rewards.add(item(

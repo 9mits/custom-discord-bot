@@ -189,7 +189,8 @@ replace Minecraft's built-in Options screen.
 `/crate` opens the animated wooden-crate reel, shows every exact public chance, and
 claims a saved reward. Players earn one physical key per online hour; Discord server
 boosters earn two. `/wardrobe` manages unique, serial-numbered tradable cosmetic
-tokens, displays rarity and global supply counts, and links to the
+tokens, including three secret choices in each effect category, displays rarity and
+global supply counts, and links to the
 cosmetic settings. PvP trophy heads and cosmetic effects share the same per-viewer
 settings system. The full reward table, custom item behavior, custody rules, and
 administrator key command are documented in

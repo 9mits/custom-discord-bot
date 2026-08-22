@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CrateCatalogTest {
     private static final Map<String, Integer> EXPECTED_ITEM_WEIGHTS = Map.ofEntries(
-            Map.entry("raw_copper", 10_400),
+            Map.entry("raw_copper", 10_360),
             Map.entry("raw_iron", 10_000),
             Map.entry("raw_gold", 8_500),
             Map.entry("emeralds", 8_000),
@@ -61,11 +61,11 @@ class CrateCatalogTest {
     void completePoolTotalsExactlyOneHundredPercent() {
         assertEquals(100_000, CrateCatalog.totalWeight());
         assertEquals("100.000%", CrateCatalog.percentage(CrateCatalog.totalWeight()));
-        assertEquals(84_650, CrateCatalog.all().stream()
+        assertEquals(84_610, CrateCatalog.all().stream()
                 .filter(reward -> !reward.cosmetic())
                 .mapToInt(CrateCatalog.Reward::weight)
                 .sum());
-        assertEquals(15_350, CrateCatalog.all().stream()
+        assertEquals(15_390, CrateCatalog.all().stream()
                 .filter(CrateCatalog.Reward::cosmetic)
                 .mapToInt(CrateCatalog.Reward::weight)
                 .sum());
@@ -125,7 +125,7 @@ class CrateCatalogTest {
     }
 
     @Test
-    void secretIsAHiddenSilhouetteButItsActualWeightIsPinned() {
+    void secretsAreHiddenSilhouettesWithPinnedActualWeights() {
         CrateCatalog.Reward secret = CrateCatalog.find(
                 "cosmetic_event_horizon"
         ).orElseThrow();
@@ -137,7 +137,10 @@ class CrateCatalogTest {
         assertEquals("0.005%", secret.actualChance());
         assertEquals("BLACK_DYE", secret.materialName());
         assertEquals(CrateCatalog.Category.SECRET, secret.category());
-        assertEquals(1, CrateCatalog.all().stream().filter(CrateCatalog.Reward::secret).count());
+        assertEquals(9, CrateCatalog.all().stream().filter(CrateCatalog.Reward::secret).count());
+        assertTrue(CrateCatalog.all().stream()
+                .filter(CrateCatalog.Reward::secret)
+                .allMatch(reward -> reward.weight() == 5));
     }
 
     @Test

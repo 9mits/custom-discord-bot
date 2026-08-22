@@ -126,7 +126,7 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
             return List.of();
         }
         String prefix = args[0].toLowerCase(Locale.ROOT);
-        return List.of("kill_effects", "auras", "trails", "secret", "settings").stream()
+        return List.of("kill_effects", "auras", "trails", "settings").stream()
                 .filter(value -> value.startsWith(prefix))
                 .toList();
     }
@@ -155,13 +155,11 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         inventory.setItem(TRAIL_SLOT, categoryButton(
                 Material.WIND_CHARGE, CosmeticCatalog.Category.TRAIL, player
         ));
-        if (!owned(player, CosmeticCatalog.Category.SECRET).isEmpty()) {
-            inventory.setItem(SECRET_SLOT, categoryButton(
-                    Material.BLACK_DYE, CosmeticCatalog.Category.SECRET, player
-            ));
-        } else {
-            inventory.setItem(SECRET_SLOT, button(Material.BLACK_STAINED_GLASS_PANE, "Unknown"));
-        }
+        inventory.setItem(SECRET_SLOT, button(
+                Material.BLACK_STAINED_GLASS_PANE,
+                "Secret Cosmetics",
+                "Secrets appear inside their effect category."
+        ));
         inventory.setItem(SETTINGS_SLOT, saleMode
                 ? button(Material.BARRIER, "Back to your listings")
                 : button(Material.COMPARATOR, "Cosmetic Settings"));
@@ -255,11 +253,7 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
                 );
                 case AURA_SLOT -> openCategory(player, CosmeticCatalog.Category.AURA, menu.saleMode);
                 case TRAIL_SLOT -> openCategory(player, CosmeticCatalog.Category.TRAIL, menu.saleMode);
-                case SECRET_SLOT -> {
-                    if (!owned(player, CosmeticCatalog.Category.SECRET).isEmpty()) {
-                        openCategory(player, CosmeticCatalog.Category.SECRET, menu.saleMode);
-                    }
-                }
+                case SECRET_SLOT -> { }
                 case SETTINGS_SLOT -> {
                     if (menu.saleMode && economyMenus != null) {
                         economyMenus.openOwn(player, 1);

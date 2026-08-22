@@ -56,9 +56,9 @@ final class CosmeticCatalog {
                     .toUpperCase(Locale.ROOT);
             modelKey = requireText(modelKey, "Cosmetic model key").toLowerCase(Locale.ROOT);
             description = requireText(description, "Cosmetic description");
-            if (secret != (category == Category.SECRET)) {
+            if (category == Category.SECRET) {
                 throw new IllegalArgumentException(
-                        "Only the secret cosmetic may use the secret category"
+                        "Secret cosmetics must use their actual effect category"
                 );
             }
         }
@@ -153,15 +153,41 @@ final class CosmeticCatalog {
                     "prismatic_trail", "Prismatic Trail", Category.TRAIL, 15,
                     "PRISMARINE_CRYSTALS", "A shifting ribbon cycles through the full spectrum."
             ),
-            new Definition(
-                    "event_horizon",
-                    "Event Horizon",
-                    Category.SECRET,
-                    SECRET_WEIGHT,
-                    true,
-                    "BLACK_DYE",
-                    "mgx:cosmetic/event_horizon",
-                    "A sonic burst of dragon breath and starlight tears the air open."
+            secretCosmetic(
+                    "event_horizon", "Event Horizon", Category.KILL_EFFECT,
+                    "BLACK_DYE", "Space folds inward before the defeated player disappears."
+            ),
+            secretCosmetic(
+                    "reapers_verdict", "Reaper's Verdict", Category.KILL_EFFECT,
+                    "WITHER_SKELETON_SKULL", "A spectral scythe cuts through a storm of stolen souls."
+            ),
+            secretCosmetic(
+                    "divine_rupture", "Divine Rupture", Category.KILL_EFFECT,
+                    "LIGHTNING_ROD", "A pillar of judgment splits the sky at the final blow."
+            ),
+            secretCosmetic(
+                    "astral_sovereign", "Astral Sovereign", Category.AURA,
+                    "ECHO_SHARD", "Constellations and miniature stars orbit their sovereign."
+            ),
+            secretCosmetic(
+                    "infernal_dominion", "Infernal Dominion", Category.AURA,
+                    "MAGMA_CREAM", "A burning crown and molten rings command the ground nearby."
+            ),
+            secretCosmetic(
+                    "abyssal_seraph", "Abyssal Seraph", Category.AURA,
+                    "PHANTOM_MEMBRANE", "Six void-lit wings unfold behind the wearer."
+            ),
+            secretCosmetic(
+                    "galaxy_wake", "Galaxy Wake", Category.TRAIL,
+                    "AMETHYST_SHARD", "A river of newborn stars stretches behind every step."
+            ),
+            secretCosmetic(
+                    "phantom_chains", "Phantom Chains", Category.TRAIL,
+                    "IRON_CHAIN", "Spectral chain links drag through the air and fade into souls."
+            ),
+            secretCosmetic(
+                    "reality_fracture", "Reality Fracture", Category.TRAIL,
+                    "CHORUS_FRUIT", "Bright cracks split reality along the path travelled."
             )
     );
     private static final Map<String, Definition> BY_ID = indexDefinitions();
@@ -184,7 +210,7 @@ final class CosmeticCatalog {
         return DEFINITIONS;
     }
 
-    /** The normal wardrobe index; the secret is represented separately by a silhouette. */
+    /** The public crate index; secrets are represented separately by silhouettes. */
     static List<Definition> publicEntries() {
         return DEFINITIONS.stream().filter(definition -> !definition.secret()).toList();
     }
@@ -207,6 +233,25 @@ final class CosmeticCatalog {
                 category,
                 weight,
                 false,
+                material,
+                "mgx:cosmetic/" + id,
+                description
+        );
+    }
+
+    private static Definition secretCosmetic(
+            String id,
+            String displayName,
+            Category category,
+            String material,
+            String description
+    ) {
+        return new Definition(
+                id,
+                displayName,
+                category,
+                SECRET_WEIGHT,
+                true,
                 material,
                 "mgx:cosmetic/" + id,
                 description

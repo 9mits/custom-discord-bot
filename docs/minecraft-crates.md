@@ -35,14 +35,14 @@ pool is rolled directly.
 
 | Reward | Amount | Exact chance |
 |---|---:|---:|
-| Raw Copper | 16 | 9.400% |
-| Raw Iron | 8 | 9.100% |
-| Raw Gold | 6 | 7.800% |
-| Emerald | 4 | 7.400% |
-| Diamond | 2 | 5.900% |
-| Wind Charge | 16 | 6.200% |
-| Breeze Rod | 4 | 5.500% |
-| Golden Apple | 1 | 5.668% |
+| Raw Copper | 16 | 10.360% |
+| Raw Iron | 8 | 10.000% |
+| Raw Gold | 6 | 8.500% |
+| Emerald | 4 | 8.000% |
+| Diamond | 2 | 6.300% |
+| Wind Charge | 16 | 6.600% |
+| Breeze Rod | 4 | 5.800% |
+| Golden Apple | 1 | 5.737% |
 | Echo Shard | 3 | 5.000% |
 | Ominous Bottle | 1 | 4.000% |
 | Heart of the Sea | 1 | 3.000% |
@@ -54,25 +54,25 @@ pool is rolled directly.
 | Enchanted Golden Apple | 1 | 0.200% |
 | Heavy Core | 1 | 0.150% |
 | Mace | 1 | 0.050% |
-| Potion of Healing II | 1 | 2.000% |
-| Potion of Strength II | 1 | 1.500% |
-| Potion of Swiftness II | 1 | 1.500% |
-| Potion of Fire Resistance | 1 | 1.200% |
-| Excavation I | 1 | 0.020% |
-| Unbreaking IV | 1 | 0.600% |
-| Unbreaking V | 1 | 0.150% |
-| Protection V | 1 | 0.250% |
-| Fortune IV | 1 | 0.400% |
-| Fortune V | 1 | 0.100% |
-| Fortune Potion I | 1 | 0.500% |
-| Fortune Potion II | 1 | 0.200% |
-| Fortune Potion III | 1 | 0.075% |
-| Fortune Potion IV | 1 | 0.020% |
-| Fortune Potion V | 1 | 0.005% |
-| Crate Luck II | 1 | 0.150% |
-| Crate Luck III | 1 | 0.050% |
-| Crate Luck IV | 1 | 0.010% |
-| Crate Luck V | 1 | 0.002% |
+| Potion of Healing II | 1 | 1.000% |
+| Potion of Strength II | 1 | 0.750% |
+| Potion of Swiftness II | 1 | 0.750% |
+| Potion of Fire Resistance | 1 | 0.600% |
+| Excavation I | 1 | 0.010% |
+| Unbreaking IV | 1 | 0.300% |
+| Unbreaking V | 1 | 0.075% |
+| Protection V | 1 | 0.125% |
+| Fortune IV | 1 | 0.200% |
+| Fortune V | 1 | 0.050% |
+| Fortune Potion I | 1 | 0.250% |
+| Fortune Potion II | 1 | 0.100% |
+| Fortune Potion III | 1 | 0.035% |
+| Fortune Potion IV | 1 | 0.010% |
+| Fortune Potion V | 1 | 0.002% |
+| Crate Luck II | 1 | 0.075% |
+| Crate Luck III | 1 | 0.025% |
+| Crate Luck IV | 1 | 0.005% |
+| Crate Luck V | 1 | 0.001% |
 | Blood Burst kill effect | 1 | 2.500% |
 | Frozen Shatter kill effect | 1 | 1.000% |
 | Shining Light kill effect | 1 | 0.500% |
@@ -90,19 +90,22 @@ pool is rolled directly.
 | Drool Trail | 1 | 0.400% |
 | Ender Trail | 1 | 0.150% |
 | Prismatic Trail | 1 | 0.015% |
-| Unknown secret cosmetic | 1 | `???` in game; 0.005% actual |
+| Unknown secret Kill Effect | 3 | `???` in game; 0.005% each |
+| Unknown secret Aura | 3 | `???` in game; 0.005% each |
+| Unknown secret Trail | 3 | `???` in game; 0.005% each |
 
-The item subtotal is 84.650%, the cosmetic subtotal is 15.350%, and the complete
+The item subtotal is 84.610%, the cosmetic subtotal is 15.390%, and the complete
 table is exactly 100.000%.
 
-Fortune Potions remain active for 15 minutes, survive reconnects, and multiply
+Fortune Potions remain active for 5 minutes, survive reconnects, and multiply
 eligible block drops from ores, Ancient Debris, crops, leaves, and the other blocks
 affected by vanilla Fortune. Excavation I is pickaxe-only and breaks the matching
 3x3 mining face. The extended vanilla books are applied through an anvil.
 
 ## Wardrobe and physical ownership
 
-`/wardrobe` separates Kill Effects, Auras, Trails, and the hidden Secret category.
+`/wardrobe` separates Kill Effects, Auras, and Trails. A won secret appears inside
+its real effect category, so one secret from every category may be equipped together.
 A global `In existence` count and the selected token's permanent serial number are
 shown in `/wardrobe`. It counts every valid unique token in the current cosmetic
 generation, whether stored in a wardrobe or represented by a physical tradable item.
@@ -118,10 +121,10 @@ it. Tokens retain their metadata through the auction house and are rejected by
 `/sell` because they have custom metadata. A season reset advances the token
 generation so old physical copies cannot become valid again.
 
-The secret uses a black silhouette, the name `???`, and no public percentage. Its
-actual weight is five tickets out of 100,000. Winning it triggers a title, expanding
-dark rings, portal, dragon-breath, totem, end-rod and challenge effects; equipping it
-adds its own aura and kill sequence.
+All nine secrets use a black silhouette, the name `???`, and no public percentage.
+Each has an actual weight of five tickets out of 100,000. There are three secret Kill
+Effects, three secret Auras, and three secret Trails, each with its own icon and VFX.
+Winning any one triggers the secret reveal sequence.
 
 The Java resource pack contains a distinct custom item-model icon for the key, both
 custom potion families, and every individual cosmetic. Bedrock players receive the
