@@ -170,7 +170,7 @@ Your perks and preferences, plus details about the server.
 
 #### In Discord
 
-`/minecraft account` — your application and linked account
+`/minecraft account` — your verification and linked account
 `/minecraft whitelist` — everyone with access
 `/minecraft clan view` — your clan and permitted actions
 
@@ -416,7 +416,7 @@ No launcher changes needed; play on whatever you already use
 
 Add the server under **Multiplayer → Add Server**
 ```text
-given to you when your application is accepted
+given to you when you verify
 ```
 
 ### Bedrock Edition
@@ -426,7 +426,7 @@ Add it as an external server with both values below
 
 **Address**
 ```text
-given to you when your application is accepted
+given to you when you verify
 ```
 **Port**
 ```text

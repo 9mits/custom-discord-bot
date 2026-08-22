@@ -309,7 +309,7 @@ class MinecraftBridgeServer:
         if message_type == "VERIFICATION":
             try:
                 await self.verification_handler(
-                    application_id=int(payload["application_id"]),
+                    access_id=int(payload["access_id"]),
                     edition=Edition(str(payload["edition"]).upper()),
                     minecraft_uuid=str(payload["minecraft_uuid"]),
                     current_username=str(payload["current_username"]),
@@ -321,7 +321,7 @@ class MinecraftBridgeServer:
                 return
             await self._send(
                 "VERIFICATION_ACK",
-                {"application_id": int(payload["application_id"])},
+                {"access_id": int(payload["access_id"])},
                 idempotency_key=envelope["idempotency_key"],
                 expected_socket=source_socket,
             )
@@ -497,7 +497,7 @@ class MinecraftBridgeServer:
             "full": True,
             "applications": [
                 {
-                    "application_id": application.id,
+                    "access_id": application.id,
                     "edition": self._pending_edition(application),
                     "claimed_username": application.claimed_username,
                     "normalized_username": application.normalized_username,
@@ -743,9 +743,9 @@ class MinecraftBridgeServer:
             record.action is BridgeAction.SYNC_PENDING
             and payload.get("edition") == "AUTO"
             and self._peer_protocol_version < AUTO_EDITION_PROTOCOL_VERSION
-            and record.application_id is not None
+            and record.access_id is not None
         ):
-            application = await self.data.get_application(record.application_id)
+            application = await self.data.get_access(record.access_id)
             if application is not None:
                 payload["edition"] = application.edition.value
         return {"action": record.action.value, **payload}

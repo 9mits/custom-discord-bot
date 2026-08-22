@@ -20,7 +20,7 @@ class MinecraftSupportQueueTests(unittest.TestCase):
             request_id = enqueue_support_request(
                 guild_id=10,
                 discord_user_id=42,
-                application_id=7,
+                access_id=7,
                 status="PENDING_VERIFICATION",
                 username="TestPlayer",
             )
@@ -32,7 +32,7 @@ class MinecraftSupportQueueTests(unittest.TestCase):
             claimed = claim_support_request(queued[0])
             self.assertIsNotNone(claimed)
             path, payload = claimed
-            self.assertEqual(payload["application_id"], 7)
+            self.assertEqual(payload["access_id"], 7)
             self.assertEqual(json.loads(path.read_text())["discord_user_id"], "42")
             self.assertIsNone(claim_support_request(queued[0]))
 

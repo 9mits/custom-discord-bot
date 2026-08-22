@@ -18,15 +18,15 @@ import java.util.Optional;
 import java.util.UUID;
 
 /** Durable verified applications that are still waiting for a Discord decision. */
-final class VerifiedApplicationStore {
-    record VerifiedApplication(long applicationId, UUID minecraftUuid, String username) {
+final class VerifiedAccountStore {
+    record VerifiedAccount(long applicationId, UUID minecraftUuid, String username) {
     }
 
     private final Path file;
     private final Gson gson = new Gson();
-    private final LinkedHashMap<Long, VerifiedApplication> applications = new LinkedHashMap<>();
+    private final LinkedHashMap<Long, VerifiedAccount> applications = new LinkedHashMap<>();
 
-    VerifiedApplicationStore(Path file) throws IOException {
+    VerifiedAccountStore(Path file) throws IOException {
         this.file = file;
         Files.createDirectories(file.getParent());
         if (!Files.isRegularFile(file) || Files.size(file) == 0) {
@@ -37,7 +37,7 @@ final class VerifiedApplicationStore {
             for (Map.Entry<String, JsonElement> entry : root.entrySet()) {
                 JsonObject value = entry.getValue().getAsJsonObject();
                 long applicationId = Long.parseLong(entry.getKey());
-                applications.put(applicationId, new VerifiedApplication(
+                applications.put(applicationId, new VerifiedAccount(
                         applicationId,
                         UUID.fromString(value.get("minecraft_uuid").getAsString()),
                         value.get("username").getAsString()
@@ -49,25 +49,25 @@ final class VerifiedApplicationStore {
     }
 
     synchronized void put(long applicationId, UUID minecraftUuid, String username) {
-        VerifiedApplication previous = applications.put(
+        VerifiedAccount previous = applications.put(
                 applicationId,
-                new VerifiedApplication(applicationId, minecraftUuid, username)
+                new VerifiedAccount(applicationId, minecraftUuid, username)
         );
         persistOrRollback(applicationId, previous);
     }
 
-    synchronized Optional<VerifiedApplication> find(UUID minecraftUuid) {
+    synchronized Optional<VerifiedAccount> find(UUID minecraftUuid) {
         return applications.values().stream()
                 .filter(application -> application.minecraftUuid().equals(minecraftUuid))
                 .findFirst();
     }
 
-    synchronized Optional<VerifiedApplication> get(long applicationId) {
+    synchronized Optional<VerifiedAccount> get(long applicationId) {
         return Optional.ofNullable(applications.get(applicationId));
     }
 
     synchronized void remove(long applicationId) {
-        VerifiedApplication previous = applications.remove(applicationId);
+        VerifiedAccount previous = applications.remove(applicationId);
         if (previous != null) {
             persistOrRollback(applicationId, previous);
         }
@@ -79,7 +79,7 @@ final class VerifiedApplicationStore {
         if (cleared == 0) {
             return 0;
         }
-        LinkedHashMap<Long, VerifiedApplication> previous = new LinkedHashMap<>(applications);
+        LinkedHashMap<Long, VerifiedAccount> previous = new LinkedHashMap<>(applications);
         applications.clear();
         try {
             persist();
@@ -90,7 +90,7 @@ final class VerifiedApplicationStore {
         return cleared;
     }
 
-    private void persistOrRollback(long applicationId, VerifiedApplication previous) {
+    private void persistOrRollback(long applicationId, VerifiedAccount previous) {
         try {
             persist();
         } catch (IOException exception) {
@@ -105,7 +105,7 @@ final class VerifiedApplicationStore {
 
     private void persist() throws IOException {
         JsonObject root = new JsonObject();
-        for (VerifiedApplication application : applications.values()) {
+        for (VerifiedAccount application : applications.values()) {
             JsonObject value = new JsonObject();
             value.addProperty("minecraft_uuid", application.minecraftUuid().toString());
             value.addProperty("username", application.username());

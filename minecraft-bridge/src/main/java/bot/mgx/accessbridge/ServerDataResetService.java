@@ -52,7 +52,7 @@ final class ServerDataResetService {
     private final CosmeticStore cosmetics;
     private final CosmeticItems cosmeticItems;
     private final TrophyHeadStore trophyHeads;
-    private final VerifiedApplicationStore verifiedApplications;
+    private final VerifiedAccountStore verifiedAccounts;
     private final VerificationEventStore verificationEvents;
     private final ProcessedActionStore processedActions;
     private final Path worldFolder;
@@ -73,7 +73,7 @@ final class ServerDataResetService {
             CosmeticStore cosmetics,
             CosmeticItems cosmeticItems,
             TrophyHeadStore trophyHeads,
-            VerifiedApplicationStore verifiedApplications,
+            VerifiedAccountStore verifiedAccounts,
             VerificationEventStore verificationEvents,
             ProcessedActionStore processedActions,
             Path worldFolder,
@@ -92,7 +92,7 @@ final class ServerDataResetService {
         this.cosmetics = cosmetics;
         this.cosmeticItems = cosmeticItems;
         this.trophyHeads = trophyHeads;
-        this.verifiedApplications = verifiedApplications;
+        this.verifiedAccounts = verifiedAccounts;
         this.verificationEvents = verificationEvents;
         this.processedActions = processedActions;
         this.worldFolder = worldFolder;
@@ -198,7 +198,7 @@ final class ServerDataResetService {
         }
         if (scopes.contains(ResetScope.ACCESS)) {
             int removed = 0;
-            removed += clearQuietly(verifiedApplications::clearAll, "verified applications", problems);
+            removed += clearQuietly(verifiedAccounts::clearAll, "verified applications", problems);
             removed += clearQuietly(verificationEvents::clearAll, "queued verifications", problems);
             removed += clearQuietly(processedActions::clearAll, "processed actions", problems);
             removed += plugin.revokeLiveAccess();

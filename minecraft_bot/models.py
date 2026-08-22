@@ -19,13 +19,15 @@ class Edition(StrEnum):
     BEDROCK = "BEDROCK"
 
 
-class ApplicationStatus(StrEnum):
+class AccessStatus(StrEnum):
+    """Access is a two-state affair now: you are verified, or you are not.
+
+    The old application ladder (PENDING_APPLICATION, PENDING_REVIEW,
+    APPROVAL_QUEUED, DENIED) is gone with the review queue that gave it meaning.
+    """
+
     PENDING_VERIFICATION = "PENDING_VERIFICATION"
-    PENDING_APPLICATION = "PENDING_APPLICATION"
-    PENDING_REVIEW = "PENDING_REVIEW"
-    APPROVAL_QUEUED = "APPROVAL_QUEUED"
-    APPROVED = "APPROVED"
-    DENIED = "DENIED"
+    VERIFIED = "VERIFIED"
     EXPIRED = "EXPIRED"
     CANCELLED = "CANCELLED"
     REVOKED = "REVOKED"
@@ -40,24 +42,23 @@ class BridgeAction(StrEnum):
     STATUS = "STATUS"
 
 
-ACTIVE_APPLICATION_STATUSES = (
-    ApplicationStatus.PENDING_VERIFICATION,
-    ApplicationStatus.PENDING_APPLICATION,
-    ApplicationStatus.PENDING_REVIEW,
-    ApplicationStatus.APPROVAL_QUEUED,
+#: Statuses that occupy a member's one slot per edition. A pending verification
+#: reserves the slot so two members cannot race for the same username.
+ACTIVE_STATUSES = (
+    AccessStatus.PENDING_VERIFICATION,
+    AccessStatus.VERIFIED,
 )
 
 
 @dataclass(frozen=True)
-class MinecraftApplication:
+class MinecraftAccess:
     id: int
     guild_id: str
     discord_user_id: str
     edition: Edition
     claimed_username: str
     normalized_username: str
-    answers: dict[str, str]
-    status: ApplicationStatus
+    status: AccessStatus
     verification_expires_at: int
     created_at: int
     updated_at: int
@@ -65,17 +66,12 @@ class MinecraftApplication:
     minecraft_uuid: Optional[str] = None
     xuid: Optional[str] = None
     verified_at: Optional[int] = None
-    reviewed_by: Optional[str] = None
-    reviewed_at: Optional[int] = None
-    applicant_reason: Optional[str] = None
+    revoked_by: Optional[str] = None
+    revoked_at: Optional[int] = None
     internal_note: Optional[str] = None
-    review_channel_id: Optional[str] = None
-    review_message_id: Optional[str] = None
     auto_detect_edition: bool = False
     status_channel_id: Optional[str] = None
     status_message_id: Optional[str] = None
-    decision_channel_id: Optional[str] = None
-    decision_message_id: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -87,7 +83,7 @@ class OutboxRecord:
     status: str
     attempts: int
     last_error: Optional[str]
-    application_id: Optional[int]
+    access_id: Optional[int]
     created_at: int
     processed_at: Optional[int]
 
@@ -108,8 +104,8 @@ class InvalidTransition(RuntimeError):
     """The record is no longer in the state required by an operation."""
 
 
-class DuplicateActiveApplication(RuntimeError):
-    """A Discord member already has an unfinished application."""
+class DuplicateActiveVerification(RuntimeError):
+    """A Discord member already has a pending or completed verification."""
 
 
 class AccountEditionAlreadyLinked(RuntimeError):

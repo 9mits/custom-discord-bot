@@ -656,12 +656,11 @@ class UsernameLookupTests(unittest.IsolatedAsyncioTestCase):
         self._tempdir.cleanup()
 
     async def _create(self, username, user_id="1"):
-        return await self.manager.create_application(
+        return await self.manager.create_verification(
             guild_id="1",
             discord_user_id=user_id,
             edition=Edition.JAVA,
             claimed_username=username,
-            answers={"why": "Build things here", "about": "Helpful player here"},
         )
 
     async def test_an_exact_username_is_found(self):
@@ -694,7 +693,7 @@ class UsernameLookupTests(unittest.IsolatedAsyncioTestCase):
     async def test_linked_account_username_search_is_case_insensitive(self):
         application = await self._create("RenamedPlayer")
         await self.manager.record_verification(
-            application_id=application.id,
+            access_id=application.id,
             edition=Edition.JAVA,
             minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
             current_username="RenamedPlayer",

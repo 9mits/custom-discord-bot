@@ -1,8 +1,11 @@
-# Minecraft applications and access bridge
+# Minecraft access and the bridge
 
 ## Architecture
 
-The Minecraft application system is intentionally isolated from the two moderation bots:
+Access to Mysterious SMP X is gated on one thing: **verification**. A member
+declares their username in Discord, joins the server once with that account, and
+is let straight in. There is no written form, no review queue, and no staff
+approval step — verifying *is* being accepted.
 
 ```text
 .env.minecraft
@@ -15,13 +18,33 @@ minecraft_main.py -> MinecraftAccessBot -> runtime/minecraft/minecraft.db
                      MGXAccessBridge.jar -> Paper / Floodgate whitelist
 ```
 
-`start.py` launches the Minecraft process only when `.env.minecraft` exists. That process loads only the `/minecraft` command group and the application/review components; it does not import the moderation cogs, command registry, or customer databases.
+The flow, end to end:
+
+1. Member presses **Verify** in Discord and enters their Java name or gamertag.
+2. The bot stores a `PENDING_VERIFICATION` record and pushes `SYNC_PENDING`.
+3. Member joins with that account. The plugin matches the pending record and
+   **allows the login** — they play immediately.
+4. The plugin reports the verification; the bot marks the record `VERIFIED`,
+   links the account, grants the member role, and queues the durable `APPROVE`
+   that adds the real whitelist entry.
+5. Anyone with no pending verification is refused with one message telling them
+   to verify in Discord first.
+
+Access statuses are `PENDING_VERIFICATION`, `VERIFIED`, `EXPIRED`, `CANCELLED`
+and `REVOKED`. Nothing else exists.
+
+Because verification alone grants access, the plugin lets a freshly verified
+player in before the whitelist entry lands. `verified-applications.json` records
+the account the moment a verification is queued, so a reconnect inside that
+window is allowed rather than turned away.
+
+`start.py` launches the Minecraft process only when `.env.minecraft` exists. That process loads only the `/minecraft` command group and the access components; it does not import the moderation cogs, command registry, or customer databases.
 
 The bridge exposes an HTTP WebSocket path inside the Minecraft bot process. Production traffic must reach it through a TLS endpoint (`wss://`). The Paper plugin makes the outbound connection, so the Minecraft server does not need an inbound bridge port and RCON is never used.
 
 Every bridge message carries an HMAC-SHA256 signature, timestamp, random nonce, and idempotency key. Both sides reject messages outside a 30-second clock window and replayed nonces. The bridge accepts only `APPROVE`, `REVOKE`, `KICK`, `SYNC_PENDING`, `REMOVE_PENDING`, `STATUS`, `DISCORD_CHAT`, and the transient `SYNC_PROFILE` perk update; it cannot run arbitrary console commands. Paper sends signed, acknowledged `PLAYER_JOIN`, `PLAYER_LEAVE`, and `MINECRAFT_CHAT` events and receives a derived level profile when a linked player joins or their milestone roles change.
 
-Each Discord member can link at most one Java account and one Bedrock account. The limit is enforced transactionally when an application is created and checked again when Paper verifies ownership.
+Each Discord member can link at most one Java account and one Bedrock account. The limit is enforced transactionally when a verification is created and checked again when Paper verifies ownership.
 
 ## Discord bot configuration
 
@@ -42,7 +65,7 @@ secrets, and process-level bridge settings belong in this file:
 | `MINECRAFT_ALLOW_INSECURE_LOCALHOST` | Keep `0` in production. Set `1` only for a local `ws://localhost` test. |
 | `MINECRAFT_DATA_DIR` | Dedicated runtime directory; defaults to `runtime/minecraft`. |
 
-Application/review channels, application/verification/player-activity logs, two-way chat,
+Access and verification channels, access/verification/player-activity logs, two-way chat,
 moderator/approved-member roles, and the public Java and Bedrock addresses are
 configured inside Discord with `/minecraft setup`. They are saved
 to `minecraft.db` and take effect immediately. Older `.env.minecraft` files may still
@@ -115,7 +138,7 @@ not expose an unencrypted public `ws://` endpoint.
 
 ## Database migration, backup, and recovery
 
-There is no manual SQL step. On first startup, the Minecraft bot creates `minecraft.db` and all four application tables automatically. Discord snowflakes are stored as text. Future schema-version upgrades take an online SQLite backup before applying additive migrations and retain the newest five files under:
+There is no manual SQL step. On first startup, the Minecraft bot creates `minecraft.db` and its tables automatically. Discord snowflakes are stored as text. Future schema-version upgrades take an online SQLite backup before applying additive migrations and retain the newest five files under:
 
 ```text
 runtime/minecraft/backups/
@@ -128,7 +151,7 @@ saved atomically under `plugins/MGXAccessBridge/`. Include that entire directory
 when backing up the Minecraft server. The plugin fails closed instead of replacing
 malformed persistent data.
 
-The durable outbox makes approval and revocation safe across disconnects. `APPROVAL_QUEUED` does not mean a player is whitelisted. The status becomes `APPROVED`, and the Discord role is assigned, only after Paper confirms the typed action.
+The durable outbox makes the whitelist write and revocation safe across disconnects. A record becomes `VERIFIED` the moment ownership is proved; the whitelist entry and the Discord role follow when Paper confirms the typed action.
 
 ## Scoreboard and Discord level perks
 

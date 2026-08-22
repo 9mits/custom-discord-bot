@@ -19,7 +19,7 @@ def enqueue_support_request(
     *,
     guild_id: int | str,
     discord_user_id: int | str,
-    application_id: int | None,
+    access_id: int | None,
     status: str,
     username: str | None,
 ) -> str:
@@ -31,7 +31,7 @@ def enqueue_support_request(
         "request_id": request_id,
         "guild_id": str(guild_id),
         "discord_user_id": str(discord_user_id),
-        "application_id": int(application_id) if application_id is not None else None,
+        "access_id": int(access_id) if access_id is not None else None,
         "status": str(status),
         "username": str(username)[:16] if username else None,
         "created_at": int(time.time()),

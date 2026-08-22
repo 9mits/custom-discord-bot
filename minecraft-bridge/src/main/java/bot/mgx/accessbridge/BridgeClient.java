@@ -42,7 +42,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
     private final ScheduledExecutorService networkExecutor;
     private final HttpClient httpClient;
     private final VerificationEventStore verificationOutbox;
-    private final VerifiedApplicationStore verifiedApplications;
+    private final VerifiedAccountStore verifiedAccounts;
     private final ConcurrentHashMap<String, PlayerActivity> playerActivityOutbox = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, JsonObject> minecraftChatOutbox = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, JsonObject> serverEventOutbox = new ConcurrentHashMap<>();
@@ -60,7 +60,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             PendingVerificationCache pending,
             ProcessedActionStore processedActions,
             VerificationEventStore verificationOutbox,
-            VerifiedApplicationStore verifiedApplications,
+            VerifiedAccountStore verifiedAccounts,
             ScheduledExecutorService networkExecutor
     ) {
         this.plugin = plugin;
@@ -68,7 +68,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         this.pending = pending;
         this.processedActions = processedActions;
         this.verificationOutbox = verificationOutbox;
-        this.verifiedApplications = verifiedApplications;
+        this.verifiedAccounts = verifiedAccounts;
         this.networkExecutor = networkExecutor;
         this.protocol = new SignedProtocol(config.secret());
         HttpClient.Builder httpClientBuilder = HttpClient.newBuilder()
@@ -286,7 +286,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             case "REMOVE_PENDING" -> {
                 long applicationId = payload.get("application_id").getAsLong();
                 pending.remove(applicationId);
-                verifiedApplications.remove(applicationId);
+                verifiedAccounts.remove(applicationId);
                 recordAndSend(idempotencyKey, new ProcessedActionStore.Result(true, ""));
             }
             case "CLAN_ACTION" -> Bukkit.getScheduler().runTask(
@@ -484,7 +484,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                             throw new IllegalStateException("Floodgate rejected the whitelist command");
                         }
                     }
-                    verifiedApplications.remove(payload.get("application_id").getAsLong());
+                    verifiedAccounts.remove(payload.get("application_id").getAsLong());
                 }
                 case "REVOKE" -> {
                     MinecraftEdition edition = MinecraftEdition.valueOf(payload.get("edition").getAsString());
@@ -588,11 +588,11 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         } else {
             payload.addProperty("xuid", xuid);
         }
-        Optional<VerifiedApplicationStore.VerifiedApplication> previous =
-                verifiedApplications.get(application.applicationId());
+        Optional<VerifiedAccountStore.VerifiedAccount> previous =
+                verifiedAccounts.get(application.applicationId());
         boolean verifiedSaved = false;
         try {
-            verifiedApplications.put(
+            verifiedAccounts.put(
                     application.applicationId(), minecraftUuid, currentUsername
             );
             verifiedSaved = true;
@@ -601,12 +601,12 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             if (verifiedSaved) {
                 try {
                     if (previous.isPresent()) {
-                        VerifiedApplicationStore.VerifiedApplication restored = previous.get();
-                        verifiedApplications.put(
+                        VerifiedAccountStore.VerifiedAccount restored = previous.get();
+                        verifiedAccounts.put(
                                 restored.applicationId(), restored.minecraftUuid(), restored.username()
                         );
                     } else {
-                        verifiedApplications.remove(application.applicationId());
+                        verifiedAccounts.remove(application.applicationId());
                     }
                 } catch (RuntimeException rollbackFailure) {
                     exception.addSuppressed(rollbackFailure);

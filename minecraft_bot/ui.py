@@ -8,8 +8,8 @@ import discord
 
 from .models import (
     AccountEditionAlreadyLinked,
-    ApplicationStatus,
-    DuplicateActiveApplication,
+    AccessStatus,
+    DuplicateActiveVerification,
     Edition,
     InvalidTransition,
 )
@@ -62,31 +62,24 @@ async def _validate_application_panel(interaction: discord.Interaction) -> bool:
     return True
 
 
-class ApplyButton(discord.ui.Button):
+class VerifyButton(discord.ui.Button):
     def __init__(self) -> None:
         super().__init__(
-            label="Apply",
+            label="Verify",
             style=discord.ButtonStyle.primary,
-            custom_id="minecraft:application:apply",
+            custom_id="minecraft:access:verify",
         )
 
     async def callback(self, interaction: discord.Interaction) -> None:
         bot = interaction.client
         if not await _validate_application_panel(interaction):
             return
-        active = await bot.data.get_active_application_for_user(
+        active = await bot.data.get_active_access_for_user(
             guild_id=interaction.guild_id,
             discord_user_id=interaction.user.id,
         )
         if active is not None:
-            if active.status is ApplicationStatus.PENDING_APPLICATION:
-                # The account is verified; pressing Apply continues straight into
-                # the written form rather than showing a status card first. The
-                # answer becomes a new card rather than editing this message, which
-                # is the public panel — updating it would rewrite it for everybody.
-                await interaction.response.send_modal(ApplicationQuestionsModal(active.id))
-                return
-            pending_verification = active.status is ApplicationStatus.PENDING_VERIFICATION
+            pending_verification = active.status is AccessStatus.PENDING_VERIFICATION
             message = {
                 **branded_send(live_status_embed(active, bot.settings)),
                 # Same controls the card gets anywhere else, including while it is
@@ -345,20 +338,20 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
             edition = self.fixed_edition
             if edition is None and self.edition is not None:
                 edition = Edition(self.edition.values[0])
-            application = await bot.data.create_application(
+            application = await bot.data.create_verification(
                 guild_id=interaction.guild_id,
                 discord_user_id=interaction.user.id,
                 edition=edition,
                 claimed_username=str(self.username.value or ""),
             )
-        except DuplicateActiveApplication:
-            active = await bot.data.get_active_application_for_user(
+        except DuplicateActiveVerification:
+            active = await bot.data.get_active_access_for_user(
                 guild_id=interaction.guild_id,
                 discord_user_id=interaction.user.id,
             )
             view = (
                 CancelPendingConfirmationView(interaction.user.id)
-                if active is not None and active.status is ApplicationStatus.PENDING_VERIFICATION
+                if active is not None and active.status is AccessStatus.PENDING_VERIFICATION
                 else None
             )
             await edit_card(
@@ -416,139 +409,10 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Mysterious SMP X Applic
         )
 
 
-class ApplicationQuestionsModal(discord.ui.Modal, title="Mysterious SMP X Application"):
-    """Stage two: the written form, opened only after the account is verified."""
-
-    why = discord.ui.TextInput(
-        label="Why do you want to join Mysterious SMP X?",
-        style=discord.TextStyle.paragraph,
-        min_length=10,
-        max_length=500,
-    )
-    about = discord.ui.TextInput(
-        label="What would you bring to the server?",
-        placeholder="Tell us a little about yourself.",
-        style=discord.TextStyle.paragraph,
-        min_length=10,
-        max_length=1000,
-    )
-
-    def __init__(self, application_id: int, *, edits_card: bool = False) -> None:
-        super().__init__(timeout=600, custom_id=f"minecraft:application:answers:{application_id}")
-        self.application_id = int(application_id)
-        # True when the modal was opened from the applicant's own card, which is the
-        # message this interaction may update. False when it was opened from the
-        # public application panel, where an update would rewrite the panel itself.
-        self.edits_card = bool(edits_card)
-
-    async def _refuse(self, interaction: discord.Interaction, title: str, detail: str) -> None:
-        """Reports a refusal without taking the card down with it."""
-        embed = info_embed(title, f"> {detail}", error=True)
-        if self.edits_card:
-            await interaction.followup.send(**branded_send(embed), ephemeral=True)
-            return
-        await interaction.edit_original_response(**branded_edit(embed))
-
-    async def on_submit(self, interaction: discord.Interaction) -> None:
-        # Deferring a *message update* keeps the whole submission on the card the
-        # applicant is already looking at. Answering into a fresh reply instead left
-        # two identical "Application Sent" cards on screen — the card the background
-        # refresh had just rewritten, and this reply — and the older one was then
-        # deleted from under them.
-        if self.edits_card:
-            await interaction.response.defer()
-        else:
-            await interaction.response.defer(ephemeral=True, thinking=True)
-        bot = interaction.client
-        try:
-            application = await bot.data.submit_answers(
-                self.application_id,
-                interaction.user.id,
-                why=str(self.why),
-                about=str(self.about),
-            )
-        except InvalidTransition as exc:
-            await self._refuse(interaction, "Application Not Submitted", str(exc))
-            return
-        except ValueError as exc:
-            await self._refuse(interaction, "Application Invalid", str(exc))
-            return
-        bot.spawn_background_task(
-            bot.finish_answers_submission(application),
-            name=f"minecraft-answers:{application.id}",
-        )
-        await interaction.edit_original_response(
-            **branded_edit(live_status_embed(application, bot.settings)),
-            attachments=application_card_files(application),
-            view=application_card_view(application.status),
-        )
-        # Either the card was updated in place, in which case this re-binds it to
-        # this interaction's fresher token and buys another editable quarter hour,
-        # or the reply is a new card and the one it replaced is retired.
-        await bot.replace_application_card(
-            application.id, await interaction.original_response()
-        )
-
-
-class ContinueApplicationButton(
-    discord.ui.DynamicItem[discord.ui.Button],
-    template=r"minecraft:application:continue",
-):
-    """Persistent button in the verification DM that opens the written form.
-
-    Registered as a dynamic item so it keeps working across restarts without a
-    stored per-message view.
-    """
-
-    def __init__(self, *, item: Optional[discord.ui.Button] = None) -> None:
-        super().__init__(
-            item
-            or discord.ui.Button(
-                label="Continue Application",
-                style=discord.ButtonStyle.primary,
-                custom_id="minecraft:application:continue",
-            )
-        )
-
-    @classmethod
-    async def from_custom_id(cls, interaction, item, match):  # type: ignore[override]
-        return cls(item=item)
-
-    async def callback(self, interaction: discord.Interaction) -> None:
-        bot = interaction.client
-        active = await bot.data.get_active_application_for_user(
-            guild_id=bot.config.guild_id,
-            discord_user_id=interaction.user.id,
-        )
-        if active is None or active.status is not ApplicationStatus.PENDING_APPLICATION:
-            await interaction.response.send_message(
-                **branded_send(
-                    info_embed(
-                        "Nothing to Continue",
-                        "> No application of yours is awaiting its written form.\n"
-                        "> Use `/minecraft account` to review your current status.",
-                        error=True,
-                    )
-                ),
-                ephemeral=True,
-            )
-            return
-        # Opened from the card this button lives on, so the answer edits it in place.
-        await interaction.response.send_modal(
-            ApplicationQuestionsModal(active.id, edits_card=True)
-        )
-
-
-def continue_application_view() -> discord.ui.View:
-    view = discord.ui.View(timeout=None)
-    view.add_item(ContinueApplicationButton())
-    return view
-
-
 class SupportConfirmationView(discord.ui.View):
-    def __init__(self, application_id: int, requester_id: int) -> None:
+    def __init__(self, access_id: int, requester_id: int) -> None:
         super().__init__(timeout=60)
-        self.application_id = int(application_id)
+        self.access_id = int(access_id)
         self.requester_id = int(requester_id)
 
     @discord.ui.button(label="Open Support Ticket", style=discord.ButtonStyle.danger)
@@ -556,7 +420,7 @@ class SupportConfirmationView(discord.ui.View):
         if interaction.user.id != self.requester_id:
             await interaction.response.send_message("This confirmation belongs to another applicant.", ephemeral=True)
             return
-        application = await interaction.client.data.get_application(self.application_id)
+        application = await interaction.client.data.get_access(self.access_id)
         if application is None or int(application.discord_user_id) != interaction.user.id:
             await interaction.response.send_message("This application is no longer available.", ephemeral=True)
             return
@@ -564,7 +428,7 @@ class SupportConfirmationView(discord.ui.View):
             enqueue_support_request(
                 guild_id=application.guild_id,
                 discord_user_id=application.discord_user_id,
-                application_id=application.id,
+                access_id=application.id,
                 status=application.status.value,
                 username=application.verified_username or application.claimed_username,
             )
@@ -601,9 +465,9 @@ class LiveApplicationView(discord.ui.View):
         message = interaction.message
         application = None
         if message is not None:
-            application = await interaction.client.data.get_application_by_status_message(message.id)
+            application = await interaction.client.data.get_access_by_status_message(message.id)
         if application is None:
-            application = await interaction.client.data.get_active_application_for_user(
+            application = await interaction.client.data.get_active_access_for_user(
                 guild_id=interaction.client.config.guild_id,
                 discord_user_id=interaction.user.id,
             )
@@ -683,7 +547,7 @@ class LiveApplicationView(discord.ui.View):
             )
 
 
-def application_card_view(status: ApplicationStatus) -> Optional[discord.ui.View]:
+def application_card_view(status: AccessStatus) -> Optional[discord.ui.View]:
     """The controls that belong on a live application card at this status.
 
     The card is drawn from two directions: the modal that submits the application
@@ -697,13 +561,10 @@ def application_card_view(status: ApplicationStatus) -> Optional[discord.ui.View
     interaction that made it, and a timeout-bound view re-attached from a
     background edit would be dead on arrival.
     """
-    if status is ApplicationStatus.PENDING_APPLICATION:
-        return continue_application_view()
-    if status is ApplicationStatus.PENDING_VERIFICATION:
-        # The one step an applicant can get stuck on: a mistyped username, or a
-        # connection that will not go through. Once the form is in there is
-        # nothing left for them to do, so offering help there only invites a
-        # ticket that says "waiting".
+    if status is AccessStatus.PENDING_VERIFICATION:
+        # The one step a member can get stuck on: a mistyped username, or a
+        # connection that will not go through. Every other state is settled, so
+        # offering help there only invites a ticket that says "waiting".
         return LiveApplicationView()
     # Approved, denied, expired, cancelled and revoked are final: there is nothing
     # left to do from the card.
@@ -868,186 +729,3 @@ class MinecraftControlView(discord.ui.View):
         return False
 
 
-class DenialModal(discord.ui.Modal, title="Deny Minecraft Application"):
-    internal_note = discord.ui.TextInput(
-        label="Internal moderator note",
-        style=discord.TextStyle.paragraph,
-        min_length=1,
-        max_length=1000,
-    )
-    applicant_reason = discord.ui.TextInput(
-        label="Optional applicant-facing reason",
-        style=discord.TextStyle.paragraph,
-        required=False,
-        max_length=1000,
-    )
-
-    def __init__(self, application_id: int) -> None:
-        super().__init__(timeout=300, custom_id=f"minecraft:deny:{application_id}")
-        self.application_id = application_id
-
-    async def on_submit(self, interaction: discord.Interaction) -> None:
-        bot = interaction.client
-        if not bot.is_moderator(interaction.user):
-            await interaction.response.send_message(
-                **branded_send(
-                    info_embed(
-                        "Review Access Required",
-                        "> You do not have permission to review Minecraft applications.",
-                        error=True,
-                    )
-                ),
-                ephemeral=True,
-            )
-            return
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        application = await bot.data.get_application(self.application_id)
-        if application is None:
-            await interaction.edit_original_response(
-                **branded_edit(
-                    info_embed(
-                        "Application Not Found",
-                        "> That application no longer exists.",
-                        error=True,
-                    )
-                )
-            )
-            return
-        try:
-            updated = await bot.data.deny_application(
-                application.id,
-                interaction.user.id,
-                internal_note=str(self.internal_note).strip(),
-                applicant_reason=str(self.applicant_reason).strip(),
-            )
-        except InvalidTransition as exc:
-            await interaction.edit_original_response(
-                **branded_edit(info_embed("Application Not Updated", f"> {exc}", error=True))
-            )
-            return
-        bot.spawn_background_task(
-            bot.finish_denial(updated),
-            name=f"minecraft-denial:{updated.id}",
-        )
-        await interaction.edit_original_response(
-            **branded_edit(
-                info_embed(
-                    "Application Denied",
-                    "> The decision was saved and the staff review record is updating.\n\n"
-                    "The applicant is notified by DM without exposing the reviewing moderator.",
-                    success=True,
-                )
-            )
-        )
-
-
-class ReviewView(discord.ui.View):
-    def __init__(self, *, disabled: bool = False) -> None:
-        super().__init__(timeout=None)
-        for item in self.children:
-            item.disabled = disabled
-
-    async def _application(self, interaction: discord.Interaction):
-        message = interaction.message
-        if message is None:
-            return None
-        return await interaction.client.data.get_application_by_review_message(message.id)
-
-    async def _authorize(self, interaction: discord.Interaction):
-        bot = interaction.client
-        if not bot.is_moderator(interaction.user):
-            await interaction.response.send_message(
-                **branded_send(
-                    info_embed(
-                        "Review Access Required",
-                        "> You do not have permission to review Minecraft applications.",
-                        error=True,
-                    )
-                ),
-                ephemeral=True,
-            )
-            return None
-        application = await self._application(interaction)
-        if application is None:
-            await interaction.response.send_message(
-                **branded_send(
-                    info_embed(
-                        "Review Record Unavailable",
-                        "> This review message is stale or its application record is missing.",
-                        error=True,
-                    )
-                ),
-                ephemeral=True,
-            )
-            return None
-        return application
-
-    @discord.ui.button(
-        label="Approve",
-        style=discord.ButtonStyle.success,
-        custom_id="minecraft:review:approve",
-    )
-    async def approve(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
-        application = await self._authorize(interaction)
-        if application is None:
-            return
-        bot = interaction.client
-        if int(application.discord_user_id) == interaction.user.id:
-            await interaction.response.send_message(
-                **branded_send(
-                    info_embed(
-                        "Approval Restricted",
-                        "> You cannot approve your own application.",
-                        error=True,
-                    )
-                ),
-                ephemeral=True,
-            )
-            return
-        await interaction.response.defer(ephemeral=True, thinking=True)
-        try:
-            updated = await bot.data.queue_approval(application.id, interaction.user.id)
-        except InvalidTransition as exc:
-            await interaction.edit_original_response(
-                **branded_edit(info_embed("Approval Not Queued", f"> {exc}", error=True))
-            )
-            return
-        state = "being sent to the Minecraft server" if bot.bridge.connected else "queued until the Minecraft bridge reconnects"
-        bot.spawn_background_task(
-            bot.finish_approval_queue(updated),
-            name=f"minecraft-approval:{updated.id}",
-        )
-        await interaction.edit_original_response(
-            **branded_edit(
-                info_embed(
-                    "Approval Queued",
-                    f"> The whitelist action was **{state}**.\n\n"
-                    "Approval finalizes only after the Minecraft server confirms the account change. "
-                    "The applicant will then receive the server addresses by DM.",
-                    success=True,
-                )
-            )
-        )
-
-    @discord.ui.button(
-        label="Deny",
-        style=discord.ButtonStyle.danger,
-        custom_id="minecraft:review:deny",
-    )
-    async def deny(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
-        application = await self._authorize(interaction)
-        if application is None:
-            return
-        if application.status is not ApplicationStatus.PENDING_REVIEW:
-            await interaction.response.send_message(
-                **branded_send(
-                    info_embed(
-                        "Application Already Reviewed",
-                        "> This application already has a completed or queued decision.",
-                        error=True,
-                    )
-                ),
-                ephemeral=True,
-            )
-            return
-        await interaction.response.send_modal(DenialModal(application.id))

@@ -27,8 +27,8 @@ from .audit import (
 from . import clans
 from .bridge import MinecraftBridgeServer
 from .config import MinecraftConfig
-from .data import ACTIVE_APPLICATION_STATUSES, MinecraftDataManager
-from .models import ApplicationStatus, BridgeAction, Edition, InvalidTransition, MinecraftApplication, OutboxRecord
+from .data import ACTIVE_STATUSES, MinecraftDataManager
+from .models import AccessStatus, BridgeAction, Edition, InvalidTransition, MinecraftAccess, OutboxRecord
 from .perks import (
     BOOSTER_ROLE_ID,
     LEVEL_ROLE_MILESTONES,
@@ -55,10 +55,7 @@ from .presentation import (
     brand_icon_file,
     branded_edit,
     branded_send,
-    denial_embed,
-    decision_log_embed,
     info_embed,
-    review_embed,
     player_activity_embed,
     verification_log_embed,
     application_card_files,
@@ -70,7 +67,6 @@ from .ui import (
     LinkEditionView,
     LiveApplicationView,
     MinecraftControlView,
-    ReviewView,
 )
 
 
@@ -210,7 +206,6 @@ class MinecraftAccessBot(commands.Bot):
         stored_settings = await self.data.get_configs(SETTING_KEYS)
         self.settings = MinecraftSettings.from_sources(self.config, stored_settings)
         await self.data.set_configs(self.settings.persistent_values())
-        self.add_view(ReviewView())
         self.add_view(application_panel())
         self.add_view(LiveApplicationView())
         # Without this the leaderboard dropdowns have no handler, so Discord reports
@@ -368,7 +363,7 @@ class MinecraftAccessBot(commands.Bot):
             self.settings = candidate
             return candidate
 
-    def remember_application_message(self, application_id: int, message: discord.Message) -> None:
+    def remember_application_message(self, access_id: int, message: discord.Message) -> None:
         now = time.monotonic()
         remembered = getattr(self, "_application_messages", {})
         self._application_messages = {
@@ -377,10 +372,10 @@ class MinecraftAccessBot(commands.Bot):
         if len(self._application_messages) >= 1000:
             oldest = min(self._application_messages, key=lambda key: self._application_messages[key][1])
             self._application_messages.pop(oldest, None)
-        self._application_messages[int(application_id)] = (message, now + 14 * 60)
+        self._application_messages[int(access_id)] = (message, now + 14 * 60)
 
     async def replace_application_card(
-        self, application_id: int, message: discord.Message
+        self, access_id: int, message: discord.Message
     ) -> None:
         """Makes `message` the application's card and deletes the one it replaces.
 
@@ -390,8 +385,8 @@ class MinecraftAccessBot(commands.Bot):
         refresh edited — so the applicant watched a duplicate update alongside the
         real one.
         """
-        previous = getattr(self, "_application_messages", {}).get(int(application_id))
-        self.remember_application_message(application_id, message)
+        previous = getattr(self, "_application_messages", {}).get(int(access_id))
+        self.remember_application_message(access_id, message)
         if previous is None or previous[0].id == message.id:
             return
         # Ephemeral replies are only deletable through the interaction that made
@@ -404,7 +399,7 @@ class MinecraftAccessBot(commands.Bot):
         *,
         guild_id: int,
         discord_user_id: int,
-    ) -> MinecraftApplication:
+    ) -> MinecraftAccess:
         application = await self.data.cancel_pending_verification_for_user(
             guild_id=guild_id,
             discord_user_id=discord_user_id,
@@ -416,8 +411,8 @@ class MinecraftAccessBot(commands.Bot):
         )
         return application
 
-    async def _finish_cancellation(self, application: MinecraftApplication) -> None:
-        await self.log_application_decision(application)
+    async def _finish_cancellation(self, application: MinecraftAccess) -> None:
+        await self.log_access_change(application)
         if self.bridge.connected:
             await self.bridge.dispatch_outbox()
 
@@ -495,39 +490,35 @@ class MinecraftAccessBot(commands.Bot):
             return False
         return True
 
-    async def log_application_submission(self, application: MinecraftApplication) -> None:
+    async def log_application_submission(self, application: MinecraftAccess) -> None:
         await self._send_configured_log(
             self.settings.application_log_channel_id,
             application_log_embed(application),
         )
 
-    async def log_application_decision(self, application: MinecraftApplication) -> None:
+    async def log_access_change(self, application: MinecraftAccess) -> None:
         await self._send_configured_log(
             self.settings.application_log_channel_id,
-            decision_log_embed(application),
+            application_log_embed(application),
         )
 
-    async def finish_application_submission(self, application: MinecraftApplication) -> None:
+    async def finish_application_submission(self, application: MinecraftAccess) -> None:
         await self.log_application_submission(application)
         if self.bridge.connected:
             await self.bridge.dispatch_outbox()
 
-    async def finish_approval_queue(self, application: MinecraftApplication) -> None:
-        await self.update_review_message(application)
-        await self.log_application_decision(application)
+    async def finish_approval_queue(self, application: MinecraftAccess) -> None:
+        await self.log_access_change(application)
         if self.bridge.connected:
             await self.bridge.dispatch_outbox()
 
-    async def finish_unlink(self, applications: list[MinecraftApplication]) -> None:
-        for application in applications:
-            if application.status is ApplicationStatus.CANCELLED:
-                await self.update_review_message(application)
+    async def finish_unlink(self, applications: list[MinecraftAccess]) -> None:
         if self.bridge.connected:
             await self.bridge.dispatch_outbox()
 
     async def update_live_card(
         self,
-        application: MinecraftApplication,
+        application: MinecraftAccess,
         *,
         queue_on_failure: bool = True,
         create_if_missing: bool = True,
@@ -549,12 +540,7 @@ class MinecraftAccessBot(commands.Bot):
                         attachments=application_card_files(application),
                         view=card_view,
                     )
-                    if application.status not in {
-                        ApplicationStatus.PENDING_VERIFICATION,
-                        ApplicationStatus.PENDING_APPLICATION,
-                        ApplicationStatus.PENDING_REVIEW,
-                        ApplicationStatus.APPROVAL_QUEUED,
-                    }:
+                    if application.status is not AccessStatus.PENDING_VERIFICATION:
                         self._application_messages.pop(application.id, None)
                 except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                     self._application_messages.pop(application.id, None)
@@ -564,7 +550,7 @@ class MinecraftAccessBot(commands.Bot):
         if lock is None:
             lock = self._live_card_lock = asyncio.Lock()
         async with lock:
-            current = await self.data.get_application(application.id)
+            current = await self.data.get_access(application.id)
             if current is not None:
                 application = current
             # Verification is deliberately not DMed. The application card already
@@ -572,7 +558,7 @@ class MinecraftAccessBot(commands.Bot):
             # of it arriving seconds later. A decision still is: staff may act days
             # afterwards, when no card is on screen to update.
             notifications: list[str] = []
-            if application.status in {ApplicationStatus.APPROVED, ApplicationStatus.DENIED}:
+            if application.status is AccessStatus.VERIFIED:
                 notifications.append("decision")
             delivered = True
             for notification in notifications:
@@ -583,7 +569,7 @@ class MinecraftAccessBot(commands.Bot):
                 ) and delivered
             return delivered
 
-    def _application_card_embed(self, application: MinecraftApplication) -> discord.Embed:
+    def _application_card_embed(self, application: MinecraftAccess) -> discord.Embed:
         """The card's own embed for a status.
 
         Every state in flight renders through `live_status_embed`. It used to swap
@@ -592,15 +578,13 @@ class MinecraftAccessBot(commands.Bot):
         drew it last. Only the two final decisions get their own embed, because
         they carry more than a status line.
         """
-        if application.status is ApplicationStatus.APPROVED:
+        if application.status is AccessStatus.VERIFIED:
             return approval_embed(self.settings)
-        if application.status is ApplicationStatus.DENIED:
-            return denial_embed(application)
         return live_status_embed(application, self.settings)
 
     async def _send_application_dm(
         self,
-        application: MinecraftApplication,
+        application: MinecraftAccess,
         notification: str,
         *,
         queue_on_failure: bool,
@@ -612,8 +596,6 @@ class MinecraftAccessBot(commands.Bot):
         """
         if notification != "decision":
             return True
-        if getattr(application, "decision_message_id", None):
-            return True
         try:
             user = self.get_user(int(application.discord_user_id))
             if user is None:
@@ -623,13 +605,12 @@ class MinecraftAccessBot(commands.Bot):
                 raise RuntimeError("Discord user unavailable")
             icon = brand_icon_file()
             try:
-                message = await user.send(
+                await user.send(
                     **branded_send(application_dm_embed(application, self.settings, notification)),
                     file=icon,
                 )
             finally:
                 icon.close()
-            await self.data.set_decision_message(application.id, message.channel.id, message.id)
             return True
         except (discord.Forbidden, discord.HTTPException, RuntimeError) as exc:
             if queue_on_failure:
@@ -637,7 +618,7 @@ class MinecraftAccessBot(commands.Bot):
                     dedupe_key=f"application:{application.id}:{notification}-dm",
                     kind="USER_EMBED",
                     target_id=application.id,
-                    payload={"application_id": application.id, "notification": notification},
+                    payload={"access_id": application.id, "notification": notification},
                 )
             logger.warning(
                 "Minecraft %s DM deferred for application %s: %s",
@@ -657,7 +638,7 @@ class MinecraftAccessBot(commands.Bot):
                         queue_on_failure=False,
                     )
                 elif delivery.kind == "USER_EMBED":
-                    application = await self.data.get_application(int(delivery.target_id))
+                    application = await self.data.get_access(int(delivery.target_id))
                     notification = str(delivery.payload.get("notification") or "")
                     # "verification" is no longer delivered; anything left in the
                     # queue from before is completed rather than retried forever.
@@ -672,7 +653,7 @@ class MinecraftAccessBot(commands.Bot):
                     else:
                         delivered = True
                 else:
-                    application = await self.data.get_application(int(delivery.target_id))
+                    application = await self.data.get_access(int(delivery.target_id))
                     delivered = bool(application) and await self.update_live_card(
                         application, queue_on_failure=False
                     )
@@ -710,11 +691,11 @@ class MinecraftAccessBot(commands.Bot):
         """
         accounts, applications, approved = await asyncio.gather(
             self.data.list_accounts_for_user(user_id),
-            self.data.list_applications_for_user(user_id, limit=1),
+            self.data.list_access_for_user(user_id, limit=1),
             # Asked rather than inferred from holding a linked account. The two
             # come apart: an account can be linked without approval, and a member
             # approved before a data wipe holds neither.
-            self.data.has_approved_application(user_id),
+            self.data.has_verified_access(user_id),
         )
         linked = {str(row["edition"]).upper() for row in accounts}
         if len(linked) >= len(Edition):
@@ -728,7 +709,7 @@ class MinecraftAccessBot(commands.Bot):
                 None,
             )
         latest = applications[0] if applications else None
-        if latest is not None and latest.status in ACTIVE_APPLICATION_STATUSES:
+        if latest is not None and latest.status in ACTIVE_STATUSES:
             return (
                 info_embed(
                     "Application Already Active",
@@ -770,7 +751,7 @@ class MinecraftAccessBot(commands.Bot):
     async def build_account_embed(self, user_id: int | str) -> discord.Embed:
         accounts, applications = await asyncio.gather(
             self.data.list_accounts_for_user(user_id),
-            self.data.list_applications_for_user(user_id, limit=1),
+            self.data.list_access_for_user(user_id, limit=1),
         )
         account_lines = [
             f"**{row['edition'].title()}** · `{row['current_username']}` · Last seen <t:{row['last_seen_at']}:R>"
@@ -784,7 +765,7 @@ class MinecraftAccessBot(commands.Bot):
             else "the application channel"
         )
         status_note = ""
-        if latest is not None and latest.status is ApplicationStatus.EXPIRED:
+        if latest is not None and latest.status is AccessStatus.EXPIRED:
             reason = (
                 "nobody joined the Minecraft server in time to verify the account"
                 if not latest.verified_at
@@ -794,10 +775,10 @@ class MinecraftAccessBot(commands.Bot):
                 f"\n> **Application Expired** means it timed out: {reason}. "
                 f"Nothing is lost — press **Apply** in {panel_hint} to start again."
             )
-        elif latest is not None and latest.status is ApplicationStatus.PENDING_APPLICATION:
+        elif latest is not None and latest.status is AccessStatus.VERIFIED:
             status_note = (
-                "\n> Your account is verified. Finish the written form by pressing "
-                f"**Apply** in {panel_hint} — it continues where you left off."
+                "\n> Your account is verified and your access is active. "
+                "Connect any time."
             )
         return info_embed(
             "Your Minecraft Account",
@@ -937,9 +918,8 @@ class MinecraftAccessBot(commands.Bot):
         if self.bridge.connected:
             await self.bridge.dispatch_outbox()
 
-    async def finish_staff_cancellation(self, application: MinecraftApplication) -> None:
-        await self.update_review_message(application)
-        await self.log_application_decision(application)
+    async def finish_staff_cancellation(self, application: MinecraftAccess) -> None:
+        await self.log_access_change(application)
         await self.update_live_card(application)
         if self.bridge.connected:
             await self.bridge.dispatch_outbox()
@@ -1357,7 +1337,7 @@ class MinecraftAccessBot(commands.Bot):
     async def handle_bridge_verification(
         self,
         *,
-        application_id: int,
+        access_id: int,
         edition,
         minecraft_uuid: str,
         current_username: str,
@@ -1366,7 +1346,7 @@ class MinecraftAccessBot(commands.Bot):
     ) -> None:
         try:
             application, changed = await self.data.record_verification(
-                application_id=application_id,
+                access_id=access_id,
                 edition=edition,
                 minecraft_uuid=minecraft_uuid,
                 current_username=current_username,
@@ -1376,7 +1356,7 @@ class MinecraftAccessBot(commands.Bot):
         except InvalidTransition as exc:
             logger.warning(
                 "Rejected Minecraft verification for application %s: %s",
-                application_id,
+                access_id,
                 exc,
             )
             raise
@@ -1387,123 +1367,32 @@ class MinecraftAccessBot(commands.Bot):
 
     async def _publish_verification(
         self,
-        application: MinecraftApplication,
+        application: MinecraftAccess,
         *,
         changed: bool,
     ) -> None:
         if not changed:
-            # Reviews exist only once the written form is in; a duplicate
-            # verification event must not create one early.
-            if (
-                application.status is ApplicationStatus.PENDING_REVIEW
-                and application.review_message_id is None
-            ):
-                with suppress(Exception):
-                    await self.post_or_update_review(application)
             # A replayed event changes nothing, so this only redraws the card the
-            # applicant already has. It used to be gated on the verification DM
-            # having been sent; there is no such DM now, and the gate would always
-            # have been open.
+            # member already has.
             await self.update_live_card(application, create_if_missing=False)
             return
-        if application.status is ApplicationStatus.PENDING_REVIEW:
-            try:
-                await self.post_or_update_review(application)
-            except Exception:
-                logger.exception("Could not publish review for Minecraft application %s", application.id)
         await self._send_configured_log(
             self.settings.verification_log_channel_id,
             verification_log_embed(application),
         )
         await self.update_live_card(application)
 
-    async def finish_answers_submission(self, application: MinecraftApplication) -> None:
-        """The written form arrived: the application is now ready for staff.
-
-        Deliberately does not redraw the card. The modal that calls this has already
-        drawn it from the same application, so refreshing here only edited the same
-        message a second time — and when the form was opened from the public panel it
-        rewrote the card that was about to be retired, which is what made a submission
-        look like it was answered twice.
-        """
-        try:
-            await self.post_or_update_review(application)
-        except Exception:
-            logger.exception("Could not publish review for Minecraft application %s", application.id)
-        await self.log_application_submission(application)
-        if self.bridge.connected:
-            await self.bridge.dispatch_outbox()
-
-    async def post_or_update_review(self, application: MinecraftApplication) -> None:
-        if application.review_message_id:
-            await self.update_review_message(application)
-            return
-        # Single-flight: the verification handler, the answers handler, and the
-        # maintenance sweep can all decide to post the first review at the same
-        # time. Re-reading inside the lock turns the losers into edits.
-        async with self._review_post_lock:
-            current = await self.data.get_application(application.id)
-            if current is not None:
-                application = current
-            if application.review_message_id:
-                await self.update_review_message(application)
-                return
-            channel = await self._configured_channel(self.settings.review_channel_id)
-            if channel is None or not hasattr(channel, "send"):
-                logger.error("Review channel unavailable for Minecraft application %s", application.id)
-                return
-            guild = await self._configured_guild()
-            member = guild.get_member(int(application.discord_user_id)) if guild else None
-            user = member or self.get_user(int(application.discord_user_id))
-            if user is None:
-                with suppress(discord.NotFound, discord.HTTPException):
-                    user = await self.fetch_user(int(application.discord_user_id))
-            message = await channel.send(
-                **branded_send(review_embed(application, user=user, member=member)),
-                view=ReviewView(disabled=application.status is not ApplicationStatus.PENDING_REVIEW),
-                allowed_mentions=discord.AllowedMentions.none(),
-            )
-            await self.data.set_review_message(application.id, channel.id, message.id)
-
-    async def update_review_message(self, application: MinecraftApplication) -> None:
-        if not application.review_channel_id or not application.review_message_id:
-            if application.status is ApplicationStatus.PENDING_REVIEW:
-                await self.post_or_update_review(application)
-            return
-        channel = await self._configured_channel(int(application.review_channel_id))
-        if channel is None or not hasattr(channel, "fetch_message"):
-            logger.warning("Review channel missing for Minecraft application %s", application.id)
-            return
-        try:
-            message = await channel.fetch_message(int(application.review_message_id))
-        except (discord.NotFound, discord.Forbidden, discord.HTTPException):
-            logger.warning("Review message missing for Minecraft application %s", application.id)
-            return
-        guild = await self._configured_guild()
-        member = guild.get_member(int(application.discord_user_id)) if guild else None
-        user = member or self.get_user(int(application.discord_user_id))
-        await message.edit(
-            **branded_edit(review_embed(application, user=user, member=member)),
-            view=ReviewView(disabled=application.status is not ApplicationStatus.PENDING_REVIEW),
-            allowed_mentions=discord.AllowedMentions.none(),
-        )
-
-    async def finish_denial(self, application: MinecraftApplication) -> None:
-        await self.update_review_message(application)
-        await self.log_application_decision(application)
-        await self.update_live_card(application)
-
     async def handle_bridge_action_result(
         self,
         record: OutboxRecord,
-        application: Optional[MinecraftApplication],
+        application: Optional[MinecraftAccess],
     ) -> None:
         if application is None:
             if record.action in {BridgeAction.APPROVE, BridgeAction.REVOKE}:
                 logger.warning(
                     "Minecraft action %s failed for application %s: %s",
                     record.action.value,
-                    record.application_id,
+                    record.access_id,
                     record.last_error or "Paper rejected the action",
                 )
             return
@@ -1515,30 +1404,26 @@ class MinecraftAccessBot(commands.Bot):
     async def _finalize_bridge_action(
         self,
         record: OutboxRecord,
-        application: MinecraftApplication,
+        application: MinecraftAccess,
     ) -> None:
-        if record.action is BridgeAction.APPROVE and application.status is ApplicationStatus.APPROVED:
+        if record.action is BridgeAction.APPROVE and application.status is AccessStatus.VERIFIED:
             try:
                 await self._finish_approval(application)
-                await self.log_application_decision(application)
+                await self.log_access_change(application)
             except Exception:
                 logger.exception("Discord approval finalization failed for application %s", application.id)
-        elif record.action is BridgeAction.REVOKE and application.status is ApplicationStatus.REVOKED:
+        elif record.action is BridgeAction.REVOKE and application.status is AccessStatus.REVOKED:
             try:
                 await self._finish_revocation(application)
-                await self.log_application_decision(application)
+                await self.log_access_change(application)
             except Exception:
                 logger.exception("Discord revocation finalization failed for application %s", application.id)
-        try:
-            await self.update_review_message(application)
-        except Exception:
-            logger.exception("Review-message finalization failed for application %s", application.id)
         await self.update_live_card(application)
         if record.action in {BridgeAction.APPROVE, BridgeAction.REVOKE}:
             with suppress(Exception):
                 await self.publish_whitelist_snapshot()
 
-    async def _finish_approval(self, application: MinecraftApplication) -> None:
+    async def _finish_approval(self, application: MinecraftAccess) -> None:
         guild = await self._configured_guild()
         member = await self._resolve_guild_member(guild, application.discord_user_id)
         role = guild.get_role(self.settings.member_role_id) if guild else None
@@ -1550,20 +1435,20 @@ class MinecraftAccessBot(commands.Bot):
                 try:
                     await self.data.write_audit(
                         "APPROVED_ROLE_FAILED",
-                        application_id=application.id,
+                        access_id=application.id,
                         target_id=application.discord_user_id,
                         payload={"error_type": type(exc).__name__},
                     )
                 except Exception:
                     logger.exception("Could not record approved-role failure for application %s", application.id)
-    async def _finish_revocation(self, application: MinecraftApplication) -> None:
+    async def _finish_revocation(self, application: MinecraftAccess) -> None:
         guild = await self._configured_guild()
         member = await self._resolve_guild_member(guild, application.discord_user_id)
         role = guild.get_role(self.settings.member_role_id) if guild else None
         remaining = [
             item
-            for item in await self.data.list_applications_for_user(application.discord_user_id, limit=100)
-            if item.status is ApplicationStatus.APPROVED
+            for item in await self.data.list_access_for_user(application.discord_user_id, limit=100)
+            if item.status is AccessStatus.VERIFIED
         ]
         if member is not None and role is not None and not remaining:
             with suppress(discord.Forbidden, discord.HTTPException):
@@ -1964,12 +1849,11 @@ class MinecraftAccessBot(commands.Bot):
         try:
             expired = await self.data.expire_pending(limit=100)
             for application in expired:
-                await self.log_application_decision(application)
+                await self.log_access_change(application)
                 await self.update_live_card(application)
             if self.bridge.connected:
                 await self.bridge.dispatch_outbox()
             await self._process_delivery_recovery()
-            await self._restore_missing_reviews()
             await self._prune_command_log()
         except asyncio.CancelledError:
             raise
@@ -1988,10 +1872,6 @@ class MinecraftAccessBot(commands.Bot):
     async def before_application_maintenance(self) -> None:
         await self.wait_until_ready()
 
-    async def _restore_missing_reviews(self) -> None:
-        for application in await self.data.list_missing_review_messages(limit=20):
-            await self.post_or_update_review(application)
-
     def control_view(self, interaction: discord.Interaction) -> MinecraftControlView:
         return MinecraftControlView(
             self,
@@ -2002,7 +1882,7 @@ class MinecraftAccessBot(commands.Bot):
     async def build_control_overview(self, guild: Optional[discord.Guild]) -> discord.Embed:
         outbox, applications, latency, deliveries = await asyncio.gather(
             self.data.outbox_counts(),
-            self.data.application_status_counts(),
+            self.data.access_status_counts(),
             self.data.response_time_metrics(),
             self.data.delivery_counts(),
         )
@@ -2033,11 +1913,12 @@ class MinecraftAccessBot(commands.Bot):
             inline=True,
         )
         embed.add_field(
-            name="Applications",
+            name="Access",
             value=(
                 f"**Total:** {total}\n"
-                f"**Verification:** {applications.get(ApplicationStatus.PENDING_VERIFICATION.value, 0)}\n"
-                f"**Review:** {applications.get(ApplicationStatus.PENDING_REVIEW.value, 0)}"
+                f"**Verified:** {applications.get(AccessStatus.VERIFIED.value, 0)}\n"
+                f"**Awaiting join:** "
+                f"{applications.get(AccessStatus.PENDING_VERIFICATION.value, 0)}"
             ),
             inline=True,
         )
@@ -2080,7 +1961,7 @@ class MinecraftAccessBot(commands.Bot):
     ) -> discord.Embed:
         accounts, history = await asyncio.gather(
             self.data.list_accounts_for_user(user.id),
-            self.data.list_applications_for_user(user.id, limit=25),
+            self.data.list_access_for_user(user.id, limit=25),
         )
         account_lines = [
             f"**{row['edition'].title()}** · `{row['current_username']}` · `{row['minecraft_uuid']}`"
@@ -2133,7 +2014,7 @@ class MinecraftAccessBot(commands.Bot):
     async def build_applications_embed(
         self,
         *,
-        status: Optional[ApplicationStatus] = None,
+        status: Optional[AccessStatus] = None,
         limit: int = 10,
     ) -> discord.Embed:
         records = await self.data.list_applications(status=status, limit=limit)
@@ -2745,7 +2626,7 @@ class MinecraftAccessBot(commands.Bot):
             if not await self.require_moderator(interaction):
                 return
             await interaction.response.defer(ephemeral=True)
-            count = await self.data.retry_application(application)
+            count = await self.data.retry_access(application)
             await interaction.edit_original_response(
                 **branded_edit(
                     info_embed(
@@ -2868,7 +2749,7 @@ class MinecraftAccessBot(commands.Bot):
                     name=state.value.replace("_", " ").title(),
                     value=state.value,
                 )
-                for state in ApplicationStatus
+                for state in AccessStatus
             ]
         )
         async def applications(
@@ -2879,7 +2760,7 @@ class MinecraftAccessBot(commands.Bot):
             if not await self.require_moderator(interaction):
                 return
             await interaction.response.defer(ephemeral=True)
-            parsed_status = ApplicationStatus(status.value) if status is not None else None
+            parsed_status = AccessStatus(status.value) if status is not None else None
             await interaction.edit_original_response(
                 **branded_edit(
                     await self.build_applications_embed(status=parsed_status, limit=limit)
@@ -2896,7 +2777,7 @@ class MinecraftAccessBot(commands.Bot):
             if not await self.require_moderator(interaction):
                 return
             await interaction.response.defer(ephemeral=True)
-            record = await self.data.get_application(application)
+            record = await self.data.get_access(application)
             if record is None:
                 await interaction.edit_original_response(
                     **branded_edit(
@@ -2962,7 +2843,7 @@ class MinecraftAccessBot(commands.Bot):
                 return
             await interaction.response.defer(ephemeral=True, thinking=True)
             try:
-                updated = await self.data.cancel_application(application, interaction.user.id)
+                updated = await self.data.cancel_verification(application, interaction.user.id)
             except InvalidTransition as exc:
                 await interaction.edit_original_response(
                     **branded_edit(
@@ -3120,25 +3001,22 @@ class MinecraftAccessBot(commands.Bot):
                 await record_denial(self, interaction, "mcstaff stats", "Not a moderator")
                 return
             await interaction.response.defer(ephemeral=True, thinking=True)
-            counts = await self.data.application_status_counts()
+            counts = await self.data.access_status_counts()
             outbox = await self.data.outbox_counts()
             activity = await self.data.player_activity_metrics(days=days or 30)
             total = sum(counts.values())
-            approved = counts.get(ApplicationStatus.APPROVED.value, 0)
-            denied = counts.get(ApplicationStatus.DENIED.value, 0)
-            decided = approved + denied
-            approval_rate = f"{(approved / decided * 100):.0f}%" if decided else "No decisions yet"
+            verified = counts.get(AccessStatus.VERIFIED.value, 0)
 
             embed = info_embed(
                 "Minecraft Statistics",
-                f"> {total} application(s) recorded in total.",
+                f"> {total} access record(s) in total.",
             )
             embed.add_field(
                 name="Outcomes",
                 value=(
-                    f"**Approved:** {approved}\n"
-                    f"**Denied:** {denied}\n"
-                    f"**Approval rate:** {approval_rate}"
+                    f"**Verified:** {verified}\n"
+                    f"**Revoked:** {counts.get(AccessStatus.REVOKED.value, 0)}\n"
+                    f"**Expired:** {counts.get(AccessStatus.EXPIRED.value, 0)}"
                 ),
                 inline=True,
             )
@@ -3166,9 +3044,8 @@ class MinecraftAccessBot(commands.Bot):
             embed.add_field(
                 name="In Flight",
                 value=(
-                    f"**Pending verification:** "
-                    f"{counts.get(ApplicationStatus.PENDING_VERIFICATION.value, 0)}\n"
-                    f"**Pending review:** {counts.get(ApplicationStatus.PENDING_REVIEW.value, 0)}\n"
+                    f"**Awaiting join:** "
+                    f"{counts.get(AccessStatus.PENDING_VERIFICATION.value, 0)}\n"
                     f"**Bridge queue:** {outbox.get('PENDING', 0)}"
                 ),
                 inline=True,
