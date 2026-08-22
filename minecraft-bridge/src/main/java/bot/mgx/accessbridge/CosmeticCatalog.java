@@ -19,8 +19,7 @@ final class CosmeticCatalog {
     enum Category {
         KILL_EFFECT("Kill Effects"),
         AURA("Auras"),
-        TRAIL("Trails"),
-        SECRET("Secret");
+        TRAIL("Trails");
 
         private final String displayName;
 
@@ -56,11 +55,6 @@ final class CosmeticCatalog {
                     .toUpperCase(Locale.ROOT);
             modelKey = requireText(modelKey, "Cosmetic model key").toLowerCase(Locale.ROOT);
             description = requireText(description, "Cosmetic description");
-            if (category == Category.SECRET) {
-                throw new IllegalArgumentException(
-                        "Secret cosmetics must use their actual effect category"
-                );
-            }
         }
 
         String displayedChance() {

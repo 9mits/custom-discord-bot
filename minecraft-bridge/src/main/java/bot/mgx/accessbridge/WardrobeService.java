@@ -41,7 +41,6 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
     private static final int KILL_EFFECT_SLOT = 10;
     private static final int AURA_SLOT = 12;
     private static final int TRAIL_SLOT = 14;
-    private static final int SECRET_SLOT = 16;
     private static final int SETTINGS_SLOT = 22;
 
     private enum Screen {
@@ -108,11 +107,6 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         }
         CosmeticCatalog.Category category = parseCategory(args[0]).orElse(null);
         if (category != null) {
-            if (category == CosmeticCatalog.Category.SECRET
-                    && owned(player, category).isEmpty()) {
-                openHub(player);
-                return true;
-            }
             openCategory(player, category);
             return true;
         }
@@ -154,11 +148,6 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         ));
         inventory.setItem(TRAIL_SLOT, categoryButton(
                 Material.WIND_CHARGE, CosmeticCatalog.Category.TRAIL, player
-        ));
-        inventory.setItem(SECRET_SLOT, button(
-                Material.BLACK_STAINED_GLASS_PANE,
-                "Secret Cosmetics",
-                "Secrets appear inside their effect category."
         ));
         inventory.setItem(SETTINGS_SLOT, saleMode
                 ? button(Material.BARRIER, "Back to your listings")
@@ -253,7 +242,6 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
                 );
                 case AURA_SLOT -> openCategory(player, CosmeticCatalog.Category.AURA, menu.saleMode);
                 case TRAIL_SLOT -> openCategory(player, CosmeticCatalog.Category.TRAIL, menu.saleMode);
-                case SECRET_SLOT -> { }
                 case SETTINGS_SLOT -> {
                     if (menu.saleMode && economyMenus != null) {
                         economyMenus.openOwn(player, 1);
@@ -571,7 +559,6 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
                     Optional.of(CosmeticCatalog.Category.KILL_EFFECT);
             case "aura", "auras" -> Optional.of(CosmeticCatalog.Category.AURA);
             case "trail", "trails" -> Optional.of(CosmeticCatalog.Category.TRAIL);
-            case "secret" -> Optional.of(CosmeticCatalog.Category.SECRET);
             default -> Optional.empty();
         };
     }
