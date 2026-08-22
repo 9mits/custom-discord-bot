@@ -520,6 +520,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
     }
 
+    AfkService afkService() {
+        return afkService;
+    }
+
     SidebarService sidebarService() {
         return sidebarService;
     }

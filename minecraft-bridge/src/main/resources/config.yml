@@ -27,6 +27,13 @@ afk-timeout-seconds: 300
 # still kills — cancelling it would strand them under the world.
 afk-invincible: true
 
+# How far /mgxadmin abuse reaches when the operator does not name a radius.
+# Events run at spawn, so this deliberately does not cover the whole server:
+# somebody at a farm or an AFK chamber should never learn one happened. AFK
+# players inside the radius are skipped too, and so is anybody in a vehicle
+# for the effects that move people.
+abuse-radius: 64
+
 # The sidebar refreshes live player, level, heart, clan, combat, and server data.
 # 100 ticks (5s) keeps ping/TPS current without rebuilding every scoreboard each second.
 scoreboard:

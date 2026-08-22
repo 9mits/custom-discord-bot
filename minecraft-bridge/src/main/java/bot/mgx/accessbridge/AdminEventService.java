@@ -58,25 +58,43 @@ final class AdminEventService {
                 skyBurst(player, seconds);
                 yield "Started a " + seconds + "-second skyburst";
             }
-            default -> chaosService.run(
-                    effect,
-                    effect.secondsOrThrow(args.length > 2 ? args[2] : null)
-            );
+            default -> {
+                // Timed effects read "<seconds> [radius]"; one-shots read "[radius]".
+                int durationIndex = effect.timed() ? 2 : -1;
+                int radiusIndex = effect.timed() ? 3 : 2;
+                yield chaosService.run(
+                        player,
+                        effect,
+                        effect.secondsOrThrow(
+                                durationIndex > 0 && args.length > durationIndex
+                                        ? args[durationIndex] : null
+                        ),
+                        ChaosTargeting.radiusOrThrow(
+                                args.length > radiusIndex ? args[radiusIndex] : null,
+                                plugin.getConfig().getDouble(
+                                        "abuse-radius", ChaosTargeting.DEFAULT_RADIUS
+                                )
+                        )
+                );
+            }
         };
     }
 
     /** The one-line reminder, and the full menu behind {@code abuse list}. */
     private static String usage() {
-        return "Usage: /mgxadmin abuse <effect> [seconds] — try /mgxadmin abuse list";
+        return "Usage: /mgxadmin abuse <effect> [seconds] [radius] — try /mgxadmin abuse list";
     }
 
     private static String menu() {
-        StringBuilder text = new StringBuilder("Admin events:");
+        StringBuilder text = new StringBuilder(
+                "Admin events. Reach defaults to " + (int) ChaosTargeting.DEFAULT_RADIUS
+                        + " blocks around you; AFK players are always skipped.");
         for (ChaosCatalog effect : ChaosCatalog.menu()) {
             text.append("\n  ").append(effect.id());
             if (effect.timed()) {
                 text.append(" [seconds, default ").append(effect.defaultSeconds()).append("]");
             }
+            text.append(" [radius]");
             text.append(" - ").append(effect.blurb());
         }
         return text.toString();
