@@ -334,6 +334,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 this, economyStore, auctionStore, playerSettings, crateItems
         );
         wardrobeService.useAuctionHouse(economyMenus);
+        economyMenus.useWardrobe(wardrobeService);
         EconomyCommandService economyCommands = new EconomyCommandService(economyStore);
         getCommand("shop").setExecutor(economyMenus);
         getCommand("shop").setTabCompleter(economyMenus);
@@ -374,7 +375,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getScheduler().runTaskTimer(
                 this, economyMenus::sweepAutoSell, 40L, 40L
         );
-        devBlogService = new DevBlogService(this, devBlogStore, sidebarService);
+        devBlogService = new DevBlogService(
+                this, devBlogStore, sidebarService, cosmeticStore
+        );
         AdminCommandService adminService = new AdminCommandService(
                 this,
                 rankSyncStore,
@@ -408,7 +411,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                         getServer().getWorldContainer().toPath()
                 ),
                 devBlogService,
-                new AdminEventService(this, crateItems)
+                new AdminEventService(this, crateItems),
+                economyMenus
         );
         getCommand("mgxadmin").setExecutor(adminService);
         getCommand("mgxadmin").setTabCompleter(adminService);

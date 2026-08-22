@@ -33,6 +33,7 @@ import theme
 
 ROOT = Path(__file__).resolve().parent
 POSTS_DIR = ROOT / "posts"
+EVENTS_DIR = ROOT / "events"
 PAGES_DIR = ROOT / "pages"
 DATA_DIR = ROOT / "data"
 MEDIA_DIR = ROOT / "media"
@@ -44,7 +45,7 @@ LIST_KEYS = {"tags"}
 
 # Posts sit at the site root now, so a slug must not shadow anything the build
 # writes there itself.
-RESERVED_SLUGS = {"assets", "media", "index", "404", "index.html", "blog"}
+RESERVED_SLUGS = {"assets", "media", "index", "404", "index.html", "blog", "events"}
 
 MD_EXTENSIONS = [
     "extra",        # tables, footnotes, attr_list, fenced code
@@ -59,10 +60,13 @@ class PostError(Exception):
 
 
 class Post:
-    def __init__(self, path: Path, meta: Dict[str, object], body_md: str):
+    def __init__(
+        self, path: Path, meta: Dict[str, object], body_md: str, event: bool = False
+    ):
         self.path = path
         self.meta = meta
         self.body_md = body_md
+        self.event = event
 
         self.slug = str(meta.get("slug") or self._slug_from_filename(path))
         self.title = str(meta.get("title") or "").strip()
@@ -106,7 +110,7 @@ class Post:
 
     @property
     def url(self) -> str:
-        return "%s/" % self.slug
+        return "events/%s/" % self.slug if self.event else "%s/" % self.slug
 
     @property
     def media_dir(self) -> Path:
@@ -189,6 +193,25 @@ def load_posts(include_drafts: bool = False) -> List[Post]:
 
     posts.sort(key=lambda p: (p.date, p.slug), reverse=True)
     return posts
+
+
+def load_events(include_drafts: bool = False) -> List[Post]:
+    events: List[Post] = []
+    if not EVENTS_DIR.exists():
+        return events
+    for path in sorted(EVENTS_DIR.glob("*.md")):
+        meta, body = parse_front_matter(path.read_text(encoding="utf-8"), path)
+        event = Post(path, meta, body, event=True)
+        if event.draft and not include_drafts:
+            continue
+        events.append(event)
+    slugs = [event.slug for event in events]
+    duplicates = {slug for slug in slugs if slugs.count(slug) > 1}
+    if duplicates:
+        raise PostError("two events share the slug(s): %s" % ", ".join(sorted(duplicates)))
+    check_slugs(slugs, "events")
+    events.sort(key=lambda event: (event.date, event.slug))
+    return events
 
 
 def load_stats() -> Optional[Dict[str, object]]:
@@ -316,6 +339,7 @@ def check_slugs(names: Sequence[str], what: str) -> None:
 
 def build(site_url: str, include_drafts: bool = False) -> List[Post]:
     posts = load_posts(include_drafts=include_drafts)
+    events = load_events(include_drafts=include_drafts)
     pages = load_pages()
 
     # Posts and pages share the root namespace, so they must not collide.
@@ -337,6 +361,7 @@ def build(site_url: str, include_drafts: bool = False) -> List[Post]:
     nav = [
         {"url": "index.html", "label": "Home", "slug": "index"},
         {"url": "blog/", "label": "Blog", "slug": "blog"},
+        {"url": "events/", "label": "Events", "slug": "events"},
     ]
     nav += [{"url": page.url, "label": page.nav, "slug": page.slug} for page in pages]
     stats = load_stats()
@@ -375,6 +400,23 @@ def build(site_url: str, include_drafts: bool = False) -> List[Post]:
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(page, encoding="utf-8")
 
+    for event in events:
+        prefix = "../../"
+        related = [card_for(other, prefix) for other in events if other is not event][:3]
+        page = theme.render_post(
+            post=event,
+            body_html=render_body(event, prefix),
+            hero=hero_url(event, prefix),
+            prefix=prefix,
+            site_url=site_url,
+            related=related,
+            nav=nav,
+            current="events",
+        )
+        out = DIST_DIR / "events" / event.slug / "index.html"
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(page, encoding="utf-8")
+
     cards = [card_for(post, "") for post in posts]
     (DIST_DIR / "index.html").write_text(
         theme.render_index(
@@ -392,6 +434,17 @@ def build(site_url: str, include_drafts: bool = False) -> List[Post]:
         theme.render_blog(
             featured=card_for(posts[0], "../") if posts else None,
             cards=[card_for(post, "../") for post in posts],
+            prefix="../",
+            site_url=site_url,
+            nav=nav,
+        ),
+        encoding="utf-8",
+    )
+    (DIST_DIR / "events" / "index.html").parent.mkdir(parents=True, exist_ok=True)
+    (DIST_DIR / "events" / "index.html").write_text(
+        theme.render_events(
+            featured=card_for(events[0], "../") if events else None,
+            cards=[card_for(event, "../") for event in events],
             prefix="../",
             site_url=site_url,
             nav=nav,

@@ -7,6 +7,7 @@ import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -14,6 +15,61 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CosmeticStoreTest {
+    @Test
+    void screenshotPreviewsNeverCountPersistOrConsumeSerials(@TempDir Path directory)
+            throws Exception {
+        Path file = directory.resolve("cosmetics.json");
+        UUID owner = UUID.randomUUID();
+        CosmeticStore store = new CosmeticStore(file);
+        CosmeticStore.Token existing = store.mint(
+                owner, "blood_burst", UUID.randomUUID()
+        );
+        store.equip(owner, "KILL_EFFECT", existing.serial());
+
+        store.beginPreview(owner);
+        CosmeticStore.Token preview = store.mint(owner, "solar_orbit", UUID.randomUUID());
+        store.equip(owner, "AURA", preview.serial());
+
+        assertEquals(0, preview.serialNumber());
+        assertEquals(0, store.inExistence("solar_orbit"));
+        store.endPreview(owner);
+        assertTrue(store.token(preview.serial()).isEmpty());
+        assertTrue(store.equipped(owner, "AURA").isEmpty());
+        assertEquals(existing.serial(), store.equipped(owner, "KILL_EFFECT").orElseThrow());
+
+        CosmeticStore.Token real = store.mint(owner, "solar_orbit", UUID.randomUUID());
+        assertEquals(1, real.serialNumber());
+        assertEquals(1, store.inExistence("solar_orbit"));
+
+        CosmeticStore reloaded = new CosmeticStore(file);
+        assertTrue(reloaded.token(preview.serial()).isEmpty());
+        assertEquals(1, reloaded.token(real.serial()).orElseThrow().serialNumber());
+    }
+
+    @Test
+    void deletingOnePlayersCosmeticsLeavesEveryoneElseAlone(@TempDir Path directory)
+            throws Exception {
+        Path file = directory.resolve("cosmetics.json");
+        UUID target = UUID.randomUUID();
+        UUID other = UUID.randomUUID();
+        CosmeticStore store = new CosmeticStore(file);
+        CosmeticStore.Token stored = store.mint(target, "solar_orbit", UUID.randomUUID());
+        CosmeticStore.Token carried = store.mint(target, "ember_trail", UUID.randomUUID());
+        store.withdraw(target, carried.serial());
+        CosmeticStore.Token untouched = store.mint(other, "blood_burst", UUID.randomUUID());
+        store.equip(target, "AURA", stored.serial());
+
+        assertEquals(2, store.deleteOwned(target, List.of(carried.serial())));
+        assertTrue(store.stored(target).isEmpty());
+        assertTrue(store.token(carried.serial()).isEmpty());
+        assertTrue(store.equipped(target, "AURA").isEmpty());
+        assertEquals(untouched, store.token(untouched.serial()).orElseThrow());
+
+        CosmeticStore reloaded = new CosmeticStore(file);
+        assertTrue(reloaded.stored(target).isEmpty());
+        assertEquals(untouched, reloaded.token(untouched.serial()).orElseThrow());
+    }
+
     @Test
     void mintingTheSameSerialIsIdempotent(@TempDir Path directory) throws Exception {
         CosmeticStore store = new CosmeticStore(directory.resolve("cosmetics.json"));

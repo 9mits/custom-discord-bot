@@ -206,3 +206,16 @@ common mistake and `check` catches it.
 
 Add `draft: true` to the front matter. It shows in `preview` and stays off the
 live site until you remove the line.
+
+## Upcoming events
+
+Events are written like posts but live on the separate **Events** tab. Start one
+as a private draft with an exact start date:
+
+```bash
+python devblog/blog.py new-event "Void RNG Weekend" --date "2026-09-05 18:00"
+python devblog/blog.py preview
+```
+
+Keep `draft: true` until the schedule, time zone, rules and rewards are all
+confirmed. Then remove that line and run `python devblog/blog.py publish`.

@@ -19,6 +19,9 @@ import java.util.Optional;
 import java.util.HashMap;
 import java.util.UUID;
 import java.util.Comparator;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.Set;
 
 /** Unique cosmetic-token custody and the token selected in each effect category. */
 final class CosmeticStore {
@@ -33,6 +36,7 @@ final class CosmeticStore {
     private final Path file;
     private final LinkedHashMap<UUID, Token> tokens = new LinkedHashMap<>();
     private final LinkedHashMap<UUID, LinkedHashMap<String, UUID>> equipped = new LinkedHashMap<>();
+    private final Set<UUID> previewOwners = new HashSet<>();
     private int generation = 1;
 
     CosmeticStore(Path file) throws IOException {
@@ -101,6 +105,9 @@ final class CosmeticStore {
     }
 
     synchronized Token mint(UUID owner, String cosmeticId, UUID serial) {
+        if (previewOwners.contains(owner)) {
+            return mintPreview(owner, cosmeticId, serial);
+        }
         Token existing = tokens.get(serial);
         if (existing != null) {
             if (!existing.cosmeticId().equals(cosmeticId) || existing.generation() != generation) {
@@ -123,6 +130,30 @@ final class CosmeticStore {
             throw exception;
         }
         return token;
+    }
+
+    /** Creates a session-only wardrobe entry that never consumes or displays a serial number. */
+    synchronized Token mintPreview(UUID owner, String cosmeticId) {
+        return mintPreview(owner, cosmeticId, UUID.randomUUID());
+    }
+
+    private Token mintPreview(UUID owner, String cosmeticId, UUID serial) {
+        Token existing = tokens.get(serial);
+        if (existing != null) {
+            return existing;
+        }
+        Token token = new Token(serial, cosmeticId, generation, 0, owner);
+        tokens.put(serial, token);
+        return token;
+    }
+
+    synchronized void beginPreview(UUID owner) {
+        previewOwners.add(owner);
+    }
+
+    synchronized void endPreview(UUID owner) {
+        previewOwners.remove(owner);
+        clearPreviews(owner);
     }
 
     synchronized Optional<Token> token(UUID serial) {
@@ -148,7 +179,9 @@ final class CosmeticStore {
         }
         int count = 0;
         for (Token token : tokens.values()) {
-            if (token.generation() == generation && token.cosmeticId().equals(cosmeticId)) {
+            if (token.generation() == generation
+                    && token.serialNumber() > 0
+                    && token.cosmeticId().equals(cosmeticId)) {
                 count++;
             }
         }
@@ -241,7 +274,10 @@ final class CosmeticStore {
         List<Token> moved = new ArrayList<>();
         for (UUID serial : List.copyOf(selections.values())) {
             Token token = tokens.get(serial);
-            if (token == null || token.generation() != generation || !from.equals(token.storedOwner())) {
+            if (token == null
+                    || token.generation() != generation
+                    || token.serialNumber() <= 0
+                    || !from.equals(token.storedOwner())) {
                 continue;
             }
             Token handed = new Token(
@@ -301,6 +337,7 @@ final class CosmeticStore {
         generation = generation == Integer.MAX_VALUE ? 1 : generation + 1;
         tokens.clear();
         equipped.clear();
+        previewOwners.clear();
         try {
             save();
         } catch (RuntimeException exception) {
@@ -312,10 +349,50 @@ final class CosmeticStore {
         return cleared;
     }
 
+    /** Removes temporary cosmetics created while an operator was taking screenshots. */
+    synchronized int clearPreviews(UUID owner) {
+        List<UUID> removed = tokens.values().stream()
+                .filter(token -> token.serialNumber() <= 0)
+                .filter(token -> owner.equals(token.storedOwner()))
+                .map(Token::serial)
+                .toList();
+        if (removed.isEmpty()) {
+            return 0;
+        }
+        tokens.keySet().removeAll(removed);
+        removeSelections(owner, removed, false);
+        return removed.size();
+    }
+
+    /** Deletes a player's virtual cosmetics and any carried serials supplied by the caller. */
+    synchronized int deleteOwned(UUID owner, Collection<UUID> carriedSerials) {
+        List<UUID> removed = tokens.values().stream()
+                .filter(token -> token.generation() == generation)
+                .filter(token -> owner.equals(token.storedOwner())
+                        || carriedSerials.contains(token.serial()))
+                .map(Token::serial)
+                .toList();
+        LinkedHashMap<UUID, Token> tokensBefore = new LinkedHashMap<>(tokens);
+        LinkedHashMap<UUID, LinkedHashMap<String, UUID>> equippedBefore = copyEquipped();
+        tokens.keySet().removeAll(removed);
+        removeSelections(owner, removed, true);
+        try {
+            save();
+        } catch (RuntimeException exception) {
+            tokens.clear();
+            tokens.putAll(tokensBefore);
+            equipped.clear();
+            equipped.putAll(equippedBefore);
+            throw exception;
+        }
+        return removed.size();
+    }
+
     /** Renumbers one cosmetic from #1 without changing custody or equipped selections. */
     synchronized int resetSerials(String cosmeticId) {
         List<Token> matching = tokens.values().stream()
                 .filter(token -> token.generation() == generation)
+                .filter(token -> token.serialNumber() > 0)
                 .filter(token -> token.cosmeticId().equals(cosmeticId))
                 .sorted(Comparator.comparingInt(Token::serialNumber)
                         .thenComparing(token -> token.serial().toString()))
@@ -345,6 +422,9 @@ final class CosmeticStore {
         root.addProperty("generation", generation);
         JsonObject savedTokens = new JsonObject();
         tokens.forEach((serial, token) -> {
+            if (token.serialNumber() <= 0) {
+                return;
+            }
             JsonObject value = new JsonObject();
             value.addProperty("cosmetic_id", token.cosmeticId());
             value.addProperty("generation", token.generation());
@@ -358,8 +438,15 @@ final class CosmeticStore {
         JsonObject savedEquipped = new JsonObject();
         equipped.forEach((playerId, selections) -> {
             JsonObject value = new JsonObject();
-            selections.forEach((category, serial) -> value.addProperty(category, serial.toString()));
-            savedEquipped.add(playerId.toString(), value);
+            selections.forEach((category, serial) -> {
+                Token token = tokens.get(serial);
+                if (token != null && token.serialNumber() > 0) {
+                    value.addProperty(category, serial.toString());
+                }
+            });
+            if (!value.entrySet().isEmpty()) {
+                savedEquipped.add(playerId.toString(), value);
+            }
         });
         root.add("equipped", savedEquipped);
         writeAtomically(root.toString());
@@ -371,6 +458,18 @@ final class CosmeticStore {
                 playerId, new LinkedHashMap<>(selections)
         ));
         return copy;
+    }
+
+    private void removeSelections(
+            UUID owner, Collection<UUID> serials, boolean clearEverySelectionForOwner
+    ) {
+        if (clearEverySelectionForOwner) {
+            equipped.remove(owner);
+        }
+        equipped.entrySet().removeIf(entry -> {
+            entry.getValue().values().removeIf(serials::contains);
+            return entry.getValue().isEmpty();
+        });
     }
 
     private void writeAtomically(String json) {

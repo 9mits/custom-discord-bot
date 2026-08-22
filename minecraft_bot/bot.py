@@ -153,6 +153,7 @@ class MinecraftAccessBot(commands.Bot):
         intents = discord.Intents.none()
         intents.guilds = True
         intents.members = True
+        intents.moderation = True
         intents.messages = True
         intents.message_content = True
         # Without this the emoji cache never updates after startup, so freshly created
@@ -1231,6 +1232,43 @@ class MinecraftAccessBot(commands.Bot):
                 str(account["minecraft_uuid"]),
                 after.id,
                 member=after,
+            )
+
+    async def _revoke_departed_member(self, user_id: int, reason: str) -> None:
+        actor_id = self.user.id if self.user is not None else 0
+        applications = await self.data.queue_revocations(user_id, actor_id, reason)
+        if applications:
+            self.spawn_background_task(
+                self.dispatch_outbox_if_connected(),
+                name=f"minecraft-departure-revoke-{user_id}",
+            )
+
+    async def on_member_ban(self, guild: discord.Guild, user: discord.User) -> None:
+        if self.config.guild_id and guild.id != self.config.guild_id:
+            return
+        await self._revoke_departed_member(user.id, "Discord server ban")
+
+    async def on_member_remove(self, member: discord.Member) -> None:
+        if self.config.guild_id and member.guild.id != self.config.guild_id:
+            return
+        # A remove event also means an ordinary leave. Only revoke here when Discord's
+        # audit log proves it was a staff kick; bans are handled by on_member_ban.
+        await asyncio.sleep(1)
+        cutoff = discord.utils.utcnow().timestamp() - 30
+        try:
+            async for entry in member.guild.audit_logs(
+                limit=10, action=discord.AuditLogAction.kick
+            ):
+                if getattr(entry.target, "id", None) != member.id:
+                    continue
+                if entry.created_at.timestamp() < cutoff:
+                    continue
+                await self._revoke_departed_member(member.id, "Discord server kick")
+                return
+        except (discord.Forbidden, discord.HTTPException):
+            logger.warning(
+                "Could not inspect kick audit logs for departed Discord member %s",
+                member.id,
             )
 
     async def on_user_update(self, before: discord.User, after: discord.User) -> None:
