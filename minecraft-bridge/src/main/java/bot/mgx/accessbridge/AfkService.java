@@ -7,12 +7,16 @@ import org.bukkit.Location;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Projectile;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
@@ -31,13 +35,15 @@ import java.util.concurrent.ConcurrentHashMap;
 final class AfkService implements Listener, CommandExecutor {
     private final MGXAccessBridge plugin;
     private final long timeoutMillis;
+    private final boolean invincible;
     private final Map<UUID, Long> lastActivity = new ConcurrentHashMap<>();
     private final Set<UUID> afk = ConcurrentHashMap.newKeySet();
     private BukkitTask task;
 
-    AfkService(MGXAccessBridge plugin, long timeoutSeconds) {
+    AfkService(MGXAccessBridge plugin, long timeoutSeconds, boolean invincible) {
         this.plugin = plugin;
         this.timeoutMillis = Math.max(60L, timeoutSeconds) * 1_000L;
+        this.invincible = invincible;
     }
 
     void start() {
@@ -126,6 +132,48 @@ final class AfkService implements Listener, CommandExecutor {
         if (!command.equals("afk") && !command.endsWith(":afk")) {
             activity(event.getPlayer());
         }
+    }
+
+    /**
+     * Runs at HIGHEST so a plugin that already cancelled the hit keeps its say,
+     * and so the decision is the last one made before damage is applied.
+     */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onDamage(EntityDamageEvent event) {
+        if (!(event.getEntity() instanceof Player player)) {
+            return;
+        }
+        AfkProtection.Decision decision = AfkProtection.decide(
+                invincible,
+                afk.contains(player.getUniqueId()),
+                attackerIsPlayer(event),
+                event.getCause() == EntityDamageEvent.DamageCause.VOID
+        );
+        switch (decision) {
+            case WAKE -> markActive(player);
+            case BLOCK -> {
+                event.setCancelled(true);
+                // Cancelling FIRE_TICK every tick otherwise leaves them burning
+                // for as long as they stand there, and kills them on return.
+                if (player.getFireTicks() > 0) {
+                    player.setFireTicks(0);
+                }
+            }
+            case IGNORE -> {
+                // Nothing to do.
+            }
+        }
+    }
+
+    private static boolean attackerIsPlayer(EntityDamageEvent event) {
+        if (!(event instanceof EntityDamageByEntityEvent byEntity)) {
+            return false;
+        }
+        Entity damager = byEntity.getDamager();
+        if (damager instanceof Player) {
+            return true;
+        }
+        return damager instanceof Projectile projectile && projectile.getShooter() instanceof Player;
     }
 
     private void checkIdle() {
