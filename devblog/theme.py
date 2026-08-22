@@ -35,13 +35,13 @@ FONT_URL = (
 STYLESHEET = """
 /* ===== tokens ============================================================ */
 :root {
-  --page-bg: #fbf9f7;
-  --canvas: #f4efe9;
+  --page-bg: #fdfcfa;
+  --canvas: #f8f3ee;
   --surface: #ffffff;
-  --surface-raised: #f5f0ea;
+  --surface-raised: #f9f4ef;
   --ink: #201d1a;
   --text-muted: #6b625b;
-  --grey: #8f8880;
+  --grey: #7a736b;
   /* Ambient brand bloom behind every page. */
   --bloom: rgba(255, 106, 0, .14);
   --bloom-2: rgba(255, 150, 40, .09);
@@ -55,7 +55,7 @@ STYLESHEET = """
   --brand-ramp: linear-gradient(100deg, var(--brand-red), var(--brand-orange) 45%, var(--brand-amber));
   --blue: #3b82f6;
   --green: #34c46b;
-  --line: rgba(120, 96, 72, .20);
+  --line: rgba(120, 96, 72, .17);
   --shadow-rgb: 40, 28, 18;
   /* One motion vocabulary for the whole site. Buttons, cards and the nav all
      use these, so nothing feels like it came from a different page. */
@@ -70,7 +70,7 @@ STYLESHEET = """
   /* Art plate. Post artwork is often a transparent PNG with light ink, which
      is invisible on the light theme's near-white page. Opaque art covers this
      completely, so it costs nothing there. */
-  --art-plate: #17120e;
+  --art-plate: #241e1a;
   --card-radius: 1.875rem;
   --img-radius: 1.25rem;
   --page-max: 1240px;
@@ -82,14 +82,14 @@ STYLESHEET = """
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --page-bg: #100e0d;
-    --canvas: #171412;
-    --surface: #1e1a18;
-    --surface-raised: #292421;
-    --ink: #f7f4f2;
-    --text-muted: #aaa39d;
-    --grey: #837c76;
-    --line: rgba(255, 170, 100, .14);
+    --page-bg: #1f1b18;
+    --canvas: #272220;
+    --surface: #2f2926;
+    --grey: #a09891;
+    --surface-raised: #3d3530;
+    --ink: #fbf9f7;
+    --text-muted: #c6bfb9;
+    --line: rgba(255, 186, 130, .20);
     --shadow-rgb: 0, 0, 0;
     --bloom: rgba(255, 106, 0, .30);
     --bloom-2: rgba(255, 150, 40, .17);
@@ -97,14 +97,14 @@ STYLESHEET = """
 }
 
 :root[data-theme="dark"] {
-  --page-bg: #100e0d;
-  --canvas: #171412;
-  --surface: #1e1a18;
-  --surface-raised: #292421;
-  --ink: #f7f4f2;
-  --text-muted: #aaa39d;
-  --grey: #837c76;
-  --line: rgba(255, 170, 100, .14);
+  --page-bg: #1f1b18;
+  --canvas: #272220;
+  --surface: #2f2926;
+  --grey: #a09891;
+  --surface-raised: #3d3530;
+  --ink: #fbf9f7;
+  --text-muted: #c6bfb9;
+  --line: rgba(255, 186, 130, .20);
   --shadow-rgb: 0, 0, 0;
   --bloom: rgba(255, 106, 0, .30);
   --bloom-2: rgba(255, 150, 40, .17);
