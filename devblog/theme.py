@@ -64,6 +64,10 @@ STYLESHEET = """
   --lift-1: 0 1px 2px rgb(var(--shadow-rgb) / .08), 0 2px 6px rgb(var(--shadow-rgb) / .06);
   --lift-2: 0 2px 4px rgb(var(--shadow-rgb) / .10), 0 8px 20px rgb(var(--shadow-rgb) / .12);
   --lift-3: 0 4px 8px rgb(var(--shadow-rgb) / .12), 0 18px 40px rgb(var(--shadow-rgb) / .18);
+  /* Art plate. Post artwork is often a transparent PNG with light ink, which
+     is invisible on the light theme's near-white page. Opaque art covers this
+     completely, so it costs nothing there. */
+  --art-plate: #16181c;
   --card-radius: 1.875rem;
   --img-radius: 1.25rem;
   --page-max: 1240px;
@@ -234,6 +238,7 @@ a { color: inherit; }
 .post-body figure.shot img {
   width: auto; max-width: 100%; max-height: 26rem;
   margin-left: auto; margin-right: auto;
+  background: var(--art-plate);
   border-radius: var(--img-radius);
   box-shadow: 0 15px 35px rgb(var(--shadow-rgb) / .12);
 }
@@ -359,7 +364,7 @@ a { color: inherit; }
 .hero-feature a:hover { transform: translateY(-4px); box-shadow: var(--lift-3); }
 .hero-feature .frame {
   position: relative; overflow: hidden; aspect-ratio: 16 / 9;
-  border-radius: 1.5rem; background: var(--surface-raised);
+  border-radius: 1.5rem; background: var(--art-plate);
 }
 .hero-feature .frame img {
   position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
@@ -410,7 +415,7 @@ a { color: inherit; }
 .featured-art { width: 100%; max-width: 28rem; margin: 0 auto; }
 @media (min-width: 1024px) { .featured-art { margin: 0; flex: 0 0 28rem; } }
 .featured-art .card-thumb { aspect-ratio: 4 / 3; }
-.featured-art .card-thumb .icon { width: 60%; }
+.featured-art .card-thumb .icon { width: 66%; max-height: 72%; }
 .featured-body { text-align: center; }
 @media (min-width: 1024px) { .featured-body { text-align: left; flex: 1; } }
 .featured-body h2 {
@@ -450,7 +455,7 @@ a { color: inherit; }
 .card-thumb {
   position: relative; overflow: hidden; width: 100%;
   aspect-ratio: 13 / 8; border-radius: var(--card-radius);
-  background: var(--surface-raised);
+  background: var(--art-plate);
   transition: box-shadow var(--dur) var(--ease);
 }
 .card:hover .card-thumb { box-shadow: 0 0 0 2px var(--brand-orange), 0 18px 40px rgb(var(--shadow-rgb) / .18); }
@@ -470,8 +475,10 @@ a { color: inherit; }
   display: flex; align-items: center; justify-content: center;
 }
 .card-thumb .icon {
-  width: 50%; aspect-ratio: 1 / 1; object-fit: cover;
-  border-radius: 1.25rem; transition: transform var(--dur-slow) var(--ease-out);
+  /* contain, not cover: the art may be a wordmark, and cropping it to a square
+     would cut the ends off the words. */
+  width: 62%; height: auto; max-height: 74%; object-fit: contain;
+  transition: transform var(--dur-slow) var(--ease-out);
 }
 @media (min-width: 1024px) { .card:hover .card-thumb .icon { transform: scale(1.05); } }
 

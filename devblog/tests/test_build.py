@@ -875,5 +875,35 @@ class ServerStatsTests(unittest.TestCase):
 
 
 
+class ArtworkTests(unittest.TestCase):
+    """Post artwork is often a transparent PNG with light ink."""
+
+    def test_art_sits_on_a_plate_so_light_ink_stays_visible(self):
+        # A white wordmark on a transparent background vanished against the
+        # light theme's near-white page until these gained a backing colour.
+        self.assertIn("--art-plate:", theme.STYLESHEET)
+        for selector in ("\n.post-body figure.shot img {", "\n.card-thumb {"):
+            block = theme.STYLESHEET.split(selector)[1].split("}")[0]
+            self.assertIn("var(--art-plate)", block, selector.strip())
+
+    def test_the_card_icon_is_contained_not_cropped(self):
+        # cover on a 1.6:1 wordmark cut the ends off the words.
+        block = theme.STYLESHEET.split("\n.card-thumb .icon {")[1].split("}")[0]
+        self.assertIn("object-fit: contain", block)
+        self.assertNotIn("object-fit: cover", block)
+        self.assertNotIn("aspect-ratio: 1 / 1", block)
+
+    def test_the_post_references_artwork_that_exists(self):
+        posts = build.load_posts(include_drafts=True)
+        self.assertTrue(posts)
+        for post in posts:
+            for name in (post.hero, post.icon):
+                if not name or name.startswith(("http", "/")):
+                    continue
+                path = build.MEDIA_DIR / post.slug / name
+                self.assertTrue(path.exists(), "%s references missing %s" % (post.path.name, path))
+
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
