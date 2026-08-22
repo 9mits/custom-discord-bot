@@ -1020,5 +1020,92 @@ class BlogArchiveTests(unittest.TestCase):
 
 
 
+class WarmThemeTests(unittest.TestCase):
+    """The palette should read warm, not neutral dark."""
+
+    def tokens(self, selector):
+        block = theme.STYLESHEET.split(selector)[1].split("}")[0]
+        return dict(re.findall(r"(--[a-z-]+):\s*(#[0-9a-f]{6})", block))
+
+    NEUTRALS = ("--page-bg", "--canvas", "--surface-raised", "--ink", "--text-muted", "--grey")
+
+    def test_the_dark_neutrals_lean_warm(self):
+        tokens = self.tokens(':root[data-theme="dark"] {')
+        for name in self.NEUTRALS:
+            value = tokens[name]
+            red, blue = int(value[1:3], 16), int(value[5:7], 16)
+            self.assertGreater(red, blue, "%s (%s) is not warm" % (name, value))
+
+    def test_the_light_neutrals_lean_warm_too(self):
+        tokens = self.tokens("\n:root {")
+        for name in self.NEUTRALS:
+            value = tokens[name]
+            red, blue = int(value[1:3], 16), int(value[5:7], 16)
+            self.assertGreater(red, blue, "%s (%s) is not warm" % (name, value))
+
+    def test_a_brand_bloom_sits_behind_every_page(self):
+        self.assertIn("--bloom:", theme.STYLESHEET)
+        self.assertIn("--bloom-2:", theme.STYLESHEET)
+        block = theme.STYLESHEET.split(".page::before {")[1].split("}")[0]
+        self.assertIn("var(--bloom)", block)
+        self.assertIn("radial-gradient", block)
+
+    def test_dark_bloom_is_stronger_than_light(self):
+        # A tint that reads on white is invisible on near-black.
+        def alpha(selector):
+            block = theme.STYLESHEET.split(selector)[1].split("}")[0]
+            return float(re.search(r"--bloom:\s*rgba\([^)]*,\s*([0-9.]+)\)", block).group(1))
+        self.assertGreater(alpha(':root[data-theme="dark"] {'), alpha("\n:root {"))
+
+
+class AuthoringToolTests(unittest.TestCase):
+    """blog.py is what makes posting possible without touching git."""
+
+    def test_the_next_slug_follows_the_highest_existing_one(self):
+        import blog
+
+        saved = blog.ROOT
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / "posts").mkdir()
+        blog.ROOT = tmp
+        try:
+            self.assertEqual(blog.next_slug(), "update-1")
+            (tmp / "posts" / "2026-01-01-update-1.md").touch()
+            (tmp / "posts" / "2026-02-01-update-7.md").touch()
+            self.assertEqual(blog.next_slug(), "update-8")
+        finally:
+            blog.ROOT = saved
+
+    def test_a_scaffolded_post_is_valid_front_matter(self):
+        # The template once wrapped its tagline over two lines, which the parser
+        # rejects — so every scaffolded post was born broken.
+        import blog
+
+        text = blog.TEMPLATE.format(
+            title="Fiesta Forever", today="2026-08-22", category="Event", tag="event"
+        )
+        meta, body = build.parse_front_matter(text, Path("2026-08-22-update-2.md"))
+        self.assertEqual(meta["title"], "Fiesta Forever")
+        self.assertEqual(meta["category"], "Event")
+        self.assertTrue(body.strip())
+
+    def test_the_template_carries_the_house_layout(self):
+        import blog
+
+        self.assertIn("## ", blog.TEMPLATE)
+        self.assertIn("### ", blog.TEMPLATE)
+        self.assertIn("![](", blog.TEMPLATE)
+        for key in ("title:", "tagline:", "date:", "category:", "hero:", "icon:"):
+            self.assertIn(key, blog.TEMPLATE)
+
+    def test_every_template_front_matter_line_is_one_key_value(self):
+        import blog
+
+        front = blog.TEMPLATE.split("---")[1]
+        for line in front.strip().splitlines():
+            self.assertRegex(line, r"^[a-z_]+:\s", "wrapped line in the template: %r" % line)
+
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
