@@ -310,11 +310,15 @@ class MinecraftDataManager:
         tables = {
             row[0]
             for row in await db.execute_fetchall(
-                "SELECT name FROM sqlite_master WHERE type='table' "
-                "AND name IN ('minecraft_applications', 'minecraft_access')"
+                "SELECT name FROM sqlite_master WHERE type='table'"
             )
         }
-        if "minecraft_applications" not in tables or "minecraft_access" in tables:
+        # `user_version` is the only thing that says whether this ran. An earlier
+        # attempt that failed part-way leaves a `minecraft_access` behind, and
+        # treating its presence as success skipped the rest of the migration and
+        # left the outbox and audit columns unrenamed — which then failed the
+        # schema's own index. Debris is dropped and the work is redone instead.
+        if "minecraft_applications" not in tables:
             return
 
         present = {
@@ -333,6 +337,13 @@ class MinecraftDataManager:
         await db.commit()
         await db.execute("PRAGMA foreign_keys=OFF")
         try:
+            # Clear anything a failed earlier attempt committed. SQLite runs DDL
+            # in autocommit unless an explicit transaction is open, so a CREATE
+            # here outlives the rollback in open(); without this the retry hits
+            # "table minecraft_access already exists" or, worse, silently skips.
+            await db.execute("DROP TABLE IF EXISTS minecraft_access")
+            for table in ("minecraft_bridge_outbox", "minecraft_audit_log"):
+                await db.execute(f"DROP TABLE IF EXISTS {table}_v8")
             await db.execute(f"CREATE TABLE minecraft_access {ACCESS_TABLE_COLUMNS_SQL}")
             # CASE maps every legacy status; the ELSE is a fail-safe for a value
             # written by some future branch, and lands on the closed side.
