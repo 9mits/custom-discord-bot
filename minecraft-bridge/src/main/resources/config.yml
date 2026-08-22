@@ -22,6 +22,11 @@ reconnect-max-seconds: 60
 # Geyser camera jitter cannot keep a Bedrock player active forever.
 afk-timeout-seconds: 300
 
+# AFK players take no damage. A hit from another player wakes them instead of
+# bouncing off, so /afk cannot be pressed as a shield mid-fight, and the void
+# still kills — cancelling it would strand them under the world.
+afk-invincible: true
+
 # The sidebar refreshes live player, level, heart, clan, combat, and server data.
 # 100 ticks (5s) keeps ping/TPS current without rebuilding every scoreboard each second.
 scoreboard:
