@@ -57,7 +57,8 @@ final class CosmeticItems {
     }
 
     ItemStack preview(CosmeticCatalog.Definition definition, boolean oddsScreen) {
-        Material material = Material.matchMaterial(definition.materialName());
+        boolean masked = masksSecret(definition, oddsScreen);
+        Material material = Material.matchMaterial(previewMaterialName(definition, oddsScreen));
         if (material == null) {
             material = Material.BARRIER;
         }
@@ -66,9 +67,8 @@ final class CosmeticItems {
         if (meta == null) {
             return item;
         }
-        // The name is revealed after a win, but the real effect never leaks through
-        // an item icon. Every secret keeps the same shadow model everywhere.
-        boolean masked = oddsScreen && definition.secret();
+        // Crate previews hide a secret completely. Won tokens and wardrobe entries
+        // use the real name and model so ownership is a genuine reveal.
         meta.displayName(Component.text(
                         masked ? CosmeticCatalog.MASKED_NAME : definition.displayName(),
                         colour(definition), TextDecoration.BOLD)
@@ -82,7 +82,7 @@ final class CosmeticItems {
             lore.add(line("Chance: " + definition.displayedChance()));
         }
         meta.lore(lore);
-        NamespacedKey model = NamespacedKey.fromString(definition.modelKey());
+        NamespacedKey model = NamespacedKey.fromString(previewModelKey(definition, oddsScreen));
         if (model != null) {
             meta.setItemModel(model);
         }
@@ -90,6 +90,23 @@ final class CosmeticItems {
         meta.setRarity(rarity(definition));
         item.setItemMeta(meta);
         return item;
+    }
+
+    static boolean masksSecret(CosmeticCatalog.Definition definition, boolean oddsScreen) {
+        return oddsScreen && definition.secret();
+    }
+
+    static String previewMaterialName(
+            CosmeticCatalog.Definition definition,
+            boolean oddsScreen
+    ) {
+        return masksSecret(definition, oddsScreen) ? "BLACK_DYE" : definition.materialName();
+    }
+
+    static String previewModelKey(CosmeticCatalog.Definition definition, boolean oddsScreen) {
+        return masksSecret(definition, oddsScreen)
+                ? CosmeticCatalog.MASKED_MODEL_KEY
+                : definition.modelKey();
     }
 
     Optional<TokenInfo> read(ItemStack item) {

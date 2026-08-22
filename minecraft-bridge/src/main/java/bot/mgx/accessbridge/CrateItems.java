@@ -162,10 +162,25 @@ final class CrateItems {
     }
 
     ItemStack preview(CrateCatalog.Reward reward, CosmeticItems cosmetics) {
+        return preview(reward, cosmetics, false);
+    }
+
+    ItemStack revealedPreview(CrateCatalog.Reward reward, CosmeticItems cosmetics) {
+        return preview(reward, cosmetics, true);
+    }
+
+    private ItemStack preview(
+            CrateCatalog.Reward reward,
+            CosmeticItems cosmetics,
+            boolean revealSecret
+    ) {
         if (reward.cosmetic()) {
             return CosmeticCatalog.find(reward.cosmeticId())
                     .map(definition -> withSupply(
-                            cosmetics.preview(definition, true),
+                            cosmetics.preview(
+                                    definition,
+                                    !(revealSecret && definition.secret())
+                            ),
                             cosmeticStore.inExistence(definition.id())
                     ))
                     .orElseGet(() -> new ItemStack(Material.BARRIER));

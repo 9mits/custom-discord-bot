@@ -74,8 +74,7 @@ class CosmeticCatalogTest {
         for (CosmeticCatalog.Definition secret : secrets) {
             assertEquals("???", secret.displayedChance());
             assertEquals(CosmeticCatalog.SECRET_WEIGHT, secret.weight());
-            assertEquals("BLACK_DYE", secret.materialName());
-            assertEquals("mgx:cosmetic/secret_silhouette", secret.modelKey());
+            assertEquals("mgx:cosmetic/" + secret.id(), secret.modelKey());
             assertFalse(CosmeticCatalog.publicEntries().contains(secret));
             assertEquals("0.005%", CosmeticCatalog.percentage(secret.weight()));
         }
@@ -91,17 +90,34 @@ class CosmeticCatalogTest {
     }
 
     @Test
+    void aSecretIconIsMaskedOnlyUntilTheRewardIsRevealed() {
+        CosmeticCatalog.Definition secret = CosmeticCatalog.find("event_horizon").orElseThrow();
+        CosmeticCatalog.Definition publicCosmetic = CosmeticCatalog.find("blood_burst").orElseThrow();
+
+        assertTrue(CosmeticItems.masksSecret(secret, true));
+        assertEquals(CosmeticCatalog.MASKED_MODEL_KEY, CosmeticItems.previewModelKey(secret, true));
+        assertEquals("BLACK_DYE", CosmeticItems.previewMaterialName(secret, true));
+
+        assertFalse(CosmeticItems.masksSecret(secret, false));
+        assertEquals(secret.modelKey(), CosmeticItems.previewModelKey(secret, false));
+        assertEquals(secret.materialName(), CosmeticItems.previewMaterialName(secret, false));
+
+        assertFalse(CosmeticItems.masksSecret(publicCosmetic, true));
+        assertEquals(publicCosmetic.modelKey(), CosmeticItems.previewModelKey(publicCosmetic, true));
+    }
+
+    @Test
     void idsAndItemModelsAreUniqueAndStable() {
         Set<String> ids = CosmeticCatalog.all().stream()
                 .map(CosmeticCatalog.Definition::id)
                 .collect(Collectors.toSet());
-        Set<String> publicModels = CosmeticCatalog.publicEntries().stream()
+        Set<String> models = CosmeticCatalog.all().stream()
                 .map(CosmeticCatalog.Definition::modelKey)
                 .collect(Collectors.toSet());
 
         assertEquals(EXPECTED_WEIGHTS.keySet(), ids);
-        assertEquals(CosmeticCatalog.publicEntries().size(), publicModels.size());
-        for (CosmeticCatalog.Definition definition : CosmeticCatalog.publicEntries()) {
+        assertEquals(CosmeticCatalog.all().size(), models.size());
+        for (CosmeticCatalog.Definition definition : CosmeticCatalog.all()) {
             assertEquals("mgx:cosmetic/" + definition.id(), definition.modelKey());
         }
     }

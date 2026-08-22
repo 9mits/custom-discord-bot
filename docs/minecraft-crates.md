@@ -121,11 +121,11 @@ it. Tokens retain their metadata through the auction house and are rejected by
 `/sell` because they have custom metadata. A season reset advances the token
 generation so old physical copies cannot become valid again.
 
-All nine secrets use the same dimensional black silhouette so an item icon never
-reveals the effect. The crate shows the name `???` and no public percentage. Each
-has an actual weight of five tickets out of 100,000. There are three secret Kill
-Effects, three secret Auras, and three secret Trails, each with its own VFX. Winning
-any one triggers the secret reveal sequence.
+The crate hides all nine secrets behind the same dimensional black silhouette, the
+name `???`, and no public percentage. Each has an actual weight of five tickets out
+of 100,000. There are three secret Kill Effects, three secret Auras, and three secret
+Trails. Winning one reveals its real name, custom icon and VFX in the result screen,
+physical token and wardrobe.
 
 The Java resource pack contains a distinct custom item-model icon for the key, both
 custom potion families, and every individual cosmetic. Bedrock players receive the

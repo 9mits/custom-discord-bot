@@ -43,20 +43,13 @@ class ResourcePackCatalogTest {
         assertModelResolves("mgx:crate_key");
         assertModelResolves("mgx:fortune_potion");
         assertModelResolves("mgx:crate_luck_potion");
+        assertModelResolves(CosmeticCatalog.MASKED_MODEL_KEY);
         Map<String, String> textures = new HashMap<>();
         for (CosmeticCatalog.Definition definition : CosmeticCatalog.all()) {
             assertModelResolves(definition.modelKey());
             String texture = resolvedTexture(definition.modelKey());
-            if (definition.secret()) {
-                assertEquals(
-                        "assets/mgx/textures/item/cosmetic/secret_silhouette.png",
-                        texture,
-                        definition.id()
-                );
-            } else {
-                assertTrue(textures.putIfAbsent(texture, definition.id()) == null,
-                        definition.id() + " reuses the icon for " + textures.get(texture));
-            }
+            assertTrue(textures.putIfAbsent(texture, definition.id()) == null,
+                    definition.id() + " reuses the icon for " + textures.get(texture));
         }
     }
 
@@ -82,6 +75,7 @@ class ResourcePackCatalogTest {
         icons.add(textures.resolve("crate_key.png"));
         icons.add(textures.resolve("fortune_potion.png"));
         icons.add(textures.resolve("crate_luck_potion.png"));
+        icons.add(SOURCE.resolve(resolvedTexture(CosmeticCatalog.MASKED_MODEL_KEY)));
         for (CosmeticCatalog.Definition definition : CosmeticCatalog.all()) {
             icons.add(SOURCE.resolve(resolvedTexture(definition.modelKey())));
         }
