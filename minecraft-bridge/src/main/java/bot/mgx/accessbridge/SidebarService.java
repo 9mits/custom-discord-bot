@@ -65,6 +65,8 @@ final class SidebarService {
      * empty block until an unrelated player logged in.
      */
     private final Map<UUID, String> tabKeys = new HashMap<>();
+    /** Players whose sidebar is hidden for a reason other than their setting. */
+    private final java.util.Set<UUID> suppressed = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private String lastTeamKey = "";
     private int taskId = -1;
 
@@ -141,9 +143,10 @@ final class SidebarService {
         if (syncTeams) {
             syncClanTeams(board.scoreboard, player);
         }
-        boolean showSidebar = settings.isEnabled(
-                player.getUniqueId(), PlayerSettingsStore.Setting.SCOREBOARD_ENABLED
-        );
+        boolean showSidebar = !suppressed.contains(player.getUniqueId())
+                && settings.isEnabled(
+                        player.getUniqueId(), PlayerSettingsStore.Setting.SCOREBOARD_ENABLED
+                );
         if (showSidebar) {
             board.update(lines(player));
         }
@@ -468,7 +471,20 @@ final class SidebarService {
         player.sendPlayerListHeaderAndFooter(header, footerComponent);
     }
 
+    /**
+     * Hides the sidebar without touching the player's own setting, so turning it
+     * back on restores whatever they actually chose.
+     */
+    void setSuppressed(UUID playerId, boolean hidden) {
+        if (hidden) {
+            suppressed.add(playerId);
+        } else {
+            suppressed.remove(playerId);
+        }
+    }
+
     void forget(UUID playerId) {
+        suppressed.remove(playerId);
         boards.remove(playerId);
         platforms.remove(playerId);
         tabKeys.remove(playerId);
