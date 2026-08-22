@@ -91,7 +91,7 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
             self.secret,
             "VERIFICATION",
             {
-                "access_id": 7,
+                "application_id": 7,
                 "edition": "JAVA",
                 "minecraft_uuid": "123e4567-e89b-12d3-a456-426614174000",
                 "current_username": "TestPlayer",

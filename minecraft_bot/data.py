@@ -368,13 +368,21 @@ class MinecraftDataManager:
                     )
                 }:
                     continue
-                columns = ", ".join(
+                # Schema 7 named this column application_id. It is a real column,
+                # not just an identifier, so the rebuild has to map it across
+                # rather than assume both tables agree on the name.
+                old_columns = [
                     row[1]
                     for row in await db.execute_fetchall(f"PRAGMA table_info({table})")
-                )
+                ]
+                new_columns = [
+                    "access_id" if name == "application_id" else name
+                    for name in old_columns
+                ]
                 await db.execute(f"CREATE TABLE {table}_v8 {create}")
                 await db.execute(
-                    f"INSERT INTO {table}_v8 ({columns}) SELECT {columns} FROM {table}"
+                    f"INSERT INTO {table}_v8 ({', '.join(new_columns)}) "
+                    f"SELECT {', '.join(old_columns)} FROM {table}"
                 )
                 await db.execute(f"DROP TABLE {table}")
                 await db.execute(f"ALTER TABLE {table}_v8 RENAME TO {table}")
@@ -585,7 +593,7 @@ class MinecraftDataManager:
                         await self._queue(
                             db,
                             BridgeAction.REMOVE_PENDING,
-                            {"access_id": expired_id},
+                            {"application_id": expired_id},
                             idempotency_key=f"access:{expired_id}:expire",
                             access_id=expired_id,
                             timestamp=current,
@@ -668,7 +676,7 @@ class MinecraftDataManager:
                 )
                 access_id = int(cursor.lastrowid)
                 payload = {
-                    "access_id": access_id,
+                    "application_id": access_id,
                     "edition": "AUTO" if auto_detect_edition else edition.value,
                     "claimed_username": claimed,
                     "normalized_username": normalized,
@@ -840,7 +848,7 @@ class MinecraftDataManager:
                         await self._queue(
                             db,
                             BridgeAction.REMOVE_PENDING,
-                            {"access_id": application.id},
+                            {"application_id": application.id},
                             idempotency_key=f"access:{application.id}:expire",
                             access_id=application.id,
                             timestamp=current,
@@ -996,7 +1004,7 @@ class MinecraftDataManager:
                 await self._queue(
                     db,
                     BridgeAction.REMOVE_PENDING,
-                    {"access_id": application.id},
+                    {"application_id": application.id},
                     idempotency_key=f"access:{application.id}:verified",
                     access_id=application.id,
                     timestamp=current,
@@ -1008,7 +1016,7 @@ class MinecraftDataManager:
                     db,
                     BridgeAction.APPROVE,
                     {
-                        "access_id": application.id,
+                        "application_id": application.id,
                         "edition": edition.value,
                         "minecraft_uuid": minecraft_uuid,
                         "verified_username": cleaned_actual,
@@ -1108,7 +1116,7 @@ class MinecraftDataManager:
                     await self._queue(
                         db,
                         BridgeAction.REMOVE_PENDING,
-                        {"access_id": int(row["id"])},
+                        {"application_id": int(row["id"])},
                         idempotency_key=f"wipe:{current}:remove:{row['id']}",
                         access_id=None,
                         timestamp=current,
@@ -1234,7 +1242,7 @@ class MinecraftDataManager:
                 await self._queue(
                     db,
                     BridgeAction.REMOVE_PENDING,
-                    {"access_id": application.id},
+                    {"application_id": application.id},
                     idempotency_key=f"access:{application.id}:cancel",
                     access_id=application.id,
                     timestamp=current,
@@ -1244,7 +1252,7 @@ class MinecraftDataManager:
                         db,
                         BridgeAction.REVOKE,
                         {
-                            "access_id": application.id,
+                            "application_id": application.id,
                             "edition": application.edition.value,
                             "minecraft_uuid": application.minecraft_uuid,
                         },
@@ -1318,7 +1326,7 @@ class MinecraftDataManager:
                 await self._queue(
                     db,
                     BridgeAction.REMOVE_PENDING,
-                    {"access_id": application.id},
+                    {"application_id": application.id},
                     idempotency_key=f"access:{application.id}:withdraw",
                     access_id=application.id,
                     timestamp=current,
@@ -1360,7 +1368,7 @@ class MinecraftDataManager:
                         db,
                         BridgeAction.REVOKE,
                         {
-                            "access_id": application.id,
+                            "application_id": application.id,
                             "edition": application.edition.value,
                             "minecraft_uuid": application.minecraft_uuid,
                             "reason": reason[:500],
@@ -1436,7 +1444,7 @@ class MinecraftDataManager:
                             db,
                             BridgeAction.REVOKE,
                             {
-                                "access_id": application.id,
+                                "application_id": application.id,
                                 "edition": edition.value,
                                 "minecraft_uuid": account["minecraft_uuid"],
                                 "reason": str(reason)[:500],
@@ -1478,7 +1486,7 @@ class MinecraftDataManager:
                             await self._queue(
                                 db,
                                 BridgeAction.REMOVE_PENDING,
-                                {"access_id": pending_id},
+                                {"application_id": pending_id},
                                 idempotency_key=f"access:{pending_id}:unlink-remove",
                                 access_id=pending_id,
                                 timestamp=current,
