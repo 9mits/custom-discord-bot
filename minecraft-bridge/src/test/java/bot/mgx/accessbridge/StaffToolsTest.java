@@ -72,13 +72,13 @@ class StaffToolsTest {
     }
 
     @Test
-    void broadcastIsTheOnlyRemoteToolThatSkipsTargetValidation() {
+    void broadcastAndUpdateSkipTargetValidation() {
         for (StaffTools.StaffTool tool : StaffTools.ALL) {
             if (tool.remote().isEmpty()) {
                 continue;
             }
-            assertEquals(!tool.key().equals("broadcast"), tool.needsTarget(),
-                    tool.key() + " target requirement");
+            boolean untargeted = tool.key().equals("broadcast") || tool.key().equals("update");
+            assertEquals(!untargeted, tool.needsTarget(), tool.key() + " target requirement");
         }
     }
 
@@ -96,6 +96,8 @@ class StaffToolsTest {
                 StaffTools.confirmation("unban", "mits", "", ""));
         assertEquals("Announced to every online player: \"Event starting soon\"",
                 StaffTools.confirmation("broadcast", "", "Event starting soon", ""));
+        assertEquals("The NEW UPDATE notice is live. Players see it on their next join.",
+                StaffTools.confirmation("update", "", "", ""));
         assertEquals("The action was completed on the server.",
                 StaffTools.confirmation("something-new", "mits", "", ""));
     }

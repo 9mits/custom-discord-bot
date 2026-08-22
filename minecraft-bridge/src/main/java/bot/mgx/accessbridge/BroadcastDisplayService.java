@@ -108,7 +108,9 @@ final class BroadcastDisplayService implements Listener {
         for (Player player : audience) {
             player.showBossBar(bar);
         }
-        announceInChat(audience, parsed.message());
+        announceBanner(audience, "BROADCAST", Component.text(
+                "  " + parsed.message(), NamedTextColor.WHITE, TextDecoration.BOLD
+        ));
         // The bar drains over its lifetime, so the emptying track is the countdown to
         // the message disappearing.
         long[] elapsed = {0L};
@@ -127,12 +129,13 @@ final class BroadcastDisplayService implements Listener {
      * The bar alone is missable, so the same announcement lands in chat as a bordered
      * red block with a bell, well clear of ordinary conversation.
      */
-    private void announceInChat(Collection<? extends Player> audience, String message) {
+    void announceBanner(Collection<? extends Player> audience, String headingLabel, Component body) {
         Component rule = Component.text(RULE, BROADCAST_RED)
                 .decoration(TextDecoration.STRIKETHROUGH, true)
                 .decoration(TextDecoration.BOLD, true);
-        Component heading = Component.text("  ▶ BROADCAST ◀", BROADCAST_RED, TextDecoration.BOLD);
-        Component body = Component.text("  " + message, NamedTextColor.WHITE, TextDecoration.BOLD);
+        Component heading = Component.text(
+                "  ▶ " + headingLabel + " ◀", BROADCAST_RED, TextDecoration.BOLD
+        );
         for (Player player : audience) {
             player.sendMessage(Component.empty());
             player.sendMessage(rule);

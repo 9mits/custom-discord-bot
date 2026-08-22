@@ -223,6 +223,16 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(new TeleportWarmupService(this), this);
         broadcastDisplayService = new BroadcastDisplayService(this);
         getServer().getPluginManager().registerEvents(broadcastDisplayService, this);
+        UpdateNoticeStore updateNoticeStore;
+        try {
+            updateNoticeStore = new UpdateNoticeStore(getDataFolder().toPath().resolve("update-notices.json"));
+        } catch (java.io.IOException exception) {
+            throw new IllegalStateException("Could not open update-notices.json", exception);
+        }
+        UpdateNoticeService updateNoticeService = new UpdateNoticeService(
+                this, updateNoticeStore, broadcastDisplayService
+        );
+        getServer().getPluginManager().registerEvents(updateNoticeService, this);
         afkService = new AfkService(this, getConfig().getLong("afk-timeout-seconds", 300L));
         sidebarService.useAfkService(afkService);
         getServer().getPluginManager().registerEvents(afkService, this);
@@ -411,7 +421,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 ),
                 devBlogService,
                 new AdminEventService(this, crateItems),
-                economyMenus
+                economyMenus,
+                updateNoticeService
         );
         getCommand("mgxadmin").setExecutor(adminService);
         getCommand("mgxadmin").setTabCompleter(adminService);

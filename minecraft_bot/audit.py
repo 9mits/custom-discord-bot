@@ -59,6 +59,7 @@ COMMAND_RISK: Mapping[str, str] = {
     "mcstaff tempban": RISK_DESTRUCTIVE,
     "mcstaff unban": RISK_DESTRUCTIVE,
     "mcstaff broadcast": RISK_DESTRUCTIVE,
+    "mcstaff update": RISK_MODERATE,
     "mcstaff heal": RISK_MODERATE,
     "mcstaff retry": RISK_MODERATE,
     "minecraft clan invite": RISK_MODERATE,
