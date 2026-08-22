@@ -71,8 +71,11 @@ class Post:
 
         self.tagline = str(meta.get("tagline") or "").strip()
         self.date = self._parse_date(meta.get("date"), path)
+        # Editorial artwork for home/archive cards and social previews. It is
+        # deliberately separate from an in-post gameplay hero.
+        self.cover = str(meta.get("cover") or "").strip()
         self.hero = str(meta.get("hero") or "").strip()
-        # The square art shown on the index card; falls back to the hero.
+        # The square art shown on cards; falls back to cover/hero artwork.
         self.icon = str(meta.get("icon") or "").strip()
         self.category = str(meta.get("category") or config.DEFAULT_CATEGORY).strip()
         self.signoff = str(meta.get("signoff") or "").strip()
@@ -277,6 +280,7 @@ def card_for(post: Post, prefix: str) -> Dict[str, object]:
         "date": post.display_date(),
         "iso": post.date.strftime("%Y-%m-%d"),
         "excerpt": excerpt(post),
+        "cover": media_url(post, post.cover, prefix),
         "hero": media_url(post, post.hero, prefix),
         "icon": media_url(post, post.icon, prefix),
         "category": post.category,

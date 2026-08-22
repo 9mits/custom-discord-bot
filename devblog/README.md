@@ -64,8 +64,9 @@ Two things go in: **one markdown file** and **one folder of images**.
 ```
 devblog/posts/2026-08-21-update-1.md      <- the post
 devblog/media/update-1/                    <- its images, slug-named
-    hero.png
+    cover.png
     icon.png
+    hero.png                               <- optional
     eternal-maze.png
 ```
 
@@ -177,7 +178,7 @@ title: Fiesta Forever!
 tagline: Go DEEP in the ETERNAL MAZE! Race to the GARGANTUAN!
 date: 2026-08-21
 category: Event
-hero: hero.png
+cover: cover.png
 icon: icon.png
 signoff: SEE YOU IN THE MAZE!
 tags: event, update
@@ -189,8 +190,9 @@ tags: event, update
 | `title` | yes | The big left-aligned heading and the browser title. |
 | `date` | yes* | `YYYY-MM-DD`. *Optional if the filename starts with a date. |
 | `tagline` | no | Grey subtitle under the title; also the card excerpt and share description. |
-| `hero` | no | Filename in the post's media folder. Opens the post, and becomes the blurred backdrop on the index card. |
-| `icon` | no | Square art centred on the index card. Falls back to `hero`. |
+| `cover` | no | Designed editorial artwork for the home page and social previews. Never use a raw UI-heavy gameplay capture. |
+| `hero` | no | Optional polished image opening the article. Ordinary gameplay screenshots belong in the body instead. |
+| `icon` | no | Square art centred on cards. Falls back to `cover`, then `hero`. |
 | `category` | no | The pill above the title. Defaults to `DEFAULT_CATEGORY` in `config.py`. |
 | `signoff` | no | Bold closing line, e.g. `SEE YOU ON THE SERVER!` |
 | `tags` | no | Comma separated. |

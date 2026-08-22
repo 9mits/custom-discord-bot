@@ -142,6 +142,19 @@ class RenderTests(unittest.TestCase):
         html = theme.render_post(self.post, "<p>x</p>", "hero.png", "", "https://e.com")
         self.assertIn('<figure class="shot hero">', html)
 
+    def test_cover_is_shared_without_becoming_an_article_hero(self):
+        meta, body = build.parse_front_matter(
+            VALID.replace("hero: hero.png", "cover: cover.png"),
+            Path("2026-08-21-fiesta-forever.md"),
+        )
+        post = build.Post(Path("2026-08-21-fiesta-forever.md"), meta, body)
+        html = theme.render_post(post, "<p>x</p>", None, "../", "https://e.com")
+        self.assertNotIn('<figure class="shot hero">', html)
+        self.assertIn(
+            '<meta property="og:image" content="https://e.com/media/fiesta-forever/cover.png">',
+            html,
+        )
+
     def test_single_newlines_become_line_breaks(self):
         html = build.render_body(self.post, "")
         self.assertIn("<br", html)
@@ -319,8 +332,10 @@ class PostFieldTests(unittest.TestCase):
         post = self.make("---\ntitle: T\ncategory: Event\n---\n\nbody")
         self.assertEqual(post.category, "Event")
 
-    def test_icon_and_signoff_default_to_empty(self):
+    def test_art_and_signoff_default_to_empty(self):
         post = self.make("---\ntitle: T\n---\n\nbody")
+        self.assertEqual(post.cover, "")
+        self.assertEqual(post.hero, "")
         self.assertEqual(post.icon, "")
         self.assertEqual(post.signoff, "")
 
@@ -366,6 +381,21 @@ class CardTests(unittest.TestCase):
         html = theme.render_card(build.card_for(build.Post(path, meta, body), ""), "")
         self.assertIn("media/fiesta-forever/icon.png", html)
         self.assertIn("media/fiesta-forever/hero.png", html)
+
+    def test_card_uses_cover_as_the_backdrop_without_showing_a_gameplay_hero(self):
+        path = Path("2026-08-21-fiesta-forever.md")
+        meta, body = build.parse_front_matter(
+            VALID.replace(
+                "hero: hero.png",
+                "cover: cover.png\nicon: icon.png",
+            ),
+            path,
+        )
+        card = build.card_for(build.Post(path, meta, body), "")
+        html = theme.render_card(card, "")
+        self.assertIn('class="blur" src="media/fiesta-forever/cover.png"', html)
+        self.assertIn('class="icon" src="media/fiesta-forever/icon.png"', html)
+        self.assertNotIn("hero.png", html)
 
     def test_card_renders_the_blurred_backdrop_and_square(self):
         html = theme.render_card(self.make_card(""), "")
@@ -545,6 +575,15 @@ class HomePageTests(unittest.TestCase):
 
     def test_the_featured_strip_carries_a_date(self):
         self.assertIn("August 21, 2026", _home())
+
+    def test_a_designed_cover_wins_over_gameplay_art_on_the_homepage(self):
+        card = build.card_for(_stub_post(), "")
+        card["cover"] = "media/fiesta-forever/cover.png"
+        card["hero"] = "media/fiesta-forever/gameplay.jpg"
+        page = theme.render_index(card, [], "", "https://e.com")
+        frame = page.split('<div class="hero-feature">', 1)[1].split("</a>", 1)[0]
+        self.assertIn("cover.png", frame)
+        self.assertNotIn("gameplay.jpg", frame)
 
     def test_the_archive_is_hidden_when_there_is_only_one_post(self):
         self.assertNotIn("All Updates", _home())
@@ -913,7 +952,7 @@ class ArtworkTests(unittest.TestCase):
         posts = build.load_posts(include_drafts=True)
         self.assertTrue(posts)
         for post in posts:
-            for name in (post.hero, post.icon):
+            for name in (post.cover, post.hero, post.icon):
                 if not name or name.startswith(("http", "/")):
                     continue
                 path = build.MEDIA_DIR / post.slug / name
@@ -1126,8 +1165,9 @@ class AuthoringToolTests(unittest.TestCase):
         self.assertIn("## ", blog.TEMPLATE)
         self.assertIn("### ", blog.TEMPLATE)
         self.assertIn("![](", blog.TEMPLATE)
-        for key in ("title:", "tagline:", "date:", "category:", "hero:", "icon:"):
+        for key in ("title:", "tagline:", "date:", "category:", "cover:", "icon:"):
             self.assertIn(key, blog.TEMPLATE)
+        self.assertNotIn("\nhero:", blog.TEMPLATE)
 
     def test_new_records_the_commit_it_covers(self):
         import blog

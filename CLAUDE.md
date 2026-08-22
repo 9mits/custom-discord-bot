@@ -20,6 +20,8 @@ cross-tool source of truth. It is imported below so Claude Code loads it in full
 - Before drafting any dev-blog post, give the user the exact, numbered
   feature-specific screenshot brief required by AGENTS.md — filenames, setup,
   action/menu, subjects, `/mgxadmin devblog` settings, HUD state and framing.
+  Treat `cover:` as designed editorial artwork, never a raw gameplay capture;
+  keep UI-heavy screenshots inside the relevant article section.
   Match the supplied reference pages' punchy reveal voice, not only their
   headings, emoji and bold formatting.
 - For substantial Minecraft integrations, it is acceptable to study, import,
