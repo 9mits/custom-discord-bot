@@ -17,6 +17,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 from datetime import date
 from pathlib import Path
 from typing import NoReturn
@@ -261,9 +262,20 @@ def cmd_publish(args: argparse.Namespace) -> int:
         print("Opened pull request #%s" % number)
 
     print("\nWaiting for checks (a couple of minutes)...")
-    checks = run([find_gh(), "pr", "checks", number, "--repo", REPO_SLUG,
-                  "--watch", "--interval", "15"])
-    print(checks.stdout.strip() or checks.stderr.strip())
+    # GitHub takes a few seconds to register a new PR's checks, and until it
+    # does `gh pr checks` exits non-zero saying none were reported. Treating
+    # that as a failure aborts a perfectly good publish, so wait it out first.
+    checks = None
+    for attempt in range(12):
+        checks = run([find_gh(), "pr", "checks", number, "--repo", REPO_SLUG,
+                      "--watch", "--interval", "15"])
+        output = (checks.stdout or "") + (checks.stderr or "")
+        if "no checks reported" not in output.lower():
+            break
+        if attempt == 0:
+            print("  (waiting for GitHub to queue them)")
+        time.sleep(10)
+    print((checks.stdout or checks.stderr or "").strip())
     if checks.returncode:
         fail("Checks did not pass. The post is not published.\n"
              "Look at the run above, fix it, then run publish again.")
