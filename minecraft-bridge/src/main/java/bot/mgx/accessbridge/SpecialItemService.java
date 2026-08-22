@@ -5,12 +5,14 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Color;
+import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.Tag;
 import org.bukkit.block.Block;
+import org.bukkit.block.data.BlockData;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
@@ -182,13 +184,19 @@ final class SpecialItemService implements Listener {
                     if (!block.getType().isAir()
                             && block.getType().getHardness() >= 0f
                             && Tag.MINEABLE_PICKAXE.isTagged(block.getType())) {
-                        block.getWorld().spawnParticle(
-                                Particle.BLOCK,
-                                block.getLocation().add(0.5d, 0.5d, 0.5d),
-                                6, 0.22d, 0.22d, 0.22d, 0.04d,
-                                block.getBlockData()
-                        );
-                        player.breakBlock(block);
+                        Location effectAt = block.getLocation().add(0.5d, 0.5d, 0.5d);
+                        BlockData brokenData = block.getBlockData().clone();
+                        if (player.breakBlock(block)) {
+                            block.getWorld().spawnParticle(
+                                    Particle.BLOCK, effectAt,
+                                    8, 0.28d, 0.28d, 0.28d, 0.05d,
+                                    brokenData
+                            );
+                            block.getWorld().spawnParticle(
+                                    Particle.ENCHANT, effectAt,
+                                    4, 0.3d, 0.3d, 0.3d, 0.08d
+                            );
+                        }
                     }
                 }
             } finally {

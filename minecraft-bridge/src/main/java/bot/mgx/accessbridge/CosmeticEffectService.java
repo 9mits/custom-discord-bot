@@ -181,6 +181,10 @@ final class CosmeticEffectService implements Listener {
     private void drawAura(Player owner, CosmeticCatalog.Definition definition) {
         Location centre = owner.getLocation().add(0d, 1.05d, 0d);
         double phase = frame * 0.32d;
+        if (definition.id().equals("celestial_crown")) {
+            drawCelestialCrown(owner, centre, phase);
+            return;
+        }
         int tier = visualTier(definition);
         int points = 3 + tier * 2;
         for (int point = 0; point < points; point++) {
@@ -199,26 +203,44 @@ final class CosmeticEffectService implements Listener {
                         PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
                 case "amethyst_orbit" -> dust(owner, at, Color.fromRGB(165, 75, 240), 1.1f,
                         PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
-                case "celestial_crown" -> {
-                    dust(owner, at.clone().add(0d, 1d, 0d),
-                            Color.fromRGB(210, 235, 255), 1.3f,
-                            PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
-                    spawn(owner, at.clone().add(0d, 1d, 0d), Particle.END_ROD,
-                            1, 0d, 0d, 0d, 0d, null,
-                            PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
-                }
                 default -> { }
             }
         }
         if (tier >= 3 && frame % 2L == 0L) {
             spawn(owner, centre.clone().add(0d, 0.65d, 0d),
-                    definition.id().equals("celestial_crown") ? Particle.END_ROD : Particle.ENCHANT,
+                    Particle.ENCHANT,
                     2 + tier, 0.45d, 0.7d, 0.45d, 0.03d, null,
                     PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
         }
         drawAuraLayers(owner, definition, centre, phase, tier);
         if (tier >= 4) {
             drawRareAura(owner, definition, centre, phase, tier);
+        }
+    }
+
+    /** A small crown silhouette without the wings and large rings used by other rare auras. */
+    private void drawCelestialCrown(Player owner, Location centre, double phase) {
+        Location crown = centre.clone().add(0d, 0.9d, 0d);
+        int points = 8;
+        for (int point = 0; point < points; point++) {
+            double angle = phase * 0.45d + point * Math.PI * 2d / points;
+            double peak = point % 2 == 0 ? 0.12d : 0d;
+            Location at = crown.clone().add(
+                    Math.cos(angle) * 0.46d,
+                    peak,
+                    Math.sin(angle) * 0.46d
+            );
+            dust(owner, at, Color.fromRGB(210, 235, 255), 0.9f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            if (point % 4 == 0) {
+                spawn(owner, at, Particle.END_ROD, 1, 0d, 0d, 0d, 0d, null,
+                        PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            }
+        }
+        if (frame % 5L == 0L) {
+            spawn(owner, crown, Particle.ENCHANT,
+                    3, 0.3d, 0.12d, 0.3d, 0.02d, null,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
         }
     }
 
