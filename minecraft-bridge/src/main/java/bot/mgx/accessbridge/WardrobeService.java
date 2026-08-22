@@ -52,12 +52,14 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
     private static final class WardrobeMenu implements InventoryHolder {
         private final Screen screen;
         private final CosmeticCatalog.Category category;
+        private final boolean saleMode;
         private final Map<Integer, UUID> tokenSlots = new LinkedHashMap<>();
         private Inventory inventory;
 
-        WardrobeMenu(Screen screen, CosmeticCatalog.Category category) {
+        WardrobeMenu(Screen screen, CosmeticCatalog.Category category, boolean saleMode) {
             this.screen = screen;
             this.category = category;
+            this.saleMode = saleMode;
         }
 
         @Override
@@ -130,10 +132,18 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
     }
 
     void openHub(Player player) {
+        openHub(player, false);
+    }
+
+    void openSaleHub(Player player) {
+        openHub(player, true);
+    }
+
+    private void openHub(Player player, boolean saleMode) {
         vaultCarried(player);
-        WardrobeMenu holder = new WardrobeMenu(Screen.HUB, null);
+        WardrobeMenu holder = new WardrobeMenu(Screen.HUB, null, saleMode);
         Inventory inventory = Bukkit.createInventory(
-                holder, HUB_SIZE, Component.text("Wardrobe", ORANGE)
+                holder, HUB_SIZE, Component.text(saleMode ? "List a cosmetic" : "Wardrobe", ORANGE)
         );
         holder.inventory = inventory;
         inventory.setItem(KILL_EFFECT_SLOT, categoryButton(
@@ -152,16 +162,25 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         } else {
             inventory.setItem(SECRET_SLOT, button(Material.BLACK_STAINED_GLASS_PANE, "Unknown"));
         }
-        inventory.setItem(SETTINGS_SLOT, button(Material.COMPARATOR, "Cosmetic Settings"));
+        inventory.setItem(SETTINGS_SLOT, saleMode
+                ? button(Material.BARRIER, "Back to your listings")
+                : button(Material.COMPARATOR, "Cosmetic Settings"));
         MenuItems.show(plugin, player, inventory);
     }
 
     private void openCategory(Player player, CosmeticCatalog.Category category) {
+        openCategory(player, category, false);
+    }
+
+    private void openCategory(
+            Player player, CosmeticCatalog.Category category, boolean saleMode
+    ) {
         vaultCarried(player);
         List<Owned> owned = owned(player, category);
-        WardrobeMenu holder = new WardrobeMenu(Screen.CATEGORY, category);
+        WardrobeMenu holder = new WardrobeMenu(Screen.CATEGORY, category, saleMode);
         Inventory inventory = Bukkit.createInventory(
-                holder, MenuItems.BOARD_SIZE, Component.text(category.displayName(), ORANGE)
+                holder, MenuItems.BOARD_SIZE,
+                Component.text(saleMode ? "List: " + category.displayName() : category.displayName(), ORANGE)
         );
         holder.inventory = inventory;
 
@@ -191,13 +210,20 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
             ItemMeta meta = icon.getItemMeta();
             List<Component> lore = new ArrayList<>(meta.lore() == null ? List.of() : meta.lore());
             lore.add(Component.empty());
-            lore.add(line("Serial #" + selected.token().serialNumber()));
-            lore.add(line("In existence: " + store.inExistence(definition.id())));
+            if (selected.token().serialNumber() > 0) {
+                lore.add(line("Serial #" + selected.token().serialNumber()));
+                lore.add(line("In existence: " + store.inExistence(definition.id())));
+            } else {
+                lore.add(line("Screenshot preview — no serial"));
+            }
             if (copies.size() > 1) {
                 lore.add(line("You own " + copies.size() + " of these."));
             }
             if (active) {
                 lore.add(line("Equipped"));
+            }
+            if (saleMode && selected.token().serialNumber() > 0) {
+                lore.add(line("Click to list on the Auction House."));
             }
             meta.lore(lore);
             icon.setItemMeta(meta);
@@ -224,21 +250,29 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         }
         if (menu.screen == Screen.HUB) {
             switch (event.getSlot()) {
-                case KILL_EFFECT_SLOT -> openCategory(player, CosmeticCatalog.Category.KILL_EFFECT);
-                case AURA_SLOT -> openCategory(player, CosmeticCatalog.Category.AURA);
-                case TRAIL_SLOT -> openCategory(player, CosmeticCatalog.Category.TRAIL);
+                case KILL_EFFECT_SLOT -> openCategory(
+                        player, CosmeticCatalog.Category.KILL_EFFECT, menu.saleMode
+                );
+                case AURA_SLOT -> openCategory(player, CosmeticCatalog.Category.AURA, menu.saleMode);
+                case TRAIL_SLOT -> openCategory(player, CosmeticCatalog.Category.TRAIL, menu.saleMode);
                 case SECRET_SLOT -> {
                     if (!owned(player, CosmeticCatalog.Category.SECRET).isEmpty()) {
-                        openCategory(player, CosmeticCatalog.Category.SECRET);
+                        openCategory(player, CosmeticCatalog.Category.SECRET, menu.saleMode);
                     }
                 }
-                case SETTINGS_SLOT -> settings.openCosmeticSettings(player);
+                case SETTINGS_SLOT -> {
+                    if (menu.saleMode && economyMenus != null) {
+                        economyMenus.openOwn(player, 1);
+                    } else {
+                        settings.openCosmeticSettings(player);
+                    }
+                }
                 default -> { }
             }
             return;
         }
         if (event.getSlot() == MenuItems.backSlot(event.getInventory().getSize())) {
-            openHub(player);
+            openHub(player, menu.saleMode);
             return;
         }
         UUID serial = menu.tokenSlots.get(event.getSlot());
@@ -251,7 +285,7 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
             openHub(player);
             return;
         }
-        if (event.isShiftClick()) {
+        if (menu.saleMode || event.isShiftClick()) {
             promptSale(player, serial, category);
             return;
         }
@@ -374,7 +408,11 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void promptSale(Player player, UUID serial, CosmeticCatalog.Category category) {
-        if (economyMenus == null || !store.isStoredBy(player.getUniqueId(), serial)) {
+        CosmeticStore.Token token = store.token(serial).orElse(null);
+        if (economyMenus == null
+                || token == null
+                || token.serialNumber() <= 0
+                || !store.isStoredBy(player.getUniqueId(), serial)) {
             PlayerMenuService.error(player, "That cosmetic cannot be listed right now.");
             openCategory(player, category);
             return;

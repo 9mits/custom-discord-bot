@@ -92,6 +92,20 @@ python devblog/blog.py preview
 python devblog/blog.py publish
 ```
 
+Upcoming-event announcements are a separate collection and never count as a
+server update. Scaffold them as private drafts; the Events index and nested URL
+are generated automatically:
+
+```bash
+python devblog/blog.py new-event "Event Name" --date "YYYY-MM-DD HH:MM"
+python devblog/blog.py preview
+# remove `draft: true` only when the schedule and rewards are confirmed
+python devblog/blog.py publish
+```
+
+Do not create an event post merely because event tooling shipped. The user must
+actually ask to announce a specific event.
+
 ### Work out what the update actually is
 
 `new` prints it. Every post records a `covers:` commit in its front matter, so

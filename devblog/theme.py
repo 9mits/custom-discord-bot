@@ -1332,6 +1332,40 @@ def render_blog(featured: Optional[Dict[str, object]], cards: Sequence[Dict[str,
     )
 
 
+def render_events(featured: Optional[Dict[str, object]], cards: Sequence[Dict[str, object]],
+                  prefix: str, site_url: str,
+                  nav: Sequence[Dict[str, str]] = ()) -> str:
+    """Upcoming-event announcements, authored and published independently of updates."""
+    description = "Upcoming Mysterious SMP X events, dates, rules and rewards."
+    if not cards:
+        body = (
+            '<div class="page"><div class="shell"><div class="blog-head">'
+            '<h1>Upcoming Events</h1><p class="blog-lede">%s</p></div>'
+            '<div class="empty">No upcoming events announced yet. Check back soon.</div>'
+            '</div></div>' % _esc(description)
+        )
+    else:
+        marked = []
+        for index, card in enumerate(cards):
+            entry = dict(card)
+            entry["featured"] = index == 0 and featured is not None
+            marked.append(entry)
+        body = (
+            '<div class="page"><div class="shell"><div class="blog-head">'
+            '<h1>Upcoming Events</h1><p class="blog-lede">%s</p></div></div>%s'
+            '<div class="shell"><div class="card-grid">%s</div></div></div>'
+            % (
+                _esc(description),
+                _featured_strip(featured, "Next Event") if featured else "",
+                "".join(render_card(card, prefix) for card in marked),
+            )
+        )
+    return _page(
+        "Events | %s" % SITE_NAME, description, prefix, body, None,
+        "%s/events/" % site_url.rstrip("/"), current="events", nav=nav,
+    )
+
+
 def render_index(featured: Optional[Dict[str, object]], cards: Sequence[Dict[str, object]],
                  prefix: str, site_url: str, nav: Sequence[Dict[str, str]] = (),
                  stats: Optional[Dict[str, object]] = None) -> str:

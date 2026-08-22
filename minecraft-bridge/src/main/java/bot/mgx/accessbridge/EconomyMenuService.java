@@ -36,6 +36,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.HashSet;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -69,6 +70,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     private static final int AH_OWN_SLOT = 47;
     private static final int AH_MAIL_SLOT = 48;
     private static final int AH_REFRESH_SLOT = 50;
+    private static final int AH_LIST_COSMETIC_SLOT = 47;
     private static final int CONFIRM_YES = 11;
     private static final int CONFIRM_ITEM = 13;
     private static final int CONFIRM_NO = 15;
@@ -114,6 +116,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     private final Map<UUID, PendingAuto> pendingAuto = new ConcurrentHashMap<>();
 
     private final PlayerSettingsStore settings;
+    private WardrobeService wardrobe;
 
     EconomyMenuService(
             MGXAccessBridge plugin,
@@ -135,6 +138,32 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             plugin.getLogger().info("Returned " + returnedKeys
                     + " crate-key auction listings to seller mailboxes.");
         }
+    }
+
+    void useWardrobe(WardrobeService wardrobe) {
+        this.wardrobe = wardrobe;
+    }
+
+    Set<UUID> cosmeticSerialsOwnedBy(UUID owner, CosmeticItems cosmeticItems) {
+        Set<UUID> serials = new HashSet<>();
+        auctions.listingsOf(owner, System.currentTimeMillis()).forEach(listing ->
+                cosmeticItems.read(decodeItem(listing.itemData()))
+                        .ifPresent(info -> serials.add(info.serial()))
+        );
+        auctions.mailboxOf(owner).forEach(mail ->
+                cosmeticItems.read(decodeItem(mail.itemData()))
+                        .ifPresent(info -> serials.add(info.serial()))
+        );
+        return serials;
+    }
+
+    int deleteCosmeticSerials(Set<UUID> serials, CosmeticItems cosmeticItems) {
+        if (serials.isEmpty()) {
+            return 0;
+        }
+        return auctions.removeMatching(itemData -> cosmeticItems.read(decodeItem(itemData))
+                .map(info -> serials.contains(info.serial()))
+                .orElse(false));
     }
 
     @Override
@@ -857,8 +886,14 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         drawListings(inventory, rows, page, true);
         if (rows.isEmpty()) {
             inventory.setItem(22, button(Material.BARRIER, "No listings",
-                    "Hold an item and use /ah sell <price>."));
+                    "List an inventory item with /ah sell <price>.",
+                    "Cosmetics can be listed below."));
         }
+        inventory.setItem(AH_LIST_COSMETIC_SLOT, button(
+                Material.NETHER_STAR, "List a cosmetic",
+                "Choose directly from your wardrobe.",
+                "No physical item is required."
+        ));
         MenuItems.paginate(inventory, page, rows.size(), true);
         MenuItems.show(plugin, player, inventory);
     }
@@ -1203,6 +1238,10 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     }
 
     private void clickOwn(Player player, Menu menu, int slot) {
+        if (slot == AH_LIST_COSMETIC_SLOT && wardrobe != null) {
+            wardrobe.openSaleHub(player);
+            return;
+        }
         if (slot == PREVIOUS_SLOT) {
             openOwn(player, menu.page() - 1);
             return;

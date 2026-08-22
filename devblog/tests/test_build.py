@@ -1048,6 +1048,7 @@ class BlogArchiveTests(unittest.TestCase):
         self.assertIn("No updates posted yet", page)
         self.assertNotIn('id="featured"', page)
 
+
     def test_blog_is_reserved_so_a_post_cannot_take_it(self):
         (build.POSTS_DIR / "2026-01-01-x.md").write_text(
             "---\ntitle: T\nslug: blog\n---\n\nbody", encoding="utf-8")
@@ -1072,6 +1073,71 @@ class BlogArchiveTests(unittest.TestCase):
         build.build("https://example.com")
         page = (build.DIST_DIR / "update-1" / "index.html").read_text(encoding="utf-8")
         self.assertIn('href="../blog/" aria-current="page"', page)
+
+
+class EventArchiveTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self._saved = (
+            build.POSTS_DIR, build.EVENTS_DIR, build.PAGES_DIR, build.MEDIA_DIR,
+            build.STATIC_DIR, build.DIST_DIR,
+        )
+        build.POSTS_DIR = self.tmp / "posts"
+        build.EVENTS_DIR = self.tmp / "events"
+        build.PAGES_DIR = self.tmp / "pages"
+        build.MEDIA_DIR = self.tmp / "media"
+        build.STATIC_DIR = self.tmp / "static"
+        build.DIST_DIR = self.tmp / "dist"
+        for folder in (
+            build.POSTS_DIR, build.EVENTS_DIR, build.PAGES_DIR,
+            build.MEDIA_DIR, build.STATIC_DIR,
+        ):
+            folder.mkdir(parents=True)
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        (
+            build.POSTS_DIR, build.EVENTS_DIR, build.PAGES_DIR, build.MEDIA_DIR,
+            build.STATIC_DIR, build.DIST_DIR,
+        ) = self._saved
+
+    def event(self, slug="void-weekend", draft=False):
+        (build.EVENTS_DIR / ("2026-01-01-%s.md" % slug)).write_text(
+            "---\ntitle: Void Weekend\ndate: 2026-09-05 18:00\ncategory: Event\n%s---\n\nSoon\n"
+            % ("draft: true\n" if draft else ""),
+            encoding="utf-8",
+        )
+
+    def test_events_have_an_archive_and_nested_post_url(self):
+        self.event()
+        build.build("https://example.com")
+        archive = build.DIST_DIR / "events" / "index.html"
+        post = build.DIST_DIR / "events" / "void-weekend" / "index.html"
+        self.assertTrue(archive.exists())
+        self.assertTrue(post.exists())
+        self.assertIn("Void Weekend", archive.read_text(encoding="utf-8"))
+        self.assertIn('href="../../events/" aria-current="page"',
+                      post.read_text(encoding="utf-8"))
+
+    def test_event_drafts_only_appear_in_draft_builds(self):
+        self.event(draft=True)
+        build.build("https://example.com")
+        self.assertFalse((build.DIST_DIR / "events" / "void-weekend").exists())
+        build.build("https://example.com", include_drafts=True)
+        self.assertTrue((build.DIST_DIR / "events" / "void-weekend" / "index.html").exists())
+
+    def test_empty_events_page_explains_that_nothing_is_announced(self):
+        build.build("https://example.com")
+        page = (build.DIST_DIR / "events" / "index.html").read_text(encoding="utf-8")
+        self.assertIn("No upcoming events announced yet", page)
+
+    def test_events_is_reserved_from_root_posts(self):
+        (build.POSTS_DIR / "2026-01-01-events.md").write_text(
+            "---\ntitle: Bad\n---\n\nbody\n", encoding="utf-8"
+        )
+        with self.assertRaises(build.PostError):
+            build.build("https://example.com")
 
 
 

@@ -18,7 +18,7 @@ import shutil
 import subprocess
 import sys
 import time
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import NoReturn
 
@@ -79,6 +79,43 @@ One shipped change per line.
 Skip implementation history unless players need it.
 
 *Finish with personality.*
+'''
+
+EVENT_TEMPLATE = '''---
+title: {title}
+tagline: Emoji-led one-line hook for the event card. Put the date, activity and reward first.
+date: {event_date}
+category: Event
+cover: cover.png
+icon: icon.png
+signoff: SEE YOU AT THE EVENT!
+tags: event
+draft: true
+---
+
+## {title}
+
+Open with what is happening and why players should show up.
+Put the exact **date**, **time zone**, location and requirements on separate lines.
+
+*Close the opening with a playful warning or dare.*
+
+![](screenshot-1.png)
+
+## How It Works
+
+### Event Feature
+
+Tell players exactly what to **DO**.
+State only confirmed rewards and rules.
+
+## Event Details
+
+**Starts:** exact date, time and time zone
+**Location:** exact in-game location or command
+**Requirements:** anything players need before joining
+
+*Make the final beat worth remembering.*
 '''
 
 
@@ -215,6 +252,36 @@ def cmd_new(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_new_event(args: argparse.Namespace) -> int:
+    slug = args.slug or re.sub(r"[^a-z0-9]+", "-", args.title.lower()).strip("-")
+    if not re.match(r"^[a-z0-9][a-z0-9-]*$", slug):
+        fail("The slug %r must be lowercase letters, digits and hyphens." % slug)
+    try:
+        datetime.strptime(args.date, "%Y-%m-%d %H:%M")
+    except ValueError:
+        try:
+            datetime.strptime(args.date, "%Y-%m-%d")
+        except ValueError:
+            fail("The event date must be YYYY-MM-DD or YYYY-MM-DD HH:MM.")
+    event = ROOT / "events" / ("%s-%s.md" % (date.today().isoformat(), slug))
+    media = ROOT / "media" / slug
+    if event.exists():
+        fail("%s already exists. Pick another --slug." % event.name)
+    event.parent.mkdir(parents=True, exist_ok=True)
+    event.write_text(
+        EVENT_TEMPLATE.format(title=args.title, event_date=args.date), encoding="utf-8"
+    )
+    media.mkdir(parents=True, exist_ok=True)
+    print("Created a draft event:")
+    print("  %s" % event.relative_to(REPO))
+    print("  %s/   (put the images here)" % media.relative_to(REPO))
+    print("\nIt stays off the live site while 'draft: true'.")
+    print("Preview it with: python devblog/blog.py preview")
+    print("When it is ready, remove draft:true and run: python devblog/blog.py publish")
+    print("Live URL: %s/events/%s" % (SITE_URL, slug))
+    return 0
+
+
 # --- check ----------------------------------------------------------------
 
 def cmd_check(_args: argparse.Namespace) -> int:
@@ -223,11 +290,12 @@ def cmd_check(_args: argparse.Namespace) -> int:
     problems = []
     try:
         posts = build.load_posts(include_drafts=True)
+        events = build.load_events(include_drafts=True)
         pages = build.load_pages()
     except build.PostError as exc:
         fail("A post or page is malformed:\n  %s" % exc)
 
-    for post in posts:
+    for post in posts + events:
         for label, name in (("cover", post.cover), ("hero", post.hero), ("icon", post.icon)):
             if name and not re.match(r"^(https?:|/)", name):
                 if not (build.MEDIA_DIR / post.slug / name).exists():
@@ -253,8 +321,9 @@ def cmd_check(_args: argparse.Namespace) -> int:
         print("\nFix these and run check again.")
         return 1
 
-    drafts = [p.slug for p in posts if p.draft]
-    print("OK. %d post(s), %d page(s)." % (len(posts), len(pages)))
+    drafts = [p.slug for p in posts + events if p.draft]
+    print("OK. %d post(s), %d event(s), %d page(s)."
+          % (len(posts), len(events), len(pages)))
     if drafts:
         print("Drafts (not published): %s" % ", ".join(drafts))
     return 0
@@ -289,9 +358,13 @@ def cmd_publish(args: argparse.Namespace) -> int:
         print("  %s" % line)
 
     posts = sorted((ROOT / "posts").glob("*.md"))
-    slug = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", posts[-1].stem) if posts else "update"
-    branch = args.branch or "post/%s" % slug
-    message = args.message or "post: %s" % slug
+    events = sorted((ROOT / "events").glob("*.md"))
+    changed_event = "devblog/events/" in staged and "devblog/posts/" not in staged
+    source = events[-1] if changed_event and events else (posts[-1] if posts else None)
+    slug = re.sub(r"^\d{4}-\d{2}-\d{2}-", "", source.stem) if source else "update"
+    kind = "event" if changed_event else "post"
+    branch = args.branch or "%s/%s" % (kind, slug)
+    message = args.message or "%s: %s" % (kind, slug)
 
     if git("rev-parse", "--abbrev-ref", "HEAD") == "main":
         git("checkout", "-b", branch)
@@ -357,6 +430,13 @@ def main() -> int:
     new.add_argument("--category", default="Update", help="the pill above the title")
     new.add_argument("--slug", help="URL name; defaults to the next update-N")
     new.set_defaults(func=cmd_new)
+
+    new_event = sub.add_parser("new-event", help="scaffold a draft event announcement")
+    new_event.add_argument("title", help='the event title, e.g. "Void RNG Weekend"')
+    new_event.add_argument("--date", required=True,
+                           help="event start in YYYY-MM-DD or YYYY-MM-DD HH:MM")
+    new_event.add_argument("--slug", help="URL name; defaults from the title")
+    new_event.set_defaults(func=cmd_new_event)
 
     check = sub.add_parser("check", help="validate posts, pages and artwork")
     check.set_defaults(func=cmd_check)

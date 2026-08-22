@@ -182,6 +182,12 @@ final class SpecialItemService implements Listener {
                     if (!block.getType().isAir()
                             && block.getType().getHardness() >= 0f
                             && Tag.MINEABLE_PICKAXE.isTagged(block.getType())) {
+                        block.getWorld().spawnParticle(
+                                Particle.BLOCK,
+                                block.getLocation().add(0.5d, 0.5d, 0.5d),
+                                6, 0.22d, 0.22d, 0.22d, 0.04d,
+                                block.getBlockData()
+                        );
                         player.breakBlock(block);
                     }
                 }

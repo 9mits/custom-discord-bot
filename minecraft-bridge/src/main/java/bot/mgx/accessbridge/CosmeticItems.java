@@ -46,8 +46,10 @@ final class CosmeticItems {
         data.set(serialKey, PersistentDataType.STRING, token.serial().toString());
         data.set(generationKey, PersistentDataType.INTEGER, token.generation());
         List<Component> lore = new ArrayList<>(meta.lore() == null ? List.of() : meta.lore());
-        lore.add(Component.empty());
-        lore.add(line("Serial #" + token.serialNumber()));
+        if (token.serialNumber() > 0) {
+            lore.add(Component.empty());
+            lore.add(line("Serial #" + token.serialNumber()));
+        }
         meta.lore(lore);
         meta.setMaxStackSize(1);
         item.setItemMeta(meta);

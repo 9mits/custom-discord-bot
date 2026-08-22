@@ -49,12 +49,16 @@ final class DevBlogService {
     private final Plugin plugin;
     private final DevBlogStore store;
     private final SidebarService sidebar;
+    private final CosmeticStore cosmetics;
     private final Map<UUID, Live> live = new HashMap<>();
 
-    DevBlogService(Plugin plugin, DevBlogStore store, SidebarService sidebar) {
+    DevBlogService(
+            Plugin plugin, DevBlogStore store, SidebarService sidebar, CosmeticStore cosmetics
+    ) {
         this.plugin = plugin;
         this.store = store;
         this.sidebar = sidebar;
+        this.cosmetics = cosmetics;
     }
 
     boolean isActive(Player player) {
@@ -138,6 +142,7 @@ final class DevBlogService {
                 contents, armour, player.getGameMode().name(), keepArmour,
                 System.currentTimeMillis()
         ));
+        cosmetics.beginPreview(player.getUniqueId());
 
         Live state = new Live();
         state.wasInvulnerable = player.isInvulnerable();
@@ -172,6 +177,7 @@ final class DevBlogService {
     void stop(Player player, boolean announce) {
         DevBlogStore.Session session = store.close(player.getUniqueId()).orElse(null);
         Live state = live.remove(player.getUniqueId());
+        cosmetics.endPreview(player.getUniqueId());
         if (session == null) {
             return;
         }

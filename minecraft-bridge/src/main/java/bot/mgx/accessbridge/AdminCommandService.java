@@ -39,7 +39,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     static final String PERMISSION = "mgxaccessbridge.admin";
     private static final List<String> SUBCOMMANDS = List.of(
             "startserver", "teststart", "give", "ranks", "eco", "bounty", "hologram", "reset",
-            "devblog", "serials", "abuse", "help"
+            "devblog", "serials", "cosmetics", "abuse", "help"
     );
     private static final List<String> RANK_ACTIONS = List.of("hold", "release", "list");
     private static final List<String> DEVBLOG_ACTIONS = List.of(
@@ -69,6 +69,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     private final ServerDataResetService resets;
     private final DevBlogService devBlog;
     private final AdminEventService adminEvents;
+    private final EconomyMenuService auctionHouse;
 
     AdminCommandService(
             MGXAccessBridge plugin,
@@ -82,7 +83,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             HologramService holograms,
             ServerDataResetService resets,
             DevBlogService devBlog,
-            AdminEventService adminEvents
+            AdminEventService adminEvents,
+            EconomyMenuService auctionHouse
     ) {
         this.plugin = plugin;
         this.rankSync = rankSync;
@@ -96,6 +98,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         this.resets = resets;
         this.devBlog = devBlog;
         this.adminEvents = adminEvents;
+        this.auctionHouse = auctionHouse;
     }
 
     @Override
@@ -124,6 +127,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 case "reset" -> reset(sender, args);
                 case "devblog", "screenshot" -> devBlog(sender, args);
                 case "serials" -> serials(sender, args);
+                case "cosmetics" -> cosmetics(sender, args);
                 case "abuse", "event" -> {
                     String summary = adminEvents.run(sender, args);
                     success(sender, summary + ".");
@@ -184,6 +188,41 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 .record();
     }
 
+    private void cosmetics(CommandSender sender, String[] args) {
+        if (args.length < 3 || !args[1].equalsIgnoreCase("delete")) {
+            throw new IllegalArgumentException(
+                    "Usage: /mgxadmin cosmetics delete <player> confirm"
+            );
+        }
+        OfflinePlayer target = requireNamedPlayer(args[2]);
+        boolean confirmed = Arrays.stream(args).anyMatch(value -> value.equalsIgnoreCase("confirm"));
+        if (!confirmed) {
+            error(sender, "This permanently deletes every cosmetic owned by "
+                    + nameOf(target) + ". Add 'confirm' to run it.");
+            return;
+        }
+        Player online = target.getPlayer();
+        Set<UUID> knownSerials = new java.util.HashSet<>(
+                auctionHouse.cosmeticSerialsOwnedBy(target.getUniqueId(), cosmeticItems)
+        );
+        if (online != null) {
+            cosmeticItems.carried(online).stream()
+                    .map(CosmeticItems.TokenInfo::serial)
+                    .forEach(knownSerials::add);
+        }
+        int deleted = cosmetics.deleteOwned(target.getUniqueId(), knownSerials);
+        int auctionEntries = auctionHouse.deleteCosmeticSerials(knownSerials, cosmeticItems);
+        if (online != null) {
+            knownSerials.forEach(serial -> cosmeticItems.removeOne(online, serial));
+        }
+        success(sender, "Deleted " + deleted + " cosmetic(s) owned by " + nameOf(target) + ".");
+        report(sender, "cosmetics_deleted", "Deleted a player's cosmetics")
+                .detail("target_uuid", target.getUniqueId().toString())
+                .detail("cosmetics", deleted)
+                .detail("auction_entries", auctionEntries)
+                .record();
+    }
+
     // ------------------------------------------------------------------
     // One give for everything an operator hands out
     // ------------------------------------------------------------------
@@ -215,12 +254,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                         .orElseThrow(() -> new IllegalArgumentException(
                                 "No cosmetic called '" + request.cosmeticId() + "'."
                         ));
-                int count = forEachTarget(targets, player -> hand(
-                        player,
-                        cosmeticItems.token(definition, cosmetics.mint(
-                                player.getUniqueId(), definition.id(), UUID.randomUUID()
-                        ))
-                ));
+                int count = forEachTarget(targets, player -> grantCosmetic(player, definition));
                 success(sender, "Gave " + definition.displayName() + " to "
                         + describeTargets(targets, count) + ".");
                 audit(sender, targets, definition.displayName(), count);
@@ -241,6 +275,20 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 audit(sender, targets, reward.displayName(), count);
             }
         }
+    }
+
+    private void grantCosmetic(Player player, CosmeticCatalog.Definition definition) {
+        if (devBlog.isActive(player)) {
+            cosmetics.mintPreview(player.getUniqueId(), definition.id());
+            player.sendMessage(prefix().append(Component.text(
+                    definition.displayName() + " added as a serial-free screenshot preview.",
+                    NamedTextColor.GREEN
+            )));
+            return;
+        }
+        hand(player, cosmeticItems.token(definition, cosmetics.mint(
+                player.getUniqueId(), definition.id(), UUID.randomUUID()
+        )));
     }
 
     /** Anything that will not fit drops at the player's feet rather than vanishing. */
@@ -598,6 +646,9 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 .append(Component.text("  clear progress, keeping the world", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin serials reset <cosmetic> confirm", ORANGE)
                 .append(Component.text("  renumber one cosmetic without deleting it", NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin cosmetics delete <player> confirm", ORANGE)
+                .append(Component.text("  delete every cosmetic owned by one player",
+                        NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin devblog", ORANGE)
                 .append(Component.text("  screenshot mode: stash your gear, clear the screen",
                         NamedTextColor.GRAY)));
@@ -643,6 +694,22 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             if (args.length == 3 && args[1].equalsIgnoreCase("reset")) {
                 return partial(args[2], CosmeticCatalog.all().stream()
                         .map(CosmeticCatalog.Definition::id).toList());
+            }
+            if (args.length == 4) {
+                return partial(args[3], List.of("confirm"));
+            }
+            return List.of();
+        }
+        if (action.equals("cosmetics")) {
+            if (args.length == 2) {
+                return partial(args[1], List.of("delete"));
+            }
+            if (args.length == 3) {
+                return partial(args[2], Bukkit.getOfflinePlayers().length == 0
+                        ? List.of()
+                        : Arrays.stream(Bukkit.getOfflinePlayers())
+                                .map(AdminCommandService::nameOf)
+                                .toList());
             }
             if (args.length == 4) {
                 return partial(args[3], List.of("confirm"));

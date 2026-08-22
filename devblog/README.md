@@ -57,6 +57,20 @@ python devblog/blog.py preview
 python devblog/blog.py publish
 ```
 
+Upcoming events use their own archive and never have to masquerade as a server
+update. Start one as a private draft, fill in the confirmed schedule and art,
+then remove `draft: true` only when it is ready to announce:
+
+```bash
+python devblog/blog.py new-event "Void RNG Weekend" --date "2026-09-05 18:00"
+python devblog/blog.py preview
+python devblog/blog.py publish
+```
+
+Event markdown lives in `devblog/events/` and publishes under `/events/<slug>`.
+The `/events` index is generated automatically. Creating the draft does not put
+it on the live site.
+
 ### The format
 
 Two things go in: **one markdown file** and **one folder of images**.
@@ -122,6 +136,7 @@ the nav, ordered by their `order` key:
 
 | Page | URL | Source |
 |---|---|---|
+| Events | `/events` | generated from draftable `events/*.md` announcements |
 | Server Guide | `/guide` | **generated** from the bot's information panel |
 | Server Rules | `/rules` | **generated** from `SERVER_RULES` in the bot |
 | How to Apply | `/apply` | hand-written |

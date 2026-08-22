@@ -143,6 +143,7 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         broadcast_parameters = {parameter.name for parameter in staff_commands["broadcast"].parameters}
         self.assertEqual(broadcast_parameters, {"message"})
 
+
     def test_application_and_review_components_are_persistent(self):
         panel = application_panel()
         review = ReviewView()
@@ -462,6 +463,60 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         interaction.response.defer.assert_awaited_once_with(ephemeral=True)
         bot.build_diagnostics_embed.assert_awaited_once_with(interaction.guild)
         self.assertIs(interaction.edit_original_response.await_args.kwargs["view"], replacement)
+
+
+class MinecraftDepartureRevocationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_ban_in_the_configured_guild_revokes_access(self):
+        fake = SimpleNamespace(
+            config=SimpleNamespace(guild_id=10),
+            _revoke_departed_member=AsyncMock(),
+        )
+        await MinecraftAccessBot.on_member_ban(
+            fake, SimpleNamespace(id=10), SimpleNamespace(id=55)
+        )
+        fake._revoke_departed_member.assert_awaited_once_with(55, "Discord server ban")
+
+    async def test_ban_from_an_unrelated_guild_is_ignored(self):
+        fake = SimpleNamespace(
+            config=SimpleNamespace(guild_id=10),
+            _revoke_departed_member=AsyncMock(),
+        )
+        await MinecraftAccessBot.on_member_ban(
+            fake, SimpleNamespace(id=11), SimpleNamespace(id=55)
+        )
+        fake._revoke_departed_member.assert_not_awaited()
+
+    async def test_confirmed_kick_revokes_but_an_ordinary_leave_does_not(self):
+        async def audit_entries(*entries):
+            for entry in entries:
+                yield entry
+
+        kick = SimpleNamespace(
+            target=SimpleNamespace(id=55),
+            created_at=datetime.now(timezone.utc),
+        )
+        fake = SimpleNamespace(
+            config=SimpleNamespace(guild_id=10),
+            _revoke_departed_member=AsyncMock(),
+        )
+        kicked_guild = SimpleNamespace(
+            id=10, audit_logs=lambda **_kwargs: audit_entries(kick)
+        )
+        with patch("minecraft_bot.bot.asyncio.sleep", new=AsyncMock()):
+            await MinecraftAccessBot.on_member_remove(
+                fake, SimpleNamespace(id=55, guild=kicked_guild)
+            )
+        fake._revoke_departed_member.assert_awaited_once_with(55, "Discord server kick")
+
+        fake._revoke_departed_member.reset_mock()
+        left_guild = SimpleNamespace(
+            id=10, audit_logs=lambda **_kwargs: audit_entries()
+        )
+        with patch("minecraft_bot.bot.asyncio.sleep", new=AsyncMock()):
+            await MinecraftAccessBot.on_member_remove(
+                fake, SimpleNamespace(id=55, guild=left_guild)
+            )
+        fake._revoke_departed_member.assert_not_awaited()
 
 
 class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
