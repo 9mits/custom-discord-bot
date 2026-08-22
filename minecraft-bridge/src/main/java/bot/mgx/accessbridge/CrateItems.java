@@ -197,12 +197,7 @@ final class CrateItems {
     }
 
     ItemStack reward(CrateCatalog.Reward reward, UUID spinId) {
-        Material material = Material.matchMaterial(reward.materialName());
-        if (material == null) {
-            throw new IllegalStateException("Unknown crate material " + reward.materialName());
-        }
-        ItemStack item = specialItems.create(reward)
-                .orElseGet(() -> new ItemStack(material, reward.amount()));
+        ItemStack item = reward(reward);
         ItemMeta meta = item.getItemMeta();
         if (meta == null) {
             throw new IllegalStateException("Crate reward has no item metadata.");
@@ -212,6 +207,15 @@ final class CrateItems {
         );
         item.setItemMeta(meta);
         return item;
+    }
+
+    ItemStack reward(CrateCatalog.Reward reward) {
+        Material material = Material.matchMaterial(reward.materialName());
+        if (material == null) {
+            throw new IllegalStateException("Unknown crate material " + reward.materialName());
+        }
+        return specialItems.create(reward)
+                .orElseGet(() -> new ItemStack(material, reward.amount()));
     }
 
     boolean carriesReward(Player player, UUID spinId) {

@@ -190,6 +190,21 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                         + describeTargets(targets, count) + ".");
                 audit(sender, targets, definition.displayName(), count);
             }
+            case REWARD -> {
+                CrateCatalog.Reward reward = CrateCatalog.find(request.cosmeticId())
+                        .orElseThrow(() -> new IllegalArgumentException(
+                                "No crate reward called '" + request.cosmeticId() + "'."
+                        ));
+                if (reward.cosmetic()) {
+                    throw new IllegalArgumentException(
+                            "Use the cosmetic grant for cosmetic rewards."
+                    );
+                }
+                int count = forEachTarget(targets, player -> hand(player, crateItems.reward(reward)));
+                success(sender, "Gave " + reward.displayName() + " to "
+                        + describeTargets(targets, count) + ".");
+                audit(sender, targets, reward.displayName(), count);
+            }
         }
     }
 
@@ -596,6 +611,11 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             if (args.length == 4 && args[2].toLowerCase(Locale.ROOT).startsWith("cosmetic")) {
                 return partial(args[3], CosmeticCatalog.all().stream()
                         .map(CosmeticCatalog.Definition::id).toList());
+            }
+            if (args.length == 4 && args[2].equalsIgnoreCase("reward")) {
+                return partial(args[3], CrateCatalog.all().stream()
+                        .filter(reward -> !reward.cosmetic())
+                        .map(CrateCatalog.Reward::id).toList());
             }
             return List.of();
         }
