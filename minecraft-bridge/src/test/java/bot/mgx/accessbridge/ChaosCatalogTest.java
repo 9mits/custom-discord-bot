@@ -66,6 +66,26 @@ class ChaosCatalogTest {
     }
 
     @Test
+    void payoutEventsAreNeverInTheChaosPool() {
+        // Chaos fires five effects at once. Rolling a jackpot into that would
+        // hand out four payouts nobody asked for.
+        for (ChaosCatalog payout : ChaosCatalog.payouts()) {
+            assertFalse(ChaosCatalog.chaosPool().contains(payout),
+                    payout.id() + " would pay out inside chaos");
+        }
+    }
+
+    @Test
+    void theNewLiveEventsAreReachableAndNamed() {
+        assertEquals(ChaosCatalog.AIRDROP, ChaosCatalog.resolve("supply").orElseThrow());
+        assertEquals(ChaosCatalog.PINATA, ChaosCatalog.resolve("boss").orElseThrow());
+        assertEquals(ChaosCatalog.JACKPOT, ChaosCatalog.resolve("roll").orElseThrow());
+        assertTrue(ChaosCatalog.PINATA.timed());
+        assertFalse(ChaosCatalog.AIRDROP.timed());
+        assertFalse(ChaosCatalog.JACKPOT.timed());
+    }
+
+    @Test
     void theChaosPoolNeverRecursesOrTurnsItselfOff() {
         assertFalse(ChaosCatalog.chaosPool().contains(ChaosCatalog.CHAOS));
         assertFalse(ChaosCatalog.chaosPool().contains(ChaosCatalog.STOP));
