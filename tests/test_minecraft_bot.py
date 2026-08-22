@@ -3064,6 +3064,17 @@ class ApplicationGuideButtonTests(unittest.TestCase):
 
         self.assertTrue(application_guide_view().is_persistent())
 
+    def test_the_guide_does_not_restate_the_welcome_features(self):
+        from minecraft_bot.presentation import application_guide_embed
+
+        names = {field.name for field in application_guide_embed().fields}
+        described = " ".join(field.value.casefold() for field in application_guide_embed().fields)
+
+        self.assertEqual(names, {"Can I play on my version?", "Nothing is safe"})
+        for leftover in ("shop", "auction", "treasury", "leaderboard", "richest"):
+            with self.subTest(leftover=leftover):
+                self.assertNotIn(leftover, described)
+
 
 class ApplicationCardReplacementTests(unittest.IsolatedAsyncioTestCase):
     """One application, one card.
