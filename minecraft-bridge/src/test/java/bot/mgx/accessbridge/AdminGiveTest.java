@@ -37,6 +37,16 @@ class AdminGiveTest {
     }
 
     @Test
+    void crateRewardsCarryTheirIdNormalised() {
+        assertEquals(
+                new AdminGive.Request(AdminGive.Type.REWARD, 1L, "enchant_excavation_i"),
+                AdminGive.parse("reward", "  Enchant_Excavation_I ")
+        );
+        assertThrows(IllegalArgumentException.class, () -> AdminGive.parse("reward", null));
+        assertThrows(IllegalArgumentException.class, () -> AdminGive.parse("reward", "   "));
+    }
+
+    @Test
     void aliasesResolveAndUnknownTypesExplainThemselves() {
         assertEquals(AdminGive.Type.MONEY, AdminGive.parse("CASH", "10").type());
         assertEquals(AdminGive.Type.KEY, AdminGive.parse("Crates", "2").type());

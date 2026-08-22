@@ -13,12 +13,13 @@ final class AdminGive {
     /** Keys are handed over as items, so one command cannot exceed a stack. */
     static final int MAX_KEYS = 64;
 
-    static final List<String> TYPES = List.of("money", "key", "cosmetic");
+    static final List<String> TYPES = List.of("money", "key", "cosmetic", "reward");
 
     enum Type {
         MONEY,
         KEY,
-        COSMETIC
+        COSMETIC,
+        REWARD
     }
 
     record Request(Type type, long amount, String cosmeticId) {
@@ -61,6 +62,14 @@ final class AdminGive {
                 }
                 return new Request(Type.COSMETIC, 1, value.trim().toLowerCase(Locale.ROOT));
             }
+            case "reward", "crate_reward" -> {
+                if (value == null || value.isBlank()) {
+                    throw new IllegalArgumentException(
+                            "Give which reward? Use /mgxadmin give <player> reward <id>."
+                    );
+                }
+                return new Request(Type.REWARD, 1, value.trim().toLowerCase(Locale.ROOT));
+            }
             default -> throw new IllegalArgumentException(usage());
         }
     }
@@ -74,6 +83,6 @@ final class AdminGive {
     }
 
     static String usage() {
-        return "Usage: /mgxadmin give <player|everyone> <money|key|cosmetic> [amount]";
+        return "Usage: /mgxadmin give <player|everyone> <money|key|cosmetic|reward> <value>";
     }
 }
