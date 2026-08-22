@@ -287,6 +287,15 @@ class ThemeTests(unittest.TestCase):
         self.assertIn("height: auto", block)
         self.assertIn("max-height", block)
 
+    def test_homepage_feature_art_is_not_artificially_shrunk(self):
+        block = theme.STYLESHEET.split(".hero-feature .frame img {")[1].split("}")[0]
+        self.assertIn("object-fit: contain", block)
+        self.assertNotIn("padding:", block)
+
+    def test_post_related_cards_do_not_use_three_narrow_columns(self):
+        self.assertIn(".post-main .more .card-grid { grid-template-columns: 1fr;", theme.STYLESHEET)
+        self.assertIn("repeat(2, minmax(0, 1fr))", theme.STYLESHEET)
+
     def test_brand_ramp_is_defined_and_used(self):
         self.assertIn("--brand-ramp:", theme.STYLESHEET)
         self.assertIn(".brandbar", theme.STYLESHEET)

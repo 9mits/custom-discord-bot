@@ -83,6 +83,29 @@ Press **F1** to hide the HUD once you are set up.
 Your belongings are written to disk the moment the session starts, so a crash
 or a restart cannot eat them; they come back the next time you join.
 
+### Get a shot list before taking anything
+
+Do not settle for "send screenshots." Before a post is drafted, the coding
+agent must turn the shipped feature list into a **numbered, feature-specific
+shot brief**. Every requested image must say:
+
+- the exact filename and which section it supports;
+- where to stand, what menu or command to open, and what action to catch;
+- who or what must be visible (and what must be hidden);
+- the `/mgxadmin devblog` time, weather, camera, armour and player settings;
+- whether **F1 should hide the HUD** or the UI is the subject of the shot;
+- the framing and orientation, plus which image is the **hero** or **card icon**.
+
+Ask for the smallest set that tells the whole update: one strong hero, then one
+image (or a deliberately paired set) for each major visual beat. Do not ask for
+a screenshot of a number or patch note that reads better as text.
+
+Capture at the monitor's native resolution and send the original PNG. Do not
+resize, crop, annotate or compress it first; the agent can make a non-destructive
+web crop while keeping the source. Use **16:9 landscape** for world/action shots.
+For menus, centre the complete panel with enough clean margin to crop it tightly.
+Do not use F1 when it would hide the menu being photographed.
+
 ## 3. Write it
 
 The layout is already in the file. The shape that makes it read like a real
@@ -104,6 +127,25 @@ Bold the **nouns that matter**.
 
 **Write short lines.** The centred one-beat-per-line rhythm is the whole look —
 a paragraph of prose will not read the same way.
+
+### Match the voice, not only the formatting
+
+The reference voice is a reveal, not documentation. It is excited, direct and
+slightly playful:
+
+- Lead with what just appeared: "A strange door has opened!"
+- Use active player verbs: **OPEN**, **STEAL**, **BUILD**, **RACE**.
+- Give a feature two to five compact beats, then let the screenshot prove it.
+- Put the reward, risk or surprise up front. Save precise mechanics for the next
+  line only when a player needs them.
+- Use confident fragments and occasional questions. End sections with a small
+  joke, dare or warning.
+- Cut phrases such as "this is deliberate," "the realistic use is," and long
+  implementation explanations unless they prevent a real player mistake.
+
+Accuracy still wins. Never turn hype into an invented reward, number or promise.
+Read the **Piñata Maze** and **Void RNG Event** references as the tone benchmark;
+`2026-08-22-update-2.md` shows the local Markdown shape.
 
 Emoji work if you want them (`### 🎉 Eternal Maze`). Lists, tables, `code`,
 quotes and `---` rules all work too.

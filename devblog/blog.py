@@ -38,7 +38,7 @@ GH_CANDIDATES = (
 
 TEMPLATE = '''---
 title: {title}
-tagline: One or two sentences that sell the update - this is what shows on the home page card and in link previews. Keep it on one line.
+tagline: Emoji-led hype beats for the home-page card and link preview. Name the biggest things, use active verbs, and keep this on one line.
 date: {today}
 category: {category}
 covers: {covers}
@@ -50,10 +50,11 @@ tags: {tag}
 
 ## {title}
 
-Open with the hook, one beat per line.
-Single newlines are real line breaks, so **write short lines**.
+Open on the biggest player-facing change!
+Make every line feel like something just **HAPPENED**.
+Keep it short, direct, and excited.
 
-*An italic line makes a good closer for a section.*
+*Land a playful final beat.*
 
 ![](screenshot-1.png)
 
@@ -61,23 +62,23 @@ Single newlines are real line breaks, so **write short lines**.
 
 ### First Feature
 
-What it is, in one line.
-What the player does with it.
-Why they should care.
+Name the new thing!
+Tell players what to **DO**.
+Put the payoff on its own line.
 
 ![](screenshot-2.png)
 
 ### Second Feature
 
-Same shape again.
-Bold the **nouns that matter**.
+Keep the same quick rhythm.
+Bold the **feature names**, **rewards**, and **numbers**.
 
-## Notes
+## Changes
 
-- Bullet lists work
-- So do tables, code and quotes
+One shipped change per line.
+Skip implementation history unless players need it.
 
-*Closing line.*
+*Finish with personality.*
 '''
 
 
