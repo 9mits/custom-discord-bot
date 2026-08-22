@@ -309,7 +309,7 @@ class MinecraftBridgeServer:
         if message_type == "VERIFICATION":
             try:
                 await self.verification_handler(
-                    access_id=int(payload["access_id"]),
+                    access_id=int(payload["application_id"]),
                     edition=Edition(str(payload["edition"]).upper()),
                     minecraft_uuid=str(payload["minecraft_uuid"]),
                     current_username=str(payload["current_username"]),
@@ -321,7 +321,7 @@ class MinecraftBridgeServer:
                 return
             await self._send(
                 "VERIFICATION_ACK",
-                {"access_id": int(payload["access_id"])},
+                {"application_id": int(payload["application_id"])},
                 idempotency_key=envelope["idempotency_key"],
                 expected_socket=source_socket,
             )
@@ -497,7 +497,7 @@ class MinecraftBridgeServer:
             "full": True,
             "applications": [
                 {
-                    "access_id": application.id,
+                    "application_id": application.id,
                     "edition": self._pending_edition(application),
                     "claimed_username": application.claimed_username,
                     "normalized_username": application.normalized_username,
