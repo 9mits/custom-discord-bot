@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import os
 import time
 import unittest
@@ -74,6 +75,11 @@ class MinecraftBotPolicyTests(unittest.TestCase):
             guild_permissions=SimpleNamespace(administrator=False),
         )
         self.assertFalse(self.bot.is_moderator(member))
+
+    def test_setup_hook_does_not_import_removed_application_controls(self):
+        source = inspect.getsource(MinecraftAccessBot.setup_hook)
+        self.assertNotIn("ContinueApplicationButton", source)
+        self.assertNotIn("ApplyButton", source)
 
     def test_rate_limiter_is_bounded(self):
         limiter = RateLimiter(10, max_entries=2)
