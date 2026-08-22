@@ -91,7 +91,7 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
             self.secret,
             "VERIFICATION",
             {
-                "application_id": 7,
+                "access_id": 7,
                 "edition": "JAVA",
                 "minecraft_uuid": "123e4567-e89b-12d3-a456-426614174000",
                 "current_username": "TestPlayer",
@@ -105,20 +105,16 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(verification_ack["type"], "VERIFICATION_ACK")
         self.verification_handler.assert_awaited_once()
         kwargs = self.verification_handler.await_args.kwargs
-        self.assertEqual(kwargs["application_id"], 7)
+        self.assertEqual(kwargs["access_id"], 7)
         self.assertEqual(kwargs["event_idempotency_key"], "verification-7")
         await socket.close()
 
     async def _create_auto_pending(self):
-        return await self.data.create_application(
+        return await self.data.create_verification(
             guild_id=1,
             discord_user_id=42,
             edition=None,
             claimed_username="TestPlayer",
-            answers={
-                "why": "I want to build with this community.",
-                "about": "I am a considerate builder who enjoys group projects.",
-            },
         )
 
     async def test_protocol_v1_paper_receives_compatible_pending_edition(self):
@@ -572,7 +568,7 @@ class MinecraftBridgeDispatchTests(unittest.IsolatedAsyncioTestCase):
                 status="PENDING",
                 attempts=0,
                 last_error=None,
-                application_id=None,
+                access_id=None,
                 created_at=1,
                 processed_at=None,
             )

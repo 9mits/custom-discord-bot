@@ -38,36 +38,35 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
 public final class MGXAccessBridge extends JavaPlugin implements Listener {
-    private static final Component VERIFIED_MESSAGE = Component.text(
-            "Account verified.\n\n"
-                    + "You are not being let into the world. That is normal.\n\n"
-                    + "Open Discord and press Continue Application on your Mysterious SMP X card."
-    );
-    private static final Component VERIFICATION_HELP_MESSAGE = Component.text(
-            "This account cannot join yet.\n\n"
-                    + "If you are applying, join with the exact name on your Discord card.\n"
-                    + "If you already applied, wait for staff. Do not keep joining."
-    );
-    private static final Component APPLICATION_ALREADY_SENT_MESSAGE = Component.text(
-            "This account is already verified.\n\n"
-                    + "You cannot play until staff approve you.\n\n"
-                    + "Open Discord. Press Continue Application if you have not finished the form."
+    // Two outcomes, because there are only two: either this account is verified
+    // and plays, or it is not and is told exactly how to become verified. The
+    // old ladder of six messages described an application queue that no longer
+    // exists, and the worst of them told a player that being kicked was normal.
+    private static final Component NOT_VERIFIED_MESSAGE = Component.text(
+            "You need to verify before you can play.\n\n"
+                    + "Open Discord, press Verify on the Mysterious SMP X panel, and enter this "
+                    + "exact username.\n"
+                    + "Then join again and you are in — no form, nothing to wait for."
     );
     private static final Component CLOSED_MESSAGE = Component.text(
             "Mysterious SMP X is closed right now.\n\n"
-                    + "Applying? Press Apply in Discord first, then join once with the exact name "
-                    + "on your card. Being turned away is how we verify the account.\n\n"
-                    + "Already a member? The world is closed for everyone. Check Discord for news."
+                    + "The world is closed for everyone, verified or not. Check Discord for news."
     );
     private static final Component UNAVAILABLE_MESSAGE = Component.text(
             "Verification could not be saved.\n\n"
                     + "Wait a minute, then join once more with the same account."
     );
-    private static final Component WAITING_FOR_APPLICATION_MESSAGE = Component.text(
-            "The server does not have your application yet.\n\n"
-                    + "If you just pressed Apply in Discord, wait ten seconds and join once more.\n"
-                    + "Use the exact name on your Mysterious SMP X card."
-    );
+
+    /** What the login path should do with a connection. */
+    private record Verdict(boolean allow, Component kick) {
+        static Verdict allowed() {
+            return new Verdict(true, null);
+        }
+
+        static Verdict refuse(Component message) {
+            return new Verdict(false, message);
+        }
+    }
 
     private final ConcurrentHashMap<UUID, Component> verificationKicks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, PlayerConnectionIdentity> connectionIdentities =
@@ -81,7 +80,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private SidebarService sidebarService;
     private DevBlogService devBlogService;
     private DevBlogStore devBlogStore;
-    private VerifiedApplicationStore verifiedApplications;
+    private VerifiedAccountStore verifiedAccounts;
     private DiscordIdentityService identityService;
     private ChatRelayService chatRelayService;
     private LuckPermsService luckPermsService;
@@ -133,7 +132,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             verificationEvents = new VerificationEventStore(
                     getDataFolder().toPath().resolve("verification-events.json")
             );
-            verifiedApplications = new VerifiedApplicationStore(
+            verifiedAccounts = new VerifiedAccountStore(
                     getDataFolder().toPath().resolve("verified-applications.json")
             );
             clanStore = new ClanStore(getDataFolder().toPath().resolve("clans.json"));
@@ -188,7 +187,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 bridgeConfig.scoreboardUpdateTicks()
         );
         bridgeClient = new BridgeClient(
-                this, bridgeConfig, pending, processed, verificationEvents, verifiedApplications, networkExecutor
+                this, bridgeConfig, pending, processed, verificationEvents, verifiedAccounts, networkExecutor
         );
         chatRelayService = new ChatRelayService(bridgeClient, playerSettings);
         // Statistics live beside the main world, which is where the server writes them.
@@ -402,7 +401,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                         cosmeticStore,
                         cosmeticItems,
                         trophyHeadStore,
-                        verifiedApplications,
+                        verifiedAccounts,
                         verificationEvents,
                         processed,
                         getServer().getWorlds().get(0).getWorldFolder().toPath(),
@@ -906,22 +905,24 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         // Match first. Floodgate consults this event and may never reach
         // PlayerLoginEvent once we rewrite the result to KICK_OTHER.
-        Component verdict = handleVerification(
-                event.getUniqueId(),
-                event.getName(),
-                false,
-                incoming == AsyncPlayerPreLoginEvent.Result.KICK_WHITELIST
-        );
-        if (!MaintenanceGate.shouldRefuse(maintenanceHeld(), bypassesMaintenance(event.getUniqueId()))) {
+        Verdict verdict = handleVerification(event.getUniqueId(), event.getName());
+        if (MaintenanceGate.shouldRefuse(maintenanceHeld(), bypassesMaintenance(event.getUniqueId()))) {
+            getLogger().info("Refused " + event.getName() + " at pre-login: server held.");
+            event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER, CLOSED_MESSAGE);
             return;
         }
-        getLogger().info("Refused " + event.getName()
-                + " at pre-login"
-                + (verdict == VERIFIED_MESSAGE ? ": account verified." : "."));
-        event.disallow(
-                AsyncPlayerPreLoginEvent.Result.KICK_OTHER,
-                verdict != null ? verdict : CLOSED_MESSAGE
-        );
+        if (verdict.allow()) {
+            // Overrides the vanilla whitelist refusal for this one connection. The
+            // durable APPROVE adds the real entry a moment later.
+            event.allow();
+            return;
+        }
+        // Only speak up when the whitelist already refused them. A member who is
+        // whitelisted and unverified-by-our-records is an existing player, and
+        // kicking them here would lock out everyone who predates this system.
+        if (incoming == AsyncPlayerPreLoginEvent.Result.KICK_WHITELIST) {
+            event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER, verdict.kick());
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
@@ -939,35 +940,33 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             return;
         }
 
-        // Verification runs before the hold is applied, and never needed the login
-        // to succeed: an applicant is turned away whether the server is open or
-        // closed, and only the wording differs. That is what lets a held server
-        // still verify accounts. During a hold, pre-login already rewrote the
-        // result to KICK_OTHER — still match here for Java, which honours this
-        // event, and so a Floodgate re-allow cannot skip the queue.
-        Component verdict = handleVerification(
+        // Verification is matched before the hold is applied, so a held server
+        // still verifies accounts even though nobody gets in. During a hold,
+        // pre-login already rewrote the result to KICK_OTHER — still match here
+        // for Java, which honours this event, so a Floodgate re-allow cannot skip
+        // the queue.
+        Verdict verdict = handleVerification(
                 event.getPlayer().getUniqueId(),
-                event.getPlayer().getName(),
-                whitelistKick && !held,
-                whitelistKick
+                event.getPlayer().getName()
         );
-        if (verdict != null) {
-            event.kickMessage(verdict);
-        }
 
-        if (!MaintenanceGate.shouldRefuse(held, bypassesMaintenance(event.getPlayer()))) {
+        if (MaintenanceGate.shouldRefuse(held, bypassesMaintenance(event.getPlayer()))) {
+            if (result == PlayerLoginEvent.Result.ALLOWED) {
+                getLogger().info("Refused " + event.getPlayer().getName() + " after login.");
+            }
+            // Rewriting the result to KICK_OTHER is what makes the hold hold.
+            // Floodgate re-allows Bedrock players by looking for KICK_WHITELIST, so
+            // leaving that result in place let every Bedrock login walk through.
+            event.disallow(PlayerLoginEvent.Result.KICK_OTHER, CLOSED_MESSAGE);
             return;
         }
-        if (result == PlayerLoginEvent.Result.ALLOWED) {
-            getLogger().info("Refused " + event.getPlayer().getName() + " after login.");
+        if (verdict.allow()) {
+            event.allow();
+            return;
         }
-        // Rewriting the result to KICK_OTHER is what makes the hold hold. Floodgate
-        // re-allows Bedrock players by looking for KICK_WHITELIST, so leaving that
-        // result in place let every Bedrock login walk straight through.
-        event.disallow(
-                PlayerLoginEvent.Result.KICK_OTHER,
-                verdict != null ? verdict : CLOSED_MESSAGE
-        );
+        if (whitelistKick) {
+            event.disallow(PlayerLoginEvent.Result.KICK_OTHER, verdict.kick());
+        }
     }
 
     /**
@@ -996,30 +995,25 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
      * @return the message this login has earned, or null when there was nothing to
      *         say — which leaves the refusal exactly as it was found.
      */
-    private Component handleVerification(
-            UUID uuid,
-            String loginName,
-            boolean announceNoMatch,
-            boolean applicant
-    ) {
+    private Verdict handleVerification(UUID uuid, String loginName) {
         VerificationIdentity.Resolved identity = resolveConnectingIdentity(uuid, loginName);
         Optional<PendingVerification> match = pending.matchLogin(loginName);
         if (match.isEmpty() && identity.username() != null && !identity.username().equals(loginName)) {
             match = pending.matchLogin(identity.username());
         }
         if (match.isEmpty()) {
-            if (verifiedApplications.find(uuid).isPresent()
-                    || (identity.uuid() != null && verifiedApplications.find(identity.uuid()).isPresent())) {
-                verificationKicks.put(uuid, APPLICATION_ALREADY_SENT_MESSAGE);
-                return APPLICATION_ALREADY_SENT_MESSAGE;
+            // Already verified, but the whitelist has not arrived yet. The store is
+            // written the moment a verification is queued and survives a restart,
+            // so this is what stops a reconnect in that window being turned away.
+            if (verifiedAccounts.find(uuid).isPresent()
+                    || (identity.uuid() != null && verifiedAccounts.find(identity.uuid()).isPresent())) {
+                return Verdict.allowed();
             }
             getLogger().info("No pending verification for " + loginName
                     + " (cache=" + pending.size()
                     + " names=" + pending.snapshotNames() + ")");
-            if (applicant && pending.size() == 0 && !announceNoMatch) {
-                return WAITING_FOR_APPLICATION_MESSAGE;
-            }
-            return announceNoMatch ? VERIFICATION_HELP_MESSAGE : CLOSED_MESSAGE;
+            verificationKicks.put(uuid, NOT_VERIFIED_MESSAGE);
+            return Verdict.refuse(NOT_VERIFIED_MESSAGE);
         }
         MinecraftEdition edition = identity.edition();
         String xuid = identity.xuid();
@@ -1028,7 +1022,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             getLogger().warning("Matched " + loginName
                     + " but have no Floodgate XUID; not sending a Bedrock verification.");
             verificationKicks.put(uuid, UNAVAILABLE_MESSAGE);
-            return UNAVAILABLE_MESSAGE;
+            return Verdict.refuse(UNAVAILABLE_MESSAGE);
         }
         if (bridgeClient.queueVerification(
                 match.get(),
@@ -1037,14 +1031,15 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 identity.username(),
                 xuid
         )) {
-            verificationKicks.put(uuid, VERIFIED_MESSAGE);
-            if (identity.uuid() != null) {
-                verificationKicks.put(identity.uuid(), VERIFIED_MESSAGE);
-            }
-            return VERIFIED_MESSAGE;
+            // Verification is the whole gate, so clearing it is the same moment as
+            // being let in. The durable APPROVE that follows adds the real
+            // whitelist entry; this connection does not wait for it.
+            verificationKicks.remove(uuid);
+            getLogger().info("Verified " + loginName + " at login; letting them in.");
+            return Verdict.allowed();
         }
         verificationKicks.put(uuid, UNAVAILABLE_MESSAGE);
-        return UNAVAILABLE_MESSAGE;
+        return Verdict.refuse(UNAVAILABLE_MESSAGE);
     }
 
     private VerificationIdentity.Resolved resolveConnectingIdentity(UUID uuid, String loginName) {

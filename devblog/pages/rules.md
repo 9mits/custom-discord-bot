@@ -2,7 +2,7 @@
 title: Server Rules
 nav: Rules
 order: 3
-tagline: These rules apply to every Mysterious SMP X player. Read them before you apply — accepting them is part of the application.
+tagline: These rules apply to every Mysterious SMP X player. Read them before you verify — accepting them is part of joining.
 ---
 
 ## 1. Griefing is allowed

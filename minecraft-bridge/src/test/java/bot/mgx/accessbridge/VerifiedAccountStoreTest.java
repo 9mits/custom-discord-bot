@@ -17,13 +17,13 @@ class VerifiedApplicationStoreTest {
     void verifiedApplicationsPersistUntilTheirDecisionArrives() throws Exception {
         Path path = temporaryDirectory.resolve("verified-applications.json");
         UUID minecraftUuid = UUID.randomUUID();
-        VerifiedApplicationStore store = new VerifiedApplicationStore(path);
+        VerifiedAccountStore store = new VerifiedAccountStore(path);
 
         store.put(42, minecraftUuid, "PlayerOne");
-        VerifiedApplicationStore reloaded = new VerifiedApplicationStore(path);
+        VerifiedAccountStore reloaded = new VerifiedAccountStore(path);
 
         assertEquals("PlayerOne", reloaded.find(minecraftUuid).orElseThrow().username());
         reloaded.remove(42);
-        assertTrue(new VerifiedApplicationStore(path).find(minecraftUuid).isEmpty());
+        assertTrue(new VerifiedAccountStore(path).find(minecraftUuid).isEmpty());
     }
 }

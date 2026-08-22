@@ -10,7 +10,7 @@ from urllib.parse import quote
 
 import discord
 
-from .models import ApplicationStatus, MinecraftApplication
+from .models import AccessStatus, MinecraftAccess
 
 
 BRAND_NAME = "Mysterious SMP X"
@@ -119,7 +119,7 @@ def _safe(value: object, limit: int = 1000) -> str:
 
 
 def minecraft_head_url(
-    application: MinecraftApplication,
+    application: MinecraftAccess,
     *,
     allow_claimed_username: bool = False,
 ) -> Optional[str]:
@@ -533,10 +533,10 @@ def rules_embed(*, agreement: bool = False) -> discord.Embed:
 
 def application_panel() -> discord.ui.View:
     """Just Apply. The reading lives on its own message above this one."""
-    from .ui import ApplyButton
+    from .ui import VerifyButton
 
     view = discord.ui.View(timeout=None)
-    view.add_item(ApplyButton())
+    view.add_item(VerifyButton())
     return view
 
 
@@ -557,68 +557,6 @@ def application_guide_view() -> discord.ui.View:
     return view
 
 
-def review_embed(
-    application: MinecraftApplication,
-    *,
-    user: Optional[discord.User | discord.Member] = None,
-    member: Optional[discord.Member] = None,
-) -> discord.Embed:
-    user_id = int(application.discord_user_id)
-    creation = discord.utils.snowflake_time(user_id)
-    display_name = user.name if user is not None else "Unknown user"
-    mention = f"<@{user_id}>"
-    status_title = application.status.value.replace("_", " ").title()
-    embed = discord.Embed(
-        title=f"Minecraft Application #{application.id}",
-        description=f"**Applicant**\n{mention} · {_safe(display_name, 100)} · `{user_id}`",
-        colour=THEME_COLOUR,
-        timestamp=datetime.fromtimestamp(application.created_at, timezone.utc),
-    )
-    embed.add_field(name="Status", value=status_title, inline=True)
-    embed.add_field(name="Edition", value=application.edition.value.title(), inline=True)
-    embed.add_field(name="Claimed Username", value=f"`{_safe(application.claimed_username, 100)}`", inline=True)
-    embed.add_field(name="Verified Username", value=f"`{_safe(application.verified_username, 100)}`", inline=True)
-    embed.add_field(name="Minecraft UUID", value=f"`{_safe(application.minecraft_uuid, 100)}`", inline=True)
-    if application.xuid:
-        embed.add_field(name="Floodgate XUID", value=f"`{_safe(application.xuid, 100)}`", inline=True)
-    embed.add_field(name="Discord Created", value=discord.utils.format_dt(creation, "F"), inline=True)
-    joined = member.joined_at if member is not None else None
-    embed.add_field(
-        name="Joined Discord",
-        value=discord.utils.format_dt(joined, "F") if joined else "Unavailable",
-        inline=True,
-    )
-    embed.add_field(
-        name="Why do you want to join?",
-        value=_safe(application.answers.get("why"), 1000),
-        inline=False,
-    )
-    embed.add_field(
-        name="About the applicant",
-        value=_safe(application.answers.get("about"), 1000),
-        inline=False,
-    )
-    embed.add_field(
-        name="Submitted",
-        value=discord.utils.format_dt(datetime.fromtimestamp(application.created_at, timezone.utc), "F"),
-        inline=False,
-    )
-    if application.reviewed_at and application.reviewed_by:
-        reviewed_at = datetime.fromtimestamp(application.reviewed_at, timezone.utc)
-        embed.add_field(
-            name="Staff Review",
-            value=f"Reviewed by <@{application.reviewed_by}> · {discord.utils.format_dt(reviewed_at, 'F')}",
-            inline=False,
-        )
-    if application.status is ApplicationStatus.DENIED and application.applicant_reason:
-        embed.add_field(name="Applicant-Facing Reason", value=_safe(application.applicant_reason), inline=False)
-    if application.internal_note:
-        embed.add_field(name="Internal Note", value=_safe(application.internal_note), inline=False)
-    _set_minecraft_thumbnail(embed, minecraft_head_url(application))
-    embed.set_footer(text=BRAND_NAME, icon_url=FOOTER_ICON_URL)
-    return embed
-
-
 def info_embed(title: str, description: str, *, success: bool = False, error: bool = False) -> discord.Embed:
     embed = discord.Embed(
         title=title,
@@ -630,7 +568,7 @@ def info_embed(title: str, description: str, *, success: bool = False, error: bo
     return embed
 
 
-def verification_embed(application: MinecraftApplication, settings) -> discord.Embed:
+def verification_embed(application: MinecraftAccess, settings) -> discord.Embed:
     expires_at = datetime.fromtimestamp(application.verification_expires_at, timezone.utc)
     if application.auto_detect_edition:
         connection = _connection_blocks(settings)
@@ -667,7 +605,7 @@ def verification_embed(application: MinecraftApplication, settings) -> discord.E
     return embed
 
 
-def application_card_files(application: MinecraftApplication) -> list[discord.File]:
+def application_card_files(application: MinecraftAccess) -> list[discord.File]:
     """Files the card's embed references, so an edit re-sends rather than strips them.
 
     Editing a message with ``attachments=[]`` removes the upload while the embed still
@@ -675,7 +613,7 @@ def application_card_files(application: MinecraftApplication) -> list[discord.Fi
     """
     # Tolerates a partially built application: a missing status must not break the
     # card, and no attachment is the safe answer.
-    if getattr(application, "status", None) is ApplicationStatus.PENDING_VERIFICATION:
+    if getattr(application, "status", None) is AccessStatus.PENDING_VERIFICATION:
         return [verification_image_file()]
     return []
 
@@ -715,7 +653,7 @@ def _add_connection_fields(embed: discord.Embed, settings, edition=None) -> None
         )
 
 
-def live_status_embed(application: MinecraftApplication, settings) -> discord.Embed:
+def live_status_embed(application: MinecraftAccess, settings) -> discord.Embed:
     """The applicant's own card, rewritten in place as the application moves.
 
     The title says where they are and the body says what happens next. Nothing
@@ -732,7 +670,7 @@ def live_status_embed(application: MinecraftApplication, settings) -> discord.Em
     edition = application.edition.value.title()
 
     show_connection = False
-    if status is ApplicationStatus.PENDING_VERIFICATION:
+    if status is AccessStatus.PENDING_VERIFICATION:
         # The deadline reads as part of the sentence rather than as a field of its
         # own. Discord renders it as "in 3 days", which only sits naturally after a
         # verb — "expires in 3 days" — and never under a heading like "Finish by".
@@ -740,70 +678,31 @@ def live_status_embed(application: MinecraftApplication, settings) -> discord.Em
         edition_note = "" if application.auto_detect_edition else f" on {edition}"
         title = "Verify Your Account"
         body = (
-            f"> Join once using `{username}`{edition_note}. You will be "
-            "disconnected automatically — even if the kick screen says the world "
-            "is closed. That is how we confirm the account is yours.\n"
-            "> Then return here. Do not keep joining.\n"
+            f"> Join the server using `{username}`{edition_note}.\n"
+            "> You will be let straight in, and your access is active from that "
+            "moment.\n"
             "\n"
-            f"> Verification expires {expires}."
+            f"> This expires {expires}."
         )
         show_connection = True
-    elif status is ApplicationStatus.PENDING_APPLICATION:
-        title = "Account Verified"
-        # Written out with its own quote markers rather than through quote_block,
-        # because the blank line before the deadline is meant to break the bar and
-        # set that sentence apart. Quoting it would join the two into one block.
+    elif status is AccessStatus.VERIFIED:
+        title = "Access Active"
         body = (
-            f"> Your account `{username}` has been verified.\n"
-            "> Press **Continue Application** below to proceed with the "
-            "application.\n"
-            "\n"
-            f"> The application expires {_relative(application.verification_expires_at)}."
-        )
-    elif status is ApplicationStatus.PENDING_REVIEW:
-        title = "Application Sent"
-        body = (
-            "> Your application has been sent to the staff!\n"
-            "> They will review it soon. Please keep your DMs open, as we will "
-            "send your results there!"
-        )
-    elif status is ApplicationStatus.APPROVAL_QUEUED:
-        title = "Application Approved"
-        body = (
-            "> Your application has been approved by the staff!\n"
-            "> Your access is being applied to the server now. You will receive a "
-            "direct message once it is ready."
-        )
-    elif status is ApplicationStatus.APPROVED:
-        title = "Access Granted"
-        body = (
-            "> Your access is active.\n"
+            f"> `{username}` is verified and your access is active.\n"
             "> Connect using the address for your edition below."
         )
         show_connection = True
-    elif status is ApplicationStatus.DENIED:
-        title = "Application Declined"
-        reason = _safe(application.applicant_reason or "No reason was provided.")
+    elif status is AccessStatus.EXPIRED:
+        title = "Verification Expired"
         body = (
-            "> Your application has been reviewed and was not approved.\n"
-            f"> **Reason:** {reason}"
+            "> You did not join in time, so this verification expired.\n"
+            "> Press **Verify** on the panel to start again."
         )
-    elif status is ApplicationStatus.EXPIRED:
-        title = "Application Expired"
-        cause = (
-            "the account was not verified in time"
-            if not application.verified_at
-            else "the application form was not completed in time"
-        )
+    elif status is AccessStatus.CANCELLED:
+        title = "Verification Cancelled"
         body = (
-            f"> Your application has expired, as {cause}.\n"
-            "> Press **Apply** on the application panel to submit a new one."
-        )
-    elif status is ApplicationStatus.CANCELLED:
-        title = "Application Cancelled"
-        body = (
-            "> Your application has been cancelled.\n"
-            "> Press **Apply** on the application panel to submit a new one."
+            "> Your verification was cancelled.\n"
+            "> Press **Verify** on the panel to start again."
         )
     else:
         title = "Access Ended"
@@ -818,26 +717,9 @@ def live_status_embed(application: MinecraftApplication, settings) -> discord.Em
             settings,
             None if application.auto_detect_edition else application.edition,
         )
-    if status is ApplicationStatus.PENDING_VERIFICATION:
+    if status is AccessStatus.PENDING_VERIFICATION:
         embed.set_image(url=VERIFY_ATTACHMENT_URI)
     return embed
-
-
-def denial_embed(application: MinecraftApplication) -> discord.Embed:
-    reason = _safe(
-        getattr(application, "applicant_reason", None) or "No public reason was provided.",
-        1000,
-    ).replace("\n", "\n> ")
-    return info_embed(
-        "Application Declined",
-        "> Your Minecraft application has been reviewed and was not approved.\n"
-        f"> **Reason:** {reason}\n"
-        "\n"
-        "> Please contact the server team through the support channel if you "
-        "require clarification.\n"
-        "> Do not submit another application unless staff invite you to reapply.",
-        error=True,
-    )
 
 
 def approval_embed(settings) -> discord.Embed:
@@ -859,32 +741,29 @@ def approval_embed(settings) -> discord.Embed:
 
 
 def application_dm_embed(
-    application: MinecraftApplication,
+    application: MinecraftAccess,
     settings,
     notification: str,
 ) -> discord.Embed:
-    if notification == "decision" and application.status is ApplicationStatus.APPROVED:
+    if notification == "decision" and application.status is AccessStatus.VERIFIED:
         embed = approval_embed(settings)
         embed.colour = SUCCESS_COLOUR
-    elif notification == "decision" and application.status is ApplicationStatus.DENIED:
-        embed = denial_embed(application)
-        embed.colour = ERROR_COLOUR
     else:
-        raise ValueError("Application does not have a DM notification for this state")
+        raise ValueError("This access record has no DM notification for its state")
     embed.set_thumbnail(url=ICON_ATTACHMENT_URI)
     return embed
 
 
-def application_log_embed(application: MinecraftApplication) -> discord.Embed:
+def application_log_embed(application: MinecraftAccess) -> discord.Embed:
     expires_at = datetime.fromtimestamp(application.verification_expires_at, timezone.utc)
-    has_answers = bool(application.answers)
+    verified = application.status is AccessStatus.VERIFIED
     embed = info_embed(
-        f"Application Submitted #{application.id}"
-        if has_answers
-        else f"Application Started #{application.id}",
-        f"> <@{application.discord_user_id}> completed the written application form."
-        if has_answers
-        else f"> <@{application.discord_user_id}> entered the Minecraft verification stage.",
+        f"Access Granted #{application.id}"
+        if verified
+        else f"Verification Started #{application.id}",
+        f"> <@{application.discord_user_id}> verified their account and can play."
+        if verified
+        else f"> <@{application.discord_user_id}> started Minecraft verification.",
     )
     embed.add_field(
         name="Edition",
@@ -896,10 +775,10 @@ def application_log_embed(application: MinecraftApplication) -> discord.Embed:
         value=f"`{_safe(application.verified_username or application.claimed_username, 100)}`",
         inline=True,
     )
-    if has_answers and application.verified_at:
+    if verified and application.verified_at:
         verified_at = datetime.fromtimestamp(application.verified_at, timezone.utc)
         embed.add_field(
-            name="Account Verified",
+            name="Verified",
             value=discord.utils.format_dt(verified_at, "R"),
             inline=True,
         )
@@ -909,19 +788,8 @@ def application_log_embed(application: MinecraftApplication) -> discord.Embed:
             value=discord.utils.format_dt(expires_at, "R"),
             inline=True,
         )
-    if has_answers:
-        embed.add_field(
-            name="Why They Want to Join",
-            value=_safe(application.answers.get("why"), 1000),
-            inline=False,
-        )
-        embed.add_field(
-            name="What They Would Bring",
-            value=_safe(application.answers.get("about"), 1000),
-            inline=False,
-        )
     embed.add_field(
-        name="Applicant",
+        name="Member",
         value=f"<@{application.discord_user_id}> · `{application.discord_user_id}`",
         inline=False,
     )
@@ -931,7 +799,7 @@ def application_log_embed(application: MinecraftApplication) -> discord.Embed:
     )
 
 
-def verification_log_embed(application: MinecraftApplication) -> discord.Embed:
+def verification_log_embed(application: MinecraftAccess) -> discord.Embed:
     embed = info_embed(
         f"Account Verified #{application.id}",
         f"> <@{application.discord_user_id}> completed Minecraft ownership verification.",
@@ -951,30 +819,6 @@ def verification_log_embed(application: MinecraftApplication) -> discord.Embed:
     if application.xuid:
         embed.add_field(name="Floodgate XUID", value=f"`{_safe(application.xuid, 100)}`", inline=False)
     return _set_minecraft_thumbnail(embed, minecraft_head_url(application))
-
-
-def decision_log_embed(application: MinecraftApplication) -> discord.Embed:
-    status = application.status.value.replace("_", " ").title()
-    embed = info_embed(
-        f"Application {status} #{application.id}",
-        f"> The application for <@{application.discord_user_id}> changed to **{status}**.",
-    )
-    embed.add_field(name="Edition", value=application.edition.value.title(), inline=True)
-    embed.add_field(
-        name="Minecraft Account",
-        value=f"`{_safe(application.verified_username or application.claimed_username, 100)}`",
-        inline=True,
-    )
-    if application.applicant_reason:
-        embed.add_field(
-            name="Applicant-Facing Reason",
-            value=_safe(application.applicant_reason, 1000),
-            inline=False,
-        )
-    return _set_minecraft_thumbnail(
-        embed,
-        minecraft_head_url(application, allow_claimed_username=True),
-    )
 
 
 def player_activity_embed(

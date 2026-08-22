@@ -12,37 +12,26 @@ import discord
 from minecraft_bot.bot import MinecraftAccessBot, RateLimiter
 from minecraft_bot.config import MinecraftConfig
 from minecraft_bot.models import (
-    ApplicationStatus,
+    AccessStatus,
     Edition,
     InvalidTransition,
-    MinecraftApplication,
+    MinecraftAccess,
 )
 from minecraft_bot.presentation import (
     BRAND_NAME,
-    ERROR_COLOUR,
-    ICON_ATTACHMENT_URI,
     ICON_PATH,
     FOOTER_ICON_URL,
-    LOGO_ATTACHMENT_URI,
     FOOTER_PATH,
     LOGO_PATH,
     RULES_ATTACHMENT_URI,
     ABOUT_PATH,
     APPLY_PATH,
     RULES_PATH,
-    SUCCESS_COLOUR,
     THEME_COLOUR,
     VERIFY_ATTACHMENT_URI,
     VERIFY_PATH,
-    application_apply_embed,
-    application_welcome_embed,
     application_log_embed,
-    application_panel,
-    application_panel_files,
-    decision_log_embed,
-    denial_embed,
     info_embed,
-    review_embed,
     verification_embed,
     live_status_embed,
     minecraft_head_url,
@@ -52,15 +41,12 @@ from minecraft_bot.presentation import (
 from minecraft_bot.settings import MinecraftSettings
 from minecraft_bot.setup import MinecraftSetupView
 from minecraft_bot.ui import (
-    AccountView,
     application_card_view,
-    ApplicationQuestionsModal,
-    ApplyButton,
+    VerifyButton,
     CancelPendingConfirmationView,
     MinecraftControlView,
     MinecraftApplicationModal,
     LiveApplicationView,
-    ReviewView,
     RulesAgreementView,
 )
 
@@ -144,57 +130,6 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertEqual(broadcast_parameters, {"message"})
 
 
-    def test_application_and_review_components_are_persistent(self):
-        panel = application_panel()
-        review = ReviewView()
-        modal = MinecraftApplicationModal()
-
-        self.assertTrue(panel.is_persistent())
-        self.assertTrue(review.is_persistent())
-        self.assertEqual(
-            {item.custom_id for item in review.children},
-            {
-                "minecraft:review:approve",
-                "minecraft:review:deny",
-            },
-        )
-        self.assertIsNone(modal.edition)
-        compatibility_modal = MinecraftApplicationModal(require_edition=True)
-        self.assertEqual(
-            [option.value for option in compatibility_modal.edition.options],
-            ["JAVA", "BEDROCK"],
-        )
-        live = LiveApplicationView()
-        self.assertTrue(live.is_persistent())
-        self.assertEqual(
-            {item.custom_id for item in live.children},
-            {"minecraft:live:help", "minecraft:live:cancel"},
-        )
-        self.assertEqual(
-            {item.label for item in AccountView(123).children},
-            {"Refresh", "Link Other Edition", "Cancel Verification"},
-        )
-        panel_custom_ids = {
-            component["custom_id"]
-            for child in panel.to_components()
-            for component in child.get("components", [])
-            if "custom_id" in component
-        }
-        # Apply stands alone on its own message; the reading is a separate one.
-        self.assertEqual(panel_custom_ids, {"minecraft:application:apply"})
-        welcome = application_welcome_embed()
-        apply = application_apply_embed()
-        self.assertEqual(welcome.title, "Welcome to Mysterious SMP X")
-        self.assertEqual(apply.title, "Apply to Mysterious SMP X")
-        self.assertEqual(welcome.image.url, LOGO_ATTACHMENT_URI)
-        self.assertEqual(welcome.footer.text, BRAND_NAME)
-        self.assertIsNone(apply.image.url)
-        self.assertEqual(apply.footer.icon_url, FOOTER_ICON_URL)
-        files = application_panel_files()
-        self.assertEqual([item.filename for item in files], ["mysterious_smp_x_logo.png"])
-        for item in files:
-            item.close()
-
     def test_minecraft_presentation_uses_orange_brand_system(self):
         embed = info_embed("Status", "Operational", success=True)
 
@@ -222,15 +157,14 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertLess(APPLY_PATH.stat().st_size, 1_000_000)
 
     def test_verification_instructions_are_copyable_and_edition_specific(self):
-        application = MinecraftApplication(
+        application = MinecraftAccess(
             id=42,
             guild_id="1",
             discord_user_id="123456789012345678",
             edition=Edition.BEDROCK,
             claimed_username="PlayerOne",
             normalized_username="playerone",
-            answers={"why": "Build things", "about": "Helpful player"},
-            status=ApplicationStatus.PENDING_VERIFICATION,
+            status=AccessStatus.PENDING_VERIFICATION,
             verification_expires_at=2_000_000_000,
             created_at=1_999_999_400,
             updated_at=1_999_999_400,
@@ -253,84 +187,31 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         live_embed = live_status_embed(application, settings)
         self.assertEqual(live_embed.image.url, VERIFY_ATTACHMENT_URI)
 
-    def test_applicant_decision_embed_hides_internal_application_id(self):
-        application = MinecraftApplication(
-            id=42,
-            guild_id="1",
-            discord_user_id="123456789012345678",
-            edition=Edition.JAVA,
-            claimed_username="PlayerOne",
-            normalized_username="playerone",
-            answers={"why": "Build things", "about": "Helpful player"},
-            status=ApplicationStatus.DENIED,
-            verification_expires_at=2_000_000_000,
-            applicant_reason="The application needs more detail.",
-            created_at=1_999_999_400,
-            updated_at=1_999_999_400,
-        )
-
-        embed = denial_embed(application)
-
-        self.assertNotIn("#42", embed.description)
-
-    def test_review_embed_uses_minecraft_skin_head_and_claimed_identity(self):
-        application = MinecraftApplication(
-            id=7,
-            guild_id="1",
-            discord_user_id="123456789012345678",
-            edition=Edition.JAVA,
-            claimed_username="ClaimedName",
-            normalized_username="claimedname",
-            answers={"why": "I enjoy SMPs", "about": "I like building"},
-            status=ApplicationStatus.PENDING_REVIEW,
-            verification_expires_at=2_000_000_000,
-            created_at=int(datetime(2026, 1, 1, tzinfo=timezone.utc).timestamp()),
-            updated_at=1_999_999_400,
-            verified_username="VerifiedName",
-            minecraft_uuid="00000000-0000-0000-0000-000000000000",
-        )
-
-        user = SimpleNamespace(
-            name="Applicant",
-            display_avatar=SimpleNamespace(url="https://cdn.discordapp.com/avatar.png"),
-        )
-        embed = review_embed(application, user=user)
-
-        self.assertEqual(
-            embed.thumbnail.url,
-            "https://api.mcheads.org/head/.VerifiedName/128",
-        )
-        self.assertEqual(embed.footer.icon_url, FOOTER_ICON_URL)
-        self.assertTrue(any(field.name == "Claimed Username" for field in embed.fields))
-
     def test_minecraft_skin_head_requires_a_verified_uuid(self):
-        application = MinecraftApplication(
+        application = MinecraftAccess(
             id=8,
             guild_id="1",
             discord_user_id="123456789012345678",
             edition=Edition.BEDROCK,
             claimed_username="Bedrock Player",
             normalized_username="bedrock player",
-            answers={"why": "Play", "about": "Build"},
-            status=ApplicationStatus.PENDING_VERIFICATION,
+            status=AccessStatus.PENDING_VERIFICATION,
             verification_expires_at=2_000_000_000,
             created_at=1_999_999_400,
             updated_at=1_999_999_400,
         )
 
         self.assertIsNone(minecraft_head_url(application))
-        self.assertIsNone(review_embed(application).thumbnail.url)
-
+        
     def test_every_minecraft_player_log_has_a_skin_thumbnail(self):
-        verified = MinecraftApplication(
+        verified = MinecraftAccess(
             id=9,
             guild_id="1",
             discord_user_id="123456789012345678",
             edition=Edition.JAVA,
             claimed_username="ClaimedName",
             normalized_username="claimedname",
-            answers={"why": "Play", "about": "Build"},
-            status=ApplicationStatus.PENDING_REVIEW,
+            status=AccessStatus.VERIFIED,
             verification_expires_at=2_000_000_000,
             created_at=1_999_999_400,
             updated_at=1_999_999_400,
@@ -341,7 +222,6 @@ class MinecraftBotPolicyTests(unittest.TestCase):
 
         self.assertEqual(application_log_embed(verified).thumbnail.url, expected)
         self.assertEqual(verification_log_embed(verified).thumbnail.url, expected)
-        self.assertEqual(decision_log_embed(verified).thumbnail.url, expected)
         self.assertEqual(
             player_activity_embed(
                 joined=True,
@@ -353,28 +233,26 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         )
 
     def test_pre_verification_logs_resolve_java_and_bedrock_names(self):
-        java_application = MinecraftApplication(
+        java_application = MinecraftAccess(
             id=10,
             guild_id="1",
             discord_user_id="123456789012345678",
             edition=Edition.JAVA,
             claimed_username="JavaPlayer",
             normalized_username="javaplayer",
-            answers={"why": "Play", "about": "Build"},
-            status=ApplicationStatus.PENDING_VERIFICATION,
+            status=AccessStatus.PENDING_VERIFICATION,
             verification_expires_at=2_000_000_000,
             created_at=1_999_999_400,
             updated_at=1_999_999_400,
         )
-        bedrock_application = MinecraftApplication(
+        bedrock_application = MinecraftAccess(
             id=11,
             guild_id="1",
             discord_user_id="123456789012345679",
             edition=Edition.BEDROCK,
             claimed_username="Bedrock Player",
             normalized_username="bedrock player",
-            answers={"why": "Play", "about": "Build"},
-            status=ApplicationStatus.PENDING_VERIFICATION,
+            status=AccessStatus.PENDING_VERIFICATION,
             verification_expires_at=2_000_000_000,
             created_at=1_999_999_400,
             updated_at=1_999_999_400,
@@ -607,10 +485,10 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
     async def test_modal_submission_replaces_the_original_ephemeral_rules_card(self):
         # A freshly created application is awaiting verification, which is what
         # decides whether the card carries the verify image.
-        application = SimpleNamespace(id=42, status=ApplicationStatus.PENDING_VERIFICATION)
+        application = SimpleNamespace(id=42, status=AccessStatus.PENDING_VERIFICATION)
         original_message = SimpleNamespace(id=9001)
         bot = SimpleNamespace(
-            data=SimpleNamespace(create_application=AsyncMock(return_value=application)),
+            data=SimpleNamespace(create_verification=AsyncMock(return_value=application)),
             settings=SimpleNamespace(),
             remember_application_message=Mock(),
             finish_application_submission=AsyncMock(),
@@ -642,7 +520,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kwargs["attachments"][0].filename, "mysterious_smp_x_verify.png")
         kwargs["attachments"][0].close()
         bot.remember_application_message.assert_called_once_with(42, original_message)
-        create_kwargs = bot.data.create_application.await_args.kwargs
+        create_kwargs = bot.data.create_verification.await_args.kwargs
         # Stage one carries no written answers; the form follows verification.
         self.assertNotIn("answers", create_kwargs)
 
@@ -674,324 +552,61 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         modal.about._value = "I build farms and help other players."
         return modal
 
-    async def test_questions_modal_submits_answers_and_finishes_the_application(self):
-        application = SimpleNamespace(id=42, status=ApplicationStatus.PENDING_REVIEW)
-        interaction = self._questions_interaction(application)
-        bot = interaction.client
-        modal = self._answered(ApplicationQuestionsModal(42))
-
-        with patch("minecraft_bot.ui.live_status_embed", return_value=info_embed("Application Sent", "> Done.")):
-            await modal.on_submit(interaction)
-
-        submit_kwargs = bot.data.submit_answers.await_args
-        self.assertEqual(submit_kwargs.args, (42, 99))
-        self.assertEqual(submit_kwargs.kwargs["why"], "I enjoy collaborative survival servers.")
-        kwargs = interaction.edit_original_response.await_args.kwargs
-        self.assertEqual(kwargs["embed"].title, "Application Sent")
-        bot.spawn_background_task.assert_called_once()
-        # Opened from the public panel, so the reply becomes the one card and
-        # retires whichever one the applicant already had.
-        bot.replace_application_card.assert_awaited_once_with(
-            42, await interaction.original_response()
-        )
-
-    async def test_answering_from_the_card_rewrites_it_instead_of_replying(self):
-        # The card the Continue Application button sits on is the message this
-        # interaction may update. Answering into a fresh reply left two identical
-        # "Application Sent" cards on screen and then deleted the older one from
-        # under the applicant.
-        application = SimpleNamespace(id=42, status=ApplicationStatus.PENDING_REVIEW)
-        interaction = self._questions_interaction(application)
-        modal = self._answered(ApplicationQuestionsModal(42, edits_card=True))
-
-        with patch("minecraft_bot.ui.live_status_embed", return_value=info_embed("Application Sent", "> Done.")):
-            await modal.on_submit(interaction)
-
-        # A bare defer is a message *update*; thinking=True would post a new reply.
-        interaction.response.defer.assert_awaited_once_with()
-        interaction.followup.send.assert_not_awaited()
-        self.assertEqual(
-            interaction.edit_original_response.await_args.kwargs["embed"].title,
-            "Application Sent",
-        )
-
-    async def test_a_refusal_from_the_card_leaves_the_card_standing(self):
-        # Overwriting the card with the error would strip Continue Application and
-        # leave no way to try again.
-        interaction = self._questions_interaction(
-            None, fails=InvalidTransition("This application is no longer open.")
-        )
-        modal = self._answered(ApplicationQuestionsModal(42, edits_card=True))
-
-        await modal.on_submit(interaction)
-
-        interaction.edit_original_response.assert_not_awaited()
-        kwargs = interaction.followup.send.await_args.kwargs
-        self.assertEqual(kwargs["embed"].title, "Application Not Submitted")
-        self.assertTrue(kwargs["ephemeral"])
-        interaction.client.replace_application_card.assert_not_awaited()
-
-    async def test_a_refusal_from_the_panel_answers_in_the_reply_it_already_made(self):
-        interaction = self._questions_interaction(
-            None, fails=InvalidTransition("This application is no longer open.")
-        )
-        modal = self._answered(ApplicationQuestionsModal(42))
-
-        await modal.on_submit(interaction)
-
-        interaction.response.defer.assert_awaited_once_with(ephemeral=True, thinking=True)
-        interaction.followup.send.assert_not_awaited()
-        self.assertEqual(
-            interaction.edit_original_response.await_args.kwargs["embed"].title,
-            "Application Not Submitted",
-        )
-
     async def test_submission_does_not_dm_a_pending_verification_card(self):
         bot = object.__new__(MinecraftAccessBot)
         bot.log_application_submission = AsyncMock()
         bot.update_live_card = AsyncMock()
         bot.bridge = SimpleNamespace(connected=False)
-        application = SimpleNamespace(id=1, status=ApplicationStatus.PENDING_VERIFICATION)
+        application = SimpleNamespace(id=1, status=AccessStatus.PENDING_VERIFICATION)
 
         await bot.finish_application_submission(application)
 
         bot.log_application_submission.assert_awaited_once_with(application)
         bot.update_live_card.assert_not_awaited()
 
-    async def test_finishing_the_answers_leaves_the_card_to_the_modal(self):
-        # The modal has already drawn the card from the same application. Redrawing
-        # it here edited the same message twice, and when the form was opened from
-        # the public panel it rewrote the card that was about to be retired — which
-        # is what made one submission look like it was answered twice.
-        bot = object.__new__(MinecraftAccessBot)
-        bot.post_or_update_review = AsyncMock()
-        bot.log_application_submission = AsyncMock()
-        bot.update_live_card = AsyncMock()
-        bot.bridge = SimpleNamespace(connected=False)
-        application = SimpleNamespace(id=1, status=ApplicationStatus.PENDING_REVIEW)
-
-        await bot.finish_answers_submission(application)
-
-        bot.post_or_update_review.assert_awaited_once_with(application)
-        bot.log_application_submission.assert_awaited_once_with(application)
-        bot.update_live_card.assert_not_awaited()
-
-    async def test_reaching_review_sends_no_dm_at_all(self):
-        # The application card already says this and updates in place. DMing it too
-        # put a second copy of the same message in front of the applicant.
-        application = SimpleNamespace(
-            id=1,
-            discord_user_id="99",
-            edition=Edition.JAVA,
-            verified_username="PlayerOne",
-            status=ApplicationStatus.PENDING_REVIEW,
-            status_channel_id=None,
-            status_message_id=None,
-            decision_channel_id=None,
-            decision_message_id=None,
-        )
-        user = SimpleNamespace(send=AsyncMock())
-        bot = object.__new__(MinecraftAccessBot)
-        bot.settings = SimpleNamespace()
-        bot.get_user = lambda _user_id: user
-        bot.fetch_user = AsyncMock()
-        bot.data = SimpleNamespace(
-            get_application=AsyncMock(return_value=application),
-            set_status_message=AsyncMock(),
-            set_decision_message=AsyncMock(),
-            enqueue_delivery=AsyncMock(),
-        )
-
-        delivered = await bot.update_live_card(application)
-
-        self.assertTrue(delivered)
-        user.send.assert_not_awaited()
-        bot.data.set_status_message.assert_not_awaited()
-        bot.data.enqueue_delivery.assert_not_awaited()
-
-    async def test_a_denied_application_sends_only_the_decision_dm(self):
-        application = SimpleNamespace(
-            id=1,
-            discord_user_id="99",
-            edition=Edition.JAVA,
-            verified_username="PlayerOne",
-            status=ApplicationStatus.DENIED,
-            status_channel_id=None,
-            status_message_id=None,
-            decision_channel_id=None,
-            decision_message_id=None,
-            applicant_reason="Not this time",
-        )
-        decision = SimpleNamespace(channel=SimpleNamespace(id=50), id=60)
-        user = SimpleNamespace(send=AsyncMock(return_value=decision))
-        bot = object.__new__(MinecraftAccessBot)
-        bot.settings = SimpleNamespace()
-        bot.get_user = Mock(return_value=user)
-        bot.fetch_user = AsyncMock()
-        bot.data = SimpleNamespace(
-            get_application=AsyncMock(return_value=application),
-            enqueue_delivery=AsyncMock(),
-            set_status_message=AsyncMock(),
-            set_decision_message=AsyncMock(),
-        )
-
-        delivered = await bot.update_live_card(application)
-
-        self.assertTrue(delivered)
-        bot.fetch_user.assert_not_awaited()
-        # One DM, not two: the decision. Staff may decide days later, when no card
-        # is on screen to carry the news.
-        user.send.assert_awaited_once()
-        decision_kwargs = user.send.await_args.kwargs
-        self.assertEqual(decision_kwargs["embed"].title, "Application Declined")
-        self.assertEqual(decision_kwargs["embed"].colour.value, ERROR_COLOUR.value)
-        self.assertEqual(decision_kwargs["embed"].thumbnail.url, ICON_ATTACHMENT_URI)
-        self.assertEqual(decision_kwargs["file"].filename, "mysterious_smp_x_icon.png")
-        bot.data.set_status_message.assert_not_awaited()
-        bot.data.set_decision_message.assert_awaited_once_with(1, 50, 60)
-        bot.data.enqueue_delivery.assert_not_awaited()
-
-    async def test_approved_application_sends_a_separate_green_decision_dm(self):
-        application = SimpleNamespace(
-            id=1,
-            discord_user_id="99",
-            edition=Edition.JAVA,
-            verified_username="PlayerOne",
-            status=ApplicationStatus.APPROVED,
-            status_channel_id="50",
-            status_message_id="60",
-            decision_channel_id=None,
-            decision_message_id=None,
-        )
-        decision = SimpleNamespace(channel=SimpleNamespace(id=50), id=61)
-        user = SimpleNamespace(send=AsyncMock(return_value=decision))
-        bot = object.__new__(MinecraftAccessBot)
-        bot.settings = SimpleNamespace(
-            java_address="play.example.test",
-            bedrock_address="bedrock.example.test",
-            bedrock_port=19132,
-        )
-        bot.get_user = Mock(return_value=user)
-        bot.fetch_user = AsyncMock()
-        bot.data = SimpleNamespace(
-            get_application=AsyncMock(return_value=application),
-            enqueue_delivery=AsyncMock(),
-            set_status_message=AsyncMock(),
-            set_decision_message=AsyncMock(),
-        )
-
-        delivered = await bot.update_live_card(application)
-
-        self.assertTrue(delivered)
-        user.send.assert_awaited_once()
-        kwargs = user.send.await_args.kwargs
-        self.assertEqual(kwargs["embed"].title, "Application Approved")
-        self.assertEqual(kwargs["embed"].colour.value, SUCCESS_COLOUR.value)
-        self.assertEqual(kwargs["embed"].thumbnail.url, ICON_ATTACHMENT_URI)
-        self.assertEqual(kwargs["file"].filename, "mysterious_smp_x_icon.png")
-        bot.data.set_status_message.assert_not_awaited()
-        bot.data.set_decision_message.assert_awaited_once_with(1, 50, 61)
-
-    async def test_an_application_in_review_never_reaches_the_dm_path(self):
-        application = SimpleNamespace(
-            id=1,
-            discord_user_id="99",
-            edition=Edition.JAVA,
-            verified_username="PlayerOne",
-            status=ApplicationStatus.PENDING_REVIEW,
-            status_channel_id="50",
-            status_message_id="60",
-            decision_channel_id=None,
-            decision_message_id=None,
-        )
-        bot = object.__new__(MinecraftAccessBot)
-        bot.get_user = Mock()
-        bot.data = SimpleNamespace(
-            get_application=AsyncMock(return_value=application),
-            enqueue_delivery=AsyncMock(),
-        )
-
-        delivered = await bot.update_live_card(application)
-
-        self.assertTrue(delivered)
-        bot.get_user.assert_not_called()
-        bot.data.enqueue_delivery.assert_not_awaited()
-
     async def test_the_card_is_updated_in_place_and_nothing_is_dmed(self):
+        # A verification still in flight: the card is edited where it stands and
+        # nothing is DMed, because there is no outcome to report yet.
         application = SimpleNamespace(
             id=1,
             discord_user_id="99",
             edition=Edition.JAVA,
+            claimed_username="PlayerOne",
             verified_username="PlayerOne",
-            status=ApplicationStatus.PENDING_REVIEW,
+            auto_detect_edition=False,
+            verification_expires_at=2_000_000_000,
+            status=AccessStatus.PENDING_VERIFICATION,
             status_channel_id=None,
             status_message_id=None,
-            decision_channel_id=None,
-            decision_message_id=None,
         )
         ephemeral = SimpleNamespace(edit=AsyncMock())
         sent_message = SimpleNamespace(channel=SimpleNamespace(id=50), id=60)
         user = SimpleNamespace(send=AsyncMock(return_value=sent_message))
         bot = object.__new__(MinecraftAccessBot)
-        bot.settings = SimpleNamespace()
+        bot.settings = SimpleNamespace(
+            java_address="play.example.net",
+            bedrock_address="play.example.net",
+            bedrock_port=19132,
+        )
         bot._application_messages = {1: (ephemeral, float("inf"))}
         bot.get_user = Mock(return_value=user)
         bot.fetch_user = AsyncMock()
         bot.data = SimpleNamespace(
-            get_application=AsyncMock(return_value=application),
+            get_access=AsyncMock(return_value=application),
             enqueue_delivery=AsyncMock(),
             set_status_message=AsyncMock(),
-            set_decision_message=AsyncMock(),
         )
 
         delivered = await bot.update_live_card(application)
 
         self.assertTrue(delivered)
         ephemeral.edit.assert_awaited_once()
-        self.assertEqual(ephemeral.edit.await_args.kwargs["attachments"], [])
+        # The verify card carries its own illustration, so the edit re-sends it
+        # rather than stripping the message back to text.
+        self.assertEqual(len(ephemeral.edit.await_args.kwargs["attachments"]), 1)
+        # The subject of this test: editing in place never DMs.
         user.send.assert_not_awaited()
         bot.data.set_status_message.assert_not_awaited()
-
-    async def test_concurrent_decision_delivery_sends_only_one_dm(self):
-        stored = SimpleNamespace(
-            id=1,
-            discord_user_id="99",
-            edition=Edition.JAVA,
-            verified_username="PlayerOne",
-            status=ApplicationStatus.DENIED,
-            applicant_reason="Not this time",
-            status_channel_id=None,
-            status_message_id=None,
-            decision_channel_id=None,
-            decision_message_id=None,
-        )
-        sent_message = SimpleNamespace(channel=SimpleNamespace(id=50), id=60)
-        user = SimpleNamespace(send=AsyncMock(return_value=sent_message))
-
-        async def remember_message(_application_id, channel_id, message_id):
-            stored.decision_channel_id = str(channel_id)
-            stored.decision_message_id = str(message_id)
-
-        bot = object.__new__(MinecraftAccessBot)
-        bot.settings = SimpleNamespace()
-        bot._live_card_lock = asyncio.Lock()
-        bot.get_user = lambda _user_id: user
-        bot.fetch_user = AsyncMock()
-        bot.data = SimpleNamespace(
-            get_application=AsyncMock(side_effect=lambda _application_id: stored),
-            set_status_message=AsyncMock(),
-            set_decision_message=AsyncMock(side_effect=remember_message),
-            enqueue_delivery=AsyncMock(),
-        )
-
-        results = await asyncio.gather(
-            bot.update_live_card(stored),
-            bot.update_live_card(stored),
-        )
-
-        self.assertEqual(results, [True, True])
-        user.send.assert_awaited_once()
-        bot.data.set_decision_message.assert_awaited_once_with(1, 50, 60)
 
     async def test_the_application_channel_is_published_as_three_messages(self):
         # One message carries one set of buttons, so the reading and the Apply
@@ -1060,7 +675,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIsNone(welcome.kwargs["view"])
         self.assertEqual(
-            [item.label for item in apply.kwargs["view"].children], ["Apply"]
+            [item.label for item in apply.kwargs["view"].children], ["Verify"]
         )
         # The guide carries the information panel's pages, minus the one that
         # needs an account the applicant does not have yet.
@@ -1073,15 +688,14 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
                 file.close()
 
     async def test_apply_reveals_cancel_only_for_pending_verification(self):
-        application = MinecraftApplication(
+        application = MinecraftAccess(
             id=42,
             guild_id="10",
             discord_user_id="99",
             edition=Edition.JAVA,
             claimed_username="PlayerOne",
             normalized_username="playerone",
-            answers={"why": "Build things", "about": "Helpful player"},
-            status=ApplicationStatus.PENDING_VERIFICATION,
+            status=AccessStatus.PENDING_VERIFICATION,
             verification_expires_at=2_000_000_000,
             created_at=1_999_999_400,
             updated_at=1_999_999_400,
@@ -1100,7 +714,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
             ),
             data=SimpleNamespace(
                 get_config=AsyncMock(return_value="30"),
-                get_active_application_for_user=AsyncMock(return_value=application),
+                get_active_access_for_user=AsyncMock(return_value=application),
             ),
             apply_rate_limit=SimpleNamespace(claim=lambda _user_id: True),
             replace_application_card=AsyncMock(),
@@ -1115,7 +729,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
             original_response=AsyncMock(return_value=SimpleNamespace(id=99)),
         )
 
-        await ApplyButton().callback(interaction)
+        await VerifyButton().callback(interaction)
 
         response.send_modal.assert_not_awaited()
         response.send_message.assert_awaited_once()
@@ -1157,7 +771,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
             settings=SimpleNamespace(application_channel_id=20),
             data=SimpleNamespace(
                 get_config=AsyncMock(return_value="30"),
-                get_active_application_for_user=AsyncMock(return_value=None),
+                get_active_access_for_user=AsyncMock(return_value=None),
             ),
             apply_rate_limit=SimpleNamespace(claim=lambda _user_id: True),
         )
@@ -1170,7 +784,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
             response=response,
         )
 
-        await ApplyButton().callback(interaction)
+        await VerifyButton().callback(interaction)
 
         response.send_modal.assert_not_awaited()
         kwargs = response.send_message.await_args.kwargs
@@ -2071,7 +1685,7 @@ class MinecraftApplicationCardImageTests(unittest.TestCase):
         )
 
         files = application_card_files(
-            SimpleNamespace(status=ApplicationStatus.PENDING_VERIFICATION)
+            SimpleNamespace(status=AccessStatus.PENDING_VERIFICATION)
         )
 
         self.assertEqual([f.filename for f in files], [VERIFY_FILENAME])
@@ -2080,9 +1694,9 @@ class MinecraftApplicationCardImageTests(unittest.TestCase):
         from minecraft_bot.presentation import application_card_files
 
         for status in (
-            ApplicationStatus.PENDING_REVIEW,
-            ApplicationStatus.APPROVED,
-            ApplicationStatus.DENIED,
+            AccessStatus.VERIFIED,
+            AccessStatus.VERIFIED,
+            AccessStatus.REVOKED,
         ):
             with self.subTest(status=status):
                 self.assertEqual(application_card_files(SimpleNamespace(status=status)), [])
@@ -2974,8 +2588,8 @@ class LinkEditionPromptTests(unittest.IsolatedAsyncioTestCase):
         bot.settings = SimpleNamespace(application_channel_id=4242)
         bot.data = SimpleNamespace(
             list_accounts_for_user=AsyncMock(return_value=list(accounts)),
-            list_applications_for_user=AsyncMock(return_value=list(applications)),
-            has_approved_application=AsyncMock(return_value=approved),
+            list_access_for_user=AsyncMock(return_value=list(applications)),
+            has_verified_access=AsyncMock(return_value=approved),
         )
         return bot
 
@@ -3031,7 +2645,7 @@ class LinkEditionPromptTests(unittest.IsolatedAsyncioTestCase):
                 bot = self._bot(
                     accounts=accounts,
                     applications=[
-                        SimpleNamespace(status=ApplicationStatus.PENDING_REVIEW)
+                        SimpleNamespace(status=AccessStatus.VERIFIED)
                     ],
                 )
 
@@ -3039,23 +2653,6 @@ class LinkEditionPromptTests(unittest.IsolatedAsyncioTestCase):
 
                 self.assertIsNone(view)
                 self.assertEqual(embed.title, "Application Already Active")
-
-    def test_linking_without_approval_still_needs_the_full_application(self):
-        """The safety net behind offering this to anyone who presses it.
-
-        `record_verification` links an account outright only for a member who
-        already holds an approved application. Everybody else lands in the normal
-        flow, so the panel cannot become a way around staff review.
-        """
-        from pathlib import Path
-
-        source = (
-            Path(__file__).resolve().parent.parent / "minecraft_bot" / "data.py"
-        ).read_text()
-
-        self.assertIn("auto_link = bool(already_approved)", source)
-        self.assertIn("ApplicationStatus.APPROVED.value", source)
-
 
 class QuoteFormattingTests(unittest.TestCase):
     """The quote bar is what stops a page of headings running together."""
@@ -3155,7 +2752,7 @@ class ApplyButtonExistingApplicationTests(unittest.IsolatedAsyncioTestCase):
                 maintenance_mode=False,
             ),
             data=SimpleNamespace(
-                get_active_application_for_user=AsyncMock(
+                get_active_access_for_user=AsyncMock(
                     return_value=SimpleNamespace(
                         id=1,
                         status=status,
@@ -3164,7 +2761,6 @@ class ApplyButtonExistingApplicationTests(unittest.IsolatedAsyncioTestCase):
                         verified_username="PlayerOne",
                         verification_expires_at=2_000_000_000,
                         auto_detect_edition=False,
-                        applicant_reason=None,
                         verified_at=None,
                     )
                 ),
@@ -3183,18 +2779,12 @@ class ApplyButtonExistingApplicationTests(unittest.IsolatedAsyncioTestCase):
             original_response=AsyncMock(return_value=SimpleNamespace(id=99)),
         )
 
-        await ApplyButton().callback(interaction)
+        await VerifyButton().callback(interaction)
 
         return response.send_message.await_args.kwargs
 
-    async def test_a_submitted_application_is_reprinted_without_help(self):
-        kwargs = await self._card(ApplicationStatus.PENDING_REVIEW)
-
-        self.assertEqual(kwargs["embed"].title, "Application Sent")
-        self.assertIsNone(kwargs["view"])
-
     async def test_a_pending_verification_offers_cancelling_and_help(self):
-        kwargs = await self._card(ApplicationStatus.PENDING_VERIFICATION)
+        kwargs = await self._card(AccessStatus.PENDING_VERIFICATION)
 
         self.assertEqual(
             [item.label for item in kwargs["view"].children],
@@ -3224,7 +2814,6 @@ class ApplicantVoiceTests(unittest.TestCase):
 
         from minecraft_bot.presentation import (
             approval_embed,
-            denial_embed,
             live_status_embed,
         )
 
@@ -3235,26 +2824,22 @@ class ApplicantVoiceTests(unittest.TestCase):
             maintenance_mode=False,
         )
         held = SimpleNamespace(**{**vars(settings), "maintenance_mode": True})
-        for status in ApplicationStatus:
-            application = MinecraftApplication(
+        for status in AccessStatus:
+            application = MinecraftAccess(
                 id=1,
                 guild_id="1",
                 discord_user_id="9",
                 edition=Edition.JAVA,
                 claimed_username="PlayerOne",
                 normalized_username="playerone",
-                answers={},
                 status=status,
                 verification_expires_at=2_000_000_000,
                 verified_username="PlayerOne",
                 created_at=1,
                 updated_at=1,
-                applicant_reason="The application needs more detail.",
             )
             yield f"card:{status.value}", live_status_embed(application, settings)
             yield f"card-held:{status.value}", live_status_embed(application, held)
-            if status is ApplicationStatus.DENIED:
-                yield "dm:denied", denial_embed(application)
         yield "dm:approved", approval_embed(settings)
         yield "dm:approved-held", approval_embed(held)
 
@@ -3285,7 +2870,6 @@ class ApplicationCardCopyTests(unittest.TestCase):
             edition=Edition.JAVA,
             claimed_username="7saori",
             normalized_username="7saori",
-            answers={},
             status=status,
             verification_expires_at=2_000_000_000,
             verified_username="7saori",
@@ -3293,7 +2877,7 @@ class ApplicationCardCopyTests(unittest.TestCase):
             updated_at=1,
         )
         fields.update(overrides)
-        return MinecraftApplication(**fields)
+        return MinecraftAccess(**fields)
 
     def _settings(self, **overrides):
         base = dict(
@@ -3313,13 +2897,13 @@ class ApplicationCardCopyTests(unittest.TestCase):
 
     def test_the_application_number_is_never_shown_to_the_applicant(self):
         # It identifies the record to staff, not to the person waiting on it.
-        for status in ApplicationStatus:
+        for status in AccessStatus:
             with self.subTest(status=status):
                 embed = live_status_embed(self._application(status), self._settings())
                 self.assertNotIn("#29", self._text(embed))
 
     def test_status_and_account_are_not_fields_of_their_own(self):
-        for status in ApplicationStatus:
+        for status in AccessStatus:
             with self.subTest(status=status):
                 embed = live_status_embed(self._application(status), self._settings())
                 names = {field.name for field in embed.fields}
@@ -3328,37 +2912,22 @@ class ApplicationCardCopyTests(unittest.TestCase):
 
     def test_the_title_says_where_they_are(self):
         expected = {
-            ApplicationStatus.PENDING_VERIFICATION: "Verify Your Account",
-            ApplicationStatus.PENDING_APPLICATION: "Account Verified",
-            ApplicationStatus.PENDING_REVIEW: "Application Sent",
-            ApplicationStatus.APPROVED: "Access Granted",
+            AccessStatus.PENDING_VERIFICATION: "Verify Your Account",
+            AccessStatus.VERIFIED: "Access Active",
         }
         for status, title in expected.items():
             with self.subTest(status=status):
                 embed = live_status_embed(self._application(status), self._settings())
                 self.assertEqual(embed.title, title)
 
-    def test_waiting_on_staff_says_to_watch_for_a_dm(self):
-        embed = live_status_embed(
-            self._application(ApplicationStatus.PENDING_REVIEW), self._settings()
-        )
-
-        self.assertIn("DMs", embed.description)
-        # Two lines under one bar with no gap between them: the blank line that
-        # was there split the bar and read as a missing sentence.
-        self.assertEqual(
-            [line.startswith("> ") for line in embed.description.splitlines()],
-            [True, True],
-        )
-
     def test_the_two_screens_with_something_to_do_still_carry_it(self):
         # A deadline where one can run out, and an address where they must connect.
         # Trimming those away would make the card tidy and useless.
         verify = live_status_embed(
-            self._application(ApplicationStatus.PENDING_VERIFICATION), self._settings()
+            self._application(AccessStatus.PENDING_VERIFICATION), self._settings()
         )
         approved = live_status_embed(
-            self._application(ApplicationStatus.APPROVED), self._settings()
+            self._application(AccessStatus.VERIFIED), self._settings()
         )
 
         self.assertIn("play.example.net", self._text(verify))
@@ -3369,38 +2938,23 @@ class ApplicationCardCopyTests(unittest.TestCase):
         # Discord renders it as "in 3 days", which sits naturally after a verb and
         # badly under a heading. Both timed screens say it inline and neither
         # carries a field for it.
-        for status in (
-            ApplicationStatus.PENDING_VERIFICATION,
-            ApplicationStatus.PENDING_APPLICATION,
-        ):
-            with self.subTest(status=status):
-                embed = live_status_embed(self._application(status), self._settings())
-
-                self.assertRegex(embed.description, r"expires <t:\d+:R>\.")
-                self.assertNotIn("Finish by", {field.name for field in embed.fields})
-
-    def test_the_verified_card_sets_its_deadline_apart(self):
-        # A real blank line, not a quoted one: it is meant to break the bar so the
-        # deadline reads as its own note rather than a third sentence.
         embed = live_status_embed(
-            self._application(ApplicationStatus.PENDING_APPLICATION), self._settings()
+            self._application(AccessStatus.PENDING_VERIFICATION), self._settings()
         )
 
-        lines = embed.description.splitlines()
-
-        self.assertIn("", lines)
-        self.assertTrue(lines[lines.index("") + 1].startswith("> The application expires"))
+        self.assertRegex(embed.description, r"expires <t:\d+:R>\.")
+        self.assertNotIn("Finish by", {field.name for field in embed.fields})
 
     def test_the_card_does_not_branch_on_the_maintenance_hold(self):
         # A card is edited in place for as long as its token lives and then frozen,
         # so a hold it mentioned would be reported as current long after it was
         # lifted. The server says so itself, on the kick screen, when it is true.
         held = live_status_embed(
-            self._application(ApplicationStatus.APPROVED),
+            self._application(AccessStatus.VERIFIED),
             self._settings(maintenance_mode=True),
         )
         open_server = live_status_embed(
-            self._application(ApplicationStatus.APPROVED),
+            self._application(AccessStatus.VERIFIED),
             self._settings(maintenance_mode=False),
         )
 
@@ -3408,7 +2962,7 @@ class ApplicationCardCopyTests(unittest.TestCase):
         self.assertIn("play.example.net", self._text(held))
 
     def test_every_status_renders(self):
-        for status in ApplicationStatus:
+        for status in AccessStatus:
             with self.subTest(status=status):
                 embed = live_status_embed(self._application(status), self._settings())
                 self.assertTrue(embed.title)
@@ -3629,44 +3183,39 @@ class ApplicationCardViewTests(unittest.IsolatedAsyncioTestCase):
         # go through leaves somebody unable to continue.
         self.assertIn(
             "Get Help",
-            self.labels(application_card_view(ApplicationStatus.PENDING_VERIFICATION)),
+            self.labels(application_card_view(AccessStatus.PENDING_VERIFICATION)),
         )
 
     def test_help_is_not_offered_once_there_is_nothing_left_to_do(self):
         # Waiting on staff is not a problem to be helped with, and a Get Help
         # button there only invites a ticket that says "waiting".
         for status in (
-            ApplicationStatus.PENDING_REVIEW,
-            ApplicationStatus.APPROVAL_QUEUED,
+            AccessStatus.VERIFIED,
+            AccessStatus.VERIFIED,
         ):
             with self.subTest(status=status):
                 self.assertNotIn("Get Help", self.labels(application_card_view(status)))
 
-    def test_a_verified_applicant_is_offered_the_written_form(self):
-        labels = self.labels(application_card_view(ApplicationStatus.PENDING_APPLICATION))
-
-        self.assertTrue(any("Continue" in str(label) for label in labels), labels)
-
     def test_finished_applications_carry_no_controls(self):
         for status in (
-            ApplicationStatus.APPROVED,
-            ApplicationStatus.DENIED,
-            ApplicationStatus.EXPIRED,
-            ApplicationStatus.CANCELLED,
-            ApplicationStatus.REVOKED,
+            AccessStatus.VERIFIED,
+            AccessStatus.REVOKED,
+            AccessStatus.EXPIRED,
+            AccessStatus.CANCELLED,
+            AccessStatus.REVOKED,
         ):
             with self.subTest(status=status):
                 self.assertIsNone(application_card_view(status))
 
     def test_every_status_is_handled(self):
-        for status in ApplicationStatus:
+        for status in AccessStatus:
             with self.subTest(status=status):
                 application_card_view(status)
 
     def test_card_views_persist_so_a_refresh_can_reattach_them(self):
         # update_live_card re-attaches these long after the interaction that made the
         # card. A view with a timeout would be dead by then.
-        for status in ApplicationStatus:
+        for status in AccessStatus:
             view = application_card_view(status)
             if view is not None:
                 with self.subTest(status=status):
@@ -3680,7 +3229,7 @@ class ApplicationCardViewTests(unittest.IsolatedAsyncioTestCase):
         bot._live_card_lock = asyncio.Lock()
         application = SimpleNamespace(
             id=7,
-            status=ApplicationStatus.PENDING_VERIFICATION,
+            status=AccessStatus.PENDING_VERIFICATION,
             discord_user_id="99",
             verified_username="PlayerOne",
             claimed_username="PlayerOne",
@@ -4141,7 +3690,7 @@ class MinecraftAccessGuardTests(unittest.IsolatedAsyncioTestCase):
 
         with self.assertRaises(InvalidTransition):
             await bot.handle_bridge_verification(
-                application_id=1,
+                access_id=1,
                 edition=Edition.JAVA,
                 minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
                 current_username="TestPlayer",
@@ -4151,37 +3700,3 @@ class MinecraftAccessGuardTests(unittest.IsolatedAsyncioTestCase):
 
         bot.spawn_background_task.assert_not_called()
 
-    async def test_moderator_cannot_approve_their_own_application(self):
-        view = ReviewView()
-        application = MinecraftApplication(
-            id=1,
-            guild_id="10",
-            discord_user_id="99",
-            edition=Edition.JAVA,
-            claimed_username="TestPlayer",
-            normalized_username="testplayer",
-            answers={},
-            status=ApplicationStatus.PENDING_REVIEW,
-            verification_expires_at=9999,
-            created_at=1,
-            updated_at=1,
-        )
-        bot = SimpleNamespace(
-            is_moderator=lambda _member: True,
-            settings=SimpleNamespace(mod_role_id=5),
-            data=SimpleNamespace(queue_approval=AsyncMock()),
-        )
-        interaction = SimpleNamespace(
-            client=bot,
-            user=SimpleNamespace(id=99, roles=[SimpleNamespace(id=5)]),
-            response=SimpleNamespace(send_message=AsyncMock()),
-        )
-        view._authorize = AsyncMock(return_value=application)
-        approve = next(
-            item for item in view.children if getattr(item, "custom_id", "") == "minecraft:review:approve"
-        )
-
-        await approve.callback(interaction)
-
-        interaction.response.send_message.assert_awaited()
-        bot.data.queue_approval.assert_not_awaited()

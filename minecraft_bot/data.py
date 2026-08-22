@@ -17,29 +17,26 @@ from zoneinfo import ZoneInfo
 import aiosqlite
 
 from .models import (
-    ACTIVE_APPLICATION_STATUSES,
+    ACTIVE_STATUSES,
     AccountEditionAlreadyLinked,
-    ApplicationStatus,
+    AccessStatus,
     BridgeAction,
     DeliveryRecord,
-    DuplicateActiveApplication,
+    DuplicateActiveVerification,
     Edition,
     InvalidTransition,
-    MinecraftApplication,
+    MinecraftAccess,
     OutboxRecord,
 )
 
 
 JAVA_USERNAME = re.compile(r"^[A-Za-z0-9_]{3,16}$")
 BEDROCK_USERNAME = re.compile(r"^[\w -]{1,16}$", re.UNICODE)
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 COMMAND_LOG_RETENTION_DAYS = 30
 COMMAND_LOG_RETENTION_ROWS = 20_000
-#: How long a verified applicant has to finish the written form before the
-#: application expires on its own.
-ANSWERS_WINDOW_SECONDS = 3 * 24 * 3600
 
-APPLICATIONS_TABLE_COLUMNS_SQL = """(
+ACCESS_TABLE_COLUMNS_SQL = """(
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     guild_id TEXT NOT NULL,
     discord_user_id TEXT NOT NULL,
@@ -49,54 +46,71 @@ APPLICATIONS_TABLE_COLUMNS_SQL = """(
     verified_username TEXT,
     minecraft_uuid TEXT,
     xuid TEXT,
-    answers TEXT NOT NULL,
     status TEXT NOT NULL CHECK (status IN (
-        'PENDING_VERIFICATION', 'PENDING_APPLICATION', 'PENDING_REVIEW', 'APPROVAL_QUEUED',
-        'APPROVED', 'DENIED', 'EXPIRED', 'CANCELLED', 'REVOKED'
+        'PENDING_VERIFICATION', 'VERIFIED', 'EXPIRED', 'CANCELLED', 'REVOKED'
     )),
     verification_expires_at INTEGER NOT NULL,
     verified_at INTEGER,
-    reviewed_by TEXT,
-    reviewed_at INTEGER,
-    applicant_reason TEXT,
+    revoked_by TEXT,
+    revoked_at INTEGER,
     internal_note TEXT,
-    review_channel_id TEXT,
-    review_message_id TEXT,
     auto_detect_edition INTEGER NOT NULL DEFAULT 0,
     status_channel_id TEXT,
     status_message_id TEXT,
-    decision_channel_id TEXT,
-    decision_message_id TEXT,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 )"""
 
-APPLICATIONS_COLUMN_NAMES = (
+ACCESS_COLUMN_NAMES = (
     "id, guild_id, discord_user_id, edition, claimed_username, normalized_username, "
-    "verified_username, minecraft_uuid, xuid, answers, status, verification_expires_at, "
-    "verified_at, reviewed_by, reviewed_at, applicant_reason, internal_note, "
-    "review_channel_id, review_message_id, auto_detect_edition, status_channel_id, "
-    "status_message_id, decision_channel_id, decision_message_id, created_at, updated_at"
+    "verified_username, minecraft_uuid, xuid, status, verification_expires_at, "
+    "verified_at, revoked_by, revoked_at, internal_note, auto_detect_edition, "
+    "status_channel_id, status_message_id, created_at, updated_at"
 )
 
+_OUTBOX_TABLE_SQL = """(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    action TEXT NOT NULL CHECK (
+        action IN ('APPROVE', 'REVOKE', 'KICK', 'SYNC_PENDING', 'REMOVE_PENDING', 'STATUS')
+    ),
+    access_id INTEGER,
+    payload TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING' CHECK (
+        status IN ('PENDING', 'SENT', 'PROCESSED', 'FAILED', 'CANCELLED')
+    ),
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at INTEGER NOT NULL,
+    processed_at INTEGER,
+    FOREIGN KEY(access_id) REFERENCES minecraft_access(id)
+)"""
+
+_AUDIT_TABLE_SQL = """(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    action TEXT NOT NULL,
+    access_id INTEGER,
+    actor_discord_id TEXT,
+    target_discord_id TEXT,
+    payload TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY(access_id) REFERENCES minecraft_access(id)
+)"""
+
 SCHEMA_SQL = f"""
-CREATE TABLE IF NOT EXISTS minecraft_applications {APPLICATIONS_TABLE_COLUMNS_SQL};
-CREATE INDEX IF NOT EXISTS idx_minecraft_applications_user
-    ON minecraft_applications(guild_id, discord_user_id, id DESC);
-CREATE INDEX IF NOT EXISTS idx_minecraft_applications_user_recent
-    ON minecraft_applications(discord_user_id, id DESC);
-CREATE INDEX IF NOT EXISTS idx_minecraft_applications_status_recent
-    ON minecraft_applications(status, id DESC);
-CREATE INDEX IF NOT EXISTS idx_minecraft_applications_username
-    ON minecraft_applications(normalized_username, id DESC);
-CREATE INDEX IF NOT EXISTS idx_minecraft_applications_verification
-    ON minecraft_applications(status, verification_expires_at);
-CREATE INDEX IF NOT EXISTS idx_minecraft_applications_review_message
-    ON minecraft_applications(review_message_id);
-CREATE INDEX IF NOT EXISTS idx_minecraft_applications_status_message
-    ON minecraft_applications(status_message_id);
-CREATE INDEX IF NOT EXISTS idx_minecraft_applications_decision_message
-    ON minecraft_applications(decision_message_id);
+CREATE TABLE IF NOT EXISTS minecraft_access {ACCESS_TABLE_COLUMNS_SQL};
+CREATE INDEX IF NOT EXISTS idx_minecraft_access_user
+    ON minecraft_access(guild_id, discord_user_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_minecraft_access_user_recent
+    ON minecraft_access(discord_user_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_minecraft_access_status_recent
+    ON minecraft_access(status, id DESC);
+CREATE INDEX IF NOT EXISTS idx_minecraft_access_username
+    ON minecraft_access(normalized_username, id DESC);
+CREATE INDEX IF NOT EXISTS idx_minecraft_access_verification
+    ON minecraft_access(status, verification_expires_at);
+CREATE INDEX IF NOT EXISTS idx_minecraft_access_status_message
+    ON minecraft_access(status_message_id);
 
 CREATE TABLE IF NOT EXISTS minecraft_accounts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -118,38 +132,13 @@ CREATE INDEX IF NOT EXISTS idx_minecraft_accounts_username
 CREATE UNIQUE INDEX IF NOT EXISTS idx_minecraft_accounts_xuid
     ON minecraft_accounts(xuid) WHERE xuid IS NOT NULL;
 
-CREATE TABLE IF NOT EXISTS minecraft_bridge_outbox (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    idempotency_key TEXT NOT NULL UNIQUE,
-    action TEXT NOT NULL CHECK (
-        action IN ('APPROVE', 'REVOKE', 'KICK', 'SYNC_PENDING', 'REMOVE_PENDING', 'STATUS')
-    ),
-    application_id INTEGER,
-    payload TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'PENDING' CHECK (
-        status IN ('PENDING', 'SENT', 'PROCESSED', 'FAILED', 'CANCELLED')
-    ),
-    attempts INTEGER NOT NULL DEFAULT 0,
-    last_error TEXT,
-    created_at INTEGER NOT NULL,
-    processed_at INTEGER,
-    FOREIGN KEY(application_id) REFERENCES minecraft_applications(id)
-);
+CREATE TABLE IF NOT EXISTS minecraft_bridge_outbox {_OUTBOX_TABLE_SQL};
 CREATE INDEX IF NOT EXISTS idx_minecraft_outbox_status
     ON minecraft_bridge_outbox(status, id);
 
-CREATE TABLE IF NOT EXISTS minecraft_audit_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    action TEXT NOT NULL,
-    application_id INTEGER,
-    actor_discord_id TEXT,
-    target_discord_id TEXT,
-    payload TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    FOREIGN KEY(application_id) REFERENCES minecraft_applications(id)
-);
-CREATE INDEX IF NOT EXISTS idx_minecraft_audit_application
-    ON minecraft_audit_log(application_id, id DESC);
+CREATE TABLE IF NOT EXISTS minecraft_audit_log {_AUDIT_TABLE_SQL};
+CREATE INDEX IF NOT EXISTS idx_minecraft_audit_access
+    ON minecraft_audit_log(access_id, id DESC);
 
 CREATE TABLE IF NOT EXISTS minecraft_config (
     key TEXT PRIMARY KEY,
@@ -258,12 +247,6 @@ def _like_contains(value: str) -> str:
     return f"%{escaped}%"
 
 
-def validate_answers(answers: dict[str, str]) -> tuple[str, str]:
-    why = str(answers.get("why", "")).strip()
-    about = str(answers.get("about", "")).strip()
-    if not 10 <= len(why) <= 500 or not 10 <= len(about) <= 1000:
-        raise ValueError("Application answers must be between 10 and their displayed limits")
-    return why, about
 
 
 def _now() -> int:
@@ -290,57 +273,8 @@ class MinecraftDataManager:
             current_version = int(row[0] if row else 0)
             if existed and current_version < SCHEMA_VERSION:
                 await self._backup_database(db, current_version)
-            if existed and current_version < 4:
-                columns = {
-                    row[1]
-                    for row in await db.execute_fetchall("PRAGMA table_info(minecraft_applications)")
-                }
-                if columns:
-                    for name, definition in (
-                        ("auto_detect_edition", "INTEGER NOT NULL DEFAULT 0"),
-                        ("status_channel_id", "TEXT"),
-                        ("status_message_id", "TEXT"),
-                    ):
-                        if name not in columns:
-                            await db.execute(
-                                f"ALTER TABLE minecraft_applications ADD COLUMN {name} {definition}"
-                            )
-            if existed and current_version < 5:
-                columns = {
-                    row[1]
-                    for row in await db.execute_fetchall("PRAGMA table_info(minecraft_applications)")
-                }
-                if columns:
-                    for name in ("decision_channel_id", "decision_message_id"):
-                        if name not in columns:
-                            await db.execute(
-                                f"ALTER TABLE minecraft_applications ADD COLUMN {name} TEXT"
-                            )
-            if existed and current_version < 6:
-                # PENDING_APPLICATION joins the status CHECK, and SQLite cannot
-                # alter a constraint in place — rebuild the table around it.
-                await db.commit()
-                await db.execute("PRAGMA foreign_keys=OFF")
-                tables = {
-                    row[0]
-                    for row in await db.execute_fetchall(
-                        "SELECT name FROM sqlite_master WHERE type='table' AND name='minecraft_applications'"
-                    )
-                }
-                if tables:
-                    await db.execute(
-                        f"CREATE TABLE minecraft_applications_v6 {APPLICATIONS_TABLE_COLUMNS_SQL}"
-                    )
-                    await db.execute(
-                        f"INSERT INTO minecraft_applications_v6 ({APPLICATIONS_COLUMN_NAMES}) "
-                        f"SELECT {APPLICATIONS_COLUMN_NAMES} FROM minecraft_applications"
-                    )
-                    await db.execute("DROP TABLE minecraft_applications")
-                    await db.execute(
-                        "ALTER TABLE minecraft_applications_v6 RENAME TO minecraft_applications"
-                    )
-                await db.commit()
-                await db.execute("PRAGMA foreign_keys=ON")
+            if existed and current_version < 8:
+                await self._migrate_applications_to_access(db)
             await db.executescript(SCHEMA_SQL)
             await db.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
             await db.commit()
@@ -349,6 +283,104 @@ class MinecraftDataManager:
             await db.close()
             raise
         self._db = db
+
+    #: How schema 7's application ladder collapses onto verification-only access.
+    #: Everything that had already proved account ownership keeps or gains access;
+    #: a staff denial is preserved as a revocation so nobody rejected walks back in.
+    _STATUS_REMAP = {
+        "APPROVED": "VERIFIED",
+        "APPROVAL_QUEUED": "VERIFIED",
+        "PENDING_APPLICATION": "VERIFIED",
+        "PENDING_REVIEW": "VERIFIED",
+        "DENIED": "REVOKED",
+        "PENDING_VERIFICATION": "PENDING_VERIFICATION",
+        "EXPIRED": "EXPIRED",
+        "CANCELLED": "CANCELLED",
+        "REVOKED": "REVOKED",
+    }
+
+    async def _migrate_applications_to_access(self, db: aiosqlite.Connection) -> None:
+        """Rebuild `minecraft_applications` as `minecraft_access`.
+
+        SQLite cannot drop columns or alter a CHECK in place, so the table is
+        rebuilt. Column presence is probed rather than assumed: databases created
+        before schema 4 never got `auto_detect_edition` or the status message
+        columns, and this migration has to accept any of those shapes.
+        """
+        tables = {
+            row[0]
+            for row in await db.execute_fetchall(
+                "SELECT name FROM sqlite_master WHERE type='table' "
+                "AND name IN ('minecraft_applications', 'minecraft_access')"
+            )
+        }
+        if "minecraft_applications" not in tables or "minecraft_access" in tables:
+            return
+
+        present = {
+            row[1]
+            for row in await db.execute_fetchall("PRAGMA table_info(minecraft_applications)")
+        }
+        carried = (
+            "id", "guild_id", "discord_user_id", "edition", "claimed_username",
+            "normalized_username", "verified_username", "minecraft_uuid", "xuid",
+            "verification_expires_at", "verified_at", "internal_note",
+            "auto_detect_edition", "status_channel_id", "status_message_id",
+            "created_at", "updated_at",
+        )
+        selected = [name for name in carried if name in present]
+
+        await db.commit()
+        await db.execute("PRAGMA foreign_keys=OFF")
+        try:
+            await db.execute(f"CREATE TABLE minecraft_access {ACCESS_TABLE_COLUMNS_SQL}")
+            # CASE maps every legacy status; the ELSE is a fail-safe for a value
+            # written by some future branch, and lands on the closed side.
+            case = " ".join(
+                f"WHEN '{old}' THEN '{new}'" for old, new in self._STATUS_REMAP.items()
+            )
+            await db.execute(
+                f"INSERT INTO minecraft_access ({', '.join(selected)}, status) "
+                f"SELECT {', '.join(selected)}, "
+                f"CASE status {case} ELSE 'REVOKED' END "
+                "FROM minecraft_applications"
+            )
+            # The old staff decision columns become a revocation record.
+            if {"reviewed_by", "reviewed_at"} <= present:
+                await db.execute(
+                    "UPDATE minecraft_access SET revoked_by=("
+                    "  SELECT reviewed_by FROM minecraft_applications a WHERE a.id=minecraft_access.id"
+                    "), revoked_at=("
+                    "  SELECT reviewed_at FROM minecraft_applications a WHERE a.id=minecraft_access.id"
+                    ") WHERE status='REVOKED'"
+                )
+            await db.execute("DROP TABLE minecraft_applications")
+            # Both outbox tables carry a foreign key naming the dropped table, so
+            # they have to be rebuilt against the new name before writes resume.
+            for table, create in (
+                ("minecraft_bridge_outbox", _OUTBOX_TABLE_SQL),
+                ("minecraft_audit_log", _AUDIT_TABLE_SQL),
+            ):
+                if table not in {
+                    row[0]
+                    for row in await db.execute_fetchall(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
+                    )
+                }:
+                    continue
+                columns = ", ".join(
+                    row[1]
+                    for row in await db.execute_fetchall(f"PRAGMA table_info({table})")
+                )
+                await db.execute(f"CREATE TABLE {table}_v8 {create}")
+                await db.execute(
+                    f"INSERT INTO {table}_v8 ({columns}) SELECT {columns} FROM {table}"
+                )
+                await db.execute(f"DROP TABLE {table}")
+                await db.execute(f"ALTER TABLE {table}_v8 RENAME TO {table}")
+            await db.commit()
+        finally:
+            await db.execute("PRAGMA foreign_keys=ON")
 
     async def _backup_database(self, db: aiosqlite.Connection, version: int) -> Path:
         backup_dir = self.database_path.parent / "backups"
@@ -385,8 +417,8 @@ class MinecraftDataManager:
         return self._db
 
     @staticmethod
-    def _application(row: aiosqlite.Row | dict[str, Any]) -> MinecraftApplication:
-        return MinecraftApplication(
+    def _access(row: aiosqlite.Row | dict[str, Any]) -> MinecraftAccess:
+        return MinecraftAccess(
             id=int(row["id"]),
             guild_id=str(row["guild_id"]),
             discord_user_id=str(row["discord_user_id"]),
@@ -396,21 +428,15 @@ class MinecraftDataManager:
             verified_username=row["verified_username"],
             minecraft_uuid=row["minecraft_uuid"],
             xuid=row["xuid"],
-            answers=json.loads(row["answers"]),
-            status=ApplicationStatus(row["status"]),
+            status=AccessStatus(row["status"]),
             verification_expires_at=int(row["verification_expires_at"]),
             verified_at=row["verified_at"],
-            reviewed_by=row["reviewed_by"],
-            reviewed_at=row["reviewed_at"],
-            applicant_reason=row["applicant_reason"],
+            revoked_by=row["revoked_by"],
+            revoked_at=row["revoked_at"],
             internal_note=row["internal_note"],
-            review_channel_id=row["review_channel_id"],
-            review_message_id=row["review_message_id"],
             auto_detect_edition=bool(row["auto_detect_edition"]),
             status_channel_id=row["status_channel_id"],
             status_message_id=row["status_message_id"],
-            decision_channel_id=row["decision_channel_id"],
-            decision_message_id=row["decision_message_id"],
             created_at=int(row["created_at"]),
             updated_at=int(row["updated_at"]),
         )
@@ -425,7 +451,7 @@ class MinecraftDataManager:
             status=row["status"],
             attempts=int(row["attempts"]),
             last_error=row["last_error"],
-            application_id=row["application_id"],
+            access_id=row["access_id"],
             created_at=int(row["created_at"]),
             processed_at=row["processed_at"],
         )
@@ -438,7 +464,7 @@ class MinecraftDataManager:
         db: aiosqlite.Connection,
         action: str,
         *,
-        application_id: Optional[int] = None,
+        access_id: Optional[int] = None,
         actor_id: Optional[int | str] = None,
         target_id: Optional[int | str] = None,
         payload: Optional[dict[str, Any]] = None,
@@ -446,11 +472,11 @@ class MinecraftDataManager:
     ) -> None:
         await db.execute(
             "INSERT INTO minecraft_audit_log"
-            "(action, application_id, actor_discord_id, target_discord_id, payload, created_at) "
+            "(action, access_id, actor_discord_id, target_discord_id, payload, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?)",
             (
                 action,
-                application_id,
+                access_id,
                 str(actor_id) if actor_id is not None else None,
                 str(target_id) if target_id is not None else None,
                 json.dumps(payload or {}, separators=(",", ":")),
@@ -465,17 +491,17 @@ class MinecraftDataManager:
         payload: dict[str, Any],
         *,
         idempotency_key: str,
-        application_id: Optional[int] = None,
+        access_id: Optional[int] = None,
         timestamp: Optional[int] = None,
     ) -> None:
         await db.execute(
             "INSERT OR IGNORE INTO minecraft_bridge_outbox"
-            "(idempotency_key, action, application_id, payload, status, created_at) "
+            "(idempotency_key, action, access_id, payload, status, created_at) "
             "VALUES (?, ?, ?, ?, 'PENDING', ?)",
             (
                 idempotency_key,
                 action.value,
-                application_id,
+                access_id,
                 json.dumps(payload, separators=(",", ":")),
                 _now() if timestamp is None else timestamp,
             ),
@@ -484,18 +510,17 @@ class MinecraftDataManager:
     async def _release_account_if_unused(
         self,
         db: aiosqlite.Connection,
-        application: MinecraftApplication,
+        application: MinecraftAccess,
     ) -> None:
         if not application.minecraft_uuid:
             return
         still_needed = await db.execute_fetchall(
-            "SELECT id FROM minecraft_applications WHERE minecraft_uuid=? AND id<>? "
-            "AND status IN (?, ?) LIMIT 1",
+            "SELECT id FROM minecraft_access WHERE minecraft_uuid=? AND id<>? "
+            "AND status=? LIMIT 1",
             (
                 application.minecraft_uuid,
                 application.id,
-                ApplicationStatus.APPROVED.value,
-                ApplicationStatus.APPROVAL_QUEUED.value,
+                AccessStatus.VERIFIED.value,
             ),
         )
         if still_needed:
@@ -505,17 +530,16 @@ class MinecraftDataManager:
             (application.edition.value, application.minecraft_uuid),
         )
 
-    async def create_application(
+    async def create_verification(
         self,
         *,
         guild_id: int,
         discord_user_id: int,
         edition: Optional[Edition],
         claimed_username: str,
-        answers: Optional[dict[str, str]] = None,
         verification_seconds: int = 600,
         now: Optional[int] = None,
-    ) -> MinecraftApplication:
+    ) -> MinecraftAccess:
         current = _now() if now is None else int(now)
         auto_detect_edition = edition is None
         if auto_detect_edition:
@@ -532,42 +556,38 @@ class MinecraftDataManager:
             claimed, normalized = cleaned, cleaned.casefold()
         else:
             claimed, normalized = normalize_username(edition, claimed_username)
-        # Verification comes first now, so most applications start with no written
-        # answers; they arrive through submit_answers after the account is verified.
-        why, about = validate_answers(answers) if answers else ("", "")
         db = self._connection()
         async with self._write_lock:
             try:
                 await self._begin(db)
                 expired_rows = await db.execute_fetchall(
-                    "SELECT id, status FROM minecraft_applications WHERE guild_id=? AND discord_user_id=? "
-                    "AND status IN (?, ?) AND verification_expires_at<=?",
+                    "SELECT id, status FROM minecraft_access WHERE guild_id=? AND discord_user_id=? "
+                    "AND status=? AND verification_expires_at<=?",
                     (
                         str(guild_id),
                         str(discord_user_id),
-                        ApplicationStatus.PENDING_VERIFICATION.value,
-                        ApplicationStatus.PENDING_APPLICATION.value,
+                        AccessStatus.PENDING_VERIFICATION.value,
                         current,
                     ),
                 )
                 for expired_row in expired_rows:
                     expired_id = int(expired_row["id"])
                     await db.execute(
-                        "UPDATE minecraft_applications SET status=?, updated_at=? WHERE id=? AND status=?",
+                        "UPDATE minecraft_access SET status=?, updated_at=? WHERE id=? AND status=?",
                         (
-                            ApplicationStatus.EXPIRED.value,
+                            AccessStatus.EXPIRED.value,
                             current,
                             expired_id,
                             str(expired_row["status"]),
                         ),
                     )
-                    if str(expired_row["status"]) == ApplicationStatus.PENDING_VERIFICATION.value:
+                    if str(expired_row["status"]) == AccessStatus.PENDING_VERIFICATION.value:
                         await self._queue(
                             db,
                             BridgeAction.REMOVE_PENDING,
-                            {"application_id": expired_id},
-                            idempotency_key=f"application:{expired_id}:expire",
-                            application_id=expired_id,
+                            {"access_id": expired_id},
+                            idempotency_key=f"access:{expired_id}:expire",
+                            access_id=expired_id,
                             timestamp=current,
                         )
                 if not auto_detect_edition:
@@ -604,55 +624,51 @@ class MinecraftDataManager:
                         "That Minecraft name is already linked to another Discord account"
                     )
                 claimed_name = await db.execute_fetchall(
-                    "SELECT discord_user_id FROM minecraft_applications "
+                    "SELECT discord_user_id FROM minecraft_access "
                     "WHERE normalized_username=? AND status IN "
-                    f"({','.join('?' for _ in ACTIVE_APPLICATION_STATUSES)}) LIMIT 1",
+                    f"({','.join('?' for _ in ACTIVE_STATUSES)}) LIMIT 1",
                     (
                         normalized,
-                        *(status.value for status in ACTIVE_APPLICATION_STATUSES),
+                        *(status.value for status in ACTIVE_STATUSES),
                     ),
                 )
                 if claimed_name and str(claimed_name[0]["discord_user_id"]) != str(discord_user_id):
                     raise ValueError(
                         "That Minecraft name is already being used on another application"
                     )
-                placeholders = ",".join("?" for _ in ACTIVE_APPLICATION_STATUSES)
+                placeholders = ",".join("?" for _ in ACTIVE_STATUSES)
                 active = await db.execute_fetchall(
-                    f"SELECT id FROM minecraft_applications WHERE guild_id=? AND discord_user_id=? "
+                    f"SELECT id FROM minecraft_access WHERE guild_id=? AND discord_user_id=? "
                     f"AND status IN ({placeholders}) LIMIT 1",
                     (
                         str(guild_id),
                         str(discord_user_id),
-                        *(status.value for status in ACTIVE_APPLICATION_STATUSES),
+                        *(status.value for status in ACTIVE_STATUSES),
                     ),
                 )
                 if active:
-                    raise DuplicateActiveApplication("An unfinished application already exists")
+                    raise DuplicateActiveVerification("This member already has a verification in progress")
                 cursor = await db.execute(
-                    "INSERT INTO minecraft_applications"
-                    "(guild_id, discord_user_id, edition, claimed_username, normalized_username, answers, "
+                    "INSERT INTO minecraft_access"
+                    "(guild_id, discord_user_id, edition, claimed_username, normalized_username, "
                     "status, verification_expires_at, auto_detect_edition, created_at, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         str(guild_id),
                         str(discord_user_id),
                         edition.value,
                         claimed,
                         normalized,
-                        json.dumps(
-                            {"why": why, "about": about} if why or about else {},
-                            separators=(",", ":"),
-                        ),
-                        ApplicationStatus.PENDING_VERIFICATION.value,
+                        AccessStatus.PENDING_VERIFICATION.value,
                         current + verification_seconds,
                         int(auto_detect_edition),
                         current,
                         current,
                     ),
                 )
-                application_id = int(cursor.lastrowid)
+                access_id = int(cursor.lastrowid)
                 payload = {
-                    "application_id": application_id,
+                    "access_id": access_id,
                     "edition": "AUTO" if auto_detect_edition else edition.value,
                     "claimed_username": claimed,
                     "normalized_username": normalized,
@@ -662,14 +678,14 @@ class MinecraftDataManager:
                     db,
                     BridgeAction.SYNC_PENDING,
                     payload,
-                    idempotency_key=f"application:{application_id}:sync",
-                    application_id=application_id,
+                    idempotency_key=f"access:{access_id}:sync",
+                    access_id=access_id,
                     timestamp=current,
                 )
                 await self._audit(
                     db,
                     "APPLICATION_CREATED",
-                    application_id=application_id,
+                    access_id=access_id,
                     target_id=discord_user_id,
                     payload={"edition": "AUTO" if auto_detect_edition else edition.value, "claimed_username": claimed},
                     timestamp=current,
@@ -678,67 +694,49 @@ class MinecraftDataManager:
             except Exception:
                 await db.rollback()
                 raise
-        application = await self.get_application(application_id)
+        application = await self.get_access(access_id)
         if application is None:
             raise RuntimeError("Application insert did not persist")
         return application
 
-    async def get_application(self, application_id: int) -> Optional[MinecraftApplication]:
+    async def get_access(self, access_id: int) -> Optional[MinecraftAccess]:
         rows = await self._connection().execute_fetchall(
-            "SELECT * FROM minecraft_applications WHERE id=?",
-            (int(application_id),),
+            "SELECT * FROM minecraft_access WHERE id=?",
+            (int(access_id),),
         )
-        return self._application(rows[0]) if rows else None
+        return self._access(rows[0]) if rows else None
 
-    async def get_active_application_for_user(
+    async def get_active_access_for_user(
         self,
         *,
         guild_id: int | str,
         discord_user_id: int | str,
         now: Optional[int] = None,
-    ) -> Optional[MinecraftApplication]:
+    ) -> Optional[MinecraftAccess]:
         current = _now() if now is None else int(now)
         rows = await self._connection().execute_fetchall(
-            "SELECT * FROM minecraft_applications "
+            "SELECT * FROM minecraft_access "
             "WHERE guild_id=? AND discord_user_id=? AND ("
-            "(status IN (?, ?) AND verification_expires_at>?) OR status IN (?, ?)"
+            "(status=? AND verification_expires_at>?) OR status=?"
             ") ORDER BY id DESC LIMIT 1",
             (
                 str(guild_id),
                 str(discord_user_id),
-                ApplicationStatus.PENDING_VERIFICATION.value,
-                ApplicationStatus.PENDING_APPLICATION.value,
+                AccessStatus.PENDING_VERIFICATION.value,
                 current,
-                ApplicationStatus.PENDING_REVIEW.value,
-                ApplicationStatus.APPROVAL_QUEUED.value,
+                AccessStatus.VERIFIED.value,
             ),
         )
-        return self._application(rows[0]) if rows else None
+        return self._access(rows[0]) if rows else None
 
-    async def get_application_by_review_message(self, message_id: int) -> Optional[MinecraftApplication]:
+    async def list_access_for_user(self, discord_user_id: int | str, *, limit: int = 25) -> list[MinecraftAccess]:
         rows = await self._connection().execute_fetchall(
-            "SELECT * FROM minecraft_applications WHERE review_message_id=?",
-            (str(message_id),),
-        )
-        return self._application(rows[0]) if rows else None
-
-    async def set_review_message(self, application_id: int, channel_id: int, message_id: int) -> None:
-        async with self._write_lock:
-            db = self._connection()
-            await db.execute(
-                "UPDATE minecraft_applications SET review_channel_id=?, review_message_id=?, updated_at=? WHERE id=?",
-                (str(channel_id), str(message_id), _now(), int(application_id)),
-            )
-            await db.commit()
-
-    async def list_applications_for_user(self, discord_user_id: int | str, *, limit: int = 25) -> list[MinecraftApplication]:
-        rows = await self._connection().execute_fetchall(
-            "SELECT * FROM minecraft_applications WHERE discord_user_id=? ORDER BY id DESC LIMIT ?",
+            "SELECT * FROM minecraft_access WHERE discord_user_id=? ORDER BY id DESC LIMIT ?",
             (str(discord_user_id), max(1, min(int(limit), 100))),
         )
-        return [self._application(row) for row in rows]
+        return [self._access(row) for row in rows]
 
-    async def has_approved_application(self, discord_user_id: int | str) -> bool:
+    async def has_verified_access(self, discord_user_id: int | str) -> bool:
         """Whether this member holds access that staff granted.
 
         The same fact `record_verification` checks before linking a second edition
@@ -746,29 +744,29 @@ class MinecraftDataManager:
         rather than infer it from having a linked account.
         """
         rows = await self._connection().execute_fetchall(
-            "SELECT 1 FROM minecraft_applications WHERE discord_user_id=? AND status=? LIMIT 1",
-            (str(discord_user_id), ApplicationStatus.APPROVED.value),
+            "SELECT 1 FROM minecraft_access WHERE discord_user_id=? AND status=? LIMIT 1",
+            (str(discord_user_id), AccessStatus.VERIFIED.value),
         )
         return bool(rows)
 
-    async def list_applications(
+    async def list_access(
         self,
         *,
-        status: Optional[ApplicationStatus] = None,
+        status: Optional[AccessStatus] = None,
         limit: int = 25,
-    ) -> list[MinecraftApplication]:
+    ) -> list[MinecraftAccess]:
         bounded_limit = max(1, min(int(limit), 100))
         if status is None:
             rows = await self._connection().execute_fetchall(
-                "SELECT * FROM minecraft_applications ORDER BY id DESC LIMIT ?",
+                "SELECT * FROM minecraft_access ORDER BY id DESC LIMIT ?",
                 (bounded_limit,),
             )
         else:
             rows = await self._connection().execute_fetchall(
-                "SELECT * FROM minecraft_applications WHERE status=? ORDER BY id DESC LIMIT ?",
+                "SELECT * FROM minecraft_access WHERE status=? ORDER BY id DESC LIMIT ?",
                 (status.value, bounded_limit),
             )
-        return [self._application(row) for row in rows]
+        return [self._access(row) for row in rows]
 
     async def list_accounts_for_user(self, discord_user_id: int | str) -> list[dict[str, Any]]:
         rows = await self._connection().execute_fetchall(
@@ -801,22 +799,14 @@ class MinecraftDataManager:
         )
         return {str(row["minecraft_uuid"]): str(row["discord_user_id"]) for row in rows}
 
-    async def list_pending_verifications(self) -> list[MinecraftApplication]:
+    async def list_pending_verifications(self) -> list[MinecraftAccess]:
         rows = await self._connection().execute_fetchall(
-            "SELECT * FROM minecraft_applications WHERE status=? AND verification_expires_at>? ORDER BY id",
-            (ApplicationStatus.PENDING_VERIFICATION.value, _now()),
+            "SELECT * FROM minecraft_access WHERE status=? AND verification_expires_at>? ORDER BY id",
+            (AccessStatus.PENDING_VERIFICATION.value, _now()),
         )
-        return [self._application(row) for row in rows]
+        return [self._access(row) for row in rows]
 
-    async def list_missing_review_messages(self, *, limit: int = 20) -> list[MinecraftApplication]:
-        rows = await self._connection().execute_fetchall(
-            "SELECT * FROM minecraft_applications WHERE status=? AND review_message_id IS NULL "
-            "ORDER BY id LIMIT ?",
-            (ApplicationStatus.PENDING_REVIEW.value, max(1, min(int(limit), 100))),
-        )
-        return [self._application(row) for row in rows]
-
-    async def expire_pending(self, *, now: Optional[int] = None, limit: int = 100) -> list[MinecraftApplication]:
+    async def expire_pending(self, *, now: Optional[int] = None, limit: int = 100) -> list[MinecraftAccess]:
         current = _now() if now is None else int(now)
         db = self._connection()
         expired_ids: list[int] = []
@@ -824,45 +814,44 @@ class MinecraftDataManager:
             try:
                 await self._begin(db)
                 rows = await db.execute_fetchall(
-                    "SELECT * FROM minecraft_applications WHERE status IN (?, ?) "
+                    "SELECT * FROM minecraft_access WHERE status=? "
                     "AND verification_expires_at<=? ORDER BY verification_expires_at LIMIT ?",
                     (
-                        ApplicationStatus.PENDING_VERIFICATION.value,
-                        ApplicationStatus.PENDING_APPLICATION.value,
+                        AccessStatus.PENDING_VERIFICATION.value,
                         current,
                         max(1, min(limit, 500)),
                     ),
                 )
                 for row in rows:
-                    application = self._application(row)
+                    application = self._access(row)
                     expired_ids.append(application.id)
                     await db.execute(
-                        "UPDATE minecraft_applications SET status=?, updated_at=? WHERE id=? AND status=?",
+                        "UPDATE minecraft_access SET status=?, updated_at=? WHERE id=? AND status=?",
                         (
-                            ApplicationStatus.EXPIRED.value,
+                            AccessStatus.EXPIRED.value,
                             current,
                             application.id,
                             application.status.value,
                         ),
                     )
-                    if application.status is ApplicationStatus.PENDING_VERIFICATION:
+                    if application.status is AccessStatus.PENDING_VERIFICATION:
                         # Paper only tracks applications awaiting their first
                         # connection; verified ones were already removed there.
                         await self._queue(
                             db,
                             BridgeAction.REMOVE_PENDING,
-                            {"application_id": application.id},
-                            idempotency_key=f"application:{application.id}:expire",
-                            application_id=application.id,
+                            {"access_id": application.id},
+                            idempotency_key=f"access:{application.id}:expire",
+                            access_id=application.id,
                             timestamp=current,
                         )
                     await self._release_account_if_unused(db, application)
                     await self._audit(
                         db,
                         "VERIFICATION_EXPIRED"
-                        if application.status is ApplicationStatus.PENDING_VERIFICATION
+                        if application.status is AccessStatus.PENDING_VERIFICATION
                         else "APPLICATION_FORM_EXPIRED",
-                        application_id=application.id,
+                        access_id=application.id,
                         target_id=application.discord_user_id,
                         timestamp=current,
                     )
@@ -871,8 +860,8 @@ class MinecraftDataManager:
                 await db.rollback()
                 raise
         results = []
-        for application_id in expired_ids:
-            application = await self.get_application(application_id)
+        for access_id in expired_ids:
+            application = await self.get_access(access_id)
             if application is not None:
                 results.append(application)
         return results
@@ -880,14 +869,14 @@ class MinecraftDataManager:
     async def record_verification(
         self,
         *,
-        application_id: int,
+        access_id: int,
         edition: Edition,
         minecraft_uuid: str,
         current_username: str,
         xuid: Optional[str],
         event_idempotency_key: str,
         now: Optional[int] = None,
-    ) -> tuple[MinecraftApplication, bool]:
+    ) -> tuple[MinecraftAccess, bool]:
         current = _now() if now is None else int(now)
         try:
             uuid.UUID(str(minecraft_uuid))
@@ -902,12 +891,12 @@ class MinecraftDataManager:
             try:
                 await self._begin(db)
                 rows = await db.execute_fetchall(
-                    "SELECT * FROM minecraft_applications WHERE id=?",
-                    (int(application_id),),
+                    "SELECT * FROM minecraft_access WHERE id=?",
+                    (int(access_id),),
                 )
                 if not rows:
                     raise InvalidTransition("Application does not exist")
-                application = self._application(rows[0])
+                application = self._access(rows[0])
                 event_cursor = await db.execute(
                     "INSERT OR IGNORE INTO minecraft_bridge_events"
                     "(idempotency_key, message_type, processed_at) VALUES (?, 'VERIFICATION', ?)",
@@ -916,15 +905,15 @@ class MinecraftDataManager:
                 if event_cursor.rowcount != 1:
                     await db.rollback()
                     return application, False
-                if application.status is not ApplicationStatus.PENDING_VERIFICATION:
+                if application.status is not AccessStatus.PENDING_VERIFICATION:
                     raise InvalidTransition("Application is not awaiting verification")
                 if application.verification_expires_at <= current:
                     await db.execute(
-                        "UPDATE minecraft_applications SET status=?, updated_at=? WHERE id=?",
-                        (ApplicationStatus.EXPIRED.value, current, application.id),
+                        "UPDATE minecraft_access SET status=?, updated_at=? WHERE id=?",
+                        (AccessStatus.EXPIRED.value, current, application.id),
                     )
                     await db.commit()
-                    updated = await self.get_application(application_id)
+                    updated = await self.get_access(access_id)
                     return updated or application, False
                 if not application.auto_detect_edition and application.edition is not edition:
                     raise InvalidTransition("Verified edition does not match the application")
@@ -956,41 +945,14 @@ class MinecraftDataManager:
                     if linked_xuid and linked_xuid[0]["discord_user_id"] != application.discord_user_id:
                         raise InvalidTransition("Floodgate XUID is linked to another Discord member")
 
-                # A member who already holds approved access is linking their other
-                # edition. The written form and the review exist to vet the person,
-                # which staff have already done; verification is the only new fact,
-                # and it has just happened. Anyone without approved access — never
-                # accepted, denied, or revoked — still gets the full application.
-                already_approved = await db.execute_fetchall(
-                    "SELECT 1 FROM minecraft_applications WHERE discord_user_id=? AND guild_id=? "
-                    "AND status=? AND id<>? LIMIT 1",
-                    (
-                        application.discord_user_id,
-                        application.guild_id,
-                        ApplicationStatus.APPROVED.value,
-                        application.id,
-                    ),
-                )
-                auto_link = bool(already_approved)
-
-                # Applications created without written answers (the normal flow now)
-                # move to PENDING_APPLICATION and wait for the form; legacy records
-                # that already carry answers go straight to staff review.
-                if auto_link:
-                    next_status = ApplicationStatus.APPROVAL_QUEUED
-                else:
-                    next_status = (
-                        ApplicationStatus.PENDING_REVIEW
-                        if application.answers
-                        else ApplicationStatus.PENDING_APPLICATION
-                    )
-                next_deadline = (
-                    application.verification_expires_at
-                    if application.answers or auto_link
-                    else current + ANSWERS_WINDOW_SECONDS
-                )
+                # Verification is the whole gate: proving you control the account
+                # is the only thing standing between a member and the world. There
+                # is no form to fill and nobody to wait for, so this transition
+                # goes straight to VERIFIED and queues the whitelist itself.
+                next_status = AccessStatus.VERIFIED
+                next_deadline = application.verification_expires_at
                 await db.execute(
-                    "UPDATE minecraft_applications SET edition=?, auto_detect_edition=0, "
+                    "UPDATE minecraft_access SET edition=?, auto_detect_edition=0, "
                     "verified_username=?, minecraft_uuid=?, xuid=?, status=?, verified_at=?, "
                     "verification_expires_at=?, updated_at=? "
                     "WHERE id=? AND status=?",
@@ -1004,7 +966,7 @@ class MinecraftDataManager:
                         next_deadline,
                         current,
                         application.id,
-                        ApplicationStatus.PENDING_VERIFICATION.value,
+                        AccessStatus.PENDING_VERIFICATION.value,
                     ),
                 )
                 await db.execute(
@@ -1028,46 +990,37 @@ class MinecraftDataManager:
                 )
                 await db.execute(
                     "UPDATE minecraft_bridge_outbox SET status='CANCELLED', processed_at=? "
-                    "WHERE application_id=? AND action=? AND status IN ('PENDING', 'SENT', 'FAILED')",
+                    "WHERE access_id=? AND action=? AND status IN ('PENDING', 'SENT', 'FAILED')",
                     (current, application.id, BridgeAction.SYNC_PENDING.value),
                 )
                 await self._queue(
                     db,
                     BridgeAction.REMOVE_PENDING,
-                    {"application_id": application.id},
-                    idempotency_key=f"application:{application.id}:verified",
-                    application_id=application.id,
+                    {"access_id": application.id},
+                    idempotency_key=f"access:{application.id}:verified",
+                    access_id=application.id,
                     timestamp=current,
                 )
-                if auto_link:
-                    # The same queue a staff approval uses, so whitelisting, retries
-                    # and the outbox behave identically. reviewed_by stays null:
-                    # recording the bot as the moderator would be a lie in the log.
-                    await self._queue(
-                        db,
-                        BridgeAction.APPROVE,
-                        {
-                            "application_id": application.id,
-                            "edition": edition.value,
-                            "minecraft_uuid": minecraft_uuid,
-                            "verified_username": cleaned_actual,
-                        },
-                        idempotency_key=f"application:{application.id}:approve:{minecraft_uuid}",
-                        application_id=application.id,
-                        timestamp=current,
-                    )
-                    await self._audit(
-                        db,
-                        "LINK_AUTO_APPROVED",
-                        application_id=application.id,
-                        target_id=application.discord_user_id,
-                        payload={"edition": edition.value, "username": cleaned_actual},
-                        timestamp=current,
-                    )
+                # The durable outbox is what actually whitelists on Paper, so the
+                # retry and idempotency behaviour is identical to the old staff
+                # approval path. Only the trigger changed.
+                await self._queue(
+                    db,
+                    BridgeAction.APPROVE,
+                    {
+                        "access_id": application.id,
+                        "edition": edition.value,
+                        "minecraft_uuid": minecraft_uuid,
+                        "verified_username": cleaned_actual,
+                    },
+                    idempotency_key=f"access:{application.id}:approve:{minecraft_uuid}",
+                    access_id=application.id,
+                    timestamp=current,
+                )
                 await self._audit(
                     db,
                     "VERIFICATION_ACCEPTED",
-                    application_id=application.id,
+                    access_id=application.id,
                     target_id=application.discord_user_id,
                     payload={
                         "idempotency_key": event_idempotency_key,
@@ -1083,85 +1036,18 @@ class MinecraftDataManager:
             except Exception:
                 await db.rollback()
                 raise
-        updated = await self.get_application(application_id)
+        updated = await self.get_access(access_id)
         if updated is None:
-            raise RuntimeError("Verified application disappeared")
+            raise RuntimeError("Verified access record disappeared")
         return updated, changed
-
-    async def submit_answers(
-        self,
-        application_id: int,
-        discord_user_id: int | str,
-        *,
-        why: str,
-        about: str,
-        now: Optional[int] = None,
-    ) -> MinecraftApplication:
-        """Attaches the written form to a verified application and sends it to review."""
-        current = _now() if now is None else int(now)
-        cleaned_why, cleaned_about = validate_answers({"why": why, "about": about})
-        db = self._connection()
-        async with self._write_lock:
-            try:
-                await self._begin(db)
-                rows = await db.execute_fetchall(
-                    "SELECT * FROM minecraft_applications WHERE id=?",
-                    (int(application_id),),
-                )
-                if not rows:
-                    raise InvalidTransition("Application does not exist")
-                application = self._application(rows[0])
-                if str(application.discord_user_id) != str(discord_user_id):
-                    raise InvalidTransition("This application belongs to another member")
-                if application.status is ApplicationStatus.EXPIRED:
-                    raise InvalidTransition("The application expired before the form was submitted")
-                if application.status is not ApplicationStatus.PENDING_APPLICATION:
-                    raise InvalidTransition("Application is not waiting for the written form")
-                if application.verification_expires_at <= current:
-                    await db.execute(
-                        "UPDATE minecraft_applications SET status=?, updated_at=? WHERE id=?",
-                        (ApplicationStatus.EXPIRED.value, current, application.id),
-                    )
-                    await db.commit()
-                    raise InvalidTransition("The application expired before the form was submitted")
-                await db.execute(
-                    "UPDATE minecraft_applications SET answers=?, status=?, updated_at=? "
-                    "WHERE id=? AND status=?",
-                    (
-                        json.dumps(
-                            {"why": cleaned_why, "about": cleaned_about},
-                            separators=(",", ":"),
-                        ),
-                        ApplicationStatus.PENDING_REVIEW.value,
-                        current,
-                        application.id,
-                        ApplicationStatus.PENDING_APPLICATION.value,
-                    ),
-                )
-                await self._audit(
-                    db,
-                    "APPLICATION_SUBMITTED",
-                    application_id=application.id,
-                    actor_id=discord_user_id,
-                    target_id=application.discord_user_id,
-                    timestamp=current,
-                )
-                await db.commit()
-            except Exception:
-                await db.rollback()
-                raise
-        updated = await self.get_application(application_id)
-        if updated is None:
-            raise RuntimeError("Submitted application disappeared")
-        return updated
 
     async def list_whitelisted(self, *, limit: int = 200) -> list[dict[str, Any]]:
         """Every account with active whitelist access, for the public directory."""
         rows = await self._connection().execute_fetchall(
             "SELECT edition, verified_username, claimed_username, discord_user_id, "
-            "minecraft_uuid, reviewed_at FROM minecraft_applications WHERE status=? "
+            "minecraft_uuid, verified_at FROM minecraft_access WHERE status=? "
             "ORDER BY LOWER(COALESCE(verified_username, claimed_username)) LIMIT ?",
-            (ApplicationStatus.APPROVED.value, max(1, min(int(limit), 500))),
+            (AccessStatus.VERIFIED.value, max(1, min(int(limit), 500))),
         )
         return [
             {
@@ -1169,7 +1055,7 @@ class MinecraftDataManager:
                 "username": str(row["verified_username"] or row["claimed_username"]),
                 "discord_user_id": str(row["discord_user_id"]),
                 "minecraft_uuid": str(row["minecraft_uuid"] or ""),
-                "approved_at": row["reviewed_at"],
+                "verified_at": row["verified_at"],
             }
             for row in rows
         ]
@@ -1190,12 +1076,8 @@ class MinecraftDataManager:
                     "SELECT edition, minecraft_uuid FROM minecraft_accounts",
                 )
                 verified_active = await db.execute_fetchall(
-                    "SELECT id FROM minecraft_applications WHERE status IN (?, ?, ?)",
-                    (
-                        ApplicationStatus.PENDING_APPLICATION.value,
-                        ApplicationStatus.PENDING_REVIEW.value,
-                        ApplicationStatus.APPROVAL_QUEUED.value,
-                    ),
+                    "SELECT id FROM minecraft_access WHERE status=?",
+                    (AccessStatus.PENDING_VERIFICATION.value,),
                 )
                 counts: dict[str, int] = {}
                 for table in (
@@ -1206,7 +1088,7 @@ class MinecraftDataManager:
                     "minecraft_bridge_events",
                     "minecraft_bridge_nonces",
                     "minecraft_accounts",
-                    "minecraft_applications",
+                    "minecraft_access",
                 ):
                     cursor = await db.execute(f"DELETE FROM {table}")
                     counts[table] = max(0, cursor.rowcount)
@@ -1219,16 +1101,16 @@ class MinecraftDataManager:
                             "minecraft_uuid": str(row["minecraft_uuid"]),
                         },
                         idempotency_key=f"wipe:{current}:revoke:{row['minecraft_uuid']}",
-                        application_id=None,
+                        access_id=None,
                         timestamp=current,
                     )
                 for row in verified_active:
                     await self._queue(
                         db,
                         BridgeAction.REMOVE_PENDING,
-                        {"application_id": int(row["id"])},
+                        {"access_id": int(row["id"])},
                         idempotency_key=f"wipe:{current}:remove:{row['id']}",
-                        application_id=None,
+                        access_id=None,
                         timestamp=current,
                     )
                 await self._audit(
@@ -1244,59 +1126,49 @@ class MinecraftDataManager:
                 raise
         return counts
 
-    async def set_status_message(self, application_id: int, channel_id: int, message_id: int) -> None:
+    async def set_status_message(self, access_id: int, channel_id: int, message_id: int) -> None:
         async with self._write_lock:
             db = self._connection()
             await db.execute(
-                "UPDATE minecraft_applications SET status_channel_id=?, status_message_id=? WHERE id=?",
-                (str(channel_id), str(message_id), int(application_id)),
+                "UPDATE minecraft_access SET status_channel_id=?, status_message_id=? WHERE id=?",
+                (str(channel_id), str(message_id), int(access_id)),
             )
             await db.commit()
 
-    async def set_decision_message(self, application_id: int, channel_id: int, message_id: int) -> None:
+    async def clear_status_message(self, access_id: int) -> None:
         async with self._write_lock:
             db = self._connection()
             await db.execute(
-                "UPDATE minecraft_applications SET decision_channel_id=?, decision_message_id=? WHERE id=?",
-                (str(channel_id), str(message_id), int(application_id)),
+                "UPDATE minecraft_access SET status_channel_id=NULL, status_message_id=NULL WHERE id=?",
+                (int(access_id),),
             )
             await db.commit()
 
-    async def clear_status_message(self, application_id: int) -> None:
-        async with self._write_lock:
-            db = self._connection()
-            await db.execute(
-                "UPDATE minecraft_applications SET status_channel_id=NULL, status_message_id=NULL WHERE id=?",
-                (int(application_id),),
-            )
-            await db.commit()
-
-    async def get_application_by_status_message(self, message_id: int) -> Optional[MinecraftApplication]:
+    async def get_access_by_status_message(self, message_id: int) -> Optional[MinecraftAccess]:
         rows = await self._connection().execute_fetchall(
-            "SELECT * FROM minecraft_applications WHERE status_message_id=?",
+            "SELECT * FROM minecraft_access WHERE status_message_id=?",
             (str(message_id),),
         )
-        return self._application(rows[0]) if rows else None
+        return self._access(rows[0]) if rows else None
 
-    async def list_live_card_applications(self, *, limit: int = 100) -> list[MinecraftApplication]:
+    async def list_live_card_access(self, *, limit: int = 100) -> list[MinecraftAccess]:
         rows = await self._connection().execute_fetchall(
-            "SELECT * FROM minecraft_applications WHERE status IN (?, ?) "
+            "SELECT * FROM minecraft_access WHERE status=? "
             "ORDER BY id DESC LIMIT ?",
             (
-                ApplicationStatus.PENDING_APPLICATION.value,
-                ApplicationStatus.PENDING_REVIEW.value,
+                AccessStatus.PENDING_VERIFICATION.value,
                 max(1, min(limit, 500)),
             ),
         )
-        return [self._application(row) for row in rows]
+        return [self._access(row) for row in rows]
 
-    async def list_existing_live_cards(self, *, limit: int = 100) -> list[MinecraftApplication]:
+    async def list_existing_live_cards(self, *, limit: int = 100) -> list[MinecraftAccess]:
         rows = await self._connection().execute_fetchall(
-            "SELECT * FROM minecraft_applications WHERE status_message_id IS NOT NULL "
+            "SELECT * FROM minecraft_access WHERE status_message_id IS NOT NULL "
             "ORDER BY id DESC LIMIT ?",
             (max(1, min(limit, 500)),),
         )
-        return [self._application(row) for row in rows]
+        return [self._access(row) for row in rows]
 
     async def record_player_seen(
         self,
@@ -1326,181 +1198,58 @@ class MinecraftDataManager:
             await db.commit()
             return str(rows[0]["discord_user_id"])
 
-    async def queue_approval(self, application_id: int, moderator_id: int, *, now: Optional[int] = None) -> MinecraftApplication:
-        current = _now() if now is None else int(now)
-        db = self._connection()
-        async with self._write_lock:
-            try:
-                await self._begin(db)
-                rows = await db.execute_fetchall(
-                    "SELECT * FROM minecraft_applications WHERE id=?",
-                    (int(application_id),),
-                )
-                if not rows:
-                    raise InvalidTransition("Application does not exist")
-                application = self._application(rows[0])
-                if application.status is not ApplicationStatus.PENDING_REVIEW:
-                    raise InvalidTransition("Application has already been reviewed")
-                if not application.minecraft_uuid or not application.verified_username:
-                    raise InvalidTransition("Unverified applications cannot be approved")
-                await db.execute(
-                    "UPDATE minecraft_applications SET status=?, reviewed_by=?, reviewed_at=?, updated_at=? "
-                    "WHERE id=? AND status=?",
-                    (
-                        ApplicationStatus.APPROVAL_QUEUED.value,
-                        str(moderator_id),
-                        current,
-                        current,
-                        application.id,
-                        ApplicationStatus.PENDING_REVIEW.value,
-                    ),
-                )
-                payload = {
-                    "application_id": application.id,
-                    "edition": application.edition.value,
-                    "minecraft_uuid": application.minecraft_uuid,
-                    "verified_username": application.verified_username,
-                }
-                await self._queue(
-                    db,
-                    BridgeAction.APPROVE,
-                    payload,
-                    idempotency_key=f"application:{application.id}:approve:{application.minecraft_uuid}",
-                    application_id=application.id,
-                    timestamp=current,
-                )
-                await self._audit(
-                    db,
-                    "APPROVAL_QUEUED",
-                    application_id=application.id,
-                    actor_id=moderator_id,
-                    target_id=application.discord_user_id,
-                    timestamp=current,
-                )
-                await db.commit()
-            except Exception:
-                await db.rollback()
-                raise
-        updated = await self.get_application(application_id)
-        if updated is None:
-            raise RuntimeError("Queued application disappeared")
-        return updated
-
-    async def deny_application(
-        self,
-        application_id: int,
-        moderator_id: int,
-        *,
-        internal_note: str,
-        applicant_reason: str,
-        now: Optional[int] = None,
-    ) -> MinecraftApplication:
-        current = _now() if now is None else int(now)
-        db = self._connection()
-        async with self._write_lock:
-            try:
-                await self._begin(db)
-                cursor = await db.execute(
-                    "UPDATE minecraft_applications SET status=?, reviewed_by=?, reviewed_at=?, "
-                    "internal_note=?, applicant_reason=?, updated_at=? WHERE id=? AND status=?",
-                    (
-                        ApplicationStatus.DENIED.value,
-                        str(moderator_id),
-                        current,
-                        internal_note[:1000],
-                        applicant_reason[:1000] or None,
-                        current,
-                        int(application_id),
-                        ApplicationStatus.PENDING_REVIEW.value,
-                    ),
-                )
-                if cursor.rowcount != 1:
-                    raise InvalidTransition("Application has already been reviewed")
-                rows = await db.execute_fetchall(
-                    "SELECT * FROM minecraft_applications WHERE id=?",
-                    (int(application_id),),
-                )
-                denied = self._application(rows[0]) if rows else None
-                if denied is not None:
-                    await self._release_account_if_unused(db, denied)
-                await self._queue(
-                    db,
-                    BridgeAction.REMOVE_PENDING,
-                    {"application_id": int(application_id)},
-                    idempotency_key=f"application:{application_id}:deny-remove",
-                    application_id=int(application_id),
-                    timestamp=current,
-                )
-                await self._audit(
-                    db,
-                    "APPLICATION_DENIED",
-                    application_id=application_id,
-                    actor_id=moderator_id,
-                    target_id=denied.discord_user_id if denied is not None else None,
-                    payload={"has_public_reason": bool(applicant_reason)},
-                    timestamp=current,
-                )
-                await db.commit()
-            except Exception:
-                await db.rollback()
-                raise
-        application = await self.get_application(application_id)
-        if application is None:
-            raise RuntimeError("Denied application disappeared")
-        return application
-
-    async def cancel_application(self, application_id: int, moderator_id: int) -> MinecraftApplication:
+    async def cancel_verification(self, access_id: int, moderator_id: int) -> MinecraftAccess:
         current = _now()
         db = self._connection()
-        placeholders = ",".join("?" for _ in ACTIVE_APPLICATION_STATUSES)
+        placeholders = ",".join("?" for _ in ACTIVE_STATUSES)
         async with self._write_lock:
             try:
                 await self._begin(db)
                 rows = await db.execute_fetchall(
-                    "SELECT * FROM minecraft_applications WHERE id=?",
-                    (int(application_id),),
+                    "SELECT * FROM minecraft_access WHERE id=?",
+                    (int(access_id),),
                 )
                 if not rows:
                     raise InvalidTransition("Application does not exist")
-                application = self._application(rows[0])
+                application = self._access(rows[0])
                 cursor = await db.execute(
-                    f"UPDATE minecraft_applications SET status=?, reviewed_by=?, reviewed_at=?, updated_at=? "
+                    f"UPDATE minecraft_access SET status=?, revoked_by=?, revoked_at=?, updated_at=? "
                     f"WHERE id=? AND status IN ({placeholders})",
                     (
-                        ApplicationStatus.CANCELLED.value,
+                        AccessStatus.CANCELLED.value,
                         str(moderator_id),
                         current,
                         current,
                         application.id,
-                        *(status.value for status in ACTIVE_APPLICATION_STATUSES),
+                        *(status.value for status in ACTIVE_STATUSES),
                     ),
                 )
                 if cursor.rowcount != 1:
                     raise InvalidTransition("Application is no longer active")
                 await db.execute(
                     "UPDATE minecraft_bridge_outbox SET status='CANCELLED', processed_at=? "
-                    "WHERE application_id=? AND status IN ('PENDING', 'SENT', 'FAILED')",
+                    "WHERE access_id=? AND status IN ('PENDING', 'SENT', 'FAILED')",
                     (current, application.id),
                 )
                 await self._queue(
                     db,
                     BridgeAction.REMOVE_PENDING,
-                    {"application_id": application.id},
-                    idempotency_key=f"application:{application.id}:cancel",
-                    application_id=application.id,
+                    {"access_id": application.id},
+                    idempotency_key=f"access:{application.id}:cancel",
+                    access_id=application.id,
                     timestamp=current,
                 )
-                if application.status is ApplicationStatus.APPROVAL_QUEUED and application.minecraft_uuid:
+                if application.status is AccessStatus.VERIFIED and application.minecraft_uuid:
                     await self._queue(
                         db,
                         BridgeAction.REVOKE,
                         {
-                            "application_id": application.id,
+                            "access_id": application.id,
                             "edition": application.edition.value,
                             "minecraft_uuid": application.minecraft_uuid,
                         },
-                        idempotency_key=f"application:{application.id}:cancel-revoke",
-                        application_id=application.id,
+                        idempotency_key=f"access:{application.id}:cancel-revoke",
+                        access_id=application.id,
                         timestamp=current,
                     )
                 else:
@@ -1508,7 +1257,7 @@ class MinecraftDataManager:
                 await self._audit(
                     db,
                     "APPLICATION_CANCELLED",
-                    application_id=application.id,
+                    access_id=application.id,
                     actor_id=moderator_id,
                     target_id=application.discord_user_id,
                     timestamp=current,
@@ -1517,7 +1266,7 @@ class MinecraftDataManager:
             except Exception:
                 await db.rollback()
                 raise
-        updated = await self.get_application(application_id)
+        updated = await self.get_access(access_id)
         if updated is None:
             raise RuntimeError("Cancelled application disappeared")
         return updated
@@ -1528,56 +1277,56 @@ class MinecraftDataManager:
         guild_id: int | str,
         discord_user_id: int | str,
         now: Optional[int] = None,
-    ) -> MinecraftApplication:
+    ) -> MinecraftAccess:
         current = _now() if now is None else int(now)
         db = self._connection()
-        application_id: Optional[int] = None
+        access_id: Optional[int] = None
         async with self._write_lock:
             try:
                 await self._begin(db)
                 rows = await db.execute_fetchall(
-                    "SELECT * FROM minecraft_applications "
+                    "SELECT * FROM minecraft_access "
                     "WHERE guild_id=? AND discord_user_id=? AND status=? "
                     "ORDER BY id DESC LIMIT 1",
                     (
                         str(guild_id),
                         str(discord_user_id),
-                        ApplicationStatus.PENDING_VERIFICATION.value,
+                        AccessStatus.PENDING_VERIFICATION.value,
                     ),
                 )
                 if not rows:
                     raise InvalidTransition("You do not have a pending verification to cancel")
-                application = self._application(rows[0])
-                application_id = application.id
+                application = self._access(rows[0])
+                access_id = application.id
                 cursor = await db.execute(
-                    "UPDATE minecraft_applications SET status=?, updated_at=? "
+                    "UPDATE minecraft_access SET status=?, updated_at=? "
                     "WHERE id=? AND status=?",
                     (
-                        ApplicationStatus.CANCELLED.value,
+                        AccessStatus.CANCELLED.value,
                         current,
                         application.id,
-                        ApplicationStatus.PENDING_VERIFICATION.value,
+                        AccessStatus.PENDING_VERIFICATION.value,
                     ),
                 )
                 if cursor.rowcount != 1:
                     raise InvalidTransition("The verification is no longer pending")
                 await db.execute(
                     "UPDATE minecraft_bridge_outbox SET status='CANCELLED', processed_at=? "
-                    "WHERE application_id=? AND status IN ('PENDING', 'SENT', 'FAILED')",
+                    "WHERE access_id=? AND status IN ('PENDING', 'SENT', 'FAILED')",
                     (current, application.id),
                 )
                 await self._queue(
                     db,
                     BridgeAction.REMOVE_PENDING,
-                    {"application_id": application.id},
-                    idempotency_key=f"application:{application.id}:withdraw",
-                    application_id=application.id,
+                    {"access_id": application.id},
+                    idempotency_key=f"access:{application.id}:withdraw",
+                    access_id=application.id,
                     timestamp=current,
                 )
                 await self._audit(
                     db,
                     "APPLICATION_WITHDRAWN",
-                    application_id=application.id,
+                    access_id=application.id,
                     actor_id=discord_user_id,
                     target_id=discord_user_id,
                     timestamp=current,
@@ -1586,12 +1335,12 @@ class MinecraftDataManager:
             except Exception:
                 await db.rollback()
                 raise
-        updated = await self.get_application(application_id)
+        updated = await self.get_access(access_id)
         if updated is None:
             raise RuntimeError("Cancelled application disappeared")
         return updated
 
-    async def queue_revocations(self, discord_user_id: int, moderator_id: int, reason: str) -> list[MinecraftApplication]:
+    async def queue_revocations(self, discord_user_id: int, moderator_id: int, reason: str) -> list[MinecraftAccess]:
         current = _now()
         db = self._connection()
         queued: list[int] = []
@@ -1599,11 +1348,11 @@ class MinecraftDataManager:
             try:
                 await self._begin(db)
                 rows = await db.execute_fetchall(
-                    "SELECT * FROM minecraft_applications WHERE discord_user_id=? AND status=?",
-                    (str(discord_user_id), ApplicationStatus.APPROVED.value),
+                    "SELECT * FROM minecraft_access WHERE discord_user_id=? AND status=?",
+                    (str(discord_user_id), AccessStatus.VERIFIED.value),
                 )
                 for row in rows:
-                    application = self._application(row)
+                    application = self._access(row)
                     if not application.minecraft_uuid:
                         continue
                     queued.append(application.id)
@@ -1611,19 +1360,19 @@ class MinecraftDataManager:
                         db,
                         BridgeAction.REVOKE,
                         {
-                            "application_id": application.id,
+                            "access_id": application.id,
                             "edition": application.edition.value,
                             "minecraft_uuid": application.minecraft_uuid,
                             "reason": reason[:500],
                         },
-                        idempotency_key=f"application:{application.id}:revoke",
-                        application_id=application.id,
+                        idempotency_key=f"access:{application.id}:revoke",
+                        access_id=application.id,
                         timestamp=current,
                     )
                     await self._audit(
                         db,
                         "REVOCATION_QUEUED",
-                        application_id=application.id,
+                        access_id=application.id,
                         actor_id=moderator_id,
                         target_id=discord_user_id,
                         payload={"reason": reason[:500]},
@@ -1634,8 +1383,8 @@ class MinecraftDataManager:
                 await db.rollback()
                 raise
         results = []
-        for application_id in queued:
-            application = await self.get_application(application_id)
+        for access_id in queued:
+            application = await self.get_access(access_id)
             if application is not None:
                 results.append(application)
         return results
@@ -1646,7 +1395,7 @@ class MinecraftDataManager:
         edition: Edition,
         moderator_id: int | str,
         reason: str,
-    ) -> tuple[Optional[dict[str, Any]], list[MinecraftApplication], bool]:
+    ) -> tuple[Optional[dict[str, Any]], list[MinecraftAccess], bool]:
         current = _now()
         db = self._connection()
         account: Optional[dict[str, Any]] = None
@@ -1664,44 +1413,43 @@ class MinecraftDataManager:
                     return None, [], False
                 account = dict(account_rows[0])
                 applications = await db.execute_fetchall(
-                    "SELECT * FROM minecraft_applications WHERE discord_user_id=? AND edition=? "
-                    "AND minecraft_uuid=? AND status IN (?, ?) ORDER BY id",
+                    "SELECT * FROM minecraft_access WHERE discord_user_id=? AND edition=? "
+                    "AND minecraft_uuid=? AND status=? ORDER BY id",
                     (
                         str(discord_user_id),
                         edition.value,
                         account["minecraft_uuid"],
-                        ApplicationStatus.APPROVAL_QUEUED.value,
-                        ApplicationStatus.APPROVED.value,
+                        AccessStatus.VERIFIED.value,
                     ),
                 )
                 if applications:
                     revocation_queued = True
                     for row in applications:
-                        application = self._application(row)
+                        application = self._access(row)
                         affected_ids.append(application.id)
                         await db.execute(
                             "UPDATE minecraft_bridge_outbox SET status='CANCELLED', processed_at=? "
-                            "WHERE application_id=? AND action=? AND status IN ('PENDING', 'SENT', 'FAILED')",
+                            "WHERE access_id=? AND action=? AND status IN ('PENDING', 'SENT', 'FAILED')",
                             (current, application.id, BridgeAction.APPROVE.value),
                         )
                         await self._queue(
                             db,
                             BridgeAction.REVOKE,
                             {
-                                "application_id": application.id,
+                                "access_id": application.id,
                                 "edition": edition.value,
                                 "minecraft_uuid": account["minecraft_uuid"],
                                 "reason": str(reason)[:500],
                                 "unlink_account": True,
                             },
-                            idempotency_key=f"application:{application.id}:unlink",
-                            application_id=application.id,
+                            idempotency_key=f"access:{application.id}:unlink",
+                            access_id=application.id,
                             timestamp=current,
                         )
                         await self._audit(
                             db,
                             "ACCOUNT_UNLINK_QUEUED",
-                            application_id=application.id,
+                            access_id=application.id,
                             actor_id=moderator_id,
                             target_id=discord_user_id,
                             payload={"edition": edition.value, "reason": str(reason)[:500]},
@@ -1709,31 +1457,30 @@ class MinecraftDataManager:
                         )
                 else:
                     pending_rows = await db.execute_fetchall(
-                        "SELECT id FROM minecraft_applications WHERE discord_user_id=? AND edition=? "
-                        "AND minecraft_uuid=? AND status IN (?, ?)",
+                        "SELECT id FROM minecraft_access WHERE discord_user_id=? AND edition=? "
+                        "AND minecraft_uuid=? AND status=?",
                         (
                             str(discord_user_id),
                             edition.value,
                             account["minecraft_uuid"],
-                            ApplicationStatus.PENDING_REVIEW.value,
-                            ApplicationStatus.PENDING_APPLICATION.value,
+                            AccessStatus.PENDING_VERIFICATION.value,
                         ),
                     )
                     affected_ids = [int(row["id"]) for row in pending_rows]
                     if affected_ids:
                         placeholders = ",".join("?" for _ in affected_ids)
                         await db.execute(
-                            f"UPDATE minecraft_applications SET status=?, updated_at=? "
+                            f"UPDATE minecraft_access SET status=?, updated_at=? "
                             f"WHERE id IN ({placeholders})",
-                            (ApplicationStatus.CANCELLED.value, current, *affected_ids),
+                            (AccessStatus.CANCELLED.value, current, *affected_ids),
                         )
                         for pending_id in affected_ids:
                             await self._queue(
                                 db,
                                 BridgeAction.REMOVE_PENDING,
-                                {"application_id": pending_id},
-                                idempotency_key=f"application:{pending_id}:unlink-remove",
-                                application_id=pending_id,
+                                {"access_id": pending_id},
+                                idempotency_key=f"access:{pending_id}:unlink-remove",
+                                access_id=pending_id,
                                 timestamp=current,
                             )
                     await db.execute(
@@ -1743,7 +1490,7 @@ class MinecraftDataManager:
                     await self._audit(
                         db,
                         "ACCOUNT_UNLINKED",
-                        application_id=affected_ids[-1] if affected_ids else None,
+                        access_id=affected_ids[-1] if affected_ids else None,
                         actor_id=moderator_id,
                         target_id=discord_user_id,
                         payload={
@@ -1758,8 +1505,8 @@ class MinecraftDataManager:
                 await db.rollback()
                 raise
         affected = []
-        for application_id in affected_ids:
-            application = await self.get_application(application_id)
+        for access_id in affected_ids:
+            application = await self.get_access(access_id)
             if application is not None:
                 affected.append(application)
         return account, affected, revocation_queued
@@ -1811,11 +1558,11 @@ class MinecraftDataManager:
     async def complete_outbox(
         self,
         idempotency_key: str,
-    ) -> tuple[Optional[OutboxRecord], Optional[MinecraftApplication], bool]:
+    ) -> tuple[Optional[OutboxRecord], Optional[MinecraftAccess], bool]:
         current = _now()
         db = self._connection()
         record: Optional[OutboxRecord] = None
-        application_id: Optional[int] = None
+        access_id: Optional[int] = None
         newly_processed = False
         async with self._write_lock:
             try:
@@ -1828,7 +1575,7 @@ class MinecraftDataManager:
                     await db.rollback()
                     return None, None, False
                 record = self._outbox(rows[0])
-                application_id = record.application_id
+                access_id = record.access_id
                 if record.status in {"PROCESSED", "CANCELLED"}:
                     await db.rollback()
                 else:
@@ -1838,50 +1585,39 @@ class MinecraftDataManager:
                         "WHERE idempotency_key=?",
                         (current, idempotency_key),
                     )
-                    if application_id is not None and record.action is BridgeAction.APPROVE:
+                    if access_id is not None and record.action is BridgeAction.APPROVE:
                         account_still_linked = await db.execute_fetchall(
                             "SELECT 1 FROM minecraft_accounts WHERE minecraft_uuid=? LIMIT 1",
                             (str(record.payload.get("minecraft_uuid") or ""),),
                         )
                         if account_still_linked:
-                            await db.execute(
-                                "UPDATE minecraft_applications SET status=?, updated_at=? "
-                                "WHERE id=? AND status=?",
-                                (
-                                    ApplicationStatus.APPROVED.value,
-                                    current,
-                                    application_id,
-                                    ApplicationStatus.APPROVAL_QUEUED.value,
-                                ),
-                            )
                             await self._audit(
                                 db,
-                                "APPLICATION_APPROVED",
-                                application_id=application_id,
+                                "WHITELIST_CONFIRMED",
+                                access_id=access_id,
                                 timestamp=current,
                             )
-                    elif application_id is not None and record.action is BridgeAction.REVOKE:
+                    elif access_id is not None and record.action is BridgeAction.REVOKE:
                         await db.execute(
-                            "UPDATE minecraft_applications SET status=?, updated_at=? "
-                            "WHERE id=? AND status IN (?, ?)",
+                            "UPDATE minecraft_access SET status=?, updated_at=? "
+                            "WHERE id=? AND status=?",
                             (
-                                ApplicationStatus.REVOKED.value,
+                                AccessStatus.REVOKED.value,
                                 current,
-                                application_id,
-                                ApplicationStatus.APPROVED.value,
-                                ApplicationStatus.APPROVAL_QUEUED.value,
+                                access_id,
+                                AccessStatus.VERIFIED.value,
                             ),
                         )
                         await self._audit(
                             db,
                             "ACCESS_REVOKED",
-                            application_id=application_id,
+                            access_id=access_id,
                             timestamp=current,
                         )
                         if record.payload.get("unlink_account"):
                             application_rows = await db.execute_fetchall(
-                                "SELECT discord_user_id FROM minecraft_applications WHERE id=?",
-                                (application_id,),
+                                "SELECT discord_user_id FROM minecraft_access WHERE id=?",
+                                (access_id,),
                             )
                             if application_rows:
                                 owner_id = str(application_rows[0]["discord_user_id"])
@@ -1897,7 +1633,7 @@ class MinecraftDataManager:
                                 await self._audit(
                                     db,
                                     "ACCOUNT_UNLINKED",
-                                    application_id=application_id,
+                                    access_id=access_id,
                                     target_id=owner_id,
                                     payload={
                                         "edition": record.payload.get("edition"),
@@ -1909,16 +1645,16 @@ class MinecraftDataManager:
             except Exception:
                 await db.rollback()
                 raise
-        application = await self.get_application(application_id) if application_id is not None else None
+        application = await self.get_access(access_id) if access_id is not None else None
         return record, application, newly_processed
 
-    async def retry_application(self, application_id: int) -> int:
+    async def retry_access(self, access_id: int) -> int:
         async with self._write_lock:
             db = self._connection()
             cursor = await db.execute(
                 "UPDATE minecraft_bridge_outbox SET status='PENDING', last_error=NULL, processed_at=NULL "
-                "WHERE application_id=? AND status='FAILED'",
-                (int(application_id),),
+                "WHERE access_id=? AND status='FAILED'",
+                (int(access_id),),
             )
             await db.commit()
             return max(0, cursor.rowcount)
@@ -2144,9 +1880,9 @@ class MinecraftDataManager:
             "busiest": busiest,
         }
 
-    async def application_status_counts(self) -> dict[str, int]:
+    async def access_status_counts(self) -> dict[str, int]:
         rows = await self._connection().execute_fetchall(
-            "SELECT status, COUNT(*) AS count FROM minecraft_applications GROUP BY status"
+            "SELECT status, COUNT(*) AS count FROM minecraft_access GROUP BY status"
         )
         return {row["status"]: int(row["count"]) for row in rows}
 
@@ -2246,10 +1982,10 @@ class MinecraftDataManager:
         )
         return {str(row["kind"]): int(row["count"]) for row in rows}
 
-    async def audit_rows(self, application_id: int) -> list[dict[str, Any]]:
+    async def audit_rows(self, access_id: int) -> list[dict[str, Any]]:
         rows = await self._connection().execute_fetchall(
-            "SELECT * FROM minecraft_audit_log WHERE application_id=? ORDER BY id",
-            (int(application_id),),
+            "SELECT * FROM minecraft_audit_log WHERE access_id=? ORDER BY id",
+            (int(access_id),),
         )
         return [dict(row) for row in rows]
 
@@ -2363,17 +2099,17 @@ class MinecraftDataManager:
         username: str,
         *,
         limit: int = 10,
-    ) -> list[MinecraftApplication]:
+    ) -> list[MinecraftAccess]:
         """Reverse lookup: which applications claimed this Minecraft username."""
         needle = " ".join(str(username or "").strip().split()).casefold()
         if not needle:
             return []
         rows = await self._connection().execute_fetchall(
-            "SELECT * FROM minecraft_applications WHERE normalized_username LIKE ? ESCAPE '\\' "
+            "SELECT * FROM minecraft_access WHERE normalized_username LIKE ? ESCAPE '\\' "
             "ORDER BY id DESC LIMIT ?",
             (_like_contains(needle), max(1, min(25, int(limit)))),
         )
-        return [self._application(row) for row in rows]
+        return [self._access(row) for row in rows]
 
     async def find_accounts_by_username(
         self,
@@ -2396,7 +2132,7 @@ class MinecraftDataManager:
         self,
         action: str,
         *,
-        application_id: Optional[int] = None,
+        access_id: Optional[int] = None,
         actor_id: Optional[int | str] = None,
         target_id: Optional[int | str] = None,
         payload: Optional[dict[str, Any]] = None,
@@ -2408,7 +2144,7 @@ class MinecraftDataManager:
                 await self._audit(
                     db,
                     action,
-                    application_id=application_id,
+                    access_id=access_id,
                     actor_id=actor_id,
                     target_id=target_id,
                     payload=payload,

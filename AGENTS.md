@@ -349,8 +349,8 @@ Read the relevant file when you touch an area; these are the non-obvious points.
   maintenance bypass node. The login refusal, join handler, sweep, and kick of
   anyone already online when the hold is enabled all use that same check.
   Nothing in Discord branches on the flag; the plugin states the closure on its
-  own kick screen, where it is true at the moment it is read. Applications,
-  verification and acceptance all carry on regardless.
+  own kick screen, where it is true at the moment it is read. Verification
+  still carries on regardless, so a held server keeps linking accounts.
   Enforced in three event places plus a 1-second sweep of whoever is online,
   because Floodgate's 1.21 path does not honour a `PlayerLoginEvent` refusal the
   way Java does and Geyser can skip those events entirely: `onPlayerPreLogin`
@@ -409,6 +409,17 @@ Read the relevant file when you touch an area; these are the non-obvious points.
   custody and equipped selections, and refreshes carried tokens. Tokens stored in
   containers show old lore until they are picked up or moved through the wardrobe;
   the `CosmeticStore` value is canonical.
+- **Verification is the only gate on Minecraft access.** There is no
+  application form, no review queue and no staff approval: a member declares a
+  username in Discord, joins once with that account, and the plugin *allows* the
+  login rather than kicking them. `AccessStatus` is `PENDING_VERIFICATION`,
+  `VERIFIED`, `EXPIRED`, `CANCELLED`, `REVOKED` — the old ladder
+  (`PENDING_APPLICATION`, `PENDING_REVIEW`, `APPROVAL_QUEUED`, `DENIED`) is gone
+  and schema 8 migrated it away. `VERIFIED` is set the instant ownership is
+  proved; the durable `APPROVE` outbox adds the real whitelist entry a moment
+  later, and `verified-applications.json` on the plugin side is what lets a
+  reconnect inside that window through. Keep that filename — renaming it orphans
+  live verification state on the server.
 - **Resetting data is two commands, one per side.** `/mgxadmin reset all
   confirm` (in game) clears what Paper keeps; `/mcadmin wipe` (Discord, owner
   only) clears the bot's SQLite. Neither can reach the other's data, so a full
