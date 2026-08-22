@@ -91,8 +91,8 @@ commands:
     aliases: [bounties]
     permission: mgx.shop
   mgxadmin:
-    description: Give money, keys and cosmetics, hold rank sync, and reset data.
-    usage: /mgxadmin <give|startserver|teststart|ranks|eco|bounty|hologram|reset>
+    description: Give rewards, run events, hold rank sync, and reset data.
+    usage: /mgxadmin <give|abuse|startserver|teststart|ranks|eco|bounty|hologram|reset>
     aliases: [mcadmin]
     permission: mgxaccessbridge.admin
 permissions:

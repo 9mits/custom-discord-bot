@@ -181,12 +181,14 @@ final class CosmeticEffectService implements Listener {
     private void drawAura(Player owner, CosmeticCatalog.Definition definition) {
         Location centre = owner.getLocation().add(0d, 1.05d, 0d);
         double phase = frame * 0.32d;
-        for (int point = 0; point < 3; point++) {
-            double angle = phase + point * Math.PI * 2d / 3d;
+        int tier = visualTier(definition);
+        int points = 3 + tier * 2;
+        for (int point = 0; point < points; point++) {
+            double angle = phase + point * Math.PI * 2d / points;
             Location at = centre.clone().add(
-                    Math.cos(angle) * 0.85d,
+                    Math.cos(angle) * (0.75d + tier * 0.08d),
                     Math.sin(phase * 0.55d + point) * 0.38d,
-                    Math.sin(angle) * 0.85d
+                    Math.sin(angle) * (0.75d + tier * 0.08d)
             );
             switch (definition.id()) {
                 case "solar_orbit" -> dust(owner, at, Color.fromRGB(255, 190, 35), 1.15f,
@@ -208,35 +210,50 @@ final class CosmeticEffectService implements Listener {
                 default -> { }
             }
         }
+        if (tier >= 3 && frame % 2L == 0L) {
+            spawn(owner, centre.clone().add(0d, 0.65d, 0d),
+                    definition.id().equals("celestial_crown") ? Particle.END_ROD : Particle.ENCHANT,
+                    2 + tier, 0.45d, 0.7d, 0.45d, 0.03d, null,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
     }
 
     private void drawTrail(Player owner, CosmeticCatalog.Definition definition, Location previous) {
         Location at = previous.clone().add(0d, 0.18d, 0d);
+        int tier = visualTier(definition);
         switch (definition.id()) {
             case "ember_trail" -> spawn(owner, at, Particle.SMALL_FLAME,
-                    4, 0.18d, 0.08d, 0.18d, 0.01d, null,
+                    3 + tier * 2, 0.18d, 0.08d, 0.18d, 0.01d, null,
                     PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
             case "blood_trail" -> dust(owner, at, Color.fromRGB(135, 0, 20), 1.1f,
                     PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
             case "frost_trail" -> spawn(owner, at, Particle.SNOWFLAKE,
-                    4, 0.2d, 0.1d, 0.2d, 0.01d, null,
+                    3 + tier * 2, 0.2d, 0.1d, 0.2d, 0.01d, null,
                     PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
             case "cherry_blossom_trail" -> spawn(owner, at, Particle.CHERRY_LEAVES,
-                    3, 0.22d, 0.12d, 0.22d, 0.01d, null,
+                    2 + tier * 2, 0.22d, 0.12d, 0.22d, 0.01d, null,
                     PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
             case "drool_trail" -> {
                 dust(owner, at, Color.fromRGB(45, 220, 210), 1.05f,
                         PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
                 spawn(owner, at, Particle.FALLING_WATER,
-                        2, 0.12d, 0.1d, 0.12d, 0d, null,
+                        1 + tier, 0.12d, 0.1d, 0.12d, 0d, null,
                         PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
             }
             case "ender_trail" -> spawn(owner, at, Particle.PORTAL,
-                    5, 0.18d, 0.12d, 0.18d, 0.15d, null,
+                    3 + tier * 3, 0.18d, 0.12d, 0.18d, 0.15d, null,
                     PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
             case "prismatic_trail" -> dust(owner, at, rainbow(frame), 1.25f,
                     PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
             default -> { }
+        }
+        if (tier >= 4) {
+            Location ribbon = at.clone().add(0d, 0.35d + Math.sin(frame * 0.4d) * 0.2d, 0d);
+            dust(owner, ribbon, definition.id().equals("prismatic_trail")
+                            ? rainbow(frame + 6L) : effectColour(definition),
+                    1.4f, PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+            spawn(owner, ribbon, Particle.END_ROD, 1, 0.1d, 0.1d, 0.1d, 0d, null,
+                    PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
         }
     }
 
@@ -286,6 +303,41 @@ final class CosmeticEffectService implements Listener {
         }
         sound(owner, centre, Sound.ENTITY_PLAYER_ATTACK_CRIT, 0.9f, 0.8f,
                 PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+        drawKillRings(owner, definition, centre, visualTier(definition));
+    }
+
+    private void drawKillRings(
+            Player owner, CosmeticCatalog.Definition definition, Location centre, int tier
+    ) {
+        Color colour = effectColour(definition);
+        int pulses = Math.max(1, tier - 1);
+        for (int pulse = 0; pulse < pulses; pulse++) {
+            int step = pulse;
+            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                double radius = 0.8d + step * 0.45d;
+                int points = 12 + tier * 5;
+                for (int point = 0; point < points; point++) {
+                    double angle = point * Math.PI * 2d / points + step * 0.3d;
+                    Location at = centre.clone().add(
+                            Math.cos(angle) * radius,
+                            Math.sin(angle * 2d + step) * 0.35d,
+                            Math.sin(angle) * radius
+                    );
+                    spawn(owner, at, Particle.DUST, 1, 0d, 0d, 0d, 0d,
+                            new Particle.DustOptions(colour, 1.2f + tier * 0.1f),
+                            PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                    if (tier >= 4 && point % 4 == 0) {
+                        spawn(owner, at, Particle.END_ROD, 1, 0d, 0d, 0d, 0d, null,
+                                PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                    }
+                }
+                if (tier >= 3) {
+                    sound(owner, centre, Sound.BLOCK_RESPAWN_ANCHOR_CHARGE,
+                            0.65f + tier * 0.08f, 0.8f + step * 0.15f,
+                            PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                }
+            }, step * 4L);
+        }
     }
 
     private void drawSecretAura(Player owner) {
@@ -422,5 +474,33 @@ final class CosmeticEffectService implements Listener {
                 Color.fromRGB(235, 65, 255)
         };
         return colours[(int) ((value / 3L) % colours.length)];
+    }
+
+    private static int visualTier(CosmeticCatalog.Definition definition) {
+        if (definition.secret()) {
+            return 5;
+        }
+        if (definition.weight() >= 2_000) {
+            return 1;
+        }
+        if (definition.weight() >= 500) {
+            return 2;
+        }
+        if (definition.weight() >= 100) {
+            return 3;
+        }
+        return 4;
+    }
+
+    private static Color effectColour(CosmeticCatalog.Definition definition) {
+        return switch (definition.id()) {
+            case "blood_burst", "blood_trail", "crimson_orbit" -> Color.fromRGB(195, 8, 32);
+            case "frozen_shatter", "frost_trail", "celestial_crown" ->
+                    Color.fromRGB(175, 225, 255);
+            case "shining_light", "solar_orbit", "ember_trail" -> Color.fromRGB(255, 190, 35);
+            case "emerald_orbit", "drool_trail" -> Color.fromRGB(30, 225, 125);
+            case "soul_requiem" -> Color.fromRGB(30, 210, 225);
+            default -> Color.fromRGB(165, 55, 240);
+        };
     }
 }

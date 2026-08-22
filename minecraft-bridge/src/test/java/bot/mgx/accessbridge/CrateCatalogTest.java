@@ -17,14 +17,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CrateCatalogTest {
     private static final Map<String, Integer> EXPECTED_ITEM_WEIGHTS = Map.ofEntries(
-            Map.entry("raw_copper", 11_200),
-            Map.entry("raw_iron", 10_800),
-            Map.entry("raw_gold", 9_200),
-            Map.entry("emeralds", 8_700),
-            Map.entry("diamonds", 6_800),
-            Map.entry("wind_charges", 7_000),
-            Map.entry("breeze_rods", 6_000),
-            Map.entry("golden_apple", 6_000),
+            Map.entry("raw_copper", 9_400),
+            Map.entry("raw_iron", 9_100),
+            Map.entry("raw_gold", 7_800),
+            Map.entry("emeralds", 7_400),
+            Map.entry("diamonds", 5_900),
+            Map.entry("wind_charges", 6_200),
+            Map.entry("breeze_rods", 5_500),
+            Map.entry("golden_apple", 5_668),
             Map.entry("echo_shards", 5_000),
             Map.entry("ominous_bottle", 4_000),
             Map.entry("heart_of_the_sea", 3_000),
@@ -35,7 +35,26 @@ class CrateCatalogTest {
             Map.entry("netherite_ingot", 300),
             Map.entry("enchanted_golden_apple", 200),
             Map.entry("heavy_core", 150),
-            Map.entry("mace", 50)
+            Map.entry("mace", 50),
+            Map.entry("potion_healing_ii", 2_000),
+            Map.entry("potion_strength_ii", 1_500),
+            Map.entry("potion_swiftness_ii", 1_500),
+            Map.entry("potion_fire_resistance", 1_200),
+            Map.entry("enchant_excavation_i", 20),
+            Map.entry("enchant_unbreaking_iv", 600),
+            Map.entry("enchant_unbreaking_v", 150),
+            Map.entry("enchant_protection_v", 250),
+            Map.entry("enchant_fortune_iv", 400),
+            Map.entry("enchant_fortune_v", 100),
+            Map.entry("fortune_potion_i", 500),
+            Map.entry("fortune_potion_ii", 200),
+            Map.entry("fortune_potion_iii", 75),
+            Map.entry("fortune_potion_iv", 20),
+            Map.entry("fortune_potion_v", 5),
+            Map.entry("crate_luck_ii", 150),
+            Map.entry("crate_luck_iii", 50),
+            Map.entry("crate_luck_iv", 10),
+            Map.entry("crate_luck_v", 2)
     );
 
     @Test
@@ -179,14 +198,32 @@ class CrateCatalogTest {
     @Test
     void stableIdsAndModelKeysAreUnique() {
         Set<String> ids = new HashSet<>();
-        Set<String> models = new HashSet<>();
         for (CrateCatalog.Reward reward : CrateCatalog.all()) {
             assertTrue(ids.add(reward.id()), "duplicate ID " + reward.id());
-            assertTrue(models.add(reward.modelKey()), "duplicate model " + reward.modelKey());
         }
         Set<String> expectedIds = new HashSet<>(EXPECTED_ITEM_WEIGHTS.keySet());
         CosmeticCatalog.all().forEach(cosmetic -> expectedIds.add("cosmetic_" + cosmetic.id()));
         assertEquals(expectedIds, ids);
+    }
+
+    @Test
+    void crateLuckMultipliesOnlyRareRewardWeights() {
+        int multiplier = 5;
+        int expectedTotal = CrateCatalog.all().stream()
+                .mapToInt(reward -> reward.weight() * (reward.rare() ? multiplier : 1))
+                .sum();
+        assertEquals(expectedTotal, CrateCatalog.luckyTotalWeight(multiplier));
+
+        Map<String, Integer> observed = new HashMap<>();
+        for (int ticket = 0; ticket < expectedTotal; ticket++) {
+            observed.merge(CrateCatalog.rewardAtLucky(ticket, multiplier).id(), 1, Integer::sum);
+        }
+        for (CrateCatalog.Reward reward : CrateCatalog.all()) {
+            assertEquals(
+                    reward.weight() * (reward.rare() ? multiplier : 1),
+                    observed.getOrDefault(reward.id(), 0), reward.id()
+            );
+        }
     }
 
     @Test

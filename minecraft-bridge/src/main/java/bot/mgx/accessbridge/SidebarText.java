@@ -45,4 +45,13 @@ final class SidebarText {
         int deficit = targetWidth - textWidth(text, bold);
         return " ".repeat(Math.max(0, deficit / 2 / SPACE_WIDTH)) + text;
     }
+
+    static String paddingToWidth(int currentWidth, int targetWidth) {
+        int deficit = targetWidth - currentWidth;
+        return " ".repeat(Math.max(0, (deficit + SPACE_WIDTH - 1) / SPACE_WIDTH));
+    }
+
+    static String padRightToWidth(String text, int targetWidth, boolean bold) {
+        return text + paddingToWidth(textWidth(text, bold), targetWidth);
+    }
 }

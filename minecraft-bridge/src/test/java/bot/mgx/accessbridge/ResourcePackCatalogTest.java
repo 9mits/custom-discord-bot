@@ -10,6 +10,8 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
@@ -39,8 +41,14 @@ class ResourcePackCatalogTest {
     @Test
     void everyCatalogModelResolvesToARealDefinitionModelAndTexture() throws Exception {
         assertModelResolves("mgx:crate_key");
+        assertModelResolves("mgx:fortune_potion");
+        assertModelResolves("mgx:crate_luck_potion");
+        Map<String, String> textures = new HashMap<>();
         for (CosmeticCatalog.Definition definition : CosmeticCatalog.all()) {
             assertModelResolves(definition.modelKey());
+            String texture = resolvedTexture(definition.modelKey());
+            assertTrue(textures.putIfAbsent(texture, definition.id()) == null,
+                    definition.id() + " reuses the icon for " + textures.get(texture));
         }
     }
 
@@ -61,9 +69,17 @@ class ResourcePackCatalogTest {
 
     @Test
     void customItemIconsStayAtVanillaScaleWithARestrictedPalette() throws Exception {
+        Set<Path> icons = new HashSet<>();
         Path textures = SOURCE.resolve("assets/mgx/textures/item");
-        for (String name : Set.of("aura", "kill_effect", "crate_key", "secret", "trail")) {
-            BufferedImage image = ImageIO.read(textures.resolve(name + ".png").toFile());
+        icons.add(textures.resolve("crate_key.png"));
+        icons.add(textures.resolve("fortune_potion.png"));
+        icons.add(textures.resolve("crate_luck_potion.png"));
+        for (CosmeticCatalog.Definition definition : CosmeticCatalog.all()) {
+            icons.add(SOURCE.resolve(resolvedTexture(definition.modelKey())));
+        }
+        for (Path icon : icons) {
+            String name = icon.getFileName().toString();
+            BufferedImage image = ImageIO.read(icon.toFile());
             assertNotNull(image, name);
             assertEquals(16, image.getWidth(), name);
             assertEquals(16, image.getHeight(), name);
@@ -108,5 +124,19 @@ class ResourcePackCatalogTest {
         Path textureFile = SOURCE.resolve("assets").resolve(texture[0]).resolve("textures")
                 .resolve(texture[1] + ".png");
         assertTrue(Files.isRegularFile(textureFile), textureId + " has no texture PNG");
+    }
+
+    private static String resolvedTexture(String modelKey) throws Exception {
+        String[] key = modelKey.split(":", 2);
+        Path itemFile = SOURCE.resolve("assets").resolve(key[0]).resolve("items")
+                .resolve(key[1] + ".json");
+        JsonObject item = JsonParser.parseString(Files.readString(itemFile)).getAsJsonObject();
+        String[] model = item.getAsJsonObject("model").get("model").getAsString().split(":", 2);
+        Path modelFile = SOURCE.resolve("assets").resolve(model[0]).resolve("models")
+                .resolve(model[1] + ".json");
+        JsonObject modelJson = JsonParser.parseString(Files.readString(modelFile)).getAsJsonObject();
+        String[] texture = modelJson.getAsJsonObject("textures").get("layer0")
+                .getAsString().split(":", 2);
+        return "assets/" + texture[0] + "/textures/" + texture[1] + ".png";
     }
 }

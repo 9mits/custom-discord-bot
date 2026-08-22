@@ -290,7 +290,7 @@ final class PlayerMenuService implements Listener {
     }
 
     static Component prefix() {
-        return Component.text("MGX » ", ORANGE, TextDecoration.BOLD);
+        return Component.text("SERVER » ", ORANGE, TextDecoration.BOLD);
     }
 
     static void error(Player player, String message) {

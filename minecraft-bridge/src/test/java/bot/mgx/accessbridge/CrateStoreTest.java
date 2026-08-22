@@ -118,6 +118,24 @@ class CrateStoreTest {
     }
 
     @Test
+    void boostersEarnTwoKeysPerCompletedHourWithoutChangingProgress(@TempDir Path directory)
+            throws Exception {
+        Path file = directory.resolve("crates.json");
+        UUID booster = UUID.randomUUID();
+        CrateStore store = new CrateStore(file);
+
+        CrateStore.KeyCredit credit = store.creditOnline(
+                Map.of(booster, CrateStore.HOURLY_KEY_MILLIS * 2L + 15_000L),
+                Map.of(booster, 2)
+        ).get(booster);
+
+        assertEquals(4, credit.earned());
+        assertEquals(4, credit.banked());
+        assertEquals(CrateStore.HOURLY_KEY_MILLIS - 15_000L, credit.millisUntilNext());
+        assertEquals(4, new CrateStore(file).bankedKeys(booster));
+    }
+
+    @Test
     void clearingRemovesPendingRewardsAcrossReload(@TempDir Path directory)
             throws Exception {
         Path file = directory.resolve("crates.json");

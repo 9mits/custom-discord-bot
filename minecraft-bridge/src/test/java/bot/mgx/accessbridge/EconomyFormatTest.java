@@ -13,6 +13,14 @@ class EconomyFormatTest {
     }
 
     @Test
+    void compactMoneyUsesReadableNametagUnits() {
+        assertEquals("$999", EconomyFormat.compactDollars(999));
+        assertEquals("$1.2K", EconomyFormat.compactDollars(1_234));
+        assertEquals("$1M", EconomyFormat.compactDollars(1_000_000));
+        assertEquals("$1.3B", EconomyFormat.compactDollars(1_250_000_000));
+    }
+
+    @Test
     void remainingTimeUsesTheLargestUsefulUnit() {
         assertEquals("expired", EconomyFormat.remaining(0));
         assertEquals("5m", EconomyFormat.remaining(5 * 60_000L));

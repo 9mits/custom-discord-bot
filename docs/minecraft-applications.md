@@ -187,17 +187,17 @@ replace Minecraft's built-in Options screen.
 ## Crates, cosmetics, and trophy heads
 
 `/crate` opens the animated wooden-crate reel, shows every exact public chance, and
-claims a saved reward. Players earn one physical key per online hour, while a
-rolling 12-opening cap protects the economy. `/wardrobe` manages unique tradable
-cosmetic tokens, displays global supply counts, and links to the
+claims a saved reward. Players earn one physical key per online hour; Discord server
+boosters earn two. `/wardrobe` manages unique, serial-numbered tradable cosmetic
+tokens, displays rarity and global supply counts, and links to the
 cosmetic settings. PvP trophy heads and cosmetic effects share the same per-viewer
-settings system. The full reward table, rolling cap calculation, custody rules, and
+settings system. The full reward table, custom item behavior, custody rules, and
 administrator key command are documented in
 [minecraft-crates.md](minecraft-crates.md).
 
-The Java resource-pack source is under `assets/resourcepack/src`, with editable icon
-sources under `assets/resourcepack/icon-sources`. Rebuild
-`assets/resourcepack/MysteriousSMPX.zip` after changing either. Deployment must update
+The Java resource-pack source is under `assets/resourcepack/src`; every cosmetic and
+custom potion has its own committed 16x16 texture. Rebuild
+`assets/resourcepack/MysteriousSMPX.zip` after changing a texture or model. Deployment must update
 `resource-pack-sha1` in `server.properties` to the exact SHA-1 of the committed zip.
 The tested Paper and plugin matrix, checksums, and stopped-server deployment order are
 in [minecraft-1.21.11-upgrade.md](minecraft-1.21.11-upgrade.md).

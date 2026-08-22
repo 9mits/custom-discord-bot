@@ -119,6 +119,17 @@ final class CrateStore {
     }
 
     synchronized Map<UUID, KeyCredit> creditOnline(Map<UUID, Long> elapsedByPlayer) {
+        return creditOnline(elapsedByPlayer, Map.of());
+    }
+
+    /**
+     * Banks one key for each completed hour, multiplied by the player's current rate.
+     * The elapsed-time remainder is unchanged by the rate so becoming or ceasing to be
+     * a booster never discards part of an hour.
+     */
+    synchronized Map<UUID, KeyCredit> creditOnline(
+            Map<UUID, Long> elapsedByPlayer, Map<UUID, Integer> keysPerHour
+    ) {
         LinkedHashMap<UUID, Long> progressBefore = new LinkedHashMap<>(onlineProgress);
         LinkedHashMap<UUID, Integer> bankedBefore = new LinkedHashMap<>(bankedKeys);
         LinkedHashMap<UUID, KeyCredit> credits = new LinkedHashMap<>();
@@ -136,7 +147,8 @@ final class CrateStore {
                 if (earnedLong > Integer.MAX_VALUE) {
                     throw new IllegalArgumentException("Online-time credit is too large.");
                 }
-                int earned = (int) earnedLong;
+                int rate = Math.max(1, keysPerHour.getOrDefault(playerId, 1));
+                int earned = Math.multiplyExact((int) earnedLong, rate);
                 long remainder = total % HOURLY_KEY_MILLIS;
                 if (remainder == 0L) {
                     onlineProgress.remove(playerId);

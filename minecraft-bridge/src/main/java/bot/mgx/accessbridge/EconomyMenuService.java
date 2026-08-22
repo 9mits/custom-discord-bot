@@ -975,8 +975,15 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             return;
         }
         if (menu.kind() == Menu.Kind.SHOP_AUTOBUY) {
-            // The standing order itself keeps running; only the screen state goes.
-            pendingAuto.remove(player.getUniqueId());
+            // Toggling delivery redraws this screen. Its close event arrives after the
+            // replacement state was stored, so defer cleanup until the replacement is
+            // visible instead of erasing inventory-delivery mode before Start reads it.
+            plugin.getServer().getScheduler().runTask(plugin, () -> {
+                if (!(player.getOpenInventory().getTopInventory().getHolder() instanceof Menu open)
+                        || open.kind() != Menu.Kind.SHOP_AUTOBUY) {
+                    pendingAuto.remove(player.getUniqueId());
+                }
+            });
             return;
         }
         if (menu.kind() == Menu.Kind.SELL) {

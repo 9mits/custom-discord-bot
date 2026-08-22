@@ -11,6 +11,27 @@ final class EconomyFormat {
         return "$" + String.format(Locale.US, "%,d", Math.max(0L, amount));
     }
 
+    static String compactDollars(long amount) {
+        long safe = Math.max(0L, amount);
+        if (safe >= 1_000_000_000L) {
+            return "$" + compact(safe, 1_000_000_000L) + "B";
+        }
+        if (safe >= 1_000_000L) {
+            return "$" + compact(safe, 1_000_000L) + "M";
+        }
+        if (safe >= 1_000L) {
+            return "$" + compact(safe, 1_000L) + "K";
+        }
+        return "$" + safe;
+    }
+
+    private static String compact(long amount, long unit) {
+        double value = amount / (double) unit;
+        return value >= 100d || value == Math.rint(value)
+                ? String.format(Locale.US, "%.0f", value)
+                : String.format(Locale.US, "%.1f", value);
+    }
+
     static String remaining(long millis) {
         if (millis <= 0L) {
             return "expired";

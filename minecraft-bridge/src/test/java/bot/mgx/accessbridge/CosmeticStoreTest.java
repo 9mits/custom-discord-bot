@@ -24,6 +24,7 @@ class CosmeticStoreTest {
         CosmeticStore.Token repeated = store.mint(owner, "blood_burst", serial);
 
         assertEquals(first, repeated);
+        assertEquals(1, first.serialNumber());
         assertEquals(1, store.stored(owner).size());
         assertEquals(1, store.inExistence("blood_burst"));
         assertEquals(0, store.inExistence("frozen_shatter"));
@@ -33,6 +34,44 @@ class CosmeticStoreTest {
                 () -> store.mint(owner, "frozen_shatter", serial)
         );
         assertEquals("blood_burst", store.token(serial).orElseThrow().cosmeticId());
+    }
+
+    @Test
+    void serialNumbersArePermanentAndCountPerCosmetic(@TempDir Path directory) throws Exception {
+        Path file = directory.resolve("cosmetics.json");
+        UUID owner = UUID.randomUUID();
+        CosmeticStore store = new CosmeticStore(file);
+
+        CosmeticStore.Token first = store.mint(owner, "solar_orbit", UUID.randomUUID());
+        CosmeticStore.Token second = store.mint(owner, "solar_orbit", UUID.randomUUID());
+        CosmeticStore.Token other = store.mint(owner, "blood_burst", UUID.randomUUID());
+        store.withdraw(owner, second.serial());
+        store.deposit(UUID.randomUUID(), second.serial(), second.cosmeticId(), second.generation());
+
+        assertEquals(1, first.serialNumber());
+        assertEquals(2, second.serialNumber());
+        assertEquals(1, other.serialNumber());
+        assertEquals(2, new CosmeticStore(file).token(second.serial()).orElseThrow().serialNumber());
+    }
+
+    @Test
+    void legacyTokensReceiveStableSerialNumbersOnLoad(@TempDir Path directory) throws Exception {
+        Path file = directory.resolve("cosmetics.json");
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+        Files.writeString(file, "{\"generation\":1,\"tokens\":{" +
+                "\"" + first + "\":{\"cosmetic_id\":\"ember_trail\",\"generation\":1}," +
+                "\"" + second + "\":{\"cosmetic_id\":\"ember_trail\",\"generation\":1}" +
+                "},\"equipped\":{}}");
+
+        CosmeticStore migrated = new CosmeticStore(file);
+
+        assertEquals(1, migrated.token(first).orElseThrow().serialNumber());
+        assertEquals(2, migrated.token(second).orElseThrow().serialNumber());
+        assertTrue(Files.readString(file).contains("serial_number"));
+        CosmeticStore reloaded = new CosmeticStore(file);
+        assertEquals(1, reloaded.token(first).orElseThrow().serialNumber());
+        assertEquals(2, reloaded.token(second).orElseThrow().serialNumber());
     }
 
     @Test

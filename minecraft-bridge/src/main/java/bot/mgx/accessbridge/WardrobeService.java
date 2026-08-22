@@ -191,6 +191,8 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
             ItemMeta meta = icon.getItemMeta();
             List<Component> lore = new ArrayList<>(meta.lore() == null ? List.of() : meta.lore());
             lore.add(Component.empty());
+            lore.add(line("Serial #" + selected.token().serialNumber()));
+            lore.add(line("In existence: " + store.inExistence(definition.id())));
             if (copies.size() > 1) {
                 lore.add(line("You own " + copies.size() + " of these."));
             }
@@ -436,6 +438,7 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
                     .append(Component.text(definition.displayName(), NamedTextColor.GOLD))
                     .append(Component.text(" for " + EconomyFormat.dollars(price) + ".",
                             NamedTextColor.WHITE)));
+            economyMenus.openOwn(player, 1);
         } catch (IllegalArgumentException | UncheckedIOException exception) {
             // The token is out of the wardrobe at this point, so it has to go back or
             // the player loses a unique cosmetic to a rejected price.

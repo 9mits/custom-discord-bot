@@ -52,4 +52,14 @@ class SidebarCentringTest {
 
         assertTrue(centre <= board / 2, "padded past centre by " + (centre - board / 2) + "px");
     }
+
+    @Test
+    void tabColumnsPadToOnePixelTarget() {
+        String shortValue = SidebarText.padRightToWidth("JAVA", 80, false);
+        String longValue = SidebarText.padRightToWidth("BEDROCK · ANDROID", 80, false);
+
+        assertTrue(SidebarText.textWidth(shortValue, false) >= 80);
+        assertTrue(SidebarText.textWidth(shortValue, false) < 80 + SidebarText.SPACE_WIDTH);
+        assertEquals("BEDROCK · ANDROID", longValue);
+    }
 }

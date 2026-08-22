@@ -140,6 +140,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private final CosmeticItems cosmeticItems;
     private final CosmeticEffectService effects;
     private final PlayerSettingsStore settings;
+    private final PlayerPerkService perks;
+    private final SpecialItemService specialItems;
     private final Map<UUID, RollSession> sessions = new HashMap<>();
     /** Players part way through an auto run, and how many crates are still owed. */
     private final Map<UUID, Integer> autoRuns = new HashMap<>();
@@ -155,7 +157,9 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             CosmeticStore cosmetics,
             CosmeticItems cosmeticItems,
             CosmeticEffectService effects,
-            PlayerSettingsStore settings
+            PlayerSettingsStore settings,
+            PlayerPerkService perks,
+            SpecialItemService specialItems
     ) {
         this.plugin = plugin;
         this.store = store;
@@ -164,6 +168,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         this.cosmeticItems = cosmeticItems;
         this.effects = effects;
         this.settings = settings;
+        this.perks = perks;
+        this.specialItems = specialItems;
     }
 
     @Override
@@ -291,8 +297,10 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             PlayerMenuService.error(player, "You need a Mysterious Crate Key to open a crate.");
             return;
         }
-        CrateCatalog.Reward reward = CrateCatalog.rewardAt(
-                ThreadLocalRandom.current().nextInt(CrateCatalog.TOTAL_WEIGHT)
+        int luck = specialItems.crateLuckMultiplier(player);
+        int luckyTotal = CrateCatalog.luckyTotalWeight(luck);
+        CrateCatalog.Reward reward = CrateCatalog.rewardAtLucky(
+                ThreadLocalRandom.current().nextInt(luckyTotal), luck
         );
         UUID spinId = UUID.randomUUID();
         if (!items.consume(player)) {
@@ -866,13 +874,12 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 continue;
             }
             int delivered = deliverBankedKeys(player, entry.getValue().earned() > 0);
-            if (entry.getValue().earned() > 0
-                    && delivered == 0
-                    && settings.isEnabled(
-                            player.getUniqueId(), PlayerSettingsStore.Setting.CHAT_NOTIFICATIONS
-                    )) {
+            if (entry.getValue().earned() > 0 && delivered == 0) {
                 player.sendMessage(PlayerMenuService.prefix().append(Component.text(
-                        "Your hourly crate key is banked. Clear inventory space to receive it.",
+                        "Your " + entry.getValue().earned() + " hourly crate "
+                                + (entry.getValue().earned() == 1 ? "key is" : "keys are")
+                                + " banked. Clear inventory space to receive "
+                                + (entry.getValue().earned() == 1 ? "it." : "them."),
                         NamedTextColor.GOLD
                 )));
             }
@@ -884,7 +891,11 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             return Map.of();
         }
         try {
-            return store.creditOnline(elapsed);
+            Map<UUID, Integer> rates = new HashMap<>();
+            elapsed.keySet().forEach(playerId -> rates.put(
+                    playerId, perks.profile(playerId).booster() ? 2 : 1
+            ));
+            return store.creditOnline(elapsed, rates);
         } catch (IllegalArgumentException | ArithmeticException | UncheckedIOException exception) {
             plugin.getLogger().warning("Could not save hourly crate-key progress: "
                     + exception.getMessage());
@@ -925,11 +936,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                     + exception.getMessage());
             return 0;
         }
-        if (notify
-                && delivered > 0
-                && settings.isEnabled(
-                        player.getUniqueId(), PlayerSettingsStore.Setting.CHAT_NOTIFICATIONS
-                )) {
+        if (notify && delivered > 0) {
             player.sendMessage(PlayerMenuService.prefix().append(Component.text(
                     "You earned " + delivered + " hourly crate "
                             + (delivered == 1 ? "key" : "keys") + ".",

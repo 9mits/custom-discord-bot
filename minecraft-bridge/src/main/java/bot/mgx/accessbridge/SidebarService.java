@@ -43,6 +43,8 @@ final class SidebarService {
     private static final String LOGO_LARGE = "\uE000";
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private static final TextColor GOLD = TextColor.color(0xFFB52E);
+    private static final int TAB_NAME_COLUMN_WIDTH = 225;
+    private static final int TAB_PLATFORM_COLUMN_WIDTH = 105;
     private static final String[] ENTRY_KEYS = {
             "\u00A70", "\u00A71", "\u00A72", "\u00A73", "\u00A74", "\u00A75", "\u00A76", "\u00A77",
             "\u00A78", "\u00A79", "\u00A7a", "\u00A7b", "\u00A7c", "\u00A7d", "\u00A7f"
@@ -150,6 +152,7 @@ final class SidebarService {
         if (showSidebar) {
             board.update(lines(player));
         }
+        board.updateBalances(plugin.getServer().getOnlinePlayers());
         board.setSidebarVisible(showSidebar);
         if (player.getScoreboard() != board.scoreboard) {
             player.setScoreboard(board.scoreboard);
@@ -380,22 +383,43 @@ final class SidebarService {
         PlayerProfile profile = perks.profile(player.getUniqueId());
         ClientPlatform platform = clientPlatform(player);
         Component rendered = rankTag(profile);
+        int nameWidth = profile.hasRankLabel()
+                ? SidebarText.textWidth("[" + profile.rankLabel() + "] ", true) : 0;
         Optional<ClanStore.ClanView> clan = clans.clanOf(player.getUniqueId());
         if (clan.isPresent()) {
             rendered = rendered.append(clanTag(clan.get()));
+            nameWidth += SidebarText.textWidth("[" + clan.get().name() + "] ", true);
+            if (clan.get().level() > 0) {
+                nameWidth += SidebarText.textWidth(ClanLevel.badge(clan.get().level()) + " ", true);
+            }
         }
         // The row carries only what a viewer cannot get elsewhere: level already has
         // its own sidebar row, and a Java client's device is always a desktop.
+        String discord = identities.visibleUsername(player.getUniqueId())
+                .map(username -> "(@" + username + ") ").orElse("");
+        nameWidth += SidebarText.textWidth(discord + player.getName(), false);
+        String platformLabel = platform.edition()
+                + (platform.showsDevice() ? " · " + platform.device() : "");
         rendered = rendered
                 .append(identities.tag(player.getUniqueId()))
                 .append(Component.text(player.getName(), NamedTextColor.WHITE))
-                .append(divider())
+                .append(Component.text(
+                        SidebarText.paddingToWidth(nameWidth, TAB_NAME_COLUMN_WIDTH),
+                        NamedTextColor.DARK_GRAY
+                ))
+                .append(Component.text("│ ", NamedTextColor.DARK_GRAY))
                 .append(Component.text(platform.edition(), editionColor(platform)));
         if (platform.showsDevice()) {
-            rendered = rendered.append(Component.text("·" + platform.device(), NamedTextColor.GRAY));
+            rendered = rendered.append(Component.text(" · " + platform.device(), NamedTextColor.GRAY));
         }
         rendered = rendered
-                .append(divider())
+                .append(Component.text(
+                        SidebarText.paddingToWidth(
+                                SidebarText.textWidth(platformLabel, false),
+                                TAB_PLATFORM_COLUMN_WIDTH
+                        ), NamedTextColor.DARK_GRAY
+                ))
+                .append(Component.text("│ ", NamedTextColor.DARK_GRAY))
                 .append(Component.text(player.getPing() + "ms", pingColor(player.getPing())));
         player.playerListName(rendered);
     }
@@ -558,8 +582,10 @@ final class SidebarService {
     private final class PlayerBoard {
         private final Scoreboard scoreboard;
         private final Objective objective;
+        private final Objective balanceObjective;
         private final List<String> entries = new ArrayList<>();
         private final List<Team> teams = new ArrayList<>();
+        private final Set<String> balanceEntries = new LinkedHashSet<>();
         private boolean sidebarVisible = true;
 
         PlayerBoard(Player player) {
@@ -570,6 +596,10 @@ final class SidebarService {
             Component title = Component.text("MYSTERIOUS", ORANGE, TextDecoration.BOLD);
             Objective createdObjective = created.registerNewObjective("mgx", Criteria.DUMMY, title);
             createdObjective.setDisplaySlot(DisplaySlot.SIDEBAR);
+            Objective createdBalance = created.registerNewObjective(
+                    "mgx_balance", Criteria.DUMMY, Component.empty()
+            );
+            createdBalance.setDisplaySlot(DisplaySlot.BELOW_NAME);
             for (int index = 0; index < MAX_LINES; index++) {
                 String entry = ENTRY_KEYS[index];
                 Team team = created.registerNewTeam("line_" + index);
@@ -579,6 +609,7 @@ final class SidebarService {
             }
             this.scoreboard = created;
             this.objective = createdObjective;
+            this.balanceObjective = createdBalance;
             player.setScoreboard(created);
         }
 
@@ -595,6 +626,28 @@ final class SidebarService {
                 score.setScore(count - index);
                 score.numberFormat(NumberFormat.blank());
             }
+        }
+
+        void updateBalances(Collection<? extends Player> online) {
+            Set<String> current = new LinkedHashSet<>();
+            for (Player shown : online) {
+                String entry = shown.getName();
+                current.add(entry);
+                Score score = balanceObjective.getScore(entry);
+                score.setScore(0);
+                score.numberFormat(NumberFormat.fixed(Component.text(
+                        EconomyFormat.compactDollars(money.balance(shown.getUniqueId())),
+                        GOLD,
+                        TextDecoration.BOLD
+                )));
+            }
+            for (String old : new LinkedHashSet<>(balanceEntries)) {
+                if (!current.contains(old)) {
+                    scoreboard.resetScores(old);
+                }
+            }
+            balanceEntries.clear();
+            balanceEntries.addAll(current);
         }
 
         void setSidebarVisible(boolean visible) {
