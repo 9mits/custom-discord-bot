@@ -18,7 +18,6 @@ import aiosqlite
 
 from .models import (
     ACTIVE_STATUSES,
-    AccountEditionAlreadyLinked,
     AccessStatus,
     BridgeAction,
     DeliveryRecord,
@@ -609,30 +608,6 @@ class MinecraftDataManager:
                             access_id=expired_id,
                             timestamp=current,
                         )
-                if not auto_detect_edition:
-                    linked_edition = await db.execute_fetchall(
-                        "SELECT current_username FROM minecraft_accounts "
-                        "WHERE discord_user_id=? AND edition=? LIMIT 1",
-                        (str(discord_user_id), edition.value),
-                    )
-                    # Re-applying with the account already linked to this member is
-                    # fine; only a different account for the same edition is blocked.
-                    if (
-                        linked_edition
-                        and str(linked_edition[0]["current_username"]).casefold() != normalized
-                    ):
-                        raise AccountEditionAlreadyLinked(
-                            f"Your Discord account already has a linked {edition.value.title()} account"
-                        )
-                else:
-                    linked_editions = await db.execute_fetchall(
-                        "SELECT edition FROM minecraft_accounts WHERE discord_user_id=?",
-                        (str(discord_user_id),),
-                    )
-                    if len(linked_editions) >= 2:
-                        raise AccountEditionAlreadyLinked(
-                            "Your Discord account already has a linked Java and Bedrock account"
-                        )
                 owned_name = await db.execute_fetchall(
                     "SELECT discord_user_id FROM minecraft_accounts "
                     "WHERE lower(current_username)=? LIMIT 1",
@@ -655,14 +630,13 @@ class MinecraftDataManager:
                     raise ValueError(
                         "That Minecraft name is already being used on another verification"
                     )
-                placeholders = ",".join("?" for _ in ACTIVE_STATUSES)
                 active = await db.execute_fetchall(
-                    f"SELECT id FROM minecraft_access WHERE guild_id=? AND discord_user_id=? "
-                    f"AND status IN ({placeholders}) LIMIT 1",
+                    "SELECT id FROM minecraft_access WHERE guild_id=? AND discord_user_id=? "
+                    "AND status=? LIMIT 1",
                     (
                         str(guild_id),
                         str(discord_user_id),
-                        *(status.value for status in ACTIVE_STATUSES),
+                        AccessStatus.PENDING_VERIFICATION.value,
                     ),
                 )
                 if active:
@@ -940,15 +914,6 @@ class MinecraftDataManager:
                     raise InvalidTransition("Verified username does not match the application")
                 if edition is Edition.BEDROCK and not xuid:
                     raise InvalidTransition("Bedrock verification did not include a Floodgate XUID")
-
-                linked_edition = await db.execute_fetchall(
-                    "SELECT minecraft_uuid FROM minecraft_accounts WHERE discord_user_id=? AND edition=? LIMIT 1",
-                    (application.discord_user_id, edition.value),
-                )
-                if linked_edition and linked_edition[0]["minecraft_uuid"] != minecraft_uuid:
-                    raise InvalidTransition(
-                        f"Discord member already has a linked {edition.value.title()} account"
-                    )
 
                 existing = await db.execute_fetchall(
                     "SELECT discord_user_id FROM minecraft_accounts WHERE edition=? AND minecraft_uuid=?",

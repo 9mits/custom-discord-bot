@@ -170,7 +170,7 @@ Your perks and preferences, plus details about the server.
 
 #### In Discord
 
-`/minecraft account` — your verification and linked account
+`/minecraft account` — your access and linked account
 `/minecraft whitelist` — everyone with access
 `/minecraft clan view` — your clan and permitted actions
 
@@ -388,8 +388,9 @@ Custom Minecraft clients such as **[Lunar Client](https://www.lunarclient.com)**
 ### Not allowed on any edition
 
 **Seeing what is hidden** — X-ray, ore and cave finders, freecam, tracers, player radar
-**Playing for you** — kill aura, aim assist, auto-clickers, auto-walk
+**Playing for you** — kill aura, aim assist, auto-walk
 **Changing what your character can do** — extra reach, speed, flight, no fall damage
+**Allowed** — macros and auto-clickers
 
 *Examples of each kind, not the full list.*
 
@@ -416,7 +417,7 @@ No launcher changes needed; play on whatever you already use
 
 Add the server under **Multiplayer → Add Server**
 ```text
-given to you when you verify
+given to you when your application is accepted
 ```
 
 ### Bedrock Edition
@@ -426,7 +427,7 @@ Add it as an external server with both values below
 
 **Address**
 ```text
-given to you when you verify
+given to you when your application is accepted
 ```
 **Port**
 ```text

@@ -185,7 +185,7 @@ class MinecraftBotPolicyTests(unittest.TestCase):
 
         self.assertIn("```text\nbedrock.example\n```", embed.description)
         self.assertIn("```text\n19132\n```", embed.description)
-        self.assertNotIn("java.example", embed.description)
+        self.assertIn("java.example", embed.description)
         self.assertIn("/minecraft cancel", embed.description)
         self.assertNotIn("#42", embed.description)
         self.assertEqual(embed.image.url, VERIFY_ATTACHMENT_URI)
@@ -1914,6 +1914,8 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
                 self.assertIn(category, described)
         self.assertIn("Lunar Client", described)
         self.assertIn("player radar turned off", described)
+        self.assertIn("Macros and auto-clickers are allowed", described)
+        self.assertNotIn("auto-clickers, auto-walk", described)
 
     def test_rules_close_the_arguments_people_make(self):
         # Each of these answers a defence a player would otherwise offer, and
@@ -2591,7 +2593,12 @@ class LinkEditionPromptTests(unittest.IsolatedAsyncioTestCase):
     def _bot(self, *, accounts=(), applications=(), approved=True):
         bot = object.__new__(MinecraftAccessBot)
         bot.config = SimpleNamespace(guild_id=1)
-        bot.settings = SimpleNamespace(application_channel_id=4242)
+        bot.settings = SimpleNamespace(
+            application_channel_id=4242,
+            java_address="play.example.net",
+            bedrock_address="bedrock.example.net",
+            bedrock_port=19132,
+        )
         bot.data = SimpleNamespace(
             list_accounts_for_user=AsyncMock(return_value=list(accounts)),
             list_access_for_user=AsyncMock(return_value=list(applications)),
@@ -2628,37 +2635,34 @@ class LinkEditionPromptTests(unittest.IsolatedAsyncioTestCase):
         # And no channel to go to, because they cannot open it.
         self.assertNotIn("<#4242>", embed.description)
 
-    async def test_a_member_missing_one_edition_is_offered_only_that_one(self):
-        bot = self._bot(accounts=[{"edition": "JAVA"}])
-
-        _embed, view = await bot.build_link_edition_prompt(99)
-
-        self.assertEqual([item.label for item in view.children], ["Link Bedrock"])
-
-    async def test_a_member_with_both_editions_is_offered_nothing(self):
+    async def test_a_member_already_linked_is_still_offered_both_editions(self):
         bot = self._bot(accounts=[{"edition": "JAVA"}, {"edition": "BEDROCK"}])
 
         embed, view = await bot.build_link_edition_prompt(99)
 
-        self.assertIsNone(view)
-        self.assertEqual(embed.title, "Both Editions Linked")
+        self.assertEqual(
+            [item.label for item in view.children], ["Link Java", "Link Bedrock"]
+        )
+        self.assertEqual(embed.title, "Link Other Accounts")
+        self.assertIn("bedrock.example.net", embed.description)
+        self.assertIn("19132", embed.description)
+        self.assertIn("play.example.net", embed.description)
 
     async def test_an_application_already_running_blocks_a_second_one(self):
-        # This guard has to sit in front of both offers. With nothing linked and an
-        # application already in flight, offering the link flow would start a second.
-        for accounts in ([], [{"edition": "JAVA"}]):
-            with self.subTest(accounts=accounts):
-                bot = self._bot(
-                    accounts=accounts,
-                    applications=[
-                        SimpleNamespace(status=AccessStatus.VERIFIED)
-                    ],
-                )
+        # Only a pending verification blocks another. Already-verified members
+        # can keep linking more accounts.
+        bot = self._bot(
+            applications=[SimpleNamespace(status=AccessStatus.PENDING_VERIFICATION)],
+        )
+        embed, view = await bot.build_link_edition_prompt(99)
+        self.assertIsNone(view)
+        self.assertEqual(embed.title, "Verification Already Active")
 
-                embed, view = await bot.build_link_edition_prompt(99)
-
-                self.assertIsNone(view)
-                self.assertEqual(embed.title, "Verification Already Active")
+        embed, view = await self._bot(
+            applications=[SimpleNamespace(status=AccessStatus.VERIFIED)],
+        ).build_link_edition_prompt(99)
+        self.assertIsNotNone(view)
+        self.assertEqual(embed.title, "Link Other Accounts")
 
 class QuoteFormattingTests(unittest.TestCase):
     """The quote bar is what stops a page of headings running together."""
@@ -2969,8 +2973,12 @@ class ApplicationCardCopyTests(unittest.TestCase):
         )
 
         self.assertIn("play.example.net", self._text(verify))
+        self.assertIn("bedrock.example.net", self._text(verify))
+        self.assertIn("19132", self._text(verify))
         self.assertIn("`7saori`", verify.description)
         self.assertIn("play.example.net", self._text(approved))
+        self.assertIn("bedrock.example.net", self._text(approved))
+        self.assertIn("19132", self._text(approved))
 
     def test_a_deadline_reads_as_part_of_the_sentence(self):
         # Discord renders it as "in 3 days", which sits naturally after a verb and

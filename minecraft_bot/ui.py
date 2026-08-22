@@ -266,9 +266,8 @@ class LinkEditionView(discord.ui.View):
     card — opening it straight from the public information panel would edit that
     panel for everybody.
 
-    One button per edition offered. A member missing one edition is offered that
-    one; a member with nothing linked is offered both, because the panel is the
-    only surface they can reach — accepted members lose the application channel.
+    One button per edition. Both are always offered so a member can keep
+    linking more Java or Bedrock accounts.
     """
 
     def __init__(self, requester_id: int, *editions: Edition) -> None:
@@ -367,13 +366,7 @@ class MinecraftApplicationModal(discord.ui.Modal, title="Verify Your Minecraft A
             return
         except AccountEditionAlreadyLinked as exc:
             await edit_card(
-                embed=info_embed(
-                    "Account Limit Reached",
-                    f"> {exc}.\n"
-                    "> Each Discord account may link **one Java account and one "
-                    "Bedrock account**.",
-                    error=True,
-                ),
+                embed=info_embed("Verification Invalid", f"> {exc}", error=True),
                 attachments=[],
             )
             return
@@ -587,7 +580,7 @@ class AccountView(discord.ui.View):
             view=self,
         )
 
-    @discord.ui.button(label="Link Other Edition", style=discord.ButtonStyle.primary)
+    @discord.ui.button(label="Link Other Accounts", style=discord.ButtonStyle.primary)
     async def link_other(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
         embed, view = await interaction.client.build_link_edition_prompt(interaction.user.id)
         await interaction.response.send_message(
