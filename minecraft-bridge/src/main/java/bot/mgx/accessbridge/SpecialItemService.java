@@ -5,14 +5,12 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Color;
-import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.Tag;
 import org.bukkit.block.Block;
-import org.bukkit.block.data.BlockData;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
@@ -180,24 +178,22 @@ final class SpecialItemService implements Listener {
             }
             excavating.add(player.getUniqueId());
             try {
+                boolean brokeExtraBlock = false;
                 for (Block block : plane) {
                     if (!block.getType().isAir()
                             && block.getType().getHardness() >= 0f
                             && Tag.MINEABLE_PICKAXE.isTagged(block.getType())) {
-                        Location effectAt = block.getLocation().add(0.5d, 0.5d, 0.5d);
-                        BlockData brokenData = block.getBlockData().clone();
                         if (player.breakBlock(block)) {
-                            block.getWorld().spawnParticle(
-                                    Particle.BLOCK, effectAt,
-                                    8, 0.28d, 0.28d, 0.28d, 0.05d,
-                                    brokenData
-                            );
-                            block.getWorld().spawnParticle(
-                                    Particle.ENCHANT, effectAt,
-                                    4, 0.3d, 0.3d, 0.3d, 0.08d
-                            );
+                            brokeExtraBlock = true;
                         }
                     }
+                }
+                if (brokeExtraBlock) {
+                    centre.getWorld().spawnParticle(
+                            Particle.WITCH,
+                            centre.getLocation().add(0.5d, 0.5d, 0.5d),
+                            6, 0.18d, 0.18d, 0.18d, 0.025d
+                    );
                 }
             } finally {
                 excavating.remove(player.getUniqueId());
