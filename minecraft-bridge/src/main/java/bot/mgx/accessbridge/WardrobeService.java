@@ -38,9 +38,12 @@ import java.io.UncheckedIOException;
 final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private static final int HUB_SIZE = 27;
-    private static final int KILL_EFFECT_SLOT = 10;
-    private static final int AURA_SLOT = 12;
-    private static final int TRAIL_SLOT = 14;
+    // Three categories centred on the middle row: 11/13/15 straddles slot 13, which
+    // is the column the settings button sits under. The old 10/12/14 spacing is a
+    // leftover from the fourth Secret tile and now sits a slot left of centre.
+    private static final int KILL_EFFECT_SLOT = 11;
+    private static final int AURA_SLOT = 13;
+    private static final int TRAIL_SLOT = 15;
     private static final int SETTINGS_SLOT = 22;
 
     private enum Screen {

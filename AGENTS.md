@@ -7,7 +7,7 @@ specific files (`CLAUDE.md`) import it.
 
 ## Non-negotiables
 
-These three rules override everything else. The rest of this file is guidance.
+These four rules override everything else. The rest of this file is guidance.
 
 1. **Automatically merge and deploy completed work.** Run the whole loop
    autonomously — branch, code, test, push, open PR, watch CI, fix failures,
@@ -15,10 +15,18 @@ These three rules override everything else. The rest of this file is guidance.
    verify the panel reports `running`. Do not pause to ask for merge approval.
    Stop before merging or deploying only when the user explicitly says to hold,
    leave the PR open, or skip deployment.
-2. **Keep secrets out of git.** `.env*`, `.panel.env`, `config.json`, and
+2. **A `minecraft-bridge/` change is not done until the jar is on the server.**
+   Editing the plugin changes nothing in game. Bump `version` in
+   `build.gradle.kts`, `./gradlew clean shadowJar`, then upload
+   `build/libs/MGXAccessBridge.jar` over SFTP and swap it — every time, without
+   being asked, the same way code is merged without being asked. Do not offer
+   the upload and wait; do it, then say the restart is the user's step. The
+   sequence, the byte/sha verification, and the space-free-path trap are in
+   **Hosting — GravelHost** below.
+3. **Keep secrets out of git.** `.env*`, `.panel.env`, `config.json`, and
    `database*/` are git-ignored and hold live tokens and user data. Stage files
    by name; read what `git status` shows before committing.
-3. **Keep moderators anonymous in user-facing output.** Report DMs, the report
+4. **Keep moderators anonymous in user-facing output.** Report DMs, the report
    log, and transcripts must never name or hint at which staff member acted —
    it invades privacy and lets bad actors target moderators.
 
@@ -204,6 +212,36 @@ API is the only remote control path.
   (error 1010).
 - `core/bot.py:on_ready` prints `successfully finished startup` — the panel scans
   stdout for that exact phrase to flip `starting` → `running`. Keep it.
+
+## Hosting — GravelHost (Minecraft)
+
+The Paper server is **not** on the Pterodactyl panel — `panel.py restart` only
+redeploys the Discord bots and does nothing for the plugin. GravelHost exposes no
+API, so **SFTP is the only deploy path**, using the git-ignored `.env.gravel`
+(`GRAVEL_SFTP_HOST/PORT/USERNAME/PASSWORD`, `GRAVEL_SERVER_ROOT`).
+
+Deploy sequence, required by non-negotiable 2 after any `minecraft-bridge/` change:
+
+1. Bump `version` in `build.gradle.kts`.
+2. `./gradlew clean shadowJar`. **Clean matters** — it restamps `plugin.yml`.
+   Ship `build/libs/MGXAccessBridge.jar`, the shaded jar, never a versioned thin one.
+3. Check `api-version` in the built `plugin.yml` is **<=** the running server's
+   Minecraft version, read from `logs/latest.log` (`Starting minecraft server
+   version …`). Too high and Paper refuses the plugin outright with
+   `InvalidPluginException: Unsupported API version` — in game that reads as the
+   whole server being gone.
+4. Copy the jar to a **space-free path** first. The repo lives in
+   `~/Documents/Discord Bot`; the space splits the argument and the upload
+   silently writes a fragment into a mirrored directory tree while reporting 100%.
+5. Upload, then verify the **remote byte count and sha256 match the local file**.
+   That check is what catches step 4 going wrong.
+6. Rename the live jar to `MGXAccessBridge.jar.backup-<stamp>`, then rename the
+   upload into place. Put-then-rename is atomic and the JVM keeps its handle on
+   the old inode, so swapping under a running server is safe.
+
+**Restarting the Minecraft server is the user's step** — there is no API for it.
+Say so explicitly every time a change lives in the plugin. Plugin config edits
+(`plugins/*/config.yml`) go over the same SFTP path and need the same restart.
 
 ## Layout
 
