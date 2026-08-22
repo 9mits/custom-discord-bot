@@ -43,8 +43,10 @@ final class SidebarService {
     private static final String LOGO_LARGE = "\uE000";
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private static final TextColor GOLD = TextColor.color(0xFFB52E);
-    private static final int TAB_NAME_COLUMN_WIDTH = 225;
-    private static final int TAB_PLATFORM_COLUMN_WIDTH = 105;
+    // Columns are measured against whoever is actually online, not a fixed maximum:
+    // padding every row out to a worst-case width leaves a lone player with short
+    // tags staring at a tab list of empty space.
+    private static final int TAB_COLUMN_GUTTER = SidebarText.SPACE_WIDTH * 2;
     private static final String[] ENTRY_KEYS = {
             "\u00A70", "\u00A71", "\u00A72", "\u00A73", "\u00A74", "\u00A75", "\u00A76", "\u00A77",
             "\u00A78", "\u00A79", "\u00A7a", "\u00A7b", "\u00A7c", "\u00A7d", "\u00A7f"
@@ -134,8 +136,18 @@ final class SidebarService {
         String teamKey = teamFingerprint(online);
         boolean teamsChanged = !teamKey.equals(lastTeamKey);
         lastTeamKey = teamKey;
+        int nameColumn = 0;
+        int platformColumn = 0;
         for (Player player : online) {
-            updateTabName(player);
+            nameColumn = Math.max(nameColumn, tabNameWidth(player));
+            platformColumn = Math.max(
+                    platformColumn, SidebarText.textWidth(platformLabel(player), false)
+            );
+        }
+        nameColumn += TAB_COLUMN_GUTTER;
+        platformColumn += TAB_COLUMN_GUTTER;
+        for (Player player : online) {
+            updateTabName(player, nameColumn, platformColumn);
             updateTabHeaderAndFooter(player);
             refresh(player, teamsChanged);
         }
@@ -384,34 +396,53 @@ final class SidebarService {
      * Padding against a nominal width lands close enough to read as centred.
      */
 
-    private void updateTabName(Player player) {
-        PlayerProfile profile = perks.profile(player.getUniqueId());
+    private String afkLabel(Player player) {
+        return afkService != null && afkService.isAfk(player.getUniqueId()) ? " [AFK]" : "";
+    }
+
+    private String discordTag(Player player) {
+        return identities.visibleUsername(player.getUniqueId())
+                .map(username -> "(@" + username + ") ").orElse("");
+    }
+
+    private String platformLabel(Player player) {
         ClientPlatform platform = clientPlatform(player);
-        Component rendered = rankTag(profile);
-        int nameWidth = profile.hasRankLabel()
+        return platform.edition() + (platform.showsDevice() ? " · " + platform.device() : "");
+    }
+
+    /** Rendered width of everything left of the first divider. */
+    private int tabNameWidth(Player player) {
+        PlayerProfile profile = perks.profile(player.getUniqueId());
+        int width = profile.hasRankLabel()
                 ? SidebarText.textWidth("[" + profile.rankLabel() + "] ", true) : 0;
         Optional<ClanStore.ClanView> clan = clans.clanOf(player.getUniqueId());
         if (clan.isPresent()) {
-            rendered = rendered.append(clanTag(clan.get()));
-            nameWidth += SidebarText.textWidth("[" + clan.get().name() + "] ", true);
+            width += SidebarText.textWidth("[" + clan.get().name() + "] ", true);
             if (clan.get().level() > 0) {
-                nameWidth += SidebarText.textWidth(ClanLevel.badge(clan.get().level()) + " ", true);
+                width += SidebarText.textWidth(ClanLevel.badge(clan.get().level()) + " ", true);
             }
+        }
+        return width + SidebarText.textWidth(
+                discordTag(player) + player.getName() + afkLabel(player), false
+        );
+    }
+
+    private void updateTabName(Player player, int nameColumn, int platformColumn) {
+        PlayerProfile profile = perks.profile(player.getUniqueId());
+        ClientPlatform platform = clientPlatform(player);
+        Component rendered = rankTag(profile);
+        Optional<ClanStore.ClanView> clan = clans.clanOf(player.getUniqueId());
+        if (clan.isPresent()) {
+            rendered = rendered.append(clanTag(clan.get()));
         }
         // The row carries only what a viewer cannot get elsewhere: level already has
         // its own sidebar row, and a Java client's device is always a desktop.
-        String discord = identities.visibleUsername(player.getUniqueId())
-                .map(username -> "(@" + username + ") ").orElse("");
-        String afkLabel = afkService != null && afkService.isAfk(player.getUniqueId()) ? " [AFK]" : "";
-        nameWidth += SidebarText.textWidth(discord + player.getName() + afkLabel, false);
-        String platformLabel = platform.edition()
-                + (platform.showsDevice() ? " · " + platform.device() : "");
         rendered = rendered
                 .append(identities.tag(player.getUniqueId()))
                 .append(Component.text(player.getName(), NamedTextColor.WHITE))
-                .append(Component.text(afkLabel, NamedTextColor.GRAY))
+                .append(Component.text(afkLabel(player), NamedTextColor.GRAY))
                 .append(Component.text(
-                        SidebarText.paddingToWidth(nameWidth, TAB_NAME_COLUMN_WIDTH),
+                        SidebarText.paddingToWidth(tabNameWidth(player), nameColumn),
                         NamedTextColor.DARK_GRAY
                 ))
                 .append(Component.text("│ ", NamedTextColor.DARK_GRAY))
@@ -422,8 +453,8 @@ final class SidebarService {
         rendered = rendered
                 .append(Component.text(
                         SidebarText.paddingToWidth(
-                                SidebarText.textWidth(platformLabel, false),
-                                TAB_PLATFORM_COLUMN_WIDTH
+                                SidebarText.textWidth(platformLabel(player), false),
+                                platformColumn
                         ), NamedTextColor.DARK_GRAY
                 ))
                 .append(Component.text("│ ", NamedTextColor.DARK_GRAY))

@@ -3,7 +3,9 @@ package bot.mgx.accessbridge;
 import net.kyori.adventure.bossbar.BossBar;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
+import org.bukkit.Sound;
 import org.bukkit.World;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
@@ -16,7 +18,9 @@ import org.bukkit.scheduler.BukkitTask;
 
 import java.util.Collection;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /** Turns Essentials broadcasts into a clean, temporary banner above the game view. */
 final class BroadcastDisplayService implements Listener {
@@ -27,11 +31,16 @@ final class BroadcastDisplayService implements Listener {
             "broadcastworld", "bcw", "ebcw", "bcastw", "ebcastw", "ebroadcastworld",
             "shoutworld", "eshoutworld"
     );
-    private static final long DISPLAY_TICKS = 8L * 20L;
+    private static final int DISPLAY_SECONDS = 10;
+    private static final long DISPLAY_TICKS = DISPLAY_SECONDS * 20L;
+    private static final TextColor BROADCAST_RED = TextColor.color(0xFF3B30);
+    /** Bold strikethrough spaces render as a solid rule, so chat cannot be mistaken for talk. */
+    private static final String RULE = " ".repeat(44);
 
     private final MGXAccessBridge plugin;
-    private BossBar current;
-    private BukkitTask removal;
+    // One entry per live broadcast. Broadcasts deliberately stack rather than
+    // replacing each other, so a second announcement adds a second bar.
+    private final Map<BossBar, BukkitTask> active = new ConcurrentHashMap<>();
 
     BroadcastDisplayService(MGXAccessBridge plugin) {
         this.plugin = plugin;
@@ -87,17 +96,62 @@ final class BroadcastDisplayService implements Listener {
             sender.sendMessage(Component.text("A broadcast message is required.", NamedTextColor.RED));
             return;
         }
-        clear();
-        current = BossBar.bossBar(
-                Component.text(parsed.message(), NamedTextColor.WHITE, TextDecoration.BOLD),
+        BossBar bar = BossBar.bossBar(
+                Component.text("BROADCAST: ", BROADCAST_RED, TextDecoration.BOLD)
+                        .append(Component.text(
+                                parsed.message(), NamedTextColor.WHITE, TextDecoration.BOLD
+                        )),
                 1f,
-                BossBar.Color.YELLOW,
+                BossBar.Color.RED,
                 BossBar.Overlay.PROGRESS
         );
         for (Player player : audience) {
-            player.showBossBar(current);
+            player.showBossBar(bar);
         }
-        removal = plugin.getServer().getScheduler().runTaskLater(plugin, this::clear, DISPLAY_TICKS);
+        announceInChat(audience, parsed.message());
+        // The bar drains over its lifetime, so the emptying track is the countdown to
+        // the message disappearing.
+        long[] elapsed = {0L};
+        BukkitTask task = plugin.getServer().getScheduler().runTaskTimer(plugin, () -> {
+            elapsed[0]++;
+            if (elapsed[0] >= DISPLAY_TICKS) {
+                retire(bar);
+                return;
+            }
+            bar.progress(Math.max(0f, 1f - (float) elapsed[0] / DISPLAY_TICKS));
+        }, 1L, 1L);
+        active.put(bar, task);
+    }
+
+    /**
+     * The bar alone is missable, so the same announcement lands in chat as a bordered
+     * red block with a bell, well clear of ordinary conversation.
+     */
+    private void announceInChat(Collection<? extends Player> audience, String message) {
+        Component rule = Component.text(RULE, BROADCAST_RED)
+                .decoration(TextDecoration.STRIKETHROUGH, true)
+                .decoration(TextDecoration.BOLD, true);
+        Component heading = Component.text("  ▶ BROADCAST ◀", BROADCAST_RED, TextDecoration.BOLD);
+        Component body = Component.text("  " + message, NamedTextColor.WHITE, TextDecoration.BOLD);
+        for (Player player : audience) {
+            player.sendMessage(Component.empty());
+            player.sendMessage(rule);
+            player.sendMessage(heading);
+            player.sendMessage(body);
+            player.sendMessage(rule);
+            player.sendMessage(Component.empty());
+            player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_BELL, 1f, 1.2f);
+        }
+    }
+
+    private void retire(BossBar bar) {
+        BukkitTask task = active.remove(bar);
+        if (task != null) {
+            task.cancel();
+        }
+        for (Player player : plugin.getServer().getOnlinePlayers()) {
+            player.hideBossBar(bar);
+        }
     }
 
     private World findWorld(String name) {
@@ -114,15 +168,8 @@ final class BroadcastDisplayService implements Listener {
     }
 
     private void clear() {
-        if (removal != null) {
-            removal.cancel();
-            removal = null;
-        }
-        if (current != null) {
-            for (Player player : plugin.getServer().getOnlinePlayers()) {
-                player.hideBossBar(current);
-            }
-            current = null;
+        for (BossBar bar : Set.copyOf(active.keySet())) {
+            retire(bar);
         }
     }
 

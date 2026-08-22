@@ -10,6 +10,11 @@ cross-tool source of truth. It is imported below so Claude Code loads it in full
 - Follow the **automatic merge and deploy** policy in AGENTS.md: after required
   CI is green, squash-merge, restart production, and verify it is running unless
   the user explicitly requested a hold or no deployment.
+- **Touching `minecraft-bridge/` means uploading the jar.** Build it and SFTP it
+  to GravelHost as part of the same task, without asking — see non-negotiable 2
+  and **Hosting — GravelHost** in AGENTS.md. Offering the upload and waiting is
+  the failure mode: the code looks done while nothing changed in game. Only the
+  Minecraft restart is the user's step, and it must be stated.
 - Project memory is machine-local at `~/.claude/projects/<project>/memory/` — it
   is not committed and does not travel with the repo. A repo-level `.claude/memory/`
   folder is **not** auto-loaded, so don't create one expecting it to be read.
