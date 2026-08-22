@@ -18,9 +18,20 @@ import org.bukkit.attribute.AttributeModifier;
 import org.bukkit.entity.BlockDisplay;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
+import org.bukkit.entity.LightningStrike;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.block.Action;
+import org.bukkit.event.block.BlockIgniteEvent;
+import org.bukkit.event.entity.CreeperPowerEvent;
+import org.bukkit.event.entity.EntityChangeBlockEvent;
+import org.bukkit.event.entity.EntityCombustByEntityEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityInteractEvent;
+import org.bukkit.event.entity.EntityTransformEvent;
+import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -67,6 +78,11 @@ final class ChaosService implements Listener {
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     /** Ceiling on live entities one bat storm may hold at once. */
     private static final int MAX_SWARM = 120;
+
+    /** Blocks a landing player or mob destroys just by touching them. */
+    private static final Set<Material> TRAMPLEABLE = Set.of(
+            Material.FARMLAND, Material.TURTLE_EGG, Material.SNIFFER_EGG
+    );
 
     /** Worn by {@link ChaosCatalog#HEADS}, tagged so they can be swept up again. */
     private static final List<Material> HEAD_MATERIALS = List.of(
@@ -612,9 +628,16 @@ final class ChaosService implements Listener {
      */
     private void protect(Session session) {
         forEveryone(player -> {
-            boolean was = player.isInvulnerable();
+            boolean wasInvulnerable = player.isInvulnerable();
+            boolean wasCollidable = player.isCollidable();
             player.setInvulnerable(true);
-            session.undoFor(player, () -> player.setInvulnerable(was));
+            // A scaled-up player has a scaled-up hitbox, which would otherwise
+            // shove villagers off workstations and mobs out of farms.
+            player.setCollidable(false);
+            session.undoFor(player, () -> {
+                player.setInvulnerable(wasInvulnerable);
+                player.setCollidable(wasCollidable);
+            });
         });
     }
 
@@ -672,6 +695,90 @@ final class ChaosService implements Listener {
                 session.restores.remove(restore);
                 safely(restore);
             }
+        }
+    }
+
+
+    // ------------------------------------------------------------- world guards
+    //
+    // These make the "nothing permanent" promise structural rather than a claim
+    // about vanilla internals. strikeLightningEffect is documented as harmless,
+    // but a bolt that turned one villager into a witch would be unrecoverable,
+    // so the outcomes are refused outright while an event is running.
+
+    /** True while any effect is still on. */
+    private boolean running() {
+        return !active.isEmpty();
+    }
+
+    private boolean isOurs(UUID id) {
+        return active.stream().anyMatch(session -> session.spawned.contains(id));
+    }
+
+    /**
+     * Launching a server full of people is the one effect that lands them again,
+     * and a player landing on farmland turns it to dirt and kills the crop.
+     */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onPlayerTrample(PlayerInteractEvent event) {
+        if (!running() || event.getAction() != Action.PHYSICAL) {
+            return;
+        }
+        if (event.getClickedBlock() != null
+                && TRAMPLEABLE.contains(event.getClickedBlock().getType())) {
+            event.setCancelled(true);
+        }
+    }
+
+    /** The same protection for anything the events shoved around. */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onEntityTrample(EntityInteractEvent event) {
+        if (running() && TRAMPLEABLE.contains(event.getBlock().getType())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onLightningIgnite(BlockIgniteEvent event) {
+        if (running() && event.getCause() == BlockIgniteEvent.IgniteCause.LIGHTNING) {
+            event.setCancelled(true);
+        }
+    }
+
+    /** No villager to witch, no pig to piglin, no mooshroom repaint. */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onLightningTransform(EntityTransformEvent event) {
+        if (running() && event.getTransformReason() == EntityTransformEvent.TransformReason.LIGHTNING) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onCreeperCharge(CreeperPowerEvent event) {
+        if (running() && event.getCause() == CreeperPowerEvent.PowerCause.LIGHTNING) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onLightningDamage(EntityDamageEvent event) {
+        if (running() && event.getCause() == EntityDamageEvent.DamageCause.LIGHTNING) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onLightningBurn(EntityCombustByEntityEvent event) {
+        if (running() && event.getCombuster() instanceof LightningStrike) {
+            event.setCancelled(true);
+        }
+    }
+
+    /** Nothing this service spawned may edit a block, whatever it is. */
+    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
+    public void onSpawnedChangesBlock(EntityChangeBlockEvent event) {
+        if (isOurs(event.getEntity().getUniqueId())) {
+            event.setCancelled(true);
         }
     }
 
