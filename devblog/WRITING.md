@@ -33,11 +33,12 @@ create new filter tabs by themselves.
 
 ## 2. Add the images
 
-Drop them into the folder it made. Two are special:
+Drop them into the folder it made. Three names have distinct jobs:
 
 | Name | Where it shows |
 |---|---|
-| `hero.png` | The big image at the top of the post |
+| `cover.png` | Designed artwork on the home page and social previews |
+| `hero.png` | An optional polished image at the top of the post |
 | `icon.png` | The square on the home page and `/blog` cards |
 
 Everything else is up to you — reference any image by **bare filename**:
@@ -48,6 +49,12 @@ Everything else is up to you — reference any image by **bare filename**:
 
 Wide screenshots work best. A square or transparent logo is fine too; it sits
 on a dark plate so light artwork stays visible on both themes.
+
+The **cover is not a gameplay screenshot**. It must be purpose-made feature art:
+a clean logo, item lineup, key art, or a deliberate composite of real assets.
+Never promote a capture containing a hotbar, scoreboard, chat, profile panel,
+debug text, cursor, or unrelated UI to `cover:`. Gameplay captures belong next
+to the feature they demonstrate inside the post.
 
 ### Item icons are already in the repo
 
@@ -94,11 +101,14 @@ shot brief**. Every requested image must say:
 - who or what must be visible (and what must be hidden);
 - the `/mgxadmin devblog` time, weather, camera, armour and player settings;
 - whether **F1 should hide the HUD** or the UI is the subject of the shot;
-- the framing and orientation, plus which image is the **hero** or **card icon**.
+- the framing and orientation, plus which real assets should become the
+  **designed cover** and **card icon**. A screenshot is only a `hero` when it is
+  deliberately clean enough to lead the article.
 
-Ask for the smallest set that tells the whole update: one strong hero, then one
-image (or a deliberately paired set) for each major visual beat. Do not ask for
-a screenshot of a number or patch note that reads better as text.
+Ask for the smallest set that tells the whole update: one designed cover made
+from real assets, then one screenshot (or a deliberately paired set) for each
+major visual beat. Do not ask for a screenshot of a number or patch note that
+reads better as text.
 
 Capture at the monitor's native resolution and send the original PNG. Do not
 resize, crop, annotate or compress it first; the agent can make a non-destructive

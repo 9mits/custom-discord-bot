@@ -112,11 +112,17 @@ Before drafting a post, turn the confirmed update range into a numbered shot
 list. Never ask vaguely for "screenshots." For every image, specify the filename,
 feature/section, exact location and action or open menu, required players/items,
 `/mgxadmin devblog` camera/time/weather/armour/player settings, whether F1 should
-hide the HUD, and the intended framing. Identify the hero and card-icon shots.
+hide the HUD, and the intended framing. Identify the cover and card-icon assets.
 Ask for original, native-resolution files; use 16:9 landscape for action/world
 shots and a centred complete panel for UI shots. Keep the list economical: one
-strong hero plus one image or purposeful pair per major visual beat. Do not ask
-for an image when text communicates the change better.
+designed cover plus one screenshot or purposeful pair per major visual beat.
+Do not ask for an image when text communicates the change better.
+
+The home-page/social `cover:` must be designed editorial artwork made from real
+feature assets — never a raw gameplay screenshot. Any capture showing a hotbar,
+scoreboard, chat, profile panel, debug text, cursor, or unrelated UI is body-only
+evidence. `hero:` is optional and only for a deliberately clean article opener;
+do not add one merely because the field exists.
 
 ### The house style
 

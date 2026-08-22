@@ -1122,15 +1122,15 @@ def _page(title: str, description: str, prefix: str, body: str,
 
 def _thumb(card: Dict[str, object]) -> str:
     """Blurred backdrop with the crisp square centred on top."""
-    hero = card.get("hero")
-    icon = card.get("icon") or hero
-    if not hero:
+    backdrop = card.get("cover") or card.get("hero") or card.get("icon")
+    icon = card.get("icon") or card.get("cover") or card.get("hero")
+    if not backdrop:
         return '<div class="card-thumb"></div>'
     return (
         '<div class="card-thumb">'
         '<img class="blur" src="%s" alt="" aria-hidden="true" loading="lazy">'
         '<div class="icon-wrap"><img class="icon" src="%s" alt="" loading="lazy"></div>'
-        "</div>" % (_esc(str(hero)), _esc(str(icon)))
+        "</div>" % (_esc(str(backdrop)), _esc(str(icon)))
     )
 
 
@@ -1221,16 +1221,20 @@ def render_post(post, body_html: str, hero: Optional[str], prefix: str, site_url
         )
     )
 
-    absolute_hero = None
-    if hero:
-        absolute_hero = hero if hero.startswith("http") else "%s/media/%s/%s" % (
-            site_url.rstrip("/"), post.slug, post.hero
-        )
+    share_art = post.cover or post.hero or post.icon
+    absolute_art = None
+    if share_art:
+        if share_art.startswith(("http", "//")):
+            absolute_art = share_art
+        elif share_art.startswith("/"):
+            absolute_art = "%s%s" % (site_url.rstrip("/"), share_art)
+        else:
+            absolute_art = "%s/media/%s/%s" % (site_url.rstrip("/"), post.slug, share_art)
 
     description = post.tagline or "%s update notes." % SITE_NAME
     return _page(
         "%s | %s" % (post.title, SITE_NAME), description, prefix, body,
-        absolute_hero, "%s/%s" % (site_url.rstrip("/"), post.url),
+        absolute_art, "%s/%s" % (site_url.rstrip("/"), post.url),
         scripts=COPY_SCRIPT, nav=nav, current=current,
     )
 
@@ -1329,7 +1333,7 @@ def render_index(featured: Optional[Dict[str, object]], cards: Sequence[Dict[str
                  stats: Optional[Dict[str, object]] = None) -> str:
     """The landing page: hero, the newest update called out, then the archive."""
     if featured:
-        hero_art = featured.get("hero") or featured.get("icon")
+        hero_art = featured.get("cover") or featured.get("icon") or featured.get("hero")
         frame = (
             '<div class="frame"><img src="%s" alt="">'
             '<div class="veil"><p>%s</p></div></div>'

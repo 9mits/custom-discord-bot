@@ -42,7 +42,7 @@ tagline: Emoji-led hype beats for the home-page card and link preview. Name the 
 date: {today}
 category: {category}
 covers: {covers}
-hero: hero.png
+cover: cover.png
 icon: icon.png
 signoff: SEE YOU ON THE SERVER!
 tags: {tag}
@@ -205,8 +205,8 @@ def cmd_new(args: argparse.Namespace) -> int:
     print("  %s" % post.relative_to(REPO))
     print("  %s/   (put the images here)" % media.relative_to(REPO))
     print("\nNext:")
-    print("  1. Drop your screenshots into %s/" % media.relative_to(REPO))
-    print("     hero.png and icon.png are referenced by the template.")
+    print("  1. Drop your artwork and screenshots into %s/" % media.relative_to(REPO))
+    print("     cover.png and icon.png are referenced by the template.")
     print("  2. Write the post. Every image is referenced by bare filename.")
     print("  3. python devblog/blog.py preview")
     print("  4. python devblog/blog.py publish")
@@ -228,7 +228,7 @@ def cmd_check(_args: argparse.Namespace) -> int:
         fail("A post or page is malformed:\n  %s" % exc)
 
     for post in posts:
-        for label, name in (("hero", post.hero), ("icon", post.icon)):
+        for label, name in (("cover", post.cover), ("hero", post.hero), ("icon", post.icon)):
             if name and not re.match(r"^(https?:|/)", name):
                 if not (build.MEDIA_DIR / post.slug / name).exists():
                     problems.append(
