@@ -395,7 +395,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         devBlogService = new DevBlogService(
                 this, devBlogStore, sidebarService, cosmeticStore
         );
-        chaosService = new ChaosService(this);
+        chaosService = new ChaosService(this, crateItems);
         getServer().getPluginManager().registerEvents(chaosService, this);
         AdminCommandService adminService = new AdminCommandService(
                 this,

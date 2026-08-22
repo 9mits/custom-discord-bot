@@ -1,5 +1,6 @@
 package bot.mgx.accessbridge;
 
+import net.kyori.adventure.bossbar.BossBar;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextColor;
@@ -10,6 +11,7 @@ import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
+import org.bukkit.SoundCategory;
 import org.bukkit.WeatherType;
 import org.bukkit.World;
 import org.bukkit.attribute.Attribute;
@@ -18,6 +20,8 @@ import org.bukkit.attribute.AttributeModifier;
 import org.bukkit.entity.BlockDisplay;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
+import org.bukkit.entity.Item;
+import org.bukkit.entity.Slime;
 import org.bukkit.entity.LightningStrike;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -29,6 +33,7 @@ import org.bukkit.event.entity.CreeperPowerEvent;
 import org.bukkit.event.entity.EntityChangeBlockEvent;
 import org.bukkit.event.entity.EntityCombustByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityInteractEvent;
 import org.bukkit.event.entity.EntityTransformEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
@@ -49,6 +54,7 @@ import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -91,14 +97,34 @@ final class ChaosService implements Listener {
     );
 
     private final MGXAccessBridge plugin;
+    private final CrateItems crateItems;
+    private final EventShow show;
     private final NamespacedKey scaleKey;
     private final NamespacedKey headKey;
     private final List<Session> active = new ArrayList<>();
+    /** Live pinatas, by entity id, with the hits they have left. */
+    private final Map<UUID, Pinata> pinatas = new HashMap<>();
 
-    ChaosService(MGXAccessBridge plugin) {
+    ChaosService(MGXAccessBridge plugin, CrateItems crateItems) {
         this.plugin = plugin;
+        this.crateItems = crateItems;
+        this.show = new EventShow(plugin);
         this.scaleKey = new NamespacedKey(plugin, "chaos_scale");
         this.headKey = new NamespacedKey(plugin, "chaos_head");
+    }
+
+    /** A pinata being hit: how much is left, and the bar showing it. */
+    private static final class Pinata {
+        private final BossBar bar;
+        private final int total;
+        private int remaining;
+        private boolean burst;
+
+        Pinata(BossBar bar, int total) {
+            this.bar = bar;
+            this.total = total;
+            this.remaining = total;
+        }
     }
 
     /** One run of one effect: the frames it owns and the undo stack it owes. */
@@ -117,7 +143,10 @@ final class ChaosService implements Listener {
         private final Deque<Runnable> restores = new ArrayDeque<>();
         private final Map<UUID, Deque<Runnable>> perPlayer = new HashMap<>();
         private final Set<UUID> spawned = new HashSet<>();
+        /** Who this event started a record for, so only they get it stopped. */
+        private final Set<UUID> listeners = new HashSet<>();
         private boolean ended;
+
 
         void end() {
             if (ended) {
@@ -137,12 +166,17 @@ final class ChaosService implements Listener {
             }
             perPlayer.clear();
             for (UUID id : Set.copyOf(spawned)) {
+                Pinata pinata = pinatas.remove(id);
+                if (pinata != null) {
+                    show.hideBar(pinata.bar, online());
+                }
                 Entity entity = plugin.getServer().getEntity(id);
                 if (entity != null) {
                     entity.remove();
                 }
             }
             spawned.clear();
+            listeners.clear();
             active.remove(this);
         }
 
@@ -159,56 +193,151 @@ final class ChaosService implements Listener {
     // ---------------------------------------------------------------- routing
 
     String run(Player operator, ChaosCatalog effect, int seconds, double radius) {
+        return run(operator, effect, seconds, radius, true);
+    }
+
+    /**
+     * @param telegraph whether to count the event in. Chaos counts itself in once
+     *                  and then starts its components silently, because five
+     *                  overlapping countdowns is noise, not hype.
+     */
+    private String run(
+            Player operator, ChaosCatalog effect, int seconds, double radius, boolean telegraph
+    ) {
         if (effect == ChaosCatalog.CHAOS) {
             return chaos(operator, seconds, radius);
         }
         Session session = new Session(operator.getLocation().clone(), radius, effect.physical());
         active.add(session);
         long ticks = Math.max(20L, seconds * 20L);
-        // Every effect, not only the ones that move people: blindness or
-        // slowness while a mob is chewing on you is as lethal as a low ceiling.
-        protect(session);
-        String summary = switch (effect) {
-            case DISCO -> { disco(session, ticks); yield started("Disco", seconds); }
-            case BLACKOUT -> { blackout(session, ticks); yield started("Blackout", seconds); }
-            case THUNDERDOME -> { thunderdome(session, ticks); yield started("Thunderdome", seconds); }
-            case LAVAFLOOR -> {
-                fakeFloor(session, ticks, Material.MAGMA_BLOCK, 0, true);
-                yield started("Lava floor", seconds);
+        long lead = telegraph ? EventShow.TELEGRAPH_TICKS : 0L;
+
+        Runnable land = () -> {
+            // stop can be run during the countdown. Landing on a dead session
+            // would queue undos onto something that will never run them.
+            if (session.ended) {
+                return;
             }
-            case VOIDFLOOR -> {
-                // Barrier is invisible but solid, so the hole is only ever a
-                // picture — the client still walks on the floor that is there.
-                fakeFloor(session, ticks, Material.BARRIER, 4, false);
-                yield started("Void floor", seconds);
+            // Every effect, not only the ones that move people: blindness or
+            // slowness while a mob is chewing on you is as lethal as a low ceiling.
+            protect(session);
+            begin(session, effect, ticks);
+            List<Player> audience = targets(session);
+            audience.forEach(player -> session.listeners.add(player.getUniqueId()));
+            show.music(audience, trackFor(effect));
+            if (effect.timed()) {
+                BossBar bar = show.bar(label(effect).toUpperCase(Locale.ROOT), colourFor(effect));
+                repeat(session, 10L, ticks, frame -> show.showBar(
+                        bar, targets(session), 1f - (frame * 10f / ticks)
+                ));
+                session.undo(() -> show.hideBar(bar, online()));
             }
-            case GIANTS -> {
-                scale(session, ticks, 2.0d, "GIANTS", "Mind the ceiling.");
-                yield started("Giants", seconds);
-            }
-            case TINY -> {
-                scale(session, ticks, -0.75d, "TINY", "Mind your step.");
-                yield started("Tiny", seconds);
-            }
-            case YOYO -> { yoyo(session, ticks); yield started("Yo-yo", seconds); }
-            case LAUNCH -> { launch(session); yield "Launched everybody"; }
-            case FLOAT -> { drift(session, ticks); yield started("Float", seconds); }
-            case SPIN -> { spin(session, ticks); yield started("Spin", seconds); }
-            case DRUNK -> { drunk(session, ticks); yield started("Drunk", seconds); }
-            case GHOSTS -> { ghosts(session, ticks); yield started("Ghosts", seconds); }
-            case RAVE -> { rave(session, ticks); yield started("Rave", seconds); }
-            case SWAP -> { swap(session); yield "Swapped everybody"; }
-            case MOBSTORM -> { batStorm(session, ticks); yield started("Bat storm", seconds); }
-            case METEORS -> { meteors(session, ticks); yield started("Meteors", seconds); }
-            case CONFETTI -> { confetti(session); yield "Fired the confetti"; }
-            case HEADS -> { heads(session, ticks); yield started("Heads", seconds); }
-            default -> throw new IllegalArgumentException(effect.id() + " is not handled here.");
+            session.undo(() -> {
+                // Only the people this event started a record for. Stopping the
+                // RECORDS channel for everybody would kill somebody's jukebox
+                // on the other side of the world.
+                show.stopMusic(session.listeners.stream()
+                        .map(plugin.getServer()::getPlayer)
+                        .filter(java.util.Objects::nonNull)
+                        .toList());
+                show.finale(targets(session), label(effect).toUpperCase(Locale.ROOT));
+            });
         };
+
+        if (telegraph) {
+            show.telegraph(() -> targets(session), label(effect).toUpperCase(Locale.ROOT),
+                    effect.blurb(), textColourFor(effect), land);
+        } else {
+            land.run();
+        }
+
         // Every session ends on its own clock, even the one-shots, so nothing is
         // left holding an undo it will never run.
         session.tasks.add(plugin.getServer().getScheduler()
-                .runTaskLater(plugin, session::end, ticks + 2L));
-        return summary;
+                .runTaskLater(plugin, session::end, lead + lifeTicks(effect, ticks) + 2L));
+        return started(label(effect), seconds) + " within " + (int) radius + " blocks";
+    }
+
+    private void begin(Session session, ChaosCatalog effect, long ticks) {
+        switch (effect) {
+            case DISCO -> disco(session, ticks);
+            case BLACKOUT -> blackout(session, ticks);
+            case THUNDERDOME -> thunderdome(session, ticks);
+            case LAVAFLOOR -> fakeFloor(session, ticks, Material.MAGMA_BLOCK, 0, true);
+            // Barrier is invisible but solid, so the hole is only ever a picture
+            // — the client still walks on the floor that is really there.
+            case VOIDFLOOR -> fakeFloor(session, ticks, Material.BARRIER, 4, false);
+            case GIANTS -> scale(session, ticks, 2.0d, "GIANTS", "Mind the ceiling.");
+            case TINY -> scale(session, ticks, -0.75d, "TINY", "Mind your step.");
+            case YOYO -> yoyo(session, ticks);
+            case LAUNCH -> launch(session);
+            case FLOAT -> drift(session, ticks);
+            case SPIN -> spin(session, ticks);
+            case DRUNK -> drunk(session, ticks);
+            case GHOSTS -> ghosts(session, ticks);
+            case RAVE -> rave(session, ticks);
+            case SWAP -> swap(session);
+            case MOBSTORM -> batStorm(session, ticks);
+            case METEORS -> meteors(session, ticks);
+            case CONFETTI -> confetti(session);
+            case HEADS -> heads(session, ticks);
+            case AIRDROP -> airdrop(session, 200L);
+            case PINATA -> pinata(session, ticks);
+            case JACKPOT -> jackpot(session);
+            default -> throw new IllegalArgumentException(effect.id() + " is not handled here.");
+        }
+    }
+
+    /**
+     * How long a session must stay alive. A one-shot has no duration but still
+     * has an animation: ending the session on its nominal 20 ticks would delete
+     * the supply crate somewhere over the drop zone.
+     */
+    private static long lifeTicks(ChaosCatalog effect, long ticks) {
+        return switch (effect) {
+            case AIRDROP -> 240L;
+            case JACKPOT -> 280L;
+            case LAUNCH, SWAP, CONFETTI -> 60L;
+            default -> ticks;
+        };
+    }
+
+    private static String label(ChaosCatalog effect) {
+        String id = effect.id();
+        return Character.toUpperCase(id.charAt(0)) + id.substring(1);
+    }
+
+    /** Each event gets its own record, so they are told apart by ear. */
+    private static Sound trackFor(ChaosCatalog effect) {
+        return switch (effect) {
+            case DISCO, RAVE -> Sound.MUSIC_DISC_PIGSTEP;
+            case BLACKOUT, VOIDFLOOR, GHOSTS -> Sound.MUSIC_DISC_11;
+            case THUNDERDOME, METEORS -> Sound.MUSIC_DISC_OTHERSIDE;
+            case AIRDROP, JACKPOT, PINATA -> Sound.MUSIC_DISC_CREATOR;
+            case LAVAFLOOR, GIANTS, YOYO -> Sound.MUSIC_DISC_STAL;
+            default -> Sound.MUSIC_DISC_CAT;
+        };
+    }
+
+    private static BossBar.Color colourFor(ChaosCatalog effect) {
+        return switch (effect) {
+            case BLACKOUT, VOIDFLOOR, GHOSTS -> BossBar.Color.PURPLE;
+            case THUNDERDOME, METEORS -> BossBar.Color.BLUE;
+            case LAVAFLOOR, GIANTS -> BossBar.Color.RED;
+            case AIRDROP, JACKPOT -> BossBar.Color.YELLOW;
+            case PINATA, DISCO, RAVE -> BossBar.Color.PINK;
+            default -> BossBar.Color.GREEN;
+        };
+    }
+
+    private static TextColor textColourFor(ChaosCatalog effect) {
+        return switch (effect) {
+            case BLACKOUT, VOIDFLOOR, GHOSTS -> TextColor.color(0xB05CFF);
+            case THUNDERDOME, METEORS -> TextColor.color(0x4FC3F7);
+            case LAVAFLOOR, GIANTS -> TextColor.color(0xFF5722);
+            case AIRDROP, JACKPOT, PINATA -> TextColor.color(0xFFD54F);
+            default -> ORANGE;
+        };
     }
 
     private String chaos(Player operator, int seconds, double radius) {
@@ -221,7 +350,7 @@ final class ChaosService implements Listener {
                 .append(Component.text(" Everything at once. Good luck.", NamedTextColor.WHITE)));
         for (ChaosCatalog effect : picked) {
             try {
-                run(operator, effect, seconds, radius);
+                run(operator, effect, seconds, radius, false);
             } catch (RuntimeException exception) {
                 plugin.getLogger().warning("Chaos component " + effect.id() + " failed: "
                         + exception.getClass().getSimpleName());
@@ -694,6 +823,8 @@ final class ChaosService implements Listener {
             session.end();
         }
         active.clear();
+        pinatas.values().forEach(pinata -> show.hideBar(pinata.bar, online()));
+        pinatas.clear();
         // Belt and braces, and deliberately everyone rather than the last
         // event's targets: a player may have walked out of range mid-effect.
         for (Player player : online()) {
@@ -719,6 +850,222 @@ final class ChaosService implements Listener {
         }
     }
 
+
+
+    // ------------------------------------------------------------ live events
+
+    /**
+     * A crate falls out of the sky onto a marked spot and bursts open.
+     *
+     * <p>The marker beam goes up first so there is somewhere to run to. That is
+     * the whole difference between an event and loot appearing.
+     */
+    private void airdrop(Session session, long ticks) {
+        World world = session.anchor.getWorld();
+        if (world == null) {
+            throw new IllegalArgumentException("The drop zone has no world.");
+        }
+        Location ground = world.getHighestBlockAt(session.anchor).getLocation().add(0.5d, 1d, 0.5d);
+        announce(session, Component.text("SUPPLY DROP", NamedTextColor.GOLD, TextDecoration.BOLD)
+                .append(Component.text(" Get to the beam.", NamedTextColor.WHITE)));
+        BossBar bar = show.bar("SUPPLY DROP INBOUND", BossBar.Color.YELLOW);
+
+        // The beam: a column of colour standing on the landing spot.
+        repeat(session, 2L, ticks, frame -> {
+            for (double height = 0d; height < 30d; height += 0.6d) {
+                world.spawnParticle(Particle.DUST, ground.clone().add(0d, height, 0d), 1, 0.05d, 0d, 0.05d, 0d,
+                        new Particle.DustOptions(Color.fromRGB(255, 200, 40), 1.4f));
+            }
+        });
+
+        Location start = ground.clone().add(0d, 40d, 0d);
+        BlockDisplay crate = world.spawn(start, BlockDisplay.class, display -> {
+            display.setBlock(Material.CHEST.createBlockData());
+            display.setPersistent(false);
+            display.setGlowing(true);
+        });
+        session.spawned.add(crate.getUniqueId());
+
+        repeat(session, 1L, ticks, step -> {
+            List<Player> watching = targets(session);
+            if (!crate.isValid()) {
+                return;
+            }
+            Location at = crate.getLocation().subtract(0d, 0.55d, 0d);
+            boolean landed = at.getY() <= ground.getY();
+            show.showBar(bar, watching, landed ? 0f
+                    : (float) ((at.getY() - ground.getY()) / 40d));
+            if (!landed) {
+                crate.teleport(at);
+                world.spawnParticle(Particle.CAMPFIRE_COSY_SMOKE, at, 4, 0.2d, 0.2d, 0.2d, 0.01d);
+                world.spawnParticle(Particle.FLAME, at, 6, 0.3d, 0.3d, 0.3d, 0.02d);
+                for (Player player : watching) {
+                    player.playSound(at, Sound.ENTITY_FIREWORK_ROCKET_LARGE_BLAST,
+                            SoundCategory.MASTER, 0.35f, 0.7f);
+                }
+                return;
+            }
+            session.spawned.remove(crate.getUniqueId());
+            crate.remove();
+            burstOpen(session, ground, 40, "SUPPLY DROP");
+            show.hideBar(bar, watching);
+        });
+        session.undo(() -> show.hideBar(bar, online()));
+    }
+
+    /**
+     * A giant pinata everybody punches. Damage is cancelled and counted instead,
+     * so the pinata cannot die, drop slimeballs, or hurt anyone on the way.
+     */
+    private void pinata(Session session, long ticks) {
+        World world = session.anchor.getWorld();
+        if (world == null) {
+            throw new IllegalArgumentException("The pinata has no world.");
+        }
+        Location at = world.getHighestBlockAt(session.anchor).getLocation().add(0.5d, 3.5d, 0.5d);
+        announce(session, Component.text("PINATA", NamedTextColor.LIGHT_PURPLE, TextDecoration.BOLD)
+                .append(Component.text(" Hit it. Keep hitting it.", NamedTextColor.WHITE)));
+
+        int hits = Math.max(20, targets(session).size() * 15);
+        BossBar bar = show.bar("PINATA", BossBar.Color.PINK);
+        Slime body = world.spawn(at, Slime.class, slime -> {
+            slime.setSize(8);
+            // No AI at all: a pinata that chases people is a mob, not a pinata.
+            slime.setAI(false);
+            slime.setGravity(false);
+            slime.setGlowing(true);
+            slime.setSilent(true);
+            slime.setPersistent(false);
+        });
+        session.spawned.add(body.getUniqueId());
+        pinatas.put(body.getUniqueId(), new Pinata(bar, hits));
+
+        repeat(session, 5L, ticks, frame -> {
+            List<Player> watching = targets(session);
+            Pinata state = pinatas.get(body.getUniqueId());
+            if (state == null || !body.isValid()) {
+                return;
+            }
+            show.showBar(bar, watching, state.remaining / (float) state.total);
+            Location centre = body.getLocation().add(0d, 2d, 0d);
+            Location swing = at.clone();
+            swing.setY(at.getY() + Math.sin(frame / 6d) * 0.6d);
+            swing.setYaw((frame * 9f) % 360f);
+            body.teleport(swing);
+            ThreadLocalRandom random = ThreadLocalRandom.current();
+            for (int spark = 0; spark < 6; spark++) {
+                world.spawnParticle(Particle.DUST, centre, 1, 1.6d, 1.6d, 1.6d, 0d,
+                        new Particle.DustOptions(randomColour(random), 1.6f));
+            }
+        });
+        session.undo(() -> {
+            Pinata state = pinatas.remove(body.getUniqueId());
+            if (state != null) {
+                show.hideBar(state.bar, online());
+            }
+        });
+    }
+
+    /** A drumroll, a reel of names, and everybody collects. */
+    private void jackpot(Session session) {
+        announce(session, Component.text("JACKPOT", NamedTextColor.YELLOW, TextDecoration.BOLD)
+                .append(Component.text(" Rolling...", NamedTextColor.WHITE)));
+        List<String> reel = List.of(
+                "NOTHING", "ONE KEY", "FIVE KEYS", "TEN KEYS", "TWENTY KEYS", "THE LOT"
+        );
+        int spins = 22;
+        for (int spin = 0; spin < spins; spin++) {
+            int index = spin;
+            // The reel slows as it lands. A constant tick reads as a loading bar.
+            long delay = (long) (index * (2 + index * 0.35));
+            session.tasks.add(plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                String face = reel.get(ThreadLocalRandom.current().nextInt(reel.size()));
+                for (Player player : targets(session)) {
+                    player.sendActionBar(Component.text("[ " + face + " ]",
+                            NamedTextColor.YELLOW, TextDecoration.BOLD));
+                    player.playSound(player.getLocation(), Sound.BLOCK_NOTE_BLOCK_HAT,
+                            SoundCategory.MASTER, 0.8f, 1.2f);
+                }
+            }, delay));
+        }
+        session.tasks.add(plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            int payout = 5 + ThreadLocalRandom.current().nextInt(16);
+            for (Player player : targets(session)) {
+                player.showTitle(net.kyori.adventure.title.Title.title(
+                        Component.text("JACKPOT!", NamedTextColor.GOLD, TextDecoration.BOLD),
+                        Component.text(payout + " keys", NamedTextColor.WHITE)
+                ));
+                player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP,
+                        SoundCategory.MASTER, 1f, 1.2f);
+                player.getWorld().spawnParticle(Particle.TOTEM_OF_UNDYING,
+                        player.getLocation().add(0d, 1d, 0d), 80, 1d, 1d, 1d, 0.8d);
+            }
+            burstOpen(session, session.anchor, payout, "JACKPOT");
+        }, 200L));
+    }
+
+    /** The payout moment shared by the drop, the pinata and the jackpot. */
+    private void burstOpen(Session session, Location where, int keys, String label) {
+        World world = where.getWorld();
+        if (world == null) {
+            return;
+        }
+        world.spawnParticle(Particle.EXPLOSION_EMITTER, where, 3, 1d, 1d, 1d, 0d);
+        world.spawnParticle(Particle.TOTEM_OF_UNDYING, where, 160, 1.5d, 1.5d, 1.5d, 1.2d);
+        for (Player player : targets(session)) {
+            player.playSound(where, Sound.ENTITY_GENERIC_EXPLODE, SoundCategory.MASTER, 1f, 1.3f);
+            player.playSound(where, Sound.UI_TOAST_CHALLENGE_COMPLETE, SoundCategory.MASTER, 1f, 1f);
+        }
+        announce(session, Component.text(label + " OPEN!", NamedTextColor.GOLD, TextDecoration.BOLD)
+                .append(Component.text(" " + keys + " keys are on the floor.", NamedTextColor.WHITE)));
+        ThreadLocalRandom random = ThreadLocalRandom.current();
+        for (int index = 0; index < keys; index++) {
+            Item drop = world.dropItem(where.clone().add(0d, 1d, 0d), crateItems.key(1));
+            drop.setGlowing(true);
+            drop.setPickupDelay(20);
+            drop.setVelocity(new Vector(
+                    random.nextDouble(-0.35d, 0.35d),
+                    random.nextDouble(0.35d, 0.75d),
+                    random.nextDouble(-0.35d, 0.35d)
+            ));
+        }
+    }
+
+    /** Every hit lands on the counter, never on the pinata's health. */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onPinataHit(EntityDamageByEntityEvent event) {
+        Pinata state = pinatas.get(event.getEntity().getUniqueId());
+        if (state == null) {
+            return;
+        }
+        event.setCancelled(true);
+        if (state.burst || !(event.getDamager() instanceof Player striker)) {
+            return;
+        }
+        state.remaining = Math.max(0, state.remaining - 1);
+        Location at = event.getEntity().getLocation().add(0d, 2d, 0d);
+        World world = at.getWorld();
+        if (world != null) {
+            world.spawnParticle(Particle.DUST, at, 12, 1.2d, 1.2d, 1.2d, 0d,
+                    new Particle.DustOptions(Color.fromRGB(255, 90, 200), 1.8f));
+        }
+        striker.playSound(at, Sound.BLOCK_NOTE_BLOCK_XYLOPHONE, SoundCategory.MASTER, 1f,
+                1.2f + (1f - state.remaining / (float) state.total));
+        if (state.remaining > 0) {
+            return;
+        }
+        state.burst = true;
+        Session owner = active.stream()
+                .filter(candidate -> candidate.spawned.contains(event.getEntity().getUniqueId()))
+                .findFirst()
+                .orElse(null);
+        event.getEntity().remove();
+        pinatas.remove(event.getEntity().getUniqueId());
+        show.hideBar(state.bar, online());
+        if (owner != null) {
+            burstOpen(owner, at, 30 + targets(owner).size() * 5, "PINATA");
+        }
+    }
 
     // ------------------------------------------------------------- world guards
     //

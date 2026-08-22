@@ -37,6 +37,9 @@ enum ChaosCatalog {
     METEORS("meteors", "Meteors fall and burst without a scratch.", 15, 5, 60),
     CONFETTI("confetti", "A dense burst of colour.", 0, 0, 0),
     HEADS("heads", "Everyone wears a random mob head.", 30, 5, 300),
+    AIRDROP("airdrop", "A supply crate falls from the sky and bursts open.", 0, 0, 0, "drop", "supply"),
+    PINATA("pinata", "A giant pinata. Hit it until it breaks.", 45, 15, 180, "boss"),
+    JACKPOT("jackpot", "A drumroll, a spinning reel, and a payout.", 0, 0, 0, "roll"),
     CHAOS("chaos", "Several of the above at once.", 25, 10, 60),
     STOP("stop", "Ends every running effect and restores everything.", 0, 0, 0, "reset", "clear");
 
@@ -145,5 +148,10 @@ enum ChaosCatalog {
                 SKYBURST, DISCO, THUNDERDOME, LAVAFLOOR, GIANTS, TINY, YOYO,
                 FLOAT, SPIN, DRUNK, GHOSTS, RAVE, MOBSTORM, METEORS, HEADS
         );
+    }
+
+    /** Events that hand out rewards, and so should never fire unannounced. */
+    static List<ChaosCatalog> payouts() {
+        return List.of(KEYRAIN, AIRDROP, PINATA, JACKPOT);
     }
 }
