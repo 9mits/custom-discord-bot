@@ -102,6 +102,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private MaintenanceStore maintenanceStore;
     private BukkitTask maintenanceSweep;
     private AfkService afkService;
+    private ChaosService chaosService;
     private BroadcastDisplayService broadcastDisplayService;
     private final WhitelistDirectory whitelistDirectory = new WhitelistDirectory();
 
@@ -394,6 +395,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         devBlogService = new DevBlogService(
                 this, devBlogStore, sidebarService, cosmeticStore
         );
+        chaosService = new ChaosService(this);
+        getServer().getPluginManager().registerEvents(chaosService, this);
         AdminCommandService adminService = new AdminCommandService(
                 this,
                 rankSyncStore,
@@ -427,7 +430,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                         getServer().getWorldContainer().toPath()
                 ),
                 devBlogService,
-                new AdminEventService(this, crateItems),
+                new AdminEventService(this, crateItems, chaosService),
                 economyMenus,
                 updateNoticeService
         );
@@ -458,6 +461,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
+        // Before anything else: an operator event must never survive a reload.
+        if (chaosService != null) {
+            chaosService.stopAll();
+        }
         if (afkService != null) {
             afkService.stop();
         }
