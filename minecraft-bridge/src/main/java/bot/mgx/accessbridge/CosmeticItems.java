@@ -66,8 +66,8 @@ final class CosmeticItems {
         if (meta == null) {
             return item;
         }
-        // Secrets are silhouettes only where they have not been won yet, which is the
-        // crate. Once one is in a wardrobe it is an ordinary cosmetic with a name.
+        // The name is revealed after a win, but the real effect never leaks through
+        // an item icon. Every secret keeps the same shadow model everywhere.
         boolean masked = oddsScreen && definition.secret();
         meta.displayName(Component.text(
                         masked ? CosmeticCatalog.MASKED_NAME : definition.displayName(),
