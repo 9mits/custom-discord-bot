@@ -101,7 +101,8 @@ final class ShopCatalog {
             "GRAY", "LIGHT_GRAY", "CYAN", "PURPLE", "BLUE", "BROWN", "GREEN", "RED", "BLACK"
     };
     private static final String[] WOOD = {
-            "OAK", "SPRUCE", "BIRCH", "JUNGLE", "ACACIA", "DARK_OAK", "MANGROVE", "CHERRY"
+            "OAK", "SPRUCE", "BIRCH", "JUNGLE", "ACACIA", "DARK_OAK", "MANGROVE", "CHERRY",
+            "PALE_OAK"
     };
 
     private static final Map<Category, List<Offer>> BY_CATEGORY = buildShop();
@@ -325,6 +326,7 @@ final class ShopCatalog {
                 offer("OAK_SAPLING", 16, 700),
                 offer("SPRUCE_SAPLING", 16, 700),
                 offer("BIRCH_SAPLING", 16, 700),
+                offer("PALE_OAK_SAPLING", 16, 700),
                 offer("HAY_BLOCK", 16, 8_000),
                 offer("DRIED_KELP_BLOCK", 16, 6_400),
                 offer("COMPOSTER", 16, 1_600)
