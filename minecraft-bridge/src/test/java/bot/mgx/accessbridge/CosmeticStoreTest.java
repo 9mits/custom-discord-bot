@@ -55,6 +55,31 @@ class CosmeticStoreTest {
     }
 
     @Test
+    void oneCosmeticCanBeRenumberedWithoutChangingOwnership(@TempDir Path directory)
+            throws Exception {
+        Path file = directory.resolve("cosmetics.json");
+        UUID owner = UUID.randomUUID();
+        CosmeticStore store = new CosmeticStore(file);
+        CosmeticStore.Token first = store.mint(owner, "solar_orbit", UUID.randomUUID());
+        CosmeticStore.Token second = store.mint(owner, "solar_orbit", UUID.randomUUID());
+        CosmeticStore.Token other = store.mint(owner, "blood_burst", UUID.randomUUID());
+        String saved = Files.readString(file)
+                .replaceFirst("\\\"serial_number\\\":1", "\\\"serial_number\\\":9")
+                .replaceFirst("\\\"serial_number\\\":2", "\\\"serial_number\\\":4");
+        Files.writeString(file, saved);
+        store = new CosmeticStore(file);
+
+        assertEquals(2, store.resetSerials("solar_orbit"));
+        assertEquals(0, store.resetSerials("not_real"));
+
+        CosmeticStore reloaded = new CosmeticStore(file);
+        assertEquals(2, reloaded.token(first.serial()).orElseThrow().serialNumber());
+        assertEquals(1, reloaded.token(second.serial()).orElseThrow().serialNumber());
+        assertEquals(1, reloaded.token(other.serial()).orElseThrow().serialNumber());
+        assertEquals(owner, reloaded.token(first.serial()).orElseThrow().storedOwner());
+    }
+
+    @Test
     void legacyTokensReceiveStableSerialNumbersOnLoad(@TempDir Path directory) throws Exception {
         Path file = directory.resolve("cosmetics.json");
         UUID first = UUID.randomUUID();

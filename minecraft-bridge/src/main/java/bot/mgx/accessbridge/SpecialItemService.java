@@ -45,7 +45,7 @@ import java.util.concurrent.ThreadLocalRandom;
 /** Custom crate books and potions, including their live gameplay effects. */
 final class SpecialItemService implements Listener {
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
-    private static final long POTION_DURATION_MILLIS = Duration.ofMinutes(15).toMillis();
+    private static final long POTION_DURATION_MILLIS = Duration.ofMinutes(5).toMillis();
     private static final Set<Material> FORTUNE_BLOCKS = EnumSet.of(
             Material.COAL_ORE, Material.DEEPSLATE_COAL_ORE,
             Material.COPPER_ORE, Material.DEEPSLATE_COPPER_ORE,
@@ -107,7 +107,7 @@ final class SpecialItemService implements Listener {
             return Optional.of(customPotion(
                     "fortune", level, multiplier, "Fortune Potion " + roman(level),
                     Color.fromRGB(40, 205, 95), "mgx:fortune_potion",
-                    trimMultiplier(multiplier) + "x eligible ore drops for 15 minutes."
+                    trimMultiplier(multiplier) + "x eligible ore drops for 5 minutes."
             ));
         }
         if (id.startsWith("crate_luck_")) {
@@ -116,7 +116,7 @@ final class SpecialItemService implements Listener {
                     "crate_luck", multiplier, multiplier,
                     "Crate Luck " + roman(multiplier),
                     Color.fromRGB(215, 70, 255), "mgx:crate_luck_potion",
-                    multiplier + "x rare crate-reward weight for 15 minutes."
+                    multiplier + "x rare crate-reward weight for 5 minutes."
             ));
         }
         return Optional.empty();
@@ -296,17 +296,17 @@ final class SpecialItemService implements Listener {
             }
             case "potion_strength_ii" -> {
                 name = "Potion of Strength II";
-                effect = new PotionEffect(PotionEffectType.STRENGTH, 3 * 60 * 20, 1);
+                effect = new PotionEffect(PotionEffectType.STRENGTH, 5 * 60 * 20, 1);
                 color = Color.fromRGB(175, 45, 45);
             }
             case "potion_swiftness_ii" -> {
                 name = "Potion of Swiftness II";
-                effect = new PotionEffect(PotionEffectType.SPEED, 3 * 60 * 20, 1);
+                effect = new PotionEffect(PotionEffectType.SPEED, 5 * 60 * 20, 1);
                 color = Color.fromRGB(85, 175, 245);
             }
             default -> {
                 name = "Potion of Fire Resistance";
-                effect = new PotionEffect(PotionEffectType.FIRE_RESISTANCE, 8 * 60 * 20, 0);
+                effect = new PotionEffect(PotionEffectType.FIRE_RESISTANCE, 5 * 60 * 20, 0);
                 color = Color.fromRGB(245, 135, 35);
             }
         }
@@ -421,7 +421,7 @@ final class SpecialItemService implements Listener {
     private void activated(Player player, String effect) {
         player.sendMessage(PlayerMenuService.prefix()
                 .append(Component.text(effect, NamedTextColor.LIGHT_PURPLE, TextDecoration.BOLD))
-                .append(Component.text(" active for 15 minutes.", NamedTextColor.WHITE)));
+                .append(Component.text(" active for 5 minutes.", NamedTextColor.WHITE)));
         player.getWorld().spawnParticle(
                 Particle.WITCH, player.getLocation().add(0d, 1d, 0d),
                 30, 0.45d, 0.8d, 0.45d, 0.05d

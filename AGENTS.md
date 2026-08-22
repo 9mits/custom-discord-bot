@@ -340,6 +340,23 @@ Read the relevant file when you touch an area; these are the non-obvious points.
   opening a page deserialises only the 45 visible stacks. Shop prices are the
   static `ShopCatalog`. Elytra, netherite, totems, shulker shells and enchanted
   golden apples are not sold.
+- **Player activity statistics are event-backed.** Paper includes the exact online
+  count and original event timestamp with every `PLAYER_JOIN` / `PLAYER_LEAVE`;
+  the Discord bot stores those samples in `minecraft_player_activity`, and
+  `/mcstaff stats` reports peaks and busiest JST windows for the selected period.
+  Floodgate identity is cached at join so a Bedrock quit cannot be misreported as
+  Java after Floodgate has already removed its live player object.
+- **AFK and screen placement are deliberately separate.** `/afk` and the automatic
+  five-minute idle detector are edition-neutral and mark the tab list; block
+  movement is used so Bedrock camera jitter is not activity. Teleport warmups use
+  the bottom action bar once per second, while `/broadcast` uses a timed top boss
+  bar. Keep `player-idle-timeout=0` so Paper does not kick a player the plugin has
+  intentionally marked AFK.
+- **Cosmetic serial reset preserves the cosmetics.** `/mgxadmin serials reset
+  <cosmetic-id> confirm` deterministically renumbers only that cosmetic, keeps
+  custody and equipped selections, and refreshes carried tokens. Tokens stored in
+  containers show old lore until they are picked up or moved through the wardrobe;
+  the `CosmeticStore` value is canonical.
 - **Resetting data is two commands, one per side.** `/mgxadmin reset all
   confirm` (in game) clears what Paper keeps; `/mcadmin wipe` (Discord, owner
   only) clears the bot's SQLite. Neither can reach the other's data, so a full

@@ -18,6 +18,10 @@ allow-insecure-localhost: false
 verification-expiry-seconds: 600
 reconnect-max-seconds: 60
 
+# Marks a player AFK after this much real inactivity. Block movement is used so
+# Geyser camera jitter cannot keep a Bedrock player active forever.
+afk-timeout-seconds: 300
+
 # The sidebar refreshes live player, level, heart, clan, combat, and server data.
 # 100 ticks (5s) keeps ping/TPS current without rebuilding every scoreboard each second.
 scoreboard:

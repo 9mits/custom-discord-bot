@@ -1,7 +1,7 @@
 ---
 title: Server Guide
 nav: Guide
-order: 1
+order: 2
 tagline: Everything the in-game information panel covers — commands, clans, levels, perks, mods and version support.
 ---
 

@@ -90,9 +90,13 @@ commands:
     usage: /bounty [set <player> <amount>|clan <player> <amount>|check]
     aliases: [bounties]
     permission: mgx.shop
+  afk:
+    description: Toggle your AFK status. Idle players are marked automatically.
+    usage: /afk
+    permission: mgx.afk
   mgxadmin:
     description: Give rewards, run events, hold rank sync, and reset data.
-    usage: /mgxadmin <give|abuse|startserver|teststart|ranks|eco|bounty|hologram|reset>
+    usage: /mgxadmin <give|abuse|startserver|teststart|ranks|eco|bounty|hologram|serials|reset>
     aliases: [mcadmin]
     permission: mgxaccessbridge.admin
 permissions:
@@ -113,6 +117,9 @@ permissions:
     default: true
   mgx.crate:
     description: Allows players to open crates and inspect their odds.
+    default: true
+  mgx.afk:
+    description: Allows players to set and clear their AFK status.
     default: true
   mgxaccessbridge.admin:
     description: Allows rank holds, administrative data resets, and joining while the server is held for maintenance when granted explicitly in LuckPerms.

@@ -196,35 +196,35 @@ final class CrateCatalog {
     private static List<Reward> buildRewards() {
         List<Reward> rewards = new ArrayList<>();
         rewards.add(item(
-                "raw_copper", "16 Raw Copper", Category.RESOURCE, 9_400,
+                "raw_copper", "16 Raw Copper", Category.RESOURCE, 10_400,
                 "RAW_COPPER", 16, "A useful mining bundle without shop cash."
         ));
         rewards.add(item(
-                "raw_iron", "8 Raw Iron", Category.RESOURCE, 9_100,
+                "raw_iron", "8 Raw Iron", Category.RESOURCE, 10_000,
                 "RAW_IRON", 8, "A small bundle ready to smelt."
         ));
         rewards.add(item(
-                "raw_gold", "6 Raw Gold", Category.RESOURCE, 7_800,
+                "raw_gold", "6 Raw Gold", Category.RESOURCE, 8_500,
                 "RAW_GOLD", 6, "A restrained bundle of raw gold."
         ));
         rewards.add(item(
-                "emeralds", "4 Emeralds", Category.RESOURCE, 7_400,
+                "emeralds", "4 Emeralds", Category.RESOURCE, 8_000,
                 "EMERALD", 4, "Four emeralds for trading or building."
         ));
         rewards.add(item(
-                "diamonds", "2 Diamonds", Category.RESOURCE, 5_900,
+                "diamonds", "2 Diamonds", Category.RESOURCE, 6_300,
                 "DIAMOND", 2, "Two diamonds, kept well below equipment quantities."
         ));
         rewards.add(item(
-                "wind_charges", "16 Wind Charges", Category.TRIAL, 6_200,
+                "wind_charges", "16 Wind Charges", Category.TRIAL, 6_600,
                 "WIND_CHARGE", 16, "A bundle of movement and combat utility."
         ));
         rewards.add(item(
-                "breeze_rods", "4 Breeze Rods", Category.TRIAL, 5_500,
+                "breeze_rods", "4 Breeze Rods", Category.TRIAL, 5_800,
                 "BREEZE_ROD", 4, "Four trial-chamber crafting drops."
         ));
         rewards.add(item(
-                "golden_apple", "Golden Apple", Category.TREASURE, 5_668,
+                "golden_apple", "Golden Apple", Category.TREASURE, 5_737,
                 "GOLDEN_APPLE", 1, "One normal golden apple."
         ));
         rewards.add(item(
@@ -272,62 +272,62 @@ final class CrateCatalog {
                 "MACE", 1, "A complete mace at the table's lowest visible item chance."
         ));
         rewards.add(item(
-                "potion_healing_ii", "Potion of Healing II", Category.POTION, 2_000,
+                "potion_healing_ii", "Potion of Healing II", Category.POTION, 1_000,
                 "POTION", 1, "Instantly restores eight health points."
         ));
         rewards.add(item(
-                "potion_strength_ii", "Potion of Strength II", Category.POTION, 1_500,
+                "potion_strength_ii", "Potion of Strength II", Category.POTION, 750,
                 "POTION", 1, "A strong combat potion unavailable in the shop."
         ));
         rewards.add(item(
-                "potion_swiftness_ii", "Potion of Swiftness II", Category.POTION, 1_500,
+                "potion_swiftness_ii", "Potion of Swiftness II", Category.POTION, 750,
                 "POTION", 1, "A fast movement potion unavailable in the shop."
         ));
         rewards.add(item(
-                "potion_fire_resistance", "Potion of Fire Resistance", Category.POTION, 1_200,
+                "potion_fire_resistance", "Potion of Fire Resistance", Category.POTION, 600,
                 "POTION", 1, "Protection from fire and lava."
         ));
         rewards.add(item(
-                "enchant_excavation_i", "Excavation I", Category.ENCHANTMENT, 20,
+                "enchant_excavation_i", "Excavation I", Category.ENCHANTMENT, 10,
                 "ENCHANTED_BOOK", 1, "A super-rare pickaxe enchantment that mines a 3x3 area."
         ));
         rewards.add(item(
-                "enchant_unbreaking_iv", "Unbreaking IV", Category.ENCHANTMENT, 600,
+                "enchant_unbreaking_iv", "Unbreaking IV", Category.ENCHANTMENT, 300,
                 "ENCHANTED_BOOK", 1, "Pushes Unbreaking one level beyond vanilla."
         ));
         rewards.add(item(
-                "enchant_unbreaking_v", "Unbreaking V", Category.ENCHANTMENT, 150,
+                "enchant_unbreaking_v", "Unbreaking V", Category.ENCHANTMENT, 75,
                 "ENCHANTED_BOOK", 1, "The highest Unbreaking level in the crate."
         ));
         rewards.add(item(
-                "enchant_protection_v", "Protection V", Category.ENCHANTMENT, 250,
+                "enchant_protection_v", "Protection V", Category.ENCHANTMENT, 125,
                 "ENCHANTED_BOOK", 1, "Armour protection beyond the vanilla limit."
         ));
         rewards.add(item(
-                "enchant_fortune_iv", "Fortune IV", Category.ENCHANTMENT, 400,
+                "enchant_fortune_iv", "Fortune IV", Category.ENCHANTMENT, 200,
                 "ENCHANTED_BOOK", 1, "A mining fortune level beyond vanilla."
         ));
         rewards.add(item(
-                "enchant_fortune_v", "Fortune V", Category.ENCHANTMENT, 100,
+                "enchant_fortune_v", "Fortune V", Category.ENCHANTMENT, 50,
                 "ENCHANTED_BOOK", 1, "The highest permanent Fortune level."
         ));
-        rewards.add(customPotion("fortune_potion_i", "Fortune Potion I", 500,
+        rewards.add(customPotion("fortune_potion_i", "Fortune Potion I", 250,
                 "mgx:fortune_potion", "Multiplies eligible ore drops up to level I."));
-        rewards.add(customPotion("fortune_potion_ii", "Fortune Potion II", 200,
+        rewards.add(customPotion("fortune_potion_ii", "Fortune Potion II", 100,
                 "mgx:fortune_potion", "Multiplies eligible ore drops by 2x."));
-        rewards.add(customPotion("fortune_potion_iii", "Fortune Potion III", 75,
+        rewards.add(customPotion("fortune_potion_iii", "Fortune Potion III", 35,
                 "mgx:fortune_potion", "Multiplies eligible ore drops by 3x."));
-        rewards.add(customPotion("fortune_potion_iv", "Fortune Potion IV", 20,
+        rewards.add(customPotion("fortune_potion_iv", "Fortune Potion IV", 10,
                 "mgx:fortune_potion", "Multiplies eligible ore drops by 4x."));
-        rewards.add(customPotion("fortune_potion_v", "Fortune Potion V", 5,
+        rewards.add(customPotion("fortune_potion_v", "Fortune Potion V", 2,
                 "mgx:fortune_potion", "Multiplies eligible ore drops by 5x."));
-        rewards.add(customPotion("crate_luck_ii", "Crate Luck II", 150,
+        rewards.add(customPotion("crate_luck_ii", "Crate Luck II", 75,
                 "mgx:crate_luck_potion", "Doubles rare reward weight for a limited time."));
-        rewards.add(customPotion("crate_luck_iii", "Crate Luck III", 50,
+        rewards.add(customPotion("crate_luck_iii", "Crate Luck III", 25,
                 "mgx:crate_luck_potion", "Triples rare reward weight for a limited time."));
-        rewards.add(customPotion("crate_luck_iv", "Crate Luck IV", 10,
+        rewards.add(customPotion("crate_luck_iv", "Crate Luck IV", 5,
                 "mgx:crate_luck_potion", "Quadruples rare reward weight for a limited time."));
-        rewards.add(customPotion("crate_luck_v", "Crate Luck V", 2,
+        rewards.add(customPotion("crate_luck_v", "Crate Luck V", 1,
                 "mgx:crate_luck_potion", "Multiplies rare reward weight by 5x for a limited time."));
         for (CosmeticCatalog.Definition cosmetic : CosmeticCatalog.all()) {
             rewards.add(cosmetic(cosmetic));

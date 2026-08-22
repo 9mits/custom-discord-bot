@@ -632,7 +632,9 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             MinecraftEdition edition,
             UUID minecraftUuid,
             String currentUsername,
-            String xuid
+            String xuid,
+            int onlineCount,
+            long occurredAt
     ) {
         if (playerActivityOutbox.size() >= 10_000) {
             playerActivityOutbox.keySet().stream().findFirst().ifPresent(playerActivityOutbox::remove);
@@ -642,6 +644,8 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         payload.addProperty("edition", edition.name());
         payload.addProperty("minecraft_uuid", minecraftUuid.toString());
         payload.addProperty("current_username", currentUsername);
+        payload.addProperty("online_count", Math.max(0, onlineCount));
+        payload.addProperty("occurred_at", occurredAt);
         if (xuid == null) {
             payload.add("xuid", null);
         } else {

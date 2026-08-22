@@ -952,6 +952,8 @@ class MinecraftAccessBot(commands.Bot):
         edition: str,
         xuid: Optional[str],
         event_idempotency_key: str,
+        online_count: int = 0,
+        occurred_at: int = 0,
     ) -> None:
         claimed = await self.data.claim_bridge_event(
             event_idempotency_key,
@@ -959,6 +961,17 @@ class MinecraftAccessBot(commands.Bot):
         )
         if not claimed:
             return
+        record_activity = getattr(self.data, "record_player_activity", None)
+        if record_activity is not None:
+            await record_activity(
+                event_idempotency_key=event_idempotency_key,
+                minecraft_uuid=minecraft_uuid,
+                current_username=current_username,
+                edition=edition,
+                joined=joined,
+                online_count=online_count,
+                occurred_at=occurred_at,
+            )
         record_seen = getattr(self.data, "record_player_seen", None)
         if record_seen is not None:
             discord_user_id = await record_seen(edition, minecraft_uuid, current_username, xuid)
@@ -2989,7 +3002,7 @@ class MinecraftAccessBot(commands.Bot):
                         "`/mcstaff retry` — retry failed bridge actions\n"
                         "`/mcstaff audit` — one application's lifecycle\n"
                         "`/mcstaff commandlog` — who ran which command\n"
-                        "`/mcstaff stats` — application and access totals"
+                        "`/mcstaff stats` — access totals, peaks and busiest play times"
                     ),
                     inline=False,
                 )
@@ -3015,6 +3028,8 @@ class MinecraftAccessBot(commands.Bot):
                         "`/mgxadmin ranks hold <player>` — keep a LuckPerms group set by "
                         "hand, so Discord rank sync stops undoing it\n"
                         "`/mgxadmin ranks release <player>` — hand them back to rank sync\n"
+                        "`/mgxadmin serials reset <cosmetic-id> confirm` — renumber one "
+                        "cosmetic from #1 without deleting ownership\n"
                         "`/mgxadmin reset all confirm` — clear every trace: statistics "
                         "and death counts, advancements, inventories, clans and "
                         "balances, linked Discord names, settings, verification and "
@@ -3057,14 +3072,19 @@ class MinecraftAccessBot(commands.Bot):
                 ephemeral=True,
             )
 
-        @staff_group.command(name="stats", description="Show Minecraft application and access totals.")
-        async def stats(interaction: discord.Interaction) -> None:
+        @staff_group.command(name="stats", description="Show access and player activity statistics.")
+        @app_commands.describe(days="Player activity window (1-90 days)")
+        async def stats(
+            interaction: discord.Interaction,
+            days: Optional[app_commands.Range[int, 1, 90]] = 30,
+        ) -> None:
             if not await self.require_moderator(interaction):
                 await record_denial(self, interaction, "mcstaff stats", "Not a moderator")
                 return
             await interaction.response.defer(ephemeral=True, thinking=True)
             counts = await self.data.application_status_counts()
             outbox = await self.data.outbox_counts()
+            activity = await self.data.player_activity_metrics(days=days or 30)
             total = sum(counts.values())
             approved = counts.get(ApplicationStatus.APPROVED.value, 0)
             denied = counts.get(ApplicationStatus.DENIED.value, 0)
@@ -3084,6 +3104,27 @@ class MinecraftAccessBot(commands.Bot):
                 ),
                 inline=True,
             )
+            peak_at = activity.get("peak_at")
+            peak_when = f"<t:{peak_at}:F>" if peak_at else "No activity recorded yet"
+            embed.add_field(
+                name=f"Players · Last {days or 30} Days",
+                value=(
+                    f"**Online now:** {activity['current']}\n"
+                    f"**Peak:** {activity['peak']} — {peak_when}\n"
+                    f"**Joins:** {activity['joins']} "
+                    f"({activity['java_joins']} Java · {activity['bedrock_joins']} Bedrock)"
+                ),
+                inline=False,
+            )
+            weekdays = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")
+            busiest = activity.get("busiest", [])
+            if busiest:
+                lines = [
+                    f"**{weekdays[item['weekday']]} {item['hour']:02d}:00–{(item['hour'] + 1) % 24:02d}:00 JST**"
+                    f" — {item['average']:.1f} observed players on average"
+                    for item in busiest
+                ]
+                embed.add_field(name="Busiest Times", value="\n".join(lines), inline=False)
             embed.add_field(
                 name="In Flight",
                 value=(
