@@ -367,7 +367,8 @@ a { color: inherit; }
   border-radius: 1.5rem; background: var(--art-plate);
 }
 .hero-feature .frame img {
-  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: contain; padding: 7%;
   transition: transform var(--dur-slow) var(--ease-out);
 }
 .hero-feature a:hover .frame img { transform: scale(1.04); }
@@ -415,7 +416,7 @@ a { color: inherit; }
 .featured-art { width: 100%; max-width: 28rem; margin: 0 auto; }
 @media (min-width: 1024px) { .featured-art { margin: 0; flex: 0 0 28rem; } }
 .featured-art .card-thumb { aspect-ratio: 4 / 3; }
-.featured-art .card-thumb .icon { width: 66%; max-height: 72%; }
+.featured-art .card-thumb .icon { width: 52%; max-height: 62%; }
 .featured-body { text-align: center; }
 @media (min-width: 1024px) { .featured-body { text-align: left; flex: 1; } }
 .featured-body h2 {
@@ -461,7 +462,8 @@ a { color: inherit; }
 .card:hover .card-thumb { box-shadow: 0 0 0 2px var(--brand-orange), 0 18px 40px rgb(var(--shadow-rgb) / .18); }
 .card-thumb .blur {
   position: absolute; inset: 0; width: 100%; height: 100%;
-  object-fit: cover; filter: blur(18px) saturate(1.15); transform: scale(1.18);
+  object-fit: cover; filter: blur(22px) saturate(1.1); transform: scale(1.18);
+  opacity: .5;
   transition: transform var(--dur-slow) var(--ease-out);
 }
 .card:hover .card-thumb .blur { transform: scale(1.24); }
@@ -477,7 +479,7 @@ a { color: inherit; }
 .card-thumb .icon {
   /* contain, not cover: the art may be a wordmark, and cropping it to a square
      would cut the ends off the words. */
-  width: 62%; height: auto; max-height: 74%; object-fit: contain;
+  width: 46%; height: auto; max-height: 58%; object-fit: contain;
   transition: transform var(--dur-slow) var(--ease-out);
 }
 @media (min-width: 1024px) { .card:hover .card-thumb .icon { transform: scale(1.05); } }
