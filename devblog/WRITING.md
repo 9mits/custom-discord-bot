@@ -17,7 +17,8 @@ python devblog/blog.py publish
 python devblog/blog.py new "Fiesta Forever" --category Event
 ```
 
-This creates two things and tells you where they are:
+This creates two things, tells you where they are, **and prints every change
+that has landed since your last post** — which is what the post should cover:
 
 - `devblog/posts/2026-08-22-update-2.md` — the post, pre-filled with the layout
 - `devblog/media/update-2/` — where its images go
@@ -47,6 +48,16 @@ Everything else is up to you — reference any image by **bare filename**:
 
 Wide screenshots work best. A square or transparent logo is fine too; it sits
 on a dark plate so light artwork stays visible on both themes.
+
+### Item icons are already in the repo
+
+For crate keys, auras, trails and kill effects you do not need to take a
+screenshot — the real textures live in
+`assets/resourcepack/src/assets/mgx/textures/item/`. They are 16x16, so they
+need upscaling with nearest-neighbour, not a smooth resize. Ask me and I will
+prepare them.
+
+Screenshots of a **menu or an effect in play** still have to come from you.
 
 ## 3. Write it
 
