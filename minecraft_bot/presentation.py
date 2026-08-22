@@ -272,27 +272,13 @@ def application_welcome_embed() -> discord.Embed:
     # own; keep the lines short enough not to wrap into a tall column.
     for name, line in SERVER_FEATURES:
         welcome.add_field(name=name, value=line, inline=True)
-    welcome.add_field(
-        name="Joining",
-        value=(
-            "> A private server: verify the Minecraft account you play on, then "
-            "join. Press **Verify** when you are ready."
-        ),
-        inline=False,
-    )
     welcome.set_image(url=LOGO_ATTACHMENT_URI)
     return welcome
 
 
 def application_guide_embed() -> discord.Embed:
-    """What the server is actually like, for somebody deciding whether to join.
-
-    Laid out like the information panel so the two feel like one product, but they
-    answer different questions. Information *teaches* members how to play —
-    commands, limits, costs. This *explains*: what a clan is for, that you can save
-    places and travel to friends, what levelling earns you. The pages behind these
-    buttons live in `about.py` and never name a command, because a command is no use
-    to somebody who cannot join yet.
+    """What you need to know before verifying. Features live on the welcome
+    message; how to play lives behind the buttons and on the information panel.
     """
     embed = _panel_embed("Before You Join", "")
     embed.add_field(
@@ -306,47 +292,12 @@ def application_guide_embed() -> discord.Embed:
         inline=False,
     )
     embed.add_field(
-        name="Money",
-        value=(
-            "> A wallet of your own: buy from the server shop, sell what you "
-            "gather, list items on the auction house, and put a bounty on a "
-            "player. Rare progression items — elytras, netherite, totems, "
-            "shulker shells and enchanted golden apples — are not sold."
-        ),
-        inline=False,
-    )
-    embed.add_field(
-        name="Clans",
-        value=(
-            "> A named group with a shared tag, colour, and treasury. Money "
-            "you donate stays there and cannot be taken back. The richest clan "
-            "is whoever has given the most, not what members are carrying."
-        ),
-        inline=False,
-    )
-    embed.add_field(
-        name="The world",
-        value=(
-            "> One hundred thousand blocks from spawn, Java and Bedrock in "
-            "the same world. Leaderboards sit at spawn: richest players, "
-            "most kills, and the same for clans."
-        ),
-        inline=False,
-    )
-    embed.add_field(
         name="Nothing is safe",
         value=(
+            "> The world is one hundred thousand blocks from spawn.\n"
             "> Griefing and raiding are allowed. Bases, farms and clan towers "
-            "can all be taken or torn down, which is exactly what makes holding "
-            "one worth something. Spawn and server builds are the only exception."
-        ),
-        inline=False,
-    )
-    embed.add_field(
-        name="Read the rules first",
-        value=(
-            "> You accept them when you verify, and they are what staff "
-            "enforce on the server."
+            "can all be taken or torn down. Spawn and server builds are the "
+            "only exception."
         ),
         inline=False,
     )
