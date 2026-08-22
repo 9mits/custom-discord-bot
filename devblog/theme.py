@@ -411,6 +411,10 @@ a { color: inherit; }
   pointer-events: none;
 }
 .hero-feature .veil p { margin: 0; color: #fff; font-weight: 700; font-size: 1.5rem; text-shadow: 0 2px 6px rgba(0,0,0,.6); }
+.hero-feature .veil time {
+  display: block; margin-top: .35rem; color: rgba(255,255,255,.82);
+  font-size: .95rem; font-weight: 600; text-shadow: 0 2px 6px rgba(0,0,0,.6);
+}
 
 /* ===== blog archive ====================================================== */
 .blog-head { padding: 3rem 0 1.5rem; }
@@ -1334,13 +1338,21 @@ def render_index(featured: Optional[Dict[str, object]], cards: Sequence[Dict[str
     """The landing page: hero, the newest update called out, then the archive."""
     if featured:
         hero_art = featured.get("cover") or featured.get("icon") or featured.get("hero")
+        veil = (
+            '<div class="veil"><p>%s</p>'
+            '<time datetime="%s">%s</time></div>'
+            % (
+                _esc(str(featured["title"])),
+                _esc(str(featured["iso"])),
+                _esc(str(featured["date"])),
+            )
+        )
         frame = (
             '<div class="frame"><img src="%s" alt="">'
-            '<div class="veil"><p>%s</p></div></div>'
-            % (_esc(str(hero_art)), _esc(str(featured["title"])))
+            '%s</div>'
+            % (_esc(str(hero_art)), veil)
             if hero_art
-            else '<div class="frame"><div class="veil"><p>%s</p></div></div>'
-            % _esc(str(featured["title"]))
+            else '<div class="frame">%s</div>' % veil
         )
         hero_feature = (
             '<div class="hero-feature"><a href="%s">%s</a></div>'
