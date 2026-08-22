@@ -155,39 +155,39 @@ final class CosmeticCatalog {
             ),
             secretCosmetic(
                     "event_horizon", "Event Horizon", Category.KILL_EFFECT,
-                    "Space folds inward before the defeated player disappears."
+                    "BLACK_DYE", "Space folds inward before the defeated player disappears."
             ),
             secretCosmetic(
                     "reapers_verdict", "Reaper's Verdict", Category.KILL_EFFECT,
-                    "A spectral scythe cuts through a storm of stolen souls."
+                    "WITHER_SKELETON_SKULL", "A spectral scythe cuts through a storm of stolen souls."
             ),
             secretCosmetic(
                     "divine_rupture", "Divine Rupture", Category.KILL_EFFECT,
-                    "A pillar of judgment splits the sky at the final blow."
+                    "LIGHTNING_ROD", "A pillar of judgment splits the sky at the final blow."
             ),
             secretCosmetic(
                     "astral_sovereign", "Astral Sovereign", Category.AURA,
-                    "Constellations and miniature stars orbit their sovereign."
+                    "ECHO_SHARD", "Constellations and miniature stars orbit their sovereign."
             ),
             secretCosmetic(
                     "infernal_dominion", "Infernal Dominion", Category.AURA,
-                    "A burning crown and molten rings command the ground nearby."
+                    "MAGMA_CREAM", "A burning crown and molten rings command the ground nearby."
             ),
             secretCosmetic(
                     "abyssal_seraph", "Abyssal Seraph", Category.AURA,
-                    "Six void-lit wings unfold behind the wearer."
+                    "PHANTOM_MEMBRANE", "Six void-lit wings unfold behind the wearer."
             ),
             secretCosmetic(
                     "galaxy_wake", "Galaxy Wake", Category.TRAIL,
-                    "A river of newborn stars stretches behind every step."
+                    "AMETHYST_SHARD", "A river of newborn stars stretches behind every step."
             ),
             secretCosmetic(
                     "phantom_chains", "Phantom Chains", Category.TRAIL,
-                    "Spectral chain links drag through the air and fade into souls."
+                    "IRON_CHAIN", "Spectral chain links drag through the air and fade into souls."
             ),
             secretCosmetic(
                     "reality_fracture", "Reality Fracture", Category.TRAIL,
-                    "Bright cracks split reality along the path travelled."
+                    "CHORUS_FRUIT", "Bright cracks split reality along the path travelled."
             )
     );
     private static final Map<String, Definition> BY_ID = indexDefinitions();
@@ -198,6 +198,7 @@ final class CosmeticCatalog {
     /** What the crate shows in place of a secret nobody owns yet. */
     static final String MASKED_NAME = "???";
     static final String MASKED_DESCRIPTION = "A black silhouette conceals its true effect.";
+    static final String MASKED_MODEL_KEY = "mgx:cosmetic/secret_silhouette";
 
     static Optional<Definition> find(String id) {
         if (id == null || id.isBlank()) {
@@ -243,6 +244,7 @@ final class CosmeticCatalog {
             String id,
             String displayName,
             Category category,
+            String material,
             String description
     ) {
         return new Definition(
@@ -251,8 +253,8 @@ final class CosmeticCatalog {
                 category,
                 SECRET_WEIGHT,
                 true,
-                "BLACK_DYE",
-                "mgx:cosmetic/secret_silhouette",
+                material,
+                "mgx:cosmetic/" + id,
                 description
         );
     }

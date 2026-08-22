@@ -368,7 +368,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private void finish(RollSession session, Player player) {
         for (int slot = REEL_FIRST; slot <= REEL_LAST; slot++) {
             session.inventory.setItem(slot, slot == WINNING_SLOT
-                    ? items.preview(session.reward, cosmeticItems)
+                    ? items.revealedPreview(session.reward, cosmeticItems)
                     : MenuItems.button(Material.BROWN_STAINED_GLASS_PANE, "Crate Panel"));
         }
         session.inventory.setItem(4, MenuItems.button(Material.CHEST, "Crate Opened"));
@@ -399,7 +399,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         for (int slot = 0; slot < inventory.getSize(); slot++) {
             inventory.setItem(slot, panel);
         }
-        inventory.setItem(4, items.preview(reward, cosmeticItems));
+        inventory.setItem(4, items.revealedPreview(reward, cosmeticItems));
         int keys = items.count(player);
         inventory.setItem(RESULT_AGAIN_SLOT, MenuItems.button(
                 keys > 0 ? Material.CHEST : Material.BARRIER,
