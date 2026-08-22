@@ -314,6 +314,14 @@ class ThemeTests(unittest.TestCase):
         self.assertIn(".brandbar", theme.STYLESHEET)
         self.assertIn('<div class="brandbar"></div>', theme.render_404(prefix="/"))
 
+    def test_home_links_never_spell_out_index_html(self):
+        home = theme.render_404(prefix="")
+        nested = theme.render_404(prefix="../")
+        self.assertIn('href="./"', home)
+        self.assertIn('href="../"', nested)
+        self.assertNotIn("index.html", home)
+        self.assertNotIn("index.html", nested)
+
     def test_footer_uses_the_wordmark(self):
         self.assertIn('class="mark" src="/assets/logo.png"', theme.render_404(prefix="/"))
 

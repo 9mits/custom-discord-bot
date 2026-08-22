@@ -994,12 +994,20 @@ def _head(title: str, description: str, prefix: str, og_image: Optional[str], ur
     return "\n".join(tags)
 
 
+def _home_href(prefix: str) -> str:
+    """The site root, without a trailing index.html that GitHub Pages then shows."""
+    return prefix or "./"
+
+
+def _nav_href(prefix: str, url: str) -> str:
+    return _home_href(prefix) if not url or url == "index.html" else prefix + url
+
+
 def _topbar(prefix: str, current: str = "", nav: Sequence[Dict[str, str]] = ()) -> str:
     items = "".join(
-        '<a href="%s%s"%s>%s</a>'
+        '<a href="%s"%s>%s</a>'
         % (
-            prefix,
-            _esc(str(entry["url"])),
+            _esc(_nav_href(prefix, str(entry["url"]))),
             ' aria-current="page"' if current == entry["slug"] else "",
             _esc(str(entry["label"])),
         )
@@ -1013,13 +1021,13 @@ def _topbar(prefix: str, current: str = "", nav: Sequence[Dict[str, str]] = ()) 
     )
     return (
         '<header class="topbar"><div class="topbar-inner">'
-        '<a class="brand" href="%sindex.html" aria-label="%s home">'
+        '<a class="brand" href="%s" aria-label="%s home">'
         '<img src="%sassets/icon.png" alt=""><span>%s</span></a>'
         '<span class="nav-divider"></span>'
         '<nav aria-label="Primary">%s</nav>'
         '<span class="spacer"></span>%s'
         "</div></header>"
-        % (prefix, _esc(SITE_NAME), prefix, _esc(SITE_NAME), items, cta)
+        % (_home_href(prefix), _esc(SITE_NAME), prefix, _esc(SITE_NAME), items, cta)
     )
 
 
@@ -1063,7 +1071,7 @@ def _community(prefix: str) -> str:
 
 
 def _footer(prefix: str, nav: Sequence[Dict[str, str]] = ()) -> str:
-    site_links = [("%s%s" % (prefix, entry["url"]), str(entry["label"])) for entry in nav]
+    site_links = [(_nav_href(prefix, str(entry["url"])), str(entry["label"])) for entry in nav]
     connect = [(url, label) for url, label, _ in _social_links()]
 
     cols = [
@@ -1463,7 +1471,7 @@ def render_404(prefix: str, nav: Sequence[Dict[str, str]] = ()) -> str:
     body = (
         '<div class="page"><div class="shell"><div class="notfound"><h1>404</h1>'
         "<p>That update does not exist &mdash; or it has not shipped yet.</p>"
-        '<a class="btn btn-orange" href="%sindex.html">Back to updates</a>'
-        "</div></div></div>" % prefix
+        '<a class="btn btn-orange" href="%s">Back to updates</a>'
+        "</div></div></div>" % _home_href(prefix)
     )
     return _page("Not found | %s" % SITE_NAME, "Page not found.", prefix, body, nav=nav)

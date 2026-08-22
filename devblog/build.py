@@ -359,7 +359,7 @@ def build(site_url: str, include_drafts: bool = False) -> List[Post]:
     copy_tree(MEDIA_DIR, DIST_DIR / "media")
 
     nav = [
-        {"url": "index.html", "label": "Home", "slug": "index"},
+        {"url": "", "label": "Home", "slug": "index"},
         {"url": "blog/", "label": "Blog", "slug": "blog"},
         {"url": "events/", "label": "Events", "slug": "events"},
     ]
