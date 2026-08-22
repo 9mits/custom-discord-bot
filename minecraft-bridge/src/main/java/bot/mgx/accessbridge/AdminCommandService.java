@@ -39,7 +39,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     static final String PERMISSION = "mgxaccessbridge.admin";
     private static final List<String> SUBCOMMANDS = List.of(
             "startserver", "teststart", "give", "ranks", "eco", "bounty", "hologram", "reset",
-            "devblog", "serials", "cosmetics", "abuse", "help"
+            "devblog", "update", "serials", "cosmetics", "abuse", "help"
     );
     private static final List<String> RANK_ACTIONS = List.of("hold", "release", "list");
     private static final List<String> DEVBLOG_ACTIONS = List.of(
@@ -70,6 +70,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     private final DevBlogService devBlog;
     private final AdminEventService adminEvents;
     private final EconomyMenuService auctionHouse;
+    private final UpdateNoticeService updateNotices;
 
     AdminCommandService(
             MGXAccessBridge plugin,
@@ -84,7 +85,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             ServerDataResetService resets,
             DevBlogService devBlog,
             AdminEventService adminEvents,
-            EconomyMenuService auctionHouse
+            EconomyMenuService auctionHouse,
+            UpdateNoticeService updateNotices
     ) {
         this.plugin = plugin;
         this.rankSync = rankSync;
@@ -99,6 +101,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         this.devBlog = devBlog;
         this.adminEvents = adminEvents;
         this.auctionHouse = auctionHouse;
+        this.updateNotices = updateNotices;
     }
 
     @Override
@@ -126,6 +129,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 case "hologram", "holograms", "lb" -> hologram(sender, args);
                 case "reset" -> reset(sender, args);
                 case "devblog", "screenshot" -> devBlog(sender, args);
+                case "update" -> publishUpdate(sender);
                 case "serials" -> serials(sender, args);
                 case "cosmetics" -> cosmetics(sender, args);
                 case "abuse", "event" -> {
@@ -144,6 +148,17 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     // ------------------------------------------------------------------
     // Screenshot mode, for photographing an update
     // ------------------------------------------------------------------
+
+    private void publishUpdate(CommandSender sender) {
+        int generation = updateNotices.publish(plugin.getServer().getOnlinePlayers());
+        int online = plugin.getServer().getOnlinePlayers().size();
+        success(sender, "Update notice " + generation + " is live. "
+                + online + " player(s) online saw it now; everyone else sees it on their next join.");
+        report(sender, "update_notice", "Published a NEW UPDATE notice")
+                .detail("generation", generation)
+                .detail("online", online)
+                .record();
+    }
 
     private void devBlog(CommandSender sender, String[] args) {
         if (!(sender instanceof org.bukkit.entity.Player player)) {
@@ -648,6 +663,9 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 .append(Component.text("  renumber one cosmetic without deleting it", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin cosmetics delete <player> confirm", ORANGE)
                 .append(Component.text("  delete every cosmetic owned by one player",
+                        NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin update", ORANGE)
+                .append(Component.text("  tell everyone the next login to check the blog",
                         NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin devblog", ORANGE)
                 .append(Component.text("  screenshot mode: stash your gear, clear the screen",

@@ -23,6 +23,7 @@ STAFF_TOOL_LABELS: dict[str, str] = {
     "invsee": "View inventories",
     "vanish": "Vanish",
     "broadcast": "Broadcast",
+    "update": "Announce update",
     "gamemode": "Change game mode",
     "mute": "Mute",
     "kick": "Kick",
@@ -43,6 +44,7 @@ REMOTE_STAFF_TOOLS: dict[str, dict[str, bool]] = {
     "tempban": {"needs_target": True, "needs_reason": False, "needs_duration": True},
     "unban": {"needs_target": True, "needs_reason": False, "needs_duration": False},
     "broadcast": {"needs_target": False, "needs_reason": True, "needs_duration": False},
+    "update": {"needs_target": False, "needs_reason": False, "needs_duration": False},
 }
 
 #: Clan actions and the roles allowed to use them, mirroring the plugin's own rules.

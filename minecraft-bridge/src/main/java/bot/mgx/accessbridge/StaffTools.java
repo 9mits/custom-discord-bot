@@ -81,6 +81,10 @@ final class StaffTools {
                         }
                         return "broadcast " + reason;
                     }
+            ),
+            StaffTool.remoteUntargeted(
+                    "update", AdminCommandService.PERMISSION,
+                    (target, reason, duration) -> "mgxadmin update"
             )
     );
 
@@ -102,6 +106,7 @@ final class StaffTools {
             case "tempban" -> target + " has been banned for " + duration + ".";
             case "unban" -> "The ban on " + target + " has been lifted.";
             case "broadcast" -> "Announced to every online player: \"" + reason + "\"";
+            case "update" -> "The NEW UPDATE notice is live. Players see it on their next join.";
             default -> "The action was completed on the server.";
         };
     }

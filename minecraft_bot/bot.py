@@ -2276,6 +2276,13 @@ class MinecraftAccessBot(commands.Bot):
         async def staff_broadcast(interaction: discord.Interaction, message: str) -> None:
             await self._respond_with_staff_tool(interaction, "broadcast", reason=message)
 
+        @staff_group.command(
+            name="update",
+            description="Tell players there is a new update on the next login.",
+        )
+        async def staff_update(interaction: discord.Interaction) -> None:
+            await self._respond_with_staff_tool(interaction, "update")
+
         @admin_group.command(
             name="information",
             description="Post the server guide panel in a channel.",
@@ -2860,7 +2867,8 @@ class MinecraftAccessBot(commands.Bot):
                     value=(
                         "`/mcstaff kick` · `/mcstaff mute` · `/mcstaff ban` · `/mcstaff tempban` · "
                         "`/mcstaff unban` · `/mcstaff heal`\n"
-                        "`/mcstaff broadcast` — announce a message to everyone online"
+                        "`/mcstaff broadcast` — announce a message to everyone online\n"
+                        "`/mcstaff update` — NEW UPDATE notice on the next login"
                     ),
                     inline=False,
                 )

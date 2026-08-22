@@ -107,7 +107,7 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         for name in (
             "panel", "status", "lookup", "revoke", "unlink", "retry", "applications",
             "audit", "cancel", "stats", "commandlog", "tools",
-            "kick", "mute", "ban", "tempban", "unban", "heal", "broadcast",
+            "kick", "mute", "ban", "tempban", "unban", "heal", "broadcast", "update",
         ):
             self.assertIn(name, staff_commands)
         for name in (
@@ -134,6 +134,10 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertFalse(tempban_parameters["reason"].required)
         broadcast_parameters = {parameter.name for parameter in staff_commands["broadcast"].parameters}
         self.assertEqual(broadcast_parameters, {"message"})
+        self.assertEqual(
+            {parameter.name for parameter in staff_commands["update"].parameters},
+            set(),
+        )
 
 
     def test_minecraft_presentation_uses_orange_brand_system(self):
@@ -3581,6 +3585,16 @@ class MinecraftStaffActionTests(unittest.IsolatedAsyncioTestCase):
 
         embed = await bot.run_staff_action(
             1, "broadcast", target="", reason="Event starting", duration=""
+        )
+
+        bot.bridge.run_staff_action.assert_awaited_once()
+        self.assertEqual(embed.title, "Action Completed")
+
+    async def test_update_needs_no_target_or_reason(self):
+        bot = self._bot(tools=["update"])
+
+        embed = await bot.run_staff_action(
+            1, "update", target="", reason="", duration=""
         )
 
         bot.bridge.run_staff_action.assert_awaited_once()
