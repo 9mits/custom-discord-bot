@@ -135,6 +135,39 @@ class ResourcePackCatalogTest {
         }
     }
 
+    @Test
+    void secretCosmeticsHaveTheirOwnPurpleTooltipSprites() throws Exception {
+        Path tooltip = SOURCE.resolve("assets/mgx/textures/gui/sprites/tooltip");
+        BufferedImage background = ImageIO.read(tooltip.resolve("secret_background.png").toFile());
+        BufferedImage frame = ImageIO.read(tooltip.resolve("secret_frame.png").toFile());
+
+        assertNotNull(background);
+        assertNotNull(frame);
+        assertEquals(16, background.getWidth());
+        assertEquals(16, background.getHeight());
+        assertEquals(16, frame.getWidth());
+        assertEquals(16, frame.getHeight());
+
+        int purplePixels = 0;
+        int transparentFramePixels = 0;
+        for (int y = 0; y < 16; y++) {
+            for (int x = 0; x < 16; x++) {
+                int framePixel = frame.getRGB(x, y);
+                if ((framePixel >>> 24) == 0) {
+                    transparentFramePixels++;
+                    continue;
+                }
+                int red = (framePixel >> 16) & 0xFF;
+                int blue = framePixel & 0xFF;
+                if (blue > red) {
+                    purplePixels++;
+                }
+            }
+        }
+        assertTrue(purplePixels > 0, "secret tooltip frame must visibly read as purple");
+        assertTrue(transparentFramePixels > 0, "tooltip frame must not cover its text area");
+    }
+
     private static void assertModelResolves(String modelKey) throws Exception {
         String[] key = modelKey.split(":", 2);
         assertEquals(2, key.length, modelKey);

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Builds the shared secret silhouette and gives trail icons a one-pixel scale lift."""
+"""Builds the crate-only secret silhouette and scales the normal trail icons."""
 
 from pathlib import Path
 
@@ -193,14 +193,6 @@ def zoom_trails() -> None:
 
 def main() -> None:
     build_secret_silhouette()
-    build_reapers_verdict()
-    build_divine_rupture()
-    build_astral_sovereign()
-    build_infernal_dominion()
-    build_abyssal_seraph()
-    build_galaxy_wake()
-    build_phantom_chains()
-    build_reality_fracture()
     zoom_trails()
 
 

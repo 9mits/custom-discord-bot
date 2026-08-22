@@ -89,7 +89,7 @@ final class CosmeticStore {
                         : entry.getValue().getAsJsonObject().entrySet()) {
                     selections.put(selected.getKey(), UUID.fromString(selected.getValue().getAsString()));
                 }
-                UUID legacySecret = selections.remove(CosmeticCatalog.Category.SECRET.name());
+                UUID legacySecret = selections.remove("SECRET");
                 if (legacySecret != null) {
                     Token token = tokens.get(legacySecret);
                     CosmeticCatalog.find(token == null ? null : token.cosmeticId()).ifPresent(

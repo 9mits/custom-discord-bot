@@ -21,6 +21,8 @@ import java.util.UUID;
 /** Creates and recognises the unique bearer item for a cosmetic. */
 final class CosmeticItems {
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
+    private static final NamespacedKey SECRET_TOOLTIP_STYLE =
+            NamespacedKey.fromString("mgx:secret");
 
     record TokenInfo(UUID serial, String cosmeticId, int generation) {
     }
@@ -88,6 +90,9 @@ final class CosmeticItems {
         }
         meta.setEnchantmentGlintOverride(true);
         meta.setRarity(rarity(definition));
+        if (definition.secret()) {
+            meta.setTooltipStyle(SECRET_TOOLTIP_STYLE);
+        }
         item.setItemMeta(meta);
         return item;
     }
@@ -215,7 +220,6 @@ final class CosmeticItems {
             case KILL_EFFECT -> NamedTextColor.RED;
             case AURA -> NamedTextColor.GOLD;
             case TRAIL -> NamedTextColor.AQUA;
-            case SECRET -> ORANGE;
         };
     }
 

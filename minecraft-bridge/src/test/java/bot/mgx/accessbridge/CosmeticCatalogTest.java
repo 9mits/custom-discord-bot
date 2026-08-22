@@ -133,10 +133,14 @@ class CosmeticCatalogTest {
 
     @Test
     void everyNormalCategoryHasSeveralChoices() {
+        assertEquals(Set.of(
+                CosmeticCatalog.Category.KILL_EFFECT,
+                CosmeticCatalog.Category.AURA,
+                CosmeticCatalog.Category.TRAIL
+        ), Set.of(CosmeticCatalog.Category.values()));
         assertEquals(8, in(CosmeticCatalog.Category.KILL_EFFECT));
         assertEquals(8, in(CosmeticCatalog.Category.AURA));
         assertEquals(10, in(CosmeticCatalog.Category.TRAIL));
-        assertEquals(0, in(CosmeticCatalog.Category.SECRET));
         assertEquals(17, CosmeticCatalog.publicEntries().size());
     }
 
