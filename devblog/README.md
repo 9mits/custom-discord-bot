@@ -23,7 +23,7 @@ pip install -r devblog/requirements.txt
 python devblog/build.py                 # writes devblog/dist/
 python devblog/build.py --serve         # build, then http://127.0.0.1:8000
 python devblog/build.py --drafts        # include posts marked draft
-python devblog/tests/test_build.py      # 148 tests
+python devblog/tests/test_build.py      # 147 tests
 python devblog/sync_from_bot.py        # regenerate guide.md and rules.md
 MC_SERVER_HOST=... MC_SERVER_PORT=... python devblog/server_status.py
 ```

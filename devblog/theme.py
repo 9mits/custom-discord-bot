@@ -795,16 +795,14 @@ a:focus-visible, button:focus-visible {
 """
 
 
-# Painted before first render, so a returning dark-mode visitor never sees a
-# white flash. An explicit "system" is the only value that leaves the attribute
-# off and lets the media query decide; no stored choice at all means light, so
-# dark is opt-in rather than inherited from the operating system.
+# Painted before first render, so a dark-mode visitor never sees a white flash.
+# Only an explicit choice is stamped; with none, the attribute stays off and the
+# prefers-color-scheme block answers, which is how the site follows the
+# operating system by default.
 THEME_BOOT = (
-    "<script>(function(){var r=document.documentElement;try{"
-    "var s=localStorage.getItem('theme');"
-    "if(s==='light'||s==='dark'){r.setAttribute('data-theme',s);}"
-    "else if(s!=='system'){r.setAttribute('data-theme','light');}"
-    "}catch(e){r.setAttribute('data-theme','light');}})();</script>"
+    "<script>(function(){try{var s=localStorage.getItem('theme');"
+    "if(s==='light'||s==='dark'){document.documentElement.setAttribute('data-theme',s);}"
+    "}catch(e){}})();</script>"
 )
 
 THEME_SCRIPT = """
@@ -812,7 +810,7 @@ THEME_SCRIPT = """
 (function () {
   var root = document.documentElement;
   var buttons = document.querySelectorAll('.theme-switch button');
-  function stored() { try { return localStorage.getItem('theme') || 'light'; } catch (e) { return 'light'; } }
+  function stored() { try { return localStorage.getItem('theme') || 'system'; } catch (e) { return 'system'; } }
   function paint(choice) {
     if (choice === 'system') { root.removeAttribute('data-theme'); }
     else { root.setAttribute('data-theme', choice); }
@@ -1078,9 +1076,9 @@ def _footer(prefix: str, nav: Sequence[Dict[str, str]] = ()) -> str:
     )
     switch = (
         '<div class="theme-switch" role="radiogroup" aria-label="Theme">'
-        '<button type="button" role="radio" aria-checked="true" tabindex="0"'
-        ' data-theme="light" aria-label="Light theme">%s</button>'
         '<button type="button" role="radio" aria-checked="false" tabindex="-1"'
+        ' data-theme="light" aria-label="Light theme">%s</button>'
+        '<button type="button" role="radio" aria-checked="true" tabindex="0"'
         ' data-theme="system" aria-label="System theme">%s</button>'
         '<button type="button" role="radio" aria-checked="false" tabindex="-1"'
         ' data-theme="dark" aria-label="Dark theme">%s</button>'

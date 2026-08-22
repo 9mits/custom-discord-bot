@@ -1209,36 +1209,32 @@ class ContrastTests(unittest.TestCase):
 
 
 
-class LightDefaultTests(unittest.TestCase):
-    """Light is the default; dark is opt-in rather than inherited from the OS."""
+class SystemDefaultTests(unittest.TestCase):
+    """The site follows the operating system unless the reader chooses."""
 
-    def test_no_stored_choice_resolves_to_light(self):
-        self.assertIn("r.setAttribute('data-theme','light')", theme.THEME_BOOT)
-        self.assertIn("s!=='system'", theme.THEME_BOOT)
-
-    def test_an_explicit_choice_is_still_honoured(self):
+    def test_no_stored_choice_leaves_it_to_the_os(self):
+        # No attribute stamped means the prefers-color-scheme block answers.
+        self.assertNotIn("'light')", theme.THEME_BOOT.split("catch")[0].split("s==='light'")[1])
         self.assertIn("s==='light'||s==='dark'", theme.THEME_BOOT)
 
-    def test_system_is_the_only_value_that_defers_to_the_os(self):
-        # It alone leaves the attribute off, which is what lets the
-        # prefers-color-scheme block apply.
-        self.assertIn("else if(s!=='system')", theme.THEME_BOOT)
+    def test_an_explicit_choice_is_stamped_before_first_paint(self):
+        self.assertIn("setAttribute('data-theme',s)", theme.THEME_BOOT)
 
-    def test_a_storage_failure_still_lands_on_light(self):
-        catch = theme.THEME_BOOT.split("catch(e){")[1]
-        self.assertIn("data-theme','light'", catch)
-
-    def test_the_switch_ships_with_light_selected(self):
+    def test_the_switch_ships_on_system(self):
         page = theme.render_404(prefix="/")
         switch = re.search(r'<div class="theme-switch".*?</div>', page, re.S).group(0)
         pairs = dict(zip(re.findall(r'data-theme="(\w+)"', switch),
                          re.findall(r'aria-checked="(\w+)"', switch)))
-        self.assertEqual(pairs["light"], "true")
-        self.assertEqual(pairs["system"], "false")
+        self.assertEqual(pairs["system"], "true")
+        self.assertEqual(pairs["light"], "false")
         self.assertEqual(pairs["dark"], "false")
 
-    def test_the_script_falls_back_to_light_too(self):
-        self.assertIn("localStorage.getItem('theme') || 'light'", theme.THEME_SCRIPT)
+    def test_the_script_agrees_with_the_boot_script(self):
+        self.assertIn("localStorage.getItem('theme') || 'system'", theme.THEME_SCRIPT)
+
+    def test_the_os_preference_block_is_still_wired_up(self):
+        self.assertIn("@media (prefers-color-scheme: dark)", theme.STYLESHEET)
+        self.assertIn(':root:not([data-theme="light"])', theme.STYLESHEET)
 
 
 class LightDepthTests(unittest.TestCase):
