@@ -238,10 +238,9 @@ assets/resourcepack/src/assets/mgx/textures/item/*.png   16x16, the real texture
 assets/resourcepack/icon-sources/*.svg                    their pixel-art sources
 ```
 
-There are **five**: `crate_key`, `aura`, `trail`, `kill_effect`, `secret`. Every
-cosmetic shares its category's icon, so eighteen cosmetics are drawn by four
-textures — per-cosmetic art was tried and deliberately reverted in #295. Do not
-go looking for art that is not there.
+There are distinct textures for `crate_key`, both custom potion families, and all
+eighteen cosmetics. Cosmetic files live in the `item/cosmetic/` subdirectory and
+match their catalog IDs exactly; never substitute a category-wide icon.
 
 Upscale with **nearest-neighbour at a whole-number factor**; anything smooth
 turns pixel art to mush. Pillow's `Image.NEAREST` does the job.

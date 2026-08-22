@@ -16,11 +16,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.HashMap;
 import java.util.UUID;
 
 /** Unique cosmetic-token custody and the token selected in each effect category. */
 final class CosmeticStore {
-    record Token(UUID serial, String cosmeticId, int generation, UUID storedOwner) {
+    record Token(
+            UUID serial, String cosmeticId, int generation, int serialNumber, UUID storedOwner
+    ) {
         boolean stored() {
             return storedOwner != null;
         }
@@ -41,16 +44,35 @@ final class CosmeticStore {
             JsonObject root = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
             generation = Math.max(1, root.has("generation") ? root.get("generation").getAsInt() : 1);
             JsonObject savedTokens = object(root, "tokens");
+            Map<String, Integer> highestSerials = new HashMap<>();
+            for (Map.Entry<String, JsonElement> entry : savedTokens.entrySet()) {
+                JsonObject value = entry.getValue().getAsJsonObject();
+                if (value.has("serial_number")) {
+                    String cosmeticId = value.get("cosmetic_id").getAsString();
+                    int serialNumber = Math.max(0, value.get("serial_number").getAsInt());
+                    highestSerials.merge(cosmeticId, serialNumber, Math::max);
+                }
+            }
+            boolean migratedSerialNumbers = false;
             for (Map.Entry<String, JsonElement> entry : savedTokens.entrySet()) {
                 UUID serial = UUID.fromString(entry.getKey());
                 JsonObject value = entry.getValue().getAsJsonObject();
+                String cosmeticId = value.get("cosmetic_id").getAsString();
+                int serialNumber;
+                if (value.has("serial_number") && value.get("serial_number").getAsInt() > 0) {
+                    serialNumber = value.get("serial_number").getAsInt();
+                } else {
+                    serialNumber = highestSerials.merge(cosmeticId, 1, Integer::sum);
+                    migratedSerialNumbers = true;
+                }
                 UUID owner = value.has("stored_owner")
                         ? UUID.fromString(value.get("stored_owner").getAsString())
                         : null;
                 tokens.put(serial, new Token(
                         serial,
-                        value.get("cosmetic_id").getAsString(),
+                        cosmeticId,
                         value.get("generation").getAsInt(),
+                        serialNumber,
                         owner
                 ));
             }
@@ -64,6 +86,9 @@ final class CosmeticStore {
                 if (!selections.isEmpty()) {
                     equipped.put(UUID.fromString(entry.getKey()), selections);
                 }
+            }
+            if (migratedSerialNumbers) {
+                save();
             }
         } catch (RuntimeException exception) {
             throw new IOException("Cosmetic store is unreadable", exception);
@@ -82,7 +107,13 @@ final class CosmeticStore {
             }
             return existing;
         }
-        Token token = new Token(serial, cosmeticId, generation, owner);
+        int serialNumber = tokens.values().stream()
+                .filter(token -> token.generation() == generation)
+                .filter(token -> token.cosmeticId().equals(cosmeticId))
+                .mapToInt(Token::serialNumber)
+                .max()
+                .orElse(0) + 1;
+        Token token = new Token(serial, cosmeticId, generation, serialNumber, owner);
         tokens.put(serial, token);
         try {
             save();
@@ -128,7 +159,9 @@ final class CosmeticStore {
         if (token == null || token.generation() != generation || !owner.equals(token.storedOwner())) {
             return Optional.empty();
         }
-        Token physical = new Token(serial, token.cosmeticId(), token.generation(), null);
+        Token physical = new Token(
+                serial, token.cosmeticId(), token.generation(), token.serialNumber(), null
+        );
         tokens.put(serial, physical);
         try {
             save();
@@ -148,7 +181,9 @@ final class CosmeticStore {
                 || token.stored()) {
             return false;
         }
-        tokens.put(serial, new Token(serial, cosmeticId, generation, owner));
+        tokens.put(serial, new Token(
+                serial, cosmeticId, generation, token.serialNumber(), owner
+        ));
         try {
             save();
         } catch (RuntimeException exception) {
@@ -208,7 +243,9 @@ final class CosmeticStore {
             if (token == null || token.generation() != generation || !from.equals(token.storedOwner())) {
                 continue;
             }
-            Token handed = new Token(serial, token.cosmeticId(), token.generation(), to);
+            Token handed = new Token(
+                    serial, token.cosmeticId(), token.generation(), token.serialNumber(), to
+            );
             tokens.put(serial, handed);
             moved.add(handed);
         }
@@ -282,6 +319,7 @@ final class CosmeticStore {
             JsonObject value = new JsonObject();
             value.addProperty("cosmetic_id", token.cosmeticId());
             value.addProperty("generation", token.generation());
+            value.addProperty("serial_number", token.serialNumber());
             if (token.storedOwner() != null) {
                 value.addProperty("stored_owner", token.storedOwner().toString());
             }

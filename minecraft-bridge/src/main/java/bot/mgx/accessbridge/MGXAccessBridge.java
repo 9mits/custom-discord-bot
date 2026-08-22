@@ -261,7 +261,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         cosmeticEffects = new CosmeticEffectService(
                 this, cosmeticStore, cosmeticItems, wardrobeService, playerSettings
         );
-        CrateItems crateItems = new CrateItems(this, cosmeticStore);
+        SpecialItemService specialItems = new SpecialItemService(this);
+        CrateItems crateItems = new CrateItems(this, cosmeticStore, specialItems);
         crates = new CrateService(
                 this,
                 crateStore,
@@ -269,7 +270,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 cosmeticStore,
                 cosmeticItems,
                 cosmeticEffects,
-                playerSettings
+                playerSettings,
+                perkService,
+                specialItems
         );
         getCommand("wardrobe").setExecutor(wardrobeService);
         getCommand("wardrobe").setTabCompleter(wardrobeService);
@@ -278,6 +281,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(wardrobeService, this);
         getServer().getPluginManager().registerEvents(cosmeticEffects, this);
         getServer().getPluginManager().registerEvents(crates, this);
+        getServer().getPluginManager().registerEvents(specialItems, this);
         getServer().getPluginManager().registerEvents(
                 new TrophyHeadService(this, trophyHeadStore, playerSettings), this
         );
@@ -349,11 +353,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getScheduler().runTaskTimer(
                 this, economyMenus::expireListings, 20L * 60L, 20L * 60L
         );
-        // Every tick, because a standing order can repeat as often as once a second
-        // and waits on the hoppers under the player. It returns immediately when
-        // nobody has one running, which is nearly always.
+        // Standing orders repeat no faster than once a second, so checking once per
+        // second avoids turning every hopper-fed farm into a per-tick entity scan.
         getServer().getScheduler().runTaskTimer(
-                this, economyMenus::tickAutoOrders, 20L, 1L
+                this, economyMenus::tickAutoOrders, 20L, 20L
         );
         // Two seconds: fast enough that a farm feels like it is selling itself, slow
         // enough that a running farm is one balance write rather than one per item.
@@ -393,7 +396,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                         // usercache.json sit, which is what the reset needs.
                         getServer().getWorldContainer().toPath()
                 ),
-                devBlogService
+                devBlogService,
+                new AdminEventService(this, crateItems)
         );
         getCommand("mgxadmin").setExecutor(adminService);
         getCommand("mgxadmin").setTabCompleter(adminService);
@@ -1097,6 +1101,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             applyWorldMemory(world);
             applyWorldLimits(world);
             ensureHostileSpawns(world);
+            disableLocatorBar(world);
         }
     }
 
@@ -1200,6 +1205,14 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
     }
 
+    private void disableLocatorBar(World world) {
+        Boolean enabled = world.getGameRuleValue(GameRules.LOCATOR_BAR);
+        if (enabled == null || enabled) {
+            world.setGameRule(GameRules.LOCATOR_BAR, false);
+            getLogger().info("Disabled the player locator bar in " + world.getName() + ".");
+        }
+    }
+
     private Location exactWorldSpawn(World world) {
         return new Location(world, WorldSpawn.X + 0.5, WorldSpawn.Y, WorldSpawn.Z + 0.5);
     }
@@ -1210,6 +1223,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         applyWorldMemory(event.getWorld());
         applyWorldLimits(event.getWorld());
         ensureHostileSpawns(event.getWorld());
+        disableLocatorBar(event.getWorld());
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -1310,7 +1324,44 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             // where the belongings come back.
             devBlogService.restoreIfStranded(event.getPlayer());
         }
+        scheduleBedrockTerrainResync(event.getPlayer());
         queuePlayerActivity(event.getPlayer().getUniqueId(), event.getPlayer().getName(), true);
+    }
+
+    /**
+     * Geyser can complete spawn before its first terrain batch reaches a console
+     * client, leaving already-built chunks rendered as empty void until reconnect.
+     * Resending the visible 3x3 after spawn settles repairs the client view without
+     * changing or regenerating a single server block.
+     */
+    private void scheduleBedrockTerrainResync(Player player) {
+        if (!isBedrockPlayer(player)) {
+            return;
+        }
+        for (long delay : List.of(30L, 100L)) {
+            getServer().getScheduler().runTaskLater(this, () -> {
+                if (!player.isOnline()) {
+                    return;
+                }
+                World world = player.getWorld();
+                int centreX = player.getLocation().getBlockX() >> 4;
+                int centreZ = player.getLocation().getBlockZ() >> 4;
+                for (int x = -1; x <= 1; x++) {
+                    for (int z = -1; z <= 1; z++) {
+                        world.getChunkAt(centreX + x, centreZ + z);
+                        world.refreshChunk(centreX + x, centreZ + z);
+                    }
+                }
+            }, delay);
+        }
+    }
+
+    private static boolean isBedrockPlayer(Player player) {
+        try {
+            return FloodgateApi.getInstance().getPlayer(player.getUniqueId()) != null;
+        } catch (RuntimeException ignored) {
+            return VerificationIdentity.isFloodgateUuid(player.getUniqueId());
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR)

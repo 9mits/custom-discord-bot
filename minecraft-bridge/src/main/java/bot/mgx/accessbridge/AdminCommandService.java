@@ -39,7 +39,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     static final String PERMISSION = "mgxaccessbridge.admin";
     private static final List<String> SUBCOMMANDS = List.of(
             "startserver", "teststart", "give", "ranks", "eco", "bounty", "hologram", "reset",
-            "devblog", "help"
+            "devblog", "abuse", "help"
     );
     private static final List<String> RANK_ACTIONS = List.of("hold", "release", "list");
     private static final List<String> DEVBLOG_ACTIONS = List.of(
@@ -68,6 +68,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     private final HologramService holograms;
     private final ServerDataResetService resets;
     private final DevBlogService devBlog;
+    private final AdminEventService adminEvents;
 
     AdminCommandService(
             MGXAccessBridge plugin,
@@ -80,7 +81,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             JoinGrantStore joinGrants,
             HologramService holograms,
             ServerDataResetService resets,
-            DevBlogService devBlog
+            DevBlogService devBlog,
+            AdminEventService adminEvents
     ) {
         this.plugin = plugin;
         this.rankSync = rankSync;
@@ -93,6 +95,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         this.holograms = holograms;
         this.resets = resets;
         this.devBlog = devBlog;
+        this.adminEvents = adminEvents;
     }
 
     @Override
@@ -120,6 +123,11 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 case "hologram", "holograms", "lb" -> hologram(sender, args);
                 case "reset" -> reset(sender, args);
                 case "devblog", "screenshot" -> devBlog(sender, args);
+                case "abuse", "event" -> {
+                    String summary = adminEvents.run(sender, args);
+                    success(sender, summary + ".");
+                    report(sender, "admin_event", summary).record();
+                }
                 default -> sendHelp(sender);
             }
         } catch (IllegalArgumentException exception) {
@@ -541,6 +549,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         sender.sendMessage(Component.text("  /mgxadmin devblog", ORANGE)
                 .append(Component.text("  screenshot mode: stash your gear, clear the screen",
                         NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin abuse <keyrain|skyburst|chaos>", ORANGE)
+                .append(Component.text("  run a live admin event", NamedTextColor.GRAY)));
     }
 
     @Override
@@ -565,6 +575,12 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                     case "on", "start" -> partial(args[2], List.of("keeparmour"));
                     default -> List.of();
                 };
+            }
+            return List.of();
+        }
+        if (action.equals("abuse") || action.equals("event")) {
+            if (args.length == 2) {
+                return partial(args[1], List.of("keyrain", "skyburst", "chaos"));
             }
             return List.of();
         }
@@ -654,6 +670,6 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     }
 
     private static Component prefix() {
-        return Component.text("MGX » ", ORANGE, TextDecoration.BOLD);
+        return Component.text("SERVER » ", ORANGE, TextDecoration.BOLD);
     }
 }

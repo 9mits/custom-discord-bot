@@ -3,20 +3,19 @@
 ## Opening rules
 
 One `Mysterious Crate Key` opens exactly one crate. Every accumulated hour a
-player remains online earns one physical key, including AFK time. Partial hours and
-keys waiting for inventory space survive restarts. An administrator can also issue
-event keys with `/mgxadmin give <online-player> key [amount]`.
+player remains online earns one physical key, including AFK time. Discord server
+boosters earn two keys for that same hour. Partial hours and keys waiting for
+inventory space survive restarts, and every completed credit is announced in chat
+even when the progress bar is hidden. An administrator can also issue event keys
+with `/mgxadmin give <online-player> key [amount]`.
 
 Keys behave like any other item: they stack, go in chests and shulkers, and move
 through hoppers. The one restriction is that they cannot be sold to `/shop` or
 listed in `/ah`. Existing keys using the former lootbox marker
 are upgraded when they enter a player's inventory.
 
-Each player may reserve at most 12 openings in any rolling 24-hour window. The
-limit is recorded when the key is consumed, so closing the animation or leaving
-the server cannot bypass it. Odds never decrease and there is no pity modifier;
-the percentages below therefore remain exact on every permitted opening. A player
-online for more than 12 hours may retain or directly trade the extra keys.
+There is no opening cap. Auto Open can consume every available key after one
+confirmation, while ordinary Open spends one key at a time.
 
 The reward is selected and saved before the 45-slot wooden crate reel begins. A disconnect or
 closed inventory leaves it claimable with `/crate claim`, and the plugin also
@@ -28,19 +27,22 @@ challenge sound for every online player. The exact 1.000% boundary is not announ
 
 ## Exact reward table
 
-The implementation uses 100,000 equally likely integer tickets. All listed item
-rewards are absent from `/shop`, and Elytra is deliberately excluded.
+The base implementation uses 100,000 equally likely integer tickets. All listed
+item rewards are absent from `/shop`, and Elytra is deliberately excluded. Crate
+Luck temporarily multiplies the ticket weight of every reward below 1.000% by its
+advertised 2x-5x value; common reward weights do not increase, and the expanded
+pool is rolled directly.
 
 | Reward | Amount | Exact chance |
 |---|---:|---:|
-| Raw Copper | 16 | 11.200% |
-| Raw Iron | 8 | 10.800% |
-| Raw Gold | 6 | 9.200% |
-| Emerald | 4 | 8.700% |
-| Diamond | 2 | 6.800% |
-| Wind Charge | 16 | 7.000% |
-| Breeze Rod | 4 | 6.000% |
-| Golden Apple | 1 | 6.000% |
+| Raw Copper | 16 | 9.400% |
+| Raw Iron | 8 | 9.100% |
+| Raw Gold | 6 | 7.800% |
+| Emerald | 4 | 7.400% |
+| Diamond | 2 | 5.900% |
+| Wind Charge | 16 | 6.200% |
+| Breeze Rod | 4 | 5.500% |
+| Golden Apple | 1 | 5.668% |
 | Echo Shard | 3 | 5.000% |
 | Ominous Bottle | 1 | 4.000% |
 | Heart of the Sea | 1 | 3.000% |
@@ -52,6 +54,25 @@ rewards are absent from `/shop`, and Elytra is deliberately excluded.
 | Enchanted Golden Apple | 1 | 0.200% |
 | Heavy Core | 1 | 0.150% |
 | Mace | 1 | 0.050% |
+| Potion of Healing II | 1 | 2.000% |
+| Potion of Strength II | 1 | 1.500% |
+| Potion of Swiftness II | 1 | 1.500% |
+| Potion of Fire Resistance | 1 | 1.200% |
+| Excavation I | 1 | 0.020% |
+| Unbreaking IV | 1 | 0.600% |
+| Unbreaking V | 1 | 0.150% |
+| Protection V | 1 | 0.250% |
+| Fortune IV | 1 | 0.400% |
+| Fortune V | 1 | 0.100% |
+| Fortune Potion I | 1 | 0.500% |
+| Fortune Potion II | 1 | 0.200% |
+| Fortune Potion III | 1 | 0.075% |
+| Fortune Potion IV | 1 | 0.020% |
+| Fortune Potion V | 1 | 0.005% |
+| Crate Luck II | 1 | 0.150% |
+| Crate Luck III | 1 | 0.050% |
+| Crate Luck IV | 1 | 0.010% |
+| Crate Luck V | 1 | 0.002% |
 | Blood Burst kill effect | 1 | 2.500% |
 | Frozen Shatter kill effect | 1 | 1.000% |
 | Shining Light kill effect | 1 | 0.500% |
@@ -74,16 +95,16 @@ rewards are absent from `/shop`, and Elytra is deliberately excluded.
 The item subtotal is 84.650%, the cosmetic subtotal is 15.350%, and the complete
 table is exactly 100.000%.
 
-At the maximum 360 openings in a 30-day period, the expected per-player output is
-2.7 Totems, 0.72 Enchanted Golden Apples, 0.54 Heavy Cores, 0.18 Maces, and
-about 4.23 Netherite-Ingot equivalents. The rolling cap also prevents a burst at
-midnight.
+Fortune Potions remain active for 15 minutes, survive reconnects, and multiply
+eligible block drops from ores, Ancient Debris, crops, leaves, and the other blocks
+affected by vanilla Fortune. Excavation I is pickaxe-only and breaks the matching
+3x3 mining face. The extended vanilla books are applied through an anvil.
 
 ## Wardrobe and physical ownership
 
 `/wardrobe` separates Kill Effects, Auras, Trails, and the hidden Secret category.
-A global `In existence` count is shown beside every cosmetic in both `/wardrobe`
-and the crate odds menu. It counts every valid unique token in the current cosmetic
+A global `In existence` count and the selected token's permanent serial number are
+shown in `/wardrobe`. It counts every valid unique token in the current cosmetic
 generation, whether stored in a wardrobe or represented by a physical tradable item.
 A newly won cosmetic begins protected in the wardrobe. Left-click equips it;
 right-click withdraws the same unique serial as a physical item. Holding a token
@@ -102,9 +123,10 @@ actual weight is five tickets out of 100,000. Winning it triggers a title, expan
 dark rings, portal, dragon-breath, totem, end-rod and challenge effects; equipping it
 adds its own aura and kill sequence.
 
-The Java resource pack contains custom item-model icons for the key and all four
-cosmetic categories. Bedrock players receive the same named vanilla carrier items
-when a Java custom model cannot be translated by Geyser.
+The Java resource pack contains a distinct custom item-model icon for the key, both
+custom potion families, and every individual cosmetic. Bedrock players receive the
+same named vanilla carrier items when a Java custom model cannot be translated by
+Geyser.
 
 ## Trophy heads
 

@@ -24,13 +24,17 @@ final class CrateItems {
     private final NamespacedKey rewardSpinMarker;
     private final NamespacedKey legacyRewardSpinMarker;
     private final CosmeticStore cosmeticStore;
+    private final SpecialItemService specialItems;
 
-    CrateItems(MGXAccessBridge plugin, CosmeticStore cosmeticStore) {
+    CrateItems(
+            MGXAccessBridge plugin, CosmeticStore cosmeticStore, SpecialItemService specialItems
+    ) {
         keyMarker = new NamespacedKey(plugin, "crate_key");
         legacyKeyMarker = new NamespacedKey(plugin, "lootbox_key");
         rewardSpinMarker = new NamespacedKey(plugin, "crate_reward_spin");
         legacyRewardSpinMarker = new NamespacedKey(plugin, "lootbox_reward_spin");
         this.cosmeticStore = cosmeticStore;
+        this.specialItems = specialItems;
     }
 
     ItemStack key(int amount) {
@@ -167,12 +171,20 @@ final class CrateItems {
                     .orElseGet(() -> new ItemStack(Material.BARRIER));
         }
         Material material = Material.matchMaterial(reward.materialName());
-        ItemStack item = new ItemStack(material == null ? Material.BARRIER : material, reward.amount());
+        Optional<ItemStack> special = specialItems.create(reward);
+        ItemStack item = special.orElseGet(
+                () -> new ItemStack(material == null ? Material.BARRIER : material, reward.amount())
+        );
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
-            meta.displayName(Component.text(reward.displayName(), ORANGE, TextDecoration.BOLD)
-                    .decoration(TextDecoration.ITALIC, false));
-            List<Component> lore = new ArrayList<>();
+            if (special.isEmpty()) {
+                meta.displayName(Component.text(reward.displayName(), ORANGE, TextDecoration.BOLD)
+                        .decoration(TextDecoration.ITALIC, false));
+            }
+            List<Component> lore = new ArrayList<>(meta.lore() == null ? List.of() : meta.lore());
+            if (!lore.isEmpty()) {
+                lore.add(Component.empty());
+            }
             lore.add(line(reward.category().displayName()));
             lore.add(line(reward.description()));
             lore.add(Component.empty());
@@ -189,7 +201,8 @@ final class CrateItems {
         if (material == null) {
             throw new IllegalStateException("Unknown crate material " + reward.materialName());
         }
-        ItemStack item = new ItemStack(material, reward.amount());
+        ItemStack item = specialItems.create(reward)
+                .orElseGet(() -> new ItemStack(material, reward.amount()));
         ItemMeta meta = item.getItemMeta();
         if (meta == null) {
             throw new IllegalStateException("Crate reward has no item metadata.");

@@ -21,6 +21,8 @@ final class CrateCatalog {
         RESOURCE("Resources"),
         TRIAL("Trial Chamber"),
         TREASURE("Treasure"),
+        POTION("Potions"),
+        ENCHANTMENT("Enchantments"),
         COSMETIC("Cosmetics"),
         SECRET("Secret");
 
@@ -159,6 +161,34 @@ final class CrateCatalog {
         throw new IllegalStateException("Crate reward weights do not cover every ticket");
     }
 
+    static int luckyTotalWeight(int multiplier) {
+        int safeMultiplier = Math.max(1, Math.min(5, multiplier));
+        return REWARDS.stream().mapToInt(reward -> effectiveWeight(reward, safeMultiplier)).sum();
+    }
+
+    /** Rare rewards receive the advertised proportional weight while commons do not. */
+    static Reward rewardAtLucky(int ticket, int multiplier) {
+        int safeMultiplier = Math.max(1, Math.min(5, multiplier));
+        int total = luckyTotalWeight(safeMultiplier);
+        if (ticket < 0 || ticket >= total) {
+            throw new IllegalArgumentException(
+                    "Lucky crate ticket must be between 0 and " + (total - 1)
+            );
+        }
+        int boundary = 0;
+        for (Reward reward : REWARDS) {
+            boundary += effectiveWeight(reward, safeMultiplier);
+            if (ticket < boundary) {
+                return reward;
+            }
+        }
+        throw new IllegalStateException("Lucky crate weights do not cover every ticket");
+    }
+
+    private static int effectiveWeight(Reward reward, int multiplier) {
+        return reward.rare() ? Math.multiplyExact(reward.weight(), multiplier) : reward.weight();
+    }
+
     static String percentage(int weight) {
         return String.format(Locale.ROOT, "%.3f%%", weight / 1_000.0d);
     }
@@ -166,35 +196,35 @@ final class CrateCatalog {
     private static List<Reward> buildRewards() {
         List<Reward> rewards = new ArrayList<>();
         rewards.add(item(
-                "raw_copper", "16 Raw Copper", Category.RESOURCE, 11_200,
+                "raw_copper", "16 Raw Copper", Category.RESOURCE, 9_400,
                 "RAW_COPPER", 16, "A useful mining bundle without shop cash."
         ));
         rewards.add(item(
-                "raw_iron", "8 Raw Iron", Category.RESOURCE, 10_800,
+                "raw_iron", "8 Raw Iron", Category.RESOURCE, 9_100,
                 "RAW_IRON", 8, "A small bundle ready to smelt."
         ));
         rewards.add(item(
-                "raw_gold", "6 Raw Gold", Category.RESOURCE, 9_200,
+                "raw_gold", "6 Raw Gold", Category.RESOURCE, 7_800,
                 "RAW_GOLD", 6, "A restrained bundle of raw gold."
         ));
         rewards.add(item(
-                "emeralds", "4 Emeralds", Category.RESOURCE, 8_700,
+                "emeralds", "4 Emeralds", Category.RESOURCE, 7_400,
                 "EMERALD", 4, "Four emeralds for trading or building."
         ));
         rewards.add(item(
-                "diamonds", "2 Diamonds", Category.RESOURCE, 6_800,
+                "diamonds", "2 Diamonds", Category.RESOURCE, 5_900,
                 "DIAMOND", 2, "Two diamonds, kept well below equipment quantities."
         ));
         rewards.add(item(
-                "wind_charges", "16 Wind Charges", Category.TRIAL, 7_000,
+                "wind_charges", "16 Wind Charges", Category.TRIAL, 6_200,
                 "WIND_CHARGE", 16, "A bundle of movement and combat utility."
         ));
         rewards.add(item(
-                "breeze_rods", "4 Breeze Rods", Category.TRIAL, 6_000,
+                "breeze_rods", "4 Breeze Rods", Category.TRIAL, 5_500,
                 "BREEZE_ROD", 4, "Four trial-chamber crafting drops."
         ));
         rewards.add(item(
-                "golden_apple", "Golden Apple", Category.TREASURE, 6_000,
+                "golden_apple", "Golden Apple", Category.TREASURE, 5_668,
                 "GOLDEN_APPLE", 1, "One normal golden apple."
         ));
         rewards.add(item(
@@ -241,6 +271,64 @@ final class CrateCatalog {
                 "mace", "Mace", Category.TRIAL, 50,
                 "MACE", 1, "A complete mace at the table's lowest visible item chance."
         ));
+        rewards.add(item(
+                "potion_healing_ii", "Potion of Healing II", Category.POTION, 2_000,
+                "POTION", 1, "Instantly restores eight health points."
+        ));
+        rewards.add(item(
+                "potion_strength_ii", "Potion of Strength II", Category.POTION, 1_500,
+                "POTION", 1, "A strong combat potion unavailable in the shop."
+        ));
+        rewards.add(item(
+                "potion_swiftness_ii", "Potion of Swiftness II", Category.POTION, 1_500,
+                "POTION", 1, "A fast movement potion unavailable in the shop."
+        ));
+        rewards.add(item(
+                "potion_fire_resistance", "Potion of Fire Resistance", Category.POTION, 1_200,
+                "POTION", 1, "Protection from fire and lava."
+        ));
+        rewards.add(item(
+                "enchant_excavation_i", "Excavation I", Category.ENCHANTMENT, 20,
+                "ENCHANTED_BOOK", 1, "A super-rare pickaxe enchantment that mines a 3x3 area."
+        ));
+        rewards.add(item(
+                "enchant_unbreaking_iv", "Unbreaking IV", Category.ENCHANTMENT, 600,
+                "ENCHANTED_BOOK", 1, "Pushes Unbreaking one level beyond vanilla."
+        ));
+        rewards.add(item(
+                "enchant_unbreaking_v", "Unbreaking V", Category.ENCHANTMENT, 150,
+                "ENCHANTED_BOOK", 1, "The highest Unbreaking level in the crate."
+        ));
+        rewards.add(item(
+                "enchant_protection_v", "Protection V", Category.ENCHANTMENT, 250,
+                "ENCHANTED_BOOK", 1, "Armour protection beyond the vanilla limit."
+        ));
+        rewards.add(item(
+                "enchant_fortune_iv", "Fortune IV", Category.ENCHANTMENT, 400,
+                "ENCHANTED_BOOK", 1, "A mining fortune level beyond vanilla."
+        ));
+        rewards.add(item(
+                "enchant_fortune_v", "Fortune V", Category.ENCHANTMENT, 100,
+                "ENCHANTED_BOOK", 1, "The highest permanent Fortune level."
+        ));
+        rewards.add(customPotion("fortune_potion_i", "Fortune Potion I", 500,
+                "mgx:fortune_potion", "Multiplies eligible ore drops up to level I."));
+        rewards.add(customPotion("fortune_potion_ii", "Fortune Potion II", 200,
+                "mgx:fortune_potion", "Multiplies eligible ore drops by 2x."));
+        rewards.add(customPotion("fortune_potion_iii", "Fortune Potion III", 75,
+                "mgx:fortune_potion", "Multiplies eligible ore drops by 3x."));
+        rewards.add(customPotion("fortune_potion_iv", "Fortune Potion IV", 20,
+                "mgx:fortune_potion", "Multiplies eligible ore drops by 4x."));
+        rewards.add(customPotion("fortune_potion_v", "Fortune Potion V", 5,
+                "mgx:fortune_potion", "Multiplies eligible ore drops by 5x."));
+        rewards.add(customPotion("crate_luck_ii", "Crate Luck II", 150,
+                "mgx:crate_luck_potion", "Doubles rare reward weight for a limited time."));
+        rewards.add(customPotion("crate_luck_iii", "Crate Luck III", 50,
+                "mgx:crate_luck_potion", "Triples rare reward weight for a limited time."));
+        rewards.add(customPotion("crate_luck_iv", "Crate Luck IV", 10,
+                "mgx:crate_luck_potion", "Quadruples rare reward weight for a limited time."));
+        rewards.add(customPotion("crate_luck_v", "Crate Luck V", 2,
+                "mgx:crate_luck_potion", "Multiplies rare reward weight by 5x for a limited time."));
         for (CosmeticCatalog.Definition cosmetic : CosmeticCatalog.all()) {
             rewards.add(cosmetic(cosmetic));
         }
@@ -280,6 +368,15 @@ final class CrateCatalog {
                 cosmetic.modelKey(),
                 cosmetic.id(),
                 cosmetic.description()
+        );
+    }
+
+    private static Reward customPotion(
+            String id, String displayName, int weight, String modelKey, String description
+    ) {
+        return new Reward(
+                id, displayName, Category.POTION, weight, "POTION", 1,
+                modelKey, null, description
         );
     }
 
