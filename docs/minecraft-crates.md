@@ -106,8 +106,8 @@ affected by vanilla Fortune. Excavation I is pickaxe-only and breaks the matchin
 
 `/wardrobe` separates Kill Effects, Auras, and Trails. A won secret appears inside
 its real effect category, so one secret from every category may be equipped together.
-There is no separate Secret category or placeholder tile. Secret items use a purple
-tooltip frame to distinguish their descriptions from ordinary cosmetics.
+There is no separate Secret category or placeholder tile. Secret items use the
+normal vanilla tooltip frame.
 A global `In existence` count and the selected token's permanent serial number are
 shown in `/wardrobe`. It counts every valid unique token in the current cosmetic
 generation, whether stored in a wardrobe or represented by a physical tradable item.
