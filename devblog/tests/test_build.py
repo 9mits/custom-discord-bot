@@ -405,7 +405,7 @@ class RelatedTests(unittest.TestCase):
             self.write("2026-0%d-01-p%d.md" % (n, n), "Post %d" % n)
         build.build("https://example.com")
         page = (build.DIST_DIR / "p1/index.html").read_text(encoding="utf-8")
-        self.assertEqual(page.count('class="card" href="../'), 3)
+        self.assertEqual(len(re.findall(r'class="card"[^>]*href="\.\./', page)), 3)
 
 
 
@@ -909,6 +909,114 @@ class ArtworkTests(unittest.TestCase):
                     continue
                 path = build.MEDIA_DIR / post.slug / name
                 self.assertTrue(path.exists(), "%s references missing %s" % (post.path.name, path))
+
+
+
+class BlogArchiveTests(unittest.TestCase):
+    """The /blog page: every update, with a category filter."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self._saved = (build.POSTS_DIR, build.PAGES_DIR, build.MEDIA_DIR,
+                       build.STATIC_DIR, build.DIST_DIR)
+        build.POSTS_DIR = self.tmp / "posts"
+        build.PAGES_DIR = self.tmp / "pages"
+        build.MEDIA_DIR = self.tmp / "media"
+        build.STATIC_DIR = self.tmp / "static"
+        build.DIST_DIR = self.tmp / "dist"
+        for folder in (build.POSTS_DIR, build.PAGES_DIR, build.MEDIA_DIR, build.STATIC_DIR):
+            folder.mkdir(parents=True)
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        (build.POSTS_DIR, build.PAGES_DIR, build.MEDIA_DIR,
+         build.STATIC_DIR, build.DIST_DIR) = self._saved
+
+    def post(self, month, slug, category="Announcement"):
+        (build.POSTS_DIR / ("2026-%02d-01-%s.md" % (month, slug))).write_text(
+            "---\ntitle: %s\ncategory: %s\n---\n\nbody\n" % (slug, category),
+            encoding="utf-8",
+        )
+
+    def archive(self):
+        return (build.DIST_DIR / "blog" / "index.html").read_text(encoding="utf-8")
+
+    def test_the_archive_is_written(self):
+        self.post(1, "update-1")
+        build.build("https://example.com")
+        self.assertTrue((build.DIST_DIR / "blog" / "index.html").exists())
+
+    def test_it_lists_every_post(self):
+        for n in range(1, 6):
+            self.post(n, "update-%d" % n)
+        build.build("https://example.com")
+        self.assertEqual(self.archive().count('class="card"'), 5)
+
+    def test_the_newest_post_is_called_out_and_not_duplicated(self):
+        self.post(1, "old")
+        self.post(9, "newest")
+        build.build("https://example.com")
+        page = self.archive()
+        self.assertIn('id="featured"', page)
+        # Its card is in the grid for filtering, but starts hidden.
+        self.assertEqual(page.count('data-featured="1" hidden'), 1)
+
+    def test_a_tab_per_category_with_counts(self):
+        self.post(1, "a", "Event")
+        self.post(2, "b", "Event")
+        self.post(3, "c", "Patch")
+        build.build("https://example.com")
+        bar = re.search(r'<div class="cat-tabs".*?</div>', self.archive(), re.S).group(0)
+        self.assertIn('data-cat="*">All Posts<span class="count">3', bar)
+        self.assertIn('data-cat="Event">Event<span class="count">2', bar)
+        self.assertIn('data-cat="Patch">Patch<span class="count">1', bar)
+
+    def test_the_filter_is_hidden_when_there_is_only_one_category(self):
+        self.post(1, "a", "Event")
+        self.post(2, "b", "Event")
+        build.build("https://example.com")
+        self.assertNotIn('<div class="cat-tabs"', self.archive())
+
+    def test_every_card_carries_its_category(self):
+        self.post(1, "a", "Event")
+        self.post(2, "b", "Patch")
+        build.build("https://example.com")
+        self.assertEqual(
+            sorted(set(re.findall(r'data-category="([^"]+)"', self.archive()))),
+            ["Event", "Patch"],
+        )
+
+    def test_an_empty_archive_says_so_rather_than_breaking(self):
+        build.build("https://example.com")
+        page = self.archive()
+        self.assertIn("No updates posted yet", page)
+        self.assertNotIn('id="featured"', page)
+
+    def test_blog_is_reserved_so_a_post_cannot_take_it(self):
+        (build.POSTS_DIR / "2026-01-01-x.md").write_text(
+            "---\ntitle: T\nslug: blog\n---\n\nbody", encoding="utf-8")
+        with self.assertRaises(build.PostError):
+            build.build("https://example.com")
+
+    def test_the_nav_carries_home_and_blog_on_every_page(self):
+        self.post(1, "update-1")
+        (build.PAGES_DIR / "guide.md").write_text(
+            "---\ntitle: G\nnav: Guide\n---\n\nx", encoding="utf-8")
+        build.build("https://example.com")
+        for rel in ("index.html", "blog/index.html", "update-1/index.html",
+                    "guide/index.html", "404.html"):
+            page = (build.DIST_DIR / rel).read_text(encoding="utf-8")
+            nav = re.search(r'aria-label="Primary">(.*?)</nav>', page, re.S).group(1)
+            self.assertIn(">Home</a>", nav, rel)
+            self.assertIn(">Blog</a>", nav, rel)
+            self.assertIn(">Guide</a>", nav, rel)
+
+    def test_reading_a_post_keeps_the_blog_tab_lit(self):
+        self.post(1, "update-1")
+        build.build("https://example.com")
+        page = (build.DIST_DIR / "update-1" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('href="../blog/" aria-current="page"', page)
 
 
 
