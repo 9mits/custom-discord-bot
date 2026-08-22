@@ -1043,6 +1043,27 @@ class WarmThemeTests(unittest.TestCase):
             red, blue = int(value[1:3], 16), int(value[5:7], 16)
             self.assertGreater(red, blue, "%s (%s) is not warm" % (name, value))
 
+    def test_surfaces_stay_near_neutral_so_they_read_orange_not_brown(self):
+        # Brown is desaturated orange. Tinting the surfaces themselves made mud;
+        # the colour has to come from saturated light over near-neutral dark.
+        import colorsys
+
+        tokens = self.tokens(':root[data-theme="dark"] {')
+        for name in ("--page-bg", "--canvas", "--surface", "--surface-raised"):
+            value = tokens[name]
+            rgb = [int(value[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+            saturation = colorsys.rgb_to_hls(*rgb)[2]
+            self.assertLess(saturation, 0.20, "%s (%s) is muddy" % (name, value))
+
+    def test_the_bloom_carries_real_colour(self):
+        for selector in (':root[data-theme="dark"] {', "\n:root {"):
+            block = theme.STYLESHEET.split(selector)[1].split("}")[0]
+            red, green, blue = re.search(
+                r"--bloom:\s*rgba\((\d+),\s*(\d+),\s*(\d+)", block
+            ).groups()
+            self.assertGreaterEqual(int(red), 240, selector)
+            self.assertLessEqual(int(blue), 40, selector)
+
     def test_a_brand_bloom_sits_behind_every_page(self):
         self.assertIn("--bloom:", theme.STYLESHEET)
         self.assertIn("--bloom-2:", theme.STYLESHEET)
@@ -1104,6 +1125,36 @@ class AuthoringToolTests(unittest.TestCase):
         front = blog.TEMPLATE.split("---")[1]
         for line in front.strip().splitlines():
             self.assertRegex(line, r"^[a-z_]+:\s", "wrapped line in the template: %r" % line)
+
+
+
+class FooterSeamTests(unittest.TestCase):
+    def test_the_footer_has_no_top_margin(self):
+        # margin-top exposed the body colour, which is darker than either
+        # neighbour, drawing a black bar between the page and the footer once
+        # the footer gained its own background.
+        block = theme.STYLESHEET.split(".site-footer {")[1].split("}")[0]
+        self.assertIn("margin-top: 0", block)
+        self.assertIn("padding: 3rem", block)
+
+
+class PostContentTests(unittest.TestCase):
+    """Copy that outlives the feature it describes."""
+
+    POSTS = sorted((Path(__file__).resolve().parents[1] / "posts").glob("*.md"))
+
+    def test_no_post_advertises_rss(self):
+        # The feed was removed; a post telling readers to subscribe to it sends
+        # them to a 404.
+        for path in self.POSTS:
+            self.assertNotIn("RSS", path.read_text(encoding="utf-8"), path.name)
+
+    def test_no_post_links_a_page_that_does_not_exist(self):
+        pages = {p.stem for p in (Path(__file__).resolve().parents[1] / "pages").glob("*.md")}
+        known = pages | {"blog", "index.html", ""}
+        for path in self.POSTS:
+            for href in re.findall(r"\]\(/([^)]*)\)", path.read_text(encoding="utf-8")):
+                self.assertIn(href.strip("/"), known, "%s links /%s" % (path.name, href))
 
 
 
