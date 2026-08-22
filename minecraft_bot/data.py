@@ -12,6 +12,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional
+from zoneinfo import ZoneInfo
 
 import aiosqlite
 
@@ -31,7 +32,7 @@ from .models import (
 
 JAVA_USERNAME = re.compile(r"^[A-Za-z0-9_]{3,16}$")
 BEDROCK_USERNAME = re.compile(r"^[\w -]{1,16}$", re.UNICODE)
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 COMMAND_LOG_RETENTION_DAYS = 30
 COMMAND_LOG_RETENTION_ROWS = 20_000
 #: How long a verified applicant has to finish the written form before the
@@ -169,6 +170,21 @@ CREATE TABLE IF NOT EXISTS minecraft_bridge_events (
 );
 CREATE INDEX IF NOT EXISTS idx_minecraft_bridge_events_processed
     ON minecraft_bridge_events(processed_at);
+
+CREATE TABLE IF NOT EXISTS minecraft_player_activity (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_idempotency_key TEXT NOT NULL UNIQUE,
+    minecraft_uuid TEXT NOT NULL,
+    current_username TEXT NOT NULL,
+    edition TEXT NOT NULL CHECK (edition IN ('JAVA', 'BEDROCK')),
+    joined INTEGER NOT NULL CHECK (joined IN (0, 1)),
+    online_count INTEGER NOT NULL,
+    occurred_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_minecraft_player_activity_time
+    ON minecraft_player_activity(occurred_at);
+CREATE INDEX IF NOT EXISTS idx_minecraft_player_activity_player
+    ON minecraft_player_activity(minecraft_uuid, occurred_at);
 
 CREATE TABLE IF NOT EXISTS minecraft_command_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2034,6 +2050,99 @@ class MinecraftDataManager:
             except Exception:
                 await db.rollback()
                 raise
+
+    async def record_player_activity(
+        self,
+        *,
+        event_idempotency_key: str,
+        minecraft_uuid: str,
+        current_username: str,
+        edition: str,
+        joined: bool,
+        online_count: int,
+        occurred_at: int,
+    ) -> None:
+        timestamp = int(occurred_at) if int(occurred_at) > 0 else _now()
+        async with self._write_lock:
+            db = self._connection()
+            try:
+                await db.execute(
+                    "INSERT OR IGNORE INTO minecraft_player_activity"
+                    "(event_idempotency_key, minecraft_uuid, current_username, edition, "
+                    "joined, online_count, occurred_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        str(event_idempotency_key),
+                        str(minecraft_uuid),
+                        _clean_username(current_username),
+                        str(edition).upper(),
+                        int(bool(joined)),
+                        max(0, int(online_count)),
+                        timestamp,
+                    ),
+                )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+
+    async def player_activity_metrics(self, *, days: int = 30) -> dict[str, Any]:
+        since = _now() - max(1, min(90, int(days))) * 86_400
+        db = self._connection()
+        rows = await db.execute_fetchall(
+            "SELECT joined, edition, online_count, occurred_at FROM minecraft_player_activity "
+            "WHERE occurred_at>=? ORDER BY occurred_at",
+            (since,),
+        )
+        latest = await db.execute_fetchall(
+            "SELECT online_count, occurred_at FROM minecraft_player_activity "
+            "ORDER BY occurred_at DESC, id DESC LIMIT 1"
+        )
+        if not rows:
+            return {
+                "current": int(latest[0]["online_count"]) if latest else 0,
+                "peak": 0,
+                "peak_at": None,
+                "joins": 0,
+                "java_joins": 0,
+                "bedrock_joins": 0,
+                "busiest": [],
+            }
+        peak_row = max(rows, key=lambda row: (int(row["online_count"]), -int(row["occurred_at"])))
+        buckets: dict[tuple[int, int], list[int]] = {}
+        joins = java_joins = bedrock_joins = 0
+        for row in rows:
+            if int(row["joined"]):
+                joins += 1
+                if row["edition"] == "JAVA":
+                    java_joins += 1
+                else:
+                    bedrock_joins += 1
+            local = datetime.fromtimestamp(int(row["occurred_at"]), timezone.utc).astimezone(
+                ZoneInfo("Asia/Tokyo")
+            )
+            buckets.setdefault((local.weekday(), local.hour), []).append(int(row["online_count"]))
+        busiest = sorted(
+            (
+                {
+                    "weekday": weekday,
+                    "hour": hour,
+                    "average": sum(values) / len(values),
+                    "samples": len(values),
+                }
+                for (weekday, hour), values in buckets.items()
+            ),
+            key=lambda item: (item["average"], item["samples"]),
+            reverse=True,
+        )[:3]
+        return {
+            "current": int(latest[0]["online_count"]) if latest else int(rows[-1]["online_count"]),
+            "peak": int(peak_row["online_count"]),
+            "peak_at": int(peak_row["occurred_at"]),
+            "joins": joins,
+            "java_joins": java_joins,
+            "bedrock_joins": bedrock_joins,
+            "busiest": busiest,
+        }
 
     async def application_status_counts(self) -> dict[str, int]:
         rows = await self._connection().execute_fetchall(

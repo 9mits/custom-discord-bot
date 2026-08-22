@@ -11,6 +11,7 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerCommandPreprocessEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.util.Locale;
@@ -24,8 +25,10 @@ final class TeleportWarmupService implements Listener {
     private static final int WARMUP_SECONDS = 5;
     private static final Set<String> COMMANDS = Set.of(
             "warp", "warps", "home", "homes", "spawn", "back",
-            "tpa", "tpahere", "tpaccept", "tpyes", "tphere", "tp",
-            "tpr", "rtp", "top", "jump", "world"
+            "tpa", "tpahere", "tpaccept", "tpyes", "tpauto", "tphere", "tp",
+            "tpr", "rtp", "top", "jump", "world", "tpo", "tpohere", "tpoffline",
+            "ewarp", "ewarps", "ehome", "ehomes", "espawn", "eback",
+            "etpa", "etpahere", "etpaccept", "etphere", "etp"
     );
 
     private final MGXAccessBridge plugin;
@@ -57,19 +60,30 @@ final class TeleportWarmupService implements Listener {
         event.setCancelled(true);
         cancel(player, false);
         Location origin = player.getLocation().clone();
-        BukkitTask task = plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-            pending.remove(player.getUniqueId());
+        int[] seconds = {WARMUP_SECONDS};
+        BukkitTask task = plugin.getServer().getScheduler().runTaskTimer(plugin, () -> {
             if (!player.isOnline()) {
+                cancel(player, false);
                 return;
             }
-            releasing.add(player.getUniqueId());
-            player.performCommand(message.substring(1));
-        }, WARMUP_SECONDS * 20L);
+            if (seconds[0] <= 0) {
+                Pending finished = pending.remove(player.getUniqueId());
+                if (finished != null) {
+                    finished.task().cancel();
+                }
+                player.sendActionBar(Component.text("Teleporting now...", NamedTextColor.GREEN));
+                releasing.add(player.getUniqueId());
+                player.performCommand(message.substring(1));
+                return;
+            }
+            player.sendActionBar(Component.text(
+                    "Teleporting in " + seconds[0] + (seconds[0] == 1 ? " second" : " seconds")
+                            + "  •  Do not move",
+                    NamedTextColor.GOLD
+            ));
+            seconds[0]--;
+        }, 0L, 20L);
         pending.put(player.getUniqueId(), new Pending(origin, task));
-        player.sendMessage(Component.text(
-                "Teleporting in " + WARMUP_SECONDS + " seconds. Do not move.",
-                NamedTextColor.GOLD
-        ));
     }
 
     @EventHandler(ignoreCancelled = true)
@@ -92,6 +106,13 @@ final class TeleportWarmupService implements Listener {
         cancel(event.getPlayer(), false);
     }
 
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onDamage(EntityDamageEvent event) {
+        if (event.getEntity() instanceof Player player) {
+            cancel(player, true);
+        }
+    }
+
     private void cancel(Player player, boolean moved) {
         Pending current = pending.remove(player.getUniqueId());
         if (current == null) {
@@ -99,7 +120,7 @@ final class TeleportWarmupService implements Listener {
         }
         current.task().cancel();
         if (moved && player.isOnline()) {
-            player.sendMessage(Component.text("Teleport cancelled because you moved.", NamedTextColor.RED));
+            player.sendActionBar(Component.text("Teleport cancelled.", NamedTextColor.RED));
         }
     }
 

@@ -1,7 +1,7 @@
 ---
 title: Server Rules
 nav: Rules
-order: 2
+order: 3
 tagline: These rules apply to every Mysterious SMP X player. Read them before you apply — accepting them is part of the application.
 ---
 

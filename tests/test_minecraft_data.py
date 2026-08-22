@@ -142,6 +142,52 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
             await self.data.claim_bridge_event("player-event-1", "PLAYER_JOIN", now=1002)
         )
 
+    async def test_player_activity_metrics_track_peak_editions_and_busy_time(self):
+        monday_jst = 1_784_484_000
+        events = (
+            ("join-java", True, "JAVA", 1, monday_jst),
+            ("join-bedrock", True, "BEDROCK", 2, monday_jst + 60),
+            ("leave-java", False, "JAVA", 1, monday_jst + 120),
+        )
+        for key, joined, edition, online, occurred_at in events:
+            await self.data.record_player_activity(
+                event_idempotency_key=key,
+                minecraft_uuid=f"00000000-0000-0000-0000-{len(key):012d}",
+                current_username=key,
+                edition=edition,
+                joined=joined,
+                online_count=online,
+                occurred_at=occurred_at,
+            )
+
+        metrics = await self.data.player_activity_metrics(days=90)
+
+        self.assertEqual(metrics["current"], 1)
+        self.assertEqual(metrics["peak"], 2)
+        self.assertEqual(metrics["peak_at"], monday_jst + 60)
+        self.assertEqual(metrics["joins"], 2)
+        self.assertEqual(metrics["java_joins"], 1)
+        self.assertEqual(metrics["bedrock_joins"], 1)
+        self.assertTrue(metrics["busiest"])
+
+    async def test_player_activity_events_are_idempotent(self):
+        values = dict(
+            event_idempotency_key="same-player-event",
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            current_username="TestPlayer",
+            edition="JAVA",
+            joined=True,
+            online_count=1,
+            occurred_at=int(time.time()),
+        )
+        await self.data.record_player_activity(**values)
+        await self.data.record_player_activity(**values)
+
+        rows = await self.data._connection().execute_fetchall(
+            "SELECT COUNT(*) AS count FROM minecraft_player_activity"
+        )
+        self.assertEqual(rows[0]["count"], 1)
+
     async def test_java_verification_transitions_and_is_idempotent(self):
         application = await self.create_pending()
         verified, changed = await self.data.record_verification(

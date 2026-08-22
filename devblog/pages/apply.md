@@ -1,7 +1,7 @@
 ---
 title: How to Apply
 nav: Apply
-order: 3
+order: 4
 tagline: Applying takes a few minutes and happens entirely inside Discord. Here is every step, and what to do when one of them goes wrong.
 ---
 

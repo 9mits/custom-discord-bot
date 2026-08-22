@@ -136,6 +136,33 @@ final class CosmeticItems {
         return List.copyOf(found);
     }
 
+    int refreshCarried(Player player, CosmeticStore store, String cosmeticId) {
+        CosmeticCatalog.Definition definition = CosmeticCatalog.find(cosmeticId).orElse(null);
+        if (definition == null) {
+            return 0;
+        }
+        int refreshed = 0;
+        ItemStack[] storage = player.getInventory().getStorageContents();
+        for (int index = 0; index < storage.length; index++) {
+            TokenInfo info = read(storage[index]).orElse(null);
+            CosmeticStore.Token canonical = info == null ? null : store.token(info.serial()).orElse(null);
+            if (canonical == null || !canonical.cosmeticId().equals(cosmeticId)) {
+                continue;
+            }
+            storage[index] = token(definition, canonical);
+            refreshed++;
+        }
+        player.getInventory().setStorageContents(storage);
+        ItemStack offhand = player.getInventory().getItemInOffHand();
+        TokenInfo info = read(offhand).orElse(null);
+        CosmeticStore.Token canonical = info == null ? null : store.token(info.serial()).orElse(null);
+        if (canonical != null && canonical.cosmeticId().equals(cosmeticId)) {
+            player.getInventory().setItemInOffHand(token(definition, canonical));
+            refreshed++;
+        }
+        return refreshed;
+    }
+
     boolean removeOne(Player player, UUID serial) {
         ItemStack[] storage = player.getInventory().getStorageContents();
         for (int index = 0; index < storage.length; index++) {

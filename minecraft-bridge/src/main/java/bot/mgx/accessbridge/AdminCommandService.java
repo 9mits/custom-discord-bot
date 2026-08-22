@@ -39,7 +39,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     static final String PERMISSION = "mgxaccessbridge.admin";
     private static final List<String> SUBCOMMANDS = List.of(
             "startserver", "teststart", "give", "ranks", "eco", "bounty", "hologram", "reset",
-            "devblog", "abuse", "help"
+            "devblog", "serials", "abuse", "help"
     );
     private static final List<String> RANK_ACTIONS = List.of("hold", "release", "list");
     private static final List<String> DEVBLOG_ACTIONS = List.of(
@@ -123,6 +123,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 case "hologram", "holograms", "lb" -> hologram(sender, args);
                 case "reset" -> reset(sender, args);
                 case "devblog", "screenshot" -> devBlog(sender, args);
+                case "serials" -> serials(sender, args);
                 case "abuse", "event" -> {
                     String summary = adminEvents.run(sender, args);
                     success(sender, summary + ".");
@@ -147,6 +148,40 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             );
         }
         devBlog.handle(player, args);
+    }
+
+    private void serials(CommandSender sender, String[] args) {
+        if (args.length < 3 || !args[1].equalsIgnoreCase("reset")) {
+            throw new IllegalArgumentException(
+                    "Usage: /mgxadmin serials reset <cosmetic-id> confirm"
+            );
+        }
+        CosmeticCatalog.Definition definition = CosmeticCatalog.find(args[2]).orElseThrow(
+                () -> new IllegalArgumentException("No cosmetic called '" + args[2] + "'.")
+        );
+        boolean confirmed = Arrays.stream(args).anyMatch(value -> value.equalsIgnoreCase("confirm"));
+        if (!confirmed) {
+            error(sender, "This renumbers every existing " + definition.displayName()
+                    + " token from #1. Add 'confirm' to run it.");
+            return;
+        }
+        int changed = cosmetics.resetSerials(definition.id());
+        int refreshed = Bukkit.getOnlinePlayers().stream()
+                .mapToInt(player -> cosmeticItems.refreshCarried(
+                        player, cosmetics, definition.id()
+                ))
+                .sum();
+        success(sender, changed == 0
+                ? "No " + definition.displayName() + " serials exist yet."
+                : "Renumbered " + changed + " " + definition.displayName() + " serial(s) from #1.");
+        if (refreshed > 0) {
+            info(sender, "Updated " + refreshed + " carried token(s) with their new serial lore.");
+        }
+        report(sender, "cosmetic_serial_reset", "Reset serials for " + definition.displayName())
+                .detail("cosmetic", definition.id())
+                .detail("serials", changed)
+                .detail("carried_tokens_refreshed", refreshed)
+                .record();
     }
 
     // ------------------------------------------------------------------
@@ -561,6 +596,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 .append(Component.text("  place or remove a spawn leaderboard", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin reset", ORANGE)
                 .append(Component.text("  clear progress, keeping the world", NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin serials reset <cosmetic> confirm", ORANGE)
+                .append(Component.text("  renumber one cosmetic without deleting it", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin devblog", ORANGE)
                 .append(Component.text("  screenshot mode: stash your gear, clear the screen",
                         NamedTextColor.GRAY)));
@@ -596,6 +633,19 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         if (action.equals("abuse") || action.equals("event")) {
             if (args.length == 2) {
                 return partial(args[1], List.of("keyrain", "skyburst", "chaos"));
+            }
+            return List.of();
+        }
+        if (action.equals("serials")) {
+            if (args.length == 2) {
+                return partial(args[1], List.of("reset"));
+            }
+            if (args.length == 3 && args[1].equalsIgnoreCase("reset")) {
+                return partial(args[2], CosmeticCatalog.all().stream()
+                        .map(CosmeticCatalog.Definition::id).toList());
+            }
+            if (args.length == 4) {
+                return partial(args[3], List.of("confirm"));
             }
             return List.of();
         }

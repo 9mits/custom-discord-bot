@@ -216,6 +216,56 @@ final class CosmeticEffectService implements Listener {
                     2 + tier, 0.45d, 0.7d, 0.45d, 0.03d, null,
                     PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
         }
+        drawAuraLayers(owner, definition, centre, phase, tier);
+    }
+
+    /** Counter-rotating sigils and a helix make every aura read as a full effect, not dots. */
+    private void drawAuraLayers(
+            Player owner,
+            CosmeticCatalog.Definition definition,
+            Location centre,
+            double phase,
+            int tier
+    ) {
+        Color primary = effectColour(definition);
+        int points = 8 + tier * 4;
+        int rings = tier >= 3 ? 2 : 1;
+        for (int ring = 0; ring < rings; ring++) {
+            double radius = 0.9d + ring * 0.38d + tier * 0.04d;
+            double direction = ring == 0 ? 1d : -1d;
+            for (int point = 0; point < points; point += tier == 1 ? 2 : 1) {
+                double angle = direction * phase * (0.7d + ring * 0.25d)
+                        + point * Math.PI * 2d / points;
+                double y = ring == 0
+                        ? -0.72d + Math.sin(angle * 2d) * 0.10d
+                        : 0.55d + Math.cos(angle * 3d) * 0.14d;
+                Location at = centre.clone().add(
+                        Math.cos(angle) * radius, y, Math.sin(angle) * radius
+                );
+                spawn(owner, at, Particle.DUST, 1, 0d, 0d, 0d, 0d,
+                        new Particle.DustOptions(
+                                definition.id().equals("prismatic_trail") ? rainbow(frame + point) : primary,
+                                0.9f + tier * 0.12f
+                        ), PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            }
+        }
+        int helixPoints = 2 + tier;
+        for (int point = 0; point < helixPoints; point++) {
+            double angle = -phase * 1.35d + point * Math.PI * 2d / helixPoints;
+            Location at = centre.clone().add(
+                    Math.cos(angle) * 0.48d,
+                    -0.65d + ((frame + point * 3L) % 12L) / 6d,
+                    Math.sin(angle) * 0.48d
+            );
+            spawn(owner, at, tier >= 4 ? Particle.END_ROD : Particle.ENCHANT,
+                    1, 0d, 0d, 0d, 0d, null,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+        if (tier >= 4 && frame % 5L == 0L) {
+            spawn(owner, centre.clone().add(0d, 1.25d, 0d), Particle.FIREWORK,
+                    4, 0.45d, 0.2d, 0.45d, 0.04d, null,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
     }
 
     private void drawTrail(Player owner, CosmeticCatalog.Definition definition, Location previous) {
@@ -253,6 +303,29 @@ final class CosmeticEffectService implements Listener {
                             ? rainbow(frame + 6L) : effectColour(definition),
                     1.4f, PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
             spawn(owner, ribbon, Particle.END_ROD, 1, 0.1d, 0.1d, 0.1d, 0d, null,
+                    PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+        }
+        Vector movement = owner.getLocation().toVector().subtract(previous.toVector());
+        if (movement.lengthSquared() > 0.0001d) {
+            Vector side = new Vector(-movement.getZ(), 0d, movement.getX()).normalize();
+            int ribbons = 1 + tier / 2;
+            for (int ribbon = 1; ribbon <= ribbons; ribbon++) {
+                double offset = 0.22d * ribbon;
+                for (double direction : new double[]{-1d, 1d}) {
+                    Location sideAt = at.clone().add(side.clone().multiply(offset * direction));
+                    sideAt.add(0d, 0.08d + Math.sin(frame * 0.55d + ribbon) * 0.16d, 0d);
+                    spawn(owner, sideAt, Particle.DUST, 1, 0d, 0d, 0d, 0d,
+                            new Particle.DustOptions(
+                                    definition.id().equals("prismatic_trail")
+                                            ? rainbow(frame + ribbon * 4L) : effectColour(definition),
+                                    0.9f + tier * 0.1f
+                            ), PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+                }
+            }
+        }
+        if (tier >= 3 && frame % 3L == 0L) {
+            spawn(owner, at.clone().add(0d, 0.4d, 0d), Particle.FIREWORK,
+                    tier, 0.18d, 0.25d, 0.18d, 0.04d, null,
                     PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
         }
     }
@@ -304,6 +377,45 @@ final class CosmeticEffectService implements Listener {
         sound(owner, centre, Sound.ENTITY_PLAYER_ATTACK_CRIT, 0.9f, 0.8f,
                 PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
         drawKillRings(owner, definition, centre, visualTier(definition));
+        drawKillFinale(owner, definition, centre, visualTier(definition));
+    }
+
+    private void drawKillFinale(
+            Player owner, CosmeticCatalog.Definition definition, Location centre, int tier
+    ) {
+        Color colour = effectColour(definition);
+        int pulses = 2 + tier;
+        for (int pulse = 0; pulse < pulses; pulse++) {
+            int step = pulse;
+            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                double radius = 0.55d + step * 0.32d;
+                int points = 10 + tier * 4;
+                for (int point = 0; point < points; point++) {
+                    double longitude = point * Math.PI * 2d / points + step * 0.35d;
+                    double latitude = Math.sin(point * 2.399963d + step) * 0.9d;
+                    Location at = centre.clone().add(
+                            Math.cos(longitude) * Math.cos(latitude) * radius,
+                            Math.sin(latitude) * radius + step * 0.12d,
+                            Math.sin(longitude) * Math.cos(latitude) * radius
+                    );
+                    spawn(owner, at, Particle.DUST, 1, 0d, 0d, 0d, 0d,
+                            new Particle.DustOptions(colour, 1.05f + tier * 0.12f),
+                            PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                }
+                spawn(owner, centre.clone().add(0d, step * 0.22d, 0d),
+                        tier >= 4 ? Particle.END_ROD : Particle.ENCHANT,
+                        4 + tier * 2, 0.28d, 0.6d + step * 0.08d, 0.28d, 0.05d, null,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                if (step == pulses - 1) {
+                    spawn(owner, centre.clone().add(0d, 0.8d, 0d), Particle.FLASH,
+                            1, 0d, 0d, 0d, 0d, null,
+                            PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                    sound(owner, centre, Sound.UI_TOAST_CHALLENGE_COMPLETE,
+                            0.7f + tier * 0.08f, 0.8f + tier * 0.08f,
+                            PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                }
+            }, step * 3L);
+        }
     }
 
     private void drawKillRings(

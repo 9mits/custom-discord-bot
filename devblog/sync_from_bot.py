@@ -139,7 +139,7 @@ def build_guide(info, role_labels: dict) -> str:
         front_matter(
             title="Server Guide",
             nav="Guide",
-            order="1",
+            order="2",
             tagline="Everything the in-game information panel covers — commands, "
                     "clans, levels, perks, mods and version support.",
         ),
@@ -159,7 +159,7 @@ def build_rules(pres, role_labels: dict) -> str:
         front_matter(
             title="Server Rules",
             nav="Rules",
-            order="2",
+            order="3",
             tagline="These rules apply to every Mysterious SMP X player. Read them "
                     "before you apply — accepting them is part of the application.",
         ),

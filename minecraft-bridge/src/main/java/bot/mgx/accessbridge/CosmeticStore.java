@@ -18,6 +18,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.HashMap;
 import java.util.UUID;
+import java.util.Comparator;
 
 /** Unique cosmetic-token custody and the token selected in each effect category. */
 final class CosmeticStore {
@@ -309,6 +310,34 @@ final class CosmeticStore {
             throw exception;
         }
         return cleared;
+    }
+
+    /** Renumbers one cosmetic from #1 without changing custody or equipped selections. */
+    synchronized int resetSerials(String cosmeticId) {
+        List<Token> matching = tokens.values().stream()
+                .filter(token -> token.generation() == generation)
+                .filter(token -> token.cosmeticId().equals(cosmeticId))
+                .sorted(Comparator.comparingInt(Token::serialNumber)
+                        .thenComparing(token -> token.serial().toString()))
+                .toList();
+        if (matching.isEmpty()) {
+            return 0;
+        }
+        LinkedHashMap<UUID, Token> before = new LinkedHashMap<>(tokens);
+        for (int index = 0; index < matching.size(); index++) {
+            Token token = matching.get(index);
+            tokens.put(token.serial(), new Token(
+                    token.serial(), token.cosmeticId(), token.generation(), index + 1, token.storedOwner()
+            ));
+        }
+        try {
+            save();
+        } catch (RuntimeException exception) {
+            tokens.clear();
+            tokens.putAll(before);
+            throw exception;
+        }
+        return matching.size();
     }
 
     private void save() {

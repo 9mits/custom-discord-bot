@@ -291,6 +291,8 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
                     "minecraft_uuid": "123e4567-e89b-12d3-a456-426614174000",
                     "current_username": "TestPlayer",
                     "xuid": None,
+                    "online_count": 4,
+                    "occurred_at": 1_784_484_000,
                 },
                 idempotency_key="player-join-1",
             )
@@ -301,6 +303,10 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(acknowledgement["type"], "PLAYER_EVENT_ACK")
         self.player_event_handler.assert_awaited_once()
         self.assertTrue(self.player_event_handler.await_args.kwargs["joined"])
+        self.assertEqual(self.player_event_handler.await_args.kwargs["online_count"], 4)
+        self.assertEqual(
+            self.player_event_handler.await_args.kwargs["occurred_at"], 1_784_484_000
+        )
         self.assertEqual(
             self.player_event_handler.await_args.kwargs["event_idempotency_key"],
             "player-join-1",

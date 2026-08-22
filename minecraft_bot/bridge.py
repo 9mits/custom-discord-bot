@@ -334,6 +334,8 @@ class MinecraftBridgeServer:
                     current_username=str(payload["current_username"]),
                     edition=str(payload["edition"]).upper(),
                     xuid=str(payload["xuid"]) if payload.get("xuid") is not None else None,
+                    online_count=max(0, int(payload.get("online_count", 0))),
+                    occurred_at=max(0, int(payload.get("occurred_at", 0))),
                     event_idempotency_key=envelope["idempotency_key"],
                 )
             except Exception:

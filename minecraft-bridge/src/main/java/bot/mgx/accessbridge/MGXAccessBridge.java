@@ -70,6 +70,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     );
 
     private final ConcurrentHashMap<UUID, Component> verificationKicks = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, PlayerConnectionIdentity> connectionIdentities =
+            new ConcurrentHashMap<>();
 
     private LaunchService launchService;
     private ScheduledExecutorService networkExecutor;
@@ -100,6 +102,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private RankSyncStore rankSyncStore;
     private MaintenanceStore maintenanceStore;
     private BukkitTask maintenanceSweep;
+    private AfkService afkService;
+    private BroadcastDisplayService broadcastDisplayService;
     private final WhitelistDirectory whitelistDirectory = new WhitelistDirectory();
 
     @Override
@@ -218,6 +222,11 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(playerMenuService, this);
         getServer().getPluginManager().registerEvents(chatRelayService, this);
         getServer().getPluginManager().registerEvents(new TeleportWarmupService(this), this);
+        broadcastDisplayService = new BroadcastDisplayService(this);
+        getServer().getPluginManager().registerEvents(broadcastDisplayService, this);
+        afkService = new AfkService(this, getConfig().getLong("afk-timeout-seconds", 300L));
+        sidebarService.useAfkService(afkService);
+        getServer().getPluginManager().registerEvents(afkService, this);
         if (getCommand("clans") == null
                 || getCommand("claninfo") == null
                 || getCommand("guide") == null
@@ -236,6 +245,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 || getCommand("bal") == null
                 || getCommand("pay") == null
                 || getCommand("bounty") == null
+                || getCommand("afk") == null
                 || getCommand("crate") == null
                 || getCommand("wardrobe") == null) {
             getLogger().severe("A required Minecraft command is missing from plugin.yml.");
@@ -342,6 +352,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         BountyService bountyService = new BountyService(this, economyStore, bountyStore, clanStore);
         getCommand("bounty").setExecutor(bountyService);
         getCommand("bounty").setTabCompleter(bountyService);
+        getCommand("afk").setExecutor(afkService);
         getServer().getPluginManager().registerEvents(bountyService, this);
         getServer().getPluginManager().registerEvents(
                 new JoinGrantService(this, economyStore, bountyStore, joinGrants), this
@@ -405,6 +416,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         launchService.restoreOnEnable();
         crates.start();
         cosmeticEffects.start();
+        afkService.start();
         sidebarService.start();
         leaderboardService.start();
         capabilityService.start();
@@ -425,6 +437,12 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     @Override
     public void onDisable() {
+        if (afkService != null) {
+            afkService.stop();
+        }
+        if (broadcastDisplayService != null) {
+            broadcastDisplayService.stop();
+        }
         if (crates != null) {
             crates.stop();
         }
@@ -472,6 +490,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         if (sidebarService != null) {
             sidebarService.refreshAll();
         }
+    }
+
+    SidebarService sidebarService() {
+        return sidebarService;
     }
 
     /** Called when the bridge reconnects, so the bot is never left without standings. */
@@ -1325,7 +1347,22 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             devBlogService.restoreIfStranded(event.getPlayer());
         }
         scheduleBedrockTerrainResync(event.getPlayer());
-        queuePlayerActivity(event.getPlayer().getUniqueId(), event.getPlayer().getName(), true);
+        Player player = event.getPlayer();
+        PlayerConnectionIdentity identity = resolveConnectionIdentity(
+                player.getUniqueId(), player.getName()
+        );
+        connectionIdentities.put(player.getUniqueId(), identity);
+        queuePlayerActivity(identity, true, getServer().getOnlinePlayers().size());
+        // Refresh the cached leave identity once Floodgate has had time to expose
+        // the real gamertag. The UUID fallback already records this join as Bedrock.
+        getServer().getScheduler().runTaskLater(this, () -> {
+            if (!player.isOnline()) {
+                return;
+            }
+            connectionIdentities.put(player.getUniqueId(), resolveConnectionIdentity(
+                    player.getUniqueId(), player.getName()
+            ));
+        }, 10L);
     }
 
     /**
@@ -1376,10 +1413,16 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         if (sidebarService != null) {
             sidebarService.forget(event.getPlayer().getUniqueId());
         }
-        queuePlayerActivity(event.getPlayer().getUniqueId(), event.getPlayer().getName(), false);
+        PlayerConnectionIdentity identity = connectionIdentities.remove(event.getPlayer().getUniqueId());
+        if (identity == null) {
+            identity = resolveConnectionIdentity(
+                    event.getPlayer().getUniqueId(), event.getPlayer().getName()
+            );
+        }
+        queuePlayerActivity(identity, false, Math.max(0, getServer().getOnlinePlayers().size() - 1));
     }
 
-    private void queuePlayerActivity(UUID uuid, String javaUsername, boolean joined) {
+    private PlayerConnectionIdentity resolveConnectionIdentity(UUID uuid, String javaUsername) {
         FloodgatePlayer floodgatePlayer;
         try {
             floodgatePlayer = FloodgateApi.getInstance().getPlayer(uuid);
@@ -1388,16 +1431,42 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                     + exception.getClass().getSimpleName());
             floodgatePlayer = null;
         }
-        if (floodgatePlayer == null) {
-            bridgeClient.queuePlayerActivity(joined, MinecraftEdition.JAVA, uuid, javaUsername, null);
-        } else {
-            bridgeClient.queuePlayerActivity(
-                    joined,
+        if (floodgatePlayer != null) {
+            return new PlayerConnectionIdentity(
                     MinecraftEdition.BEDROCK,
                     uuid,
                     floodgatePlayer.getUsername(),
                     String.valueOf(floodgatePlayer.getXuid())
             );
         }
+        if (VerificationIdentity.isFloodgateUuid(uuid)) {
+            String username = javaUsername.startsWith(".") ? javaUsername.substring(1) : javaUsername;
+            return new PlayerConnectionIdentity(
+                    MinecraftEdition.BEDROCK,
+                    uuid,
+                    username,
+                    VerificationIdentity.xuidFromFloodgateUuid(uuid)
+            );
+        }
+        return new PlayerConnectionIdentity(MinecraftEdition.JAVA, uuid, javaUsername, null);
+    }
+
+    private void queuePlayerActivity(
+            PlayerConnectionIdentity identity, boolean joined, int onlineCount
+    ) {
+        bridgeClient.queuePlayerActivity(
+                joined,
+                identity.edition(),
+                identity.uuid(),
+                identity.username(),
+                identity.xuid(),
+                onlineCount,
+                System.currentTimeMillis() / 1_000L
+        );
+    }
+
+    private record PlayerConnectionIdentity(
+            MinecraftEdition edition, UUID uuid, String username, String xuid
+    ) {
     }
 }

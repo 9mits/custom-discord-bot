@@ -71,6 +71,7 @@ final class SidebarService {
     private final java.util.Set<UUID> suppressed = java.util.concurrent.ConcurrentHashMap.newKeySet();
     private String lastTeamKey = "";
     private int taskId = -1;
+    private AfkService afkService;
 
     SidebarService(
             MGXAccessBridge plugin,
@@ -99,6 +100,10 @@ final class SidebarService {
                 1L,
                 updateTicks
         );
+    }
+
+    void useAfkService(AfkService service) {
+        this.afkService = service;
     }
 
     void stop() {
@@ -397,12 +402,14 @@ final class SidebarService {
         // its own sidebar row, and a Java client's device is always a desktop.
         String discord = identities.visibleUsername(player.getUniqueId())
                 .map(username -> "(@" + username + ") ").orElse("");
-        nameWidth += SidebarText.textWidth(discord + player.getName(), false);
+        String afkLabel = afkService != null && afkService.isAfk(player.getUniqueId()) ? " [AFK]" : "";
+        nameWidth += SidebarText.textWidth(discord + player.getName() + afkLabel, false);
         String platformLabel = platform.edition()
                 + (platform.showsDevice() ? " · " + platform.device() : "");
         rendered = rendered
                 .append(identities.tag(player.getUniqueId()))
                 .append(Component.text(player.getName(), NamedTextColor.WHITE))
+                .append(Component.text(afkLabel, NamedTextColor.GRAY))
                 .append(Component.text(
                         SidebarText.paddingToWidth(nameWidth, TAB_NAME_COLUMN_WIDTH),
                         NamedTextColor.DARK_GRAY
