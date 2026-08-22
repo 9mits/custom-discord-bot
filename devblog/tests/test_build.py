@@ -576,6 +576,13 @@ class HomePageTests(unittest.TestCase):
     def test_the_featured_strip_carries_a_date(self):
         self.assertIn("August 21, 2026", _home())
 
+    def test_the_hero_preview_puts_the_post_date_below_its_title(self):
+        frame = _home().split('<div class="hero-feature">', 1)[1].split("</a>", 1)[0]
+        self.assertIn(
+            '<p>Fiesta Forever</p><time datetime="2026-08-21">August 21, 2026</time>',
+            frame,
+        )
+
     def test_a_designed_cover_wins_over_gameplay_art_on_the_homepage(self):
         card = build.card_for(_stub_post(), "")
         card["cover"] = "media/fiesta-forever/cover.png"
