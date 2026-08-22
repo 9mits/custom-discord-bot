@@ -401,7 +401,7 @@ a { color: inherit; }
 }
 .hero-feature .frame img {
   position: absolute; inset: 0; width: 100%; height: 100%;
-  object-fit: contain; padding: 7%;
+  object-fit: contain;
   transition: transform var(--dur-slow) var(--ease-out);
 }
 .hero-feature a:hover .frame img { transform: scale(1.04); }
@@ -622,6 +622,12 @@ a { color: inherit; }
 .more { margin-top: 3rem; }
 .more hr { border: 0; border-top: 1px solid var(--line); margin: 0 0 1.75rem; }
 .more h5 { margin: 0 0 1.25rem; font-size: 1.875rem; font-weight: 700; color: var(--ink); }
+/* This grid lives inside the narrow article column, not the full-width archive.
+   Three cards here collapse into postage stamps on a desktop viewport. */
+.post-main .more .card-grid { grid-template-columns: 1fr; padding: 0; }
+@media (min-width: 640px) {
+  .post-main .more .card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 
 /* ===== footer ============================================================ */
 .site-footer {

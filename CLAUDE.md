@@ -17,6 +17,11 @@ cross-tool source of truth. It is imported below so Claude Code loads it in full
 - The **dev blog workflow** in AGENTS.md is the whole procedure for posting a
   server update: `devblog/blog.py` decides the range, scaffolds, validates and
   publishes. Do not drive git by hand for a post.
+- Before drafting any dev-blog post, give the user the exact, numbered
+  feature-specific screenshot brief required by AGENTS.md — filenames, setup,
+  action/menu, subjects, `/mgxadmin devblog` settings, HUD state and framing.
+  Match the supplied reference pages' punchy reveal voice, not only their
+  headings, emoji and bold formatting.
 - For substantial Minecraft integrations, it is acceptable to study, import,
   and adapt suitably licensed open-source plugins such as TAB or DiscordSRV
   instead of recreating established behavior. Verify license compatibility,

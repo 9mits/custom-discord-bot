@@ -106,6 +106,18 @@ you check nothing was missed. Where the two disagree, ask rather than guess.
 
 Posts written before `covers:` existed fall back to the previous post's date.
 
+### Give the human an exact screenshot brief first
+
+Before drafting a post, turn the confirmed update range into a numbered shot
+list. Never ask vaguely for "screenshots." For every image, specify the filename,
+feature/section, exact location and action or open menu, required players/items,
+`/mgxadmin devblog` camera/time/weather/armour/player settings, whether F1 should
+hide the HUD, and the intended framing. Identify the hero and card-icon shots.
+Ask for original, native-resolution files; use 16:9 landscape for action/world
+shots and a centred complete panel for UI shots. Keep the list economical: one
+strong hero plus one image or purposeful pair per major visual beat. Do not ask
+for an image when text communicates the change better.
+
 ### The house style
 
 Modelled on the BIG Games / Pet Simulator 99 update posts. Read a published one
@@ -121,6 +133,13 @@ first — `devblog/posts/2026-08-22-update-2.md` is the reference.
 - `tagline:` is the emoji-led hype line; it becomes the card excerpt and the
   link preview, so it carries the whole update in one sentence.
 - `signoff:` is the bold closing line.
+- **Match the reference voice, not just its Markdown.** Write like a reveal:
+  short, confident, excited beats; active player verbs; the reward, risk or
+  surprise first; and a playful dare, joke or warning to close. Let images do
+  the explaining. Avoid release-note narration such as "this is deliberate,"
+  implementation history, and cautious prose unless it prevents a player from
+  making a real mistake. The supplied **Piñata Maze** and **Void RNG Event**
+  pages are the tone benchmark.
 
 Emoji are correct here and are the one place this repo's no-decorative-emoji
 convention does not apply — that rule is about the Discord bot's own output.
