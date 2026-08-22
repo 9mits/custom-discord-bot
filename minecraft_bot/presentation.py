@@ -400,9 +400,10 @@ SERVER_RULES: tuple[tuple[str, str], ...] = (
         "called, a modification is cheating if it does any of the following:\n"
         "- **Shows what you could not see** — X-ray, ore and cave finders, "
         "freecam, tracers, player radar\n"
-        "- **Plays for you** — kill aura, aim assist, auto-clickers, auto-walk\n"
+        "- **Plays for you** — kill aura, aim assist, auto-walk\n"
         "- **Changes what your character can do** — extra reach, speed, flight, "
         "no fall damage\n\n"
+        "Macros and auto-clickers are allowed.\n\n"
         "Not knowing what your client bundles is not a defence.",
     ),
     (
@@ -421,10 +422,12 @@ SERVER_RULES: tuple[tuple[str, str], ...] = (
         "cheating.",
     ),
     (
-        "11. One account per player",
-        "Alternate accounts are prohibited when used to evade a punishment, "
-        "bypass a whitelist decision, or claim a second set of perks. Do not "
-        "share your account: anything done on it is your responsibility.",
+        "11. Link as many accounts as you want",
+        "You may link as many Java and Bedrock accounts as you like. Use "
+        "**Link Other Accounts** in Discord, pick the edition, and verify each "
+        "one the same way.\n\n"
+        "Using another account to evade a punishment is still banned. Do not "
+        "share an account: anything done on it is your responsibility.",
     ),
     (
         "12. Protect the server",
@@ -492,8 +495,7 @@ def application_panel() -> discord.ui.View:
 def application_guide_view() -> discord.ui.View:
     """The information panel's own buttons, so both surfaces show the same pages.
 
-    Everything except Link Your Other Edition, which needs an account that a
-    visitor does not have yet.
+    Everything except Link Other Accounts, which starts a new verification.
 
     Imported inside the function because `information` reads its embeds back out
     of this module, and importing it at module scope would close the loop.
@@ -519,23 +521,7 @@ def info_embed(title: str, description: str, *, success: bool = False, error: bo
 
 def verification_embed(application: MinecraftAccess, settings) -> discord.Embed:
     expires_at = datetime.fromtimestamp(application.verification_expires_at, timezone.utc)
-    if application.auto_detect_edition:
-        connection = _connection_blocks(settings)
-    elif application.edition.value == "JAVA":
-        connection = (
-            "**Java Edition — PC/Mac launcher**\n"
-            "> Choose **Multiplayer → Add Server**. Do not enter a separate Bedrock port.\n"
-            f"```text\n{settings.java_address}\n```"
-        )
-    else:
-        connection = (
-            "**Bedrock Edition — phone, console, or Windows**\n"
-            "> Add an external server using both values below.\n"
-            "**Address**\n"
-            f"```text\n{settings.bedrock_address}\n```\n"
-            "**Port**\n"
-            f"```text\n{settings.bedrock_port}\n```"
-        )
+    connection = _connection_blocks(settings)
     embed = info_embed(
         "Verify Your Minecraft Account",
         "> First step: show us the account is really yours.\n\n"
@@ -573,31 +559,29 @@ def _relative(timestamp: int) -> str:
 
 
 def _add_connection_fields(embed: discord.Embed, settings, edition=None) -> None:
-    """Server addresses as their own fields, one per edition.
+    """Server addresses as their own fields. Always both editions.
 
-    Fields rather than more description text: an address is the one thing someone
-    has to copy exactly, and it is far easier to find under its own heading than
-    part-way down a paragraph.
+    Adjacent code fences with no newline between them collapse in Discord, which
+    is how the Bedrock port used to vanish from the live card.
     """
-    if edition is None or edition.value == "JAVA":
-        embed.add_field(
-            name="Java — PC/Mac",
-            value=(
-                "Multiplayer → Add Server\n"
-                f"```text\n{settings.java_address}\n```"
-            ),
-            inline=True,
-        )
-    if edition is None or edition.value == "BEDROCK":
-        embed.add_field(
-            name="Bedrock — mobile, console, Windows",
-            value=(
-                "Servers → Add Server\n"
-                f"```text\n{settings.bedrock_address}\n```"
-                f"```text\nPort {settings.bedrock_port}\n```"
-            ),
-            inline=True,
-        )
+    del edition
+    embed.add_field(
+        name="Java — PC/Mac",
+        value=(
+            "Multiplayer → Add Server\n"
+            f"```text\n{settings.java_address}\n```"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="Bedrock — mobile, console, Windows",
+        value=(
+            "Servers → Add Server. Use both the address and the port.\n"
+            f"**Address**\n```text\n{settings.bedrock_address}\n```\n"
+            f"**Port**\n```text\n{settings.bedrock_port}\n```"
+        ),
+        inline=False,
+    )
 
 
 def live_status_embed(application: MinecraftAccess, settings) -> discord.Embed:
@@ -659,11 +643,7 @@ def live_status_embed(application: MinecraftAccess, settings) -> discord.Embed:
     # where the bar deliberately breaks. Everything else is quoted wholesale.
     embed = info_embed(title, body if body.startswith(">") else quote_block(body))
     if show_connection:
-        _add_connection_fields(
-            embed,
-            settings,
-            None if application.auto_detect_edition else application.edition,
-        )
+        _add_connection_fields(embed, settings)
     if status is AccessStatus.PENDING_VERIFICATION:
         embed.set_image(url=VERIFY_ATTACHMENT_URI)
     return embed

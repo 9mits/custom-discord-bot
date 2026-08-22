@@ -660,10 +660,10 @@ def mods_embed() -> discord.Embed:
                 "Not allowed on any edition",
                 "> **Seeing what is hidden** — X-ray, ore and cave finders, "
                 "freecam, tracers, player radar\n"
-                "> **Playing for you** — kill aura, aim assist, auto-clickers, "
-                "auto-walk\n"
+                "> **Playing for you** — kill aura, aim assist, auto-walk\n"
                 "> **Changing what your character can do** — extra reach, speed, "
                 "flight, no fall damage\n"
+                "> **Allowed** — macros and auto-clickers\n"
                 "> \n"
                 "> *Examples of each kind, not the full list.*",
             ),
@@ -845,7 +845,7 @@ class LinkEditionButton(
     discord.ui.DynamicItem[discord.ui.Button],
     template=r"mgx_info_link:(?P<scope>\w+)",
 ):
-    """Starts linking whichever edition the member does not have yet.
+    """Starts linking another Java or Bedrock account.
 
     An action rather than a page, so it stays out of :data:`PAGES`. It answers
     privately — the reply depends on who pressed it, and the panel is shared.
@@ -855,7 +855,7 @@ class LinkEditionButton(
         super().__init__(
             item
             or discord.ui.Button(
-                label="Link Your Other Edition",
+                label="Link Other Accounts",
                 style=discord.ButtonStyle.primary,
                 custom_id="mgx_info_link:self",
             )

@@ -44,7 +44,7 @@ The bridge exposes an HTTP WebSocket path inside the Minecraft bot process. Prod
 
 Every bridge message carries an HMAC-SHA256 signature, timestamp, random nonce, and idempotency key. Both sides reject messages outside a 30-second clock window and replayed nonces. The bridge accepts only `APPROVE`, `REVOKE`, `KICK`, `SYNC_PENDING`, `REMOVE_PENDING`, `STATUS`, `DISCORD_CHAT`, and the transient `SYNC_PROFILE` perk update; it cannot run arbitrary console commands. Paper sends signed, acknowledged `PLAYER_JOIN`, `PLAYER_LEAVE`, and `MINECRAFT_CHAT` events and receives a derived level profile when a linked player joins or their milestone roles change.
 
-Each Discord member can link at most one Java account and one Bedrock account. The limit is enforced transactionally when a verification is created and checked again when Paper verifies ownership.
+Each Discord member can link as many Java and Bedrock accounts as they want. A Minecraft account (UUID or Floodgate XUID) can still belong to only one Discord member.
 
 ## Discord bot configuration
 

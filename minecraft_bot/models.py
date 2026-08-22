@@ -42,8 +42,9 @@ class BridgeAction(StrEnum):
     STATUS = "STATUS"
 
 
-#: Statuses that occupy a member's one slot per edition. A pending verification
-#: reserves the slot so two members cannot race for the same username.
+#: Statuses that still occupy a claimed username. A pending verification
+#: reserves the name so two members cannot race for it; verified keeps it
+#: owned. Members may hold many verified accounts at once.
 ACTIVE_STATUSES = (
     AccessStatus.PENDING_VERIFICATION,
     AccessStatus.VERIFIED,
@@ -105,8 +106,8 @@ class InvalidTransition(RuntimeError):
 
 
 class DuplicateActiveVerification(RuntimeError):
-    """A Discord member already has a pending or completed verification."""
+    """A Discord member already has a pending verification in flight."""
 
 
 class AccountEditionAlreadyLinked(RuntimeError):
-    """A Discord member already owns the allowed account for this edition."""
+    """Kept for older callers. Linking is no longer capped per edition."""

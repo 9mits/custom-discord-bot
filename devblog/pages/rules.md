@@ -2,7 +2,7 @@
 title: Server Rules
 nav: Rules
 order: 3
-tagline: These rules apply to every Mysterious SMP X player. Read them before you verify — accepting them is part of joining.
+tagline: These rules apply to every Mysterious SMP X player. Read them before you apply — accepting them is part of the application.
 ---
 
 ## 1. Griefing is allowed
@@ -51,8 +51,10 @@ What happens in Minecraft stays in Minecraft. Conflict belongs to the story rath
 
 Hacked clients, duping and exploits are banned on sight. Whatever it is called, a modification is cheating if it does any of the following:
 - **Shows what you could not see** — X-ray, ore and cave finders, freecam, tracers, player radar
-- **Plays for you** — kill aura, aim assist, auto-clickers, auto-walk
+- **Plays for you** — kill aura, aim assist, auto-walk
 - **Changes what your character can do** — extra reach, speed, flight, no fall damage
+
+Macros and auto-clickers are allowed.
 
 Not knowing what your client bundles is not a defence.
 
@@ -66,9 +68,11 @@ Performance, shader, mapping, building and quality-of-life mods are welcome, as 
 
 If you find a duplication bug, a way through a protection, or anything the server clearly did not intend, tell staff. Using it, profiting from it before reporting it, or passing it to anyone else is treated as cheating.
 
-## 11. One account per player
+## 11. Link as many accounts as you want
 
-Alternate accounts are prohibited when used to evade a punishment, bypass a whitelist decision, or claim a second set of perks. Do not share your account: anything done on it is your responsibility.
+You may link as many Java and Bedrock accounts as you like. Use **Link Other Accounts** in Discord, pick the edition, and verify each one the same way.
+
+Using another account to evade a punishment is still banned. Do not share an account: anything done on it is your responsibility.
 
 ## 12. Protect the server
 

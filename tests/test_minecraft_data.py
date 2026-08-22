@@ -8,7 +8,6 @@ from types import SimpleNamespace
 
 from minecraft_bot.data import MinecraftDataManager, normalize_username
 from minecraft_bot.models import (
-    AccountEditionAlreadyLinked,
     AccessStatus,
     BridgeAction,
     DuplicateActiveVerification,
@@ -242,7 +241,7 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
             ("Real Name", "real name"),
         )
 
-    async def test_user_can_link_one_account_per_edition(self):
+    async def test_user_can_link_many_accounts_per_edition(self):
         java = await self.create_pending()
         await self.data.record_verification(
             access_id=java.id,
@@ -253,30 +252,34 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
             event_idempotency_key="java-account-limit",
             now=1010,
         )
-        await self.data._connection().execute(
-            "UPDATE minecraft_access SET status=? WHERE id=?",
-            (AccessStatus.REVOKED.value, java.id),
-        )
-        await self.data._connection().commit()
 
-        with self.assertRaises(AccountEditionAlreadyLinked):
-            await self.create_pending(username="OtherJava", now=1020)
+        extra = await self.create_pending(username="OtherJava", now=1020)
+        verified, _changed = await self.data.record_verification(
+            access_id=extra.id,
+            edition=Edition.JAVA,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174098",
+            current_username="OtherJava",
+            xuid=None,
+            event_idempotency_key="second-java",
+            now=1030,
+        )
+        self.assertEqual(verified.status, AccessStatus.VERIFIED)
 
         bedrock = await self.create_pending(
             edition=Edition.BEDROCK,
             username="Bedrock User",
-            now=1020,
+            now=1040,
         )
         self.assertEqual(bedrock.edition, Edition.BEDROCK)
 
-    async def test_verification_rechecks_edition_limit_transactionally(self):
+    async def test_verification_still_blocks_an_account_owned_by_someone_else(self):
         application = await self.create_pending(username="OtherJava")
         await self.data._connection().execute(
             "INSERT INTO minecraft_accounts"
             "(discord_user_id, edition, minecraft_uuid, current_username, verified_at, "
             "last_seen_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
-                "42",
+                "99",
                 Edition.JAVA.value,
                 "123e4567-e89b-12d3-a456-426614174099",
                 "OriginalJava",
@@ -288,11 +291,11 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
         )
         await self.data._connection().commit()
 
-        with self.assertRaisesRegex(InvalidTransition, "linked Java account"):
+        with self.assertRaisesRegex(InvalidTransition, "linked to another Discord member"):
             await self.data.record_verification(
                 access_id=application.id,
                 edition=Edition.JAVA,
-                minecraft_uuid="123e4567-e89b-12d3-a456-426614174098",
+                minecraft_uuid="123e4567-e89b-12d3-a456-426614174099",
                 current_username="OtherJava",
                 xuid=None,
                 event_idempotency_key="defensive-account-limit",
@@ -692,17 +695,17 @@ class SecondEditionLinkTests(unittest.IsolatedAsyncioTestCase):
         )
         return verified
 
-    async def test_the_one_per_edition_ceiling_is_unchanged(self):
+    async def test_a_verified_member_can_start_another_verification(self):
         await self._approve_java()
 
-        with self.assertRaises(AccountEditionAlreadyLinked):
-            await self.data.create_verification(
-                guild_id=10,
-                discord_user_id=42,
-                edition=Edition.JAVA,
-                claimed_username="SomeoneElse",
-                now=5000,
-            )
+        extra = await self.data.create_verification(
+            guild_id=10,
+            discord_user_id=42,
+            edition=Edition.JAVA,
+            claimed_username="SomeoneElse",
+            now=5000,
+        )
+        self.assertEqual(extra.status, AccessStatus.PENDING_VERIFICATION)
 
 
 class MinecraftAccessIntegrityTests(unittest.IsolatedAsyncioTestCase):

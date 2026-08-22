@@ -27,7 +27,7 @@ from .audit import (
 from . import clans
 from .bridge import MinecraftBridgeServer
 from .config import MinecraftConfig
-from .data import ACTIVE_STATUSES, MinecraftDataManager
+from .data import MinecraftDataManager
 from .models import AccessStatus, BridgeAction, Edition, InvalidTransition, MinecraftAccess, OutboxRecord
 from .perks import (
     BOOSTER_ROLE_ID,
@@ -673,29 +673,14 @@ class MinecraftAccessBot(commands.Bot):
     async def build_link_edition_prompt(
         self, user_id: int | str
     ) -> tuple[discord.Embed, Optional[discord.ui.View]]:
-        """The card offering to link whichever edition a member is missing.
+        """The card offering to link another Java or Bedrock account.
 
-        Reads their real state rather than assuming, so the same button answers
-        correctly whether they hold one edition, both, or none. Linking only ever
-        adds; unlinking stays a staff action.
+        Linking only ever adds; unlinking stays a staff action. There is no
+        per-edition ceiling — pick either button as many times as you need.
         """
-        accounts, applications = await asyncio.gather(
-            self.data.list_accounts_for_user(user_id),
-            self.data.list_access_for_user(user_id, limit=1),
-        )
-        linked = {str(row["edition"]).upper() for row in accounts}
-        if len(linked) >= len(Edition):
-            return (
-                info_embed(
-                    "Both Editions Linked",
-                    "> A Java account and a Bedrock account are both linked to "
-                    "you.\n"
-                    "> Please contact staff if either of them needs changing.",
-                ),
-                None,
-            )
+        applications = await self.data.list_access_for_user(user_id, limit=1)
         latest = applications[0] if applications else None
-        if latest is not None and latest.status in ACTIVE_STATUSES:
+        if latest is not None and latest.status is AccessStatus.PENDING_VERIFICATION:
             return (
                 info_embed(
                     "Verification Already Active",
@@ -707,26 +692,25 @@ class MinecraftAccessBot(commands.Bot):
                 ),
                 None,
             )
-        if not linked:
-            # Linking starts here rather than being sent elsewhere. Members lose the
-            # verification channel once they can play, so pointing them at it was
-            # a dead end for the very people who needed this.
-            return (
-                info_embed(
-                    "Link Your Minecraft Account",
-                    "> No Minecraft account is linked to your Discord account yet. "
-                    "Select the edition you play on to begin.\n"
-                    + self._LINK_STEPS,
-                ),
-                LinkEditionView(user_id, *Edition),
-            )
-        missing = next(edition for edition in Edition if edition.value not in linked)
+        settings = self.settings
         return (
             info_embed(
-                f"Link Your {missing.value.title()} Account",
-                self._LINK_STEPS.lstrip("\n"),
+                "Link Other Accounts",
+                "> You can link as many Java and Bedrock accounts as you want.\n"
+                "> Pick the edition, enter that account's name, then join once "
+                "with it.\n"
+                + self._LINK_STEPS
+                + "\n\n"
+                "**Java — PC/Mac**\n"
+                "> Multiplayer → Add Server, then paste this address. Do not use "
+                "the Bedrock port.\n"
+                f"```text\n{settings.java_address}\n```\n"
+                "**Bedrock — phone, console, or Windows**\n"
+                "> Add an external server using both the address and the port.\n"
+                f"**Address**\n```text\n{settings.bedrock_address}\n```\n"
+                f"**Port**\n```text\n{settings.bedrock_port}\n```",
             ),
-            LinkEditionView(user_id, missing),
+            LinkEditionView(user_id, *Edition),
         )
 
     async def build_account_embed(self, user_id: int | str) -> discord.Embed:
