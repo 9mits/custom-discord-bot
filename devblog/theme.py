@@ -35,13 +35,16 @@ FONT_URL = (
 STYLESHEET = """
 /* ===== tokens ============================================================ */
 :root {
-  --page-bg: #f7f8fa;
-  --canvas: #eceff4;
+  --page-bg: #faf8f5;
+  --canvas: #f2ece5;
   --surface: #ffffff;
-  --surface-raised: #eff1f5;
-  --ink: #1b1d21;
-  --text-muted: #6b7280;
-  --grey: #8b93a1;
+  --surface-raised: #f4eee7;
+  --ink: #211c17;
+  --text-muted: #6f6459;
+  --grey: #948a7e;
+  /* Ambient brand bloom behind every page. */
+  --bloom: rgba(240, 96, 0, .09);
+  --bloom-2: rgba(240, 144, 48, .06);
   --orange: #ff9d43;
   --orange-deep: #ef8420;
   /* Sampled from the logo art: a red-to-amber ramp with a deep red shadow. */
@@ -52,8 +55,8 @@ STYLESHEET = """
   --brand-ramp: linear-gradient(100deg, var(--brand-red), var(--brand-orange) 45%, var(--brand-amber));
   --blue: #3b82f6;
   --green: #34c46b;
-  --line: rgba(110, 110, 110, .20);
-  --shadow-rgb: 27, 29, 33;
+  --line: rgba(120, 96, 72, .20);
+  --shadow-rgb: 40, 28, 18;
   /* One motion vocabulary for the whole site. Buttons, cards and the nav all
      use these, so nothing feels like it came from a different page. */
   --ease: cubic-bezier(.2, .7, .3, 1);
@@ -67,7 +70,7 @@ STYLESHEET = """
   /* Art plate. Post artwork is often a transparent PNG with light ink, which
      is invisible on the light theme's near-white page. Opaque art covers this
      completely, so it costs nothing there. */
-  --art-plate: #16181c;
+  --art-plate: #17120e;
   --card-radius: 1.875rem;
   --img-radius: 1.25rem;
   --page-max: 1240px;
@@ -79,28 +82,32 @@ STYLESHEET = """
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --page-bg: #0e1013;
-    --canvas: #14171a;
-    --surface: #1a1e24;
-    --surface-raised: #232830;
-    --ink: #f2f4f7;
-    --text-muted: #9aa3b1;
-    --grey: #7b8492;
-    --line: rgba(255, 255, 255, .10);
+    --page-bg: #13100d;
+    --canvas: #1a1613;
+    --surface: #211b16;
+    --surface-raised: #2c241d;
+    --ink: #f7f3ee;
+    --text-muted: #b3a79c;
+    --grey: #8f8378;
+    --line: rgba(255, 198, 148, .13);
     --shadow-rgb: 0, 0, 0;
+    --bloom: rgba(240, 96, 0, .16);
+    --bloom-2: rgba(240, 144, 48, .09);
   }
 }
 
 :root[data-theme="dark"] {
-  --page-bg: #0e1013;
-  --canvas: #14171a;
-  --surface: #1a1e24;
-  --surface-raised: #232830;
-  --ink: #f2f4f7;
-  --text-muted: #9aa3b1;
-  --grey: #7b8492;
-  --line: rgba(255, 255, 255, .10);
+  --page-bg: #13100d;
+  --canvas: #1a1613;
+  --surface: #211b16;
+  --surface-raised: #2c241d;
+  --ink: #f7f3ee;
+  --text-muted: #b3a79c;
+  --grey: #8f8378;
+  --line: rgba(255, 198, 148, .13);
   --shadow-rgb: 0, 0, 0;
+  --bloom: rgba(240, 96, 0, .16);
+  --bloom-2: rgba(240, 144, 48, .09);
 }
 
 /* ===== base ============================================================== */
@@ -124,9 +131,20 @@ a { color: inherit; }
 
 /* The whole content area sits on a soft vertical gradient, as on BIG Games. */
 .page {
+  position: relative;
   background: linear-gradient(to bottom, var(--page-bg), var(--canvas));
   padding-bottom: 3rem;
 }
+/* Two soft brand blooms sit over the page gradient — one behind the masthead,
+   one low and off to the side — so the background carries the brand instead of
+   being flat neutral dark. */
+.page::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 0;
+  background:
+    radial-gradient(110% 44rem at 50% -6rem, var(--bloom), transparent 68%),
+    radial-gradient(70% 34rem at 88% 32%, var(--bloom-2), transparent 70%);
+}
+.page > * { position: relative; z-index: 1; }
 
 /* ===== top bar =========================================================== */
 /* Brand ramp pinned above the nav — the first thing that reads as "ours". */
@@ -134,7 +152,7 @@ a { color: inherit; }
 
 .topbar {
   position: sticky; top: 0; z-index: 200;
-  background: color-mix(in srgb, var(--page-bg) 78%, transparent);
+  background: color-mix(in srgb, var(--page-bg) 82%, transparent);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
   border-bottom: 1px solid var(--line);
@@ -591,7 +609,10 @@ a { color: inherit; }
 .more h5 { margin: 0 0 1.25rem; font-size: 1.875rem; font-weight: 700; color: var(--ink); }
 
 /* ===== footer ============================================================ */
-.site-footer { margin-top: 3rem; padding: 0 var(--rail) 3rem; }
+.site-footer {
+  margin-top: 3rem; padding: 0 var(--rail) 3rem;
+  background: linear-gradient(to bottom, var(--canvas), var(--page-bg));
+}
 .site-footer::before {
   content: ""; display: block; height: 2px; max-width: var(--page-max);
   margin: 0 auto; background: var(--brand-ramp); opacity: .55; border-radius: 2px;

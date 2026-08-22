@@ -23,7 +23,7 @@ pip install -r devblog/requirements.txt
 python devblog/build.py                 # writes devblog/dist/
 python devblog/build.py --serve         # build, then http://127.0.0.1:8000
 python devblog/build.py --drafts        # include posts marked draft
-python devblog/tests/test_build.py      # 123 tests
+python devblog/tests/test_build.py      # 131 tests
 python devblog/sync_from_bot.py        # regenerate guide.md and rules.md
 MC_SERVER_HOST=... MC_SERVER_PORT=... python devblog/server_status.py
 ```
@@ -47,6 +47,17 @@ module-scope import took the whole suite down on CI.
 `dist/` is git-ignored — the workflow rebuilds it. Never commit it.
 
 ## Write a post
+
+**If you just want to publish a post, read [WRITING.md](WRITING.md)** — it is
+four commands and needs no git. The rest of this file is how the thing works.
+
+```bash
+python devblog/blog.py new "Fiesta Forever" --category Event
+python devblog/blog.py preview
+python devblog/blog.py publish
+```
+
+### The format
 
 Two things go in: **one markdown file** and **one folder of images**.
 
