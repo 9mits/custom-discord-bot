@@ -133,6 +133,11 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         }
     }
 
+    /** Keys an hour online is worth. Doubled alongside the 45% cut to the odds, so a
+     *  player opens twice as often for roughly the loot per hour they had before. */
+    static final int KEYS_PER_HOUR = 2;
+    static final int BOOSTER_KEYS_PER_HOUR = 3;
+
     private final MGXAccessBridge plugin;
     private final CrateStore store;
     private final CrateItems items;
@@ -232,10 +237,10 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 "Your Keys",
                 "In inventory: " + items.count(player),
                 "Banked: " + store.bankedKeys(player.getUniqueId()),
-                "Next hourly key in " + remainingTime(
+                "Next keys in " + remainingTime(
                         store.millisUntilNextKey(player.getUniqueId())
                 ) + ".",
-                "One key is earned per online hour."
+                keysPerHour(player) + " keys are earned per online hour."
         ));
         inventory.setItem(HUB_OPEN_SLOT, MenuItems.button(
                 Material.CHEST,
@@ -297,7 +302,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             PlayerMenuService.error(player, "You need a Mysterious Crate Key to open a crate.");
             return;
         }
-        int luck = specialItems.crateLuckMultiplier(player);
+        int luck = specialItems.crateLuckPercent(player);
         int luckyTotal = CrateCatalog.luckyTotalWeight(luck);
         CrateCatalog.Reward reward = CrateCatalog.rewardAtLucky(
                 ThreadLocalRandom.current().nextInt(luckyTotal), luck
@@ -404,13 +409,13 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         inventory.setItem(RESULT_AGAIN_SLOT, MenuItems.button(
                 keys > 0 ? Material.CHEST : Material.BARRIER,
                 keys > 0 ? "Open Again" : "No Keys Left",
-                keys > 0 ? "Spends one of your " + keys + " keys." : "Earn one per online hour."
+                keys > 0 ? "Spends one of your " + keys + " keys." : "Earn them by playing."
         ));
         inventory.setItem(RESULT_AUTO_SLOT, MenuItems.button(
                 keys > 0 ? Material.HOPPER : Material.BARRIER,
                 "Auto Open",
                 keys > 0 ? "Opens all " + keys + " of your keys." : "You have no keys to spend.",
-                keys > 0 ? "You confirm before anything is spent." : "Earn one per online hour."
+                keys > 0 ? "You confirm before anything is spent." : "Earn them by playing."
         ));
         inventory.setItem(RESULT_BACK_SLOT, MenuItems.button(Material.BARRIER, "Close"));
         MenuItems.show(plugin, player, inventory);
@@ -891,6 +896,13 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         }
     }
 
+    /** What an hour online is worth to this player, before any live event. */
+    private int keysPerHour(Player player) {
+        return perks.profile(player.getUniqueId()).booster()
+                ? BOOSTER_KEYS_PER_HOUR
+                : KEYS_PER_HOUR;
+    }
+
     private Map<UUID, CrateStore.KeyCredit> creditOnline(Map<UUID, Long> elapsed) {
         if (elapsed.isEmpty()) {
             return Map.of();
@@ -899,7 +911,9 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             Map<UUID, Integer> rates = new HashMap<>();
             int eventRate = plugin.serverEventMultiplier(ServerEventType.KEY);
             elapsed.keySet().forEach(playerId -> rates.put(
-                    playerId, (perks.profile(playerId).booster() ? 2 : 1) * eventRate
+                    playerId,
+                    (perks.profile(playerId).booster() ? BOOSTER_KEYS_PER_HOUR : KEYS_PER_HOUR)
+                            * eventRate
             ));
             return store.creditOnline(elapsed, rates);
         } catch (IllegalArgumentException | ArithmeticException | UncheckedIOException exception) {

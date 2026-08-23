@@ -16,6 +16,10 @@ import java.util.Optional;
  */
 final class CrateCatalog {
     static final int TOTAL_WEIGHT = 100_000;
+    /** Crate luck is a percentage of a rare reward's weight; 100 is no potion at all. */
+    static final int NO_LUCK_PERCENT = 100;
+    /** Crate Luck V, and the ceiling once a live event has multiplied a potion. */
+    static final int MAX_LUCK_PERCENT = 300;
     /** 0.01% of {@link #TOTAL_WEIGHT}; the server-wide chime is reserved for rarer wins. */
     static final int JACKPOT_WEIGHT = TOTAL_WEIGHT / 10_000;
 
@@ -168,15 +172,15 @@ final class CrateCatalog {
         throw new IllegalStateException("Crate reward weights do not cover every ticket");
     }
 
-    static int luckyTotalWeight(int multiplier) {
-        int safeMultiplier = Math.max(1, Math.min(5, multiplier));
-        return REWARDS.stream().mapToInt(reward -> effectiveWeight(reward, safeMultiplier)).sum();
+    static int luckyTotalWeight(int luckPercent) {
+        int safePercent = clampLuckPercent(luckPercent);
+        return REWARDS.stream().mapToInt(reward -> effectiveWeight(reward, safePercent)).sum();
     }
 
     /** Rare rewards receive the advertised proportional weight while commons do not. */
-    static Reward rewardAtLucky(int ticket, int multiplier) {
-        int safeMultiplier = Math.max(1, Math.min(5, multiplier));
-        int total = luckyTotalWeight(safeMultiplier);
+    static Reward rewardAtLucky(int ticket, int luckPercent) {
+        int safePercent = clampLuckPercent(luckPercent);
+        int total = luckyTotalWeight(safePercent);
         if (ticket < 0 || ticket >= total) {
             throw new IllegalArgumentException(
                     "Lucky crate ticket must be between 0 and " + (total - 1)
@@ -184,7 +188,7 @@ final class CrateCatalog {
         }
         int boundary = 0;
         for (Reward reward : REWARDS) {
-            boundary += effectiveWeight(reward, safeMultiplier);
+            boundary += effectiveWeight(reward, safePercent);
             if (ticket < boundary) {
                 return reward;
             }
@@ -192,8 +196,17 @@ final class CrateCatalog {
         throw new IllegalStateException("Lucky crate weights do not cover every ticket");
     }
 
-    private static int effectiveWeight(Reward reward, int multiplier) {
-        return reward.rare() ? Math.multiplyExact(reward.weight(), multiplier) : reward.weight();
+    /** Rounds to the nearest whole ticket so the smallest weights still gain from luck. */
+    private static int effectiveWeight(Reward reward, int luckPercent) {
+        if (!reward.rare()) {
+            return reward.weight();
+        }
+        return Math.max(1, (Math.multiplyExact(reward.weight(), luckPercent) + 50) / 100);
+    }
+
+    /** No potion at all, and the ceiling a potion plus a live event may reach. */
+    static int clampLuckPercent(int luckPercent) {
+        return Math.max(NO_LUCK_PERCENT, Math.min(MAX_LUCK_PERCENT, luckPercent));
     }
 
     static String percentage(int weight) {
@@ -322,23 +335,23 @@ final class CrateCatalog {
                 "ENCHANTED_BOOK", 1, "The highest permanent Fortune level."
         ));
         rewards.add(customPotion("fortune_potion_i", "Fortune Potion I", 138,
-                "mgx:fortune_potion", "Multiplies eligible ore drops up to level I."));
+                "mgx:fortune_potion", "Multiplies eligible ore drops by 1.25x."));
         rewards.add(customPotion("fortune_potion_ii", "Fortune Potion II", 55,
-                "mgx:fortune_potion", "Multiplies eligible ore drops by 2x."));
+                "mgx:fortune_potion", "Multiplies eligible ore drops by 1.5x."));
         rewards.add(customPotion("fortune_potion_iii", "Fortune Potion III", 19,
-                "mgx:fortune_potion", "Multiplies eligible ore drops by 3x."));
+                "mgx:fortune_potion", "Multiplies eligible ore drops by 2x."));
         rewards.add(customPotion("fortune_potion_iv", "Fortune Potion IV", 6,
-                "mgx:fortune_potion", "Multiplies eligible ore drops by 4x."));
+                "mgx:fortune_potion", "Multiplies eligible ore drops by 2.5x."));
         rewards.add(customPotion("fortune_potion_v", "Fortune Potion V", 1,
-                "mgx:fortune_potion", "Multiplies eligible ore drops by 5x."));
+                "mgx:fortune_potion", "Multiplies eligible ore drops by 3x."));
         rewards.add(customPotion("crate_luck_ii", "Crate Luck II", 41,
-                "mgx:crate_luck_potion", "Doubles rare reward weight for a limited time."));
+                "mgx:crate_luck_potion", "1.5x rare reward weight for a limited time."));
         rewards.add(customPotion("crate_luck_iii", "Crate Luck III", 14,
-                "mgx:crate_luck_potion", "Triples rare reward weight for a limited time."));
+                "mgx:crate_luck_potion", "2x rare reward weight for a limited time."));
         rewards.add(customPotion("crate_luck_iv", "Crate Luck IV", 3,
-                "mgx:crate_luck_potion", "Quadruples rare reward weight for a limited time."));
+                "mgx:crate_luck_potion", "2.5x rare reward weight for a limited time."));
         rewards.add(customPotion("crate_luck_v", "Crate Luck V", 1,
-                "mgx:crate_luck_potion", "Multiplies rare reward weight by 5x for a limited time."));
+                "mgx:crate_luck_potion", "3x rare reward weight for a limited time."));
         for (CosmeticCatalog.Definition cosmetic : CosmeticCatalog.all()) {
             rewards.add(cosmetic(cosmetic));
         }
