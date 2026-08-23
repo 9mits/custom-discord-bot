@@ -40,6 +40,7 @@ import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityInteractEvent;
 import org.bukkit.event.entity.EntityTransformEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -868,17 +869,75 @@ final class ChaosService implements Listener {
      */
     private void protect(Session session) {
         forTargets(session, player -> {
-            boolean wasInvulnerable = player.isInvulnerable();
-            boolean wasCollidable = player.isCollidable();
             player.setInvulnerable(true);
             // A scaled-up player has a scaled-up hitbox, which would otherwise
             // shove villagers off workstations and mobs out of farms.
             player.setCollidable(false);
-            session.undoFor(player, () -> {
-                player.setInvulnerable(wasInvulnerable);
-                player.setCollidable(wasCollidable);
-            });
+            session.undoFor(player, () -> unprotect(session, player));
         });
+    }
+
+    /**
+     * Ends one session's protection, back to the baseline rather than to whatever the
+     * flag happened to be when the session started.
+     *
+     * <p>Capturing it was the bug: two events overlapping meant the second recorded the
+     * first one's protection as the player's own state and restored it after both had
+     * finished. Minecraft persists {@code Invulnerable} in playerdata, so the player
+     * then took no damage from anything, through every restart, and nothing in the
+     * plugin ever looked at the flag again. It reads in game as "PvP is broken", and no
+     * gamerule can undo it.
+     */
+    private void unprotect(Session ending, Player player) {
+        for (Session other : active) {
+            if (other != ending && !other.ended
+                    && other.perPlayer.containsKey(player.getUniqueId())) {
+                return;
+            }
+        }
+        heal(player);
+    }
+
+    /** Drops event protection unless something that is running right now wants it. */
+    private void heal(Player player) {
+        if (plugin.inScreenshotMode(player)) {
+            return;
+        }
+        if (player.isInvulnerable()) {
+            player.setInvulnerable(false);
+        }
+        if (!player.isCollidable()) {
+            player.setCollidable(true);
+        }
+    }
+
+    /** Clears protection an event left on anyone online, whatever ended it. */
+    void healEveryone() {
+        for (Player player : online()) {
+            if (!protectedNow(player)) {
+                heal(player);
+            }
+        }
+    }
+
+    private boolean protectedNow(Player player) {
+        for (Session session : active) {
+            if (!session.ended && session.perPlayer.containsKey(player.getUniqueId())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The flag is saved with the player, so someone who was protected when an event
+     * broke comes back still immortal. This is where that ends.
+     */
+    @EventHandler
+    public void onJoin(PlayerJoinEvent event) {
+        if (!protectedNow(event.getPlayer())) {
+            heal(event.getPlayer());
+        }
     }
 
     // ------------------------------------------------------------ scheduling
@@ -924,6 +983,7 @@ final class ChaosService implements Listener {
             player.resetPlayerTime();
             player.resetPlayerWeather();
             clearScale(player);
+            heal(player);
         }
     }
 
