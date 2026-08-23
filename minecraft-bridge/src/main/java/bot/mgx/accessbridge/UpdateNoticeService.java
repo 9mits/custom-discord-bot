@@ -64,6 +64,15 @@ final class UpdateNoticeService implements Listener {
         return generation;
     }
 
+    /**
+     * Shows the banner to whoever is already on, and records that they have seen
+     * it, so the blog watcher does not show it to them again on their next join.
+     */
+    void showTo(Collection<? extends Player> audience) {
+        show(audience);
+        store.markSeen(audience.stream().map(Player::getUniqueId).toList());
+    }
+
     private void show(Collection<? extends Player> audience) {
         broadcasts.announceBanner(audience, HEADING, body());
     }

@@ -78,32 +78,34 @@ class UpdateNoticeStoreTest {
     }
 
     @Test
-    void featureVersionIgnoresThePatchNumber() {
-        assertEquals("6.5", UpdateNoticeStore.featureVersion("6.5.1"));
-        assertEquals("6.5", UpdateNoticeStore.featureVersion("6.5.0"));
-        assertEquals("10.0", UpdateNoticeStore.featureVersion(" 10.0.3 "));
-        assertEquals("", UpdateNoticeStore.featureVersion("6"));
-        assertEquals("", UpdateNoticeStore.featureVersion(null));
-    }
-
-    @Test
-    void theFirstRunNeverAnnounces(@TempDir Path directory) throws IOException {
+    void theFirstSightingNeverAnnounces(@TempDir Path directory) throws IOException {
         UpdateNoticeStore store = new UpdateNoticeStore(directory.resolve("update-notices.json"));
-        // Creating the store is not an update: everybody online already has
-        // this version, and a banner for it would be a lie.
-        assertFalse(store.publishIfVersionChanged("6.5.0"));
+        // The server has only just learned which post is newest. Everybody has
+        // almost certainly already seen it, so a banner would be a lie.
+        assertFalse(store.publishIfPostChanged("update-3"));
         assertFalse(store.active());
     }
 
     @Test
-    void aFeatureBumpAnnouncesButAPatchDoesNot(@TempDir Path directory) throws IOException {
+    void aNewPostAnnouncesAndTheSameOneDoesNot(@TempDir Path directory) throws IOException {
         Path file = directory.resolve("update-notices.json");
-        new UpdateNoticeStore(file).publishIfVersionChanged("6.4.0");
+        new UpdateNoticeStore(file).publishIfPostChanged("update-3");
 
         UpdateNoticeStore store = new UpdateNoticeStore(file);
-        assertFalse(store.publishIfVersionChanged("6.4.9"), "a patch is not an update");
-        assertTrue(store.publishIfVersionChanged("6.5.0"), "a feature bump is");
+        assertFalse(store.publishIfPostChanged("update-3"), "same post, nothing new to read");
+        assertTrue(store.publishIfPostChanged("update-4"), "a new post is an update");
         assertTrue(store.active());
-        assertFalse(store.publishIfVersionChanged("6.5.3"), "still the same feature version");
+        assertFalse(store.publishIfPostChanged("update-4"), "still the same post");
     }
+
+    @Test
+    void anEmptyOrMissingSlugIsIgnored(@TempDir Path directory) throws IOException {
+        UpdateNoticeStore store = new UpdateNoticeStore(directory.resolve("update-notices.json"));
+        // A site that is half-built or briefly broken must not clear the record
+        // and then announce the same post all over again.
+        assertFalse(store.publishIfPostChanged(null));
+        assertFalse(store.publishIfPostChanged("   "));
+        assertFalse(store.active());
+    }
+
 }
