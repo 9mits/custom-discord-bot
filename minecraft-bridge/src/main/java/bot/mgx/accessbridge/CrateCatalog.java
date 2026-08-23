@@ -196,8 +196,11 @@ final class CrateCatalog {
     private static List<Reward> buildRewards() {
         List<Reward> rewards = new ArrayList<>();
         rewards.add(item(
-                "raw_copper", "16 Raw Copper", Category.RESOURCE, 10_360,
-                "RAW_COPPER", 16, "A useful mining bundle without shop cash."
+                // Oak Wood, not Oak Log: the shop sells every log, and a crate
+                // reward you could simply buy is not a reward. The six-sided
+                // bark block is the one wood variant /shop does not stock.
+                "oak_wood", "32 Oak Wood", Category.RESOURCE, 10_360,
+                "OAK_WOOD", 32, "A building stack the shop does not stock."
         ));
         rewards.add(item(
                 "raw_iron", "8 Raw Iron", Category.RESOURCE, 10_000,

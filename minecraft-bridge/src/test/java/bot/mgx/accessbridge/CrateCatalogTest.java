@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CrateCatalogTest {
     private static final Map<String, Integer> EXPECTED_ITEM_WEIGHTS = Map.ofEntries(
-            Map.entry("raw_copper", 10_360),
+            Map.entry("oak_wood", 10_360),
             Map.entry("raw_iron", 10_000),
             Map.entry("raw_gold", 8_500),
             Map.entry("emeralds", 8_000),
