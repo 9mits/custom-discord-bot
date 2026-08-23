@@ -236,23 +236,45 @@ class CrateCatalogTest {
     }
 
     @Test
-    void crateLuckMultipliesOnlyRareRewardWeights() {
-        int multiplier = 5;
-        int expectedTotal = CrateCatalog.all().stream()
-                .mapToInt(reward -> reward.weight() * (reward.rare() ? multiplier : 1))
-                .sum();
-        assertEquals(expectedTotal, CrateCatalog.luckyTotalWeight(multiplier));
+    void crateLuckScalesOnlyRareRewardWeights() {
+        for (int percent : new int[] {150, 200, 250, CrateCatalog.MAX_LUCK_PERCENT}) {
+            int expectedTotal = CrateCatalog.all().stream()
+                    .mapToInt(reward -> luckyWeight(reward, percent))
+                    .sum();
+            assertEquals(expectedTotal, CrateCatalog.luckyTotalWeight(percent));
 
-        Map<String, Integer> observed = new HashMap<>();
-        for (int ticket = 0; ticket < expectedTotal; ticket++) {
-            observed.merge(CrateCatalog.rewardAtLucky(ticket, multiplier).id(), 1, Integer::sum);
+            Map<String, Integer> observed = new HashMap<>();
+            for (int ticket = 0; ticket < expectedTotal; ticket++) {
+                observed.merge(CrateCatalog.rewardAtLucky(ticket, percent).id(), 1, Integer::sum);
+            }
+            for (CrateCatalog.Reward reward : CrateCatalog.all()) {
+                assertEquals(
+                        luckyWeight(reward, percent),
+                        observed.getOrDefault(reward.id(), 0), reward.id() + " at " + percent
+                );
+            }
         }
-        for (CrateCatalog.Reward reward : CrateCatalog.all()) {
-            assertEquals(
-                    reward.weight() * (reward.rare() ? multiplier : 1),
-                    observed.getOrDefault(reward.id(), 0), reward.id()
-            );
-        }
+    }
+
+    @Test
+    void crateLuckIsClampedAndTheSmallestWeightsStillGain() {
+        assertEquals(CrateCatalog.NO_LUCK_PERCENT, CrateCatalog.clampLuckPercent(1));
+        assertEquals(CrateCatalog.NO_LUCK_PERCENT, CrateCatalog.clampLuckPercent(-40));
+        assertEquals(CrateCatalog.MAX_LUCK_PERCENT, CrateCatalog.clampLuckPercent(900));
+        assertEquals(
+                CrateCatalog.totalWeight(),
+                CrateCatalog.luckyTotalWeight(CrateCatalog.NO_LUCK_PERCENT)
+        );
+        // Crate Luck V on a weight of 1: rounding down would make the potion worthless
+        // for exactly the rewards it is bought for.
+        assertEquals(3, luckyWeight(CrateCatalog.find("crate_luck_v").orElseThrow(), 300));
+    }
+
+    /** Mirrors the catalog's rounding, so the expectation is not the code under test. */
+    private static int luckyWeight(CrateCatalog.Reward reward, int percent) {
+        return reward.rare()
+                ? Math.max(1, (reward.weight() * percent + 50) / 100)
+                : reward.weight();
     }
 
     @Test

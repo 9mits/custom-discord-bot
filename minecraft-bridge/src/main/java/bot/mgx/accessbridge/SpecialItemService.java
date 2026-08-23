@@ -97,13 +97,7 @@ final class SpecialItemService implements Listener {
         }
         if (id.startsWith("fortune_potion_")) {
             int level = romanLevel(id);
-            double multiplier = switch (level) {
-                case 1 -> 1.5d;
-                case 2 -> 2d;
-                case 3 -> 3d;
-                case 4 -> 4d;
-                default -> 5d;
-            };
+            double multiplier = fortunePotionMultiplier(level);
             return Optional.of(customPotion(
                     "fortune", level, multiplier, "Fortune Potion " + roman(level),
                     Color.fromRGB(40, 205, 95), "mgx:fortune_potion",
@@ -111,33 +105,51 @@ final class SpecialItemService implements Listener {
             ));
         }
         if (id.startsWith("crate_luck_")) {
-            int multiplier = romanLevel(id);
+            int tier = romanLevel(id);
+            int percent = crateLuckPercent(tier);
             return Optional.of(customPotion(
-                    "crate_luck", multiplier, multiplier,
-                    "Crate Luck " + roman(multiplier),
+                    "crate_luck", tier, percent / 100d,
+                    "Crate Luck " + roman(tier),
                     Color.fromRGB(215, 70, 255), "mgx:crate_luck_potion",
-                    multiplier + "x rare crate-reward weight for 5 minutes."
+                    trimMultiplier(percent / 100d)
+                            + "x rare crate-reward weight for 5 minutes."
             ));
         }
         return Optional.empty();
     }
 
-    int crateLuckMultiplier(Player player) {
-        PersistentDataContainer data = player.getPersistentDataContainer();
-        Long until = data.get(crateLuckUntilKey, PersistentDataType.LONG);
-        Integer multiplier = data.get(crateLuckKey, PersistentDataType.INTEGER);
-        if (until == null || multiplier == null || until <= System.currentTimeMillis()) {
-            data.remove(crateLuckUntilKey);
-            data.remove(crateLuckKey);
-            return 1;
-        }
-        // The server-wide event multiplies the potion, then the pair is clamped
-        // together: two stacking 2x sources must not quietly become 10x.
-        return clampLuck(multiplier * plugin.serverEventMultiplier(ServerEventType.CRATE_LUCK));
+    /** Half of what the old whole-number tiers gave: II is 1.5x rather than 2x. */
+    static int crateLuckPercent(int tier) {
+        return CrateCatalog.clampLuckPercent(50 * (Math.max(2, Math.min(5, tier)) + 1));
     }
 
-    private static int clampLuck(int value) {
-        return Math.max(1, Math.min(5, value));
+    /** How much a player's rare crate weight is worth right now, as a percentage. */
+    int crateLuckPercent(Player player) {
+        PersistentDataContainer data = player.getPersistentDataContainer();
+        Long until = data.get(crateLuckUntilKey, PersistentDataType.LONG);
+        Integer percent = data.get(crateLuckKey, PersistentDataType.INTEGER);
+        if (until == null || percent == null || until <= System.currentTimeMillis()) {
+            data.remove(crateLuckUntilKey);
+            data.remove(crateLuckKey);
+            return CrateCatalog.NO_LUCK_PERCENT;
+        }
+        // The server-wide event multiplies the potion, then the pair is clamped
+        // together: two stacking bonuses must not quietly become 6x.
+        return CrateCatalog.clampLuckPercent(
+                percent * plugin.serverEventMultiplier(ServerEventType.CRATE_LUCK)
+        );
+    }
+
+    /** Halves what each tier adds over no potion at all: 5x becomes 3x. */
+    private static double fortunePotionMultiplier(int level) {
+        double old = switch (level) {
+            case 1 -> 1.5d;
+            case 2 -> 2d;
+            case 3 -> 3d;
+            case 4 -> 4d;
+            default -> 5d;
+        };
+        return 1d + (old - 1d) / 2d;
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
@@ -213,6 +225,7 @@ final class SpecialItemService implements Listener {
         if (!FORTUNE_BLOCKS.contains(broken) && !Tag.LEAVES.isTagged(broken)) {
             return;
         }
+        trimBeyondVanillaFortune(event);
         double multiplier = fortuneMultiplier(event.getPlayer());
         if (multiplier <= 1d) {
             return;
@@ -236,6 +249,40 @@ final class SpecialItemService implements Listener {
         }
     }
 
+    /**
+     * Takes back half of what a Fortune level above vanilla's III adds.
+     *
+     * <p>The trim scales the whole drop, which is exact in expectation: the vanilla roll
+     * already averages {@link FortuneCurve#expected}, so scaling it by the kept share
+     * lands on the intended average. Something always drops — a trimmed vein is never an
+     * empty one.
+     */
+    private void trimBeyondVanillaFortune(BlockDropItemEvent event) {
+        int level = event.getPlayer().getInventory().getItemInMainHand()
+                .getEnchantmentLevel(Enchantment.FORTUNE);
+        if (level <= FortuneCurve.VANILLA_MAX) {
+            return;
+        }
+        double kept = FortuneCurve.keptShare(level);
+        for (Item dropped : List.copyOf(event.getItems())) {
+            ItemStack stack = dropped.getItemStack();
+            int amount = stack.getAmount();
+            if (amount <= 1) {
+                continue;
+            }
+            double exact = amount * kept;
+            int trimmed = (int) Math.floor(exact);
+            if (ThreadLocalRandom.current().nextDouble() < exact - trimmed) {
+                trimmed++;
+            }
+            trimmed = Math.max(1, Math.min(amount, trimmed));
+            if (trimmed != amount) {
+                stack.setAmount(trimmed);
+                dropped.setItemStack(stack);
+            }
+        }
+    }
+
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPotionConsumed(PlayerItemConsumeEvent event) {
         ItemMeta meta = event.getItem().getItemMeta();
@@ -251,13 +298,7 @@ final class SpecialItemService implements Listener {
         Player player = event.getPlayer();
         long until = System.currentTimeMillis() + POTION_DURATION_MILLIS;
         if (kind.equals("fortune")) {
-            double multiplier = switch (level) {
-                case 1 -> 1.5d;
-                case 2 -> 2d;
-                case 3 -> 3d;
-                case 4 -> 4d;
-                default -> 5d;
-            };
+            double multiplier = fortunePotionMultiplier(level);
             player.getPersistentDataContainer().set(
                     fortuneMultiplierKey, PersistentDataType.DOUBLE, multiplier
             );
@@ -265,7 +306,7 @@ final class SpecialItemService implements Listener {
             activated(player, trimMultiplier(multiplier) + "x Fortune");
         } else if (kind.equals("crate_luck")) {
             player.getPersistentDataContainer().set(
-                    crateLuckKey, PersistentDataType.INTEGER, Math.max(2, Math.min(5, level))
+                    crateLuckKey, PersistentDataType.INTEGER, crateLuckPercent(level)
             );
             player.getPersistentDataContainer().set(crateLuckUntilKey, PersistentDataType.LONG, until);
             activated(player, level + "x Crate Luck");
