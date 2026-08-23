@@ -104,6 +104,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private AutoPayStore autoPayStore;
     private AutoPayService autoPayService;
     private ServerEventService serverEventService;
+    private BlogWatchService blogWatchService;
+    private UpdateNoticeService updateNotices;
     private BukkitTask maintenanceSweep;
     private AfkService afkService;
     private ChaosService chaosService;
@@ -242,10 +244,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         } catch (java.io.IOException exception) {
             throw new IllegalStateException("Could not open update-notices.json", exception);
         }
-        UpdateNoticeService updateNoticeService = new UpdateNoticeService(
+        updateNotices = new UpdateNoticeService(
                 this, updateNoticeStore, broadcastDisplayService
         );
-        getServer().getPluginManager().registerEvents(updateNoticeService, this);
+        getServer().getPluginManager().registerEvents(updateNotices, this);
         PhantomService phantomService = new PhantomService(this);
         getServer().getPluginManager().registerEvents(phantomService, this);
         phantomService.start();
@@ -449,7 +451,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 devBlogService,
                 new AdminEventService(this, crateItems, chaosService),
                 economyMenus,
-                updateNoticeService
+                updateNotices
         );
         getCommand("mgxadmin").setExecutor(adminService);
         getCommand("mgxadmin").setTabCompleter(adminService);
@@ -459,20 +461,18 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         cosmeticEffects.start();
         afkService.start();
         serverEventService.start();
-        // A new jar is a shipped update, so announce it without waiting for
-        // anybody to remember /mgxadmin update.
-        if (getConfig().getBoolean("auto-update-notice", true)) {
-            try {
-                if (updateNoticeStore.publishIfVersionChanged(getPluginMeta().getVersion())) {
-                    getLogger().info("Published the NEW UPDATE notice for version "
-                            + getPluginMeta().getVersion() + ".");
-                }
-            } catch (RuntimeException failure) {
-                getLogger().warning("Could not auto-publish the update notice: "
-                        + failure.getMessage());
-            }
-        }
         autoPayService.start();
+        // The blog decides when players are told there is something to read.
+        blogWatchService = new BlogWatchService(
+                this,
+                updateNoticeStore,
+                updateNotices,
+                getConfig().getString("blog-latest-url", ""),
+                getConfig().getLong("blog-poll-minutes", 5L)
+        );
+        if (getConfig().getBoolean("auto-update-notice", true)) {
+            blogWatchService.start();
+        }
         sidebarService.start();
         leaderboardService.start();
         capabilityService.start();
@@ -499,6 +499,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         if (autoPayService != null) {
             autoPayService.stop();
+        }
+        if (blogWatchService != null) {
+            blogWatchService.stop();
         }
         if (serverEventService != null) {
             serverEventService.stop();

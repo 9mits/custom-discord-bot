@@ -27,7 +27,7 @@ final class UpdateNoticeStore {
     private final Path file;
     private final Gson gson = new GsonBuilder().disableHtmlEscaping().create();
     private int generation;
-    private String announcedVersion = "";
+    private String announcedPost = "";
     private final Set<UUID> seen = new HashSet<>();
 
     UpdateNoticeStore(Path file) throws IOException {
@@ -39,8 +39,8 @@ final class UpdateNoticeStore {
         try {
             JsonObject root = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
             generation = root.has("generation") ? Math.max(0, root.get("generation").getAsInt()) : 0;
-            announcedVersion = root.has("announced_version")
-                    ? root.get("announced_version").getAsString() : "";
+            announcedPost = root.has("announced_post")
+                    ? root.get("announced_post").getAsString() : "";
             if (root.has("seen") && root.get("seen").isJsonArray()) {
                 for (JsonElement element : root.getAsJsonArray("seen")) {
                     try {
@@ -80,41 +80,30 @@ final class UpdateNoticeStore {
     }
 
     /**
-     * Publishes automatically when the plugin's feature version moves.
+     * Publishes when the blog's newest post changes.
      *
-     * <p>A shipped update is a new jar, so the jar is the signal — no command to
-     * remember, and nothing to forget after a deploy. Only major.minor counts:
-     * a patch release is a fix, not something to interrupt every player about.
+     * <p>The banner tells players to go and read the blog, so the blog is what
+     * should decide when it appears. Tying it to the plugin version instead
+     * meant a release with nothing to read still sent everybody to a page that
+     * had not changed.
      *
+     * @param slug the newest post's slug, straight from the site's manifest
      * @return true when this actually announced something
      */
-    synchronized boolean publishIfVersionChanged(String pluginVersion) {
-        String feature = featureVersion(pluginVersion);
-        if (feature.isEmpty() || feature.equals(announcedVersion)) {
+    synchronized boolean publishIfPostChanged(String slug) {
+        if (slug == null || slug.isBlank() || slug.equals(announcedPost)) {
             return false;
         }
-        String previous = announcedVersion;
-        announcedVersion = feature;
-        // A first run must not announce: the store is being created now, and
-        // every existing player would get a banner for an update they already have.
+        String previous = announcedPost;
+        announcedPost = slug;
+        // A first sighting must not announce. The server has only just learned
+        // which post is newest; everyone has almost certainly already seen it.
         if (previous.isEmpty()) {
             persist();
             return false;
         }
         publish();
         return true;
-    }
-
-    /** "6.5.1" becomes "6.5"; anything unparseable becomes empty. */
-    static String featureVersion(String raw) {
-        if (raw == null) {
-            return "";
-        }
-        String[] parts = raw.trim().split("\\.");
-        if (parts.length < 2) {
-            return "";
-        }
-        return parts[0] + "." + parts[1];
     }
 
     synchronized boolean tryClaim(UUID playerId) {
@@ -148,7 +137,7 @@ final class UpdateNoticeStore {
     private void persist() {
         JsonObject root = new JsonObject();
         root.addProperty("generation", generation);
-        root.addProperty("announced_version", announcedVersion);
+        root.addProperty("announced_post", announcedPost);
         JsonArray seenJson = new JsonArray();
         seen.forEach(id -> seenJson.add(id.toString()));
         root.add("seen", seenJson);

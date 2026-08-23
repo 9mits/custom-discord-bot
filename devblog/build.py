@@ -454,6 +454,24 @@ def build(site_url: str, include_drafts: bool = False) -> List[Post]:
     (DIST_DIR / "404.html").write_text(
         theme.render_404(prefix="/", nav=nav), encoding="utf-8"
     )
+    # A tiny manifest naming the newest post, for anything that wants to know
+    # when the blog changed without scraping HTML. The Minecraft plugin polls it
+    # and shows the in-game NEW UPDATE banner when the slug moves, so publishing
+    # a post is the single action that announces it everywhere.
+    newest = next((post for post in posts if not post.event), None)
+    (DIST_DIR / "latest.json").write_text(
+        json.dumps(
+            {
+                "slug": newest.slug if newest else "",
+                "title": newest.title if newest else "",
+                "date": str(newest.date) if newest else "",
+                "url": "%s/%s" % (site_url.rstrip("/"), newest.slug) if newest else "",
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
     # Tell GitHub Pages not to run Jekyll over the output.
     (DIST_DIR / ".nojekyll").write_text("", encoding="utf-8")
 

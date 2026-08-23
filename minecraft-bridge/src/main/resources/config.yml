@@ -34,10 +34,16 @@ afk-invincible: true
 # for the effects that move people.
 abuse-radius: 64
 
-# Show the NEW UPDATE banner automatically when the plugin's feature version
-# changes (6.4 -> 6.5), rather than waiting for /mgxadmin update. Patch
-# releases are ignored: a fix is not worth interrupting every player about.
+# Show the NEW UPDATE banner automatically when the dev blog publishes a new
+# post, rather than waiting for /mgxadmin update. The banner sends players to
+# the blog, so the blog is what decides when it appears — a plugin release with
+# nothing new to read should not send anybody anywhere.
+#
+# The site writes latest.json naming its newest post; this polls that. Leave
+# blog-latest-url empty to switch the watcher off and go back to /mgxadmin update.
 auto-update-notice: true
+blog-latest-url: "https://mysterioussmpx.blog/latest.json"
+blog-poll-minutes: 5
 
 # The sidebar refreshes live player, level, heart, clan, combat, and server data.
 # 100 ticks (5s) keeps ping/TPS current without rebuilding every scoreboard each second.
