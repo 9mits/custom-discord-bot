@@ -798,6 +798,18 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         launchService.startTest(sender);
     }
 
+    /** Pins PvP on or off in every world, outranking the five-hour launch hold. */
+    void forcePvp(boolean enabled) {
+        if (launchService == null) {
+            throw new IllegalStateException("Launch service is not ready.");
+        }
+        launchService.forcePvp(enabled);
+    }
+
+    String pvpStatus() {
+        return launchService == null ? "PvP state is not available yet." : launchService.pvpStatus();
+    }
+
     void setMaintenance(boolean enabled) {
         if (maintenanceStore == null || !maintenanceStore.set(enabled)) {
             return;

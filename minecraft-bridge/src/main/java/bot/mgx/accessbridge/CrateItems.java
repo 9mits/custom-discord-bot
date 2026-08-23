@@ -255,14 +255,40 @@ final class CrateItems {
         return false;
     }
 
-    void finishReward(Player player, UUID spinId) {
-        for (ItemStack item : player.getInventory().getStorageContents()) {
-            if (rewardSpin(item).filter(spinId::equals).isPresent()) {
-                clearRewardSpin(item);
+    /**
+     * Commits a delivered reward by swapping the marked stack for a pristine one.
+     *
+     * <p>The marker is what survives a crash between handing the item over and
+     * recording it, but it also makes the stack unlike every other stack of the same
+     * item, so it lands in its own slot and never merges. Stripping the marker in place
+     * left that split behind: ten openings meant ten slots of two diamonds. Re-adding a
+     * clean stack instead lets the inventory merge it the way a normal pickup would.
+     */
+    void finishReward(Player player, UUID spinId, CrateCatalog.Reward reward) {
+        ItemStack[] storage = player.getInventory().getStorageContents();
+        int recovered = 0;
+        for (int index = 0; index < storage.length; index++) {
+            if (rewardSpin(storage[index]).filter(spinId::equals).isPresent()) {
+                recovered += storage[index].getAmount();
+                storage[index] = null;
             }
+        }
+        if (recovered <= 0) {
+            return;
+        }
+        player.getInventory().setStorageContents(storage);
+        ItemStack clean = reward(reward);
+        for (int portion : StackSplit.portions(recovered, clean.getMaxStackSize())) {
+            ItemStack stack = clean.clone();
+            stack.setAmount(portion);
+            // The slots the marked stacks vacated hold at least as much as goes back,
+            // so anything left over is a bug worth dropping rather than deleting.
+            player.getInventory().addItem(stack).values().forEach(overflow ->
+                    player.getWorld().dropItemNaturally(player.getLocation(), overflow));
         }
     }
 
+    /** A marked stack with no pending record left: strip it so it can stack again. */
     void finishOrphanedRewards(Player player) {
         for (ItemStack item : player.getInventory().getStorageContents()) {
             if (rewardSpin(item).isPresent()) {

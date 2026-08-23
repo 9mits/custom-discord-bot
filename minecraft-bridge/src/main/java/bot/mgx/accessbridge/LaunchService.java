@@ -26,6 +26,11 @@ import java.util.UUID;
 
 /**
  * One-shot launch: countdown in chat, strip barrier blocks, hold PvP off for five hours.
+ *
+ * <p>An operator can also pin PvP with {@code /mgxadmin pvp on|off}. That pin outranks
+ * the launch hold in both directions — it survives a restart and cancels the timer that
+ * would otherwise switch PvP back on — because the reason to reach for it is always that
+ * the automatic schedule is currently wrong.
  */
 final class LaunchService {
     private static final int COUNTDOWN_SECONDS = 10;
@@ -36,6 +41,9 @@ final class LaunchService {
 
     private final MGXAccessBridge plugin;
     private final Path holdFile;
+    private final Path forcedFile;
+    /** An operator's pin, or null when PvP follows the launch hold. */
+    private Boolean forced;
     private boolean countdownRunning;
     private boolean testRun;
     private BukkitTask restoreTask;
@@ -53,9 +61,16 @@ final class LaunchService {
     LaunchService(MGXAccessBridge plugin, Path dataFolder) {
         this.plugin = plugin;
         this.holdFile = dataFolder.resolve("pvp-hold-until");
+        this.forcedFile = dataFolder.resolve("pvp-forced");
     }
 
     void restoreOnEnable() {
+        forced = readForced();
+        if (forced != null) {
+            setPvp(forced);
+            plugin.getLogger().info("PvP is pinned " + (forced ? "on" : "off") + " by an operator.");
+            return;
+        }
         long until = readHoldUntil();
         if (until <= System.currentTimeMillis()) {
             return;
@@ -106,6 +121,7 @@ final class LaunchService {
             return;
         }
         Bukkit.broadcast(Component.text("Server starting.", NamedTextColor.GOLD).decorate(TextDecoration.BOLD));
+        clearForced();
         setPvp(false);
         long until = System.currentTimeMillis() + PVP_HOLD_MILLIS;
         writeHoldUntil(until);
@@ -228,6 +244,55 @@ final class LaunchService {
         }, TEST_RESTORE_TICKS);
     }
 
+    /** {@code /mgxadmin pvp on|off}: pins PvP and drops whatever the launch left running. */
+    void forcePvp(boolean enabled) {
+        forced = enabled;
+        writeForced(enabled);
+        clearHold();
+        setPvp(enabled);
+        plugin.getLogger().info("PvP pinned " + (enabled ? "on" : "off") + " by an operator.");
+    }
+
+    boolean pvpForced() {
+        return forced != null;
+    }
+
+    boolean pvpEnabled() {
+        for (World world : Bukkit.getWorlds()) {
+            Boolean value = world.getGameRuleValue(GameRules.PVP);
+            if (value != null) {
+                return value;
+            }
+        }
+        return true;
+    }
+
+    /** One line for {@code /mgxadmin pvp status}: the state, and what is holding it there. */
+    String pvpStatus() {
+        String state = "PvP is " + (pvpEnabled() ? "on" : "off");
+        if (forced != null) {
+            return state + ", pinned there by an operator.";
+        }
+        long remaining = readHoldUntil() - System.currentTimeMillis();
+        if (remaining > 0) {
+            return state + " for another " + PvpPin.describe(remaining) + " of the launch hold.";
+        }
+        return state + ".";
+    }
+
+    /** Ends the timed launch hold without touching PvP itself. */
+    private void clearHold() {
+        if (restoreTask != null) {
+            restoreTask.cancel();
+            restoreTask = null;
+        }
+        try {
+            Files.deleteIfExists(holdFile);
+        } catch (IOException exception) {
+            plugin.getLogger().warning("Could not clear the PvP hold: " + exception.getMessage());
+        }
+    }
+
     private void setPvp(boolean enabled) {
         for (World world : Bukkit.getWorlds()) {
             world.setGameRule(GameRules.PVP, enabled);
@@ -248,6 +313,35 @@ final class LaunchService {
             }
             plugin.getLogger().info("Five-hour PvP hold ended.");
         }, delayTicks);
+    }
+
+    private Boolean readForced() {
+        if (!Files.isRegularFile(forcedFile)) {
+            return null;
+        }
+        try {
+            return PvpPin.parse(Files.readString(forcedFile, StandardCharsets.UTF_8)).orElse(null);
+        } catch (IOException ignored) {
+            // An unreadable pin is no pin; the launch hold decides instead.
+            return null;
+        }
+    }
+
+    private void writeForced(boolean enabled) {
+        try {
+            Files.writeString(forcedFile, PvpPin.format(enabled), StandardCharsets.UTF_8);
+        } catch (IOException exception) {
+            plugin.getLogger().warning("Could not persist the PvP pin: " + exception.getMessage());
+        }
+    }
+
+    private void clearForced() {
+        forced = null;
+        try {
+            Files.deleteIfExists(forcedFile);
+        } catch (IOException exception) {
+            plugin.getLogger().warning("Could not clear the PvP pin: " + exception.getMessage());
+        }
     }
 
     private long readHoldUntil() {
