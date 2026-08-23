@@ -101,6 +101,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private RankSyncStore rankSyncStore;
     private MaintenanceStore maintenanceStore;
     private ServerEventStore serverEventStore;
+    private AutoPayStore autoPayStore;
+    private AutoPayService autoPayService;
     private ServerEventService serverEventService;
     private BukkitTask maintenanceSweep;
     private AfkService afkService;
@@ -158,6 +160,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             );
             serverEventStore = new ServerEventStore(
                     getDataFolder().toPath().resolve("server-events.json")
+            );
+            autoPayStore = new AutoPayStore(
+                    getDataFolder().toPath().resolve("autopay.json")
             );
             identityStore = new DiscordIdentityStore(
                     getDataFolder().toPath().resolve("discord-identities.json")
@@ -264,6 +269,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 || getCommand("shop") == null
                 || getCommand("sell") == null
                 || getCommand("autosell") == null
+                || getCommand("autopay") == null
                 || getCommand("autobuy") == null
                 || getCommand("ah") == null
                 || getCommand("bal") == null
@@ -364,6 +370,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("shop").setTabCompleter(economyMenus);
         getCommand("autosell").setExecutor(economyMenus);
         getCommand("autosell").setTabCompleter(economyMenus);
+        autoPayService = new AutoPayService(this, autoPayStore, economyStore);
+        getServer().getPluginManager().registerEvents(autoPayService, this);
+        getCommand("autopay").setExecutor(autoPayService);
+        getCommand("autopay").setTabCompleter(autoPayService);
         getCommand("autobuy").setExecutor(economyMenus);
         getCommand("autobuy").setTabCompleter(economyMenus);
         getCommand("sell").setExecutor(economyMenus);
@@ -449,6 +459,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         cosmeticEffects.start();
         afkService.start();
         serverEventService.start();
+        autoPayService.start();
         sidebarService.start();
         leaderboardService.start();
         capabilityService.start();
@@ -472,6 +483,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         // Before anything else: an operator event must never survive a reload.
         if (chaosService != null) {
             chaosService.stopAll();
+        }
+        if (autoPayService != null) {
+            autoPayService.stop();
         }
         if (serverEventService != null) {
             serverEventService.stop();

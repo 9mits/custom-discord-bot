@@ -67,6 +67,11 @@ commands:
     usage: /autosell
     aliases: [autoselling]
     permission: mgx.shop
+  autopay:
+    description: Forward your money to another account on a timer.
+    usage: /autopay [player] [amount|all] [seconds]
+    aliases: [autopayment]
+    permission: mgx.shop
   autobuy:
     description: Show or stop your standing shop order.
     usage: /autobuy [stop]
