@@ -16,6 +16,8 @@ import java.util.Optional;
  */
 final class CrateCatalog {
     static final int TOTAL_WEIGHT = 100_000;
+    /** 0.01% of {@link #TOTAL_WEIGHT}; the server-wide chime is reserved for rarer wins. */
+    static final int JACKPOT_WEIGHT = TOTAL_WEIGHT / 10_000;
 
     enum Category {
         RESOURCE("Resources"),
@@ -88,6 +90,11 @@ final class CrateCatalog {
 
         boolean rare() {
             return secret() || weight < 1_000;
+        }
+
+        /** Rarer than 0.01%: the only wins the whole server hears rather than only reads. */
+        boolean jackpot() {
+            return weight < JACKPOT_WEIGHT;
         }
 
         String displayedChance() {

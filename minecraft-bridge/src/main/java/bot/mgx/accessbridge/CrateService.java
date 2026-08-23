@@ -603,11 +603,16 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                     NamedTextColor.DARK_AQUA
             ));
         }
+        // Every rare win is still announced, but only a sub-0.01% one is loud: a chime
+        // players hear several times an hour stops reading as something remarkable.
+        boolean chime = reward.jackpot();
         for (Player viewer : plugin.getServer().getOnlinePlayers()) {
             viewer.sendMessage(announcement);
-            viewer.playSound(
-                    viewer.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f, 0.95f
-            );
+            if (chime) {
+                viewer.playSound(
+                        viewer.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f, 0.95f
+                );
+            }
         }
         plugin.getServer().getConsoleSender().sendMessage(announcement);
     }
