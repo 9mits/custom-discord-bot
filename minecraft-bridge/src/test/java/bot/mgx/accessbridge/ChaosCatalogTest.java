@@ -76,6 +76,15 @@ class ChaosCatalogTest {
     }
 
     @Test
+    void alfredoIsAPayoutAndNeverFiresInsideChaos() {
+        assertTrue(ChaosCatalog.payouts().contains(ChaosCatalog.ALFREDO));
+        assertFalse(ChaosCatalog.chaosPool().contains(ChaosCatalog.ALFREDO));
+        // He takes a loot budget, not a duration, so he must not be "timed".
+        assertFalse(ChaosCatalog.ALFREDO.timed());
+        assertEquals(ChaosCatalog.ALFREDO, ChaosCatalog.resolve("alfredo").orElseThrow());
+    }
+
+    @Test
     void theNewLiveEventsAreReachableAndNamed() {
         assertEquals(ChaosCatalog.AIRDROP, ChaosCatalog.resolve("supply").orElseThrow());
         assertEquals(ChaosCatalog.PINATA, ChaosCatalog.resolve("boss").orElseThrow());

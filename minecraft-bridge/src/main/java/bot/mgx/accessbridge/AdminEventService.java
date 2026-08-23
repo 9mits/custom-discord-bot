@@ -58,6 +58,29 @@ final class AdminEventService {
                 skyBurst(player, seconds);
                 yield "Started a " + seconds + "-second skyburst";
             }
+            // Alfredo reads "<health> [keys] [diamonds]" rather than the usual
+            // duration/radius pair, and takes a live retune while he is fighting.
+            case ALFREDO -> {
+                if (args.length > 2 && args[2].equalsIgnoreCase("hp")) {
+                    yield chaosService.retuneAlfredo(
+                            bounded(args, 3, 2_000, 20, 100_000, "health")
+                    );
+                }
+                int health = bounded(args, 2, (int) ChaosService.ALFREDO_DEFAULT_HEALTH,
+                        20, 100_000, "health");
+                int keys = bounded(args, 3, ChaosService.ALFREDO_DEFAULT_KEYS, 0, 500, "keys");
+                int diamonds = bounded(args, 4, ChaosService.ALFREDO_DEFAULT_DIAMONDS,
+                        0, 1_000, "diamonds");
+                yield chaosService.summonAlfredo(
+                        player,
+                        health,
+                        keys,
+                        diamonds,
+                        ChaosTargeting.radiusOrThrow(null, plugin.getConfig().getDouble(
+                                "abuse-radius", ChaosTargeting.DEFAULT_RADIUS
+                        ))
+                );
+            }
             default -> {
                 // Timed effects read "<seconds> [radius]"; one-shots read "[radius]".
                 int durationIndex = effect.timed() ? 2 : -1;
@@ -82,7 +105,9 @@ final class AdminEventService {
 
     /** The one-line reminder, and the full menu behind {@code abuse list}. */
     private static String usage() {
-        return "Usage: /mgxadmin abuse <effect> [seconds] [radius] — try /mgxadmin abuse list";
+        return "Usage: /mgxadmin abuse <effect> [seconds] [radius] — try /mgxadmin abuse list. "
+                + "Alfredo: /mgxadmin abuse alfredo [health] [keys] [diamonds], "
+                + "or /mgxadmin abuse alfredo hp <n> to retune him mid-fight";
     }
 
     private static String menu() {
