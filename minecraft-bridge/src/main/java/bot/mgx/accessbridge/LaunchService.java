@@ -73,11 +73,36 @@ final class LaunchService {
         }
         long until = readHoldUntil();
         if (until <= System.currentTimeMillis()) {
+            // Asserted, not left alone. PvP is a persisted gamerule in 1.21, so an event
+            // that switched it off and never switched it back leaves the world that way
+            // for good, and nothing else in the plugin ever puts it right.
+            setPvp(true);
             return;
         }
         setPvp(false);
         scheduleRestore(until);
         plugin.getLogger().info("PvP is still held off until " + until + ".");
+    }
+
+    /** Where PvP belongs right now: an operator's pin, else the launch hold, else on. */
+    private boolean intendedPvp() {
+        return forced != null ? forced : readHoldUntil() <= System.currentTimeMillis();
+    }
+
+    /** An event borrowing PvP: switched off without disturbing the pin or the hold. */
+    void suspendPvp() {
+        setPvp(false);
+    }
+
+    /**
+     * Hands PvP back to whatever owns it.
+     *
+     * <p>Deliberately not "restore what it was when I took it": two events overlapping
+     * meant the second captured the first one's off, and PvP stayed off after both had
+     * ended, with no session left to blame.
+     */
+    void restorePvp() {
+        setPvp(intendedPvp());
     }
 
     void start(CommandSender sender) {

@@ -806,6 +806,20 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         launchService.forcePvp(enabled);
     }
 
+    /** Switches PvP off for the duration of an event; pair it with {@link #restorePvp()}. */
+    void suspendPvp() {
+        if (launchService != null) {
+            launchService.suspendPvp();
+        }
+    }
+
+    /** Puts PvP back under the operator pin or the launch hold after an event borrowed it. */
+    void restorePvp() {
+        if (launchService != null) {
+            launchService.restorePvp();
+        }
+    }
+
     String pvpStatus() {
         return launchService == null ? "PvP state is not available yet." : launchService.pvpStatus();
     }

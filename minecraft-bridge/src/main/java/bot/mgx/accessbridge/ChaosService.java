@@ -1247,9 +1247,8 @@ final class ChaosService implements Listener {
 
         // Nobody fights each other while Alfredo is up. A boss brawl turning
         // into a PvP free-for-all is how an event ends in an argument.
-        boolean pvpWas = world.getPVP();
-        world.setPVP(false);
-        session.undo(() -> world.setPVP(pvpWas));
+        plugin.suspendPvp();
+        session.undo(plugin::restorePvp);
 
         BossBar bar = show.bar("ALFREDO", BossBar.Color.RED);
         alfredos.put(boss.getUniqueId(), new Alfredo(
