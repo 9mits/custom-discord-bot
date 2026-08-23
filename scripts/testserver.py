@@ -93,6 +93,9 @@ reconnect-max-seconds: 60
 afk-timeout-seconds: 60
 afk-invincible: true
 abuse-radius: 64
+auto-update-notice: true
+blog-latest-url: "https://mysterioussmpx.blog/latest.json"
+blog-poll-minutes: 5
 scoreboard:
   footer: "local test"
   update-ticks: 100

@@ -24,6 +24,15 @@ import java.time.Duration;
  */
 final class BlogWatchService {
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
+    /**
+     * Where the manifest lives when the config does not say.
+     *
+     * <p>Paper writes config.yml once and never merges new keys into an existing
+     * one, so every server that upgrades keeps a file with no blog-latest-url in
+     * it. A default of "" would have meant this feature silently did nothing
+     * everywhere it was already installed — which is exactly where it matters.
+     */
+    static final String DEFAULT_MANIFEST_URL = "https://mysterioussmpx.blog/latest.json";
 
     private final MGXAccessBridge plugin;
     private final UpdateNoticeStore store;
