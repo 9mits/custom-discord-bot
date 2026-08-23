@@ -1192,10 +1192,13 @@ final class ChaosService implements Listener {
         if (world == null) {
             throw new IllegalArgumentException("Alfredo has nowhere to stand.");
         }
-        Location at = world.getHighestBlockAt(session.anchor).getLocation().add(0.5d, 1d, 0.5d);
+        // Where the operator is standing, not the highest block above them:
+        // getHighestBlockAt puts him on the roof when the summon happens indoors,
+        // which is how you get a boss nobody can find.
+        Location at = session.anchor.clone();
         Zombie boss = world.spawn(at, Zombie.class, zombie -> {
             zombie.setCustomName("Alfredo");
-            // The vanilla nameplate is a fixed size and sits above the head,
+            // The vanilla nameplate is a fixed size and sits just above the head,
             // which at this scale is off the top of the screen. A TextDisplay
             // scaled to match him replaces it.
             zombie.setCustomNameVisible(false);
@@ -1203,28 +1206,40 @@ final class ChaosService implements Listener {
             zombie.setGlowing(true);
             zombie.setRemoveWhenFarAway(false);
             zombie.setShouldBurnInDay(false);
-            AttributeInstance scale = zombie.getAttribute(Attribute.SCALE);
-            if (scale != null) {
-                scale.setBaseValue(ALFREDO_SCALE);
-            }
         });
+        // Scale is applied after the spawn, not in the consumer above: attribute
+        // changes made before the entity joins the world did not survive, which
+        // left a normal-sized zombie under a nameplate floating in the sky.
+        AttributeInstance scale = boss.getAttribute(Attribute.SCALE);
+        if (scale == null) {
+            plugin.getLogger().warning("Alfredo has no SCALE attribute; he will be zombie-sized.");
+        } else {
+            scale.setBaseValue(ALFREDO_SCALE);
+        }
         double health = applyBossHealth(boss, requestedHealth);
         session.spawned.add(boss.getUniqueId());
 
-        // A nameplate as big as he is. Billboard CENTER keeps it facing every
-        // player wherever they stand.
-        double headroom = 2d * ALFREDO_SCALE;
+        // Measured, never assumed. getHeight reflects whatever scale actually
+        // took, so the nameplate sits on his head even if the attribute was
+        // clamped or missing entirely.
+        double headroom = boss.getHeight() + 1.5d;
+        plugin.getLogger().info("Alfredo spawned at "
+                + at.getBlockX() + "," + at.getBlockY() + "," + at.getBlockZ()
+                + " scale=" + (scale == null ? "none" : scale.getValue())
+                + " height=" + String.format(java.util.Locale.ROOT, "%.1f", boss.getHeight())
+                + " health=" + (long) health);
+
         TextDisplay label = world.spawn(at.clone().add(0d, headroom, 0d), TextDisplay.class, text -> {
             text.setText("ALFREDO");
             text.setBillboard(org.bukkit.entity.Display.Billboard.CENTER);
             text.setSeeThrough(true);
             text.setPersistent(false);
             text.setViewRange(4f);
+            float size = (float) Math.max(3d, boss.getHeight() / 4d);
             text.setTransformation(new Transformation(
                     new org.joml.Vector3f(),
                     new org.joml.Quaternionf(),
-                    new org.joml.Vector3f((float) ALFREDO_SCALE, (float) ALFREDO_SCALE,
-                            (float) ALFREDO_SCALE),
+                    new org.joml.Vector3f(size, size, size),
                     new org.joml.Quaternionf()
             ));
         });
@@ -1251,10 +1266,10 @@ final class ChaosService implements Listener {
                 return;
             }
             ThreadLocalRandom random = ThreadLocalRandom.current();
-            Location centre = boss.getLocation().add(0d, ALFREDO_SCALE, 0d);
+            Location centre = boss.getLocation().add(0d, boss.getHeight() / 2d, 0d);
             List<Player> watching = targets(session);
             if (label.isValid()) {
-                label.teleport(boss.getLocation().add(0d, headroom, 0d));
+                label.teleport(boss.getLocation().add(0d, boss.getHeight() + 1.5d, 0d));
             }
             for (Player player : watching) {
                 // Rainbow sky, client-side only.
