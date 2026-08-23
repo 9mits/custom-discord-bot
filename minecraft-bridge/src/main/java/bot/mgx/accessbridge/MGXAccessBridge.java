@@ -416,6 +416,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         );
         chaosService = new ChaosService(this, crateItems);
         getServer().getPluginManager().registerEvents(chaosService, this);
+        // Anyone already online across a /reload, before the join handler can reach them.
+        chaosService.healEveryone();
         AdminCommandService adminService = new AdminCommandService(
                 this,
                 rankSyncStore,
@@ -804,6 +806,11 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             throw new IllegalStateException("Launch service is not ready.");
         }
         launchService.forcePvp(enabled);
+    }
+
+    /** Whether this player is in {@code /mgxadmin devblog} screenshot mode. */
+    boolean inScreenshotMode(Player player) {
+        return devBlogService != null && devBlogService.isActive(player);
     }
 
     /** Switches PvP off for the duration of an event; pair it with {@link #restorePvp()}. */
