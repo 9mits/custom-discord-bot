@@ -40,6 +40,9 @@ final class AdminEventService {
         if (token.equals("list") || token.equals("help")) {
             return menu();
         }
+        if (token.equals("controls") || token.equals("options")) {
+            return controls();
+        }
         ChaosCatalog effect = ChaosCatalog.resolve(token)
                 .orElseThrow(() -> new IllegalArgumentException(usage()));
         return switch (effect) {
@@ -61,32 +64,61 @@ final class AdminEventService {
             // Alfredo reads "<health> [keys] [diamonds]" rather than the usual
             // duration/radius pair, and takes a live retune while he is fighting.
             case ALFREDO -> {
-                if (args.length > 2 && args[2].equalsIgnoreCase("hp")) {
-                    yield chaosService.retuneAlfredo(
-                            bounded(args, 3, 2_000, 20, 100_000, "health")
-                    );
-                }
-                boolean test = args.length > 2 && args[2].equalsIgnoreCase("test");
-                int health = test
-                        ? (int) ChaosService.ALFREDO_DEFAULT_HEALTH
-                        : bounded(args, 2, (int) ChaosService.ALFREDO_DEFAULT_HEALTH,
-                                20, 100_000, "health");
-                int keys = test ? ChaosService.ALFREDO_DEFAULT_KEYS
-                        : bounded(args, 3, ChaosService.ALFREDO_DEFAULT_KEYS, 0, 500, "keys");
-                int diamonds = test ? ChaosService.ALFREDO_DEFAULT_DIAMONDS
-                        : bounded(args, 4, ChaosService.ALFREDO_DEFAULT_DIAMONDS,
-                                0, 1_000, "diamonds");
-                yield chaosService.summonAlfredo(
-                        player,
-                        health,
-                        keys,
-                        diamonds,
-                        ChaosTargeting.radiusOrThrow(null, plugin.getConfig().getDouble(
-                                "abuse-radius", ChaosTargeting.DEFAULT_RADIUS
-                        )),
-                        test
-                );
+                // Live controls first: these act on a boss already fighting and
+                // never spawn a second one.
+                String sub = args.length > 2 ? args[2].toLowerCase(Locale.ROOT) : "";
+                yield switch (sub) {
+                    case "hp", "health" -> chaosService.retuneAlfredo(
+                            bounded(args, 3, 2_000, 20, 100_000, "health"));
+                    case "keys" -> chaosService.setAlfredoLoot(
+                            bounded(args, 3, ChaosService.ALFREDO_DEFAULT_KEYS, 0, 2_000, "keys"),
+                            null);
+                    case "diamonds" -> chaosService.setAlfredoLoot(null,
+                            bounded(args, 3, ChaosService.ALFREDO_DEFAULT_DIAMONDS, 0, 5_000,
+                                    "diamonds"));
+                    case "add" -> chaosService.addAlfredoLoot(
+                            bounded(args, 3, 10, 0, 2_000, "keys"),
+                            bounded(args, 4, 0, 0, 5_000, "diamonds"));
+                    case "burst" -> chaosService.forceAlfredoBurst();
+                    case "kill" -> chaosService.killAlfredo();
+                    case "status" -> chaosService.alfredoStatus();
+                    default -> {
+                        boolean test = sub.equals("test");
+                        int health = test
+                                ? (int) ChaosService.ALFREDO_DEFAULT_HEALTH
+                                : bounded(args, 2, (int) ChaosService.ALFREDO_DEFAULT_HEALTH,
+                                        20, 100_000, "health");
+                        int keys = test ? ChaosService.ALFREDO_DEFAULT_KEYS
+                                : bounded(args, 3, ChaosService.ALFREDO_DEFAULT_KEYS,
+                                        0, 2_000, "keys");
+                        int diamonds = test ? ChaosService.ALFREDO_DEFAULT_DIAMONDS
+                                : bounded(args, 4, ChaosService.ALFREDO_DEFAULT_DIAMONDS,
+                                        0, 5_000, "diamonds");
+                        yield chaosService.summonAlfredo(
+                                player, health, keys, diamonds,
+                                ChaosTargeting.radiusOrThrow(null, plugin.getConfig().getDouble(
+                                        "abuse-radius", ChaosTargeting.DEFAULT_RADIUS
+                                )),
+                                test
+                        );
+                    }
+                };
             }
+            // Payout events take their key total up front, so an operator can
+            // decide how much an event is worth before running it.
+            case AIRDROP -> chaosService.run(
+                    player, effect, 0,
+                    ChaosTargeting.radiusOrThrow(args.length > 3 ? args[3] : null, configuredRadius()),
+                    bounded(args, 2, ChaosService.DEFAULT_AIRDROP_KEYS, 1, 2_000, "keys"));
+            case JACKPOT -> chaosService.run(
+                    player, effect, 0,
+                    ChaosTargeting.radiusOrThrow(args.length > 3 ? args[3] : null, configuredRadius()),
+                    bounded(args, 2, 0, 0, 2_000, "keys"));
+            case PINATA -> chaosService.run(
+                    player, effect,
+                    effect.secondsOrThrow(args.length > 2 ? args[2] : null),
+                    ChaosTargeting.radiusOrThrow(args.length > 4 ? args[4] : null, configuredRadius()),
+                    bounded(args, 3, 0, 0, 2_000, "keys"));
             default -> {
                 // Timed effects read "<seconds> [radius]"; one-shots read "[radius]".
                 int durationIndex = effect.timed() ? 2 : -1;
@@ -109,11 +141,33 @@ final class AdminEventService {
         };
     }
 
+    private double configuredRadius() {
+        return plugin.getConfig().getDouble("abuse-radius", ChaosTargeting.DEFAULT_RADIUS);
+    }
+
     /** The one-line reminder, and the full menu behind {@code abuse list}. */
     private static String usage() {
-        return "Usage: /mgxadmin abuse <effect> [seconds] [radius] — try /mgxadmin abuse list. "
-                + "Alfredo: /mgxadmin abuse alfredo [health] [keys] [diamonds], "
-                + "or /mgxadmin abuse alfredo hp <n> to retune him mid-fight";
+        return "Usage: /mgxadmin abuse <effect> [seconds] [radius] - try /mgxadmin abuse list";
+    }
+
+    /** Everything an operator can tune, in one place. */
+    private static String controls() {
+        return "Payout events take a key total:"
+                + "\n  /mgxadmin abuse keyrain <keys> [radius]"
+                + "\n  /mgxadmin abuse airdrop <keys> [radius]"
+                + "\n  /mgxadmin abuse jackpot <keys> [radius]"
+                + "\n  /mgxadmin abuse pinata <seconds> <keys> [radius]"
+                + "\nAlfredo, on spawn:"
+                + "\n  /mgxadmin abuse alfredo <health> <keys> <diamonds>"
+                + "\n  /mgxadmin abuse alfredo test   - he dies on his own in about a minute"
+                + "\nAlfredo, mid-fight:"
+                + "\n  /mgxadmin abuse alfredo hp <n>          retune his health"
+                + "\n  /mgxadmin abuse alfredo keys <n>        set what he still owes"
+                + "\n  /mgxadmin abuse alfredo diamonds <n>    set what he still owes"
+                + "\n  /mgxadmin abuse alfredo add <keys> <diamonds>   top up the finale"
+                + "\n  /mgxadmin abuse alfredo burst           make him pay out now"
+                + "\n  /mgxadmin abuse alfredo kill            end it with the full finale"
+                + "\n  /mgxadmin abuse alfredo status          what is left";
     }
 
     private static String menu() {
