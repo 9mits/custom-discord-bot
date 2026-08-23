@@ -124,12 +124,14 @@ final class ChaosService implements Listener {
         private final BossBar bar;
         private final int total;
         private int remaining;
+        private int keys;
         private boolean burst;
 
-        Pinata(BossBar bar, int total) {
+        Pinata(BossBar bar, int total, int keys) {
             this.bar = bar;
             this.total = total;
             this.remaining = total;
+            this.keys = keys;
         }
     }
 
@@ -235,7 +237,15 @@ final class ChaosService implements Listener {
     // ---------------------------------------------------------------- routing
 
     String run(Player operator, ChaosCatalog effect, int seconds, double radius) {
-        return run(operator, effect, seconds, radius, true);
+        return run(operator, effect, seconds, radius, 0, true);
+    }
+
+    /**
+     * @param keys how many crate keys this event should hand out, or 0 to use
+     *             the event's own default. Only the payout events read it.
+     */
+    String run(Player operator, ChaosCatalog effect, int seconds, double radius, int keys) {
+        return run(operator, effect, seconds, radius, keys, true);
     }
 
     /**
@@ -244,7 +254,8 @@ final class ChaosService implements Listener {
      *                  overlapping countdowns is noise, not hype.
      */
     private String run(
-            Player operator, ChaosCatalog effect, int seconds, double radius, boolean telegraph
+            Player operator, ChaosCatalog effect, int seconds, double radius,
+            int keys, boolean telegraph
     ) {
         if (effect == ChaosCatalog.CHAOS) {
             return chaos(operator, seconds, radius);
@@ -263,7 +274,7 @@ final class ChaosService implements Listener {
             // Every effect, not only the ones that move people: blindness or
             // slowness while a mob is chewing on you is as lethal as a low ceiling.
             protect(session);
-            begin(session, effect, ticks);
+            begin(session, effect, ticks, keys);
             List<Player> audience = targets(session);
             audience.forEach(player -> session.listeners.add(player.getUniqueId()));
             show.music(audience, trackFor(effect));
@@ -300,7 +311,7 @@ final class ChaosService implements Listener {
         return started(label(effect), seconds) + " within " + (int) radius + " blocks";
     }
 
-    private void begin(Session session, ChaosCatalog effect, long ticks) {
+    private void begin(Session session, ChaosCatalog effect, long ticks, int keys) {
         switch (effect) {
             case DISCO -> disco(session, ticks);
             case BLACKOUT -> blackout(session, ticks);
@@ -323,9 +334,10 @@ final class ChaosService implements Listener {
             case METEORS -> meteors(session, ticks);
             case CONFETTI -> confetti(session);
             case HEADS -> heads(session, ticks);
-            case AIRDROP -> airdrop(session, 200L);
-            case PINATA -> pinata(session, ticks);
-            case JACKPOT -> jackpot(session);
+            case AIRDROP -> airdrop(session, 200L,
+                    keys > 0 ? keys : DEFAULT_AIRDROP_KEYS);
+            case PINATA -> pinata(session, ticks, keys);
+            case JACKPOT -> jackpot(session, keys);
             case ALFREDO -> alfredo(session, ticks,
                     ALFREDO_DEFAULT_HEALTH, ALFREDO_DEFAULT_KEYS, ALFREDO_DEFAULT_DIAMONDS);
             default -> throw new IllegalArgumentException(effect.id() + " is not handled here.");
@@ -429,7 +441,7 @@ final class ChaosService implements Listener {
                 .append(Component.text(" Everything at once. Good luck.", NamedTextColor.WHITE)));
         for (ChaosCatalog effect : picked) {
             try {
-                run(operator, effect, seconds, radius, false);
+                run(operator, effect, seconds, radius, 0, false);
             } catch (RuntimeException exception) {
                 plugin.getLogger().warning("Chaos component " + effect.id() + " failed: "
                         + exception.getClass().getSimpleName());
@@ -941,7 +953,7 @@ final class ChaosService implements Listener {
      * <p>The marker beam goes up first so there is somewhere to run to. That is
      * the whole difference between an event and loot appearing.
      */
-    private void airdrop(Session session, long ticks) {
+    private void airdrop(Session session, long ticks, int keys) {
         World world = session.anchor.getWorld();
         if (world == null) {
             throw new IllegalArgumentException("The drop zone has no world.");
@@ -988,7 +1000,7 @@ final class ChaosService implements Listener {
             }
             session.spawned.remove(crate.getUniqueId());
             crate.remove();
-            burstOpen(session, ground, 40, "SUPPLY DROP");
+            burstOpen(session, ground, keys, "SUPPLY DROP");
             show.hideBar(bar, watching);
         });
         session.undo(() -> show.hideBar(bar, online()));
@@ -998,7 +1010,7 @@ final class ChaosService implements Listener {
      * A giant pinata everybody punches. Damage is cancelled and counted instead,
      * so the pinata cannot die, drop slimeballs, or hurt anyone on the way.
      */
-    private void pinata(Session session, long ticks) {
+    private void pinata(Session session, long ticks, int keys) {
         World world = session.anchor.getWorld();
         if (world == null) {
             throw new IllegalArgumentException("The pinata has no world.");
@@ -1008,6 +1020,8 @@ final class ChaosService implements Listener {
                 .append(Component.text(" Hit it. Keep hitting it.", NamedTextColor.WHITE)));
 
         int hits = Math.max(20, targets(session).size() * 15);
+        // 0 keeps the old behaviour of scaling with the crowd.
+        int payout = keys > 0 ? keys : 30 + targets(session).size() * 5;
         BossBar bar = show.bar("PINATA", BossBar.Color.PINK);
         Slime body = world.spawn(at, Slime.class, slime -> {
             slime.setSize(8);
@@ -1019,7 +1033,7 @@ final class ChaosService implements Listener {
             slime.setPersistent(false);
         });
         session.spawned.add(body.getUniqueId());
-        pinatas.put(body.getUniqueId(), new Pinata(bar, hits));
+        pinatas.put(body.getUniqueId(), new Pinata(bar, hits, payout));
 
         repeat(session, 5L, ticks, frame -> {
             List<Player> watching = targets(session);
@@ -1048,7 +1062,7 @@ final class ChaosService implements Listener {
     }
 
     /** A drumroll, a reel of names, and everybody collects. */
-    private void jackpot(Session session) {
+    private void jackpot(Session session, int keys) {
         announce(session, Component.text("JACKPOT", NamedTextColor.YELLOW, TextDecoration.BOLD)
                 .append(Component.text(" Rolling...", NamedTextColor.WHITE)));
         List<String> reel = List.of(
@@ -1070,7 +1084,8 @@ final class ChaosService implements Listener {
             }, delay));
         }
         session.tasks.add(plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-            int payout = 5 + ThreadLocalRandom.current().nextInt(16);
+            // 0 means "surprise me", which is what a jackpot should do by default.
+            int payout = keys > 0 ? keys : 5 + ThreadLocalRandom.current().nextInt(16);
             for (Player player : targets(session)) {
                 player.showTitle(net.kyori.adventure.title.Title.title(
                         Component.text("JACKPOT!", NamedTextColor.GOLD, TextDecoration.BOLD),
@@ -1144,7 +1159,7 @@ final class ChaosService implements Listener {
         pinatas.remove(event.getEntity().getUniqueId());
         show.hideBar(state.bar, online());
         if (owner != null) {
-            burstOpen(owner, at, 30 + targets(owner).size() * 5, "PINATA");
+            burstOpen(owner, at, state.keys, "PINATA");
         }
     }
 
@@ -1155,6 +1170,7 @@ final class ChaosService implements Listener {
     static final int ALFREDO_DEFAULT_KEYS = 60;
     static final int ALFREDO_DEFAULT_DIAMONDS = 128;
     private static final int ALFREDO_BURSTS = 10;
+    static final int DEFAULT_AIRDROP_KEYS = 40;
     /**
      * Minecraft caps generic.scale at 16, so this is as large as an entity can
      * legally be. A vanilla zombie is 1.95 blocks, which puts him near 31.
@@ -1341,6 +1357,117 @@ final class ChaosService implements Listener {
         }
         boss.setHealth(granted);
         return granted;
+    }
+
+    /**
+     * Every live-control command works on whichever Alfredos are up. There is
+     * normally one, but summoning a second is allowed and both should obey.
+     *
+     * @throws IllegalArgumentException when nobody is fighting, so the operator
+     *         gets told rather than seeing a silent no-op
+     */
+    private List<Zombie> liveAlfredos() {
+        List<Zombie> found = new ArrayList<>();
+        for (UUID id : Map.copyOf(alfredos).keySet()) {
+            Entity entity = plugin.getServer().getEntity(id);
+            if (entity instanceof Zombie boss && boss.isValid()) {
+                found.add(boss);
+            }
+        }
+        if (found.isEmpty()) {
+            throw new IllegalArgumentException("No Alfredo is fighting right now.");
+        }
+        return found;
+    }
+
+    /** Replaces what he still owes, split the same way a fresh spawn is. */
+    String setAlfredoLoot(Integer keys, Integer diamonds) {
+        int touched = 0;
+        for (Zombie boss : liveAlfredos()) {
+            Alfredo state = alfredos.get(boss.getUniqueId());
+            if (state == null) {
+                continue;
+            }
+            if (keys != null) {
+                state.burstKeys = keys / 2;
+                state.finaleKeys = keys - state.burstKeys;
+            }
+            if (diamonds != null) {
+                state.burstDiamonds = diamonds / 2;
+                state.finaleDiamonds = diamonds - state.burstDiamonds;
+            }
+            touched++;
+        }
+        return "Alfredo now owes "
+                + (keys != null ? keys + " keys" : "the same keys")
+                + " and "
+                + (diamonds != null ? diamonds + " diamonds" : "the same diamonds")
+                + " (" + touched + " boss(es))";
+    }
+
+    /** Tops up what he is carrying without disturbing what he has already paid. */
+    String addAlfredoLoot(int keys, int diamonds) {
+        for (Zombie boss : liveAlfredos()) {
+            Alfredo state = alfredos.get(boss.getUniqueId());
+            if (state == null) {
+                continue;
+            }
+            // Straight onto the finale pile: topping up mid-fight should make
+            // the ending bigger, not silently reshuffle bursts already scheduled.
+            state.finaleKeys += Math.max(0, keys);
+            state.finaleDiamonds += Math.max(0, diamonds);
+        }
+        return "Added " + keys + " keys and " + diamonds + " diamonds to Alfredo's finale";
+    }
+
+    /** Fires one burst immediately, whatever his health is. */
+    String forceAlfredoBurst() {
+        int fired = 0;
+        for (Zombie boss : liveAlfredos()) {
+            Alfredo state = alfredos.get(boss.getUniqueId());
+            if (state == null || state.burstsLeft <= 0) {
+                continue;
+            }
+            // Move the threshold above his current health so the normal path
+            // fires on the next damage tick, keeping one implementation of a burst.
+            state.nextBurstAt = boss.getHealth() + 1d;
+            onAlfredoHurt(boss);
+            fired++;
+        }
+        if (fired == 0) {
+            throw new IllegalArgumentException("Alfredo has no bursts left to give.");
+        }
+        return "Forced a burst out of " + fired + " Alfredo(s)";
+    }
+
+    /** Ends the fight now, running the full finale rather than deleting him. */
+    String killAlfredo() {
+        int killed = 0;
+        for (Zombie boss : liveAlfredos()) {
+            // setHealth(0) fires EntityDeathEvent, so the rain, the announcement
+            // and the cleanup all happen exactly as they would for a real kill.
+            boss.setHealth(0d);
+            killed++;
+        }
+        return "Dropped " + killed + " Alfredo(s)";
+    }
+
+    String alfredoStatus() {
+        StringBuilder text = new StringBuilder();
+        for (Zombie boss : liveAlfredos()) {
+            Alfredo state = alfredos.get(boss.getUniqueId());
+            if (state == null) {
+                continue;
+            }
+            if (text.length() > 0) {
+                text.append(" | ");
+            }
+            text.append((long) boss.getHealth()).append("/").append((long) state.maxHealth)
+                    .append(" hp, ").append(state.burstsLeft).append(" bursts left, ")
+                    .append(state.burstKeys + state.finaleKeys).append(" keys and ")
+                    .append(state.burstDiamonds + state.finaleDiamonds).append(" diamonds unpaid");
+        }
+        return text.toString();
     }
 
     /** Retunes a live Alfredo, rescaling the remaining bursts across what is left. */

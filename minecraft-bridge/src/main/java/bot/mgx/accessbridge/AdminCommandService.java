@@ -765,7 +765,14 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         }
         if (action.equals("abuse")) {
             if (args.length == 2) {
-                return partial(args[1], ChaosCatalog.menu().stream().map(ChaosCatalog::id).toList());
+                List<String> options = new ArrayList<>(
+                        ChaosCatalog.menu().stream().map(ChaosCatalog::id).toList());
+                options.add("controls");
+                return partial(args[1], options);
+            }
+            if (args.length == 3 && args[1].equalsIgnoreCase("alfredo")) {
+                return partial(args[2], List.of(
+                        "test", "hp", "keys", "diamonds", "add", "burst", "kill", "status"));
             }
             return List.of();
         }
