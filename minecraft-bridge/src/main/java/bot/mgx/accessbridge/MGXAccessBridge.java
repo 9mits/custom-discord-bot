@@ -467,7 +467,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 this,
                 updateNoticeStore,
                 updateNotices,
-                getConfig().getString("blog-latest-url", ""),
+                getConfig().getString("blog-latest-url", BlogWatchService.DEFAULT_MANIFEST_URL),
                 getConfig().getLong("blog-poll-minutes", 5L)
         );
         if (getConfig().getBoolean("auto-update-notice", true)) {
