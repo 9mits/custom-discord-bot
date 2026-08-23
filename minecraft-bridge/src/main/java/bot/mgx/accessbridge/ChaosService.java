@@ -22,6 +22,7 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.Slime;
+import org.bukkit.entity.Zombie;
 import org.bukkit.entity.LightningStrike;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -33,6 +34,7 @@ import org.bukkit.event.entity.CreeperPowerEvent;
 import org.bukkit.event.entity.EntityChangeBlockEvent;
 import org.bukkit.event.entity.EntityCombustByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityInteractEvent;
 import org.bukkit.event.entity.EntityTransformEvent;
@@ -104,6 +106,8 @@ final class ChaosService implements Listener {
     private final List<Session> active = new ArrayList<>();
     /** Live pinatas, by entity id, with the hits they have left. */
     private final Map<UUID, Pinata> pinatas = new HashMap<>();
+    /** Live Alfredos, by entity id. */
+    private final Map<UUID, Alfredo> alfredos = new HashMap<>();
 
     ChaosService(MGXAccessBridge plugin, CrateItems crateItems) {
         this.plugin = plugin;
@@ -124,6 +128,37 @@ final class ChaosService implements Listener {
             this.bar = bar;
             this.total = total;
             this.remaining = total;
+        }
+    }
+
+    /**
+     * A live Alfredo: his bar, what he is carrying, and how much of it he has
+     * already coughed up.
+     */
+    private static final class Alfredo {
+        private final BossBar bar;
+        private final Session session;
+        private int burstKeys;
+        private int burstDiamonds;
+        private int finaleKeys;
+        private int finaleDiamonds;
+        private int burstsLeft;
+        private double nextBurstAt;
+        private double maxHealth;
+        private boolean finished;
+
+        Alfredo(BossBar bar, Session session, int keys, int diamonds, int bursts, double maxHealth) {
+            this.bar = bar;
+            this.session = session;
+            // Half is paid out on the way down, half erupts when he dies. The
+            // finale is the point of the fight, so it cannot be spent early.
+            this.burstKeys = keys / 2;
+            this.burstDiamonds = diamonds / 2;
+            this.finaleKeys = keys - this.burstKeys;
+            this.finaleDiamonds = diamonds - this.burstDiamonds;
+            this.burstsLeft = bursts;
+            this.maxHealth = maxHealth;
+            this.nextBurstAt = maxHealth - (maxHealth / (bursts + 1));
         }
     }
 
@@ -169,6 +204,10 @@ final class ChaosService implements Listener {
                 Pinata pinata = pinatas.remove(id);
                 if (pinata != null) {
                     show.hideBar(pinata.bar, online());
+                }
+                Alfredo boss = alfredos.remove(id);
+                if (boss != null) {
+                    show.hideBar(boss.bar, online());
                 }
                 Entity entity = plugin.getServer().getEntity(id);
                 if (entity != null) {
@@ -284,6 +323,8 @@ final class ChaosService implements Listener {
             case AIRDROP -> airdrop(session, 200L);
             case PINATA -> pinata(session, ticks);
             case JACKPOT -> jackpot(session);
+            case ALFREDO -> alfredo(session, ticks,
+                    ALFREDO_DEFAULT_HEALTH, ALFREDO_DEFAULT_KEYS, ALFREDO_DEFAULT_DIAMONDS);
             default -> throw new IllegalArgumentException(effect.id() + " is not handled here.");
         }
     }
@@ -295,6 +336,8 @@ final class ChaosService implements Listener {
      */
     private static long lifeTicks(ChaosCatalog effect, long ticks) {
         return switch (effect) {
+            // Long enough for a real fight; his death ends the session early.
+            case ALFREDO -> 12_000L;
             case AIRDROP -> 240L;
             case JACKPOT -> 280L;
             case LAUNCH, SWAP, CONFETTI -> 60L;
@@ -314,6 +357,7 @@ final class ChaosService implements Listener {
             case BLACKOUT, VOIDFLOOR, GHOSTS -> Sound.MUSIC_DISC_11;
             case THUNDERDOME, METEORS -> Sound.MUSIC_DISC_OTHERSIDE;
             case AIRDROP, JACKPOT, PINATA -> Sound.MUSIC_DISC_CREATOR;
+            case ALFREDO -> Sound.MUSIC_DISC_PIGSTEP;
             case LAVAFLOOR, GIANTS, YOYO -> Sound.MUSIC_DISC_STAL;
             default -> Sound.MUSIC_DISC_CAT;
         };
@@ -325,6 +369,7 @@ final class ChaosService implements Listener {
             case THUNDERDOME, METEORS -> BossBar.Color.BLUE;
             case LAVAFLOOR, GIANTS -> BossBar.Color.RED;
             case AIRDROP, JACKPOT -> BossBar.Color.YELLOW;
+            case ALFREDO -> BossBar.Color.RED;
             case PINATA, DISCO, RAVE -> BossBar.Color.PINK;
             default -> BossBar.Color.GREEN;
         };
@@ -336,8 +381,32 @@ final class ChaosService implements Listener {
             case THUNDERDOME, METEORS -> TextColor.color(0x4FC3F7);
             case LAVAFLOOR, GIANTS -> TextColor.color(0xFF5722);
             case AIRDROP, JACKPOT, PINATA -> TextColor.color(0xFFD54F);
+            case ALFREDO -> TextColor.color(0xFF3B30);
             default -> ORANGE;
         };
+    }
+
+    /**
+     * Alfredo takes a loot budget rather than a duration, so he gets his own way
+     * in instead of being squeezed through the generic effect arguments.
+     */
+    String summonAlfredo(Player operator, int health, int keys, int diamonds, double radius) {
+        Session session = new Session(operator.getLocation().clone(), radius, false);
+        active.add(session);
+        long ticks = lifeTicks(ChaosCatalog.ALFREDO, 0L);
+        protect(session);
+        List<Player> audience = targets(session);
+        audience.forEach(player -> session.listeners.add(player.getUniqueId()));
+        show.music(audience, trackFor(ChaosCatalog.ALFREDO));
+        alfredo(session, ticks, health, keys, diamonds);
+        session.undo(() -> show.stopMusic(session.listeners.stream()
+                .map(plugin.getServer()::getPlayer)
+                .filter(java.util.Objects::nonNull)
+                .toList()));
+        session.tasks.add(plugin.getServer().getScheduler()
+                .runTaskLater(plugin, session::end, ticks + 2L));
+        return "Alfredo is up with " + health + " health, " + keys + " keys and "
+                + diamonds + " diamonds to give away";
     }
 
     private String chaos(Player operator, int seconds, double radius) {
@@ -825,6 +894,8 @@ final class ChaosService implements Listener {
         active.clear();
         pinatas.values().forEach(pinata -> show.hideBar(pinata.bar, online()));
         pinatas.clear();
+        alfredos.values().forEach(boss -> show.hideBar(boss.bar, online()));
+        alfredos.clear();
         // Belt and braces, and deliberately everyone rather than the last
         // event's targets: a player may have walked out of range mid-effect.
         for (Player player : online()) {
@@ -1064,6 +1135,295 @@ final class ChaosService implements Listener {
         show.hideBar(state.bar, online());
         if (owner != null) {
             burstOpen(owner, at, 30 + targets(owner).size() * 5, "PINATA");
+        }
+    }
+
+
+    // ---------------------------------------------------------------- Alfredo
+
+    static final double ALFREDO_DEFAULT_HEALTH = 2000d;
+    static final int ALFREDO_DEFAULT_KEYS = 60;
+    static final int ALFREDO_DEFAULT_DIAMONDS = 128;
+    private static final int ALFREDO_BURSTS = 10;
+
+    /**
+     * Spawns the boss.
+     *
+     * <p>Health is clamped to whatever `spigot.yml` allows rather than being set
+     * blindly: Paper silently caps `attribute.maxHealth.max`, so asking for more
+     * than the server permits would quietly produce a different fight from the
+     * one that was configured. A clamp that says so is better than a surprise.
+     */
+    private void alfredo(Session session, long ticks, double requestedHealth, int keys, int diamonds) {
+        World world = session.anchor.getWorld();
+        if (world == null) {
+            throw new IllegalArgumentException("Alfredo has nowhere to stand.");
+        }
+        Location at = world.getHighestBlockAt(session.anchor).getLocation().add(0.5d, 1d, 0.5d);
+        Zombie boss = world.spawn(at, Zombie.class, zombie -> {
+            zombie.setCustomName("Alfredo");
+            zombie.setCustomNameVisible(true);
+            zombie.setPersistent(false);
+            zombie.setGlowing(true);
+            zombie.setRemoveWhenFarAway(false);
+            zombie.setShouldBurnInDay(false);
+            AttributeInstance scale = zombie.getAttribute(Attribute.SCALE);
+            if (scale != null) {
+                scale.setBaseValue(6d);
+            }
+        });
+        double health = applyBossHealth(boss, requestedHealth);
+        session.spawned.add(boss.getUniqueId());
+
+        BossBar bar = show.bar("ALFREDO", BossBar.Color.RED);
+        alfredos.put(boss.getUniqueId(), new Alfredo(
+                bar, session, Math.max(0, keys), Math.max(0, diamonds), ALFREDO_BURSTS, health
+        ));
+        announce(session, Component.text("ALFREDO", NamedTextColor.RED, TextDecoration.BOLD)
+                .append(Component.text(" has arrived. Hit him until he gives it up.",
+                        NamedTextColor.WHITE)));
+
+        // The spectacle. Every piece is one the world guards already cover:
+        // effect-only lightning, per-client sky colour, per-client particles.
+        repeat(session, 4L, ticks, frame -> {
+            if (!boss.isValid() || alfredos.get(boss.getUniqueId()) == null) {
+                return;
+            }
+            ThreadLocalRandom random = ThreadLocalRandom.current();
+            Location centre = boss.getLocation().add(0d, 3d, 0d);
+            List<Player> watching = targets(session);
+            for (Player player : watching) {
+                // Rainbow sky, client-side only.
+                player.setPlayerTime((frame * 700L) % 24_000L, false);
+                for (int ring = 0; ring < 14; ring++) {
+                    double angle = (Math.PI * 2d / 14d) * ring + frame * 0.3d;
+                    player.spawnParticle(Particle.DUST,
+                            centre.clone().add(Math.cos(angle) * 3.4d, 0d, Math.sin(angle) * 3.4d),
+                            2, 0d, 1.2d, 0d, 0d,
+                            new Particle.DustOptions(randomColour(random), 2.2f));
+                }
+                player.spawnParticle(Particle.SOUL_FIRE_FLAME, centre, 6, 1.6d, 1.6d, 1.6d, 0.02d);
+            }
+            if (frame % 12 == 0) {
+                world.strikeLightningEffect(boss.getLocation().add(
+                        random.nextDouble(-6d, 6d), 0d, random.nextDouble(-6d, 6d)
+                ));
+                for (Player player : watching) {
+                    player.playSound(centre, Sound.ENTITY_ENDER_DRAGON_GROWL,
+                            SoundCategory.MASTER, 0.5f, 0.5f);
+                }
+            }
+            show.showBar(bar, watching, (float) (boss.getHealth() / Math.max(1d, health)));
+        });
+        forTargets(session, player -> session.undoFor(player, player::resetPlayerTime));
+        session.undo(() -> {
+            Alfredo state = alfredos.remove(boss.getUniqueId());
+            if (state != null) {
+                show.hideBar(state.bar, online());
+            }
+        });
+    }
+
+    /** @return the health he actually got, which may be less than asked for */
+    private double applyBossHealth(Zombie boss, double requested) {
+        AttributeInstance attribute = boss.getAttribute(Attribute.MAX_HEALTH);
+        if (attribute == null) {
+            return boss.getHealth();
+        }
+        double wanted = Math.max(20d, requested);
+        attribute.setBaseValue(wanted);
+        // Paper clamps to spigot.yml's attribute.maxHealth.max without a word.
+        double granted = attribute.getValue();
+        if (granted < wanted) {
+            plugin.getLogger().warning("Alfredo asked for " + (long) wanted
+                    + " health but this server caps it at " + (long) granted
+                    + " (spigot.yml attribute.maxHealth.max).");
+        }
+        boss.setHealth(granted);
+        return granted;
+    }
+
+    /** Retunes a live Alfredo, rescaling the remaining bursts across what is left. */
+    String retuneAlfredo(double health) {
+        if (alfredos.isEmpty()) {
+            throw new IllegalArgumentException("No Alfredo is fighting right now.");
+        }
+        int retuned = 0;
+        for (Map.Entry<UUID, Alfredo> entry : Map.copyOf(alfredos).entrySet()) {
+            Entity entity = plugin.getServer().getEntity(entry.getKey());
+            if (!(entity instanceof Zombie boss) || !boss.isValid()) {
+                continue;
+            }
+            Alfredo state = entry.getValue();
+            double granted = applyBossHealth(boss, health);
+            state.maxHealth = granted;
+            // Spread whatever bursts are left over whatever health is left, so
+            // raising his health mid-fight does not skip the rest of the loot.
+            state.nextBurstAt = granted - (granted / (state.burstsLeft + 1));
+            retuned++;
+        }
+        if (retuned == 0) {
+            throw new IllegalArgumentException("No Alfredo is fighting right now.");
+        }
+        return "Retuned " + retuned + " Alfredo(s) to " + (long) health + " health";
+    }
+
+    /**
+     * Every hit on Alfredo. His own attacks are cancelled elsewhere; this only
+     * meters damage he takes and pays out as he crosses each threshold.
+     */
+    private void onAlfredoHurt(Entity entity) {
+        Alfredo state = alfredos.get(entity.getUniqueId());
+        if (state == null || state.finished || !(entity instanceof Zombie boss)) {
+            return;
+        }
+        double health = boss.getHealth();
+        show.showBar(state.bar, targets(state.session),
+                (float) (health / Math.max(1d, state.maxHealth)));
+        if (health > state.nextBurstAt || state.burstsLeft <= 0) {
+            return;
+        }
+        state.burstsLeft--;
+        // A slice of what is left, so the configured total is what actually drops.
+        int keys = state.burstsLeft == 0 ? state.burstKeys
+                : Math.max(0, state.burstKeys / (state.burstsLeft + 1));
+        int diamonds = state.burstsLeft == 0 ? state.burstDiamonds
+                : Math.max(0, state.burstDiamonds / (state.burstsLeft + 1));
+        state.burstKeys -= keys;
+        state.burstDiamonds -= diamonds;
+        state.nextBurstAt = state.burstsLeft <= 0
+                ? -1d
+                : health - (health / (state.burstsLeft + 1));
+        spill(state.session, boss.getLocation().add(0d, 2d, 0d), keys, diamonds, false);
+    }
+
+    /** The finale: whatever he is still carrying, all at once. */
+    private void onAlfredoDown(Zombie boss) {
+        Alfredo state = alfredos.remove(boss.getUniqueId());
+        if (state == null || state.finished) {
+            return;
+        }
+        state.finished = true;
+        show.hideBar(state.bar, online());
+        Location where = boss.getLocation().add(0d, 2d, 0d);
+        announce(state.session, Component.text("ALFREDO IS DOWN!", NamedTextColor.GOLD,
+                        TextDecoration.BOLD)
+                .append(Component.text(" Everything he had is in the air.", NamedTextColor.WHITE)));
+        World world = where.getWorld();
+        if (world != null) {
+            world.spawnParticle(Particle.EXPLOSION_EMITTER, where, 8, 2d, 2d, 2d, 0d);
+            for (int bolt = 0; bolt < 8; bolt++) {
+                world.strikeLightningEffect(where.clone().add(
+                        ThreadLocalRandom.current().nextDouble(-7d, 7d), 0d,
+                        ThreadLocalRandom.current().nextDouble(-7d, 7d)
+                ));
+            }
+        }
+        // Anything the bursts did not manage to spend rides along with it.
+        spill(state.session, where,
+                state.finaleKeys + state.burstKeys,
+                state.finaleDiamonds + state.burstDiamonds, true);
+    }
+
+    /**
+     * Throws loot into the air. The finale arcs it much wider and higher, which
+     * is what turns a pile on the floor into rain.
+     */
+    private void spill(Session session, Location where, int keys, int diamonds, boolean finale) {
+        World world = where.getWorld();
+        if (world == null || (keys <= 0 && diamonds <= 0)) {
+            return;
+        }
+        ThreadLocalRandom random = ThreadLocalRandom.current();
+        double spread = finale ? 0.9d : 0.35d;
+        double lift = finale ? 1.4d : 0.6d;
+        for (Player player : targets(session)) {
+            player.playSound(where, Sound.ENTITY_GENERIC_EXPLODE, SoundCategory.MASTER,
+                    1f, finale ? 0.8f : 1.4f);
+            if (finale) {
+                player.playSound(where, Sound.UI_TOAST_CHALLENGE_COMPLETE,
+                        SoundCategory.MASTER, 1f, 1f);
+            }
+            player.spawnParticle(Particle.TOTEM_OF_UNDYING, where,
+                    finale ? 400 : 90, 2d, 2d, 2d, finale ? 1.6d : 0.7d);
+        }
+        List<ItemStack> loot = new ArrayList<>();
+        for (int index = 0; index < keys; index++) {
+            loot.add(crateItems.key(1));
+        }
+        for (int index = 0; index < diamonds; index++) {
+            loot.add(new ItemStack(Material.DIAMOND, 1));
+        }
+        for (ItemStack stack : loot) {
+            Item drop = world.dropItem(where, stack);
+            drop.setGlowing(true);
+            drop.setPickupDelay(20);
+            drop.setVelocity(new Vector(
+                    random.nextDouble(-spread, spread),
+                    random.nextDouble(lift * 0.5d, lift),
+                    random.nextDouble(-spread, spread)
+            ));
+        }
+        if (!finale) {
+            announce(session, Component.text("Alfredo drops loot!", NamedTextColor.YELLOW,
+                    TextDecoration.BOLD));
+        }
+    }
+
+
+    /** Whether a player swung this, directly or through something they fired. */
+    private static boolean dealtByPlayer(EntityDamageEvent event) {
+        if (!(event instanceof EntityDamageByEntityEvent byEntity)) {
+            return false;
+        }
+        Entity damager = byEntity.getDamager();
+        return damager instanceof Player
+                || (damager instanceof org.bukkit.entity.Projectile projectile
+                        && projectile.getShooter() instanceof Player);
+    }
+
+    /** Alfredo never hurts anybody. A boss that kills players is a different feature. */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onAlfredoSwings(EntityDamageByEntityEvent event) {
+        if (alfredos.containsKey(event.getDamager().getUniqueId())) {
+            event.setCancelled(true);
+        }
+    }
+
+    /**
+     * Meters damage he takes. Read on the next tick, because during the event his
+     * health is still the value from before the hit lands.
+     */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onAlfredoTakesDamage(EntityDamageEvent event) {
+        if (!alfredos.containsKey(event.getEntity().getUniqueId())) {
+            return;
+        }
+        // Scaled six times over, he stands in the ceiling almost anywhere. Left
+        // to the world he would suffocate to death seconds after arriving, and
+        // the fight would be over before anybody swung at him.
+        if (!dealtByPlayer(event)) {
+            event.setCancelled(true);
+            return;
+        }
+        Entity boss = event.getEntity();
+        plugin.getServer().getScheduler().runTask(plugin, () -> onAlfredoHurt(boss));
+    }
+
+    /** His own drops are replaced entirely by the budget he was given. */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onAlfredoDies(EntityDeathEvent event) {
+        if (!(event.getEntity() instanceof Zombie boss)
+                || !alfredos.containsKey(boss.getUniqueId())) {
+            return;
+        }
+        event.getDrops().clear();
+        event.setDroppedExp(0);
+        Alfredo state = alfredos.get(boss.getUniqueId());
+        onAlfredoDown(boss);
+        if (state != null) {
+            // The fight is the event. Once he is down, stop the sky cycling.
+            plugin.getServer().getScheduler().runTaskLater(plugin, state.session::end, 60L);
         }
     }
 

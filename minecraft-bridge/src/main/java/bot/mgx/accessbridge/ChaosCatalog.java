@@ -40,6 +40,7 @@ enum ChaosCatalog {
     AIRDROP("airdrop", "A supply crate falls from the sky and bursts open.", 0, 0, 0, "drop", "supply"),
     PINATA("pinata", "A giant pinata. Hit it until it breaks.", 45, 15, 180, "boss"),
     JACKPOT("jackpot", "A drumroll, a spinning reel, and a payout.", 0, 0, 0, "roll"),
+    ALFREDO("alfredo", "A colossal zombie. Beat him for everything he is carrying.", 0, 0, 0, "boss2"),
     CHAOS("chaos", "Several of the above at once.", 25, 10, 60),
     STOP("stop", "Ends every running effect and restores everything.", 0, 0, 0, "reset", "clear");
 
@@ -152,6 +153,6 @@ enum ChaosCatalog {
 
     /** Events that hand out rewards, and so should never fire unannounced. */
     static List<ChaosCatalog> payouts() {
-        return List.of(KEYRAIN, AIRDROP, PINATA, JACKPOT);
+        return List.of(KEYRAIN, AIRDROP, PINATA, JACKPOT, ALFREDO);
     }
 }
