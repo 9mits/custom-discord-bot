@@ -17,43 +17,43 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CrateCatalogTest {
     private static final Map<String, Integer> EXPECTED_ITEM_WEIGHTS = Map.ofEntries(
-            Map.entry("oak_wood", 10_360),
-            Map.entry("raw_iron", 10_000),
-            Map.entry("raw_gold", 8_500),
-            Map.entry("emeralds", 8_000),
-            Map.entry("diamonds", 6_300),
-            Map.entry("wind_charges", 6_600),
-            Map.entry("breeze_rods", 5_800),
-            Map.entry("golden_apple", 5_737),
-            Map.entry("echo_shards", 5_000),
-            Map.entry("ominous_bottle", 4_000),
+            Map.entry("oak_wood", 10_936),
+            Map.entry("raw_iron", 10_556),
+            Map.entry("raw_gold", 8_973),
+            Map.entry("emeralds", 8_445),
+            Map.entry("diamonds", 6_651),
+            Map.entry("wind_charges", 6_967),
+            Map.entry("breeze_rods", 6_123),
+            Map.entry("golden_apple", 6_056),
+            Map.entry("echo_shards", 5_278),
+            Map.entry("ominous_bottle", 4_223),
             Map.entry("heart_of_the_sea", 3_000),
             Map.entry("shulker_shells", 2_000),
             Map.entry("ancient_debris", 2_000),
             Map.entry("netherite_scrap", 1_500),
-            Map.entry("totem_of_undying", 750),
-            Map.entry("netherite_ingot", 300),
-            Map.entry("enchanted_golden_apple", 200),
-            Map.entry("heavy_core", 150),
-            Map.entry("mace", 50),
+            Map.entry("totem_of_undying", 413),
+            Map.entry("netherite_ingot", 165),
+            Map.entry("enchanted_golden_apple", 110),
+            Map.entry("heavy_core", 82),
+            Map.entry("mace", 28),
             Map.entry("potion_healing_ii", 1_000),
-            Map.entry("potion_strength_ii", 750),
-            Map.entry("potion_swiftness_ii", 750),
-            Map.entry("potion_fire_resistance", 600),
-            Map.entry("enchant_excavation_i", 10),
-            Map.entry("enchant_unbreaking_iv", 300),
-            Map.entry("enchant_unbreaking_v", 75),
-            Map.entry("enchant_protection_v", 125),
-            Map.entry("enchant_fortune_iv", 200),
-            Map.entry("enchant_fortune_v", 50),
-            Map.entry("fortune_potion_i", 250),
-            Map.entry("fortune_potion_ii", 100),
-            Map.entry("fortune_potion_iii", 35),
-            Map.entry("fortune_potion_iv", 10),
-            Map.entry("fortune_potion_v", 2),
-            Map.entry("crate_luck_ii", 75),
-            Map.entry("crate_luck_iii", 25),
-            Map.entry("crate_luck_iv", 5),
+            Map.entry("potion_strength_ii", 413),
+            Map.entry("potion_swiftness_ii", 413),
+            Map.entry("potion_fire_resistance", 330),
+            Map.entry("enchant_excavation_i", 6),
+            Map.entry("enchant_unbreaking_iv", 165),
+            Map.entry("enchant_unbreaking_v", 41),
+            Map.entry("enchant_protection_v", 69),
+            Map.entry("enchant_fortune_iv", 110),
+            Map.entry("enchant_fortune_v", 28),
+            Map.entry("fortune_potion_i", 138),
+            Map.entry("fortune_potion_ii", 55),
+            Map.entry("fortune_potion_iii", 19),
+            Map.entry("fortune_potion_iv", 6),
+            Map.entry("fortune_potion_v", 1),
+            Map.entry("crate_luck_ii", 41),
+            Map.entry("crate_luck_iii", 14),
+            Map.entry("crate_luck_iv", 3),
             Map.entry("crate_luck_v", 1)
     );
 
@@ -61,11 +61,11 @@ class CrateCatalogTest {
     void completePoolTotalsExactlyOneHundredPercent() {
         assertEquals(100_000, CrateCatalog.totalWeight());
         assertEquals("100.000%", CrateCatalog.percentage(CrateCatalog.totalWeight()));
-        assertEquals(84_610, CrateCatalog.all().stream()
+        assertEquals(86_359, CrateCatalog.all().stream()
                 .filter(reward -> !reward.cosmetic())
                 .mapToInt(CrateCatalog.Reward::weight)
                 .sum());
-        assertEquals(15_390, CrateCatalog.all().stream()
+        assertEquals(13_641, CrateCatalog.all().stream()
                 .filter(CrateCatalog.Reward::cosmetic)
                 .mapToInt(CrateCatalog.Reward::weight)
                 .sum());
@@ -131,16 +131,16 @@ class CrateCatalogTest {
         ).orElseThrow();
 
         assertTrue(secret.secret());
-        assertEquals(5, secret.weight());
+        assertEquals(3, secret.weight());
         assertEquals("Event Horizon", secret.displayName());
         assertEquals("???", secret.displayedChance());
-        assertEquals("0.005%", secret.actualChance());
+        assertEquals("0.003%", secret.actualChance());
         assertEquals("BLACK_DYE", secret.materialName());
         assertEquals(CrateCatalog.Category.SECRET, secret.category());
         assertEquals(9, CrateCatalog.all().stream().filter(CrateCatalog.Reward::secret).count());
         assertTrue(CrateCatalog.all().stream()
                 .filter(CrateCatalog.Reward::secret)
-                .allMatch(reward -> reward.weight() == 5));
+                .allMatch(reward -> reward.weight() == 3));
     }
 
     @Test
@@ -162,11 +162,11 @@ class CrateCatalogTest {
 
     @Test
     void highImpactRewardsStayUnderTheirEconomicCaps() {
-        assertTrue(weight("totem_of_undying") <= 750);
-        assertTrue(weight("netherite_ingot") <= 300);
-        assertTrue(weight("enchanted_golden_apple") <= 200);
-        assertTrue(weight("heavy_core") <= 150);
-        assertTrue(weight("mace") <= 50);
+        assertTrue(weight("totem_of_undying") <= 413);
+        assertTrue(weight("netherite_ingot") <= 165);
+        assertTrue(weight("enchanted_golden_apple") <= 110);
+        assertTrue(weight("heavy_core") <= 82);
+        assertTrue(weight("mace") <= 28);
     }
 
     @Test
@@ -208,7 +208,7 @@ class CrateCatalogTest {
         assertTrue(CrateCatalog.all().stream()
                 .filter(CrateCatalog.Reward::secret)
                 .allMatch(CrateCatalog.Reward::jackpot));
-        assertFalse(CrateCatalog.find("enchant_excavation_i").orElseThrow().jackpot());
+        assertFalse(CrateCatalog.find("crate_luck_iii").orElseThrow().jackpot());
         assertTrue(CrateCatalog.all().stream()
                 .filter(CrateCatalog.Reward::jackpot)
                 .allMatch(CrateCatalog.Reward::rare));
