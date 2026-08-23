@@ -66,11 +66,16 @@ final class AdminEventService {
                             bounded(args, 3, 2_000, 20, 100_000, "health")
                     );
                 }
-                int health = bounded(args, 2, (int) ChaosService.ALFREDO_DEFAULT_HEALTH,
-                        20, 100_000, "health");
-                int keys = bounded(args, 3, ChaosService.ALFREDO_DEFAULT_KEYS, 0, 500, "keys");
-                int diamonds = bounded(args, 4, ChaosService.ALFREDO_DEFAULT_DIAMONDS,
-                        0, 1_000, "diamonds");
+                boolean test = args.length > 2 && args[2].equalsIgnoreCase("test");
+                int health = test
+                        ? (int) ChaosService.ALFREDO_DEFAULT_HEALTH
+                        : bounded(args, 2, (int) ChaosService.ALFREDO_DEFAULT_HEALTH,
+                                20, 100_000, "health");
+                int keys = test ? ChaosService.ALFREDO_DEFAULT_KEYS
+                        : bounded(args, 3, ChaosService.ALFREDO_DEFAULT_KEYS, 0, 500, "keys");
+                int diamonds = test ? ChaosService.ALFREDO_DEFAULT_DIAMONDS
+                        : bounded(args, 4, ChaosService.ALFREDO_DEFAULT_DIAMONDS,
+                                0, 1_000, "diamonds");
                 yield chaosService.summonAlfredo(
                         player,
                         health,
@@ -78,7 +83,8 @@ final class AdminEventService {
                         diamonds,
                         ChaosTargeting.radiusOrThrow(null, plugin.getConfig().getDouble(
                                 "abuse-radius", ChaosTargeting.DEFAULT_RADIUS
-                        ))
+                        )),
+                        test
                 );
             }
             default -> {

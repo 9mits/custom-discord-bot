@@ -3,6 +3,7 @@ package bot.mgx.accessbridge;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -74,5 +75,35 @@ class UpdateNoticeStoreTest {
         assertThrows(UncheckedIOException.class, () -> store.tryClaim(player));
         Files.delete(path.resolveSibling("notices.json.tmp"));
         assertTrue(store.tryClaim(player));
+    }
+
+    @Test
+    void featureVersionIgnoresThePatchNumber() {
+        assertEquals("6.5", UpdateNoticeStore.featureVersion("6.5.1"));
+        assertEquals("6.5", UpdateNoticeStore.featureVersion("6.5.0"));
+        assertEquals("10.0", UpdateNoticeStore.featureVersion(" 10.0.3 "));
+        assertEquals("", UpdateNoticeStore.featureVersion("6"));
+        assertEquals("", UpdateNoticeStore.featureVersion(null));
+    }
+
+    @Test
+    void theFirstRunNeverAnnounces(@TempDir Path directory) throws IOException {
+        UpdateNoticeStore store = new UpdateNoticeStore(directory.resolve("update-notices.json"));
+        // Creating the store is not an update: everybody online already has
+        // this version, and a banner for it would be a lie.
+        assertFalse(store.publishIfVersionChanged("6.5.0"));
+        assertFalse(store.active());
+    }
+
+    @Test
+    void aFeatureBumpAnnouncesButAPatchDoesNot(@TempDir Path directory) throws IOException {
+        Path file = directory.resolve("update-notices.json");
+        new UpdateNoticeStore(file).publishIfVersionChanged("6.4.0");
+
+        UpdateNoticeStore store = new UpdateNoticeStore(file);
+        assertFalse(store.publishIfVersionChanged("6.4.9"), "a patch is not an update");
+        assertTrue(store.publishIfVersionChanged("6.5.0"), "a feature bump is");
+        assertTrue(store.active());
+        assertFalse(store.publishIfVersionChanged("6.5.3"), "still the same feature version");
     }
 }
