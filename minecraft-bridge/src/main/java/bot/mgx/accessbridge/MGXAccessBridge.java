@@ -459,6 +459,19 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         cosmeticEffects.start();
         afkService.start();
         serverEventService.start();
+        // A new jar is a shipped update, so announce it without waiting for
+        // anybody to remember /mgxadmin update.
+        if (getConfig().getBoolean("auto-update-notice", true)) {
+            try {
+                if (updateNoticeStore.publishIfVersionChanged(getPluginMeta().getVersion())) {
+                    getLogger().info("Published the NEW UPDATE notice for version "
+                            + getPluginMeta().getVersion() + ".");
+                }
+            } catch (RuntimeException failure) {
+                getLogger().warning("Could not auto-publish the update notice: "
+                        + failure.getMessage());
+            }
+        }
         autoPayService.start();
         sidebarService.start();
         leaderboardService.start();

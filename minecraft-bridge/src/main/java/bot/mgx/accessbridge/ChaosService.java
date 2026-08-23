@@ -22,6 +22,7 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.Slime;
+import org.bukkit.entity.TextDisplay;
 import org.bukkit.entity.Zombie;
 import org.bukkit.entity.LightningStrike;
 import org.bukkit.entity.Player;
@@ -47,6 +48,7 @@ import org.bukkit.potion.PotionEffect;
 import org.bukkit.potion.PotionEffectType;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
+import org.bukkit.util.Transformation;
 import org.bukkit.util.Vector;
 
 import java.util.ArrayDeque;
@@ -146,6 +148,7 @@ final class ChaosService implements Listener {
         private double nextBurstAt;
         private double maxHealth;
         private boolean finished;
+        private boolean autoDamage;
 
         Alfredo(BossBar bar, Session session, int keys, int diamonds, int bursts, double maxHealth) {
             this.bar = bar;
@@ -390,7 +393,9 @@ final class ChaosService implements Listener {
      * Alfredo takes a loot budget rather than a duration, so he gets his own way
      * in instead of being squeezed through the generic effect arguments.
      */
-    String summonAlfredo(Player operator, int health, int keys, int diamonds, double radius) {
+    String summonAlfredo(
+            Player operator, int health, int keys, int diamonds, double radius, boolean test
+    ) {
         Session session = new Session(operator.getLocation().clone(), radius, false);
         active.add(session);
         long ticks = lifeTicks(ChaosCatalog.ALFREDO, 0L);
@@ -399,6 +404,9 @@ final class ChaosService implements Listener {
         audience.forEach(player -> session.listeners.add(player.getUniqueId()));
         show.music(audience, trackFor(ChaosCatalog.ALFREDO));
         alfredo(session, ticks, health, keys, diamonds);
+        if (test) {
+            startAlfredoSelfTest(session);
+        }
         session.undo(() -> show.stopMusic(session.listeners.stream()
                 .map(plugin.getServer()::getPlayer)
                 .filter(java.util.Objects::nonNull)
@@ -406,7 +414,9 @@ final class ChaosService implements Listener {
         session.tasks.add(plugin.getServer().getScheduler()
                 .runTaskLater(plugin, session::end, ticks + 2L));
         return "Alfredo is up with " + health + " health, " + keys + " keys and "
-                + diamonds + " diamonds to give away";
+                + diamonds + " diamonds to give away"
+                + (test ? " (test run: he dies on his own in about "
+                        + ALFREDO_TEST_SECONDS + "s)" : "");
     }
 
     private String chaos(Player operator, int seconds, double radius) {
@@ -1145,6 +1155,13 @@ final class ChaosService implements Listener {
     static final int ALFREDO_DEFAULT_KEYS = 60;
     static final int ALFREDO_DEFAULT_DIAMONDS = 128;
     private static final int ALFREDO_BURSTS = 10;
+    /**
+     * Minecraft caps generic.scale at 16, so this is as large as an entity can
+     * legally be. A vanilla zombie is 1.95 blocks, which puts him near 31.
+     */
+    private static final double ALFREDO_SCALE = 16d;
+    /** Roughly how long the test run should take before he falls. */
+    private static final long ALFREDO_TEST_SECONDS = 55L;
 
     /**
      * Spawns the boss.
@@ -1162,18 +1179,46 @@ final class ChaosService implements Listener {
         Location at = world.getHighestBlockAt(session.anchor).getLocation().add(0.5d, 1d, 0.5d);
         Zombie boss = world.spawn(at, Zombie.class, zombie -> {
             zombie.setCustomName("Alfredo");
-            zombie.setCustomNameVisible(true);
+            // The vanilla nameplate is a fixed size and sits above the head,
+            // which at this scale is off the top of the screen. A TextDisplay
+            // scaled to match him replaces it.
+            zombie.setCustomNameVisible(false);
             zombie.setPersistent(false);
             zombie.setGlowing(true);
             zombie.setRemoveWhenFarAway(false);
             zombie.setShouldBurnInDay(false);
             AttributeInstance scale = zombie.getAttribute(Attribute.SCALE);
             if (scale != null) {
-                scale.setBaseValue(6d);
+                scale.setBaseValue(ALFREDO_SCALE);
             }
         });
         double health = applyBossHealth(boss, requestedHealth);
         session.spawned.add(boss.getUniqueId());
+
+        // A nameplate as big as he is. Billboard CENTER keeps it facing every
+        // player wherever they stand.
+        double headroom = 2d * ALFREDO_SCALE;
+        TextDisplay label = world.spawn(at.clone().add(0d, headroom, 0d), TextDisplay.class, text -> {
+            text.setText("ALFREDO");
+            text.setBillboard(org.bukkit.entity.Display.Billboard.CENTER);
+            text.setSeeThrough(true);
+            text.setPersistent(false);
+            text.setViewRange(4f);
+            text.setTransformation(new Transformation(
+                    new org.joml.Vector3f(),
+                    new org.joml.Quaternionf(),
+                    new org.joml.Vector3f((float) ALFREDO_SCALE, (float) ALFREDO_SCALE,
+                            (float) ALFREDO_SCALE),
+                    new org.joml.Quaternionf()
+            ));
+        });
+        session.spawned.add(label.getUniqueId());
+
+        // Nobody fights each other while Alfredo is up. A boss brawl turning
+        // into a PvP free-for-all is how an event ends in an argument.
+        boolean pvpWas = world.getPVP();
+        world.setPVP(false);
+        session.undo(() -> world.setPVP(pvpWas));
 
         BossBar bar = show.bar("ALFREDO", BossBar.Color.RED);
         alfredos.put(boss.getUniqueId(), new Alfredo(
@@ -1190,8 +1235,11 @@ final class ChaosService implements Listener {
                 return;
             }
             ThreadLocalRandom random = ThreadLocalRandom.current();
-            Location centre = boss.getLocation().add(0d, 3d, 0d);
+            Location centre = boss.getLocation().add(0d, ALFREDO_SCALE, 0d);
             List<Player> watching = targets(session);
+            if (label.isValid()) {
+                label.teleport(boss.getLocation().add(0d, headroom, 0d));
+            }
             for (Player player : watching) {
                 // Rainbow sky, client-side only.
                 player.setPlayerTime((frame * 700L) % 24_000L, false);
@@ -1202,7 +1250,26 @@ final class ChaosService implements Listener {
                             2, 0d, 1.2d, 0d, 0d,
                             new Particle.DustOptions(randomColour(random), 2.2f));
                 }
-                player.spawnParticle(Particle.SOUL_FIRE_FLAME, centre, 6, 1.6d, 1.6d, 1.6d, 0.02d);
+                player.spawnParticle(Particle.SOUL_FIRE_FLAME, centre, 10, 3d, 6d, 3d, 0.02d);
+                // The arena, not just the boss. Colour and sparks land all over
+                // the ground around every player so the whole place looks alive.
+                Location feet = player.getLocation();
+                for (int scatter = 0; scatter < 10; scatter++) {
+                    Location spot = feet.clone().add(
+                            random.nextDouble(-14d, 14d),
+                            random.nextDouble(0d, 6d),
+                            random.nextDouble(-14d, 14d)
+                    );
+                    player.spawnParticle(Particle.DUST, spot, 2, 0.6d, 0.6d, 0.6d, 0d,
+                            new Particle.DustOptions(randomColour(random), 2f));
+                }
+                player.spawnParticle(Particle.ELECTRIC_SPARK, feet, 14, 10d, 4d, 10d, 0.06d);
+                player.spawnParticle(Particle.END_ROD, feet, 6, 12d, 5d, 12d, 0.02d);
+                if (frame % 3 == 0) {
+                    player.spawnParticle(Particle.FIREWORK, feet.clone().add(
+                            random.nextDouble(-12d, 12d), random.nextDouble(2d, 8d),
+                            random.nextDouble(-12d, 12d)), 8, 0.4d, 0.4d, 0.4d, 0.08d);
+                }
             }
             if (frame % 12 == 0) {
                 world.strikeLightningEffect(boss.getLocation().add(
@@ -1222,6 +1289,39 @@ final class ChaosService implements Listener {
                 show.hideBar(state.bar, online());
             }
         });
+    }
+
+    /**
+     * Beats Alfredo up on the operator's behalf so the whole event — bursts,
+     * finale and cleanup — can be watched end to end without swinging at him
+     * for five minutes, or needing a second player.
+     */
+    private void startAlfredoSelfTest(Session session) {
+        for (Map.Entry<UUID, Alfredo> entry : Map.copyOf(alfredos).entrySet()) {
+            Alfredo state = entry.getValue();
+            if (state.session != session) {
+                continue;
+            }
+            state.autoDamage = true;
+            UUID id = entry.getKey();
+            // One tick of damage a second, sized to land him at zero at the end.
+            double perSecond = state.maxHealth / ALFREDO_TEST_SECONDS;
+            repeat(session, 20L, ALFREDO_TEST_SECONDS * 20L + 40L, tick -> {
+                Entity entity = plugin.getServer().getEntity(id);
+                if (!(entity instanceof Zombie boss) || !boss.isValid()) {
+                    return;
+                }
+                double left = boss.getHealth() - perSecond;
+                if (left <= 0d) {
+                    // setHealth(0) fires EntityDeathEvent, so the finale runs
+                    // exactly as it would for a real kill.
+                    boss.setHealth(0d);
+                    return;
+                }
+                boss.setHealth(left);
+                onAlfredoHurt(boss);
+            });
+        }
     }
 
     /** @return the health he actually got, which may be less than asked for */

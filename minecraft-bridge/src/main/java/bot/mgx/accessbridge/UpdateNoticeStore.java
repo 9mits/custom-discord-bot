@@ -27,6 +27,7 @@ final class UpdateNoticeStore {
     private final Path file;
     private final Gson gson = new GsonBuilder().disableHtmlEscaping().create();
     private int generation;
+    private String announcedVersion = "";
     private final Set<UUID> seen = new HashSet<>();
 
     UpdateNoticeStore(Path file) throws IOException {
@@ -38,6 +39,8 @@ final class UpdateNoticeStore {
         try {
             JsonObject root = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
             generation = root.has("generation") ? Math.max(0, root.get("generation").getAsInt()) : 0;
+            announcedVersion = root.has("announced_version")
+                    ? root.get("announced_version").getAsString() : "";
             if (root.has("seen") && root.get("seen").isJsonArray()) {
                 for (JsonElement element : root.getAsJsonArray("seen")) {
                     try {
@@ -76,6 +79,44 @@ final class UpdateNoticeStore {
         return generation;
     }
 
+    /**
+     * Publishes automatically when the plugin's feature version moves.
+     *
+     * <p>A shipped update is a new jar, so the jar is the signal — no command to
+     * remember, and nothing to forget after a deploy. Only major.minor counts:
+     * a patch release is a fix, not something to interrupt every player about.
+     *
+     * @return true when this actually announced something
+     */
+    synchronized boolean publishIfVersionChanged(String pluginVersion) {
+        String feature = featureVersion(pluginVersion);
+        if (feature.isEmpty() || feature.equals(announcedVersion)) {
+            return false;
+        }
+        String previous = announcedVersion;
+        announcedVersion = feature;
+        // A first run must not announce: the store is being created now, and
+        // every existing player would get a banner for an update they already have.
+        if (previous.isEmpty()) {
+            persist();
+            return false;
+        }
+        publish();
+        return true;
+    }
+
+    /** "6.5.1" becomes "6.5"; anything unparseable becomes empty. */
+    static String featureVersion(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        String[] parts = raw.trim().split("\\.");
+        if (parts.length < 2) {
+            return "";
+        }
+        return parts[0] + "." + parts[1];
+    }
+
     synchronized boolean tryClaim(UUID playerId) {
         if (generation <= 0 || !seen.add(playerId)) {
             return false;
@@ -107,6 +148,7 @@ final class UpdateNoticeStore {
     private void persist() {
         JsonObject root = new JsonObject();
         root.addProperty("generation", generation);
+        root.addProperty("announced_version", announcedVersion);
         JsonArray seenJson = new JsonArray();
         seen.forEach(id -> seenJson.add(id.toString()));
         root.add("seen", seenJson);

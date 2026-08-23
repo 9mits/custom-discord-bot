@@ -34,6 +34,11 @@ afk-invincible: true
 # for the effects that move people.
 abuse-radius: 64
 
+# Show the NEW UPDATE banner automatically when the plugin's feature version
+# changes (6.4 -> 6.5), rather than waiting for /mgxadmin update. Patch
+# releases are ignored: a fix is not worth interrupting every player about.
+auto-update-notice: true
+
 # The sidebar refreshes live player, level, heart, clan, combat, and server data.
 # 100 ticks (5s) keeps ping/TPS current without rebuilding every scoreboard each second.
 scoreboard:
