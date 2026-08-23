@@ -258,6 +258,12 @@ Deploy sequence, required by non-negotiable 2 after any `minecraft-bridge/` chan
 Say so explicitly every time a change lives in the plugin. Plugin config edits
 (`plugins/*/config.yml`) go over the same SFTP path and need the same restart.
 
+Some behaviour has no plugin API and lives only in the server's own config, which
+is not in git — read the live file over SFTP before changing it. How far away a
+mob stays visible is one: `spigot.yml` `entity-tracking-range` is per category
+(a ghast is `monsters`), it defaults to 48 blocks against vanilla's 160, and it
+is capped by the view distance the plugin sets in `world.max-view-distance`.
+
 ## Layout
 
 ```

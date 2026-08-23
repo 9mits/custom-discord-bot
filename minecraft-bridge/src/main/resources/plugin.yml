@@ -101,7 +101,7 @@ commands:
     permission: mgx.afk
   mgxadmin:
     description: Give rewards, run events, hold rank sync, and reset data.
-    usage: /mgxadmin <give|abuse|startserver|teststart|ranks|eco|bounty|hologram|serials|reset>
+    usage: /mgxadmin <give|abuse|startserver|teststart|pvp|ranks|eco|bounty|hologram|serials|reset>
     aliases: [mcadmin]
     permission: mgxaccessbridge.admin
 permissions:

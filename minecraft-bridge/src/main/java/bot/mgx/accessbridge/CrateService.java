@@ -536,7 +536,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 PlayerMenuService.error(player, "Your saved reward could not be recovered yet.");
                 return false;
             }
-            items.finishReward(player, pending.spinId());
+            items.finishReward(player, pending.spinId(), reward);
             player.sendMessage(winMessage(reward));
             recordWin(player, pending, reward);
             return true;
@@ -571,7 +571,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             PlayerMenuService.error(player, "Your saved reward could not be delivered yet.");
             return false;
         }
-        items.finishReward(player, pending.spinId());
+        items.finishReward(player, pending.spinId(), reward);
         player.sendMessage(winMessage(reward));
         recordWin(player, pending, reward);
         return true;

@@ -39,9 +39,10 @@ import static bot.mgx.accessbridge.MenuItems.ORANGE;
 final class AdminCommandService implements CommandExecutor, TabCompleter {
     static final String PERMISSION = "mgxaccessbridge.admin";
     private static final List<String> SUBCOMMANDS = List.of(
-            "startserver", "teststart", "give", "ranks", "eco", "bounty", "hologram", "reset",
-            "devblog", "update", "serials", "cosmetics", "abuse", "event", "help"
+            "startserver", "teststart", "pvp", "give", "ranks", "eco", "bounty", "hologram",
+            "reset", "devblog", "update", "serials", "cosmetics", "abuse", "event", "help"
     );
+    private static final List<String> PVP_ACTIONS = List.of("on", "off", "status");
     private static final List<String> RANK_ACTIONS = List.of("hold", "release", "list");
     private static final List<String> DEVBLOG_ACTIONS = List.of(
             "on", "off", "cam", "time", "weather", "players", "status"
@@ -123,6 +124,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                     plugin.startLaunchTest(sender);
                     success(sender, "Test countdown started. Barriers return in 1 minute.");
                 }
+                case "pvp" -> pvp(sender, args);
                 case "give" -> give(sender, args);
                 case "ranks" -> ranks(sender, args);
                 case "eco" -> eco(sender, args);
@@ -145,6 +147,30 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             error(sender, exception.getMessage());
         }
         return true;
+    }
+
+    /** {@code /mgxadmin pvp <on|off|status>} */
+    private void pvp(CommandSender sender, String[] args) {
+        String action = args.length < 2 ? "status" : args[1].toLowerCase(Locale.ROOT);
+        if (action.equals("status")) {
+            info(sender, plugin.pvpStatus());
+            return;
+        }
+        boolean enabled = switch (action) {
+            case "on", "enable", "true" -> true;
+            case "off", "disable", "false" -> false;
+            default -> throw new IllegalArgumentException("Use /mgxadmin pvp <on|off|status>.");
+        };
+        plugin.forcePvp(enabled);
+        // Players are told because it changes whether they can be hit where they stand,
+        // and the pin is the one PvP change no countdown announced for them.
+        Bukkit.broadcast(Component.text(
+                "PvP is now " + (enabled ? "ON" : "OFF") + ".", NamedTextColor.GOLD
+        ).decorate(TextDecoration.BOLD));
+        success(sender, "PvP is pinned " + (enabled ? "on" : "off")
+                + " everywhere. It stays there through a restart and through the launch hold.");
+        report(sender, "admin_pvp", sender.getName() + " pinned PvP "
+                + (enabled ? "on" : "off")).detail("state", enabled ? "on" : "off").record();
     }
 
     // ------------------------------------------------------------------
@@ -691,6 +717,9 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 .append(Component.text("  countdown, strip barriers, hold PvP off for 5 hours", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin teststart", ORANGE)
                 .append(Component.text("  same countdown; barriers come back after 1 minute", NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin pvp <on|off|status>", ORANGE)
+                .append(Component.text("  pin PvP either way, overriding the launch hold",
+                        NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin ranks hold <player>", ORANGE)
                 .append(Component.text("  stop Discord rank sync touching them", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin ranks release <player>", ORANGE)
@@ -749,6 +778,9 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             return partial(args[0], SUBCOMMANDS);
         }
         String action = args[0].toLowerCase(Locale.ROOT);
+        if (action.equals("pvp")) {
+            return args.length == 2 ? partial(args[1], PVP_ACTIONS) : List.of();
+        }
         if (action.equals("devblog") || action.equals("screenshot")) {
             if (args.length == 2) {
                 return partial(args[1], DEVBLOG_ACTIONS);
