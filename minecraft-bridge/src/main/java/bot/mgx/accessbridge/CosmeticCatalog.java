@@ -14,7 +14,7 @@ import java.util.Optional;
  * as {@link CrateCatalog}: one point is {@code 0.001%}.
  */
 final class CosmeticCatalog {
-    static final int SECRET_WEIGHT = 5;
+    static final int SECRET_WEIGHT = 3;
 
     enum Category {
         KILL_EFFECT("Kill Effects"),
@@ -88,15 +88,15 @@ final class CosmeticCatalog {
                     "LIGHT_BLUE_DYE", "Ice crystals burst outward with a brittle crack."
             ),
             cosmetic(
-                    "shining_light", "Shining Light", Category.KILL_EFFECT, 500,
+                    "shining_light", "Shining Light", Category.KILL_EFFECT, 275,
                     "GLOWSTONE_DUST", "White-gold rays and sparks mark the final hit."
             ),
             cosmetic(
-                    "void_collapse", "Void Collapse", Category.KILL_EFFECT, 150,
+                    "void_collapse", "Void Collapse", Category.KILL_EFFECT, 82,
                     "ENDER_EYE", "A dark portal folds in on the defeated player."
             ),
             cosmetic(
-                    "soul_requiem", "Soul Requiem", Category.KILL_EFFECT, 50,
+                    "soul_requiem", "Soul Requiem", Category.KILL_EFFECT, 28,
                     "SOUL_LANTERN", "Blue souls spiral upward and fade into silence."
             ),
             cosmetic(
@@ -104,19 +104,19 @@ final class CosmeticCatalog {
                     "BLAZE_POWDER", "Warm gold motes circle the player like a small sun."
             ),
             cosmetic(
-                    "crimson_orbit", "Crimson Orbit", Category.AURA, 750,
+                    "crimson_orbit", "Crimson Orbit", Category.AURA, 413,
                     "REDSTONE", "Three crimson lights trace a steady orbit."
             ),
             cosmetic(
-                    "emerald_orbit", "Emerald Orbit", Category.AURA, 400,
+                    "emerald_orbit", "Emerald Orbit", Category.AURA, 220,
                     "EMERALD", "Green sparks weave around the player in two rings."
             ),
             cosmetic(
-                    "amethyst_orbit", "Amethyst Orbit", Category.AURA, 150,
+                    "amethyst_orbit", "Amethyst Orbit", Category.AURA, 82,
                     "AMETHYST_SHARD", "Violet shards glimmer along a slow helix."
             ),
             cosmetic(
-                    "celestial_crown", "Celestial Crown", Category.AURA, 30,
+                    "celestial_crown", "Celestial Crown", Category.AURA, 16,
                     "NETHER_STAR", "A crown of cold starlight turns above the player."
             ),
             cosmetic(
@@ -128,23 +128,23 @@ final class CosmeticCatalog {
                     "RED_DYE", "Dark red droplets briefly mark the path behind you."
             ),
             cosmetic(
-                    "frost_trail", "Frost Trail", Category.TRAIL, 750,
+                    "frost_trail", "Frost Trail", Category.TRAIL, 413,
                     "SNOWBALL", "Pale snow and ice dust follow your movement."
             ),
             cosmetic(
-                    "cherry_blossom_trail", "Cherry Blossom Trail", Category.TRAIL, 500,
+                    "cherry_blossom_trail", "Cherry Blossom Trail", Category.TRAIL, 275,
                     "PINK_PETALS", "Pink petals drift and settle behind you."
             ),
             cosmetic(
-                    "drool_trail", "Drool Trail", Category.TRAIL, 400,
+                    "drool_trail", "Drool Trail", Category.TRAIL, 220,
                     "SLIME_BALL", "Glossy aqua droplets inspired by Mysterious Girlfriend X."
             ),
             cosmetic(
-                    "ender_trail", "Ender Trail", Category.TRAIL, 150,
+                    "ender_trail", "Ender Trail", Category.TRAIL, 82,
                     "ENDER_PEARL", "Purple motes blink in and out along your path."
             ),
             cosmetic(
-                    "prismatic_trail", "Prismatic Trail", Category.TRAIL, 15,
+                    "prismatic_trail", "Prismatic Trail", Category.TRAIL, 8,
                     "PRISMARINE_CRYSTALS", "A shifting ribbon cycles through the full spectrum."
             ),
             secretCosmetic(

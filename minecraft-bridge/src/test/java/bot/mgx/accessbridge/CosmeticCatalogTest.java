@@ -18,30 +18,30 @@ class CosmeticCatalogTest {
     private static final Map<String, Integer> EXPECTED_WEIGHTS = Map.ofEntries(
             Map.entry("blood_burst", 2_500),
             Map.entry("frozen_shatter", 1_000),
-            Map.entry("shining_light", 500),
-            Map.entry("void_collapse", 150),
-            Map.entry("soul_requiem", 50),
+            Map.entry("shining_light", 275),
+            Map.entry("void_collapse", 82),
+            Map.entry("soul_requiem", 28),
             Map.entry("solar_orbit", 2_000),
-            Map.entry("crimson_orbit", 750),
-            Map.entry("emerald_orbit", 400),
-            Map.entry("amethyst_orbit", 150),
-            Map.entry("celestial_crown", 30),
+            Map.entry("crimson_orbit", 413),
+            Map.entry("emerald_orbit", 220),
+            Map.entry("amethyst_orbit", 82),
+            Map.entry("celestial_crown", 16),
             Map.entry("ember_trail", 5_000),
             Map.entry("blood_trail", 1_000),
-            Map.entry("frost_trail", 750),
-            Map.entry("cherry_blossom_trail", 500),
-            Map.entry("drool_trail", 400),
-            Map.entry("ender_trail", 150),
-            Map.entry("prismatic_trail", 15),
-            Map.entry("event_horizon", 5),
-            Map.entry("reapers_verdict", 5),
-            Map.entry("divine_rupture", 5),
-            Map.entry("astral_sovereign", 5),
-            Map.entry("infernal_dominion", 5),
-            Map.entry("abyssal_seraph", 5),
-            Map.entry("galaxy_wake", 5),
-            Map.entry("phantom_chains", 5),
-            Map.entry("reality_fracture", 5)
+            Map.entry("frost_trail", 413),
+            Map.entry("cherry_blossom_trail", 275),
+            Map.entry("drool_trail", 220),
+            Map.entry("ender_trail", 82),
+            Map.entry("prismatic_trail", 8),
+            Map.entry("event_horizon", 3),
+            Map.entry("reapers_verdict", 3),
+            Map.entry("divine_rupture", 3),
+            Map.entry("astral_sovereign", 3),
+            Map.entry("infernal_dominion", 3),
+            Map.entry("abyssal_seraph", 3),
+            Map.entry("galaxy_wake", 3),
+            Map.entry("phantom_chains", 3),
+            Map.entry("reality_fracture", 3)
     );
 
     @Test
@@ -50,13 +50,13 @@ class CosmeticCatalogTest {
         CosmeticCatalog.all().forEach(definition -> actual.put(definition.id(), definition.weight()));
 
         assertEquals(EXPECTED_WEIGHTS, actual);
-        assertEquals(15_390, actual.values().stream().mapToInt(Integer::intValue).sum());
+        assertEquals(13_641, actual.values().stream().mapToInt(Integer::intValue).sum());
     }
 
     @Test
-    void everyPublicCosmeticIsBetweenFiveAndPointZeroOnePercent() {
+    void everyPublicCosmeticIsBetweenFiveAndPointZeroZeroEightPercent() {
         for (CosmeticCatalog.Definition definition : CosmeticCatalog.publicEntries()) {
-            assertTrue(definition.weight() >= 10, definition.id() + " is below 0.010%");
+            assertTrue(definition.weight() >= 8, definition.id() + " is below 0.008%");
             assertTrue(definition.weight() <= 5_000, definition.id() + " is above 5.000%");
             assertFalse(definition.secret());
             assertTrue(definition.displayedChance().endsWith("%"));
@@ -76,7 +76,7 @@ class CosmeticCatalogTest {
             assertEquals(CosmeticCatalog.SECRET_WEIGHT, secret.weight());
             assertEquals("mgx:cosmetic/" + secret.id(), secret.modelKey());
             assertFalse(CosmeticCatalog.publicEntries().contains(secret));
-            assertEquals("0.005%", CosmeticCatalog.percentage(secret.weight()));
+            assertEquals("0.003%", CosmeticCatalog.percentage(secret.weight()));
         }
         for (CosmeticCatalog.Category category : List.of(
                 CosmeticCatalog.Category.KILL_EFFECT,
