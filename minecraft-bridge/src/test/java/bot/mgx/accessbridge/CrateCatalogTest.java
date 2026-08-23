@@ -189,6 +189,32 @@ class CrateCatalogTest {
     }
 
     @Test
+    void jackpotChimeIsReservedForWinsRarerThanOneHundredthOfAPercent() {
+        assertEquals(10, CrateCatalog.JACKPOT_WEIGHT);
+        assertEquals("0.010%", CrateCatalog.percentage(CrateCatalog.JACKPOT_WEIGHT));
+        Set<String> expected = new HashSet<>();
+        CrateCatalog.all().stream()
+                .filter(reward -> reward.weight() < 10)
+                .map(CrateCatalog.Reward::id)
+                .forEach(expected::add);
+        Set<String> chiming = new HashSet<>();
+        CrateCatalog.all().stream()
+                .filter(CrateCatalog.Reward::jackpot)
+                .map(CrateCatalog.Reward::id)
+                .forEach(chiming::add);
+
+        assertEquals(expected, chiming);
+        assertTrue(chiming.contains("crate_luck_v"));
+        assertTrue(CrateCatalog.all().stream()
+                .filter(CrateCatalog.Reward::secret)
+                .allMatch(CrateCatalog.Reward::jackpot));
+        assertFalse(CrateCatalog.find("enchant_excavation_i").orElseThrow().jackpot());
+        assertTrue(CrateCatalog.all().stream()
+                .filter(CrateCatalog.Reward::jackpot)
+                .allMatch(CrateCatalog.Reward::rare));
+    }
+
+    @Test
     void everyRewardUsesARealItemMaterial() {
         for (CrateCatalog.Reward reward : CrateCatalog.all()) {
             Material material = Material.getMaterial(reward.materialName());
