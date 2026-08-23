@@ -1434,6 +1434,10 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             sold = Math.addExact(sold, item.getAmount());
             counts.merge(item.getType().name(), item.getAmount(), Integer::sum);
         }
+        // Every sell path in this file funnels through here, so the 2x Money
+        // event is applied once. Deliberately not applied to /pay: two accounts
+        // paying each other with /autopay running would mint money forever.
+        credit = Math.multiplyExact(credit, plugin.serverEventMultiplier(ServerEventType.MONEY));
         return new Sold(player.getUniqueId(), sold, credit, counts);
     }
 

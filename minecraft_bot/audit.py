@@ -77,6 +77,7 @@ COMMAND_RISK: Mapping[str, str] = {
     "mcadmin leaderboard": RISK_CONFIGURATION,
     "mcadmin wipe": RISK_DESTRUCTIVE,
     "mcadmin maintenance": RISK_DESTRUCTIVE,
+    "mcadmin event": RISK_CONFIGURATION,
     "mcadmin information": RISK_CONFIGURATION,
     "mcadmin cleanheads": RISK_CONFIGURATION,
 }

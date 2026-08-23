@@ -32,7 +32,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
      * reports in-game actions to the Discord activity log; 8 added
      * SET_MAINTENANCE, which holds the server closed before launch.
      */
-    static final int PROTOCOL_VERSION = 8;
+    static final int PROTOCOL_VERSION = 9;
 
     private final MGXAccessBridge plugin;
     private final BridgeConfig config;
@@ -243,6 +243,35 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                     plugin,
                     () -> executeDiscordChat(idempotencyKey, payload)
             );
+            return;
+        }
+        if (action.equals("SET_SERVER_EVENT")) {
+            try {
+                if (!payload.has("event") || !payload.has("enabled")) {
+                    recordAndSend(idempotencyKey,
+                            new ProcessedActionStore.Result(false, "event and enabled are required"));
+                    return;
+                }
+                String eventId = payload.get("event").getAsString();
+                boolean enabled = payload.get("enabled").getAsBoolean();
+                long seconds = payload.has("seconds") ? payload.get("seconds").getAsLong() : 0L;
+                ServerEventType type = ServerEventType.resolve(eventId).orElse(null);
+                if (type == null) {
+                    recordAndSend(idempotencyKey,
+                            new ProcessedActionStore.Result(false, "unknown event " + eventId));
+                    return;
+                }
+                // Hop to the main thread: this touches boss bars and titles.
+                Bukkit.getScheduler().runTask(plugin, () -> {
+                    ServerEventService events = plugin.serverEvents();
+                    if (events != null) {
+                        events.set(type, enabled, seconds);
+                    }
+                });
+                recordAndSend(idempotencyKey, new ProcessedActionStore.Result(true, ""));
+            } catch (RuntimeException exception) {
+                recordAndSend(idempotencyKey, new ProcessedActionStore.Result(false, safeError(exception)));
+            }
             return;
         }
         if (action.equals("SET_MAINTENANCE")) {

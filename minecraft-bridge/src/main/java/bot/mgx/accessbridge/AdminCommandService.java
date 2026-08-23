@@ -19,6 +19,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import static bot.mgx.accessbridge.MenuItems.ORANGE;
 
@@ -39,7 +40,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     static final String PERMISSION = "mgxaccessbridge.admin";
     private static final List<String> SUBCOMMANDS = List.of(
             "startserver", "teststart", "give", "ranks", "eco", "bounty", "hologram", "reset",
-            "devblog", "update", "serials", "cosmetics", "abuse", "help"
+            "devblog", "update", "serials", "cosmetics", "abuse", "event", "help"
     );
     private static final List<String> RANK_ACTIONS = List.of("hold", "release", "list");
     private static final List<String> DEVBLOG_ACTIONS = List.of(
@@ -132,11 +133,12 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 case "update" -> publishUpdate(sender);
                 case "serials" -> serials(sender, args);
                 case "cosmetics" -> cosmetics(sender, args);
-                case "abuse", "event" -> {
+                case "abuse" -> {
                     String summary = adminEvents.run(sender, args);
                     success(sender, summary + ".");
                     report(sender, "admin_event", summary).record();
                 }
+                case "event", "multiplier" -> serverEvent(sender, args);
                 default -> sendHelp(sender);
             }
         } catch (IllegalArgumentException exception) {
@@ -148,6 +150,58 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     // ------------------------------------------------------------------
     // Screenshot mode, for photographing an update
     // ------------------------------------------------------------------
+
+    /** {@code /mgxadmin event <type> <on|off> [seconds]} */
+    private void serverEvent(CommandSender sender, String[] args) {
+        ServerEventService events = plugin.serverEvents();
+        if (events == null) {
+            throw new IllegalArgumentException("Server events are not available right now.");
+        }
+        if (args.length < 2 || args[1].equalsIgnoreCase("list")) {
+            listServerEvents(sender, events);
+            return;
+        }
+        ServerEventType type = ServerEventType.resolve(args[1]).orElseThrow(
+                () -> new IllegalArgumentException(
+                        "Unknown event. Try: " + Arrays.stream(ServerEventType.values())
+                                .map(ServerEventType::id).collect(Collectors.joining(", "))
+                )
+        );
+        boolean enabled = args.length < 3 || !args[2].equalsIgnoreCase("off");
+        long seconds = enabled ? ServerEventType.secondsOrThrow(
+                args.length > 3 ? args[3] : (args.length > 2 && !args[2].equalsIgnoreCase("on")
+                        ? args[2] : null)
+        ) : 0L;
+        if (!events.set(type, enabled, seconds)) {
+            success(sender, type.displayName() + " was already "
+                    + (enabled ? "running" : "off") + ".");
+            return;
+        }
+        String summary = enabled
+                ? type.displayName() + " is live"
+                + (seconds > 0 ? " for " + ServerEventService.humanDuration(seconds * 1_000L)
+                               : " until turned off")
+                : type.displayName() + " has ended";
+        success(sender, summary + ".");
+        report(sender, "server_event", summary)
+                .detail("event", type.id())
+                .detail("enabled", String.valueOf(enabled))
+                .detail("seconds", seconds)
+                .record();
+    }
+
+    private void listServerEvents(CommandSender sender, ServerEventService events) {
+        sender.sendMessage(Component.text("Server events", ORANGE, TextDecoration.BOLD));
+        for (ServerEventType type : ServerEventType.values()) {
+            boolean live = events.active(type);
+            sender.sendMessage(Component.text("  " + type.id() + "  ", ORANGE)
+                    .append(Component.text(type.displayName(), NamedTextColor.WHITE))
+                    .append(Component.text(live ? "  LIVE" : "  off",
+                            live ? NamedTextColor.GREEN : NamedTextColor.GRAY)));
+        }
+        sender.sendMessage(Component.text(
+                "  /mgxadmin event <type> <on|off> [seconds]", NamedTextColor.GRAY));
+    }
 
     private void publishUpdate(CommandSender sender) {
         int generation = updateNotices.publish(plugin.getServer().getOnlinePlayers());
@@ -670,6 +724,10 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         sender.sendMessage(Component.text("  /mgxadmin devblog", ORANGE)
                 .append(Component.text("  screenshot mode: stash your gear, clear the screen",
                         NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin event <type> <on|off> [seconds]", ORANGE)
+                .append(Component.text("  run a server-wide 2x event", NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin event list", ORANGE)
+                .append(Component.text("  which multipliers are live", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin abuse <effect> [seconds]", ORANGE)
                 .append(Component.text("  run a live admin event", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin abuse list", ORANGE)
@@ -705,9 +763,22 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             }
             return List.of();
         }
-        if (action.equals("abuse") || action.equals("event")) {
+        if (action.equals("abuse")) {
             if (args.length == 2) {
                 return partial(args[1], ChaosCatalog.menu().stream().map(ChaosCatalog::id).toList());
+            }
+            return List.of();
+        }
+        if (action.equals("event") || action.equals("multiplier")) {
+            if (args.length == 2) {
+                List<String> options = new ArrayList<>(
+                        Arrays.stream(ServerEventType.values()).map(ServerEventType::id).toList()
+                );
+                options.add("list");
+                return partial(args[1], options);
+            }
+            if (args.length == 3) {
+                return partial(args[2], List.of("on", "off"));
             }
             return List.of();
         }

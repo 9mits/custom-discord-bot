@@ -131,7 +131,13 @@ final class SpecialItemService implements Listener {
             data.remove(crateLuckKey);
             return 1;
         }
-        return Math.max(1, Math.min(5, multiplier));
+        // The server-wide event multiplies the potion, then the pair is clamped
+        // together: two stacking 2x sources must not quietly become 10x.
+        return clampLuck(multiplier * plugin.serverEventMultiplier(ServerEventType.CRATE_LUCK));
+    }
+
+    private static int clampLuck(int value) {
+        return Math.max(1, Math.min(5, value));
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
@@ -403,9 +409,11 @@ final class SpecialItemService implements Listener {
         if (until == null || multiplier == null || until <= System.currentTimeMillis()) {
             data.remove(fortuneUntilKey);
             data.remove(fortuneMultiplierKey);
-            return 1d;
+            multiplier = 1d;
         }
-        return Math.max(1d, Math.min(5d, multiplier));
+        return Math.max(1d, Math.min(
+                5d, multiplier * plugin.serverEventMultiplier(ServerEventType.FORTUNE)
+        ));
     }
 
     private List<Block> excavationPlane(Player player, Block centre) {
