@@ -26,7 +26,8 @@ RANK_SYNC_PROTOCOL_VERSION = 5
 WHITELIST_SYNC_PROTOCOL_VERSION = 6
 SERVER_EVENT_PROTOCOL_VERSION = 7
 MAINTENANCE_PROTOCOL_VERSION = 8
-CURRENT_PROTOCOL_VERSION = MAINTENANCE_PROTOCOL_VERSION
+SERVER_EVENT_TOGGLE_PROTOCOL_VERSION = 9
+CURRENT_PROTOCOL_VERSION = SERVER_EVENT_TOGGLE_PROTOCOL_VERSION
 
 VerificationHandler = Callable[..., Awaitable[None]]
 ActionResultHandler = Callable[[OutboxRecord, Optional[Any]], Awaitable[None]]
@@ -114,6 +115,16 @@ class MinecraftBridgeServer:
     @property
     def supports_maintenance(self) -> bool:
         return self.connected and self._peer_protocol_version >= MAINTENANCE_PROTOCOL_VERSION
+
+    @property
+    def supports_event_toggle(self) -> bool:
+        """Distinct from `supports_server_events`, which is v7: the plugin
+        *reporting* in-game actions to Discord. This is v9: Discord *starting*
+        a multiplier event on the plugin. Opposite directions."""
+        return (
+            self.connected
+            and self._peer_protocol_version >= SERVER_EVENT_TOGGLE_PROTOCOL_VERSION
+        )
 
     @property
     def supports_whitelist_sync(self) -> bool:
@@ -659,6 +670,32 @@ class MinecraftBridgeServer:
                 idempotency_key=f"maintenance:{secrets.token_hex(12)}",
             )
             await self.send_full_pending_sync()
+        except ConnectionError:
+            return False
+        return True
+
+    async def send_server_event(
+        self, event: str, enabled: bool, seconds: int = 0
+    ) -> bool:
+        """Starts or stops one of the server-wide multiplier events.
+
+        `seconds` of 0 means the event runs until somebody turns it off, which
+        is what an open-ended weekend event wants. The plugin owns the deadline
+        and persists it, so the bot restarting does not end an event early.
+        """
+        if not self.supports_event_toggle:
+            return False
+        try:
+            await self._send(
+                "ACTION",
+                {
+                    "action": "SET_SERVER_EVENT",
+                    "event": str(event),
+                    "enabled": bool(enabled),
+                    "seconds": max(0, int(seconds)),
+                },
+                idempotency_key=f"server-event:{secrets.token_hex(12)}",
+            )
         except ConnectionError:
             return False
         return True

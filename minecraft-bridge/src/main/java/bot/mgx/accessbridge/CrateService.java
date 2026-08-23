@@ -892,8 +892,9 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         }
         try {
             Map<UUID, Integer> rates = new HashMap<>();
+            int eventRate = plugin.serverEventMultiplier(ServerEventType.KEY);
             elapsed.keySet().forEach(playerId -> rates.put(
-                    playerId, perks.profile(playerId).booster() ? 2 : 1
+                    playerId, (perks.profile(playerId).booster() ? 2 : 1) * eventRate
             ));
             return store.creditOnline(elapsed, rates);
         } catch (IllegalArgumentException | ArithmeticException | UncheckedIOException exception) {

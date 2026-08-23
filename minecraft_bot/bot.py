@@ -2394,6 +2394,90 @@ class MinecraftAccessBot(commands.Bot):
                 )
             )
 
+        @admin_group.command(
+            name="event",
+            description="Start or stop a server-wide 2x event.",
+        )
+        @app_commands.describe(
+            event="Which multiplier to run.",
+            state="Start it or stop it.",
+            minutes="How long to run for. Leave empty to run until you stop it.",
+        )
+        @app_commands.choices(
+            event=[
+                app_commands.Choice(name="2x Crate Luck", value="crateluck"),
+                app_commands.Choice(name="2x Fortune", value="fortune"),
+                app_commands.Choice(name="2x Keys", value="key"),
+                app_commands.Choice(name="2x Money", value="money"),
+            ],
+            state=[
+                app_commands.Choice(name="Start", value="on"),
+                app_commands.Choice(name="Stop", value="off"),
+            ],
+        )
+        async def server_event(
+            interaction: discord.Interaction,
+            event: app_commands.Choice[str],
+            state: app_commands.Choice[str],
+            minutes: Optional[int] = None,
+        ) -> None:
+            if not await self.require_administrator(interaction):
+                return
+            await interaction.response.defer(ephemeral=True)
+            enabled = state.value == "on"
+            seconds = 0
+            if enabled and minutes is not None:
+                if minutes < 1 or minutes > 20_160:
+                    await interaction.edit_original_response(
+                        **branded_edit(
+                            info_embed(
+                                "Duration Out Of Range",
+                                "> Pick between **1 minute** and **14 days**, or leave "
+                                "it empty to run the event until you stop it.",
+                            )
+                        )
+                    )
+                    return
+                seconds = minutes * 60
+            delivered = await self.bridge.send_server_event(
+                event.value, enabled, seconds
+            )
+            if not delivered:
+                # No settings row to fall back on: the plugin owns the deadline
+                # and persists it, so there is nothing useful to save here.
+                await interaction.edit_original_response(
+                    **branded_edit(
+                        info_embed(
+                            "Server Not Reachable",
+                            "> The Minecraft server is not connected, so the event "
+                            "was not changed. Try again once the bridge reconnects.",
+                        )
+                    )
+                )
+                return
+            if enabled:
+                window = (
+                    f"for **{minutes} minute(s)**"
+                    if seconds
+                    else "**until you stop it**"
+                )
+                summary = (
+                    f"> **{event.name}** is live {window}.\n\n"
+                    "Everybody online has been told, it is on the boss bar, and it "
+                    "shows on the server list. Players joining later see it too."
+                )
+            else:
+                summary = f"> **{event.name}** has ended. Rates are back to normal."
+            await interaction.edit_original_response(
+                **branded_edit(
+                    info_embed(
+                        f"{event.name} {'Started' if enabled else 'Ended'}",
+                        summary,
+                        success=enabled,
+                    )
+                )
+            )
+
         @group.command(name="account", description="Open your private Minecraft account panel.")
         async def account(interaction: discord.Interaction) -> None:
             await interaction.response.defer(ephemeral=True)

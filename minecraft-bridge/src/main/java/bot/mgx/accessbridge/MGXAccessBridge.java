@@ -100,6 +100,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private CosmeticEffectService cosmeticEffects;
     private RankSyncStore rankSyncStore;
     private MaintenanceStore maintenanceStore;
+    private ServerEventStore serverEventStore;
+    private ServerEventService serverEventService;
     private BukkitTask maintenanceSweep;
     private AfkService afkService;
     private ChaosService chaosService;
@@ -153,6 +155,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             rankSyncStore = new RankSyncStore(getDataFolder().toPath().resolve("rank-sync.json"));
             maintenanceStore = new MaintenanceStore(
                     getDataFolder().toPath().resolve("maintenance.flag")
+            );
+            serverEventStore = new ServerEventStore(
+                    getDataFolder().toPath().resolve("server-events.json")
             );
             identityStore = new DiscordIdentityStore(
                     getDataFolder().toPath().resolve("discord-identities.json")
@@ -224,6 +229,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(new TeleportWarmupService(this), this);
         broadcastDisplayService = new BroadcastDisplayService(this);
         getServer().getPluginManager().registerEvents(broadcastDisplayService, this);
+        serverEventService = new ServerEventService(this, serverEventStore);
+        getServer().getPluginManager().registerEvents(serverEventService, this);
         UpdateNoticeStore updateNoticeStore;
         try {
             updateNoticeStore = new UpdateNoticeStore(getDataFolder().toPath().resolve("update-notices.json"));
@@ -441,6 +448,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         crates.start();
         cosmeticEffects.start();
         afkService.start();
+        serverEventService.start();
         sidebarService.start();
         leaderboardService.start();
         capabilityService.start();
@@ -464,6 +472,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         // Before anything else: an operator event must never survive a reload.
         if (chaosService != null) {
             chaosService.stopAll();
+        }
+        if (serverEventService != null) {
+            serverEventService.stop();
         }
         if (afkService != null) {
             afkService.stop();
@@ -518,6 +529,19 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         if (sidebarService != null) {
             sidebarService.refreshAll();
         }
+    }
+
+    BroadcastDisplayService broadcasts() {
+        return broadcastDisplayService;
+    }
+
+    ServerEventService serverEvents() {
+        return serverEventService;
+    }
+
+    /** 1 when the event is off, so every call site can multiply unconditionally. */
+    int serverEventMultiplier(ServerEventType type) {
+        return serverEventService == null ? 1 : serverEventService.multiplier(type);
     }
 
     AfkService afkService() {
