@@ -163,6 +163,7 @@ class CosmeticCatalogTest {
                         .leaderboardReward(rank, category).orElseThrow();
                 assertTrue(reward.leaderboardOnly());
                 assertTrue(reward.description().contains("Only obtainable by holding #" + rank));
+                assertTrue(reward.description().length() <= 115);
                 assertFalse(CosmeticCatalog.all().contains(reward));
                 assertTrue(CosmeticCatalog.find(reward.id()).isPresent());
             }

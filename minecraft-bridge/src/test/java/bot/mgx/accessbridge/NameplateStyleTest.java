@@ -20,7 +20,7 @@ class NameplateStyleTest {
 
         Component line = SidebarService.nameplateLine(5_000_000L, Optional.of(standing));
 
-        assertEquals("$ 5M   ⚔ #1", PlainTextComponentSerializer.plainText().serialize(line));
+        assertEquals("$ 5M  •  ⚔ #1", PlainTextComponentSerializer.plainText().serialize(line));
         assertEquals(NamedTextColor.GREEN, line.color());
         assertEquals(NamedTextColor.RED, line.children().get(1).color());
         assertEquals(SidebarService.placementColour(1), line.children().get(2).color());

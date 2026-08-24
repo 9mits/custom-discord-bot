@@ -354,6 +354,12 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                         + describeTargets(targets, count) + ".");
                 audit(sender, targets, definition.displayName(), count);
             }
+            case LEADERBOARD_COSMETICS -> {
+                int count = forEachTarget(targets, this::grantLeaderboardCosmetics);
+                String what = "all temporary leaderboard cosmetics";
+                success(sender, "Gave " + what + " to " + describeTargets(targets, count) + ".");
+                audit(sender, targets, what, count);
+            }
             case REWARD -> {
                 CrateCatalog.Reward reward = CrateCatalog.find(request.cosmeticId())
                         .orElseThrow(() -> new IllegalArgumentException(
@@ -383,6 +389,17 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         }
         hand(player, cosmeticItems.token(definition, cosmetics.mint(
                 player.getUniqueId(), definition.id(), UUID.randomUUID()
+        )));
+    }
+
+    private void grantLeaderboardCosmetics(Player player) {
+        cosmetics.clearPreviews(player.getUniqueId());
+        CosmeticCatalog.leaderboardRewards().forEach(definition ->
+                cosmetics.mintPreview(player.getUniqueId(), definition.id()));
+        player.sendMessage(prefix().append(Component.text(
+                "All 9 leaderboard cosmetics are available in /cosmetics until restart. "
+                        + "They cannot be traded or listed.",
+                NamedTextColor.GREEN
         )));
     }
 

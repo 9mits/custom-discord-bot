@@ -57,7 +57,7 @@ python -m py_compile cogs/*.py minecraft_bot/*.py minecraft_main.py
 ruff check core/ cogs/ minecraft_bot/ tests/
 
 # Local Minecraft test server (Paper 1.21.11, same build as production)
-python scripts/testserver.py setup   # once: fetch Paper, Floodgate, Geyser, LuckPerms
+python scripts/testserver.py setup   # once: fetch Paper, Floodgate, Geyser, LuckPerms, Grim
 python scripts/testserver.py deploy  # build + install jar without starting Paper
 python scripts/testserver.py run     # build the plugin, install it, start the server
 

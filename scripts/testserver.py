@@ -5,7 +5,7 @@ Production is GravelHost, which has no API and only an SFTP deploy, so the only
 way to see a `minecraft-bridge/` change in game used to be to ship it to the
 live server. This runs the same Paper build locally instead.
 
-    python scripts/testserver.py setup    # once: fetch Paper and the plugins
+    python scripts/testserver.py setup    # once: fetch Paper and the production plugins
     python scripts/testserver.py deploy   # build and install without starting
     python scripts/testserver.py run      # build, install, start
 
@@ -50,6 +50,19 @@ LUCKPERMS_META = "https://metadata.luckperms.net/data/all"
 VIAVERSION_API = (
     "https://api.modrinth.com/v2/project/viaversion/version"
     "?loaders=%5B%22paper%22%5D&game_versions=%5B%22{v}%22%5D"
+)
+GRIM_URL = (
+    "https://cdn.modrinth.com/data/LJNGWSvH/versions/GPdAbB8o/"
+    "grimac-bukkit-2.3.74-5920e74.jar"
+)
+GRIM_SHA256 = "20f39cacc5cdbc8b7aff2df6e352174505ea77f5109c02b01dd369f9fe0aecca"
+GRIM_PRINTER_CHECKS = (
+    "AirLiquidPlace",
+    "FabricatedPlace",
+    "PositionPlace",
+    "RotationPlace",
+    "DuplicateRotPlace",
+    "MultiPlace",
 )
 
 #: Floodgate is a hard `depend:` in plugin.yml — without it the plugin will not
@@ -124,6 +137,133 @@ def fetch(url: str, destination: Path) -> None:
     with urllib.request.urlopen(request, timeout=180) as response:
         destination.write_bytes(response.read())
     log(f"  {destination.name} ({destination.stat().st_size:,} bytes)")
+
+
+def file_sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def fetch_verified(url: str, destination: Path, expected_sha256: str) -> None:
+    if destination.is_file() and file_sha256(destination) == expected_sha256:
+        return
+    temporary = destination.with_suffix(destination.suffix + ".downloading")
+    try:
+        fetch(url, temporary)
+        actual = file_sha256(temporary)
+        if actual != expected_sha256:
+            raise RuntimeError(
+                f"{destination.name} sha256 was {actual}, expected {expected_sha256}"
+            )
+        temporary.replace(destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def grim_printer_config(text: str) -> str:
+    """Prevent only known Printer false positives from cancelling placements."""
+    text = text.replace(
+        "    # one is stood down. FarPlace still catches reach and FabricatedPlace still\n"
+        "    # catches invented cursor packets — those two stay armed.",
+        "    # one is stood down. FarPlace still catches impossible reach, while the\n"
+        "    # InvalidPlace checks still reject malformed placement packets.",
+    )
+    lines = text.splitlines()
+    for section in GRIM_PRINTER_CHECKS:
+        header = f"{section}:"
+        try:
+            start = next(index for index, line in enumerate(lines) if line.strip() == header)
+        except StopIteration:
+            if lines and lines[-1].strip():
+                lines.append("")
+            lines.extend((header, "    cancelvl: -1"))
+            continue
+        end = len(lines)
+        for index in range(start + 1, len(lines)):
+            line = lines[index]
+            if line and not line[0].isspace() and not line.startswith("#"):
+                end = index
+                break
+        setting = next(
+            (
+                index
+                for index in range(start + 1, end)
+                if lines[index].strip().lower().startswith("cancelvl:")
+            ),
+            None,
+        )
+        if setting is None:
+            lines.insert(start + 1, "    cancelvl: -1")
+        else:
+            indent = lines[setting][: len(lines[setting]) - len(lines[setting].lstrip())]
+            lines[setting] = f"{indent}cancelvl: -1"
+    return "\n".join(lines) + "\n"
+
+
+def grim_printer_punishments(text: str) -> str:
+    """Log Printer patterns without feeding them into Grim's kick group."""
+    text = text.replace(
+        "      # four by design, so they must not count towards the 60-in-5-minutes kick\n"
+        "      # below — a long print run reaches 60 flags in under a minute. FarPlace,\n"
+        "      # FabricatedPlace, MultiPlace and InvalidPlaceB still alert and still punish.",
+        "      # six by design, so they must not count towards the 60-in-5-minutes kick\n"
+        "      # below. They are logged by LitematicaPrinter without cancelling blocks.\n"
+        "      # FarPlace and InvalidPlaceB remain fully enforced.",
+    )
+    lines = text.splitlines()
+    exclusions = {
+        line.strip()[4:-1]
+        for line in lines
+        if line.strip().startswith('- "!') and line.strip().endswith('"')
+    }
+    missing = [check for check in GRIM_PRINTER_CHECKS if check not in exclusions]
+    if missing:
+        place = next(
+            index for index, line in enumerate(lines) if line.strip() == '- "Place"'
+        )
+        lines[place + 1:place + 1] = [f'      - "!{check}"' for check in missing]
+    if not any(line.strip() == "LitematicaPrinter:" for line in lines):
+        group = [
+            "  LitematicaPrinter:",
+            "    remove-violations-after: 300",
+            "    checks:",
+            *(f'      - "{check}"' for check in GRIM_PRINTER_CHECKS),
+            "    commands:",
+            '      - "5:5 [alert]"',
+            '      - "1:1 [log]"',
+        ]
+        combat = next(
+            (index for index, line in enumerate(lines) if line.strip() == "Combat:"),
+            len(lines),
+        )
+        lines[combat:combat] = group
+    return "\n".join(lines) + "\n"
+
+
+def configure_grim() -> None:
+    jar = PLUGINS / "GrimAC.jar"
+    if not jar.is_file():
+        return
+    folder = PLUGINS / "GrimAC"
+    folder.mkdir(parents=True, exist_ok=True)
+    defaults = {
+        "config.yml": "config/en.yml",
+        "punishments.yml": "punishments/en.yml",
+    }
+    with zipfile.ZipFile(jar) as archive:
+        for filename, member in defaults.items():
+            destination = folder / filename
+            if not destination.exists():
+                destination.write_bytes(archive.read(member))
+    config = folder / "config.yml"
+    punishments = folder / "punishments.yml"
+    patched_config = grim_printer_config(config.read_text())
+    patched_punishments = grim_printer_punishments(punishments.read_text())
+    if patched_config != config.read_text():
+        config.write_text(patched_config)
+        log("configured Grim placement checks for Litematica Printer")
+    if patched_punishments != punishments.read_text():
+        punishments.write_text(patched_punishments)
+        log("kept Printer placement checks logged but outside Grim's kick group")
 
 
 def read_json(url: str) -> dict:
@@ -260,6 +400,9 @@ def setup(_: argparse.Namespace) -> int:
     if not luckperms.exists():
         fetch(read_json(LUCKPERMS_META)["downloads"]["bukkit"], luckperms)
 
+    fetch_verified(GRIM_URL, PLUGINS / "GrimAC.jar", GRIM_SHA256)
+    configure_grim()
+
     # Geyser refuses to serve Bedrock clients without it on this Paper version,
     # and Bedrock-on-a-phone is the cheapest way to get a second test player.
     via = PLUGINS / "ViaVersion.jar"
@@ -355,6 +498,7 @@ def start(args: argparse.Namespace) -> int:
         log(f"read https://aka.ms/MinecraftEULA, then set eula=true in {eula}")
         return 1
     match_production_limits()
+    configure_grim()
     log("starting Paper — join at  localhost  (Java) or  localhost:19132  (Bedrock)")
     log("stop it with the 'stop' console command, or ctrl-c")
     return subprocess.call(

@@ -37,6 +37,18 @@ class AdminGiveTest {
     }
 
     @Test
+    void pluralCosmeticsWithoutAnIdMeansTheTemporaryLeaderboardSet() {
+        assertEquals(
+                new AdminGive.Request(AdminGive.Type.LEADERBOARD_COSMETICS, 1L, null),
+                AdminGive.parse("cosmetics", null)
+        );
+        assertEquals(
+                new AdminGive.Request(AdminGive.Type.COSMETIC, 1L, "solar_imperium"),
+                AdminGive.parse("cosmetics", " Solar_Imperium ")
+        );
+    }
+
+    @Test
     void crateRewardsCarryTheirIdNormalised() {
         assertEquals(
                 new AdminGive.Request(AdminGive.Type.REWARD, 1L, "enchant_excavation_i"),

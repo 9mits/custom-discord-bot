@@ -43,7 +43,27 @@ class CosmeticStoreTest {
 
         CosmeticStore reloaded = new CosmeticStore(file);
         assertTrue(reloaded.token(preview.serial()).isEmpty());
+        assertTrue(reloaded.equipped(owner, "AURA").isEmpty());
         assertEquals(1, reloaded.token(real.serial()).orElseThrow().serialNumber());
+    }
+
+    @Test
+    void leaderboardPreviewsAreSessionOnlyAndNeverBecomeTradable(@TempDir Path directory)
+            throws Exception {
+        Path file = directory.resolve("cosmetics.json");
+        UUID owner = UUID.randomUUID();
+        CosmeticStore store = new CosmeticStore(file);
+
+        CosmeticStore.Token preview = store.mintPreview(owner, "solar_imperium");
+
+        assertEquals(0, preview.serialNumber());
+        assertTrue(store.isStoredBy(owner, preview.serial()));
+        assertEquals(0, store.inExistence("solar_imperium"));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> store.mint(owner, "solar_imperium", UUID.randomUUID())
+        );
+        assertTrue(new CosmeticStore(file).stored(owner).isEmpty());
     }
 
     @Test

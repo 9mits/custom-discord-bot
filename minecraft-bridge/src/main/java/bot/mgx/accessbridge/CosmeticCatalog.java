@@ -200,55 +200,55 @@ final class CosmeticCatalog {
                     "golden_finality", "Golden Finality", Category.KILL_EFFECT, 1,
                     "GOLDEN_SWORD",
                     "Only obtainable by holding #1 on an individual player leaderboard. "
-                            + "A royal blade and shattered crown end the fight in a solar detonation."
+                            + "A royal blade ends the fight in sunlight."
             ),
             leaderboardCosmetic(
                     "solar_imperium", "Solar Imperium", Category.AURA, 1,
                     "GOLDEN_HELMET",
                     "Only obtainable by holding #1 on an individual player leaderboard. "
-                            + "A radiant crown, solar throne and orbiting regalia proclaim the champion."
+                            + "A radiant crown marks the champion."
             ),
             leaderboardCosmetic(
                     "kingmakers_wake", "Kingmaker's Wake", Category.TRAIL, 1,
                     "GOLD_INGOT",
                     "Only obtainable by holding #1 on an individual player leaderboard. "
-                            + "Crown sparks and a molten royal mantle follow every step."
+                            + "A molten royal mantle follows every step."
             ),
             leaderboardCosmetic(
                     "silver_reckoning", "Silver Reckoning", Category.KILL_EFFECT, 2,
                     "IRON_SWORD",
                     "Only obtainable by holding #2 on an individual player leaderboard. "
-                            + "A moonlit longsword fractures the arena into argent shards."
+                            + "A moonlit blade shatters into silver."
             ),
             leaderboardCosmetic(
                     "argent_dominion", "Argent Dominion", Category.AURA, 2,
                     "IRON_HELMET",
                     "Only obtainable by holding #2 on an individual player leaderboard. "
-                            + "A silver crown and twin lunar halos surround the runner-up."
+                            + "Twin lunar halos crown the runner-up."
             ),
             leaderboardCosmetic(
                     "moonlit_procession", "Moonlit Procession", Category.TRAIL, 2,
                     "IRON_INGOT",
                     "Only obtainable by holding #2 on an individual player leaderboard. "
-                            + "Cold comet ribbons and crescent sparks stream behind the wearer."
+                            + "Cold comet ribbons follow the wearer."
             ),
             leaderboardCosmetic(
                     "bronze_cataclysm", "Bronze Cataclysm", Category.KILL_EFFECT, 3,
                     "COPPER_INGOT",
                     "Only obtainable by holding #3 on an individual player leaderboard. "
-                            + "A victorious war axe crushes a bronze medal into burning fragments."
+                            + "A war axe shatters a burning bronze medal."
             ),
             leaderboardCosmetic(
                     "bronze_vanguard", "Bronze Vanguard", Category.AURA, 3,
                     "COPPER_BLOCK",
                     "Only obtainable by holding #3 on an individual player leaderboard. "
-                            + "A battle crown and blazing laurel wreath mark an elite contender."
+                            + "A blazing laurel crowns the contender."
             ),
             leaderboardCosmetic(
                     "conquerors_march", "Conqueror's March", Category.TRAIL, 3,
                     "RAW_COPPER",
                     "Only obtainable by holding #3 on an individual player leaderboard. "
-                            + "A bronze victory banner scatters ember medals in its wake."
+                            + "A bronze banner scatters ember medals."
             )
     );
     private static final Map<String, Definition> BY_ID = indexDefinitions();

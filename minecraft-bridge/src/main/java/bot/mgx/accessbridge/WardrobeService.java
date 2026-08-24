@@ -198,8 +198,11 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
             holder.podiumSlots.put(slot, podium.get());
             slot++;
         }
-        for (CosmeticCatalog.Definition definition : CosmeticCatalog.all()) {
+        for (CosmeticCatalog.Definition definition : CosmeticCatalog.visualEntries()) {
             if (definition.category() != category) {
+                continue;
+            }
+            if (saleMode && definition.leaderboardOnly()) {
                 continue;
             }
             if (slot >= MenuItems.PER_PAGE) {
@@ -221,7 +224,8 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
                 lore.add(line("Serial #" + selected.token().serialNumber()));
                 lore.add(line("In existence: " + store.inExistence(definition.id())));
             } else {
-                lore.add(line("Screenshot preview — no serial"));
+                lore.add(line("Admin preview — session only"));
+                lore.add(line("Cannot be traded or listed"));
             }
             if (copies.size() > 1) {
                 lore.add(line("You own " + copies.size() + " of these."));

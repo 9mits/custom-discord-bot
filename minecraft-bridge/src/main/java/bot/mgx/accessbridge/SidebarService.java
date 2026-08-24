@@ -728,7 +728,7 @@ final class SidebarService {
         }
         LeaderboardStandings.Standing row = standing.get();
         return line
-                .append(Component.text("   ", NamedTextColor.DARK_GRAY)
+                .append(Component.text("  •  ", NamedTextColor.DARK_GRAY)
                         .decoration(TextDecoration.BOLD, false))
                 .append(Component.text(row.type().icon() + " ", leaderboardIconColour(row.type()))
                         .decoration(TextDecoration.BOLD, false))
