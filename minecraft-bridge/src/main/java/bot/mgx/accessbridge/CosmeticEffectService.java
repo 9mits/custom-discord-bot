@@ -979,13 +979,23 @@ final class CosmeticEffectService implements Listener {
             Object data,
             PlayerSettingsStore.Setting ownSetting
     ) {
+        Object particleData = particleData(particle, data);
         for (Player viewer : viewers(owner, location, ownSetting)) {
-            if (data == null) {
+            if (particleData == null) {
                 viewer.spawnParticle(particle, location, count, offsetX, offsetY, offsetZ, extra);
             } else {
-                viewer.spawnParticle(particle, location, count, offsetX, offsetY, offsetZ, extra, data);
+                viewer.spawnParticle(
+                        particle, location, count, offsetX, offsetY, offsetZ, extra, particleData
+                );
             }
         }
+    }
+
+    static Object particleData(Particle particle, Object data) {
+        if (data == null && particle.getDataType() == Color.class) {
+            return Color.WHITE;
+        }
+        return data;
     }
 
     private void sound(
