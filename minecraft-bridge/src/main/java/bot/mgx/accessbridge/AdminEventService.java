@@ -240,7 +240,7 @@ final class AdminEventService {
                     world.spawnParticle(Particle.DUST, at, 35, 1.5d, 1.5d, 1.5d, 0.05d,
                             new Particle.DustOptions(colour, 1.6f));
                     world.spawnParticle(Particle.END_ROD, at, 12, 1d, 1d, 1d, 0.08d);
-                    world.spawnParticle(Particle.FLASH, at, 1, 0d, 0d, 0d, 0d);
+                    world.spawnParticle(Particle.FLASH, at, 1, 0d, 0d, 0d, 0d, colour);
                     world.playSound(at, Sound.ENTITY_FIREWORK_ROCKET_LARGE_BLAST, 0.8f,
                             0.8f + random.nextFloat() * 0.6f);
                 }
