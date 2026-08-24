@@ -172,6 +172,145 @@ def build_reality_fracture() -> None:
     save("reality_fracture", image)
 
 
+def build_solar_imperium() -> None:
+    image, draw = icon()
+    dark, bronze, gold, light, white = "#4a2607", "#9c5a0b", "#f2b51d", "#ffd95a", "#fff3ad"
+    draw.polygon(((1, 4), (4, 6), (5, 1), (8, 5), (11, 1), (12, 6), (15, 4),
+                  (13, 13), (3, 13)), fill=dark)
+    draw.polygon(((3, 5), (5, 7), (6, 3), (8, 7), (10, 3), (11, 7), (13, 5),
+                  (12, 11), (4, 11)), fill=bronze)
+    draw.polygon(((5, 7), (6, 5), (8, 8), (10, 5), (11, 9), (5, 9)), fill=gold)
+    draw.rectangle((4, 10, 12, 12), fill=gold)
+    draw.line(((5, 10), (11, 10)), fill=light, width=1)
+    draw.rectangle((7, 8, 9, 10), fill=light)
+    draw.point((8, 8), fill=white)
+    save("solar_imperium", image)
+
+
+def build_kingmakers_wake() -> None:
+    image, draw = icon()
+    dark, bronze, gold, light, white = "#472407", "#91500a", "#e9a817", "#ffd659", "#fff1a3"
+    draw.polygon(((13, 0), (15, 2), (11, 8), (9, 15), (6, 12), (3, 15), (1, 13),
+                  (5, 9), (7, 3)), fill=dark)
+    draw.polygon(((12, 2), (14, 2), (10, 8), (9, 13), (6, 10), (3, 13), (3, 12),
+                  (7, 8), (8, 4)), fill=bronze)
+    draw.polygon(((11, 3), (13, 3), (9, 8), (8, 11), (6, 9), (4, 11), (8, 7)), fill=gold)
+    draw.line(((12, 2), (8, 8), (7, 9)), fill=light, width=1)
+    draw.point((13, 1), fill=white)
+    draw.point((2, 5), fill=gold)
+    draw.point((4, 2), fill=light)
+    save("kingmakers_wake", image)
+
+
+def build_golden_finality() -> None:
+    image, draw = icon()
+    dark, bronze, gold, light, white = "#402205", "#8c4d08", "#e8a716", "#ffd65c", "#fff3b1"
+    draw.polygon(((13, 0), (15, 2), (9, 9), (7, 8), (11, 1)), fill=dark)
+    draw.polygon(((12, 1), (14, 2), (8, 8), (8, 6)), fill=gold)
+    draw.line(((13, 1), (8, 7)), fill=light, width=1)
+    draw.polygon(((5, 6), (9, 10), (7, 12), (3, 8)), fill=dark)
+    draw.polygon(((5, 7), (8, 10), (7, 11), (4, 8)), fill=bronze)
+    draw.polygon(((1, 8), (4, 10), (3, 14), (6, 11), (8, 15), (9, 11),
+                  (14, 12), (11, 8)), fill=dark)
+    draw.line(((2, 9), (4, 11), (3, 13)), fill=gold, width=1)
+    draw.line(((11, 9), (13, 11), (10, 10)), fill=gold, width=1)
+    draw.point((13, 1), fill=white)
+    save("golden_finality", image)
+
+
+def build_argent_dominion() -> None:
+    image, draw = icon()
+    dark, steel, silver, light, white = "#26313d", "#526270", "#98a9b5", "#d7e2e8", "#ffffff"
+    draw.polygon(((1, 5), (4, 7), (5, 2), (8, 6), (11, 2), (12, 7), (15, 5),
+                  (13, 13), (3, 13)), fill=dark)
+    draw.polygon(((3, 6), (5, 8), (6, 4), (8, 8), (10, 4), (11, 8), (13, 6),
+                  (12, 11), (4, 11)), fill=steel)
+    draw.rectangle((4, 10, 12, 12), fill=silver)
+    draw.line(((5, 10), (11, 10)), fill=light, width=1)
+    draw.rectangle((7, 7, 9, 10), fill=silver)
+    draw.point((8, 7), fill=white)
+    draw.point((1, 2), fill=light)
+    draw.point((14, 1), fill=light)
+    save("argent_dominion", image)
+
+
+def build_moonlit_procession() -> None:
+    image, draw = icon()
+    dark, steel, silver, light, white = "#26303a", "#53616c", "#9eabb4", "#d9e3e8", "#ffffff"
+    draw.polygon(((13, 0), (15, 2), (11, 8), (9, 15), (6, 12), (3, 15), (1, 13),
+                  (5, 9), (7, 3)), fill=dark)
+    draw.polygon(((12, 2), (14, 2), (10, 8), (9, 13), (6, 10), (3, 13), (3, 12),
+                  (7, 8), (8, 4)), fill=steel)
+    draw.polygon(((11, 3), (13, 3), (9, 8), (8, 11), (6, 9), (4, 11), (8, 7)), fill=silver)
+    draw.line(((12, 2), (8, 8), (7, 9)), fill=light, width=1)
+    draw.point((13, 1), fill=white)
+    draw.point((2, 4), fill=light)
+    draw.point((4, 1), fill=silver)
+    save("moonlit_procession", image)
+
+
+def build_silver_reckoning() -> None:
+    image, draw = icon()
+    dark, steel, silver, light, white = "#202b35", "#4e5e6b", "#95a7b4", "#d9e4ea", "#ffffff"
+    draw.polygon(((12, 0), (15, 2), (9, 9), (7, 8), (10, 1)), fill=dark)
+    draw.polygon(((12, 1), (14, 2), (8, 8), (8, 6)), fill=silver)
+    draw.line(((13, 1), (8, 7)), fill=white, width=1)
+    draw.polygon(((5, 6), (9, 10), (7, 12), (3, 8)), fill=dark)
+    draw.polygon(((5, 7), (8, 10), (7, 11), (4, 8)), fill=steel)
+    draw.polygon(((1, 10), (5, 9), (4, 13), (8, 11), (9, 15), (11, 11),
+                  (15, 10), (12, 8)), fill=dark)
+    draw.line(((2, 10), (5, 10), (4, 12)), fill=light, width=1)
+    draw.line(((11, 9), (14, 10), (11, 10)), fill=silver, width=1)
+    save("silver_reckoning", image)
+
+
+def build_bronze_vanguard() -> None:
+    image, draw = icon()
+    dark, brown, bronze, light, white = "#3b210f", "#73401d", "#b66b2d", "#e39a51", "#ffd3a0"
+    draw.polygon(((1, 5), (4, 7), (5, 2), (8, 6), (11, 2), (12, 7), (15, 5),
+                  (13, 13), (3, 13)), fill=dark)
+    draw.polygon(((3, 6), (5, 8), (6, 4), (8, 8), (10, 4), (11, 8), (13, 6),
+                  (12, 11), (4, 11)), fill=brown)
+    draw.rectangle((4, 10, 12, 12), fill=bronze)
+    draw.line(((5, 10), (11, 10)), fill=light, width=1)
+    draw.rectangle((7, 7, 9, 10), fill=bronze)
+    draw.point((8, 7), fill=white)
+    draw.point((1, 9), fill=light)
+    draw.point((14, 9), fill=light)
+    save("bronze_vanguard", image)
+
+
+def build_conquerors_march() -> None:
+    image, draw = icon()
+    dark, brown, bronze, light, white = "#3a2010", "#74401f", "#b96b2c", "#e69a4e", "#ffd2a0"
+    draw.polygon(((13, 0), (15, 2), (11, 8), (9, 15), (6, 12), (3, 15), (1, 13),
+                  (5, 9), (7, 3)), fill=dark)
+    draw.polygon(((12, 2), (14, 2), (10, 8), (9, 13), (6, 10), (3, 13), (3, 12),
+                  (7, 8), (8, 4)), fill=brown)
+    draw.polygon(((11, 3), (13, 3), (9, 8), (8, 11), (6, 9), (4, 11), (8, 7)), fill=bronze)
+    draw.line(((12, 2), (8, 8), (7, 9)), fill=light, width=1)
+    draw.point((13, 1), fill=white)
+    draw.point((2, 5), fill=bronze)
+    draw.point((4, 2), fill=light)
+    save("conquerors_march", image)
+
+
+def build_bronze_cataclysm() -> None:
+    image, draw = icon()
+    dark, brown, bronze, light, white = "#38200f", "#70401f", "#b76a2d", "#e39a52", "#ffd6aa"
+    draw.polygon(((8, 0), (13, 2), (15, 5), (12, 9), (9, 8), (7, 15), (4, 14),
+                  (6, 8), (3, 6), (3, 3)), fill=dark)
+    draw.polygon(((8, 2), (12, 3), (13, 5), (11, 7), (8, 6), (6, 13), (5, 13),
+                  (7, 6), (5, 5), (5, 3)), fill=brown)
+    draw.polygon(((8, 3), (11, 4), (12, 5), (10, 6), (7, 5), (6, 4)), fill=bronze)
+    draw.line(((8, 3), (10, 4)), fill=light, width=1)
+    draw.line(((7, 7), (5, 13)), fill=bronze, width=1)
+    draw.point((10, 4), fill=white)
+    draw.polygon(((1, 9), (4, 10), (2, 12)), fill=bronze)
+    draw.polygon(((11, 11), (15, 10), (13, 13)), fill=light)
+    save("bronze_cataclysm", image)
+
+
 def zoom_trails() -> None:
     for name in TRAILS:
         path = ROOT / f"{name}.png"
@@ -193,6 +332,15 @@ def zoom_trails() -> None:
 
 def main() -> None:
     build_secret_silhouette()
+    build_solar_imperium()
+    build_kingmakers_wake()
+    build_golden_finality()
+    build_argent_dominion()
+    build_moonlit_procession()
+    build_silver_reckoning()
+    build_bronze_vanguard()
+    build_conquerors_march()
+    build_bronze_cataclysm()
     zoom_trails()
 
 

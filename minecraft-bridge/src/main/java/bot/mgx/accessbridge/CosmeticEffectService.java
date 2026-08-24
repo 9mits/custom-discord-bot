@@ -36,6 +36,7 @@ final class CosmeticEffectService implements Listener {
     private final CosmeticItems items;
     private final WardrobeService wardrobe;
     private final PlayerSettingsStore settings;
+    private final LeaderboardService leaderboard;
     private final Map<UUID, Location> previousLocations = new HashMap<>();
     private final Set<String> failedSelectionClears = new HashSet<>();
     private BukkitTask task;
@@ -46,13 +47,15 @@ final class CosmeticEffectService implements Listener {
             CosmeticStore store,
             CosmeticItems items,
             WardrobeService wardrobe,
-            PlayerSettingsStore settings
+            PlayerSettingsStore settings,
+            LeaderboardService leaderboard
     ) {
         this.plugin = plugin;
         this.store = store;
         this.items = items;
         this.wardrobe = wardrobe;
         this.settings = settings;
+        this.leaderboard = leaderboard;
     }
 
     void start() {
@@ -144,6 +147,15 @@ final class CosmeticEffectService implements Listener {
     private Optional<CosmeticCatalog.Definition> active(
             Player player, CosmeticCatalog.Category category
     ) {
+        Optional<CosmeticCatalog.Definition> podiumReward = leaderboard
+                .standing(player.getUniqueId())
+                .filter(standing -> standing.placement() <= 3)
+                .flatMap(standing -> CosmeticCatalog.leaderboardReward(
+                        standing.placement(), category
+                ));
+        if (podiumReward.isPresent()) {
+            return podiumReward;
+        }
         UUID serial = store.equipped(player.getUniqueId(), category.name()).orElse(null);
         if (serial == null) {
             return Optional.empty();
@@ -175,6 +187,10 @@ final class CosmeticEffectService implements Listener {
     private void drawAura(Player owner, CosmeticCatalog.Definition definition) {
         Location centre = owner.getLocation().add(0d, 1.05d, 0d);
         double phase = frame * 0.32d;
+        if (definition.leaderboardOnly()) {
+            drawLeaderboardAura(owner, definition, centre, phase);
+            return;
+        }
         if (definition.secret()) {
             drawSecretAura(owner, definition, centre, phase);
             return;
@@ -337,6 +353,10 @@ final class CosmeticEffectService implements Listener {
 
     private void drawTrail(Player owner, CosmeticCatalog.Definition definition, Location previous) {
         Location at = previous.clone().add(0d, 0.18d, 0d);
+        if (definition.leaderboardOnly()) {
+            drawLeaderboardTrail(owner, definition, at);
+            return;
+        }
         if (definition.secret()) {
             drawSecretTrail(owner, definition, at);
             return;
@@ -439,6 +459,10 @@ final class CosmeticEffectService implements Listener {
     private void drawKillEffect(
             Player owner, CosmeticCatalog.Definition definition, Location centre
     ) {
+        if (definition.leaderboardOnly()) {
+            drawLeaderboardKill(owner, definition, centre);
+            return;
+        }
         if (definition.secret()) {
             drawSecretKill(owner, definition, centre);
             return;
@@ -533,6 +557,145 @@ final class CosmeticEffectService implements Listener {
                 }
             }, step * 2L);
         }
+    }
+
+    /** A crown, two royal rings, and wings make podium holders unmistakable at range. */
+    private void drawLeaderboardAura(
+            Player owner, CosmeticCatalog.Definition definition, Location centre, double phase
+    ) {
+        Color colour = podiumColour(definition.leaderboardRank());
+        int rank = definition.leaderboardRank();
+        Location crown = centre.clone().add(0d, 1.15d, 0d);
+        for (int point = 0; point < 12; point++) {
+            double angle = phase * 0.42d + point * Math.PI * 2d / 12d;
+            double peak = point % 3 == 0 ? 0.26d : 0d;
+            Location at = crown.clone().add(
+                    Math.cos(angle) * 0.52d, peak, Math.sin(angle) * 0.52d
+            );
+            dust(owner, at, colour, rank == 1 ? 1.55f : 1.3f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            if (rank == 1 && point % 3 == 0) {
+                spawn(owner, at, Particle.END_ROD, 1, 0d, 0d, 0d, 0d, null,
+                        PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            }
+        }
+        for (int ring = 0; ring < 2; ring++) {
+            int points = rank == 1 ? 28 : 22;
+            double radius = 1.02d + ring * 0.42d;
+            for (int point = 0; point < points; point += 2) {
+                double direction = ring == 0 ? 1d : -1d;
+                double angle = direction * phase + point * Math.PI * 2d / points;
+                Location at = centre.clone().add(
+                        Math.cos(angle) * radius,
+                        -0.72d + ring * 1.3d + Math.sin(angle * 3d) * 0.12d,
+                        Math.sin(angle) * radius
+                );
+                dust(owner, at, colour, 1.1f,
+                        PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            }
+        }
+        drawPodiumWings(owner, centre, colour, phase, rank);
+        if (frame % 5L == 0L) {
+            spawn(owner, crown, rank == 1 ? Particle.FIREWORK : Particle.ENCHANT,
+                    5 - rank, 0.35d, 0.18d, 0.35d, 0.03d, null,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+    }
+
+    private void drawPodiumWings(
+            Player owner, Location centre, Color colour, double phase, int rank
+    ) {
+        Vector backwards = owner.getLocation().getDirection().setY(0d);
+        if (backwards.lengthSquared() < 0.001d) {
+            backwards = new Vector(0d, 0d, 1d);
+        }
+        backwards.normalize().multiply(-1d);
+        Vector side = new Vector(-backwards.getZ(), 0d, backwards.getX()).normalize();
+        int feathers = 9 - rank;
+        for (double direction : new double[]{-1d, 1d}) {
+            for (int point = 0; point < feathers; point++) {
+                double progress = point / (double) (feathers - 1);
+                Location at = centre.clone()
+                        .add(backwards.clone().multiply(0.22d + progress * 0.45d))
+                        .add(side.clone().multiply(direction * progress * (1.75d - rank * 0.15d)))
+                        .add(0d, 0.12d + Math.sin(progress * Math.PI) * 1.25d
+                                + Math.sin(phase + point) * 0.06d, 0d);
+                dust(owner, at, colour, 1.2f,
+                        PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            }
+        }
+    }
+
+    /** Two animated victory ribbons and medal sparks stream behind each podium player. */
+    private void drawLeaderboardTrail(
+            Player owner, CosmeticCatalog.Definition definition, Location at
+    ) {
+        int rank = definition.leaderboardRank();
+        Color colour = podiumColour(rank);
+        Vector backwards = owner.getLocation().getDirection().setY(0d);
+        if (backwards.lengthSquared() < 0.001d) {
+            backwards = new Vector(0d, 0d, 1d);
+        }
+        backwards.normalize().multiply(-1d);
+        Vector side = new Vector(-backwards.getZ(), 0d, backwards.getX()).normalize();
+        for (int ribbon = 0; ribbon < 2; ribbon++) {
+            for (int point = 0; point < 5; point++) {
+                double wave = Math.sin(frame * 0.5d + point + ribbon * Math.PI) * 0.32d;
+                Location particle = at.clone()
+                        .add(backwards.clone().multiply(0.25d + point * 0.32d))
+                        .add(side.clone().multiply(wave))
+                        .add(0d, 0.25d + ribbon * 0.48d + point * 0.06d, 0d);
+                dust(owner, particle, colour, rank == 1 ? 1.35f : 1.15f,
+                        PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+            }
+        }
+        spawn(owner, at.clone().add(0d, 0.45d, 0d),
+                rank == 1 ? Particle.TOTEM_OF_UNDYING : Particle.FIREWORK,
+                4 - rank, 0.35d, 0.3d, 0.35d, 0.04d, null,
+                PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+    }
+
+    /** A crown-shaped burst and rising royal blade reserve the finale for the podium. */
+    private void drawLeaderboardKill(
+            Player owner, CosmeticCatalog.Definition definition, Location centre
+    ) {
+        int rank = definition.leaderboardRank();
+        Color colour = podiumColour(rank);
+        spawn(owner, centre, Particle.FLASH, 1, 0d, 0d, 0d, 0d, null,
+                PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+        dustBurst(owner, centre, colour, 70 - rank * 10);
+        for (int step = 0; step < 8; step++) {
+            int pulse = step;
+            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                double radius = 0.55d + pulse * 0.22d;
+                for (int point = 0; point < 24; point++) {
+                    double angle = point * Math.PI * 2d / 24d;
+                    double peak = point % 6 == 0 ? 0.42d : 0d;
+                    Location at = centre.clone().add(
+                            Math.cos(angle) * radius,
+                            0.7d + peak + pulse * 0.12d,
+                            Math.sin(angle) * radius
+                    );
+                    spawn(owner, at, Particle.DUST, 1, 0d, 0d, 0d, 0d,
+                            new Particle.DustOptions(colour, rank == 1 ? 1.6f : 1.35f),
+                            PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                }
+                Location blade = centre.clone().add(0d, pulse * 0.42d, 0d);
+                spawn(owner, blade, Particle.END_ROD, 4 - rank, 0.08d, 0.3d, 0.08d, 0d, null,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                if (pulse == 7) {
+                    spawn(owner, blade, Particle.TOTEM_OF_UNDYING,
+                            45 - rank * 8, 0.85d, 0.8d, 0.85d, 0.15d, null,
+                            PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                    sound(owner, centre, Sound.UI_TOAST_CHALLENGE_COMPLETE,
+                            1.3f, 0.7f + rank * 0.12f,
+                            PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                }
+            }, step * 2L);
+        }
+        sound(owner, centre, Sound.ENTITY_LIGHTNING_BOLT_THUNDER,
+                0.9f, 0.65f + rank * 0.12f,
+                PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
     }
 
     private void drawKillFinale(
@@ -883,6 +1046,9 @@ final class CosmeticEffectService implements Listener {
     }
 
     private static int visualTier(CosmeticCatalog.Definition definition) {
+        if (definition.leaderboardOnly()) {
+            return 5;
+        }
         if (definition.secret()) {
             return 5;
         }
@@ -899,6 +1065,9 @@ final class CosmeticEffectService implements Listener {
     }
 
     private static Color effectColour(CosmeticCatalog.Definition definition) {
+        if (definition.leaderboardOnly()) {
+            return podiumColour(definition.leaderboardRank());
+        }
         return switch (definition.id()) {
             case "blood_burst", "blood_trail", "crimson_orbit" -> Color.fromRGB(195, 8, 32);
             case "frozen_shatter", "frost_trail", "celestial_crown" ->
@@ -907,6 +1076,15 @@ final class CosmeticEffectService implements Listener {
             case "emerald_orbit", "drool_trail" -> Color.fromRGB(30, 225, 125);
             case "soul_requiem" -> Color.fromRGB(30, 210, 225);
             default -> Color.fromRGB(165, 55, 240);
+        };
+    }
+
+    private static Color podiumColour(int rank) {
+        return switch (rank) {
+            case 1 -> Color.fromRGB(255, 205, 35);
+            case 2 -> Color.fromRGB(205, 220, 235);
+            case 3 -> Color.fromRGB(205, 115, 45);
+            default -> Color.WHITE;
         };
     }
 }

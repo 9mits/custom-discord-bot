@@ -57,6 +57,7 @@ final class ClanLevel {
     );
 
     static final int STARTING_MEMBER_SLOTS = 3;
+    static final int STARTING_WARP_SLOTS = 3;
 
     /**
      * Roster upgrades as (slots, price), one member at a time from
@@ -148,6 +149,11 @@ final class ClanLevel {
 
     static int maxMemberSlots() {
         return MEMBER_TIERS.get(MEMBER_TIERS.size() - 1).slots();
+    }
+
+    /** Three locations from the start, then one more at levels three, four and five. */
+    static int warpSlots(int level) {
+        return STARTING_WARP_SLOTS + Math.max(0, clamp(level) - 2);
     }
 
     static boolean isValidSlotCount(int slots) {

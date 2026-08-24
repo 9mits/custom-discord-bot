@@ -41,16 +41,16 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     );
     private static final List<String> MEMBER_SUBCOMMANDS = List.of(
             "help", "info", "list", "members", "chat", "leave", "menu", "donate", "balance",
-            "donors", "allies"
+            "donors", "allies", "warp"
     );
     private static final List<String> STAFF_SUBCOMMANDS = List.of(
             "help", "invite", "info", "list", "members", "kick", "chat", "leave",
-            "menu", "donate", "balance", "donors", "upgrade", "ally", "unally", "allies"
+            "menu", "donate", "balance", "donors", "upgrade", "ally", "unally", "allies", "warp"
     );
     private static final List<String> LEADER_SUBCOMMANDS = List.of(
             "help", "invite", "info", "list", "rename", "color", "promote", "demote",
             "transfer", "kick", "chat", "disband", "menu", "donate", "balance", "donors", "upgrade",
-            "members", "ally", "unally", "allies"
+            "members", "ally", "unally", "allies", "warp"
     );
 
     private final MGXAccessBridge plugin;
@@ -122,6 +122,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 case "balance", "vault", "bank" -> menus.openBalance(player);
                 case "donors", "contributors" -> menus.openDonors(player);
                 case "upgrade", "levelup" -> menus.openUpgrade(player);
+                case "warp", "warps" -> warp(player, args);
                 case "disband" -> disband(player, args.length >= 2 ? args[1] : "");
                 default -> throw new ClanStore.ClanException("Unknown subcommand. Use /clans help.");
             }
@@ -449,12 +450,14 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
             player.sendMessage(help("/clans donate [amount]", "Give money to the clan"));
             player.sendMessage(help("/clans balance | donors", "What the clan holds, and who gave it"));
             player.sendMessage(help("/clans allies", "Clans you cannot damage"));
+            player.sendMessage(help("/clans warp [name]", "Open or use the shared warp directory"));
             if (role == ClanStore.ClanRole.LEADER || role == ClanStore.ClanRole.STAFF) {
                 player.sendMessage(help("/clans upgrade", "Spend the balance on levels or slots"));
                 player.sendMessage(help("/clans invite <player>", "Invite an online player"));
                 player.sendMessage(help("/clans kick <player>", "Remove a clan member"));
                 player.sendMessage(help("/clans ally <clan>", "Offer or accept an alliance"));
                 player.sendMessage(help("/clans unally <clan>", "End an alliance"));
+                player.sendMessage(help("/clans warp set | delete <name>", "Manage shared locations"));
             }
             if (role == ClanStore.ClanRole.LEADER) {
                 player.sendMessage(help("/clans rename <name>", "Change your clan name"));
@@ -562,11 +565,32 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                     : CLANLESS_SUBCOMMANDS;
             return partial(args[0], available);
         }
-        if (!(sender instanceof Player player) || args.length != 2) {
+        if (!(sender instanceof Player player)) {
             return List.of();
         }
         String action = args[0].toLowerCase(Locale.ROOT);
         if (!availableSubcommands(player).contains(canonicalAction(action))) {
+            return List.of();
+        }
+        if (List.of("warp", "warps").contains(action)) {
+            ClanStore.ClanView clan = store.clanOf(player.getUniqueId()).orElse(null);
+            if (clan == null) {
+                return List.of();
+            }
+            if (args.length == 2) {
+                List<String> choices = new ArrayList<>(clan.warps().keySet());
+                if (clan.roleOf(player.getUniqueId()) != ClanStore.ClanRole.MEMBER) {
+                    choices.add("set");
+                    choices.add("delete");
+                }
+                return partial(args[1], choices);
+            }
+            if (args.length == 3 && args[1].equalsIgnoreCase("delete")) {
+                return partial(args[2], new ArrayList<>(clan.warps().keySet()));
+            }
+            return List.of();
+        }
+        if (args.length != 2) {
             return List.of();
         }
         if (action.equals("invite") || action.equals("add")) {
@@ -611,6 +635,31 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
             return shooter instanceof Player player ? player : null;
         }
         return null;
+    }
+
+    private void warp(Player player, String[] args) throws IOException {
+        ownClan(player);
+        if (args.length == 1) {
+            menus.openWarps(player);
+            return;
+        }
+        if (args[1].equalsIgnoreCase("set")) {
+            if (args.length < 3) {
+                throw new ClanStore.ClanException("Usage: /clans warp set <name>");
+            }
+            menus.setWarp(player, args[2]);
+            menus.openWarps(player);
+            return;
+        }
+        if (args[1].equalsIgnoreCase("delete") || args[1].equalsIgnoreCase("remove")) {
+            if (args.length < 3) {
+                throw new ClanStore.ClanException("Usage: /clans warp delete <name>");
+            }
+            menus.removeWarp(player, args[2]);
+            menus.openWarps(player);
+            return;
+        }
+        menus.useWarp(player, args[1]);
     }
 
     private ClanStore.ClanView ownClan(Player player) {
@@ -659,6 +708,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
             case "alliance" -> "ally";
             case "breakally" -> "unally";
             case "alliances" -> "allies";
+            case "warps" -> "warp";
             default -> action;
         };
     }

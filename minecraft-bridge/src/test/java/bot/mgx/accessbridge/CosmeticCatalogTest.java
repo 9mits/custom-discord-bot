@@ -124,7 +124,7 @@ class CosmeticCatalogTest {
 
     @Test
     void everyIconMaterialExistsInTheTargetMinecraftApi() {
-        for (CosmeticCatalog.Definition definition : CosmeticCatalog.all()) {
+        for (CosmeticCatalog.Definition definition : CosmeticCatalog.visualEntries()) {
             Material material = Material.getMaterial(definition.materialName());
             assertTrue(material != null, definition.id() + " has no material");
             assertFalse(material.isLegacy(), definition.id() + " uses a legacy material");
@@ -154,8 +154,23 @@ class CosmeticCatalogTest {
     }
 
     @Test
+    void everyPodiumRankHasOneUntradeableEffectInEveryCategory() {
+        assertEquals(9, CosmeticCatalog.leaderboardRewards().size());
+        for (int rank = 1; rank <= 3; rank++) {
+            for (CosmeticCatalog.Category category : CosmeticCatalog.Category.values()) {
+                CosmeticCatalog.Definition reward = CosmeticCatalog
+                        .leaderboardReward(rank, category).orElseThrow();
+                assertTrue(reward.leaderboardOnly());
+                assertTrue(reward.description().contains("Only obtainable by holding #" + rank));
+                assertFalse(CosmeticCatalog.all().contains(reward));
+                assertTrue(CosmeticCatalog.find(reward.id()).isPresent());
+            }
+        }
+    }
+
+    @Test
     void everyEntryHasPlayerFacingMetadata() {
-        for (CosmeticCatalog.Definition definition : CosmeticCatalog.all()) {
+        for (CosmeticCatalog.Definition definition : CosmeticCatalog.visualEntries()) {
             assertFalse(definition.displayName().isBlank());
             assertFalse(definition.description().isBlank());
             assertFalse(definition.category().displayName().isBlank());

@@ -44,6 +44,16 @@ enum LeaderboardType {
         return name().toLowerCase(Locale.ROOT);
     }
 
+    String icon() {
+        return switch (this) {
+            case WEALTH -> "$";
+            case KILLS -> "⚔";
+            case PLAYTIME -> "◷";
+            case BLOCKS_MINED -> "⛏";
+            case BLOCKS_WALKED -> "»";
+        };
+    }
+
     static Optional<LeaderboardType> fromKey(String key) {
         if (key == null) {
             return Optional.empty();

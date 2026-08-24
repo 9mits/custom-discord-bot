@@ -74,6 +74,7 @@ final class SidebarService {
     private String lastTeamKey = "";
     private int taskId = -1;
     private AfkService afkService;
+    private LeaderboardService leaderboard;
 
     SidebarService(
             MGXAccessBridge plugin,
@@ -106,6 +107,10 @@ final class SidebarService {
 
     void useAfkService(AfkService service) {
         this.afkService = service;
+    }
+
+    void useLeaderboardService(LeaderboardService service) {
+        this.leaderboard = service;
     }
 
     void stop() {
@@ -169,7 +174,7 @@ final class SidebarService {
         if (showSidebar) {
             board.update(lines(player));
         }
-        board.updateBalances(plugin.getServer().getOnlinePlayers());
+        board.updateNameplates(plugin.getServer().getOnlinePlayers());
         board.setSidebarVisible(showSidebar);
         if (player.getScoreboard() != board.scoreboard) {
             player.setScoreboard(board.scoreboard);
@@ -666,18 +671,33 @@ final class SidebarService {
             }
         }
 
-        void updateBalances(Collection<? extends Player> online) {
+        void updateNameplates(Collection<? extends Player> online) {
             Set<String> current = new LinkedHashSet<>();
             for (Player shown : online) {
                 String entry = shown.getName();
                 current.add(entry);
                 Score score = balanceObjective.getScore(entry);
                 score.setScore(0);
-                score.numberFormat(NumberFormat.fixed(Component.text(
+                Component line = Component.text(
                         EconomyFormat.compactDollars(money.balance(shown.getUniqueId())),
                         GOLD,
                         TextDecoration.BOLD
-                )));
+                );
+                if (leaderboard != null) {
+                    Optional<LeaderboardStandings.Standing> standing =
+                            leaderboard.standing(shown.getUniqueId());
+                    if (standing.isPresent()) {
+                        int placement = standing.get().placement();
+                        line = line.append(Component.text("   #" + placement + " ",
+                                        placementColour(placement), TextDecoration.BOLD))
+                                .append(Component.text(
+                                        standing.get().type().icon(),
+                                        placementColour(placement),
+                                        TextDecoration.BOLD
+                                ));
+                    }
+                }
+                score.numberFormat(NumberFormat.fixed(line));
             }
             for (String old : new LinkedHashSet<>(balanceEntries)) {
                 if (!current.contains(old)) {
@@ -699,6 +719,15 @@ final class SidebarService {
             }
             sidebarVisible = visible;
         }
+    }
+
+    static TextColor placementColour(int placement) {
+        return switch (placement) {
+            case 1 -> TextColor.color(0xFFD700);
+            case 2 -> TextColor.color(0xC0C0C0);
+            case 3 -> TextColor.color(0xCD7F32);
+            default -> NamedTextColor.GRAY;
+        };
     }
 
     private static TextColor clanColor(ClanStore.ClanView clan) {

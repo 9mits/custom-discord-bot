@@ -2,64 +2,65 @@ package bot.mgx.accessbridge;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
-import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
-import org.bukkit.event.player.PlayerCommandPreprocessEvent;
+import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
-import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.scheduler.BukkitTask;
 
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-/** Five-second stand-still wait before warp, home, tpa, and the other TP commands. */
+/** Five seconds of standing still immediately before a command teleport lands. */
 final class TeleportWarmupService implements Listener {
-    private static final int WARMUP_SECONDS = 5;
-    private static final Set<String> COMMANDS = Set.of(
-            "warp", "warps", "home", "homes", "spawn", "back",
-            "tpa", "tpahere", "tpaccept", "tpyes", "tpauto", "tphere", "tp",
-            "tpr", "rtp", "top", "jump", "world", "tpo", "tpohere", "tpoffline",
-            "ewarp", "ewarps", "ehome", "ehomes", "espawn", "eback",
-            "etpa", "etpahere", "etpaccept", "etphere", "etp"
-    );
+    static final int WARMUP_SECONDS = 5;
 
     private final MGXAccessBridge plugin;
-    private final Map<UUID, Pending> pending = new ConcurrentHashMap<>();
+    private final Map<UUID, BukkitTask> pending = new ConcurrentHashMap<>();
     private final Set<UUID> releasing = ConcurrentHashMap.newKeySet();
 
     TeleportWarmupService(MGXAccessBridge plugin) {
         this.plugin = plugin;
     }
 
-    @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
-    public void onCommand(PlayerCommandPreprocessEvent event) {
+    /**
+     * Delays the teleport itself, not the command which might eventually request one.
+     * This distinction lets /tpa be sent freely and makes /tpaccept warm up the
+     * requester rather than the player who merely accepted it.
+     */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onTeleport(PlayerTeleportEvent event) {
         Player player = event.getPlayer();
-        if (releasing.remove(player.getUniqueId())) {
+        UUID playerId = player.getUniqueId();
+        if (releasing.remove(playerId)) {
             return;
         }
-        String message = event.getMessage();
-        if (message.length() < 2 || message.charAt(0) != '/') {
-            return;
-        }
-        String label = message.substring(1).split(" +", 2)[0].toLowerCase(Locale.ROOT);
-        int colon = label.indexOf(':');
-        if (colon >= 0) {
-            label = label.substring(colon + 1);
-        }
-        if (!COMMANDS.contains(label)) {
+        if (!shouldWarmup(event.getCause())) {
+            cancel(player, false);
             return;
         }
         event.setCancelled(true);
+        begin(player, event.getTo(), event.getCause());
+    }
+
+    void begin(Player player, Location destination) {
+        begin(player, destination, PlayerTeleportEvent.TeleportCause.COMMAND);
+    }
+
+    private void begin(
+            Player player,
+            Location destination,
+            PlayerTeleportEvent.TeleportCause cause
+    ) {
         cancel(player, false);
-        Location origin = player.getLocation().clone();
+        Location target = destination.clone();
         int[] seconds = {WARMUP_SECONDS};
         BukkitTask task = plugin.getServer().getScheduler().runTaskTimer(plugin, () -> {
             if (!player.isOnline()) {
@@ -67,13 +68,16 @@ final class TeleportWarmupService implements Listener {
                 return;
             }
             if (seconds[0] <= 0) {
-                Pending finished = pending.remove(player.getUniqueId());
+                BukkitTask finished = pending.remove(player.getUniqueId());
                 if (finished != null) {
-                    finished.task().cancel();
+                    finished.cancel();
                 }
                 player.sendActionBar(Component.text("Teleporting now...", NamedTextColor.GREEN));
                 releasing.add(player.getUniqueId());
-                player.performCommand(message.substring(1));
+                if (!player.teleport(target, cause)) {
+                    releasing.remove(player.getUniqueId());
+                    player.sendActionBar(Component.text("Teleport failed.", NamedTextColor.RED));
+                }
                 return;
             }
             player.sendActionBar(Component.text(
@@ -83,7 +87,7 @@ final class TeleportWarmupService implements Listener {
             ));
             seconds[0]--;
         }, 0L, 20L);
-        pending.put(player.getUniqueId(), new Pending(origin, task));
+        pending.put(player.getUniqueId(), task);
     }
 
     @EventHandler(ignoreCancelled = true)
@@ -104,6 +108,7 @@ final class TeleportWarmupService implements Listener {
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         cancel(event.getPlayer(), false);
+        releasing.remove(event.getPlayer().getUniqueId());
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -113,17 +118,26 @@ final class TeleportWarmupService implements Listener {
         }
     }
 
-    private void cancel(Player player, boolean moved) {
-        Pending current = pending.remove(player.getUniqueId());
+    void stop() {
+        for (BukkitTask task : pending.values()) {
+            task.cancel();
+        }
+        pending.clear();
+        releasing.clear();
+    }
+
+    static boolean shouldWarmup(PlayerTeleportEvent.TeleportCause cause) {
+        return cause == PlayerTeleportEvent.TeleportCause.COMMAND;
+    }
+
+    private void cancel(Player player, boolean interrupted) {
+        BukkitTask current = pending.remove(player.getUniqueId());
         if (current == null) {
             return;
         }
-        current.task().cancel();
-        if (moved && player.isOnline()) {
+        current.cancel();
+        if (interrupted && player.isOnline()) {
             player.sendActionBar(Component.text("Teleport cancelled.", NamedTextColor.RED));
         }
-    }
-
-    private record Pending(Location origin, BukkitTask task) {
     }
 }

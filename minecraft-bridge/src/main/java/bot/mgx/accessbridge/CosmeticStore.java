@@ -114,6 +114,13 @@ final class CosmeticStore {
     }
 
     synchronized Token mint(UUID owner, String cosmeticId, UUID serial) {
+        CosmeticCatalog.find(cosmeticId)
+                .filter(CosmeticCatalog.Definition::leaderboardOnly)
+                .ifPresent(definition -> {
+                    throw new IllegalArgumentException(
+                            "Leaderboard cosmetics cannot be minted or traded."
+                    );
+                });
         if (previewOwners.contains(owner)) {
             return mintPreview(owner, cosmeticId, serial);
         }

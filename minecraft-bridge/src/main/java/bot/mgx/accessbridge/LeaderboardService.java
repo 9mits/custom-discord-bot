@@ -35,6 +35,7 @@ final class LeaderboardService {
     private final AtomicBoolean publishing = new AtomicBoolean();
     private int taskId = -1;
     private volatile JsonObject latest = new JsonObject();
+    private volatile Map<UUID, LeaderboardStandings.Standing> standings = Map.of();
 
     LeaderboardService(
             MGXAccessBridge plugin,
@@ -111,6 +112,7 @@ final class LeaderboardService {
 
     private void buildAndSend(Map<UUID, String> knownNames) {
         List<PlayerStats> everyone = stats.everyKnownPlayer(knownNames);
+        standings = LeaderboardStandings.bestByPlayer(everyone);
         JsonObject snapshot = new JsonObject();
         snapshot.addProperty("generated_at", System.currentTimeMillis());
 
@@ -137,9 +139,16 @@ final class LeaderboardService {
         return latest;
     }
 
+    Optional<LeaderboardStandings.Standing> standing(UUID playerId) {
+        return Optional.ofNullable(standings.get(playerId));
+    }
+
     private JsonArray rankIndividuals(List<PlayerStats> everyone, LeaderboardType type) {
         List<PlayerStats> ranked = new ArrayList<>(everyone);
-        ranked.sort(Comparator.comparingLong((PlayerStats row) -> row.value(type)).reversed());
+        ranked.sort(Comparator
+                .comparingLong((PlayerStats row) -> row.value(type)).reversed()
+                .thenComparing(PlayerStats::username, String.CASE_INSENSITIVE_ORDER)
+                .thenComparing(row -> row.minecraftUuid().toString()));
         JsonArray rows = new JsonArray();
         for (PlayerStats row : ranked) {
             if (rows.size() >= ROWS) {

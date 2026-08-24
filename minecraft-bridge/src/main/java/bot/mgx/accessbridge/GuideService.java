@@ -142,6 +142,11 @@ final class GuideService implements CommandExecutor, TabCompleter {
                 "Any member can donate. Leaders manage settings and staff; leaders and staff can invite or remove members.",
                 NamedTextColor.YELLOW
         ));
+        player.sendMessage(detail(
+                "WARPS",
+                "Every clan shares three locations; levels 3, 4 and 5 each unlock one more.",
+                NamedTextColor.AQUA
+        ));
         player.sendMessage(Component.empty());
         player.sendMessage(guideLink("/clan help", "View the commands available to you", GOLD));
         footer(player);
@@ -158,6 +163,10 @@ final class GuideService implements CommandExecutor, TabCompleter {
         player.sendMessage(guideLink("/bounty set <player> <amount>", "Put money on a player", NamedTextColor.RED));
         player.sendMessage(guideLink("/bounty clan <player> <amount>", "Clan owner: pay from the treasury", NamedTextColor.RED));
         player.sendMessage(guideLink("/pay <player> <amount>", "Send money to someone online", NamedTextColor.AQUA));
+        player.sendMessage(guideLink("/warp", "Open the public warp directory", NamedTextColor.AQUA));
+        player.sendMessage(guideLink("/home", "Open your home directory", NamedTextColor.AQUA));
+        player.sendMessage(guideLink("/rtp", "Find a safe random overworld location", NamedTextColor.GREEN));
+        player.sendMessage(guideLink("/tpa <player>", "Request a teleport; the traveller waits after acceptance", NamedTextColor.YELLOW));
         player.sendMessage(guideLink("/leaderboard", "Richest players and clans", ORANGE));
         player.sendMessage(guideLink("/clan", "Open your available clan commands", GOLD));
         player.sendMessage(guideLink("/claninfo [name]", "Open a clan information card", NamedTextColor.AQUA));

@@ -56,6 +56,22 @@ scoreboard:
 leaderboard:
   refresh-ticks: 6000
 
+# Random overworld teleports stay well away from spawn and inside the world border.
+rtp:
+  minimum-radius: 500
+  maximum-radius: 25000
+  attempts: 24
+
+# Exact bounds of the protected spawn building. Zombies that spawn here are
+# refused and zombies walking in from outside are stopped at the edge.
+spawn:
+  zombie-barrier:
+    enabled: true
+    min-x: -30
+    max-x: 30
+    min-z: -32
+    max-z: 30
+
 # Reduces active world chunk load. 0 on a distance leaves the panel value unchanged.
 # border-radius is blocks from spawn (nether is 1/8). Set -1 to leave the panel border.
 world:

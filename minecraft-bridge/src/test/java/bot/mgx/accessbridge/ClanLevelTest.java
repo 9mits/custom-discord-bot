@@ -135,4 +135,14 @@ class ClanLevelTest {
         assertEquals(0L, ClanLevel.shortfall(cost.dollars(), cost));
         assertEquals(0L, ClanLevel.shortfall(cost.dollars() + 500L, cost));
     }
+
+    @Test
+    void clanWarpSlotsGrowFromLevelThreeThroughTheMaximum() {
+        assertEquals(3, ClanLevel.warpSlots(0));
+        assertEquals(3, ClanLevel.warpSlots(1));
+        assertEquals(3, ClanLevel.warpSlots(2));
+        assertEquals(4, ClanLevel.warpSlots(3));
+        assertEquals(5, ClanLevel.warpSlots(4));
+        assertEquals(6, ClanLevel.warpSlots(5));
+    }
 }
