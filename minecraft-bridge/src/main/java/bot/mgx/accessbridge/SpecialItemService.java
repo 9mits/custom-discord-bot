@@ -12,6 +12,7 @@ import org.bukkit.Sound;
 import org.bukkit.Tag;
 import org.bukkit.block.Block;
 import org.bukkit.enchantments.Enchantment;
+import org.bukkit.entity.HumanEntity;
 import org.bukkit.entity.Item;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -37,8 +38,10 @@ import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -152,34 +155,105 @@ final class SpecialItemService implements Listener {
         return 1d + (old - 1d) / 2d;
     }
 
+    /**
+     * Keeps a crate book's levels through the anvil, and keeps everything else with them.
+     *
+     * <p>Two bugs lived in the old version of this. It rebuilt the result from the base
+     * item and one mark, so a book carrying several enchantments handed over only the
+     * custom one and the rest vanished. And it bailed out whenever the base was itself a
+     * book, which left vanilla to combine two Unbreaking IVs and clamp the pair down to
+     * III. Starting from vanilla's own result fixes the first; merging the marks from
+     * both sides fixes the second.
+     */
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
     public void onPrepareAnvil(PrepareAnvilEvent event) {
         ItemStack base = event.getInventory().getItem(0);
-        ItemStack book = event.getInventory().getItem(1);
-        String enchant = specialBook(book).orElse(null);
-        if (base == null || base.getType().isAir() || enchant == null) {
+        ItemStack addition = event.getInventory().getItem(1);
+        if (base == null || base.getType().isAir()
+                || addition == null || addition.getType().isAir()) {
             return;
         }
-        String[] parts = enchant.split(":", 2);
-        if (parts.length != 2) {
+        // What vanilla itself would let cross from the right-hand slot: a book onto
+        // anything, or two of the same item combined.
+        boolean transfers = addition.getType() == Material.ENCHANTED_BOOK
+                || addition.getType() == base.getType();
+        Map<String, Integer> arriving = transfers
+                ? customEnchants(addition)
+                : Map.of();
+        Map<String, Integer> merged = CustomEnchants.merge(customEnchants(base), arriving);
+        if (merged.isEmpty()) {
             return;
         }
-        int level;
-        try {
-            level = Integer.parseInt(parts[1]);
-        } catch (NumberFormatException ignored) {
-            return;
+        ItemStack result = event.getResult();
+        if (result == null || result.getType().isAir()) {
+            // Vanilla refuses pairings it sees nothing in — an Excavation book stores no
+            // enchantment at all. Only stand in for it where it would have said yes.
+            if (!transfers) {
+                return;
+            }
+            result = base.clone();
+        } else {
+            result = result.clone();
         }
-        ItemStack result = base.clone();
         result.setAmount(1);
         ItemMeta meta = result.getItemMeta();
-        if (meta == null || !applyEnchantment(result, meta, parts[0], level)) {
+        if (meta == null) {
             return;
         }
+        int highest = 0;
+        boolean applied = false;
+        for (Map.Entry<String, Integer> entry : merged.entrySet()) {
+            if (applyEnchantment(result, meta, entry.getKey(), entry.getValue())) {
+                applied = true;
+                highest = Math.max(highest, entry.getValue());
+            }
+        }
+        if (!applied) {
+            return;
+        }
+        if (meta instanceof EnchantmentStorageMeta storage) {
+            meta.getPersistentDataContainer().set(
+                    bookKey, PersistentDataType.STRING, CustomEnchants.format(merged)
+            );
+            nameMergedBook(storage, merged);
+        }
         result.setItemMeta(meta);
-        event.getView().setRepairItemCountCost(1);
-        event.getView().setRepairCost(Math.max(5, level * 4));
+        if (!arriving.isEmpty()) {
+            // Only when the right-hand item actually brought a custom level. Otherwise an
+            // ordinary repair of an Excavation pickaxe would cost five levels flat.
+            event.getView().setRepairItemCountCost(1);
+            event.getView().setRepairCost(Math.max(5, highest * 4));
+        }
         event.setResult(result);
+        // The client keeps drawing the result the server computed before this ran, and a
+        // stale slot is taken as an empty one: the book is spent and nothing comes back.
+        for (HumanEntity viewer : List.copyOf(event.getViewers())) {
+            if (viewer instanceof Player player) {
+                plugin.getServer().getScheduler().runTask(plugin, player::updateInventory);
+            }
+        }
+    }
+
+    /** A book that carries several enchantments cannot honestly be named after one. */
+    private void nameMergedBook(EnchantmentStorageMeta meta, Map<String, Integer> custom) {
+        if (custom.size() == 1 && meta.getStoredEnchants().size() <= 1) {
+            Map.Entry<String, Integer> only = custom.entrySet().iterator().next();
+            meta.displayName(Component.text(
+                    title(only.getKey()) + " " + roman(only.getValue()),
+                    NamedTextColor.LIGHT_PURPLE
+            ).decoration(TextDecoration.ITALIC, false));
+        } else {
+            meta.displayName(null);
+        }
+        if (custom.containsKey("excavation")) {
+            List<Component> lore = new ArrayList<>(meta.lore() == null ? List.of() : meta.lore());
+            Component mark = line("Excavation I");
+            if (!lore.contains(mark)) {
+                lore.add(mark);
+            }
+            meta.lore(lore);
+            meta.setEnchantmentGlintOverride(true);
+        }
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -315,6 +389,10 @@ final class SpecialItemService implements Listener {
 
     private boolean applyEnchantment(ItemStack item, ItemMeta meta, String enchant, int level) {
         if (enchant.equals("excavation")) {
+            if (meta instanceof EnchantmentStorageMeta) {
+                // On a book it is only a mark; the pickaxe is where it becomes real.
+                return true;
+            }
             if (!item.getType().name().endsWith("_PICKAXE")) {
                 return false;
             }
@@ -333,10 +411,41 @@ final class SpecialItemService implements Listener {
             case "fortune" -> Enchantment.FORTUNE;
             default -> null;
         };
-        if (vanilla == null || !vanilla.canEnchantItem(item)) {
+        if (vanilla == null) {
             return false;
         }
+        if (meta instanceof EnchantmentStorageMeta storage) {
+            if (storage.getStoredEnchantLevel(vanilla) == level) {
+                return true;
+            }
+            // Vanilla has usually written its own clamped level by now, and addStoredEnchant
+            // refuses to touch an enchantment already present.
+            storage.removeStoredEnchant(vanilla);
+            return storage.addStoredEnchant(vanilla, level, true);
+        }
+        if (!vanilla.canEnchantItem(item)) {
+            return false;
+        }
+        if (meta.getEnchantLevel(vanilla) == level) {
+            return true;
+        }
+        meta.removeEnchant(vanilla);
         return meta.addEnchant(vanilla, level, true);
+    }
+
+    /** Every custom mark on an item: a book's own, and the flag a pickaxe carries. */
+    private Map<String, Integer> customEnchants(ItemStack item) {
+        if (item == null || item.getType().isAir() || !item.hasItemMeta()) {
+            return Map.of();
+        }
+        PersistentDataContainer data = item.getItemMeta().getPersistentDataContainer();
+        Map<String, Integer> marks = new TreeMap<>(
+                CustomEnchants.parse(data.get(bookKey, PersistentDataType.STRING))
+        );
+        if (data.has(excavationKey, PersistentDataType.INTEGER)) {
+            marks.put("excavation", 1);
+        }
+        return marks;
     }
 
     private ItemStack vanillaPotion(String id) {
@@ -425,15 +534,6 @@ final class SpecialItemService implements Listener {
         meta.setEnchantmentGlintOverride(true);
         item.setItemMeta(meta);
         return item;
-    }
-
-    private Optional<String> specialBook(ItemStack item) {
-        if (item == null || item.getType().isAir() || !item.hasItemMeta()) {
-            return Optional.empty();
-        }
-        return Optional.ofNullable(item.getItemMeta().getPersistentDataContainer().get(
-                bookKey, PersistentDataType.STRING
-        ));
     }
 
     private boolean hasExcavation(ItemStack item) {
