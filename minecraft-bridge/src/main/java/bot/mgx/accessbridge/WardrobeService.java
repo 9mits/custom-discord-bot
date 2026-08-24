@@ -56,6 +56,7 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         private final CosmeticCatalog.Category category;
         private final boolean saleMode;
         private final Map<Integer, UUID> tokenSlots = new LinkedHashMap<>();
+        private final Map<Integer, PodiumReward> podiumSlots = new LinkedHashMap<>();
         private Inventory inventory;
 
         WardrobeMenu(Screen screen, CosmeticCatalog.Category category, boolean saleMode) {
@@ -73,10 +74,17 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
     private record Owned(CosmeticStore.Token token, boolean stored) {
     }
 
+    private record PodiumReward(
+            LeaderboardStandings.Standing standing,
+            CosmeticCatalog.Definition definition
+    ) {
+    }
+
     private final MGXAccessBridge plugin;
     private final CosmeticStore store;
     private final CosmeticItems items;
     private final PlayerSettingsService settings;
+    private final LeaderboardService leaderboard;
     private EconomyMenuService economyMenus;
     /** Players who shift-clicked a cosmetic and owe a price in chat. */
     private final Map<UUID, UUID> awaitingPrice = new LinkedHashMap<>();
@@ -85,12 +93,14 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
             MGXAccessBridge plugin,
             CosmeticStore store,
             CosmeticItems items,
-            PlayerSettingsService settings
+            PlayerSettingsService settings,
+            LeaderboardService leaderboard
     ) {
         this.plugin = plugin;
         this.store = store;
         this.items = items;
         this.settings = settings;
+        this.leaderboard = leaderboard;
     }
 
     @Override
@@ -144,13 +154,13 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         );
         holder.inventory = inventory;
         inventory.setItem(KILL_EFFECT_SLOT, categoryButton(
-                Material.NETHERITE_SWORD, CosmeticCatalog.Category.KILL_EFFECT, player
+                Material.NETHERITE_SWORD, CosmeticCatalog.Category.KILL_EFFECT, player, saleMode
         ));
         inventory.setItem(AURA_SLOT, categoryButton(
-                Material.NETHER_STAR, CosmeticCatalog.Category.AURA, player
+                Material.NETHER_STAR, CosmeticCatalog.Category.AURA, player, saleMode
         ));
         inventory.setItem(TRAIL_SLOT, categoryButton(
-                Material.WIND_CHARGE, CosmeticCatalog.Category.TRAIL, player
+                Material.WIND_CHARGE, CosmeticCatalog.Category.TRAIL, player, saleMode
         ));
         inventory.setItem(SETTINGS_SLOT, saleMode
                 ? button(Material.BARRIER, "Back to your listings")
@@ -174,13 +184,20 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         );
         holder.inventory = inventory;
 
-        // Only what the player actually has. Unowned entries belong in /crate odds.
+        // Token cosmetics only appear when owned. The current virtual podium reward
+        // appears separately because it can never have a tradable serial.
         Map<String, List<Owned>> byCosmetic = new LinkedHashMap<>();
         for (Owned entry : owned) {
             byCosmetic.computeIfAbsent(entry.token().cosmeticId(), ignored -> new ArrayList<>())
                     .add(entry);
         }
         int slot = 0;
+        Optional<PodiumReward> podium = podiumReward(player, category, saleMode);
+        if (podium.isPresent()) {
+            inventory.setItem(slot, podiumIcon(podium.get()));
+            holder.podiumSlots.put(slot, podium.get());
+            slot++;
+        }
         for (CosmeticCatalog.Definition definition : CosmeticCatalog.all()) {
             if (definition.category() != category) {
                 continue;
@@ -193,7 +210,7 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
                 continue;
             }
             Owned selected = copies.get(0);
-            boolean active = store.equipped(player.getUniqueId(), category.name())
+            boolean selectedForUse = store.equipped(player.getUniqueId(), category.name())
                     .map(current -> current.equals(selected.token().serial()))
                     .orElse(false);
             ItemStack icon = items.preview(definition, false);
@@ -209,8 +226,10 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
             if (copies.size() > 1) {
                 lore.add(line("You own " + copies.size() + " of these."));
             }
-            if (active) {
-                lore.add(line("Equipped"));
+            if (selectedForUse) {
+                lore.add(line(podium.isPresent()
+                        ? "Selected — resumes when the podium reward ends"
+                        : "Equipped"));
             }
             if (saleMode && selected.token().serialNumber() > 0) {
                 lore.add(line("Click to list on the Auction House."));
@@ -221,7 +240,7 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
             holder.tokenSlots.put(slot, selected.token().serial());
             slot++;
         }
-        if (owned.isEmpty()) {
+        if (owned.isEmpty() && podium.isEmpty()) {
             inventory.setItem(22, button(Material.GRAY_DYE, "No cosmetics yet"));
         }
         MenuItems.back(inventory);
@@ -258,6 +277,17 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         }
         if (event.getSlot() == MenuItems.backSlot(event.getInventory().getSize())) {
             openHub(player, menu.saleMode);
+            return;
+        }
+        PodiumReward podium = menu.podiumSlots.get(event.getSlot());
+        if (podium != null) {
+            player.sendMessage(PlayerMenuService.prefix().append(Component.text(
+                    podium.definition().displayName()
+                            + " is equipped automatically while you hold #"
+                            + podium.standing().placement() + " on the "
+                            + boardName(podium.standing().type()) + " leaderboard.",
+                    NamedTextColor.GOLD
+            )));
             return;
         }
         UUID serial = menu.tokenSlots.get(event.getSlot());
@@ -311,9 +341,11 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
             PlayerMenuService.error(player, "That cosmetic could not be equipped. Please try again.");
             return;
         }
-        player.sendMessage(PlayerMenuService.prefix().append(Component.text(
-                definition.displayName() + " equipped.", NamedTextColor.GREEN
-        )));
+        boolean podiumActive = podiumReward(player, category, false).isPresent();
+        player.sendMessage(PlayerMenuService.prefix().append(Component.text(podiumActive
+                ? definition.displayName()
+                        + " selected. It will resume when your podium reward ends."
+                : definition.displayName() + " equipped.", NamedTextColor.GREEN)));
         openCategory(player, category);
     }
 
@@ -341,9 +373,10 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
             PlayerMenuService.error(player, "That cosmetic could not be unequipped. Please try again.");
             return;
         }
-        player.sendMessage(PlayerMenuService.prefix().append(Component.text(
-                name + " unequipped.", NamedTextColor.GREEN
-        )));
+        boolean podiumActive = podiumReward(player, category, false).isPresent();
+        player.sendMessage(PlayerMenuService.prefix().append(Component.text(podiumActive
+                ? name + " selection cleared. Your podium reward remains equipped."
+                : name + " unequipped.", NamedTextColor.GREEN)));
         openCategory(player, category);
     }
 
@@ -354,16 +387,73 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private ItemStack categoryButton(
-            Material material, CosmeticCatalog.Category category, Player player
+            Material material,
+            CosmeticCatalog.Category category,
+            Player player,
+            boolean saleMode
     ) {
-        int count = owned(player, category).size();
+        Optional<PodiumReward> podium = podiumReward(player, category, saleMode);
+        int count = owned(player, category).size() + (podium.isPresent() ? 1 : 0);
         List<String> lore = new ArrayList<>();
-        lore.add(count + (count == 1 ? " cosmetic owned" : " cosmetics owned"));
-        store.equipped(player.getUniqueId(), category.name())
-                .flatMap(store::token)
-                .flatMap(token -> CosmeticCatalog.find(token.cosmeticId()))
-                .ifPresent(definition -> lore.add("Equipped: " + definition.displayName()));
+        lore.add(count + (count == 1 ? " cosmetic available" : " cosmetics available"));
+        if (podium.isPresent()) {
+            lore.add("Equipped: " + podium.get().definition().displayName());
+            lore.add("#" + podium.get().standing().placement() + " "
+                    + boardName(podium.get().standing().type()) + " leaderboard reward");
+        } else {
+            store.equipped(player.getUniqueId(), category.name())
+                    .flatMap(store::token)
+                    .flatMap(token -> CosmeticCatalog.find(token.cosmeticId()))
+                    .ifPresent(definition -> lore.add("Equipped: " + definition.displayName()));
+        }
         return MenuItems.button(material, category.displayName(), lore);
+    }
+
+    private Optional<PodiumReward> podiumReward(
+            Player player, CosmeticCatalog.Category category, boolean saleMode
+    ) {
+        if (saleMode) {
+            return Optional.empty();
+        }
+        return leaderboard.standing(player.getUniqueId())
+                .flatMap(standing -> podiumRewardForMenu(standing, category, false)
+                        .map(definition -> new PodiumReward(standing, definition)));
+    }
+
+    static Optional<CosmeticCatalog.Definition> podiumRewardForMenu(
+            LeaderboardStandings.Standing standing,
+            CosmeticCatalog.Category category,
+            boolean saleMode
+    ) {
+        if (saleMode || standing == null || standing.placement() > 3) {
+            return Optional.empty();
+        }
+        return CosmeticCatalog.leaderboardReward(standing.placement(), category);
+    }
+
+    private ItemStack podiumIcon(PodiumReward reward) {
+        ItemStack icon = items.preview(reward.definition(), false);
+        ItemMeta meta = icon.getItemMeta();
+        List<Component> lore = new ArrayList<>(meta.lore() == null ? List.of() : meta.lore());
+        lore.add(Component.empty());
+        lore.add(line("Automatically equipped"));
+        lore.add(line("#" + reward.standing().placement() + " on the "
+                + boardName(reward.standing().type()) + " leaderboard"));
+        lore.add(line("Available only while you hold this placement"));
+        lore.add(line("Cannot be traded or listed"));
+        meta.lore(lore);
+        icon.setItemMeta(meta);
+        return icon;
+    }
+
+    private static String boardName(LeaderboardType type) {
+        return switch (type) {
+            case WEALTH -> "Money $";
+            case KILLS -> "Kills " + type.icon();
+            case PLAYTIME -> "Playtime";
+            case BLOCKS_MINED -> "Blocks mined";
+            case BLOCKS_WALKED -> "Blocks walked";
+        };
     }
 
     /**
