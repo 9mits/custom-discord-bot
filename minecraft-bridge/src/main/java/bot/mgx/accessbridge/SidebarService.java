@@ -678,26 +678,12 @@ final class SidebarService {
                 current.add(entry);
                 Score score = balanceObjective.getScore(entry);
                 score.setScore(0);
-                Component line = Component.text(
-                        EconomyFormat.compactDollars(money.balance(shown.getUniqueId())),
-                        GOLD,
-                        TextDecoration.BOLD
-                );
-                if (leaderboard != null) {
-                    Optional<LeaderboardStandings.Standing> standing =
-                            leaderboard.standing(shown.getUniqueId());
-                    if (standing.isPresent()) {
-                        int placement = standing.get().placement();
-                        line = line.append(Component.text("   #" + placement + " ",
-                                        placementColour(placement), TextDecoration.BOLD))
-                                .append(Component.text(
-                                        standing.get().type().icon(),
-                                        placementColour(placement),
-                                        TextDecoration.BOLD
-                                ));
-                    }
-                }
-                score.numberFormat(NumberFormat.fixed(line));
+                Optional<LeaderboardStandings.Standing> standing = leaderboard == null
+                        ? Optional.empty()
+                        : leaderboard.standing(shown.getUniqueId());
+                score.numberFormat(NumberFormat.fixed(nameplateLine(
+                        money.balance(shown.getUniqueId()), standing
+                )));
             }
             for (String old : new LinkedHashSet<>(balanceEntries)) {
                 if (!current.contains(old)) {
@@ -727,6 +713,36 @@ final class SidebarService {
             case 2 -> TextColor.color(0xC0C0C0);
             case 3 -> TextColor.color(0xCD7F32);
             default -> NamedTextColor.GRAY;
+        };
+    }
+
+    static Component nameplateLine(
+            long balance, Optional<LeaderboardStandings.Standing> standing
+    ) {
+        String compact = EconomyFormat.compactDollars(balance);
+        String amount = compact.startsWith("$") ? compact.substring(1) : compact;
+        Component line = Component.text("$ " + amount, NamedTextColor.GREEN)
+                .decoration(TextDecoration.BOLD, false);
+        if (standing.isEmpty()) {
+            return line;
+        }
+        LeaderboardStandings.Standing row = standing.get();
+        return line
+                .append(Component.text("   ", NamedTextColor.DARK_GRAY)
+                        .decoration(TextDecoration.BOLD, false))
+                .append(Component.text(row.type().icon() + " ", leaderboardIconColour(row.type()))
+                        .decoration(TextDecoration.BOLD, false))
+                .append(Component.text("#" + row.placement(), placementColour(row.placement()))
+                        .decoration(TextDecoration.BOLD, false));
+    }
+
+    static TextColor leaderboardIconColour(LeaderboardType type) {
+        return switch (type) {
+            case WEALTH -> NamedTextColor.GREEN;
+            case KILLS -> NamedTextColor.RED;
+            case PLAYTIME -> NamedTextColor.AQUA;
+            case BLOCKS_MINED -> NamedTextColor.GOLD;
+            case BLOCKS_WALKED -> NamedTextColor.WHITE;
         };
     }
 
