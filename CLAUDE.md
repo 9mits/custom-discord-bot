@@ -19,6 +19,11 @@ cross-tool source of truth. It is imported below so Claude Code loads it in full
   is not committed and does not travel with the repo. A repo-level `.claude/memory/`
   folder is **not** auto-loaded, so don't create one expecting it to be read.
 - Prefer plan mode before large, multi-file changes.
+- Treat **Testing policy — verification is automatic; live gameplay is explicit**
+  in AGENTS.md as mandatory. Do not launch Minecraft/VibeCraft for every update.
+  When the user explicitly asks to test a Minecraft update, use the real local
+  client(s), exercise only the affected feature matrix, inspect actual state and
+  logs, and never call a compile or unit-test-only run an in-game pass.
 - The **dev blog workflow** in AGENTS.md is the whole procedure for posting a
   server update: `devblog/blog.py` decides the range, scaffolds, validates and
   publishes. Do not drive git by hand for a post.

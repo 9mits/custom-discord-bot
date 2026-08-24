@@ -57,6 +57,61 @@ python panel.py restart
 python panel.py status         # expect: running
 ```
 
+## Testing policy — verification is automatic; live gameplay is explicit
+
+Every code change still gets the proportional code-level checks from **Commands**
+(unit tests, lint, compilation, and the plugin build when applicable). That is
+normal engineering verification and does not require a separate request.
+
+Live Minecraft testing is different and is **opt-in**. Do not start the Paper test
+server, launch Minecraft clients, alter the test world, install client mods, or run
+a VibeCraft gameplay suite merely because an update was implemented. Requests such
+as **"test this Minecraft update," "test it in game," "I want to test this,"** or
+**"use VibeCraft"** explicitly opt in. `implement`, `fix`, `finish`, and `deploy`
+alone do not. If the user asks to run a named unit/build command, run that command;
+do not silently expand it into live gameplay testing.
+
+Once live testing is requested, actually exercise the feature through a real
+Minecraft client. A successful Gradle build, unit test, console command, or code
+inspection is not an in-game pass. Use this procedure:
+
+1. Read the requested update and relevant diff, then write a compact test matrix
+   covering the affected behavior, its important negative/cancellation cases, and
+   only the nearby regressions that share the changed code. Do not automatically
+   replay every historical feature test. Run a full regression only when the user
+   requests it or a shared protocol, persistence layer, or other broad dependency
+   changed; state why the wider scope is necessary.
+2. Reuse the existing local infrastructure instead of rebuilding the harness:
+   `scripts/testserver.py`, the primary client bridge on port `8766`, and the alt
+   client on `8767`. The maintained automation fork is
+   `https://github.com/9mits/vibecraft`; on the macOS machine its checkout is
+   `runtime/vibecraft`. Build or extend the fork only if an action required by the
+   requested test is genuinely unavailable.
+3. Drive player-owned actions as the player: send chat commands, click the actual
+   inventory or mod UI, move/look/use through client input, and use two clients for
+   multiplayer flows. Server-console commands are fine for deterministic setup and
+   cleanup, but they do not prove that a player command, UI, countdown, permission,
+   cancellation, or teleport flow works.
+4. Observe every actor independently. For example, a `/tpa` test records both
+   players' positions and messages during acceptance and the warmup; a GUI test
+   verifies the opened screen and the resulting state; a protection test attempts
+   the forbidden behavior rather than only reading configuration.
+5. Record evidence before declaring a pass: expected versus actual state, exact
+   timing/counts where relevant, region or entity scans, screenshots for visual
+   behavior, and new client/server log lines for kicks or exceptions. Intentional
+   launcher restarts are not stability failures; unexpected disconnects are.
+6. Restore controlled inputs and leave the reusable test setup in a known state.
+   Report precisely what was tested, what passed or failed, and what was not in
+   scope. Never summarize `tests pass` when only code-level checks ran.
+
+Keep the requested run fast: use the smallest deterministic fixture that proves the
+behavior, run independent checks in parallel, and stop when the scoped matrix is
+complete. The Litematica printer fixture is an example: verify the exact palette by
+region scan and use multiple print cycles only for printer/packet/stability changes
+or when explicitly requested. After an external `/fill` reset, toggle its schematic
+placement off and on before the next cycle so Litematica refreshes its completed-job
+cache.
+
 ## Workflow — the PR loop
 
 Branch off `main`, never commit to it directly (a ruleset rejects direct pushes).
