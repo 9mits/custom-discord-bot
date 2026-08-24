@@ -14,15 +14,23 @@ These four rules override everything else. The rest of this file is guidance.
    squash-merge once every required check is green, then restart production and
    verify the panel reports `running`. Do not pause to ask for merge approval.
    Stop before merging or deploying only when the user explicitly says to hold,
-   leave the PR open, or skip deployment.
-2. **A `minecraft-bridge/` change is not done until the jar is on the server.**
-   Editing the plugin changes nothing in game. Bump `version` in
-   `build.gradle.kts`, `./gradlew clean shadowJar`, then upload
-   `build/libs/MGXAccessBridge.jar` over SFTP and swap it — every time, without
-   being asked, the same way code is merged without being asked. Do not offer
-   the upload and wait; do it, then say the restart is the user's step. The
-   sequence, the byte/sha verification, and the space-free-path trap are in
-   **Hosting — GravelHost** below.
+   leave the PR open, or skip deployment. **The one standing exception is the
+   GravelHost Minecraft production gate in rule 2.**
+2. **Minecraft changes always go to the test server first; production requires
+   the user's confirmation.** A `minecraft-bridge/` change is not staged until
+   its version is bumped, the clean shaded jar passes its checks, the PR is
+   merged, and that merged jar is installed into `runtime/testserver/` with
+   `python scripts/testserver.py deploy`. Do this automatically on every plugin
+   change. Installing the jar does not opt in to launching Paper, Minecraft, or
+   VibeCraft. **Never upload a new jar or config to the real GravelHost server
+   until the user explicitly confirms that the test-server build is approved
+   for production.** A clear `confirmed`, `approved`, `works on test`, `ship it`,
+   or `upload/deploy this to the real server` counts when it unambiguously refers
+   to that build; generic praise or a new request does not. After confirmation,
+   upload the exact approved test-server artifact automatically using the
+   sequence in **Hosting — GravelHost** and say that the production Minecraft
+   restart is the user's step. Any code/config change after approval invalidates
+   it: redeploy the new build to test and wait for fresh confirmation.
 3. **Keep secrets out of git.** `.env*`, `.panel.env`, `config.json`, and
    `database*/` are git-ignored and hold live tokens and user data. Stage files
    by name; read what `git status` shows before committing.
@@ -50,6 +58,7 @@ ruff check core/ cogs/ minecraft_bot/ tests/
 
 # Local Minecraft test server (Paper 1.21.11, same build as production)
 python scripts/testserver.py setup   # once: fetch Paper, Floodgate, Geyser, LuckPerms
+python scripts/testserver.py deploy  # build + install jar without starting Paper
 python scripts/testserver.py run     # build the plugin, install it, start the server
 
 # Deploy (BisectHosting panel auto-pulls main on restart)
@@ -70,6 +79,14 @@ as **"test this Minecraft update," "test it in game," "I want to test this,"** o
 **"use VibeCraft"** explicitly opt in. `implement`, `fix`, `finish`, and `deploy`
 alone do not. If the user asks to run a named unit/build command, run that command;
 do not silently expand it into live gameplay testing.
+
+The mandatory `scripts/testserver.py deploy` step from non-negotiable 2 is a
+test-server **deployment**, not a live gameplay test. It installs the merged jar
+so the user can test it, but does not start Paper or a client by itself. Report the
+installed plugin version and SHA-256, state that production is unchanged, and wait
+for the user's explicit production confirmation. The deploy command records the
+exact commit, version, bytes, and hash in the git-ignored
+`runtime/testserver/test-build.json`; use that manifest across model switches.
 
 Once live testing is requested, actually exercise the feature through a real
 Minecraft client. A successful Gradle build, unit test, console command, or code
@@ -136,12 +153,17 @@ machine it is at `~/.local/bin/gh`; auth per invocation via
 (the keychain token lacks the scope `gh auth login --with-token` wants).
 Both `test (3.11)` and `test (3.12)` must pass; fix failures on the branch rather
 than working around the gate. When CI is green, automatically complete the
-merge-and-deploy sequence unless the user explicitly requested a hold:
+merge-and-deploy sequence unless the user explicitly requested a hold. For a
+`minecraft-bridge/` change, "deploy" here means the test server only; GravelHost
+remains gated by non-negotiable 2:
 
 ```bash
 & "C:\Program Files\GitHub CLI\gh.exe" pr merge <number> --squash --delete-branch
 git checkout main && git pull
 python panel.py restart && python panel.py status
+# when minecraft-bridge/ changed:
+python scripts/testserver.py deploy
+# report the test jar version/hash and wait for production confirmation
 ```
 
 `main` is protected by GitHub ruleset `18121569`: PR required, both CI checks
@@ -261,7 +283,9 @@ deliberately not a copy of production — offline mode and no whitelist so alt
 accounts can join to test the multiplayer events, no resource pack so a slow
 GitHub cannot stall a test, and a bridge URL pointing at a local port that need
 not be listening. Everything that does not need Discord works without a bot.
-Use it before the SFTP deploy in non-negotiable 2, not instead of it.
+Every merged plugin change must be installed here before it can be considered for
+production. This is the automatic deployment target. GravelHost is updated only
+after the user approves this exact test-server build.
 
 The Minecraft EULA is left unaccepted; flipping `eula=true` is the user's to do.
 
@@ -283,35 +307,41 @@ API is the only remote control path.
 - `core/bot.py:on_ready` prints `successfully finished startup` — the panel scans
   stdout for that exact phrase to flip `starting` → `running`. Keep it.
 
-## Hosting — GravelHost (Minecraft)
+## Hosting — GravelHost (Minecraft production)
 
 The Paper server is **not** on the Pterodactyl panel — `panel.py restart` only
 redeploys the Discord bots and does nothing for the plugin. GravelHost exposes no
 API, so **SFTP is the only deploy path**, using the git-ignored `.env.gravel`
 (`GRAVEL_SFTP_HOST/PORT/USERNAME/PASSWORD`, `GRAVEL_SERVER_ROOT`).
 
-Deploy sequence, required by non-negotiable 2 after any `minecraft-bridge/` change:
+This section is **production-only**. Do not begin it merely because a plugin PR
+merged. Begin only after the user explicitly approves the current test-server
+build under non-negotiable 2. The jar to ship is the exact approved artifact at
+`runtime/testserver/plugins/MGXAccessBridge.jar`; verify its version and SHA-256
+against `runtime/testserver/test-build.json` and what was reported when it was
+staged. Do not rebuild between approval and upload. If the artifact no longer
+matches, stop and restage it instead of guessing.
 
-1. Bump `version` in `build.gradle.kts`.
-2. `./gradlew clean shadowJar`. **Clean matters** — it restamps `plugin.yml`.
-   Ship `build/libs/MGXAccessBridge.jar`, the shaded jar, never a versioned thin one.
-3. Check `api-version` in the built `plugin.yml` is **<=** the running server's
+Production deploy sequence after confirmation:
+
+1. Check `api-version` in the approved jar's `plugin.yml` is **<=** the running server's
    Minecraft version, read from `logs/latest.log` (`Starting minecraft server
    version …`). Too high and Paper refuses the plugin outright with
    `InvalidPluginException: Unsupported API version` — in game that reads as the
    whole server being gone.
-4. Copy the jar to a **space-free path** first. The repo lives in
+2. Copy the approved test jar to a **space-free path** first. The repo lives in
    `~/Documents/Discord Bot`; the space splits the argument and the upload
    silently writes a fragment into a mirrored directory tree while reporting 100%.
-5. Upload, then verify the **remote byte count and sha256 match the local file**.
-   That check is what catches step 4 going wrong.
-6. Rename the live jar to `MGXAccessBridge.jar.backup-<stamp>`, then rename the
+3. Upload, then verify the **remote byte count and sha256 match the approved file**.
+   That check is what catches a bad path or incomplete transfer.
+4. Rename the live jar to `MGXAccessBridge.jar.backup-<stamp>`, then rename the
    upload into place. Put-then-rename is atomic and the JVM keeps its handle on
    the old inode, so swapping under a running server is safe.
 
 **Restarting the Minecraft server is the user's step** — there is no API for it.
 Say so explicitly every time a change lives in the plugin. Plugin config edits
-(`plugins/*/config.yml`) go over the same SFTP path and need the same restart.
+(`plugins/*/config.yml`) use the same test-first approval gate, go over the same
+SFTP path after approval, and need the same restart.
 
 Some behaviour has no plugin API and lives only in the server's own config, which
 is not in git — read the live file over SFTP before changing it. How far away a

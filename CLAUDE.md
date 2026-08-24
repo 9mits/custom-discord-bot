@@ -8,19 +8,25 @@ cross-tool source of truth. It is imported below so Claude Code loads it in full
 ## Claude Code notes
 
 - Follow the **automatic merge and deploy** policy in AGENTS.md: after required
-  CI is green, squash-merge, restart production, and verify it is running unless
-  the user explicitly requested a hold or no deployment.
-- **Touching `minecraft-bridge/` means uploading the jar.** Build it and SFTP it
-  to GravelHost as part of the same task, without asking — see non-negotiable 2
-  and **Hosting — GravelHost** in AGENTS.md. Offering the upload and waiting is
-  the failure mode: the code looks done while nothing changed in game. Only the
-  Minecraft restart is the user's step, and it must be stated.
+  CI is green, squash-merge, restart the BisectHosting Discord production panel,
+  and verify it is running unless the user explicitly requested a hold or no
+  deployment. GravelHost Minecraft production is the confirmation-gated exception.
+- **Minecraft is test-first and production-confirmed.** Every merged
+  `minecraft-bridge/` change must be built and installed automatically with
+  `python scripts/testserver.py deploy`. Do not upload it to GravelHost until the
+  user explicitly confirms that exact test build for production. Once confirmed,
+  upload the approved `runtime/testserver/plugins/MGXAccessBridge.jar` without
+  rebuilding it, verify it against `runtime/testserver/test-build.json`, swap it
+  atomically, and state that the Minecraft restart is the user's step. See
+  non-negotiable 2 and **Hosting — GravelHost** in AGENTS.md.
 - Project memory is machine-local at `~/.claude/projects/<project>/memory/` — it
   is not committed and does not travel with the repo. A repo-level `.claude/memory/`
   folder is **not** auto-loaded, so don't create one expecting it to be read.
 - Prefer plan mode before large, multi-file changes.
 - Treat **Testing policy — verification is automatic; live gameplay is explicit**
   in AGENTS.md as mandatory. Do not launch Minecraft/VibeCraft for every update.
+  Installing every merged plugin jar into `runtime/testserver/` is mandatory but
+  is not permission to launch Paper or a client.
   When the user explicitly asks to test a Minecraft update, use the real local
   client(s), exercise only the affected feature matrix, inspect actual state and
   logs, and never call a compile or unit-test-only run an in-game pass.

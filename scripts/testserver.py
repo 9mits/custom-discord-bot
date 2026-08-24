@@ -6,6 +6,7 @@ way to see a `minecraft-bridge/` change in game used to be to ship it to the
 live server. This runs the same Paper build locally instead.
 
     python scripts/testserver.py setup    # once: fetch Paper and the plugins
+    python scripts/testserver.py deploy   # build and install without starting
     python scripts/testserver.py run      # build, install, start
 
 The server lives in `runtime/testserver/`, which is git-ignored, so nothing here
@@ -19,6 +20,7 @@ Stdlib only, matching panel.py.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import platform
@@ -29,12 +31,14 @@ import subprocess
 import sys
 import tarfile
 import urllib.request
+import zipfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 SERVER = REPO / "runtime" / "testserver"
 PLUGINS = SERVER / "plugins"
 BRIDGE = REPO / "minecraft-bridge"
+TEST_BUILD_MANIFEST = SERVER / "test-build.json"
 
 #: Pinned to the build production runs, so a test reproduces production's Paper.
 PAPER_VERSION = "1.21.11"
@@ -314,8 +318,33 @@ def deploy(_: argparse.Namespace) -> int:
             log(f"WARNING: the plugin will refuse to enable: {problem}")
     built = BRIDGE / "build" / "libs" / "MGXAccessBridge.jar"
     PLUGINS.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(built, PLUGINS / "MGXAccessBridge.jar")
-    log(f"installed {built.stat().st_size:,} bytes into {PLUGINS}")
+    installed = PLUGINS / "MGXAccessBridge.jar"
+    shutil.copy2(built, installed)
+    with zipfile.ZipFile(installed) as archive:
+        descriptor = archive.read("plugin.yml").decode("utf-8")
+    match = re.search(r"(?m)^version:\s*[\"']?([^\"'\s]+)", descriptor)
+    version = match.group(1) if match else "unknown"
+    digest = hashlib.sha256(installed.read_bytes()).hexdigest()
+    revision = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout.strip() or "unknown"
+    manifest = {
+        "commit": revision,
+        "version": version,
+        "bytes": installed.stat().st_size,
+        "sha256": digest,
+        "jar": str(installed.relative_to(REPO)),
+    }
+    TEST_BUILD_MANIFEST.write_text(json.dumps(manifest, indent=2) + "\n")
+    log(f"installed MGXAccessBridge {version} into {PLUGINS}")
+    log(f"  commit {revision}")
+    log(f"  {installed.stat().st_size:,} bytes")
+    log(f"  sha256 {digest}")
+    log(f"  manifest {TEST_BUILD_MANIFEST}")
     return 0
 
 
