@@ -307,7 +307,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("settings").setTabCompleter(settingsService);
         CosmeticItems cosmeticItems = new CosmeticItems(this);
         WardrobeService wardrobeService = new WardrobeService(
-                this, cosmeticStore, cosmeticItems, settingsService
+                this, cosmeticStore, cosmeticItems, settingsService, leaderboardService
         );
         cosmeticEffects = new CosmeticEffectService(
                 this, cosmeticStore, cosmeticItems, wardrobeService, playerSettings,
