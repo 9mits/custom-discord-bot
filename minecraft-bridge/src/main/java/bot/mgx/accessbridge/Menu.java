@@ -3,6 +3,9 @@ package bot.mgx.accessbridge;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -27,12 +30,14 @@ final class Menu implements InventoryHolder {
         CLAN_INFO,
         CLAN_MEMBERS,
         CLAN_LIST,
+        CLAN_WARPS,
         LEADERBOARD_HUB,
         LEADERBOARD_PLAYERS_WEALTH,
         LEADERBOARD_PLAYERS_KILLS,
         LEADERBOARD_CLANS,
         LEADERBOARD_CLANS_KILLS,
         LEADERBOARD_MEMBERS,
+        LEADERBOARD_REWARDS,
         SETTINGS,
         SETTINGS_CATEGORY,
         WHITELIST,
@@ -48,7 +53,9 @@ final class Menu implements InventoryHolder {
         AUCTION_OWN,
         AUCTION_MAIL,
         AUCTION_CONFIRM,
-        BOUNTY_BOARD;
+        BOUNTY_BOARD,
+        TELEPORT_WARPS,
+        TELEPORT_HOMES;
 
         boolean acceptsItems() {
             return this == SELL;
@@ -72,6 +79,8 @@ final class Menu implements InventoryHolder {
     private final int page;
     /** Where Back leads, or null on a screen that is the start of its own flow. */
     private final Destination back;
+    /** Stable click payloads for menus whose entries are names rather than UUIDs. */
+    private final Map<Integer, String> options = new LinkedHashMap<>();
     private Inventory inventory;
 
     Menu(Kind kind, UUID subject, int page, Destination back) {
@@ -99,6 +108,14 @@ final class Menu implements InventoryHolder {
 
     boolean hasBack() {
         return back != null;
+    }
+
+    void option(int slot, String value) {
+        options.put(slot, value);
+    }
+
+    Optional<String> option(int slot) {
+        return Optional.ofNullable(options.get(slot));
     }
 
     void attach(Inventory inventory) {

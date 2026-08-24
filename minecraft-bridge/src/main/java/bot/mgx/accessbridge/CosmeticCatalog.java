@@ -40,7 +40,8 @@ final class CosmeticCatalog {
             boolean secret,
             String materialName,
             String modelKey,
-            String description
+            String description,
+            int leaderboardRank
     ) {
         Definition {
             id = requireText(id, "Cosmetic ID").toLowerCase(Locale.ROOT);
@@ -55,6 +56,9 @@ final class CosmeticCatalog {
                     .toUpperCase(Locale.ROOT);
             modelKey = requireText(modelKey, "Cosmetic model key").toLowerCase(Locale.ROOT);
             description = requireText(description, "Cosmetic description");
+            if (leaderboardRank < 0 || leaderboardRank > 3) {
+                throw new IllegalArgumentException("Leaderboard rank must be 0-3");
+            }
         }
 
         String displayedChance() {
@@ -62,6 +66,9 @@ final class CosmeticCatalog {
         }
 
         String rarityDisplay() {
+            if (leaderboardOnly()) {
+                return "Leaderboard #" + leaderboardRank;
+            }
             if (secret) {
                 return "Secret";
             }
@@ -75,6 +82,10 @@ final class CosmeticCatalog {
                 return "Legendary";
             }
             return "Mythic";
+        }
+
+        boolean leaderboardOnly() {
+            return leaderboardRank > 0;
         }
     }
 
@@ -184,6 +195,62 @@ final class CosmeticCatalog {
                     "CHORUS_FRUIT", "Bright cracks split reality along the path travelled."
             )
     );
+    private static final List<Definition> LEADERBOARD_REWARDS = List.of(
+            leaderboardCosmetic(
+                    "golden_finality", "Golden Finality", Category.KILL_EFFECT, 1,
+                    "GOLDEN_SWORD",
+                    "Only obtainable by holding #1 on an individual player leaderboard. "
+                            + "A royal blade and shattered crown end the fight in a solar detonation."
+            ),
+            leaderboardCosmetic(
+                    "solar_imperium", "Solar Imperium", Category.AURA, 1,
+                    "GOLDEN_HELMET",
+                    "Only obtainable by holding #1 on an individual player leaderboard. "
+                            + "A radiant crown, solar throne and orbiting regalia proclaim the champion."
+            ),
+            leaderboardCosmetic(
+                    "kingmakers_wake", "Kingmaker's Wake", Category.TRAIL, 1,
+                    "GOLD_INGOT",
+                    "Only obtainable by holding #1 on an individual player leaderboard. "
+                            + "Crown sparks and a molten royal mantle follow every step."
+            ),
+            leaderboardCosmetic(
+                    "silver_reckoning", "Silver Reckoning", Category.KILL_EFFECT, 2,
+                    "IRON_SWORD",
+                    "Only obtainable by holding #2 on an individual player leaderboard. "
+                            + "A moonlit longsword fractures the arena into argent shards."
+            ),
+            leaderboardCosmetic(
+                    "argent_dominion", "Argent Dominion", Category.AURA, 2,
+                    "IRON_HELMET",
+                    "Only obtainable by holding #2 on an individual player leaderboard. "
+                            + "A silver crown and twin lunar halos surround the runner-up."
+            ),
+            leaderboardCosmetic(
+                    "moonlit_procession", "Moonlit Procession", Category.TRAIL, 2,
+                    "IRON_INGOT",
+                    "Only obtainable by holding #2 on an individual player leaderboard. "
+                            + "Cold comet ribbons and crescent sparks stream behind the wearer."
+            ),
+            leaderboardCosmetic(
+                    "bronze_cataclysm", "Bronze Cataclysm", Category.KILL_EFFECT, 3,
+                    "COPPER_INGOT",
+                    "Only obtainable by holding #3 on an individual player leaderboard. "
+                            + "A victorious war axe crushes a bronze medal into burning fragments."
+            ),
+            leaderboardCosmetic(
+                    "bronze_vanguard", "Bronze Vanguard", Category.AURA, 3,
+                    "COPPER_BLOCK",
+                    "Only obtainable by holding #3 on an individual player leaderboard. "
+                            + "A battle crown and blazing laurel wreath mark an elite contender."
+            ),
+            leaderboardCosmetic(
+                    "conquerors_march", "Conqueror's March", Category.TRAIL, 3,
+                    "RAW_COPPER",
+                    "Only obtainable by holding #3 on an individual player leaderboard. "
+                            + "A bronze victory banner scatters ember medals in its wake."
+            )
+    );
     private static final Map<String, Definition> BY_ID = indexDefinitions();
 
     private CosmeticCatalog() {
@@ -203,6 +270,23 @@ final class CosmeticCatalog {
 
     static List<Definition> all() {
         return DEFINITIONS;
+    }
+
+    /** Crate and leaderboard entries whose item models must ship in the resource pack. */
+    static List<Definition> visualEntries() {
+        return java.util.stream.Stream.concat(DEFINITIONS.stream(), LEADERBOARD_REWARDS.stream())
+                .toList();
+    }
+
+    static List<Definition> leaderboardRewards() {
+        return LEADERBOARD_REWARDS;
+    }
+
+    static Optional<Definition> leaderboardReward(int rank, Category category) {
+        return LEADERBOARD_REWARDS.stream()
+                .filter(definition -> definition.leaderboardRank() == rank)
+                .filter(definition -> definition.category() == category)
+                .findFirst();
     }
 
     /** The public crate index; secrets are represented separately by silhouettes. */
@@ -230,7 +314,8 @@ final class CosmeticCatalog {
                 false,
                 material,
                 "mgx:cosmetic/" + id,
-                description
+                description,
+                0
         );
     }
 
@@ -249,13 +334,28 @@ final class CosmeticCatalog {
                 true,
                 material,
                 "mgx:cosmetic/" + id,
-                description
+                description,
+                0
+        );
+    }
+
+    private static Definition leaderboardCosmetic(
+            String id,
+            String displayName,
+            Category category,
+            int rank,
+            String material,
+            String description
+    ) {
+        return new Definition(
+                id, displayName, category, 1, false, material,
+                "mgx:cosmetic/" + id, description, rank
         );
     }
 
     private static Map<String, Definition> indexDefinitions() {
         Map<String, Definition> indexed = new LinkedHashMap<>();
-        for (Definition definition : DEFINITIONS) {
+        for (Definition definition : visualEntries()) {
             if (indexed.putIfAbsent(definition.id(), definition) != null) {
                 throw new IllegalStateException("Duplicate cosmetic ID " + definition.id());
             }

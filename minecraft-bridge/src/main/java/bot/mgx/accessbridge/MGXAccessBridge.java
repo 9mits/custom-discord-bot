@@ -109,7 +109,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private BukkitTask maintenanceSweep;
     private AfkService afkService;
     private ChaosService chaosService;
+    private SpawnMobBarrierService spawnMobBarrier;
     private BroadcastDisplayService broadcastDisplayService;
+    private TeleportWarmupService teleportWarmups;
     private final WhitelistDirectory whitelistDirectory = new WhitelistDirectory();
 
     @Override
@@ -181,7 +183,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             luckPermsService.grantEveryoneDefaults();
         }
         identityService = new DiscordIdentityService(this, identityStore);
-        clanMenuService = new ClanMenuService(this, clanStore, identityService, economyStore);
+        teleportWarmups = new TeleportWarmupService(this);
+        clanMenuService = new ClanMenuService(
+                this, clanStore, identityService, economyStore, teleportWarmups
+        );
         playerMenuService = new PlayerMenuService(
                 this, playerSettings, identityService, whitelistDirectory
         );
@@ -223,6 +228,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 clanStore,
                 bridgeConfig.leaderboardRefreshTicks()
         );
+        sidebarService.useLeaderboardService(leaderboardService);
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(
                 new StarterKitService(this, getDataFolder().toPath().resolve("starter-kits.json")),
@@ -233,7 +239,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(clanMenuService, this);
         getServer().getPluginManager().registerEvents(playerMenuService, this);
         getServer().getPluginManager().registerEvents(chatRelayService, this);
-        getServer().getPluginManager().registerEvents(new TeleportWarmupService(this), this);
+        getServer().getPluginManager().registerEvents(teleportWarmups, this);
+        getServer().getPluginManager().registerEvents(new TeleportMenuService(this), this);
+        RandomTeleportService randomTeleports = new RandomTeleportService(this, teleportWarmups);
+        getCommand("rtp").setExecutor(randomTeleports);
         broadcastDisplayService = new BroadcastDisplayService(this);
         getServer().getPluginManager().registerEvents(broadcastDisplayService, this);
         serverEventService = new ServerEventService(this, serverEventStore);
@@ -301,7 +310,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 this, cosmeticStore, cosmeticItems, settingsService
         );
         cosmeticEffects = new CosmeticEffectService(
-                this, cosmeticStore, cosmeticItems, wardrobeService, playerSettings
+                this, cosmeticStore, cosmeticItems, wardrobeService, playerSettings,
+                leaderboardService
         );
         SpecialItemService specialItems = new SpecialItemService(this);
         CrateItems crateItems = new CrateItems(this, cosmeticStore, specialItems);
@@ -349,7 +359,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             return;
         }
         LeaderboardMenuService leaderboardMenus = new LeaderboardMenuService(
-                this, clanStore, leaderboardService, identityService
+                this, clanStore, leaderboardService, identityService, cosmeticItems
         );
         getCommand("leaderboard").setExecutor(leaderboardMenus);
         getCommand("leaderboard").setTabCompleter(leaderboardMenus);
@@ -416,6 +426,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         );
         chaosService = new ChaosService(this, crateItems);
         getServer().getPluginManager().registerEvents(chaosService, this);
+        spawnMobBarrier = new SpawnMobBarrierService(this);
+        getServer().getPluginManager().registerEvents(spawnMobBarrier, this);
+        spawnMobBarrier.start();
         // Anyone already online across a /reload, before the join handler can reach them.
         chaosService.healEveryone();
         AdminCommandService adminService = new AdminCommandService(
@@ -499,6 +512,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         if (chaosService != null) {
             chaosService.stopAll();
         }
+        if (spawnMobBarrier != null) {
+            spawnMobBarrier.stop();
+        }
         if (autoPayService != null) {
             autoPayService.stop();
         }
@@ -513,6 +529,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         if (broadcastDisplayService != null) {
             broadcastDisplayService.stop();
+        }
+        if (teleportWarmups != null) {
+            teleportWarmups.stop();
         }
         if (crates != null) {
             crates.stop();

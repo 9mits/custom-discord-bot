@@ -5,7 +5,7 @@ api-version: "1.21.11"
 description: Signed access, economy, crates, cosmetics, scoreboard, and clans.
 authors: [9mits]
 depend: [floodgate]
-softdepend: [LuckPerms, ViaVersion]
+softdepend: [LuckPerms, ViaVersion, Essentials]
 commands:
   clans:
     description: Create and manage Minecraft clans.
@@ -99,6 +99,11 @@ commands:
     description: Toggle your AFK status. Idle players are marked automatically.
     usage: /afk
     permission: mgx.afk
+  rtp:
+    description: Teleport to a safe random overworld location.
+    usage: /rtp
+    aliases: [tpr]
+    permission: mgx.rtp
   mgxadmin:
     description: Give rewards, run events, hold rank sync, and reset data.
     usage: /mgxadmin <give|abuse|startserver|teststart|pvp|ranks|eco|bounty|hologram|serials|reset>
@@ -125,6 +130,9 @@ permissions:
     default: true
   mgx.afk:
     description: Allows players to set and clear their AFK status.
+    default: true
+  mgx.rtp:
+    description: Allows players to use random teleport.
     default: true
   mgxaccessbridge.admin:
     description: Allows rank holds, administrative data resets, and joining while the server is held for maintenance when granted explicitly in LuckPerms.

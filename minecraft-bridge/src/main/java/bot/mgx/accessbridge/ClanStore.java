@@ -37,8 +37,9 @@ final class ClanStore {
     static final int MAX_ALLIES = 3;
     /** Long enough for the other clan's leader to be fetched, short enough to expire. */
     static final long ALLY_OFFER_TTL_MILLIS = 10 * 60 * 1000L;
-    private static final int FORMAT_VERSION = 2;
+    private static final int FORMAT_VERSION = 3;
     private static final Pattern VALID_NAME = Pattern.compile("[A-Z0-9]{2,6}");
+    private static final Pattern VALID_WARP_NAME = Pattern.compile("[a-z0-9_-]{1,16}");
 
     enum ClanRole {
         LEADER,
@@ -59,7 +60,8 @@ final class ClanStore {
             Map<UUID, Long> donations,
             Map<UUID, Long> joinedAt,
             /** Allied clan id to that clan's name, so callers can show it directly. */
-            Map<UUID, String> allies
+            Map<UUID, String> allies,
+            Map<String, ClanWarp> warps
     ) {
         ClanRole roleOf(UUID playerId) {
             if (leader.equals(playerId)) {
@@ -106,6 +108,26 @@ final class ClanStore {
         }
     }
 
+    record ClanWarp(
+            String worldId,
+            String worldName,
+            double x,
+            double y,
+            double z,
+            float yaw,
+            float pitch
+    ) {
+        ClanWarp {
+            if ((worldId == null || worldId.isBlank()) && (worldName == null || worldName.isBlank())) {
+                throw new IllegalArgumentException("A clan warp needs a world.");
+            }
+            if (!Double.isFinite(x) || !Double.isFinite(y) || !Double.isFinite(z)
+                    || !Float.isFinite(yaw) || !Float.isFinite(pitch)) {
+                throw new IllegalArgumentException("Clan warp coordinates must be finite.");
+            }
+        }
+    }
+
     private static final class SavedState {
         int version = FORMAT_VERSION;
         List<SavedClan> clans = new ArrayList<>();
@@ -140,6 +162,18 @@ final class ClanStore {
          * one-sided entry by dropping it, so the two copies cannot disagree.
          */
         Set<String> allies;
+        /** Named shared locations. Absent before format 3, which reads as empty. */
+        Map<String, SavedWarp> warps;
+    }
+
+    private static final class SavedWarp {
+        String worldId;
+        String worldName;
+        double x;
+        double y;
+        double z;
+        float yaw;
+        float pitch;
     }
 
     private static final class SavedAllyOffer {
@@ -410,6 +444,40 @@ final class ClanStore {
             throw new ClanException("Your clan already uses that theme color.");
         }
         clan.themeColor = themeColor;
+        persist();
+        return view(clan);
+    }
+
+    synchronized ClanView setWarp(UUID actor, String requestedName, ClanWarp location) throws IOException {
+        SavedClan clan = requireStaff(actor);
+        String name = normalizeWarpName(requestedName);
+        if (location == null) {
+            throw new ClanException("A clan warp needs a location.");
+        }
+        Map<String, SavedWarp> warps = warpsOf(clan);
+        if (!warps.containsKey(name) && warps.size() >= ClanLevel.warpSlots(levelOf(clan))) {
+            throw new ClanException("Your clan has used all " + ClanLevel.warpSlots(levelOf(clan))
+                    + " warp slots.");
+        }
+        SavedWarp saved = new SavedWarp();
+        saved.worldId = location.worldId();
+        saved.worldName = location.worldName();
+        saved.x = location.x();
+        saved.y = location.y();
+        saved.z = location.z();
+        saved.yaw = location.yaw();
+        saved.pitch = location.pitch();
+        warps.put(name, saved);
+        persist();
+        return view(clan);
+    }
+
+    synchronized ClanView removeWarp(UUID actor, String requestedName) throws IOException {
+        SavedClan clan = requireStaff(actor);
+        String name = normalizeWarpName(requestedName);
+        if (warpsOf(clan).remove(name) == null) {
+            throw new ClanException("Your clan has no warp called " + name + ".");
+        }
         persist();
         return view(clan);
     }
@@ -738,6 +806,23 @@ final class ClanStore {
                 if (clan.level != null && !ClanLevel.isValid(clan.level)) {
                     throw new IOException("Clan levels must be between 0 and " + ClanLevel.MAX_PUBLIC_LEVEL);
                 }
+                if (clan.warps == null) {
+                    clan.warps = new LinkedHashMap<>();
+                    migrated = true;
+                }
+                if (clan.warps.size() > ClanLevel.warpSlots(levelOf(clan))) {
+                    throw new IOException("A clan cannot hold more warps than its level allows");
+                }
+                for (Map.Entry<String, SavedWarp> entry : clan.warps.entrySet()) {
+                    if (!VALID_WARP_NAME.matcher(entry.getKey()).matches()) {
+                        throw new IOException("Clan warp names must contain 1-16 letters, numbers, _ or -");
+                    }
+                    try {
+                        fromSavedWarp(entry.getValue());
+                    } catch (IllegalArgumentException exception) {
+                        throw new IOException("clans.json contains an invalid clan warp", exception);
+                    }
+                }
                 if (clan.treasury == null) {
                     clan.treasury = 0L;
                     migrated = true;
@@ -996,7 +1081,30 @@ final class ClanStore {
                 slotsOf(clan),
                 donationsOf(clan),
                 joinedAtOf(clan),
-                allyNamesOf(clan)
+                allyNamesOf(clan),
+                clanWarpsOf(clan)
+        );
+    }
+
+    private static Map<String, SavedWarp> warpsOf(SavedClan clan) {
+        if (clan.warps == null) {
+            clan.warps = new LinkedHashMap<>();
+        }
+        return clan.warps;
+    }
+
+    private static Map<String, ClanWarp> clanWarpsOf(SavedClan clan) {
+        LinkedHashMap<String, ClanWarp> result = new LinkedHashMap<>();
+        warpsOf(clan).forEach((name, saved) -> result.put(name, fromSavedWarp(saved)));
+        return Map.copyOf(result);
+    }
+
+    private static ClanWarp fromSavedWarp(SavedWarp saved) {
+        if (saved == null) {
+            throw new IllegalArgumentException("Clan warp data is missing.");
+        }
+        return new ClanWarp(
+                saved.worldId, saved.worldName, saved.x, saved.y, saved.z, saved.yaw, saved.pitch
         );
     }
 
@@ -1030,6 +1138,14 @@ final class ClanStore {
         String normalized = value == null ? "" : value.trim().toUpperCase(Locale.ROOT);
         if (!VALID_NAME.matcher(normalized).matches()) {
             throw new ClanException("Clan names must contain 2-6 letters or numbers.");
+        }
+        return normalized;
+    }
+
+    private static String normalizeWarpName(String value) {
+        String normalized = value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+        if (!VALID_WARP_NAME.matcher(normalized).matches()) {
+            throw new ClanException("Clan warp names must contain 1-16 letters, numbers, _ or -.");
         }
         return normalized;
     }

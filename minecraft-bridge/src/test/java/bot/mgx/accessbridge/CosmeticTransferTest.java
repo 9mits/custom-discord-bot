@@ -8,9 +8,19 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class CosmeticTransferTest {
+    @Test
+    void leaderboardCosmeticsCanNeverBecomeTradeableTokens(@TempDir Path directory) throws Exception {
+        CosmeticStore store = new CosmeticStore(directory.resolve("cosmetics.json"));
+
+        assertThrows(IllegalArgumentException.class, () -> store.mint(
+                UUID.randomUUID(), "solar_imperium", UUID.randomUUID()
+        ));
+    }
+
     @Test
     void everyEquippedCosmeticChangesHandsOnce(@TempDir Path directory) throws Exception {
         Path file = directory.resolve("cosmetics.json");

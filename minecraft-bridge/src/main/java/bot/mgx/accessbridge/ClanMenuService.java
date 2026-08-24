@@ -46,6 +46,7 @@ final class ClanMenuService implements Listener {
     private static final int HUB_DONATE = 10;
     private static final int HUB_BALANCE = 11;
     private static final int HUB_INFO = 12;
+    private static final int HUB_WARPS = 13;
     private static final int HUB_MEMBERS = 14;
     private static final int HUB_UPGRADE = 15;
     private static final int HUB_DONORS = 16;
@@ -53,6 +54,7 @@ final class ClanMenuService implements Listener {
     private static final int UPGRADE_MEMBERS = 24;
     /** Finishes the clan card's single row. Must stay inside {@link #HUB_SIZE}. */
     private static final int INFO_MEMBERS = 15;
+    private static final int[] WARP_SLOTS = {10, 11, 12, 14, 15, 16};
 
     private static final long[] DONATE_AMOUNTS = {100L, 1_000L, 10_000L, 100_000L, 1_000_000L};
     private static final int[] DONATE_SLOTS = {11, 12, 13, 14, 15};
@@ -61,17 +63,20 @@ final class ClanMenuService implements Listener {
     private final ClanStore store;
     private final DiscordIdentityService identities;
     private final EconomyStore money;
+    private final TeleportWarmupService warmups;
 
     ClanMenuService(
             MGXAccessBridge plugin,
             ClanStore store,
             DiscordIdentityService identities,
-            EconomyStore money
+            EconomyStore money,
+            TeleportWarmupService warmups
     ) {
         this.plugin = plugin;
         this.store = store;
         this.identities = identities;
         this.money = money;
+        this.warmups = warmups;
     }
 
     void openHub(Player player) {
@@ -85,6 +90,9 @@ final class ClanMenuService implements Listener {
                 EconomyFormat.dollars(clan.balance()) + " in the treasury."));
         inventory.setItem(HUB_INFO, button(Material.BOOK, "Clan info",
                 describeLevel(clan.level()), "Leader, roster and theme."));
+        inventory.setItem(HUB_WARPS, button(Material.LODESTONE, "Clan warps",
+                clan.warps().size() + "/" + ClanLevel.warpSlots(clan.level()) + " locations.",
+                "Shared with every clan member."));
         inventory.setItem(HUB_MEMBERS, head(clan.leader(), "Members",
                 List.of(clan.members().size() + "/" + clan.memberSlots() + " members.")));
         inventory.setItem(HUB_UPGRADE, button(Material.NETHER_STAR, "Upgrades",
@@ -93,6 +101,98 @@ final class ClanMenuService implements Listener {
         inventory.setItem(HUB_DONORS, button(Material.EMERALD, "Donors",
                 "Who has given what.", "Largest first."));
         MenuItems.show(plugin, player, inventory);
+    }
+
+    void openWarps(Player player) {
+        ClanStore.ClanView clan = requireOwnClan(player);
+        Menu menu = new Menu(
+                Menu.Kind.CLAN_WARPS,
+                clan.id(),
+                1,
+                Menu.Destination.of(Menu.Kind.CLAN_HUB)
+        );
+        Inventory inventory = Bukkit.createInventory(
+                menu, HUB_SIZE, Component.text("Clan warps  " + clan.name(), ORANGE)
+        );
+        menu.attach(inventory);
+        List<String> names = clan.warps().keySet().stream()
+                .sorted(String.CASE_INSENSITIVE_ORDER)
+                .toList();
+        int available = ClanLevel.warpSlots(clan.level());
+        for (int index = 0; index < available; index++) {
+            int slot = WARP_SLOTS[index];
+            if (index < names.size()) {
+                String name = names.get(index);
+                ClanStore.ClanWarp warp = clan.warps().get(name);
+                inventory.setItem(slot, button(
+                        Material.ENDER_PEARL,
+                        name,
+                        warp.worldName() == null ? "Unknown world" : warp.worldName(),
+                        "Click to teleport.",
+                        "Five-second warmup."
+                ));
+                menu.option(slot, name);
+            } else {
+                List<String> lore = new ArrayList<>();
+                lore.add("Available shared location.");
+                if (clan.roleOf(player.getUniqueId()) != ClanStore.ClanRole.MEMBER) {
+                    lore.add("Set it with /clans warp set <name>.");
+                }
+                inventory.setItem(slot, button(Material.LIGHT_GRAY_STAINED_GLASS_PANE,
+                        "Empty warp slot", lore));
+            }
+        }
+        MenuItems.back(inventory);
+        MenuItems.show(plugin, player, inventory);
+    }
+
+    void setWarp(Player player, String name) throws IOException {
+        org.bukkit.Location at = player.getLocation();
+        ClanStore.ClanWarp warp = new ClanStore.ClanWarp(
+                at.getWorld().getUID().toString(),
+                at.getWorld().getName(),
+                at.getX(), at.getY(), at.getZ(), at.getYaw(), at.getPitch()
+        );
+        ClanStore.ClanView clan = store.setWarp(player.getUniqueId(), name, warp);
+        report(player, "clan_warp_set", "Set " + clan.name() + " clan warp " + name)
+                .detail("clan", clan.name())
+                .detail("warp", name)
+                .record();
+        info(player, "Set clan warp " + name.toLowerCase(java.util.Locale.ROOT) + ".");
+    }
+
+    void removeWarp(Player player, String name) throws IOException {
+        ClanStore.ClanView clan = store.removeWarp(player.getUniqueId(), name);
+        report(player, "clan_warp_remove", "Removed " + clan.name() + " clan warp " + name)
+                .detail("clan", clan.name())
+                .detail("warp", name)
+                .record();
+        info(player, "Removed clan warp " + name.toLowerCase(java.util.Locale.ROOT) + ".");
+    }
+
+    void useWarp(Player player, String requestedName) {
+        ClanStore.ClanView clan = requireOwnClan(player);
+        String name = requestedName == null ? "" : requestedName.strip().toLowerCase(java.util.Locale.ROOT);
+        ClanStore.ClanWarp warp = clan.warps().get(name);
+        if (warp == null) {
+            throw new ClanStore.ClanException("Your clan has no warp called " + requestedName + ".");
+        }
+        org.bukkit.World world = null;
+        try {
+            world = Bukkit.getWorld(UUID.fromString(warp.worldId()));
+        } catch (IllegalArgumentException ignored) {
+            // Older or manually repaired data can still resolve by the saved name.
+        }
+        if (world == null) {
+            world = Bukkit.getWorld(warp.worldName());
+        }
+        if (world == null) {
+            throw new ClanStore.ClanException("That clan warp's world is not available.");
+        }
+        player.closeInventory();
+        warmups.begin(player, new org.bukkit.Location(
+                world, warp.x(), warp.y(), warp.z(), warp.yaw(), warp.pitch()
+        ));
     }
 
     void openDonate(Player player) {
@@ -302,12 +402,14 @@ final class ClanMenuService implements Listener {
         Optional<Integer> next = clan.nextLevel();
         List<String> lore = new ArrayList<>();
         lore.add(describeLevel(clan.level()));
+        lore.add("Clan warps: " + ClanLevel.warpSlots(clan.level()));
         if (next.isEmpty()) {
             lore.add("Nothing left to buy.");
             return button(Material.NETHER_STAR, "Clan level", lore);
         }
         lore.add("");
         lore.add("Next: level " + next.get());
+        lore.add("Clan warps: " + ClanLevel.warpSlots(next.get()));
         ClanLevel.Cost cost = ClanLevel.costOf(next.get()).orElseThrow();
         lore.add("Cost " + EconomyFormat.dollars(cost.dollars()));
         lore.add("Treasury " + EconomyFormat.dollars(clan.balance()));
@@ -377,6 +479,7 @@ final class ClanMenuService implements Listener {
                     case HUB_DONATE -> openDonate(player);
                     case HUB_BALANCE -> openBalance(player);
                     case HUB_INFO -> openInfo(player, requireOwnClan(player), hub);
+                    case HUB_WARPS -> openWarps(player);
                     case HUB_MEMBERS -> openMembers(player, menu.subject(), 1, hub);
                     case HUB_UPGRADE -> openUpgrade(player);
                     case HUB_DONORS -> openDonors(player);
@@ -406,6 +509,7 @@ final class ClanMenuService implements Listener {
                 }
             }
             case CLAN_DONATE -> donateClicked(player, slot);
+            case CLAN_WARPS -> menu.option(slot).ifPresent(name -> useWarp(player, name));
             case CLAN_UPGRADE -> {
                 switch (slot) {
                     case UPGRADE_LEVEL -> buyLevel(player);
@@ -437,6 +541,9 @@ final class ClanMenuService implements Listener {
     }
 
     private void buyLevel(Player player) throws IOException {
+        int previousWarpSlots = store.clanOf(player.getUniqueId())
+                .map(clan -> ClanLevel.warpSlots(clan.level()))
+                .orElse(ClanLevel.STARTING_WARP_SLOTS);
         ClanStore.ClanView upgraded = store.upgrade(player.getUniqueId());
         plugin.refreshClans();
         report(player, "clan_upgrade",
@@ -449,6 +556,9 @@ final class ClanMenuService implements Listener {
                 "The clan reached level " + upgraded.level() + "!", ORANGE));
         for (String line : perkLines(upgraded.perks())) {
             announce(upgraded, Component.text("  " + line, NamedTextColor.WHITE));
+        }
+        if (ClanLevel.warpSlots(upgraded.level()) > previousWarpSlots) {
+            announce(upgraded, Component.text("  +1 clan warp slot", NamedTextColor.WHITE));
         }
         openUpgrade(player);
     }

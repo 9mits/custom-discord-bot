@@ -561,4 +561,29 @@ class ClanStoreTest {
         assertEquals(0, store.clearAll());
         assertTrue(store.list().isEmpty());
     }
+
+    @Test
+    void clanWarpsAreSharedPersistentAndLimitedByLevel() throws Exception {
+        Path path = temporaryDirectory.resolve("clans.json");
+        ClanStore store = new ClanStore(path);
+        UUID leader = UUID.randomUUID();
+        UUID member = UUID.randomUUID();
+        store.create(leader, "Leader", "WARP");
+        store.invite(leader, member, "Member", 1_000);
+        store.accept(member, "Member", 1_001);
+        ClanStore.ClanWarp location = new ClanStore.ClanWarp(
+                UUID.randomUUID().toString(), "world", 1.5, 70, -2.5, 90f, 0f
+        );
+
+        store.setWarp(leader, "base", location);
+        store.setWarp(leader, "mine", location);
+        store.setWarp(leader, "farm", location);
+
+        assertThrows(ClanStore.ClanException.class, () -> store.setWarp(leader, "fourth", location));
+        assertThrows(ClanStore.ClanException.class, () -> store.setWarp(member, "base", location));
+        assertEquals(location, new ClanStore(path).clanOf(member).orElseThrow().warps().get("base"));
+
+        store.removeWarp(leader, "MINE");
+        assertFalse(store.clanOf(member).orElseThrow().warps().containsKey("mine"));
+    }
 }

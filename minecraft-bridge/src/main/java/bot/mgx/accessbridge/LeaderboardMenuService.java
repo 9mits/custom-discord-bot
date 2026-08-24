@@ -46,6 +46,7 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
     private static final int HUB_CLANS_KILLS = 12;
     private static final int HUB_PLAYERS_WEALTH = 14;
     private static final int HUB_PLAYERS_KILLS = 16;
+    private static final int HUB_REWARDS = 22;
     private static final DateTimeFormatter JOINED =
             DateTimeFormatter.ofPattern("d MMM yyyy", Locale.UK).withZone(ZoneId.systemDefault());
 
@@ -53,17 +54,20 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
     private final ClanStore clans;
     private final LeaderboardService boards;
     private final DiscordIdentityService identities;
+    private final CosmeticItems cosmeticItems;
 
     LeaderboardMenuService(
             MGXAccessBridge plugin,
             ClanStore clans,
             LeaderboardService boards,
-            DiscordIdentityService identities
+            DiscordIdentityService identities,
+            CosmeticItems cosmeticItems
     ) {
         this.plugin = plugin;
         this.clans = clans;
         this.boards = boards;
         this.identities = identities;
+        this.cosmeticItems = cosmeticItems;
     }
 
     @Override
@@ -95,6 +99,22 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
                 "Who has the most money."));
         inventory.setItem(HUB_PLAYERS_KILLS, button(Material.DIAMOND_SWORD, "Player with most kills",
                 "Player kills, highest first."));
+        inventory.setItem(HUB_REWARDS, button(Material.NETHER_STAR, "Podium cosmetics",
+                "Exclusive sets for player leaderboard #1, #2 and #3.",
+                "They update automatically and can never be traded."));
+        MenuItems.show(plugin, player, inventory);
+    }
+
+    void openRewards(Player player) {
+        Inventory inventory = create(
+                Menu.Kind.LEADERBOARD_REWARDS, null, 1, HUB_SIZE,
+                "Podium cosmetics", Menu.Destination.of(Menu.Kind.LEADERBOARD_HUB)
+        );
+        List<CosmeticCatalog.Definition> rewards = CosmeticCatalog.leaderboardRewards();
+        for (int index = 0; index < rewards.size(); index++) {
+            inventory.setItem(9 + index, cosmeticItems.preview(rewards.get(index), false));
+        }
+        MenuItems.back(inventory);
         MenuItems.show(plugin, player, inventory);
     }
 
@@ -225,6 +245,7 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
                     case HUB_CLANS_KILLS -> openClans(player, "kills", 1);
                     case HUB_PLAYERS_WEALTH -> openPlayers(player, "wealth", 1);
                     case HUB_PLAYERS_KILLS -> openPlayers(player, "kills", 1);
+                    case HUB_REWARDS -> openRewards(player);
                     default -> { }
                 }
             }
@@ -240,6 +261,7 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
                     default -> { }
                 }
             }
+            case LEADERBOARD_REWARDS -> { }
             default -> { }
         }
     }
@@ -336,7 +358,8 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
                 || kind == Menu.Kind.LEADERBOARD_PLAYERS_KILLS
                 || kind == Menu.Kind.LEADERBOARD_CLANS
                 || kind == Menu.Kind.LEADERBOARD_CLANS_KILLS
-                || kind == Menu.Kind.LEADERBOARD_MEMBERS;
+                || kind == Menu.Kind.LEADERBOARD_MEMBERS
+                || kind == Menu.Kind.LEADERBOARD_REWARDS;
     }
 
     private static UUID parseUuid(String value) {
