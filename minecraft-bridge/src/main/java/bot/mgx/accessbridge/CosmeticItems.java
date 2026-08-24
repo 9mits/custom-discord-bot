@@ -7,6 +7,7 @@ import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.ItemRarity;
@@ -21,6 +22,7 @@ import java.util.UUID;
 /** Creates and recognises the unique bearer item for a cosmetic. */
 final class CosmeticItems {
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
+    private static final int DESCRIPTION_LINE_LENGTH = 46;
     record TokenInfo(UUID serial, String cosmeticId, int generation) {
     }
 
@@ -74,7 +76,11 @@ final class CosmeticItems {
                 .decoration(TextDecoration.ITALIC, false));
         List<Component> lore = new ArrayList<>();
         lore.add(line(masked ? "Unknown Cosmetic" : definition.category().displayName()));
-        lore.add(line(masked ? CosmeticCatalog.MASKED_DESCRIPTION : definition.description()));
+        for (String descriptionLine : wrapDescription(
+                masked ? CosmeticCatalog.MASKED_DESCRIPTION : definition.description()
+        )) {
+            lore.add(line(descriptionLine));
+        }
         lore.add(Component.empty());
         lore.add(line("Rarity: " + (masked ? "???" : definition.rarityDisplay())));
         if (oddsScreen) {
@@ -87,8 +93,36 @@ final class CosmeticItems {
         }
         meta.setEnchantmentGlintOverride(true);
         meta.setRarity(rarity(definition));
+        meta.addItemFlags(previewFlags());
         item.setItemMeta(meta);
         return item;
+    }
+
+    static List<String> wrapDescription(String description) {
+        if (description == null || description.isBlank()) {
+            return List.of();
+        }
+        List<String> lines = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        for (String word : description.strip().split("\\s+")) {
+            if (!current.isEmpty()
+                    && current.length() + 1 + word.length() > DESCRIPTION_LINE_LENGTH) {
+                lines.add(current.toString());
+                current.setLength(0);
+            }
+            if (!current.isEmpty()) {
+                current.append(' ');
+            }
+            current.append(word);
+        }
+        if (!current.isEmpty()) {
+            lines.add(current.toString());
+        }
+        return List.copyOf(lines);
+    }
+
+    static ItemFlag[] previewFlags() {
+        return new ItemFlag[] {ItemFlag.HIDE_ATTRIBUTES};
     }
 
     static boolean masksSecret(CosmeticCatalog.Definition definition, boolean oddsScreen) {

@@ -1,6 +1,7 @@
 package bot.mgx.accessbridge;
 
 import org.bukkit.Material;
+import org.bukkit.inventory.ItemFlag;
 import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashMap;
@@ -179,6 +180,23 @@ class CosmeticCatalogTest {
         assertEquals("Rare", CosmeticCatalog.find("ember_trail").orElseThrow().rarityDisplay());
         assertEquals("Mythic", CosmeticCatalog.find("prismatic_trail").orElseThrow().rarityDisplay());
         assertEquals("Secret", CosmeticCatalog.find("event_horizon").orElseThrow().rarityDisplay());
+    }
+
+    @Test
+    void longLeaderboardDescriptionsWrapIntoACompactTooltip() {
+        CosmeticCatalog.Definition reward = CosmeticCatalog
+                .leaderboardReward(1, CosmeticCatalog.Category.AURA).orElseThrow();
+
+        List<String> lines = CosmeticItems.wrapDescription(reward.description());
+
+        assertTrue(lines.size() >= 3);
+        assertEquals(reward.description(), String.join(" ", lines));
+        assertTrue(lines.stream().allMatch(line -> line.length() <= 46));
+    }
+
+    @Test
+    void wearablePreviewMaterialsDoNotLeakVanillaAttributes() {
+        assertTrue(List.of(CosmeticItems.previewFlags()).contains(ItemFlag.HIDE_ATTRIBUTES));
     }
 
     private static long in(CosmeticCatalog.Category category) {
