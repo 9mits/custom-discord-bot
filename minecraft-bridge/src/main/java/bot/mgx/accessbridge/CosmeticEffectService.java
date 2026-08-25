@@ -90,9 +90,15 @@ final class CosmeticEffectService implements Listener {
         for (Player player : plugin.getServer().getOnlinePlayers()) {
             Location now = player.getLocation();
             Location previous = previousLocations.put(player.getUniqueId(), now.clone());
-            active(player, CosmeticCatalog.Category.AURA).ifPresent(
-                    definition -> drawAura(player, definition)
-            );
+            boolean movedInWorld = previous != null && previous.getWorld() == now.getWorld();
+            double movementSquared = movedInWorld ? previous.distanceSquared(now) : 0d;
+            boolean moving = movedInWorld && movementSquared > 0.0025d;
+            long auraFrame = frame + CosmeticAnimation.playerOffset(player.getUniqueId(), 3);
+            if (CosmeticAnimation.renderAuraFrame(moving, auraFrame)) {
+                active(player, CosmeticCatalog.Category.AURA).ifPresent(
+                        definition -> drawAura(player, definition)
+                );
+            }
             Deque<Location> history = trailHistories.computeIfAbsent(
                     player.getUniqueId(), ignored -> new ArrayDeque<>()
             );
@@ -105,9 +111,7 @@ final class CosmeticEffectService implements Listener {
             while (history.size() > TRAIL_HISTORY_SIZE) {
                 history.removeLast();
             }
-            if (previous != null
-                    && previous.getWorld() == now.getWorld()
-                    && previous.distanceSquared(now) > 0.0025d) {
+            if (moving) {
                 List<Location> trail = List.copyOf(history);
                 active(player, CosmeticCatalog.Category.TRAIL).ifPresent(
                         definition -> drawTrail(player, definition, trail)
@@ -537,18 +541,26 @@ final class CosmeticEffectService implements Listener {
     }
 
     private void drawEmberTrail(Player owner, List<Location> history) {
-        int chase = CosmeticAnimation.step(frame, Math.max(2, history.size() - 1));
-        for (int point = 1; point < history.size(); point += 2) {
-            Location at = trailPoint(history, point, 0.16d + point * 0.025d);
-            double wave = Math.sin(frame * 0.5d - point * 0.8d);
-            spawnMoving(owner, at, Particle.SMALL_FLAME,
-                    new Vector(0d, 0.025d + Math.max(0d, wave) * 0.025d, 0d), null,
+        Vector side = trailSide(history);
+        Color ember = Color.fromRGB(255, 95, 12);
+        Color hot = Color.fromRGB(255, 215, 65);
+        for (int comet = 0; comet < 3; comet++) {
+            int index = CosmeticAnimation.trailIndex(frame / 2L, history.size(), comet * 4);
+            int tailIndex = Math.min(history.size() - 1, index + 2);
+            double pulse = 0.8d + CosmeticAnimation.pingPong(
+                    frame * 0.12d + comet * 0.24d
+            ) * 0.45d;
+            Location head = trailPoint(history, index, 0.24d + comet * 0.07d);
+            Location tail = trailPoint(history, tailIndex, 0.14d);
+            Location left = tail.clone().add(side.clone().multiply(0.38d * pulse));
+            Location right = tail.clone().add(side.clone().multiply(-0.38d * pulse));
+            drawLine(owner, left, head, 4, comet == 0 ? hot : ember, 0.9f,
                     PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
-            if (point == chase || point == chase + 1) {
-                spawnMoving(owner, at.clone().add(0d, 0.18d, 0d), Particle.FIREWORK,
-                        new Vector(0d, 0.045d, 0d), null,
-                        PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
-            }
+            drawLine(owner, right, head, 4, comet == 0 ? hot : ember, 0.9f,
+                    PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+            spawnMoving(owner, head, comet == 0 ? Particle.FIREWORK : Particle.SMALL_FLAME,
+                    new Vector(0d, 0.055d + comet * 0.012d, 0d), null,
+                    PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
         }
     }
 
@@ -556,49 +568,60 @@ final class CosmeticEffectService implements Listener {
         Vector side = trailSide(history);
         Color dark = Color.fromRGB(125, 0, 18);
         Color bright = Color.fromRGB(225, 15, 42);
-        for (int point = 1; point < history.size(); point += 2) {
-            double wave = Math.sin(frame * 0.42d - point * 0.72d);
-            Location at = trailPoint(history, point, 0.22d + Math.abs(wave) * 0.28d)
-                    .add(side.clone().multiply(wave * 0.38d));
-            dust(owner, at, point % 4 == 1 ? bright : dark, 0.95f,
+        for (int claw = 0; claw < 3; claw++) {
+            int index = CosmeticAnimation.trailIndex(frame / 2L, history.size(), claw * 4);
+            double slash = CosmeticAnimation.pingPong(frame * 0.16d + claw * 0.23d);
+            Location centre = trailPoint(history, index, 0.28d + claw * 0.16d)
+                    .add(side.clone().multiply((slash - 0.5d) * 0.5d));
+            Vector diagonal = side.clone().multiply(0.48d + slash * 0.28d)
+                    .setY(claw % 2 == 0 ? 0.58d : -0.58d);
+            drawLine(owner, centre.clone().subtract(diagonal), centre.clone().add(diagonal),
+                    6, claw == 1 ? bright : dark, 1.05f,
                     PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
-            if ((frame + point) % 5L == 0L) {
-                spawnMoving(owner, at, Particle.DUST, new Vector(0d, -0.09d, 0d),
-                        new Particle.DustOptions(dark, 0.7f),
-                        PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
-            }
+            Location cut = centre.clone().add(diagonal.clone().multiply(0.55d));
+            spawnMoving(owner, cut, claw == 1 ? Particle.SWEEP_ATTACK : Particle.DUST,
+                    new Vector(0d, -0.035d, 0d),
+                    claw == 1 ? null : new Particle.DustOptions(bright, 0.75f),
+                    PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
         }
     }
 
     private void drawFrostTrail(Player owner, List<Location> history) {
         Vector side = trailSide(history);
         Color ice = Color.fromRGB(175, 225, 255);
-        for (int point = 1; point < history.size(); point += 2) {
-            double spread = 0.18d + CosmeticAnimation.pingPong(
-                    frame * 0.07d - point * 0.13d
-            ) * 0.38d;
-            Location centre = trailPoint(history, point, 0.13d);
-            for (double direction : new double[]{-1d, 1d}) {
-                Location shard = centre.clone().add(side.clone().multiply(direction * spread));
-                dust(owner, shard, ice, 0.75f,
-                        PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
-                if ((frame + point) % 4L == 0L) {
-                    spawnMoving(owner, shard, Particle.SNOWFLAKE,
-                            side.clone().multiply(direction * 0.035d).setY(0.025d), null,
-                            PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
-                }
-            }
+        for (int crystal = 0; crystal < 2; crystal++) {
+            int index = CosmeticAnimation.trailIndex(frame / 3L, history.size(), crystal * 6);
+            double bloom = CosmeticAnimation.pingPong(frame * 0.11d + crystal * 0.37d);
+            Location centre = trailPoint(history, index, 0.42d + crystal * 0.16d);
+            drawTrailSnowflake(owner, centre, side, ice,
+                    0.28d + bloom * 0.42d, frame * 0.22d + crystal);
+            spawnMoving(owner, centre, Particle.SNOWFLAKE,
+                    new Vector(0d, 0.035d, 0d), null,
+                    PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
         }
     }
 
     private void drawCherryTrail(Player owner, List<Location> history) {
         Vector side = trailSide(history);
-        for (int point = 1; point < history.size(); point += 2) {
-            double angle = frame * 0.55d - point * 0.9d;
-            Location petal = trailPoint(history, point, 0.35d + Math.sin(angle) * 0.26d)
-                    .add(side.clone().multiply(Math.cos(angle) * 0.48d));
-            spawnMoving(owner, petal, Particle.CHERRY_LEAVES,
-                    side.clone().multiply(Math.sin(angle) * 0.025d).setY(-0.012d), null,
+        Color pink = Color.fromRGB(255, 145, 205);
+        for (int bloom = 0; bloom < 3; bloom++) {
+            int index = CosmeticAnimation.trailIndex(frame / 2L, history.size(), bloom * 4);
+            double rotation = frame * 0.42d + bloom * Math.PI * 2d / 3d;
+            double open = 0.22d + CosmeticAnimation.pingPong(
+                    frame * 0.13d + bloom * 0.31d
+            ) * 0.34d;
+            Location centre = trailPoint(history, index, 0.38d + bloom * 0.15d);
+            for (int petal = 0; petal < 4; petal++) {
+                double angle = rotation + petal * Math.PI / 2d;
+                Location at = centre.clone()
+                        .add(side.clone().multiply(Math.cos(angle) * open))
+                        .add(0d, Math.sin(angle) * open, 0d);
+                spawnMoving(owner, at, Particle.CHERRY_LEAVES,
+                        side.clone().multiply(Math.cos(angle) * 0.025d)
+                                .setY(Math.sin(angle) * 0.025d - 0.012d),
+                        null, PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+            }
+            dust(owner, centre, pink, 0.7f,
                     PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
         }
     }
@@ -606,58 +629,89 @@ final class CosmeticEffectService implements Listener {
     private void drawDroolTrail(Player owner, List<Location> history) {
         Color aqua = Color.fromRGB(45, 220, 210);
         Vector side = trailSide(history);
-        for (int point = 1; point < history.size(); point += 2) {
-            double bounce = Math.abs(Math.sin(frame * 0.48d - point * 0.75d));
-            Location drop = trailPoint(history, point, 0.08d + bounce * 0.62d)
-                    .add(side.clone().multiply(Math.sin(point * 1.7d) * 0.18d));
-            dust(owner, drop, aqua, 0.85f + (float) bounce * 0.25f,
-                    PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
-            if (bounce > 0.82d) {
-                spawnMoving(owner, drop, Particle.FALLING_WATER,
-                        new Vector(0d, -0.06d, 0d), null,
+        for (int bubble = 0; bubble < 2; bubble++) {
+            int index = CosmeticAnimation.trailIndex(frame / 2L, history.size(), bubble * 6);
+            double cycle = CosmeticAnimation.progress(frame + bubble * 4L, 10);
+            double bounce = Math.sin(cycle * Math.PI);
+            Location centre = trailPoint(history, index, 0.12d + bounce * 0.78d)
+                    .add(side.clone().multiply(bubble == 0 ? -0.24d : 0.24d));
+            double radius = 0.18d + bounce * 0.18d;
+            for (int point = 0; point < 6; point++) {
+                double angle = point * Math.PI / 3d + frame * 0.18d;
+                Location at = centre.clone()
+                        .add(side.clone().multiply(Math.cos(angle) * radius))
+                        .add(0d, Math.sin(angle) * radius, 0d);
+                dust(owner, at, aqua, 0.72f,
+                        PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+            }
+            if (cycle > 0.82d) {
+                drawRing(owner, trailPoint(history, index, 0.06d),
+                        0.25d + (cycle - 0.82d) * 2.2d, 10,
+                        frame * 0.2d, aqua, 0.65f,
+                        PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+                spawnMoving(owner, centre, Particle.FALLING_WATER,
+                        new Vector(0d, -0.08d, 0d), null,
                         PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
             }
         }
     }
 
     private void drawEnderTrail(Player owner, List<Location> history) {
-        int blink = CosmeticAnimation.step(frame / 2L, Math.max(2, history.size() - 1));
-        for (int point = 1; point < history.size(); point++) {
-            if ((point + frame / 3L) % 3L != 0L) {
-                continue;
+        Vector side = trailSide(history);
+        Color purple = Color.fromRGB(145, 35, 220);
+        for (int rift = 0; rift < 2; rift++) {
+            int index = CosmeticAnimation.trailIndex(frame / 3L, history.size(), rift * 6);
+            double open = 0.2d + CosmeticAnimation.pingPong(
+                    frame * 0.09d + rift * 0.43d
+            ) * 0.52d;
+            Location centre = trailPoint(history, index, 0.68d);
+            for (int point = 0; point < 12; point++) {
+                double angle = point * Math.PI / 6d + frame * 0.16d;
+                Location at = centre.clone()
+                        .add(side.clone().multiply(Math.cos(angle) * open * 0.62d))
+                        .add(0d, Math.sin(angle) * open, 0d);
+                if ((point + frame) % 3L == 0L) {
+                    spawnMoving(owner, at, Particle.REVERSE_PORTAL,
+                            centre.toVector().subtract(at.toVector()).multiply(0.04d),
+                            null, PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+                } else {
+                    dust(owner, at, purple, 0.78f,
+                            PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+                }
             }
-            Location at = trailPoint(history, point, 0.25d + (point % 3) * 0.24d);
-            Vector towardPlayer = history.get(0).toVector().subtract(at.toVector());
-            if (towardPlayer.lengthSquared() > 0.001d) {
-                towardPlayer.normalize().multiply(0.045d);
+            if (rift == 0) {
+                spawnMoving(owner, centre, Particle.END_ROD,
+                        history.get(0).toVector().subtract(centre.toVector())
+                                .normalize().multiply(0.075d),
+                        null, PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
             }
-            spawnMoving(owner, at, point == blink ? Particle.END_ROD : Particle.REVERSE_PORTAL,
-                    towardPlayer, null, PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
         }
     }
 
     private void drawPrismaticTrail(Player owner, List<Location> history) {
         Vector side = trailSide(history);
-        for (int strand = 0; strand < 3; strand++) {
-            for (int point = 1; point < history.size(); point += 2) {
-                double angle = frame * 0.48d - point * 0.62d
-                        + strand * Math.PI * 2d / 3d;
-                Location at = trailPoint(history, point, 0.38d + Math.sin(angle) * 0.34d)
-                        .add(side.clone().multiply(Math.cos(angle) * 0.56d));
-                dust(owner, at, rainbow(frame + point * 2L + strand * 7L), 0.95f,
-                        PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
-                if (point == 1 && strand == CosmeticAnimation.step(frame / 4L, 3)) {
-                    spawnMoving(owner, at, Particle.END_ROD,
-                            new Vector(0d, 0.045d, 0d), null,
-                            PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
-                }
-            }
+        for (int prism = 0; prism < 2; prism++) {
+            int index = CosmeticAnimation.trailIndex(frame / 2L, history.size(), prism * 6);
+            double turn = frame * (0.24d + prism * 0.05d);
+            double scale = 0.48d + CosmeticAnimation.pingPong(
+                    frame * 0.08d + prism * 0.41d
+            ) * 0.28d;
+            Location centre = trailPoint(history, index, 0.52d + prism * 0.18d);
+            drawTrailDiamond(owner, centre, side, scale, turn,
+                    frame + prism * 13L);
+            spawnMoving(owner, centre, Particle.END_ROD,
+                    new Vector(0d, 0.055d, 0d), null,
+                    PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
         }
     }
 
     private void drawKillEffect(
             Player owner, CosmeticCatalog.Definition definition, Location centre
     ) {
+        KillAccent accent = killAccent(definition);
+        animateAggressiveKillAccent(
+                owner, centre, accent.colour(), accent.impactFrame(), accent.frames()
+        );
         if (definition.leaderboardOnly()) {
             drawLeaderboardKill(owner, definition, centre);
             return;
@@ -675,6 +729,116 @@ final class CosmeticEffectService implements Listener {
             default -> { }
         }
     }
+
+    /**
+     * Every execution gets a readable attack: closing blades, a hard impact, then
+     * an expanding shrapnel wave. The cosmetic's own sequence still supplies its identity.
+     */
+    private void animateAggressiveKillAccent(
+            Player owner, Location centre, Color colour, int impactFrame, int frames
+    ) {
+        int chargeStart = Math.max(0, impactFrame - 7);
+        animate(owner, centre, frames, 2L, step -> {
+            if (step < chargeStart) {
+                return;
+            }
+            if (step < impactFrame) {
+                double charge = CosmeticAnimation.smooth(
+                        (step - chargeStart) / (double) (impactFrame - chargeStart)
+                );
+                double radius = 2.65d - charge * 2.05d;
+                for (int blade = 0; blade < 4; blade++) {
+                    double angle = blade * Math.PI / 2d + step * 0.2d;
+                    Location tip = centre.clone().add(
+                            Math.cos(angle) * radius,
+                            -0.55d + blade % 2 * 1.75d,
+                            Math.sin(angle) * radius
+                    );
+                    Location edge = tip.clone().add(
+                            Math.cos(angle + Math.PI / 2d) * (0.65d + charge * 0.45d),
+                            blade % 2 == 0 ? 0.75d : -0.75d,
+                            Math.sin(angle + Math.PI / 2d) * (0.65d + charge * 0.45d)
+                    );
+                    drawLine(owner, tip, edge, 5, colour, 1.15f,
+                            PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                }
+                if ((step - chargeStart) % 2 == 0) {
+                    drawRing(owner, centre.clone().add(0d, -0.62d, 0d), radius,
+                            16, -step * 0.35d, colour, 0.9f,
+                            PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                }
+                if (step == chargeStart) {
+                    sound(owner, centre, Sound.BLOCK_NOTE_BLOCK_BASEDRUM, 1.15f, 0.45f,
+                            PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                }
+                return;
+            }
+            if (step == impactFrame) {
+                spawn(owner, centre, Particle.SONIC_BOOM, 1,
+                        0d, 0d, 0d, 0d, null,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                spawn(owner, centre, Particle.FLASH, 2,
+                        0.15d, 0.2d, 0.15d, 0d, null,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                spawn(owner, centre, Particle.SWEEP_ATTACK, 4,
+                        0.55d, 0.65d, 0.55d, 0d, null,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                sound(owner, centre, Sound.ENTITY_GENERIC_EXPLODE, 1.45f, 0.62f,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                sound(owner, centre, Sound.ENTITY_PLAYER_ATTACK_CRIT, 1.25f, 0.55f,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            }
+            int aftermathFrames = Math.max(1, frames - impactFrame - 1);
+            double blast = CosmeticAnimation.easeOutBack(
+                    (step - impactFrame) / (double) aftermathFrames
+            );
+            for (int shard = 0; shard < 10; shard++) {
+                double angle = shard * Math.PI / 5d + step * 0.11d;
+                Location at = centre.clone().add(
+                        Math.cos(angle) * blast * (1.7d + shard % 2 * 0.55d),
+                        -0.35d + (shard % 5) * 0.42d + blast * 0.45d,
+                        Math.sin(angle) * blast * (1.7d + shard % 2 * 0.55d)
+                );
+                spawnMoving(owner, at, shard % 3 == 0 ? Particle.FIREWORK : Particle.DUST,
+                        new Vector(Math.cos(angle) * 0.075d, 0.035d,
+                                Math.sin(angle) * 0.075d),
+                        shard % 3 == 0 ? null : new Particle.DustOptions(colour, 0.95f),
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            }
+            if ((step - impactFrame) % 2 == 0) {
+                drawRing(owner, centre.clone().add(0d, -0.5d, 0d),
+                        0.35d + blast * 2.8d, 20, step * 0.31d, colour, 1.15f,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            }
+            if (step == frames - 1) {
+                drawRing(owner, centre.clone().add(0d, 0.15d, 0d),
+                        3.1d, 28, -step * 0.25d, colour, 1.3f,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                sound(owner, centre, Sound.ENTITY_WITHER_BREAK_BLOCK, 1f, 0.72f,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            }
+        });
+    }
+
+    private static KillAccent killAccent(CosmeticCatalog.Definition definition) {
+        if (definition.leaderboardOnly()) {
+            return new KillAccent(podiumColour(definition.leaderboardRank()), 21, 34);
+        }
+        return switch (definition.id()) {
+            case "blood_burst" -> new KillAccent(Color.fromRGB(225, 12, 38), 10, 24);
+            case "frozen_shatter" -> new KillAccent(Color.fromRGB(175, 225, 255), 13, 25);
+            case "shining_light" -> new KillAccent(Color.fromRGB(255, 205, 70), 20, 28);
+            case "void_collapse", "event_horizon" ->
+                    new KillAccent(Color.fromRGB(135, 20, 190),
+                            definition.secret() ? 23 : 16, definition.secret() ? 38 : 27);
+            case "soul_requiem" -> new KillAccent(Color.fromRGB(30, 210, 225), 20, 29);
+            case "reapers_verdict" -> new KillAccent(Color.fromRGB(185, 235, 245), 18, 35);
+            case "divine_rupture" -> new KillAccent(Color.fromRGB(255, 215, 70), 20, 38);
+            default -> new KillAccent(Color.WHITE, 14, 26);
+        };
+    }
+
+    private record KillAccent(Color colour, int impactFrame, int frames) { }
 
     /** A contracting heartbeat becomes crossed blades, then launches a blood fountain. */
     private void animateBloodKill(Player owner, Location centre) {
@@ -1063,29 +1227,26 @@ final class CosmeticEffectService implements Listener {
         }
     }
 
-    /** Two animated victory ribbons and medal sparks stream behind each podium player. */
+    /** Royal crests chase one another down the path instead of forming a particle ribbon. */
     private void drawLeaderboardTrail(
             Player owner, CosmeticCatalog.Definition definition, List<Location> history
     ) {
         int rank = definition.leaderboardRank();
         Color colour = podiumColour(rank);
         Vector side = trailSide(history);
-        int medal = CosmeticAnimation.step(frame / 2L, Math.max(2, history.size() - 1));
-        for (int ribbon = 0; ribbon < 3; ribbon++) {
-            for (int point = 1; point < history.size(); point += 2) {
-                double angle = frame * (0.4d + rank * 0.04d) - point * 0.64d
-                        + ribbon * Math.PI * 2d / 3d;
-                Location particle = trailPoint(
-                        history, point, 0.32d + Math.sin(angle) * (0.28d + ribbon * 0.08d)
-                ).add(side.clone().multiply(Math.cos(angle) * (0.42d + ribbon * 0.12d)));
-                dust(owner, particle, colour, rank == 1 ? 1.35f : 1.15f,
+        for (int crest = 0; crest < 3; crest++) {
+            int index = CosmeticAnimation.trailIndex(frame / 3L, history.size(), crest * 4);
+            double pulse = 0.72d + CosmeticAnimation.pingPong(
+                    frame * 0.1d + crest * 0.28d
+            ) * 0.4d;
+            Location centre = trailPoint(history, index, 0.34d + crest * 0.2d);
+            drawTrailCrown(owner, centre, side, colour,
+                    pulse * (1.05d - rank * 0.08d));
+            if (crest == 0) {
+                spawnMoving(owner, centre,
+                        rank == 1 ? Particle.TOTEM_OF_UNDYING : Particle.FIREWORK,
+                        new Vector(0d, 0.06d, 0d), null,
                         PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
-                if (point == medal && ribbon == 0) {
-                    spawnMoving(owner, particle,
-                            rank == 1 ? Particle.TOTEM_OF_UNDYING : Particle.FIREWORK,
-                            new Vector(0d, 0.045d, 0d), null,
-                            PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
-                }
             }
         }
     }
@@ -1330,50 +1491,57 @@ final class CosmeticEffectService implements Listener {
         switch (definition.id()) {
             case "galaxy_wake" -> {
                 Vector side = trailSide(history);
-                int comet = CosmeticAnimation.step(frame / 2L, Math.max(2, history.size() - 1));
-                for (int point = 1; point < history.size(); point += 2) {
-                    for (int arm = 0; arm < 2; arm++) {
-                        double angle = frame * 0.52d - point * 0.7d + arm * Math.PI;
-                        Location star = trailPoint(history, point,
-                                0.42d + Math.sin(angle) * 0.46d)
-                                .add(side.clone().multiply(Math.cos(angle) * 0.72d));
-                        dust(owner, star, rainbow(frame + point * 3L + arm * 11L),
-                                arm == 0 ? 1.3f : 0.85f,
+                for (int galaxy = 0; galaxy < 2; galaxy++) {
+                    int index = CosmeticAnimation.trailIndex(
+                            frame / 3L, history.size(), galaxy * 7
+                    );
+                    double radius = 0.42d + CosmeticAnimation.pingPong(
+                            frame * 0.09d + galaxy * 0.4d
+                    ) * 0.42d;
+                    Location core = trailPoint(history, index, 0.55d + galaxy * 0.2d);
+                    for (int star = 0; star < 10; star++) {
+                        double angle = frame * (0.3d + galaxy * 0.08d)
+                                + star * Math.PI / 5d;
+                        double lane = star % 2 == 0 ? radius : radius * 0.55d;
+                        Location at = core.clone()
+                                .add(side.clone().multiply(Math.cos(angle) * lane))
+                                .add(0d, Math.sin(angle) * lane * 0.62d, 0d);
+                        dust(owner, at, rainbow(frame + star * 5L + galaxy * 17L),
+                                star % 2 == 0 ? 1.05f : 0.72f,
                                 PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
-                        if (point == comet && arm == 0) {
-                            spawnMoving(owner, star, Particle.END_ROD,
-                                    new Vector(0d, 0.07d, 0d), null,
-                                    PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
-                        }
                     }
+                    spawnMoving(owner, core, galaxy == 0 ? Particle.END_ROD : Particle.FIREWORK,
+                            new Vector(0d, 0.065d, 0d), null,
+                            PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
                 }
-                Location newest = trailPoint(history, 1, 0.25d);
-                spawnMoving(owner, newest, Particle.REVERSE_PORTAL,
-                        new Vector(0d, 0.035d, 0d), null,
-                        PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
             }
             case "phantom_chains" -> {
                 Vector side = trailSide(history);
                 Color chainColour = Color.fromRGB(55, 220, 235);
-                for (int link = 1; link < history.size(); link += 2) {
-                    double swing = Math.sin(frame * 0.48d - link * 0.8d) * 0.36d;
-                    Location linkCentre = trailPoint(history, link, 0.28d + Math.abs(swing) * 0.3d)
-                            .add(side.clone().multiply(swing));
-                    for (int point = 0; point < 6; point++) {
-                        double angle = point * Math.PI / 3d;
+                for (int chain = 0; chain < 3; chain++) {
+                    int index = CosmeticAnimation.trailIndex(
+                            frame / 2L, history.size(), chain * 4
+                    );
+                    double turn = frame * 0.28d + chain * Math.PI / 3d;
+                    double radius = 0.28d + CosmeticAnimation.pingPong(
+                            frame * 0.12d + chain * 0.3d
+                    ) * 0.16d;
+                    Location linkCentre = trailPoint(history, index, 0.42d + chain * 0.15d);
+                    for (int point = 0; point < 10; point++) {
+                        double angle = point * Math.PI / 5d + turn;
                         Location at = linkCentre.clone();
-                        if (link % 4 == 1) {
-                            at.add(side.clone().multiply(Math.cos(angle) * 0.27d))
-                                    .add(0d, Math.sin(angle) * 0.36d, 0d);
+                        if (chain % 2 == 0) {
+                            at.add(side.clone().multiply(Math.cos(angle) * radius))
+                                    .add(0d, Math.sin(angle) * radius * 1.35d, 0d);
                         } else {
-                            at.add(side.clone().multiply(Math.cos(angle) * 0.12d))
-                                    .add(0d, Math.sin(angle) * 0.27d,
-                                            Math.cos(angle) * 0.3d);
+                            at.add(side.clone().multiply(Math.cos(angle) * radius * 0.55d))
+                                    .add(0d, Math.sin(angle) * radius,
+                                            Math.cos(angle) * radius);
                         }
                         dust(owner, at, chainColour, 0.8f,
                                 PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
                     }
-                    if ((frame + link) % 6L == 0L) {
+                    if (chain == CosmeticAnimation.step(frame / 4L, 3)) {
                         spawnMoving(owner, linkCentre, Particle.SOUL_FIRE_FLAME,
                                 new Vector(0d, 0.045d, 0d), null,
                                 PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
@@ -1382,24 +1550,33 @@ final class CosmeticEffectService implements Listener {
             }
             case "reality_fracture" -> {
                 Vector side = trailSide(history);
-                Location previous = null;
-                for (int crack = 1; crack < history.size(); crack++) {
-                    double jag = ((crack * 17 + frame / 2L) % 5L - 2d) * 0.22d;
-                    Location fracture = trailPoint(history, crack,
-                            0.16d + Math.abs(jag) * 0.65d)
-                            .add(side.clone().multiply(jag));
-                    Color colour = crack % 2 == 0
-                            ? Color.fromRGB(255, 35, 220) : Color.fromRGB(45, 220, 255);
-                    if (previous != null) {
-                        drawLine(owner, previous, fracture, 3, colour, 1.05f,
-                                PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+                for (int rift = 0; rift < 2; rift++) {
+                    int index = CosmeticAnimation.trailIndex(
+                            frame / 3L, history.size(), rift * 7
+                    );
+                    double tear = 0.25d + CosmeticAnimation.pingPong(
+                            frame * 0.1d + rift * 0.47d
+                    ) * 0.72d;
+                    Location centre = trailPoint(history, index, 0.54d + rift * 0.18d);
+                    Location previous = null;
+                    for (int crack = 0; crack < 9; crack++) {
+                        double progress = crack / 8d;
+                        double jag = ((crack * 17 + frame / 2L) % 5L - 2d) * 0.09d;
+                        Location fracture = centre.clone()
+                                .add(side.clone().multiply(jag + Math.sin(progress * Math.PI)
+                                        * tear * (rift == 0 ? 0.35d : -0.35d)))
+                                .add(0d, (progress - 0.5d) * tear * 2d, 0d);
+                        Color colour = crack % 2 == 0
+                                ? Color.fromRGB(255, 35, 220) : Color.fromRGB(45, 220, 255);
+                        if (previous != null) {
+                            drawLine(owner, previous, fracture, 3, colour, 1.05f,
+                                    PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+                        }
+                        previous = fracture;
                     }
-                    if ((frame + crack) % 5L == 0L) {
-                        spawnMoving(owner, fracture, Particle.ELECTRIC_SPARK,
-                                side.clone().multiply(jag > 0d ? -0.07d : 0.07d).setY(0.035d),
-                                null, PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
-                    }
-                    previous = fracture;
+                    spawnMoving(owner, centre, Particle.ELECTRIC_SPARK,
+                            side.clone().multiply(rift == 0 ? -0.08d : 0.08d).setY(0.04d),
+                            null, PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
                 }
             }
             default -> { }
@@ -1669,6 +1846,67 @@ final class CosmeticEffectService implements Listener {
             spawn(owner, at, Particle.DUST, 1, 0d, 0d, 0d, 0d,
                     new Particle.DustOptions(colour, size), ownSetting);
         }
+    }
+
+    private void drawTrailSnowflake(
+            Player owner, Location centre, Vector side, Color colour,
+            double radius, double rotation
+    ) {
+        for (int arm = 0; arm < 6; arm++) {
+            double angle = rotation + arm * Math.PI / 3d;
+            Location tip = centre.clone()
+                    .add(side.clone().multiply(Math.cos(angle) * radius))
+                    .add(0d, Math.sin(angle) * radius, 0d);
+            drawLine(owner, centre, tip, 4, colour, 0.72f,
+                    PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+        }
+    }
+
+    private void drawTrailDiamond(
+            Player owner, Location centre, Vector side, double scale,
+            double rotation, long colourFrame
+    ) {
+        Location[] points = new Location[4];
+        for (int point = 0; point < points.length; point++) {
+            double angle = rotation + point * Math.PI / 2d;
+            points[point] = centre.clone()
+                    .add(side.clone().multiply(Math.cos(angle) * scale))
+                    .add(0d, Math.sin(angle) * scale, 0d);
+        }
+        for (int edge = 0; edge < points.length; edge++) {
+            drawLine(owner, points[edge], points[(edge + 1) % points.length],
+                    4, rainbow(colourFrame + edge * 5L), 0.82f,
+                    PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+        }
+        drawLine(owner, points[0], points[2], 4, rainbow(colourFrame + 23L),
+                0.68f, PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+        drawLine(owner, points[1], points[3], 4, rainbow(colourFrame + 31L),
+                0.68f, PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+    }
+
+    private void drawTrailCrown(
+            Player owner, Location centre, Vector side, Color colour, double scale
+    ) {
+        Location left = centre.clone().add(side.clone().multiply(-0.62d * scale));
+        Location leftPeak = centre.clone().add(side.clone().multiply(-0.34d * scale))
+                .add(0d, 0.58d * scale, 0d);
+        Location middle = centre.clone().add(0d, 0.28d * scale, 0d);
+        Location crownPeak = centre.clone().add(0d, 0.82d * scale, 0d);
+        Location rightPeak = centre.clone().add(side.clone().multiply(0.34d * scale))
+                .add(0d, 0.58d * scale, 0d);
+        Location right = centre.clone().add(side.clone().multiply(0.62d * scale));
+        drawLine(owner, left, leftPeak, 3, colour, 1.02f,
+                PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+        drawLine(owner, leftPeak, middle, 3, colour, 1.02f,
+                PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+        drawLine(owner, middle, crownPeak, 3, colour, 1.12f,
+                PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+        drawLine(owner, crownPeak, rightPeak, 3, colour, 1.12f,
+                PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+        drawLine(owner, rightPeak, right, 3, colour, 1.02f,
+                PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+        drawLine(owner, left, right, 5, colour, 0.86f,
+                PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
     }
 
     private void spawnMoving(

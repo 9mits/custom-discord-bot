@@ -50,6 +50,19 @@ final class CosmeticAnimation {
         return Math.floorMod(mixed, frames);
     }
 
+    /** Moving auras render at one third density so trails and the world remain readable. */
+    static boolean renderAuraFrame(boolean moving, long frame) {
+        return !moving || Math.floorMod(frame, 3L) == 0L;
+    }
+
+    /** Selects a real history point for an effect that visibly chases down a trail. */
+    static int trailIndex(long frame, int historySize, int offset) {
+        if (historySize < 2) {
+            throw new IllegalArgumentException("Trail history needs at least two points");
+        }
+        return 1 + (int) Math.floorMod(frame + offset, (long) historySize - 1L);
+    }
+
     private static double clamp(double value) {
         return Math.max(0d, Math.min(1d, value));
     }
