@@ -10,7 +10,7 @@ new icon geometry pixel by pixel.
   2x2 blocks. This preserves strong Minecraft-scale pixels without tiny dotted detail.
 - Use one strong silhouette, stepped square pixels, crisp edges, and no antialiasing.
 - Light from the upper left; use a dark lower-right outline and material shadow.
-- Use a restrained material palette. The importer caps the final sprite at 32 colours.
+- Use a restrained material palette. The importer caps the final sprite at 24 colours.
 - Keep the object dimensional without smooth gradients, glow haze, or mobile-game gloss.
 - Keep Java and Bedrock identical. Bedrock is always generated from the Java texture.
 - Review every icon both enlarged with nearest-neighbour scaling and at inventory size.
@@ -38,7 +38,7 @@ Style/medium: authentic vanilla Minecraft inventory sprite visual language on a 
 one isolated object made from chunky deliberate square pixels, stepped diagonals,
 crisp hard edges, a restrained hand-authored-looking material value ramp, and a
 strong readable silhouette; no antialiasing.
-Composition/framing: centered, filling roughly 13x13 logical pixels with padding.
+Composition/framing: centered, filling roughly 12x12 to 14x14 logical pixels with padding.
 Lighting/mood: top-left highlight and dark lower-right outline/shadow; dimensional
 but restrained.
 Scene/backdrop: a completely flat removable background.

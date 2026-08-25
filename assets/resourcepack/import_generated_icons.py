@@ -22,8 +22,8 @@ PACK_ROOT = Path(__file__).resolve().parent
 ITEM_ROOT = PACK_ROOT / "src/assets/mgx/textures/item"
 CANVAS_SIZE = 32
 LOGICAL_SIZE = 16
-CONTENT_SIZE = 15
-PALETTE_SIZE = 32
+CONTENT_SIZE = 14
+PALETTE_SIZE = 24
 BACKGROUND_DISTANCE = 72
 FOCUS_ONLY = {
     "bronze_cataclysm",
