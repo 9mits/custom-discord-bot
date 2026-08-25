@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -49,5 +50,26 @@ class CosmeticAnimationTest {
 
         assertEquals(offset, CosmeticAnimation.playerOffset(player, 80));
         assertTrue(offset >= 0L && offset < 80L);
+    }
+
+    @Test
+    void movingAurasRenderAtOneThirdDensity() {
+        assertTrue(CosmeticAnimation.renderAuraFrame(false, 1L));
+        assertTrue(CosmeticAnimation.renderAuraFrame(true, 0L));
+        assertFalse(CosmeticAnimation.renderAuraFrame(true, 1L));
+        assertFalse(CosmeticAnimation.renderAuraFrame(true, 2L));
+        assertTrue(CosmeticAnimation.renderAuraFrame(true, 3L));
+    }
+
+    @Test
+    void trailChasersWrapAcrossRealHistoryPoints() {
+        assertEquals(1, CosmeticAnimation.trailIndex(0L, 6, 0));
+        assertEquals(5, CosmeticAnimation.trailIndex(4L, 6, 0));
+        assertEquals(1, CosmeticAnimation.trailIndex(5L, 6, 0));
+        assertEquals(4, CosmeticAnimation.trailIndex(-2L, 6, 0));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> CosmeticAnimation.trailIndex(0L, 1, 0)
+        );
     }
 }
