@@ -23,11 +23,14 @@ final class TeleportWarmupService implements Listener {
     static final int WARMUP_SECONDS = 5;
 
     private final MGXAccessBridge plugin;
+    private final PersonalNotificationService notifications;
     private final Map<UUID, BukkitTask> pending = new ConcurrentHashMap<>();
+    private final Map<UUID, Integer> actionBarReservations = new ConcurrentHashMap<>();
     private final Set<UUID> releasing = ConcurrentHashMap.newKeySet();
 
-    TeleportWarmupService(MGXAccessBridge plugin) {
+    TeleportWarmupService(MGXAccessBridge plugin, PersonalNotificationService notifications) {
         this.plugin = plugin;
+        this.notifications = notifications;
     }
 
     /**
@@ -62,6 +65,9 @@ final class TeleportWarmupService implements Listener {
         cancel(player, false);
         Location target = destination.clone();
         int[] seconds = {WARMUP_SECONDS};
+        actionBarReservations.put(
+                player.getUniqueId(), notifications.reserveActionBar(player)
+        );
         BukkitTask task = plugin.getServer().getScheduler().runTaskTimer(plugin, () -> {
             if (!player.isOnline()) {
                 cancel(player, false);
@@ -73,6 +79,7 @@ final class TeleportWarmupService implements Listener {
                     finished.cancel();
                 }
                 player.sendActionBar(Component.text("Teleporting now...", NamedTextColor.GREEN));
+                releaseActionBar(player, 20L);
                 releasing.add(player.getUniqueId());
                 if (!player.teleport(target, cause)) {
                     releasing.remove(player.getUniqueId());
@@ -123,6 +130,7 @@ final class TeleportWarmupService implements Listener {
             task.cancel();
         }
         pending.clear();
+        actionBarReservations.clear();
         releasing.clear();
     }
 
@@ -138,6 +146,14 @@ final class TeleportWarmupService implements Listener {
         current.cancel();
         if (interrupted && player.isOnline()) {
             player.sendActionBar(Component.text("Teleport cancelled.", NamedTextColor.RED));
+        }
+        releaseActionBar(player, interrupted ? 20L : 0L);
+    }
+
+    private void releaseActionBar(Player player, long delayTicks) {
+        Integer reservation = actionBarReservations.remove(player.getUniqueId());
+        if (reservation != null) {
+            notifications.releaseActionBarAfter(player, reservation, delayTicks);
         }
     }
 }

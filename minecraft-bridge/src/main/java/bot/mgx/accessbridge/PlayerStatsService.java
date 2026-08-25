@@ -46,7 +46,10 @@ final class PlayerStatsService {
      * <p>Safe to call off the main thread: {@code knownNames} is captured by the caller
      * beforehand, so this never touches Bukkit's player directory.
      */
-    List<PlayerStats> everyKnownPlayer(Map<UUID, String> knownNames) {
+    List<PlayerStats> everyKnownPlayer(
+            Map<UUID, String> knownNames,
+            Map<UUID, Long> onlineKills
+    ) {
         List<PlayerStats> all = new ArrayList<>();
         rememberedNames.putAll(knownNames);
         Set<UUID> seen = new HashSet<>();
@@ -54,7 +57,9 @@ final class PlayerStatsService {
             plugin.getLogger().warning("No statistics directory at " + statsDirectory);
         } else try (Stream<Path> files = Files.list(statsDirectory)) {
             for (Path file : files.filter(path -> path.toString().endsWith(".json")).toList()) {
-                statsFor(file, knownNames).ifPresent(row -> {
+                statsFor(file, knownNames).map(row -> onlineKills.containsKey(row.minecraftUuid())
+                        ? row.withKills(onlineKills.get(row.minecraftUuid()))
+                        : row).ifPresent(row -> {
                     seen.add(row.minecraftUuid());
                     all.add(row);
                 });
@@ -67,8 +72,21 @@ final class PlayerStatsService {
                 continue;
             }
             seen.add(wallet.getKey());
-            all.add(PlayerStats.empty(wallet.getKey(), usernameOf(wallet.getKey(), knownNames))
-                    .withWealth(wallet.getValue()));
+            PlayerStats row = PlayerStats.empty(
+                    wallet.getKey(), usernameOf(wallet.getKey(), knownNames)
+            ).withWealth(wallet.getValue());
+            if (onlineKills.containsKey(wallet.getKey())) {
+                row = row.withKills(onlineKills.get(wallet.getKey()));
+            }
+            all.add(row);
+        }
+        for (Map.Entry<UUID, Long> live : onlineKills.entrySet()) {
+            if (seen.contains(live.getKey()) || live.getValue() <= 0L) {
+                continue;
+            }
+            all.add(PlayerStats.empty(
+                    live.getKey(), usernameOf(live.getKey(), knownNames)
+            ).withKills(live.getValue()).withWealth(money.balance(live.getKey())));
         }
         cache.keySet().removeIf(uuid -> !seen.contains(uuid));
         return all;

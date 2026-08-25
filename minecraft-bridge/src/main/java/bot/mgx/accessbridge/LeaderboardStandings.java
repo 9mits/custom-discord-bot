@@ -9,6 +9,14 @@ import java.util.UUID;
 
 /** Pure ranking logic shared by nameplates and the virtual podium cosmetics. */
 final class LeaderboardStandings {
+    record BoardPlayer(LeaderboardType type, UUID playerId) {
+        BoardPlayer {
+            if (type == null || playerId == null) {
+                throw new IllegalArgumentException("A board standing needs a type and player");
+            }
+        }
+    }
+
     record Standing(LeaderboardType type, int placement, long value) {
         Standing {
             if (type == null || placement < 1 || value <= 0) {
@@ -21,7 +29,11 @@ final class LeaderboardStandings {
     }
 
     static Map<UUID, Standing> bestByPlayer(List<PlayerStats> players) {
-        Map<UUID, Standing> best = new HashMap<>();
+        return bestByPlayer(individualByBoard(players));
+    }
+
+    static Map<BoardPlayer, Standing> individualByBoard(List<PlayerStats> players) {
+        Map<BoardPlayer, Standing> standings = new HashMap<>();
         for (LeaderboardType type : LeaderboardType.values()) {
             if (!type.published()) {
                 continue;
@@ -37,10 +49,18 @@ final class LeaderboardStandings {
                     continue;
                 }
                 placement++;
-                Standing candidate = new Standing(type, placement, row.value(type));
-                best.merge(row.minecraftUuid(), candidate, LeaderboardStandings::better);
+                BoardPlayer key = new BoardPlayer(type, row.minecraftUuid());
+                standings.put(key, new Standing(type, placement, row.value(type)));
             }
         }
+        return Map.copyOf(standings);
+    }
+
+    static Map<UUID, Standing> bestByPlayer(Map<BoardPlayer, Standing> boards) {
+        Map<UUID, Standing> best = new HashMap<>();
+        boards.forEach((key, candidate) -> best.merge(
+                key.playerId(), candidate, LeaderboardStandings::better
+        ));
         return Map.copyOf(best);
     }
 

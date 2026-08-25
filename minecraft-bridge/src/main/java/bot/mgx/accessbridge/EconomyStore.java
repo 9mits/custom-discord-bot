@@ -12,6 +12,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -24,6 +25,8 @@ import java.util.concurrent.ConcurrentHashMap;
 final class EconomyStore {
     private final Path file;
     private final ConcurrentHashMap<UUID, Long> balances = new ConcurrentHashMap<>();
+    private volatile Runnable changeListener = () -> {
+    };
 
     EconomyStore(Path file) throws IOException {
         this.file = file;
@@ -53,6 +56,10 @@ final class EconomyStore {
         return Map.copyOf(balances);
     }
 
+    void onChange(Runnable listener) {
+        changeListener = Objects.requireNonNull(listener, "listener");
+    }
+
     long totalOf(Iterable<UUID> players) {
         long total = 0L;
         for (UUID playerId : players) {
@@ -74,6 +81,7 @@ final class EconomyStore {
             restoreBalance(playerId, before);
             throw failure;
         }
+        changed();
     }
 
     synchronized boolean tryWithdraw(UUID playerId, long amount) {
@@ -91,6 +99,7 @@ final class EconomyStore {
             restoreBalance(playerId, current);
             throw failure;
         }
+        changed();
         return true;
     }
 
@@ -124,6 +133,7 @@ final class EconomyStore {
             restoreBalance(to, toBefore);
             throw failure;
         }
+        changed();
         return true;
     }
 
@@ -151,6 +161,7 @@ final class EconomyStore {
             restoreBalance(playerId, before);
             throw failure;
         }
+        changed();
     }
 
     synchronized int clearAll() {
@@ -166,6 +177,7 @@ final class EconomyStore {
             balances.putAll(before);
             throw failure;
         }
+        changed();
         return cleared;
     }
 
@@ -182,6 +194,14 @@ final class EconomyStore {
             balances.remove(playerId);
         } else {
             balances.put(playerId, amount);
+        }
+    }
+
+    private void changed() {
+        try {
+            changeListener.run();
+        } catch (RuntimeException ignored) {
+            // A leaderboard refresh is advisory and must never roll back saved money.
         }
     }
 

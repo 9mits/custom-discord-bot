@@ -40,4 +40,21 @@ class WardrobeLeaderboardTest {
                 standing, CosmeticCatalog.Category.KILL_EFFECT, false
         ).isEmpty());
     }
+
+    @Test
+    void podiumCosmeticsOnlyRenderWhenThePlayerSelectsThem() {
+        LeaderboardStandings.Standing standing = new LeaderboardStandings.Standing(
+                LeaderboardType.KILLS, 1, 42
+        );
+
+        assertTrue(CosmeticEffectService.selectedLeaderboardReward(
+                standing, CosmeticCatalog.Category.AURA, null
+        ).isEmpty());
+        assertTrue(CosmeticEffectService.selectedLeaderboardReward(
+                standing, CosmeticCatalog.Category.AURA, "argent_dominion"
+        ).isEmpty());
+        assertEquals("solar_imperium", CosmeticEffectService.selectedLeaderboardReward(
+                standing, CosmeticCatalog.Category.AURA, "solar_imperium"
+        ).orElseThrow().id());
+    }
 }

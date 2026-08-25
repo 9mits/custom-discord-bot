@@ -99,6 +99,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     private final EconomyStore money;
     private final AuctionStore auctions;
     private final CrateItems crateItems;
+    private final PersonalNotificationService notifications;
     private final Map<UUID, String> auctionSearch = new ConcurrentHashMap<>();
     /** What each player is part-way through buying, cleared when the screen closes. */
     private final Map<UUID, PendingBuy> pendingBuys = new ConcurrentHashMap<>();
@@ -123,13 +124,15 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             EconomyStore money,
             AuctionStore auctions,
             PlayerSettingsStore settings,
-            CrateItems crateItems
+            CrateItems crateItems,
+            PersonalNotificationService notifications
     ) {
         this.plugin = plugin;
         this.money = money;
         this.auctions = auctions;
         this.settings = settings;
         this.crateItems = crateItems;
+        this.notifications = notifications;
         int returnedKeys = auctions.returnRestrictedListings(
                 itemData -> crateItems.isKey(decodeItem(itemData)),
                 System.currentTimeMillis()
@@ -1296,8 +1299,14 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         info(player, "Bought for " + EconomyFormat.dollars(purchase.paid()) + ".");
         Player seller = plugin.getServer().getPlayer(purchase.listing().seller());
         if (seller != null) {
-            info(seller, player.getName() + " bought your listing for "
-                    + EconomyFormat.dollars(purchase.received()) + ".");
+            String received = player.getName() + " bought your listing for "
+                    + EconomyFormat.dollars(purchase.received()) + ".";
+            notifications.notify(
+                    seller,
+                    prefix().append(Component.text(received, NamedTextColor.GREEN)),
+                    Component.text("Auction sold  •  +"
+                            + EconomyFormat.dollars(purchase.received()), NamedTextColor.GREEN)
+            );
         }
         openAuction(player, 1);
     }

@@ -36,6 +36,8 @@ final class CosmeticStore {
     private final Path file;
     private final LinkedHashMap<UUID, Token> tokens = new LinkedHashMap<>();
     private final LinkedHashMap<UUID, LinkedHashMap<String, UUID>> equipped = new LinkedHashMap<>();
+    private final LinkedHashMap<UUID, LinkedHashMap<String, String>> leaderboardEquipped =
+            new LinkedHashMap<>();
     private final Set<UUID> previewOwners = new HashSet<>();
     private int generation = 1;
 
@@ -99,6 +101,20 @@ final class CosmeticStore {
                 }
                 if (!selections.isEmpty()) {
                     equipped.put(UUID.fromString(entry.getKey()), selections);
+                }
+            }
+            JsonObject savedLeaderboardEquipped = object(root, "leaderboard_equipped");
+            for (Map.Entry<String, JsonElement> entry : savedLeaderboardEquipped.entrySet()) {
+                LinkedHashMap<String, String> selections = new LinkedHashMap<>();
+                for (Map.Entry<String, JsonElement> selected
+                        : entry.getValue().getAsJsonObject().entrySet()) {
+                    String cosmeticId = selected.getValue().getAsString();
+                    if (validLeaderboardSelection(selected.getKey(), cosmeticId)) {
+                        selections.put(selected.getKey(), cosmeticId);
+                    }
+                }
+                if (!selections.isEmpty()) {
+                    leaderboardEquipped.put(UUID.fromString(entry.getKey()), selections);
                 }
             }
             if (migratedSerialNumbers || migratedSecretCategory) {
@@ -256,6 +272,8 @@ final class CosmeticStore {
             throw new IllegalArgumentException("That cosmetic token is no longer valid.");
         }
         LinkedHashMap<UUID, LinkedHashMap<String, UUID>> equippedBefore = copyEquipped();
+        LinkedHashMap<UUID, LinkedHashMap<String, String>> leaderboardBefore =
+                copyLeaderboardEquipped();
         equipped.entrySet().removeIf(entry -> {
             entry.getValue().entrySet().removeIf(selected -> serial.equals(selected.getValue()));
             return entry.getValue().isEmpty();
@@ -264,11 +282,35 @@ final class CosmeticStore {
                 playerId, ignored -> new LinkedHashMap<>()
         );
         selections.put(category, serial);
+        removeLeaderboardSelection(playerId, category);
         try {
             save();
         } catch (RuntimeException exception) {
             equipped.clear();
             equipped.putAll(equippedBefore);
+            leaderboardEquipped.clear();
+            leaderboardEquipped.putAll(leaderboardBefore);
+            throw exception;
+        }
+    }
+
+    synchronized void equipLeaderboard(UUID playerId, String category, String cosmeticId) {
+        if (!validLeaderboardSelection(category, cosmeticId)) {
+            throw new IllegalArgumentException("That leaderboard cosmetic selection is invalid.");
+        }
+        LinkedHashMap<UUID, LinkedHashMap<String, UUID>> equippedBefore = copyEquipped();
+        LinkedHashMap<UUID, LinkedHashMap<String, String>> leaderboardBefore =
+                copyLeaderboardEquipped();
+        removeTokenSelection(playerId, category);
+        leaderboardEquipped.computeIfAbsent(playerId, ignored -> new LinkedHashMap<>())
+                .put(category, cosmeticId);
+        try {
+            save();
+        } catch (RuntimeException exception) {
+            equipped.clear();
+            equipped.putAll(equippedBefore);
+            leaderboardEquipped.clear();
+            leaderboardEquipped.putAll(leaderboardBefore);
             throw exception;
         }
     }
@@ -322,6 +364,31 @@ final class CosmeticStore {
         return Optional.ofNullable(equipped.getOrDefault(playerId, new LinkedHashMap<>()).get(category));
     }
 
+    synchronized Optional<String> leaderboardEquipped(UUID playerId, String category) {
+        return Optional.ofNullable(
+                leaderboardEquipped.getOrDefault(playerId, new LinkedHashMap<>()).get(category)
+        );
+    }
+
+    synchronized boolean clearLeaderboardEquipped(
+            UUID playerId, String category, String expectedCosmeticId
+    ) {
+        LinkedHashMap<String, String> selections = leaderboardEquipped.get(playerId);
+        if (selections == null || !expectedCosmeticId.equals(selections.get(category))) {
+            return false;
+        }
+        LinkedHashMap<UUID, LinkedHashMap<String, String>> before = copyLeaderboardEquipped();
+        removeLeaderboardSelection(playerId, category);
+        try {
+            save();
+        } catch (RuntimeException exception) {
+            leaderboardEquipped.clear();
+            leaderboardEquipped.putAll(before);
+            throw exception;
+        }
+        return true;
+    }
+
     synchronized boolean clearEquipped(UUID playerId, String category, UUID expected) {
         LinkedHashMap<String, UUID> selections = equipped.get(playerId);
         if (selections == null || !expected.equals(selections.get(category))) {
@@ -346,13 +413,16 @@ final class CosmeticStore {
     }
 
     synchronized int clearAll() {
-        int cleared = tokens.size() + equipped.size();
+        int cleared = tokens.size() + equipped.size() + leaderboardEquipped.size();
         int generationBefore = generation;
         LinkedHashMap<UUID, Token> tokensBefore = new LinkedHashMap<>(tokens);
         LinkedHashMap<UUID, LinkedHashMap<String, UUID>> equippedBefore = copyEquipped();
+        LinkedHashMap<UUID, LinkedHashMap<String, String>> leaderboardBefore =
+                copyLeaderboardEquipped();
         generation = generation == Integer.MAX_VALUE ? 1 : generation + 1;
         tokens.clear();
         equipped.clear();
+        leaderboardEquipped.clear();
         previewOwners.clear();
         try {
             save();
@@ -360,6 +430,7 @@ final class CosmeticStore {
             generation = generationBefore;
             tokens.putAll(tokensBefore);
             equipped.putAll(equippedBefore);
+            leaderboardEquipped.putAll(leaderboardBefore);
             throw exception;
         }
         return cleared;
@@ -390,6 +461,8 @@ final class CosmeticStore {
                 .toList();
         LinkedHashMap<UUID, Token> tokensBefore = new LinkedHashMap<>(tokens);
         LinkedHashMap<UUID, LinkedHashMap<String, UUID>> equippedBefore = copyEquipped();
+        LinkedHashMap<UUID, LinkedHashMap<String, String>> leaderboardBefore =
+                copyLeaderboardEquipped();
         tokens.keySet().removeAll(removed);
         removeSelections(owner, removed, true);
         try {
@@ -399,6 +472,8 @@ final class CosmeticStore {
             tokens.putAll(tokensBefore);
             equipped.clear();
             equipped.putAll(equippedBefore);
+            leaderboardEquipped.clear();
+            leaderboardEquipped.putAll(leaderboardBefore);
             throw exception;
         }
         return removed.size();
@@ -465,6 +540,15 @@ final class CosmeticStore {
             }
         });
         root.add("equipped", savedEquipped);
+        JsonObject savedLeaderboardEquipped = new JsonObject();
+        leaderboardEquipped.forEach((playerId, selections) -> {
+            JsonObject value = new JsonObject();
+            selections.forEach(value::addProperty);
+            if (!value.entrySet().isEmpty()) {
+                savedLeaderboardEquipped.add(playerId.toString(), value);
+            }
+        });
+        root.add("leaderboard_equipped", savedLeaderboardEquipped);
         writeAtomically(root.toString());
     }
 
@@ -476,16 +560,54 @@ final class CosmeticStore {
         return copy;
     }
 
+    private LinkedHashMap<UUID, LinkedHashMap<String, String>> copyLeaderboardEquipped() {
+        LinkedHashMap<UUID, LinkedHashMap<String, String>> copy = new LinkedHashMap<>();
+        leaderboardEquipped.forEach((playerId, selections) -> copy.put(
+                playerId, new LinkedHashMap<>(selections)
+        ));
+        return copy;
+    }
+
+    private void removeTokenSelection(UUID playerId, String category) {
+        LinkedHashMap<String, UUID> selections = equipped.get(playerId);
+        if (selections == null) {
+            return;
+        }
+        selections.remove(category);
+        if (selections.isEmpty()) {
+            equipped.remove(playerId);
+        }
+    }
+
+    private void removeLeaderboardSelection(UUID playerId, String category) {
+        LinkedHashMap<String, String> selections = leaderboardEquipped.get(playerId);
+        if (selections == null) {
+            return;
+        }
+        selections.remove(category);
+        if (selections.isEmpty()) {
+            leaderboardEquipped.remove(playerId);
+        }
+    }
+
     private void removeSelections(
             UUID owner, Collection<UUID> serials, boolean clearEverySelectionForOwner
     ) {
         if (clearEverySelectionForOwner) {
             equipped.remove(owner);
+            leaderboardEquipped.remove(owner);
         }
         equipped.entrySet().removeIf(entry -> {
             entry.getValue().values().removeIf(serials::contains);
             return entry.getValue().isEmpty();
         });
+    }
+
+    private static boolean validLeaderboardSelection(String category, String cosmeticId) {
+        return CosmeticCatalog.find(cosmeticId)
+                .filter(CosmeticCatalog.Definition::leaderboardOnly)
+                .filter(definition -> definition.category().name().equals(category))
+                .isPresent();
     }
 
     private void writeAtomically(String json) {

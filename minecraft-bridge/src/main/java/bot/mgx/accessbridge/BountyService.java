@@ -45,12 +45,20 @@ final class BountyService implements CommandExecutor, TabCompleter, Listener {
     private final EconomyStore money;
     private final BountyStore bounties;
     private final ClanStore clans;
+    private final PersonalNotificationService notifications;
 
-    BountyService(MGXAccessBridge plugin, EconomyStore money, BountyStore bounties, ClanStore clans) {
+    BountyService(
+            MGXAccessBridge plugin,
+            EconomyStore money,
+            BountyStore bounties,
+            ClanStore clans,
+            PersonalNotificationService notifications
+    ) {
         this.plugin = plugin;
         this.money = money;
         this.bounties = bounties;
         this.clans = clans;
+        this.notifications = notifications;
     }
 
     @Override
@@ -231,8 +239,21 @@ final class BountyService implements CommandExecutor, TabCompleter, Listener {
             error(killer, "The bounty payment could not be saved and was left unclaimed.");
             return;
         }
-        info(killer, "Collected " + EconomyFormat.dollars(payout) + " bounty on " + victim.getName() + ".");
-        info(victim, killer.getName() + " claimed the " + EconomyFormat.dollars(payout) + " bounty on you.");
+        String collected = "Collected " + EconomyFormat.dollars(payout)
+                + " bounty on " + victim.getName() + ".";
+        notifications.notify(
+                killer,
+                prefix().append(Component.text(collected, NamedTextColor.GREEN)),
+                Component.text("Bounty claimed  •  +" + EconomyFormat.dollars(payout),
+                        NamedTextColor.GREEN)
+        );
+        String claimed = killer.getName() + " claimed the " + EconomyFormat.dollars(payout)
+                + " bounty on you.";
+        notifications.notify(
+                victim,
+                prefix().append(Component.text(claimed, NamedTextColor.GRAY)),
+                Component.text("Your bounty was claimed by " + killer.getName(), NamedTextColor.RED)
+        );
         Bukkit.broadcast(prefix().append(Component.text(
                 killer.getName() + " claimed " + EconomyFormat.dollars(payout)
                         + " on " + victim.getName() + ".",

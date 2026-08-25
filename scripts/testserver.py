@@ -11,8 +11,9 @@ live server. This runs the same Paper build locally instead.
 
 The server lives in `runtime/testserver/`, which is git-ignored, so nothing here
 can reach a commit. It is deliberately NOT a copy of production: offline mode and
-no whitelist, so alt accounts can join to test the multiplayer events, and no
-resource pack, so a slow GitHub cannot stall a test.
+no whitelist, so alt accounts can join to test the multiplayer events. It does not
+fetch the remote Java pack, so a slow GitHub cannot stall a test; the Bedrock pack
+is installed directly into Geyser because that path has no network dependency.
 
 Stdlib only, matching panel.py.
 """
@@ -38,6 +39,10 @@ REPO = Path(__file__).resolve().parent.parent
 SERVER = REPO / "runtime" / "testserver"
 PLUGINS = SERVER / "plugins"
 BRIDGE = REPO / "minecraft-bridge"
+BEDROCK_RESOURCES = REPO / "assets" / "resourcepack" / "bedrock"
+BEDROCK_BUILD = BEDROCK_RESOURCES / "build_pack.py"
+BEDROCK_PACK = BEDROCK_RESOURCES / "MysteriousSMPX-Bedrock.mcpack"
+BEDROCK_MAPPINGS = BEDROCK_RESOURCES / "mgx_items.json"
 TEST_BUILD_MANIFEST = SERVER / "test-build.json"
 
 #: Pinned to the build production runs, so a test reproduces production's Paper.
@@ -519,6 +524,11 @@ def deploy(_: argparse.Namespace) -> int:
     if result.returncode != 0:
         log("build failed; nothing installed")
         return result.returncode
+    log("building the Bedrock resource pack and Geyser mappings")
+    result = subprocess.run([sys.executable, str(BEDROCK_BUILD)], cwd=BEDROCK_RESOURCES)
+    if result.returncode != 0:
+        log("Bedrock resource build failed; nothing installed")
+        return result.returncode
     config = PLUGINS / "MGXAccessBridge" / "config.yml"
     if config.exists():
         problem = config_problem(config)
@@ -528,6 +538,13 @@ def deploy(_: argparse.Namespace) -> int:
     PLUGINS.mkdir(parents=True, exist_ok=True)
     installed = PLUGINS / "MGXAccessBridge.jar"
     shutil.copy2(built, installed)
+    geyser = PLUGINS / "Geyser-Spigot"
+    installed_pack = geyser / "packs" / BEDROCK_PACK.name
+    installed_mappings = geyser / "custom_mappings" / BEDROCK_MAPPINGS.name
+    installed_pack.parent.mkdir(parents=True, exist_ok=True)
+    installed_mappings.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(BEDROCK_PACK, installed_pack)
+    shutil.copy2(BEDROCK_MAPPINGS, installed_mappings)
     with zipfile.ZipFile(installed) as archive:
         descriptor = archive.read("plugin.yml").decode("utf-8")
     match = re.search(r"(?m)^version:\s*[\"']?([^\"'\s]+)", descriptor)
@@ -546,12 +563,26 @@ def deploy(_: argparse.Namespace) -> int:
         "bytes": installed.stat().st_size,
         "sha256": digest,
         "jar": str(installed.relative_to(REPO)),
+        "bedrock_pack": {
+            "path": str(installed_pack.relative_to(REPO)),
+            "bytes": installed_pack.stat().st_size,
+            "sha256": file_sha256(installed_pack),
+        },
+        "geyser_mappings": {
+            "path": str(installed_mappings.relative_to(REPO)),
+            "bytes": installed_mappings.stat().st_size,
+            "sha256": file_sha256(installed_mappings),
+        },
     }
     TEST_BUILD_MANIFEST.write_text(json.dumps(manifest, indent=2) + "\n")
     log(f"installed MGXAccessBridge {version} into {PLUGINS}")
     log(f"  commit {revision}")
     log(f"  {installed.stat().st_size:,} bytes")
     log(f"  sha256 {digest}")
+    log(f"installed {installed_pack.name} for Geyser Bedrock clients")
+    log(f"  sha256 {file_sha256(installed_pack)}")
+    log(f"installed {installed_mappings.name} custom-item mappings")
+    log(f"  sha256 {file_sha256(installed_mappings)}")
     log(f"  manifest {TEST_BUILD_MANIFEST}")
     return 0
 

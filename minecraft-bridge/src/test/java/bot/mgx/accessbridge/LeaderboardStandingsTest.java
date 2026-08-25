@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class LeaderboardStandingsTest {
     @Test
@@ -36,6 +37,50 @@ class LeaderboardStandingsTest {
         PlayerStats onlyWalking = new PlayerStats(player, "Walker", 0, 0, 200, 8, 900, 0);
 
         assertEquals(Map.of(), LeaderboardStandings.bestByPlayer(List.of(onlyWalking)));
+    }
+
+    @Test
+    void tracksPlacementsSeparatelyForEveryPublishedBoard() {
+        UUID combat = UUID.randomUUID();
+        UUID wealthy = UUID.randomUUID();
+        List<PlayerStats> players = List.of(
+                stats(combat, "Combat", 50, 20),
+                stats(wealthy, "Wealthy", 10, 500)
+        );
+
+        Map<LeaderboardStandings.BoardPlayer, LeaderboardStandings.Standing> standings =
+                LeaderboardStandings.individualByBoard(players);
+
+        assertEquals(
+                1,
+                standings.get(new LeaderboardStandings.BoardPlayer(
+                        LeaderboardType.KILLS, combat
+                )).placement()
+        );
+        assertEquals(
+                2,
+                standings.get(new LeaderboardStandings.BoardPlayer(
+                        LeaderboardType.WEALTH, combat
+                )).placement()
+        );
+    }
+
+    @Test
+    void detectsOnlyRealPlacementIncreases() {
+        LeaderboardStandings.Standing fourth =
+                new LeaderboardStandings.Standing(LeaderboardType.KILLS, 4, 20);
+        LeaderboardStandings.Standing third =
+                new LeaderboardStandings.Standing(LeaderboardType.KILLS, 3, 25);
+        LeaderboardStandings.Standing fifth =
+                new LeaderboardStandings.Standing(LeaderboardType.KILLS, 5, 15);
+
+        assertEquals(
+                3,
+                LeaderboardService.improvement(fourth, third).orElseThrow()
+                        .current().placement()
+        );
+        assertTrue(LeaderboardService.improvement(third, fifth).isEmpty());
+        assertTrue(LeaderboardService.improvement(third, third).isEmpty());
     }
 
     private static PlayerStats stats(UUID id, String name, long kills, long wealth) {

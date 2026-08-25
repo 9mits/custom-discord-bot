@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -100,5 +101,20 @@ class EconomyStoreTest {
 
         assertEquals(40L, store.balance(from));
         assertEquals(10L, store.balance(to));
+    }
+
+    @Test
+    void successfulChangesNotifyTheLeaderboardObserverOnce() throws Exception {
+        EconomyStore store = new EconomyStore(temporaryDirectory.resolve("balances.json"));
+        AtomicInteger changes = new AtomicInteger();
+        UUID from = UUID.randomUUID();
+        UUID to = UUID.randomUUID();
+        store.onChange(changes::incrementAndGet);
+
+        store.deposit(from, 40);
+        assertFalse(store.transfer(from, to, 50));
+        assertTrue(store.transfer(from, to, 10));
+
+        assertEquals(2, changes.get());
     }
 }

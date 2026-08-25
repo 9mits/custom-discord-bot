@@ -1,0 +1,123 @@
+#!/usr/bin/env python3
+"""Build the Bedrock pack and Geyser v2 item mappings from the Java assets."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import pathlib
+import zipfile
+
+
+BEDROCK = pathlib.Path(__file__).resolve().parent
+RESOURCE_PACK = BEDROCK.parent
+JAVA_SOURCE = RESOURCE_PACK / "src"
+CATALOG = BEDROCK / "catalog.json"
+MAPPINGS = BEDROCK / "mgx_items.json"
+TARGET = BEDROCK / "MysteriousSMPX-Bedrock.mcpack"
+
+HEADER_UUID = "33d7b953-728f-43b3-a6a9-675e70370582"
+MODULE_UUID = "d3b48e32-87e7-4f60-8504-17ebcc9dafcd"
+
+
+def read_json(path: pathlib.Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def model_texture(model_key: str) -> pathlib.Path:
+    namespace, name = model_key.split(":", 1)
+    item = read_json(JAVA_SOURCE / "assets" / namespace / "items" / f"{name}.json")
+    model_key = item["model"]["model"]
+    namespace, name = model_key.split(":", 1)
+    model = read_json(JAVA_SOURCE / "assets" / namespace / "models" / f"{name}.json")
+    texture_key = model["textures"]["layer0"]
+    namespace, name = texture_key.split(":", 1)
+    return JAVA_SOURCE / "assets" / namespace / "textures" / f"{name}.png"
+
+
+def source_version(items: list[dict]) -> list[int]:
+    digest = hashlib.sha256(CATALOG.read_bytes())
+    for item in items:
+        digest.update(model_texture(item["model"]).read_bytes())
+    raw = digest.digest()
+    return [int.from_bytes(raw[index:index + 2], "big") or 1 for index in (0, 2, 4)]
+
+
+def json_bytes(value: object) -> bytes:
+    return (json.dumps(value, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+
+
+def zip_files(target: pathlib.Path, files: dict[str, bytes]) -> None:
+    with zipfile.ZipFile(target, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, data in sorted(files.items()):
+            info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o100644 << 16
+            archive.writestr(info, data)
+
+
+def main() -> None:
+    items = read_json(CATALOG)["items"]
+    models: set[str] = set()
+    identifiers: set[str] = set()
+    mappings: dict[str, list[dict]] = {}
+    texture_data: dict[str, dict] = {}
+    pack_files: dict[str, bytes] = {}
+
+    for item in items:
+        model = item["model"]
+        identifier = item["bedrock_identifier"]
+        if model in models:
+            raise ValueError(f"duplicate Java item model: {model}")
+        if identifier in identifiers:
+            raise ValueError(f"duplicate Bedrock item identifier: {identifier}")
+        models.add(model)
+        identifiers.add(identifier)
+
+        mappings.setdefault(item["java_item"], []).append({
+            "type": "definition",
+            "model": model,
+            "bedrock_identifier": identifier,
+            "display_name": item["display_name"],
+            "bedrock_options": {"icon": identifier},
+        })
+        texture_name = identifier.split(":", 1)[1]
+        texture_path = f"textures/items/{texture_name}"
+        texture_data[identifier] = {"textures": [texture_path]}
+        pack_files[f"{texture_path}.png"] = model_texture(model).read_bytes()
+
+    version = source_version(items)
+    manifest = {
+        "format_version": 2,
+        "header": {
+            "name": "Mysterious SMP X",
+            "description": "Custom Mysterious SMP X items for Bedrock players",
+            "uuid": HEADER_UUID,
+            "version": version,
+            "min_engine_version": [1, 21, 0],
+        },
+        "modules": [{
+            "type": "resources",
+            "uuid": MODULE_UUID,
+            "version": version,
+        }],
+    }
+    atlas = {
+        "resource_pack_name": "mysterious_smp_x",
+        "texture_name": "atlas.items",
+        "texture_data": texture_data,
+    }
+    mapping_document = {"format_version": 2, "items": mappings}
+    MAPPINGS.write_bytes(json_bytes(mapping_document))
+    pack_files["manifest.json"] = json_bytes(manifest)
+    pack_files["textures/item_texture.json"] = json_bytes(atlas)
+    zip_files(TARGET, pack_files)
+
+    print(f"{TARGET.name}: {len(items)} custom items, {TARGET.stat().st_size} bytes")
+    print(f"pack-version={'.'.join(map(str, version))}")
+    print(f"pack-sha256={hashlib.sha256(TARGET.read_bytes()).hexdigest()}")
+    print(f"mapping-sha256={hashlib.sha256(MAPPINGS.read_bytes()).hexdigest()}")
+
+
+if __name__ == "__main__":
+    main()

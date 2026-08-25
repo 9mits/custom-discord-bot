@@ -67,6 +67,42 @@ class CosmeticStoreTest {
     }
 
     @Test
+    void leaderboardEntitlementsAreOptionalSelectionsAndPersist(@TempDir Path directory)
+            throws Exception {
+        Path file = directory.resolve("cosmetics.json");
+        UUID owner = UUID.randomUUID();
+        CosmeticStore store = new CosmeticStore(file);
+        CosmeticStore.Token normal = store.mint(owner, "solar_orbit", UUID.randomUUID());
+        store.equip(owner, "AURA", normal.serial());
+
+        assertTrue(store.leaderboardEquipped(owner, "AURA").isEmpty());
+        store.equipLeaderboard(owner, "AURA", "solar_imperium");
+        assertTrue(store.equipped(owner, "AURA").isEmpty());
+        assertEquals(
+                "solar_imperium",
+                store.leaderboardEquipped(owner, "AURA").orElseThrow()
+        );
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> store.equipLeaderboard(owner, "TRAIL", "solar_imperium")
+        );
+
+        CosmeticStore reloaded = new CosmeticStore(file);
+        assertEquals(
+                "solar_imperium",
+                reloaded.leaderboardEquipped(owner, "AURA").orElseThrow()
+        );
+        reloaded.equip(owner, "AURA", normal.serial());
+        assertTrue(reloaded.leaderboardEquipped(owner, "AURA").isEmpty());
+        assertEquals(normal.serial(), reloaded.equipped(owner, "AURA").orElseThrow());
+
+        reloaded.equipLeaderboard(owner, "AURA", "solar_imperium");
+        assertFalse(reloaded.clearLeaderboardEquipped(owner, "AURA", "argent_dominion"));
+        assertTrue(reloaded.clearLeaderboardEquipped(owner, "AURA", "solar_imperium"));
+        assertTrue(new CosmeticStore(file).leaderboardEquipped(owner, "AURA").isEmpty());
+    }
+
+    @Test
     void deletingOnePlayersCosmeticsLeavesEveryoneElseAlone(@TempDir Path directory)
             throws Exception {
         Path file = directory.resolve("cosmetics.json");
