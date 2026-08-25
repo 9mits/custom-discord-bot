@@ -11,14 +11,19 @@ cross-tool source of truth. It is imported below so Claude Code loads it in full
   CI is green, squash-merge, restart the BisectHosting Discord production panel,
   and verify it is running unless the user explicitly requested a hold or no
   deployment. GravelHost Minecraft production is the confirmation-gated exception.
-- **Minecraft is test-first and production-confirmed.** Every merged
+- **Minecraft is test-first, blog-gated, and production-confirmed.** Every merged
   `minecraft-bridge/` change must be built and installed automatically with
-  `python scripts/testserver.py deploy`. Do not upload it to GravelHost until the
-  user explicitly confirms that exact test build for production. Once confirmed,
-  upload the approved `runtime/testserver/plugins/MGXAccessBridge.jar` without
-  rebuilding it, verify it against `runtime/testserver/test-build.json`, swap it
-  atomically, and state that the Minecraft restart is the user's step. See
-  non-negotiable 2 and **Hosting — GravelHost** in AGENTS.md.
+  `python scripts/testserver.py deploy`. Never upload a jar, config, or resource
+  pack to GravelHost if it contains a Minecraft-affecting change after the
+  `covers:` commit of the newest published dev-blog `category: Update` page;
+  those changes are unreleased even if the user approved the test build.
+  Confirmation cannot override this blog boundary. Once the build passes both
+  gates, upload the approved `runtime/testserver/plugins/MGXAccessBridge.jar`
+  without rebuilding it, verify it against `runtime/testserver/test-build.json`,
+  swap it atomically, and state that the Minecraft restart is the user's step.
+  If a post-blog build is found live, immediately restore and verify the exact
+  latest blog-covered build. See non-negotiable 2 and **Hosting — GravelHost** in
+  AGENTS.md.
 - Project memory is machine-local at `~/.claude/projects/<project>/memory/` — it
   is not committed and does not travel with the repo. A repo-level `.claude/memory/`
   folder is **not** auto-loaded, so don't create one expecting it to be read.
