@@ -15,6 +15,13 @@ final class AdminGive {
 
     static final List<String> TYPES = List.of("money", "key", "cosmetic", "cosmetics", "reward");
 
+    /** Every cosmetic an administrator can preview or grant through command completion. */
+    static List<String> cosmeticIds() {
+        return CosmeticCatalog.visualEntries().stream()
+                .map(CosmeticCatalog.Definition::id)
+                .toList();
+    }
+
     enum Type {
         MONEY,
         KEY,

@@ -379,6 +379,15 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     }
 
     private void grantCosmetic(Player player, CosmeticCatalog.Definition definition) {
+        if (definition.leaderboardOnly()) {
+            cosmetics.mintPreview(player.getUniqueId(), definition.id());
+            player.sendMessage(prefix().append(Component.text(
+                    definition.displayName() + " added as a temporary leaderboard preview. "
+                            + "It cannot be traded or listed.",
+                    NamedTextColor.GREEN
+            )));
+            return;
+        }
         if (devBlog.isActive(player)) {
             cosmetics.mintPreview(player.getUniqueId(), definition.id());
             player.sendMessage(prefix().append(Component.text(
@@ -877,8 +886,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 return partial(args[2], AdminGive.TYPES);
             }
             if (args.length == 4 && args[2].toLowerCase(Locale.ROOT).startsWith("cosmetic")) {
-                return partial(args[3], CosmeticCatalog.all().stream()
-                        .map(CosmeticCatalog.Definition::id).toList());
+                return partial(args[3], AdminGive.cosmeticIds());
             }
             if (args.length == 4 && args[2].equalsIgnoreCase("reward")) {
                 return partial(args[3], CrateCatalog.all().stream()
