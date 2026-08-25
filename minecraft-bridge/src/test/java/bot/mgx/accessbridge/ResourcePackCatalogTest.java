@@ -74,7 +74,7 @@ class ResourcePackCatalogTest {
     }
 
     @Test
-    void customItemIconsStayAtVanillaScaleWithARestrictedPalette() throws Exception {
+    void customItemIconsUseCrispHighDefinitionSpritesWithARestrictedPalette() throws Exception {
         Set<Path> icons = new HashSet<>();
         Path textures = SOURCE.resolve("assets/mgx/textures/item");
         icons.add(textures.resolve("crate_key.png"));
@@ -88,8 +88,8 @@ class ResourcePackCatalogTest {
             String name = icon.getFileName().toString();
             BufferedImage image = ImageIO.read(icon.toFile());
             assertNotNull(image, name);
-            assertEquals(16, image.getWidth(), name);
-            assertEquals(16, image.getHeight(), name);
+            assertEquals(32, image.getWidth(), name);
+            assertEquals(32, image.getHeight(), name);
 
             Set<Integer> opaqueColors = new HashSet<>();
             boolean hasTransparentPixel = false;
@@ -107,12 +107,12 @@ class ResourcePackCatalogTest {
                 }
             }
             assertTrue(hasTransparentPixel, name + " needs transparent inventory padding");
-            assertTrue(opaqueColors.size() <= 16, name + " uses too many colors: " + opaqueColors.size());
+            assertTrue(opaqueColors.size() <= 64, name + " uses too many colors: " + opaqueColors.size());
         }
     }
 
     @Test
-    void trailIconsUseTheLargerFifteenPixelFootprint() throws Exception {
+    void trailIconsUseTheLargerHighDefinitionFootprint() throws Exception {
         Path textures = SOURCE.resolve("assets/mgx/textures/item/cosmetic");
         for (CosmeticCatalog.Definition definition : CosmeticCatalog.all()) {
             if (definition.category() != CosmeticCatalog.Category.TRAIL || definition.secret()) {
@@ -136,7 +136,9 @@ class ResourcePackCatalogTest {
                     maxY = Math.max(maxY, y);
                 }
             }
-            assertEquals(15, Math.max(maxX - minX + 1, maxY - minY + 1), definition.id());
+            int footprint = Math.max(maxX - minX + 1, maxY - minY + 1);
+            assertTrue(footprint >= 28 && footprint <= 30,
+                    definition.id() + " has unexpected footprint " + footprint);
         }
     }
 
