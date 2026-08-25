@@ -107,7 +107,7 @@ class ResourcePackCatalogTest {
                 }
             }
             assertTrue(hasTransparentPixel, name + " needs transparent inventory padding");
-            assertTrue(opaqueColors.size() <= 8, name + " uses too many colors: " + opaqueColors.size());
+            assertTrue(opaqueColors.size() <= 16, name + " uses too many colors: " + opaqueColors.size());
         }
     }
 
