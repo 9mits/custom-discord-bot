@@ -12,8 +12,9 @@ cross-tool source of truth. It is imported below so Claude Code loads it in full
   and verify it is running unless the user explicitly requested a hold or no
   deployment. GravelHost Minecraft production is the confirmation-gated exception.
 - **Minecraft is test-first, blog-gated, and production-confirmed.** Every merged
-  `minecraft-bridge/` change must be built and installed automatically with
-  `python scripts/testserver.py deploy`. Never upload a jar, config, or resource
+  Minecraft plugin/config/resource-pack change must be built, installed, and
+  loaded automatically with `python scripts/testserver.py restart`; restarting
+  local Paper needs no additional approval. Never upload a jar, config, or resource
   pack to GravelHost if it contains a Minecraft-affecting change after the
   `covers:` commit of the newest published dev-blog `category: Update` page;
   those changes are unreleased even if the user approved the test build.
@@ -29,9 +30,9 @@ cross-tool source of truth. It is imported below so Claude Code loads it in full
   folder is **not** auto-loaded, so don't create one expecting it to be read.
 - Prefer plan mode before large, multi-file changes.
 - Treat **Testing policy — verification is automatic; live gameplay is explicit**
-  in AGENTS.md as mandatory. Do not launch Minecraft/VibeCraft for every update.
-  Installing every merged plugin jar into `runtime/testserver/` is mandatory but
-  is not permission to launch Paper or a client.
+  in AGENTS.md as mandatory. Deploy and gracefully restart local Paper after every
+  completed Minecraft update, but do not launch a Minecraft client or VibeCraft
+  unless the user explicitly requests gameplay testing.
   When the user explicitly asks to test a Minecraft update, use the real local
   client(s), exercise only the affected feature matrix, inspect actual state and
   logs, and never call a compile or unit-test-only run an in-game pass.
