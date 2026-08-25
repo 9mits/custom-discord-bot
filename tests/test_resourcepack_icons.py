@@ -28,7 +28,7 @@ class ResourcePackIconTests(unittest.TestCase):
                     self.assertEqual("RGBA", image.mode)
                     colours = image.getcolors(maxcolors=257)
                     self.assertIsNotNone(colours)
-                    self.assertLessEqual(len(colours), 32)
+                    self.assertLessEqual(len(colours), 24)
                     alpha = image.getchannel("A")
                     self.assertEqual({0, 255}, set(alpha.getdata()))
                     pixels = image.load()
