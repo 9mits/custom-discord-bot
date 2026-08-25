@@ -2,8 +2,16 @@ package bot.mgx.accessbridge;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.OfflinePlayer;
+import org.bukkit.Statistic;
 import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
+import org.bukkit.event.Listener;
+import org.bukkit.event.player.PlayerStatisticIncrementEvent;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -21,7 +29,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * permanent message from cache, so a dropped snapshot costs nothing — the next one
  * replaces it. That also caps how often the statistics files are read.
  */
-final class LeaderboardService {
+final class LeaderboardService implements Listener {
     /** Top ten on every board — hologram, menu, and Discord. */
     private static final int ROWS = 10;
     /** Publish shortly after boot so a freshly placed board is not blank for minutes. */
@@ -31,23 +39,30 @@ final class LeaderboardService {
     private final BridgeClient bridge;
     private final PlayerStatsService stats;
     private final ClanStore clans;
+    private final PersonalNotificationService notifications;
     private final long refreshTicks;
     private final AtomicBoolean publishing = new AtomicBoolean();
+    private final AtomicBoolean refreshQueued = new AtomicBoolean();
     private int taskId = -1;
     private volatile JsonObject latest = new JsonObject();
     private volatile Map<UUID, LeaderboardStandings.Standing> standings = Map.of();
+    private volatile Map<LeaderboardStandings.BoardPlayer, LeaderboardStandings.Standing>
+            individualStandings = Map.of();
+    private volatile boolean standingsInitialized;
 
     LeaderboardService(
             MGXAccessBridge plugin,
             BridgeClient bridge,
             PlayerStatsService stats,
             ClanStore clans,
+            PersonalNotificationService notifications,
             long refreshTicks
     ) {
         this.plugin = plugin;
         this.bridge = bridge;
         this.stats = stats;
         this.clans = clans;
+        this.notifications = notifications;
         this.refreshTicks = refreshTicks;
     }
 
@@ -75,11 +90,23 @@ final class LeaderboardService {
         return knownNames;
     }
 
+    private Map<UUID, Long> snapshotOnlineKills() {
+        Map<UUID, Long> onlineKills = new HashMap<>();
+        for (Player player : plugin.getServer().getOnlinePlayers()) {
+            onlineKills.put(
+                    player.getUniqueId(),
+                    (long) player.getStatistic(Statistic.PLAYER_KILLS)
+            );
+        }
+        return onlineKills;
+    }
+
     void stop() {
         if (taskId >= 0) {
             plugin.getServer().getScheduler().cancelTask(taskId);
             taskId = -1;
         }
+        refreshQueued.set(false);
     }
 
     /** Publishes immediately, off the timer. Must run on the main thread. */
@@ -87,15 +114,40 @@ final class LeaderboardService {
         publish();
     }
 
+    /** Coalesces money and kill changes into one near-immediate leaderboard pass. */
+    void refreshSoon() {
+        if (!refreshQueued.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+                refreshQueued.set(false);
+                publish();
+            }, 20L);
+        } catch (RuntimeException exception) {
+            refreshQueued.set(false);
+            throw exception;
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onStatisticIncrement(PlayerStatisticIncrementEvent event) {
+        if (event.getStatistic() == Statistic.PLAYER_KILLS) {
+            refreshSoon();
+        }
+    }
+
     private void publish() {
         if (!publishing.compareAndSet(false, true)) {
+            refreshSoon();
             return;
         }
         Map<UUID, String> knownNames = snapshotKnownPlayerNames();
+        Map<UUID, Long> onlineKills = snapshotOnlineKills();
         try {
             plugin.getServer().getScheduler().runTaskAsynchronously(plugin, () -> {
                 try {
-                    buildAndSend(knownNames);
+                    buildAndSend(knownNames, onlineKills);
                 } catch (RuntimeException exception) {
                     plugin.getLogger().warning(
                             "Could not publish Minecraft standings: " + exception.getMessage()
@@ -110,9 +162,24 @@ final class LeaderboardService {
         }
     }
 
-    private void buildAndSend(Map<UUID, String> knownNames) {
-        List<PlayerStats> everyone = stats.everyKnownPlayer(knownNames);
-        standings = LeaderboardStandings.bestByPlayer(everyone);
+    private void buildAndSend(
+            Map<UUID, String> knownNames,
+            Map<UUID, Long> onlineKills
+    ) {
+        List<PlayerStats> everyone = stats.everyKnownPlayer(knownNames, onlineKills);
+        Map<LeaderboardStandings.BoardPlayer, LeaderboardStandings.Standing> previous =
+                individualStandings;
+        Map<LeaderboardStandings.BoardPlayer, LeaderboardStandings.Standing> updated =
+                LeaderboardStandings.individualByBoard(everyone);
+        boolean announceChanges = standingsInitialized;
+        individualStandings = updated;
+        standings = LeaderboardStandings.bestByPlayer(updated);
+        standingsInitialized = true;
+        if (announceChanges) {
+            plugin.getServer().getScheduler().runTask(
+                    plugin, () -> announceImprovements(previous, updated)
+            );
+        }
         JsonObject snapshot = new JsonObject();
         snapshot.addProperty("generated_at", System.currentTimeMillis());
 
@@ -141,6 +208,88 @@ final class LeaderboardService {
 
     Optional<LeaderboardStandings.Standing> standing(UUID playerId) {
         return Optional.ofNullable(standings.get(playerId));
+    }
+
+    private void announceImprovements(
+            Map<LeaderboardStandings.BoardPlayer, LeaderboardStandings.Standing> previous,
+            Map<LeaderboardStandings.BoardPlayer, LeaderboardStandings.Standing> updated
+    ) {
+        updated.forEach((key, current) -> improvement(previous.get(key), current)
+                .ifPresent(rise -> {
+                    Player player = plugin.getServer().getPlayer(key.playerId());
+                    if (player == null) {
+                        return;
+                    }
+                    notifications.notify(
+                            player,
+                            leaderboardChat(rise),
+                            leaderboardActionBar(rise)
+                    );
+                }));
+    }
+
+    static Optional<LeaderboardRise> improvement(
+            LeaderboardStandings.Standing previous,
+            LeaderboardStandings.Standing current
+    ) {
+        if (current == null
+                || (previous != null && current.placement() >= previous.placement())) {
+            return Optional.empty();
+        }
+        return Optional.of(new LeaderboardRise(previous, current));
+    }
+
+    private static Component leaderboardChat(LeaderboardRise rise) {
+        LeaderboardStandings.Standing current = rise.current();
+        Component prefix = Component.text(
+                "LEADERBOARD » ", NamedTextColor.GOLD, TextDecoration.BOLD
+        );
+        String board = boardName(current.type());
+        if (current.placement() <= 3) {
+            String rewards = CosmeticCatalog.Category.values().length + " podium cosmetics";
+            return prefix.append(Component.text(
+                    "You reached #" + current.placement() + " on " + board + "! "
+                            + "Your " + rewards + " are available in /cosmetics.",
+                    NamedTextColor.GREEN
+            ));
+        }
+        String movement = rise.previous() == null
+                ? "You entered " + board + " at #" + current.placement() + "."
+                : "You climbed from #" + rise.previous().placement() + " to #"
+                        + current.placement() + " on " + board + ".";
+        return prefix.append(Component.text(movement, NamedTextColor.GREEN));
+    }
+
+    private static Component leaderboardActionBar(LeaderboardRise rise) {
+        LeaderboardStandings.Standing current = rise.current();
+        if (current.placement() <= 3) {
+            return Component.text(
+                    "PODIUM UNLOCKED  •  #" + current.placement() + " "
+                            + boardName(current.type()) + "  •  Check /cosmetics",
+                    NamedTextColor.GOLD, TextDecoration.BOLD
+            );
+        }
+        return Component.text(
+                "LEADERBOARD UP  •  #" + current.placement() + " "
+                        + boardName(current.type()),
+                NamedTextColor.GREEN, TextDecoration.BOLD
+        );
+    }
+
+    private static String boardName(LeaderboardType type) {
+        return switch (type) {
+            case WEALTH -> "Money $";
+            case KILLS -> "Kills " + type.icon();
+            case PLAYTIME -> "Playtime";
+            case BLOCKS_MINED -> "Blocks Mined";
+            case BLOCKS_WALKED -> "Blocks Walked";
+        };
+    }
+
+    record LeaderboardRise(
+            LeaderboardStandings.Standing previous,
+            LeaderboardStandings.Standing current
+    ) {
     }
 
     private JsonArray rankIndividuals(List<PlayerStats> everyone, LeaderboardType type) {

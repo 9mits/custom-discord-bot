@@ -36,12 +36,18 @@ final class ServerEventService implements Listener {
 
     private final MGXAccessBridge plugin;
     private final ServerEventStore store;
+    private final PersonalNotificationService notifications;
     private final Map<ServerEventType, BossBar> bars = new EnumMap<>(ServerEventType.class);
     private BukkitTask task;
 
-    ServerEventService(MGXAccessBridge plugin, ServerEventStore store) {
+    ServerEventService(
+            MGXAccessBridge plugin,
+            ServerEventStore store,
+            PersonalNotificationService notifications
+    ) {
         this.plugin = plugin;
         this.store = store;
+        this.notifications = notifications;
     }
 
     void start() {
@@ -103,6 +109,23 @@ final class ServerEventService implements Listener {
                         NamedTextColor.WHITE)
                 : Component.text("Back to normal rates.", NamedTextColor.GRAY);
         for (Player player : plugin.getServer().getOnlinePlayers()) {
+            notifications.notify(
+                    player,
+                    Component.text("EVENT » ", TextColor.color(0xFF9900), TextDecoration.BOLD)
+                            .append(headline)
+                            .append(Component.text("  •  ", NamedTextColor.DARK_GRAY))
+                            .append(sub),
+                    Component.text(
+                            enabled
+                                    ? type.motdLabel() + "  •  "
+                                            + (seconds > 0
+                                            ? humanDuration(seconds * 1_000L) + " remaining"
+                                            : "Live now")
+                                    : type.displayName() + " has ended",
+                            enabled ? colourOf(type) : NamedTextColor.GRAY,
+                            TextDecoration.BOLD
+                    )
+            );
             player.showTitle(Title.title(headline, sub));
             player.playSound(
                     player.getLocation(),
@@ -131,6 +154,7 @@ final class ServerEventService implements Listener {
                 player.showBossBar(barFor(type));
             }
             plugin.broadcasts().announceBanner(List.of(player), "EVENT LIVE", bannerBody(running));
+            notifications.actionBar(player, eventActionBar(running));
         }, JOIN_DELAY_TICKS);
     }
 
@@ -167,6 +191,13 @@ final class ServerEventService implements Listener {
             body = body.append(Component.text(type.displayName(), colourOf(type), TextDecoration.BOLD));
         }
         return body.append(Component.text(" is live right now!", NamedTextColor.WHITE, TextDecoration.BOLD));
+    }
+
+    private Component eventActionBar(List<ServerEventType> running) {
+        String names = running.stream().map(ServerEventType::motdLabel)
+                .reduce((left, right) -> left + " + " + right)
+                .orElse("EVENT LIVE");
+        return Component.text(names + "  •  Live now", NamedTextColor.GOLD, TextDecoration.BOLD);
     }
 
     /** Drops finished events, then shows a bar for each one still running. */

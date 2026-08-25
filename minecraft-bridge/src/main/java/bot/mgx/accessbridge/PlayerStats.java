@@ -35,6 +35,19 @@ record PlayerStats(
         );
     }
 
+    PlayerStats withKills(long updatedKills) {
+        return new PlayerStats(
+                minecraftUuid,
+                username,
+                Math.max(0, updatedKills),
+                deaths,
+                playTimeTicks,
+                blocksMined,
+                walkedCm,
+                wealth
+        );
+    }
+
     long value(LeaderboardType type) {
         return switch (type) {
             case KILLS -> kills;

@@ -1,0 +1,424 @@
+{
+  "format_version": 2,
+  "items": {
+    "minecraft:trial_key": [
+      {
+        "type": "definition",
+        "model": "mgx:crate_key",
+        "bedrock_identifier": "mgx:crate_key",
+        "display_name": "Mysterious Crate Key",
+        "bedrock_options": {
+          "icon": "mgx:crate_key"
+        }
+      }
+    ],
+    "minecraft:potion": [
+      {
+        "type": "definition",
+        "model": "mgx:fortune_potion",
+        "bedrock_identifier": "mgx:fortune_potion",
+        "display_name": "Fortune Potion",
+        "bedrock_options": {
+          "icon": "mgx:fortune_potion"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:crate_luck_potion",
+        "bedrock_identifier": "mgx:crate_luck_potion",
+        "display_name": "Crate Luck Potion",
+        "bedrock_options": {
+          "icon": "mgx:crate_luck_potion"
+        }
+      }
+    ],
+    "minecraft:red_dye": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/blood_burst",
+        "bedrock_identifier": "mgx:cosmetic_blood_burst",
+        "display_name": "Blood Burst",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_blood_burst"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/blood_trail",
+        "bedrock_identifier": "mgx:cosmetic_blood_trail",
+        "display_name": "Blood Trail",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_blood_trail"
+        }
+      }
+    ],
+    "minecraft:light_blue_dye": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/frozen_shatter",
+        "bedrock_identifier": "mgx:cosmetic_frozen_shatter",
+        "display_name": "Frozen Shatter",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_frozen_shatter"
+        }
+      }
+    ],
+    "minecraft:glowstone_dust": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/shining_light",
+        "bedrock_identifier": "mgx:cosmetic_shining_light",
+        "display_name": "Shining Light",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_shining_light"
+        }
+      }
+    ],
+    "minecraft:ender_eye": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/void_collapse",
+        "bedrock_identifier": "mgx:cosmetic_void_collapse",
+        "display_name": "Void Collapse",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_void_collapse"
+        }
+      }
+    ],
+    "minecraft:soul_lantern": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/soul_requiem",
+        "bedrock_identifier": "mgx:cosmetic_soul_requiem",
+        "display_name": "Soul Requiem",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_soul_requiem"
+        }
+      }
+    ],
+    "minecraft:blaze_powder": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/solar_orbit",
+        "bedrock_identifier": "mgx:cosmetic_solar_orbit",
+        "display_name": "Solar Orbit",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_solar_orbit"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/ember_trail",
+        "bedrock_identifier": "mgx:cosmetic_ember_trail",
+        "display_name": "Ember Trail",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_ember_trail"
+        }
+      }
+    ],
+    "minecraft:redstone": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/crimson_orbit",
+        "bedrock_identifier": "mgx:cosmetic_crimson_orbit",
+        "display_name": "Crimson Orbit",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_crimson_orbit"
+        }
+      }
+    ],
+    "minecraft:emerald": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/emerald_orbit",
+        "bedrock_identifier": "mgx:cosmetic_emerald_orbit",
+        "display_name": "Emerald Orbit",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_emerald_orbit"
+        }
+      }
+    ],
+    "minecraft:amethyst_shard": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/amethyst_orbit",
+        "bedrock_identifier": "mgx:cosmetic_amethyst_orbit",
+        "display_name": "Amethyst Orbit",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_amethyst_orbit"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/galaxy_wake",
+        "bedrock_identifier": "mgx:cosmetic_galaxy_wake",
+        "display_name": "Galaxy Wake",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_galaxy_wake"
+        }
+      }
+    ],
+    "minecraft:nether_star": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/celestial_crown",
+        "bedrock_identifier": "mgx:cosmetic_celestial_crown",
+        "display_name": "Celestial Crown",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_celestial_crown"
+        }
+      }
+    ],
+    "minecraft:snowball": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/frost_trail",
+        "bedrock_identifier": "mgx:cosmetic_frost_trail",
+        "display_name": "Frost Trail",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_frost_trail"
+        }
+      }
+    ],
+    "minecraft:pink_petals": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/cherry_blossom_trail",
+        "bedrock_identifier": "mgx:cosmetic_cherry_blossom_trail",
+        "display_name": "Cherry Blossom Trail",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_cherry_blossom_trail"
+        }
+      }
+    ],
+    "minecraft:slime_ball": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/drool_trail",
+        "bedrock_identifier": "mgx:cosmetic_drool_trail",
+        "display_name": "Drool Trail",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_drool_trail"
+        }
+      }
+    ],
+    "minecraft:ender_pearl": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/ender_trail",
+        "bedrock_identifier": "mgx:cosmetic_ender_trail",
+        "display_name": "Ender Trail",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_ender_trail"
+        }
+      }
+    ],
+    "minecraft:prismarine_crystals": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/prismatic_trail",
+        "bedrock_identifier": "mgx:cosmetic_prismatic_trail",
+        "display_name": "Prismatic Trail",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_prismatic_trail"
+        }
+      }
+    ],
+    "minecraft:black_dye": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/event_horizon",
+        "bedrock_identifier": "mgx:cosmetic_event_horizon",
+        "display_name": "Event Horizon",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_event_horizon"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/secret_silhouette",
+        "bedrock_identifier": "mgx:cosmetic_secret_silhouette",
+        "display_name": "Unknown Cosmetic",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_secret_silhouette"
+        }
+      }
+    ],
+    "minecraft:wither_skeleton_skull": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/reapers_verdict",
+        "bedrock_identifier": "mgx:cosmetic_reapers_verdict",
+        "display_name": "Reaper's Verdict",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_reapers_verdict"
+        }
+      }
+    ],
+    "minecraft:lightning_rod": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/divine_rupture",
+        "bedrock_identifier": "mgx:cosmetic_divine_rupture",
+        "display_name": "Divine Rupture",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_divine_rupture"
+        }
+      }
+    ],
+    "minecraft:echo_shard": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/astral_sovereign",
+        "bedrock_identifier": "mgx:cosmetic_astral_sovereign",
+        "display_name": "Astral Sovereign",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_astral_sovereign"
+        }
+      }
+    ],
+    "minecraft:magma_cream": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/infernal_dominion",
+        "bedrock_identifier": "mgx:cosmetic_infernal_dominion",
+        "display_name": "Infernal Dominion",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_infernal_dominion"
+        }
+      }
+    ],
+    "minecraft:phantom_membrane": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/abyssal_seraph",
+        "bedrock_identifier": "mgx:cosmetic_abyssal_seraph",
+        "display_name": "Abyssal Seraph",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_abyssal_seraph"
+        }
+      }
+    ],
+    "minecraft:iron_chain": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/phantom_chains",
+        "bedrock_identifier": "mgx:cosmetic_phantom_chains",
+        "display_name": "Phantom Chains",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_phantom_chains"
+        }
+      }
+    ],
+    "minecraft:chorus_fruit": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/reality_fracture",
+        "bedrock_identifier": "mgx:cosmetic_reality_fracture",
+        "display_name": "Reality Fracture",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_reality_fracture"
+        }
+      }
+    ],
+    "minecraft:golden_sword": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/golden_finality",
+        "bedrock_identifier": "mgx:cosmetic_golden_finality",
+        "display_name": "Golden Finality",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_golden_finality"
+        }
+      }
+    ],
+    "minecraft:golden_helmet": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/solar_imperium",
+        "bedrock_identifier": "mgx:cosmetic_solar_imperium",
+        "display_name": "Solar Imperium",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_solar_imperium"
+        }
+      }
+    ],
+    "minecraft:gold_ingot": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/kingmakers_wake",
+        "bedrock_identifier": "mgx:cosmetic_kingmakers_wake",
+        "display_name": "Kingmaker's Wake",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_kingmakers_wake"
+        }
+      }
+    ],
+    "minecraft:iron_sword": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/silver_reckoning",
+        "bedrock_identifier": "mgx:cosmetic_silver_reckoning",
+        "display_name": "Silver Reckoning",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_silver_reckoning"
+        }
+      }
+    ],
+    "minecraft:iron_helmet": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/argent_dominion",
+        "bedrock_identifier": "mgx:cosmetic_argent_dominion",
+        "display_name": "Argent Dominion",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_argent_dominion"
+        }
+      }
+    ],
+    "minecraft:iron_ingot": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/moonlit_procession",
+        "bedrock_identifier": "mgx:cosmetic_moonlit_procession",
+        "display_name": "Moonlit Procession",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_moonlit_procession"
+        }
+      }
+    ],
+    "minecraft:copper_ingot": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/bronze_cataclysm",
+        "bedrock_identifier": "mgx:cosmetic_bronze_cataclysm",
+        "display_name": "Bronze Cataclysm",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_bronze_cataclysm"
+        }
+      }
+    ],
+    "minecraft:copper_block": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/bronze_vanguard",
+        "bedrock_identifier": "mgx:cosmetic_bronze_vanguard",
+        "display_name": "Bronze Vanguard",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_bronze_vanguard"
+        }
+      }
+    ],
+    "minecraft:raw_copper": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/conquerors_march",
+        "bedrock_identifier": "mgx:cosmetic_conquerors_march",
+        "display_name": "Conqueror's March",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_conquerors_march"
+        }
+      }
+    ]
+  }
+}

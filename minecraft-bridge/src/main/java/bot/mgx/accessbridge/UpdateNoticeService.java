@@ -23,15 +23,18 @@ final class UpdateNoticeService implements Listener {
     private final MGXAccessBridge plugin;
     private final UpdateNoticeStore store;
     private final BroadcastDisplayService broadcasts;
+    private final PersonalNotificationService notifications;
 
     UpdateNoticeService(
             MGXAccessBridge plugin,
             UpdateNoticeStore store,
-            BroadcastDisplayService broadcasts
+            BroadcastDisplayService broadcasts,
+            PersonalNotificationService notifications
     ) {
         this.plugin = plugin;
         this.store = store;
         this.broadcasts = broadcasts;
+        this.notifications = notifications;
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -75,6 +78,10 @@ final class UpdateNoticeService implements Listener {
 
     private void show(Collection<? extends Player> audience) {
         broadcasts.announceBanner(audience, HEADING, body());
+        audience.forEach(player -> notifications.actionBar(player, Component.text(
+                "NEW UPDATE  •  Read it at mysterioussmpx.blog",
+                NamedTextColor.GOLD, TextDecoration.BOLD
+        )));
     }
 
     static Component body() {

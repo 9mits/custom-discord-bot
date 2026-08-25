@@ -85,6 +85,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private ChatRelayService chatRelayService;
     private LuckPermsService luckPermsService;
     private LeaderboardService leaderboardService;
+    private PersonalNotificationService personalNotifications;
     private CapabilityService capabilityService;
     private ClanStore clanStore;
     private ClanMenuService clanMenuService;
@@ -183,7 +184,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             luckPermsService.grantEveryoneDefaults();
         }
         identityService = new DiscordIdentityService(this, identityStore);
-        teleportWarmups = new TeleportWarmupService(this);
+        personalNotifications = new PersonalNotificationService(this);
+        getServer().getPluginManager().registerEvents(personalNotifications, this);
+        teleportWarmups = new TeleportWarmupService(this, personalNotifications);
         clanMenuService = new ClanMenuService(
                 this, clanStore, identityService, economyStore, teleportWarmups
         );
@@ -226,8 +229,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 bridgeClient,
                 statsService,
                 clanStore,
+                personalNotifications,
                 bridgeConfig.leaderboardRefreshTicks()
         );
+        economyStore.onChange(leaderboardService::refreshSoon);
         sidebarService.useLeaderboardService(leaderboardService);
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(
@@ -239,13 +244,16 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(clanMenuService, this);
         getServer().getPluginManager().registerEvents(playerMenuService, this);
         getServer().getPluginManager().registerEvents(chatRelayService, this);
+        getServer().getPluginManager().registerEvents(leaderboardService, this);
         getServer().getPluginManager().registerEvents(teleportWarmups, this);
         getServer().getPluginManager().registerEvents(new TeleportMenuService(this), this);
         RandomTeleportService randomTeleports = new RandomTeleportService(this, teleportWarmups);
         getCommand("rtp").setExecutor(randomTeleports);
         broadcastDisplayService = new BroadcastDisplayService(this);
         getServer().getPluginManager().registerEvents(broadcastDisplayService, this);
-        serverEventService = new ServerEventService(this, serverEventStore);
+        serverEventService = new ServerEventService(
+                this, serverEventStore, personalNotifications
+        );
         getServer().getPluginManager().registerEvents(serverEventService, this);
         UpdateNoticeStore updateNoticeStore;
         try {
@@ -254,7 +262,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             throw new IllegalStateException("Could not open update-notices.json", exception);
         }
         updateNotices = new UpdateNoticeService(
-                this, updateNoticeStore, broadcastDisplayService
+                this, updateNoticeStore, broadcastDisplayService, personalNotifications
         );
         getServer().getPluginManager().registerEvents(updateNotices, this);
         PhantomService phantomService = new PhantomService(this);
@@ -373,11 +381,14 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             return;
         }
         economyMenus = new EconomyMenuService(
-                this, economyStore, auctionStore, playerSettings, crateItems
+                this, economyStore, auctionStore, playerSettings, crateItems,
+                personalNotifications
         );
         wardrobeService.useAuctionHouse(economyMenus);
         economyMenus.useWardrobe(wardrobeService);
-        EconomyCommandService economyCommands = new EconomyCommandService(economyStore);
+        EconomyCommandService economyCommands = new EconomyCommandService(
+                economyStore, personalNotifications
+        );
         getCommand("shop").setExecutor(economyMenus);
         getCommand("shop").setTabCompleter(economyMenus);
         getCommand("autosell").setExecutor(economyMenus);
@@ -396,7 +407,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("bal").setTabCompleter(economyCommands);
         getCommand("pay").setExecutor(economyCommands);
         getCommand("pay").setTabCompleter(economyCommands);
-        BountyService bountyService = new BountyService(this, economyStore, bountyStore, clanStore);
+        BountyService bountyService = new BountyService(
+                this, economyStore, bountyStore, clanStore, personalNotifications
+        );
         getCommand("bounty").setExecutor(bountyService);
         getCommand("bounty").setTabCompleter(bountyService);
         getCommand("afk").setExecutor(afkService);
@@ -532,6 +545,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         if (teleportWarmups != null) {
             teleportWarmups.stop();
+        }
+        if (personalNotifications != null) {
+            personalNotifications.stop();
         }
         if (crates != null) {
             crates.stop();

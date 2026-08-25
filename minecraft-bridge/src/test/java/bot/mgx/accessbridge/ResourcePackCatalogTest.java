@@ -2,6 +2,7 @@ package bot.mgx.accessbridge;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import org.bukkit.Material;
 import org.junit.jupiter.api.Test;
 
 import javax.imageio.ImageIO;
@@ -11,6 +12,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.zip.ZipEntry;
@@ -24,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ResourcePackCatalogTest {
     private static final Path PACK = Path.of("..", "assets", "resourcepack");
     private static final Path SOURCE = PACK.resolve("src");
+    private static final Path BEDROCK = PACK.resolve("bedrock");
 
     @Test
     void packDeclaresTheSupportedJavaRange() throws Exception {
@@ -46,6 +49,8 @@ class ResourcePackCatalogTest {
         assertModelResolves(CosmeticCatalog.MASKED_MODEL_KEY);
         Map<String, String> textures = new HashMap<>();
         for (CosmeticCatalog.Definition definition : CosmeticCatalog.visualEntries()) {
+            assertNotNull(Material.matchMaterial(definition.materialName()),
+                    definition.id() + " uses an unknown Java material");
             assertModelResolves(definition.modelKey());
             String texture = resolvedTexture(definition.modelKey());
             assertTrue(textures.putIfAbsent(texture, definition.id()) == null,
@@ -135,6 +140,69 @@ class ResourcePackCatalogTest {
         }
     }
 
+    @Test
+    void bedrockPackAndGeyserMappingsCoverEveryCustomItem() throws Exception {
+        JsonObject mappings = JsonParser.parseString(
+                Files.readString(BEDROCK.resolve("mgx_items.json"))
+        ).getAsJsonObject();
+        assertEquals(2, mappings.get("format_version").getAsInt());
+
+        Map<String, String> expectedBases = new HashMap<>();
+        expectedBases.put("mgx:crate_key", "minecraft:trial_key");
+        expectedBases.put("mgx:fortune_potion", "minecraft:potion");
+        expectedBases.put("mgx:crate_luck_potion", "minecraft:potion");
+        expectedBases.put(CosmeticCatalog.MASKED_MODEL_KEY, "minecraft:black_dye");
+        for (CosmeticCatalog.Definition definition : CosmeticCatalog.visualEntries()) {
+            expectedBases.put(
+                    definition.modelKey(),
+                    "minecraft:" + definition.materialName().toLowerCase(Locale.ROOT)
+            );
+        }
+
+        Map<String, String> actualBases = new HashMap<>();
+        Map<String, String> icons = new HashMap<>();
+        Set<String> identifiers = new HashSet<>();
+        for (Map.Entry<String, com.google.gson.JsonElement> base
+                : mappings.getAsJsonObject("items").entrySet()) {
+            for (com.google.gson.JsonElement raw : base.getValue().getAsJsonArray()) {
+                JsonObject definition = raw.getAsJsonObject();
+                assertEquals("definition", definition.get("type").getAsString());
+                String model = definition.get("model").getAsString();
+                String identifier = definition.get("bedrock_identifier").getAsString();
+                assertTrue(identifiers.add(identifier), "duplicate Bedrock ID " + identifier);
+                assertTrue(actualBases.put(model, base.getKey()) == null,
+                        "duplicate Java model " + model);
+                icons.put(model, definition.getAsJsonObject("bedrock_options")
+                        .get("icon").getAsString());
+            }
+        }
+        assertEquals(expectedBases, actualBases);
+
+        try (ZipFile pack = new ZipFile(
+                BEDROCK.resolve("MysteriousSMPX-Bedrock.mcpack").toFile()
+        )) {
+            JsonObject manifest = zipJson(pack, "manifest.json");
+            assertEquals(2, manifest.get("format_version").getAsInt());
+            assertEquals("resources", manifest.getAsJsonArray("modules").get(0)
+                    .getAsJsonObject().get("type").getAsString());
+            JsonObject atlas = zipJson(pack, "textures/item_texture.json")
+                    .getAsJsonObject("texture_data");
+            for (Map.Entry<String, String> item : icons.entrySet()) {
+                String texture = atlas.getAsJsonObject(item.getValue())
+                        .getAsJsonArray("textures").get(0).getAsString() + ".png";
+                ZipEntry entry = pack.getEntry(texture);
+                assertNotNull(entry, texture + " is missing from the Bedrock pack");
+                try (InputStream input = pack.getInputStream(entry)) {
+                    assertArrayEquals(
+                            Files.readAllBytes(SOURCE.resolve(resolvedTexture(item.getKey()))),
+                            input.readAllBytes(),
+                            item.getKey()
+                    );
+                }
+            }
+        }
+    }
+
     private static void assertModelResolves(String modelKey) throws Exception {
         String[] key = modelKey.split(":", 2);
         assertEquals(2, key.length, modelKey);
@@ -169,5 +237,14 @@ class ResourcePackCatalogTest {
         String[] texture = modelJson.getAsJsonObject("textures").get("layer0")
                 .getAsString().split(":", 2);
         return "assets/" + texture[0] + "/textures/" + texture[1] + ".png";
+    }
+
+    private static JsonObject zipJson(ZipFile zip, String name) throws Exception {
+        ZipEntry entry = zip.getEntry(name);
+        assertNotNull(entry, name + " is missing from the Bedrock pack");
+        try (InputStream input = zip.getInputStream(entry)) {
+            return JsonParser.parseString(new String(input.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8))
+                    .getAsJsonObject();
+        }
     }
 }

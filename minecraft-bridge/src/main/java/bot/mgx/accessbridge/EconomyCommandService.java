@@ -20,9 +20,11 @@ import static bot.mgx.accessbridge.MenuItems.ORANGE;
 /** Text money commands: {@code /bal} and {@code /pay}. */
 final class EconomyCommandService implements CommandExecutor, TabCompleter {
     private final EconomyStore money;
+    private final PersonalNotificationService notifications;
 
-    EconomyCommandService(EconomyStore money) {
+    EconomyCommandService(EconomyStore money, PersonalNotificationService notifications) {
         this.money = money;
+        this.notifications = notifications;
     }
 
     @Override
@@ -88,7 +90,13 @@ final class EconomyCommandService implements CommandExecutor, TabCompleter {
             );
         }
         info(player, "Paid " + target.getName() + " " + EconomyFormat.dollars(amount) + ".");
-        info(target, player.getName() + " paid you " + EconomyFormat.dollars(amount) + ".");
+        String received = player.getName() + " paid you " + EconomyFormat.dollars(amount) + ".";
+        notifications.notify(
+                target,
+                prefix().append(Component.text(received, NamedTextColor.GREEN)),
+                Component.text("+" + EconomyFormat.dollars(amount) + " from " + player.getName(),
+                        NamedTextColor.GREEN)
+        );
     }
 
     private static void info(CommandSender sender, String message) {

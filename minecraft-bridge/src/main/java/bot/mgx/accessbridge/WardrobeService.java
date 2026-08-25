@@ -194,7 +194,7 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         int slot = 0;
         Optional<PodiumReward> podium = podiumReward(player, category, saleMode);
         if (podium.isPresent()) {
-            inventory.setItem(slot, podiumIcon(podium.get()));
+            inventory.setItem(slot, podiumIcon(player, podium.get()));
             holder.podiumSlots.put(slot, podium.get());
             slot++;
         }
@@ -285,13 +285,7 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         }
         PodiumReward podium = menu.podiumSlots.get(event.getSlot());
         if (podium != null) {
-            player.sendMessage(PlayerMenuService.prefix().append(Component.text(
-                    podium.definition().displayName()
-                            + " is equipped automatically while you hold #"
-                            + podium.standing().placement() + " on the "
-                            + boardName(podium.standing().type()) + " leaderboard.",
-                    NamedTextColor.GOLD
-            )));
+            togglePodium(player, menu.category, podium);
             return;
         }
         UUID serial = menu.tokenSlots.get(event.getSlot());
@@ -345,11 +339,9 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
             PlayerMenuService.error(player, "That cosmetic could not be equipped. Please try again.");
             return;
         }
-        boolean podiumActive = podiumReward(player, category, false).isPresent();
-        player.sendMessage(PlayerMenuService.prefix().append(Component.text(podiumActive
-                ? definition.displayName()
-                        + " selected. It will resume when your podium reward ends."
-                : definition.displayName() + " equipped.", NamedTextColor.GREEN)));
+        player.sendMessage(PlayerMenuService.prefix().append(Component.text(
+                definition.displayName() + " equipped.", NamedTextColor.GREEN
+        )));
         openCategory(player, category);
     }
 
@@ -377,10 +369,42 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
             PlayerMenuService.error(player, "That cosmetic could not be unequipped. Please try again.");
             return;
         }
-        boolean podiumActive = podiumReward(player, category, false).isPresent();
-        player.sendMessage(PlayerMenuService.prefix().append(Component.text(podiumActive
-                ? name + " selection cleared. Your podium reward remains equipped."
-                : name + " unequipped.", NamedTextColor.GREEN)));
+        player.sendMessage(PlayerMenuService.prefix().append(Component.text(
+                name + " unequipped.", NamedTextColor.GREEN
+        )));
+        openCategory(player, category);
+    }
+
+    private void togglePodium(
+            Player player, CosmeticCatalog.Category category, PodiumReward shown
+    ) {
+        PodiumReward current = podiumReward(player, category, false).orElse(null);
+        if (current == null || !current.definition().id().equals(shown.definition().id())) {
+            PlayerMenuService.error(player, "Your leaderboard placement changed. The wardrobe refreshed.");
+            openCategory(player, category);
+            return;
+        }
+        boolean equipped = podiumSelected(player, current);
+        try {
+            if (equipped) {
+                store.clearLeaderboardEquipped(
+                        player.getUniqueId(), category.name(), current.definition().id()
+                );
+            } else {
+                store.equipLeaderboard(
+                        player.getUniqueId(), category.name(), current.definition().id()
+                );
+            }
+        } catch (UncheckedIOException exception) {
+            plugin.getLogger().warning("Could not save a leaderboard cosmetic selection: "
+                    + exception.getMessage());
+            PlayerMenuService.error(player, "That cosmetic could not be changed. Please try again.");
+            return;
+        }
+        player.sendMessage(PlayerMenuService.prefix().append(Component.text(
+                current.definition().displayName() + (equipped ? " unequipped." : " equipped."),
+                NamedTextColor.GREEN
+        )));
         openCategory(player, category);
     }
 
@@ -400,16 +424,16 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         int count = owned(player, category).size() + (podium.isPresent() ? 1 : 0);
         List<String> lore = new ArrayList<>();
         lore.add(count + (count == 1 ? " cosmetic available" : " cosmetics available"));
-        if (podium.isPresent()) {
+        if (podium.isPresent() && podiumSelected(player, podium.get())) {
             lore.add("Equipped: " + podium.get().definition().displayName());
-            lore.add("#" + podium.get().standing().placement() + " "
-                    + boardName(podium.get().standing().type()) + " leaderboard reward");
         } else {
             store.equipped(player.getUniqueId(), category.name())
                     .flatMap(store::token)
                     .flatMap(token -> CosmeticCatalog.find(token.cosmeticId()))
                     .ifPresent(definition -> lore.add("Equipped: " + definition.displayName()));
         }
+        podium.ifPresent(reward -> lore.add("#" + reward.standing().placement() + " "
+                + boardName(reward.standing().type()) + " reward available"));
         return MenuItems.button(material, category.displayName(), lore);
     }
 
@@ -435,12 +459,20 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         return CosmeticCatalog.leaderboardReward(standing.placement(), category);
     }
 
-    private ItemStack podiumIcon(PodiumReward reward) {
+    private boolean podiumSelected(Player player, PodiumReward reward) {
+        return store.leaderboardEquipped(
+                        player.getUniqueId(), reward.definition().category().name()
+                )
+                .map(reward.definition().id()::equals)
+                .orElse(false);
+    }
+
+    private ItemStack podiumIcon(Player player, PodiumReward reward) {
         ItemStack icon = items.preview(reward.definition(), false);
         ItemMeta meta = icon.getItemMeta();
         List<Component> lore = new ArrayList<>(meta.lore() == null ? List.of() : meta.lore());
         lore.add(Component.empty());
-        lore.add(line("Automatically equipped"));
+        lore.add(line(podiumSelected(player, reward) ? "Equipped — click to unequip" : "Click to equip"));
         lore.add(line("#" + reward.standing().placement() + " on the "
                 + boardName(reward.standing().type()) + " leaderboard"));
         lore.add(line("Available only while you hold this placement"));
