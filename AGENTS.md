@@ -16,21 +16,28 @@ These four rules override everything else. The rest of this file is guidance.
    Stop before merging or deploying only when the user explicitly says to hold,
    leave the PR open, or skip deployment. **The one standing exception is the
    GravelHost Minecraft production gate in rule 2.**
-2. **Minecraft changes always go to the test server first; production requires
-   the user's confirmation.** A `minecraft-bridge/` change is not staged until
+2. **Minecraft changes always go to the test server first; GravelHost requires
+   both published dev-blog coverage and the user's confirmation.** A
+   `minecraft-bridge/` change is not staged until
    its version is bumped, the clean shaded jar passes its checks, the PR is
    merged, and that merged jar is installed into `runtime/testserver/` with
    `python scripts/testserver.py deploy`. Do this automatically on every plugin
    change. Installing the jar does not opt in to launching Paper, Minecraft, or
-   VibeCraft. **Never upload a new jar or config to the real GravelHost server
-   until the user explicitly confirms that the test-server build is approved
-   for production.** A clear `confirmed`, `approved`, `works on test`, `ship it`,
-   or `upload/deploy this to the real server` counts when it unambiguously refers
-   to that build; generic praise or a new request does not. After confirmation,
-   upload the exact approved test-server artifact automatically using the
-   sequence in **Hosting — GravelHost** and say that the production Minecraft
-   restart is the user's step. Any code/config change after approval invalidates
-   it: redeploy the new build to test and wait for fresh confirmation.
+   VibeCraft. **Never upload a jar, plugin/server config, or resource pack to the
+   real GravelHost server unless every Minecraft-affecting change in it is at or
+   before the `covers:` commit of the newest published `category: Update` post on
+   the dev-blog page. Anything after that boundary is unreleased content and is
+   forbidden on GravelHost.** The second, independent gate is the user's explicit
+   confirmation that the exact eligible test build is approved for production.
+   A clear `confirmed`, `approved`, `works on test`, `ship it`, or
+   `upload/deploy this to the real server` counts when it unambiguously refers to
+   that build; generic praise or a new request does not. Confirmation cannot
+   waive the blog boundary. After both gates pass, upload the exact approved
+   artifact using **Hosting — GravelHost** and say that the production Minecraft
+   restart is the user's step. Any code/config/resource-pack change after approval
+   invalidates it. If an ineligible post-blog build is found on GravelHost,
+   immediately restore the exact latest blog-covered build atomically, verify the
+   remote version/bytes/SHA-256, and tell the user to restart Minecraft.
 3. **Keep secrets out of git.** `.env*`, `.panel.env`, `config.json`, and
    `database*/` are git-ignored and hold live tokens and user data. Stage files
    by name; read what `git status` shows before committing.
@@ -315,14 +322,24 @@ API, so **SFTP is the only deploy path**, using the git-ignored `.env.gravel`
 (`GRAVEL_SFTP_HOST/PORT/USERNAME/PASSWORD`, `GRAVEL_SERVER_ROOT`).
 
 This section is **production-only**. Do not begin it merely because a plugin PR
-merged. Begin only after the user explicitly approves the current test-server
-build under non-negotiable 2. The jar to ship is the exact approved artifact at
+merged or a test build was approved. First identify the newest published
+`category: Update` post shown on the dev-blog page and resolve its `covers:`
+commit. A jar is eligible only when the test-build manifest commit has no changes
+after that boundary under `minecraft-bridge/`; prove that with
+`git diff --quiet <covers>..<manifest-commit> -- minecraft-bridge/`. Apply the
+same check to `assets/resourcepack/` for a resource-pack upload. A live config
+change needs equally explicit evidence that it was included by that update; if
+that cannot be proven, do not upload it. Missing or ambiguous `covers:` metadata
+is a hard stop. User confirmation is still required after this check and cannot
+override it.
+
+The jar to ship is the exact eligible, approved artifact at
 `runtime/testserver/plugins/MGXAccessBridge.jar`; verify its version and SHA-256
 against `runtime/testserver/test-build.json` and what was reported when it was
 staged. Do not rebuild between approval and upload. If the artifact no longer
 matches, stop and restage it instead of guessing.
 
-Production deploy sequence after confirmation:
+Production deploy sequence after blog eligibility and confirmation:
 
 1. Check `api-version` in the approved jar's `plugin.yml` is **<=** the running server's
    Minecraft version, read from `logs/latest.log` (`Starting minecraft server
