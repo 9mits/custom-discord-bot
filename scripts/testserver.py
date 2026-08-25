@@ -8,6 +8,7 @@ live server. This runs the same Paper build locally instead.
     python scripts/testserver.py setup    # once: fetch Paper and the production plugins
     python scripts/testserver.py deploy   # build and install without starting
     python scripts/testserver.py run      # build, install, start
+    python scripts/testserver.py restart  # build, install, gracefully restart
 
 The server lives in `runtime/testserver/`, which is git-ignored, so nothing here
 can reach a commit. It is deliberately NOT a copy of production: offline mode and
@@ -28,9 +29,11 @@ import platform
 import re
 import secrets
 import shutil
+import signal
 import subprocess
 import sys
 import tarfile
+import time
 import urllib.request
 import zipfile
 from pathlib import Path
@@ -44,6 +47,7 @@ BEDROCK_BUILD = BEDROCK_RESOURCES / "build_pack.py"
 BEDROCK_PACK = BEDROCK_RESOURCES / "MysteriousSMPX-Bedrock.mcpack"
 BEDROCK_MAPPINGS = BEDROCK_RESOURCES / "mgx_items.json"
 TEST_BUILD_MANIFEST = SERVER / "test-build.json"
+SERVER_PID = SERVER / "server.pid"
 
 #: Pinned to the build production runs, so a test reproduces production's Paper.
 PAPER_VERSION = "1.21.11"
@@ -595,9 +599,13 @@ def start(args: argparse.Namespace) -> int:
         return 1
     match_production_limits()
     configure_grim()
+    running = running_server_pid()
+    if running is not None:
+        log(f"Paper is already running as pid {running}; use 'restart'")
+        return 1
     log("starting Paper — join at  localhost  (Java) or  localhost:19132  (Bedrock)")
     log("stop it with the 'stop' console command, or ctrl-c")
-    return subprocess.call(
+    process = subprocess.Popen(
         [
             str(java_binary()),
             f"-Xms{args.memory}",
@@ -608,11 +616,70 @@ def start(args: argparse.Namespace) -> int:
         ],
         cwd=SERVER,
     )
+    SERVER_PID.write_text(f"{process.pid}\n")
+    try:
+        return process.wait()
+    finally:
+        try:
+            if SERVER_PID.read_text().strip() == str(process.pid):
+                SERVER_PID.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def running_server_pid() -> int | None:
+    """Return the managed Paper pid, discarding stale or unrelated pid files."""
+    try:
+        pid = int(SERVER_PID.read_text().strip())
+    except (FileNotFoundError, ValueError):
+        return None
+    if pid <= 0:
+        SERVER_PID.unlink(missing_ok=True)
+        return None
+    result = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "command="],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0 or "server.jar" not in result.stdout:
+        SERVER_PID.unlink(missing_ok=True)
+        return None
+    return pid
+
+
+def stop_server(pid: int, timeout: float = 90.0) -> bool:
+    """Ask Paper to stop gracefully and wait for its JVM to exit."""
+    log(f"stopping Paper pid {pid} gracefully")
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        SERVER_PID.unlink(missing_ok=True)
+        return True
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if running_server_pid() is None:
+            log("Paper stopped")
+            return True
+        time.sleep(0.25)
+    log(f"Paper did not stop within {timeout:.0f}s; leaving it running")
+    return False
 
 
 def run(args: argparse.Namespace) -> int:
     code = deploy(args)
     return code if code else start(args)
+
+
+def restart(args: argparse.Namespace) -> int:
+    """Deploy first, then gracefully replace the currently running Paper process."""
+    code = deploy(args)
+    if code:
+        return code
+    running = running_server_pid()
+    if running is not None and not stop_server(running):
+        return 1
+    return start(args)
 
 
 def reset(_: argparse.Namespace) -> int:
@@ -632,11 +699,12 @@ def main() -> int:
         ("deploy", deploy, "build the plugin and install it"),
         ("start", start, "start the server"),
         ("run", run, "deploy, then start"),
+        ("restart", restart, "deploy, then gracefully restart the server"),
         ("reset", reset, "delete worlds and plugin data, keep the jars"),
     ):
         sub = subcommands.add_parser(name, help=blurb)
         sub.set_defaults(handler=handler)
-        if name in ("start", "run"):
+        if name in ("start", "run", "restart"):
             sub.add_argument("--memory", default="2G", help="heap size, default 2G")
     args = parser.parse_args()
     return args.handler(args)

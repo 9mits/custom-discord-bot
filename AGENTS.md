@@ -20,10 +20,13 @@ These four rules override everything else. The rest of this file is guidance.
    both published dev-blog coverage and the user's confirmation.** A
    `minecraft-bridge/` change is not staged until
    its version is bumped, the clean shaded jar passes its checks, the PR is
-   merged, and that merged jar is installed into `runtime/testserver/` with
-   `python scripts/testserver.py deploy`. Do this automatically on every plugin
-   change. Installing the jar does not opt in to launching Paper, Minecraft, or
-   VibeCraft. **Never upload a jar, plugin/server config, or resource pack to the
+   merged, and that merged jar is installed into `runtime/testserver/` and loaded
+   by a graceful Paper restart with `python scripts/testserver.py restart`. Do
+   this automatically after every completed Minecraft plugin/config/resource-pack
+   change; the local Paper test server never requires separate user approval.
+   This standing authorization covers starting/restarting Paper only, not launching
+   Minecraft clients, changing the test world, or running VibeCraft. **Never
+   upload a jar, plugin/server config, or resource pack to the
    real GravelHost server unless every Minecraft-affecting change in it is at or
    before the `covers:` commit of the newest published `category: Update` post on
    the dev-blog page. Anything after that boundary is unreleased content and is
@@ -35,7 +38,8 @@ These four rules override everything else. The rest of this file is guidance.
    waive the blog boundary. After both gates pass, upload the exact approved
    artifact using **Hosting — GravelHost** and say that the production Minecraft
    restart is the user's step. Any code/config/resource-pack change after approval
-   invalidates it. If an ineligible post-blog build is found on GravelHost,
+   invalidates it; deploy and restart the changed build on the test server, then
+   wait for fresh approval. If an ineligible post-blog build is found on GravelHost,
    immediately restore the exact latest blog-covered build atomically, verify the
    remote version/bytes/SHA-256, and tell the user to restart Minecraft.
 3. **Keep secrets out of git.** `.env*`, `.panel.env`, `config.json`, and
@@ -67,6 +71,7 @@ ruff check core/ cogs/ minecraft_bot/ tests/
 python scripts/testserver.py setup   # once: fetch Paper, Floodgate, Geyser, LuckPerms, Grim
 python scripts/testserver.py deploy  # build + install jar without starting Paper
 python scripts/testserver.py run     # build the plugin, install it, start the server
+python scripts/testserver.py restart # build, install, gracefully restart Paper (normal deploy)
 
 # Deploy (BisectHosting panel auto-pulls main on restart)
 python panel.py restart
@@ -79,19 +84,22 @@ Every code change still gets the proportional code-level checks from **Commands*
 (unit tests, lint, compilation, and the plugin build when applicable). That is
 normal engineering verification and does not require a separate request.
 
-Live Minecraft testing is different and is **opt-in**. Do not start the Paper test
-server, launch Minecraft clients, alter the test world, install client mods, or run
-a VibeCraft gameplay suite merely because an update was implemented. Requests such
+Live Minecraft gameplay testing is different and is **opt-in**. Starting or
+restarting Paper solely to activate every completed test-server update is mandatory
+and already authorized by non-negotiable 2. Do not launch Minecraft clients, alter
+the test world, install client mods, or run a VibeCraft gameplay suite merely
+because an update was implemented. Requests such
 as **"test this Minecraft update," "test it in game," "I want to test this,"** or
 **"use VibeCraft"** explicitly opt in. `implement`, `fix`, `finish`, and `deploy`
 alone do not. If the user asks to run a named unit/build command, run that command;
 do not silently expand it into live gameplay testing.
 
-The mandatory `scripts/testserver.py deploy` step from non-negotiable 2 is a
-test-server **deployment**, not a live gameplay test. It installs the merged jar
-so the user can test it, but does not start Paper or a client by itself. Report the
-installed plugin version and SHA-256, state that production is unchanged, and wait
-for the user's explicit production confirmation. The deploy command records the
+The mandatory `scripts/testserver.py restart` step from non-negotiable 2 is a
+test-server **deployment and Paper restart**, not a live gameplay test. It installs
+and loads the merged jar so the user can test it, but does not launch a Minecraft
+client. Report the installed plugin version and SHA-256, confirm Paper loaded that
+version and reached `Done`, state that production is unchanged, and wait for the
+user's explicit production confirmation. The deploy phase records the
 exact commit, version, bytes, and hash in the git-ignored
 `runtime/testserver/test-build.json`; use that manifest across model switches.
 
@@ -168,9 +176,9 @@ remains gated by non-negotiable 2:
 & "C:\Program Files\GitHub CLI\gh.exe" pr merge <number> --squash --delete-branch
 git checkout main && git pull
 python panel.py restart && python panel.py status
-# when minecraft-bridge/ changed:
-python scripts/testserver.py deploy
-# report the test jar version/hash and wait for production confirmation
+# when Minecraft plugin/config/resource-pack files changed:
+python scripts/testserver.py restart
+# report the loaded test version/hash and wait for production confirmation
 ```
 
 `main` is protected by GitHub ruleset `18121569`: PR required, both CI checks
@@ -290,9 +298,10 @@ deliberately not a copy of production — offline mode and no whitelist so alt
 accounts can join to test the multiplayer events, no resource pack so a slow
 GitHub cannot stall a test, and a bridge URL pointing at a local port that need
 not be listening. Everything that does not need Discord works without a bot.
-Every merged plugin change must be installed here before it can be considered for
-production. This is the automatic deployment target. GravelHost is updated only
-after the user approves this exact test-server build.
+Every merged Minecraft plugin/config/resource-pack change must be installed and
+loaded here with a graceful Paper restart before it can be considered for
+production. This is the automatic deployment target and needs no separate user
+approval. GravelHost is updated only after the user approves this exact test build.
 
 The Minecraft EULA is left unaccepted; flipping `eula=true` is the user's to do.
 

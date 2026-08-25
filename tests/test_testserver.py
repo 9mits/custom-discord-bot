@@ -1,4 +1,6 @@
 import unittest
+from types import SimpleNamespace
+from unittest import mock
 
 from scripts import testserver
 
@@ -76,6 +78,33 @@ Punishments:
         for check in testserver.GRIM_PRINTER_CHECKS:
             self.assertIn(f'- "{check}"', patched)
         self.assertEqual(patched, testserver.grim_printer_punishments(patched))
+
+
+class TestServerRestartTests(unittest.TestCase):
+    def test_restart_deploys_stops_running_paper_and_starts(self):
+        args = SimpleNamespace(memory="2G")
+        calls = []
+        with mock.patch.object(
+            testserver, "deploy", side_effect=lambda _: calls.append("deploy") or 0
+        ), mock.patch.object(testserver, "running_server_pid", return_value=123), mock.patch.object(
+            testserver, "stop_server", side_effect=lambda _: calls.append("stop") or True
+        ), mock.patch.object(
+            testserver, "start", side_effect=lambda _: calls.append("start") or 0
+        ):
+            self.assertEqual(testserver.restart(args), 0)
+        self.assertEqual(calls, ["deploy", "stop", "start"])
+
+    def test_restart_keeps_current_server_when_deploy_fails(self):
+        args = SimpleNamespace(memory="2G")
+        with mock.patch.object(testserver, "deploy", return_value=7), mock.patch.object(
+            testserver, "running_server_pid"
+        ) as running, mock.patch.object(testserver, "stop_server") as stop, mock.patch.object(
+            testserver, "start"
+        ) as start:
+            self.assertEqual(testserver.restart(args), 7)
+        running.assert_not_called()
+        stop.assert_not_called()
+        start.assert_not_called()
 
 
 if __name__ == "__main__":
