@@ -28,9 +28,14 @@ class ResourcePackIconTests(unittest.TestCase):
                     self.assertEqual("RGBA", image.mode)
                     colours = image.getcolors(maxcolors=257)
                     self.assertIsNotNone(colours)
-                    self.assertLessEqual(len(colours), 64)
+                    self.assertLessEqual(len(colours), 32)
                     alpha = image.getchannel("A")
                     self.assertEqual({0, 255}, set(alpha.getdata()))
+                    pixels = image.load()
+                    for y in range(0, 32, 2):
+                        for x in range(0, 32, 2):
+                            block = {pixels[x + dx, y + dy] for dx in range(2) for dy in range(2)}
+                            self.assertEqual(1, len(block), "every logical pixel must be a crisp 2x2 block")
                     bounds = alpha.getbbox()
                     self.assertIsNotNone(bounds)
                     self.assertGreaterEqual(bounds[2] - bounds[0], 14)

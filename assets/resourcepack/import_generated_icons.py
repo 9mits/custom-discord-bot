@@ -3,7 +3,8 @@
 
 This importer never draws or invents icon geometry. It only removes the flat
 generation backdrop, trims model artifacts, and scales the selected generated
-artwork onto a high-definition 32x32 transparent item canvas.
+artwork onto a 16x16 logical pixel grid, then enlarges that grid exactly 2x for
+clean 32x32 inventory rendering.
 """
 
 from __future__ import annotations
@@ -20,8 +21,9 @@ from PIL import Image, ImageDraw, ImageFont
 PACK_ROOT = Path(__file__).resolve().parent
 ITEM_ROOT = PACK_ROOT / "src/assets/mgx/textures/item"
 CANVAS_SIZE = 32
-CONTENT_SIZE = 30
-PALETTE_SIZE = 64
+LOGICAL_SIZE = 16
+CONTENT_SIZE = 15
+PALETTE_SIZE = 32
 BACKGROUND_DISTANCE = 72
 FOCUS_ONLY = {
     "bronze_cataclysm",
@@ -167,8 +169,8 @@ def prepare(source: Path, focus_only: bool = False) -> Image.Image:
         (padding + (square_size - width) // 2, padding + (square_size - height) // 2),
     )
     # BOX retains the model's lighting and material separation while reducing
-    # the high-resolution generation. NEAREST discarded most source samples and
-    # was the reason the first in-game pass looked flat and lifeless.
+    # the high-resolution generation. The deliberately coarse logical grid keeps
+    # tiny one-pixel highlights from turning the inventory icon into dotted noise.
     scaled = square.resize((CONTENT_SIZE, CONTENT_SIZE), Image.Resampling.BOX)
     scaled.putdata([
         (red, green, blue, 255 if alpha_value >= 58 else 0)
@@ -179,10 +181,10 @@ def prepare(source: Path, focus_only: bool = False) -> Image.Image:
         method=Image.Quantize.FASTOCTREE,
         dither=Image.Dither.NONE,
     ).convert("RGBA")
-    icon = Image.new("RGBA", (CANVAS_SIZE, CANVAS_SIZE), (0, 0, 0, 0))
-    offset = (CANVAS_SIZE - CONTENT_SIZE + 1) // 2
-    icon.alpha_composite(scaled, (offset, offset))
-    return icon
+    logical = Image.new("RGBA", (LOGICAL_SIZE, LOGICAL_SIZE), (0, 0, 0, 0))
+    offset = (LOGICAL_SIZE - CONTENT_SIZE + 1) // 2
+    logical.alpha_composite(scaled, (offset, offset))
+    return logical.resize((CANVAS_SIZE, CANVAS_SIZE), Image.Resampling.NEAREST)
 
 
 def write_contact_sheet(output_root: Path, targets: dict[str, Path], destination: Path) -> None:

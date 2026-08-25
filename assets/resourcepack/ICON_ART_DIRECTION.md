@@ -6,14 +6,14 @@ new icon geometry pixel by pixel.
 
 ## Production rules
 
-- Design for a **32x32 inventory canvas** so generated material and lighting survive
-  in-game scaling without turning into a muddy 16x16 thumbnail.
+- Design on a deliberate **16x16 logical pixel grid**, exported at 32x32 as exact
+  2x2 blocks. This preserves strong Minecraft-scale pixels without tiny dotted detail.
 - Use one strong silhouette, stepped square pixels, crisp edges, and no antialiasing.
 - Light from the upper left; use a dark lower-right outline and material shadow.
-- Use a restrained material palette. The importer caps the final sprite at 64 colours.
+- Use a restrained material palette. The importer caps the final sprite at 32 colours.
 - Keep the object dimensional without smooth gradients, glow haze, or mobile-game gloss.
 - Keep Java and Bedrock identical. Bedrock is always generated from the Java texture.
-- Review every icon both enlarged with nearest-neighbour scaling and at true 32x32 size.
+- Review every icon both enlarged with nearest-neighbour scaling and at inventory size.
 
 The local generated sources are imported with:
 
@@ -31,14 +31,14 @@ outputs. The selected 16x16 PNGs committed under `src/` are the canonical assets
 
 ```text
 Use case: stylized-concept
-Asset type: single high-definition Minecraft inventory item icon for Java and Bedrock resource packs
+Asset type: single Minecraft inventory item icon for Java and Bedrock resource packs
 Input images: Image 1 is the official-feeling pixel-art quality reference; Image 2 is
 only the old subject reference and must be fully redesigned.
-Style/medium: authentic vanilla Minecraft inventory sprite visual language on a 32x32 canvas;
+Style/medium: authentic vanilla Minecraft inventory sprite visual language on a 16x16 logical grid;
 one isolated object made from chunky deliberate square pixels, stepped diagonals,
 crisp hard edges, a restrained hand-authored-looking material value ramp, and a
 strong readable silhouette; no antialiasing.
-Composition/framing: centered, filling roughly 28x28 logical pixels with padding.
+Composition/framing: centered, filling roughly 13x13 logical pixels with padding.
 Lighting/mood: top-left highlight and dark lower-right outline/shadow; dimensional
 but restrained.
 Scene/backdrop: a completely flat removable background.
