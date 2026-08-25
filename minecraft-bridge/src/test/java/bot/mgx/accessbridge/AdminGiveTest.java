@@ -3,6 +3,7 @@ package bot.mgx.accessbridge;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class AdminGiveTest {
@@ -46,6 +47,14 @@ class AdminGiveTest {
                 new AdminGive.Request(AdminGive.Type.COSMETIC, 1L, "solar_imperium"),
                 AdminGive.parse("cosmetics", " Solar_Imperium ")
         );
+    }
+
+    @Test
+    void cosmeticCompletionIncludesLeaderboardPreviews() {
+        assertTrue(AdminGive.cosmeticIds().contains("blood_burst"));
+        assertTrue(AdminGive.cosmeticIds().contains("solar_imperium"));
+        assertTrue(AdminGive.cosmeticIds().contains("argent_dominion"));
+        assertTrue(AdminGive.cosmeticIds().contains("bronze_vanguard"));
     }
 
     @Test
