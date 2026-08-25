@@ -3,7 +3,7 @@
 
 This importer never draws or invents icon geometry. It only removes the flat
 generation backdrop, trims model artifacts, and scales the selected generated
-artwork onto Minecraft's 16x16 transparent item canvas.
+artwork onto a high-definition 32x32 transparent item canvas.
 """
 
 from __future__ import annotations
@@ -19,9 +19,9 @@ from PIL import Image, ImageDraw, ImageFont
 
 PACK_ROOT = Path(__file__).resolve().parent
 ITEM_ROOT = PACK_ROOT / "src/assets/mgx/textures/item"
-CANVAS_SIZE = 16
-CONTENT_SIZE = 15
-PALETTE_SIZE = 16
+CANVAS_SIZE = 32
+CONTENT_SIZE = 30
+PALETTE_SIZE = 64
 BACKGROUND_DISTANCE = 72
 FOCUS_ONLY = {
     "bronze_cataclysm",
@@ -166,7 +166,10 @@ def prepare(source: Path, focus_only: bool = False) -> Image.Image:
         cropped,
         (padding + (square_size - width) // 2, padding + (square_size - height) // 2),
     )
-    scaled = square.resize((CONTENT_SIZE, CONTENT_SIZE), Image.Resampling.NEAREST)
+    # BOX retains the model's lighting and material separation while reducing
+    # the high-resolution generation. NEAREST discarded most source samples and
+    # was the reason the first in-game pass looked flat and lifeless.
+    scaled = square.resize((CONTENT_SIZE, CONTENT_SIZE), Image.Resampling.BOX)
     scaled.putdata([
         (red, green, blue, 255 if alpha_value >= 58 else 0)
         for red, green, blue, alpha_value in scaled.getdata()
@@ -184,7 +187,8 @@ def prepare(source: Path, focus_only: bool = False) -> Image.Image:
 
 def write_contact_sheet(output_root: Path, targets: dict[str, Path], destination: Path) -> None:
     names = sorted(targets, key=lambda name: (len(targets[name].parts), str(targets[name])))
-    columns, cell_width, cell_height, scale = 7, 180, 190, 8
+    columns, cell_width, cell_height = 7, 180, 190
+    scale = max(1, 128 // CANVAS_SIZE)
     rows = math.ceil(len(names) / columns)
     sheet = Image.new("RGB", (columns * cell_width, rows * cell_height), "#303540")
     draw = ImageDraw.Draw(sheet)

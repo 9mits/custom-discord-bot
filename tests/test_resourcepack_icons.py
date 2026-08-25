@@ -24,17 +24,17 @@ class ResourcePackIconTests(unittest.TestCase):
         for path in icons:
             with self.subTest(icon=path.stem):
                 with Image.open(path) as image:
-                    self.assertEqual((16, 16), image.size)
+                    self.assertEqual((32, 32), image.size)
                     self.assertEqual("RGBA", image.mode)
                     colours = image.getcolors(maxcolors=257)
                     self.assertIsNotNone(colours)
-                    self.assertLessEqual(len(colours), 16)
+                    self.assertLessEqual(len(colours), 64)
                     alpha = image.getchannel("A")
                     self.assertEqual({0, 255}, set(alpha.getdata()))
                     bounds = alpha.getbbox()
                     self.assertIsNotNone(bounds)
-                    self.assertGreaterEqual(bounds[2] - bounds[0], 7)
-                    self.assertGreaterEqual(bounds[3] - bounds[1], 10)
+                    self.assertGreaterEqual(bounds[2] - bounds[0], 14)
+                    self.assertGreaterEqual(bounds[3] - bounds[1], 20)
                 digests.add(hashlib.sha256(path.read_bytes()).digest())
 
         self.assertEqual(len(icons), len(digests), "custom icons must not be duplicate recolour assets")

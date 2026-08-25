@@ -6,13 +6,14 @@ new icon geometry pixel by pixel.
 
 ## Production rules
 
-- Design against a real **16x16 inventory canvas**, not a high-resolution UI icon.
+- Design for a **32x32 inventory canvas** so generated material and lighting survive
+  in-game scaling without turning into a muddy 16x16 thumbnail.
 - Use one strong silhouette, stepped square pixels, crisp edges, and no antialiasing.
 - Light from the upper left; use a dark lower-right outline and material shadow.
-- Use a restrained material palette. The importer caps the final sprite at 16 colours.
+- Use a restrained material palette. The importer caps the final sprite at 64 colours.
 - Keep the object dimensional without smooth gradients, glow haze, or mobile-game gloss.
 - Keep Java and Bedrock identical. Bedrock is always generated from the Java texture.
-- Review every icon both enlarged with nearest-neighbour scaling and at true 16x16 size.
+- Review every icon both enlarged with nearest-neighbour scaling and at true 32x32 size.
 
 The local generated sources are imported with:
 
@@ -30,20 +31,21 @@ outputs. The selected 16x16 PNGs committed under `src/` are the canonical assets
 
 ```text
 Use case: stylized-concept
-Asset type: single Minecraft inventory item icon for Java and Bedrock resource packs
+Asset type: single high-definition Minecraft inventory item icon for Java and Bedrock resource packs
 Input images: Image 1 is the official-feeling pixel-art quality reference; Image 2 is
 only the old subject reference and must be fully redesigned.
-Style/medium: authentic vanilla Minecraft 16x16 inventory sprite visual language;
+Style/medium: authentic vanilla Minecraft inventory sprite visual language on a 32x32 canvas;
 one isolated object made from chunky deliberate square pixels, stepped diagonals,
 crisp hard edges, a restrained hand-authored-looking material value ramp, and a
 strong readable silhouette; no antialiasing.
-Composition/framing: centered, filling roughly 13x13 logical pixels with padding.
+Composition/framing: centered, filling roughly 28x28 logical pixels with padding.
 Lighting/mood: top-left highlight and dark lower-right outline/shadow; dimensional
 but restrained.
 Scene/backdrop: a completely flat removable background.
 Constraints: exactly one icon; no text, labels, UI slot, border, floor shadow,
 scenery, watermark, checkerboard, gradients, blur, glow haze, subpixel detail,
-rounded vector edges, or high-resolution painting; do not copy an official item.
+rounded vector edges, or high-resolution painting. Do not copy an official item except
+for the two potion reskins, which deliberately retain the supplied vanilla bottle.
 Avoid: flat symbol design, mobile-game gloss, smooth illustration, excessive detail.
 ```
 
@@ -53,8 +55,8 @@ Avoid: flat symbol design, mobile-game gloss, smooth illustration, excessive det
 |---|---|
 | `aura` | Warm-gold magical core inside two offset orbital bands with a tiny sparkle. |
 | `crate_key` | Diagonal old-gold crate key with a faceted violet gem and distinctive notched bit. |
-| `crate_luck_potion` | Corked glass bottle of deep-violet liquid containing a molten-orange lucky spark. |
-| `fortune_potion` | Corked glass bottle of emerald liquid with a small gold clover-like glint. |
+| `crate_luck_potion` | Supplied official potion bottle silhouette reskinned with deep-violet liquid and a molten-orange lucky spark. |
+| `fortune_potion` | Supplied official potion bottle silhouette reskinned with emerald liquid and a small gold clover-like glint. |
 | `kill_effect` | Cracked dark-iron impact medallion struck by one diagonal crimson slash. |
 | `secret` | Faceted obsidian sealed relic with a recessed violet seam and mysterious glint. |
 | `trail` | Enchanted cyan boot angled forward with short stepped motion streaks. |
@@ -94,3 +96,21 @@ Avoid: flat symbol design, mobile-game gloss, smooth illustration, excessive det
 | `solar_orbit` | Faceted miniature sun with one diagonal gold orbit and a tiny solar flare. |
 | `soul_requiem` | Dark iron reliquary lantern containing a cyan spirit flame and soul wisp. |
 | `void_collapse` | Dense black-violet imploding sphere with a broken amethyst rim. |
+
+## Potion reskin edit prompt
+
+The two potion sources use ChatGPT image generation in edit mode with the supplied
+official Potion of Healing icon as the locked edit target:
+
+```text
+Preserve the exact bottle silhouette, pixel-grid geometry, cork, pale-blue glass
+rim, highlights, shadows, transparency, scale, centering, and empty padding from
+the input. Change only the red liquid and its internal highlights. The result must
+still unmistakably be the official Minecraft potion bottle with a different liquid.
+No new bottle shape, label, text, particles outside the bottle, smooth painting,
+antialiasing, extra detail, or watermark.
+```
+
+`crate_luck_potion` changes the liquid to deep violet with one small molten-orange
+lucky spark. `fortune_potion` changes it to emerald/lime with one restrained gold
+clover-like glint.
