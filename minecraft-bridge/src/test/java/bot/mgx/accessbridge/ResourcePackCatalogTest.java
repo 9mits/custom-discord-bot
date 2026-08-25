@@ -107,7 +107,15 @@ class ResourcePackCatalogTest {
                 }
             }
             assertTrue(hasTransparentPixel, name + " needs transparent inventory padding");
-            assertTrue(opaqueColors.size() <= 64, name + " uses too many colors: " + opaqueColors.size());
+            assertTrue(opaqueColors.size() <= 32, name + " uses too many colors: " + opaqueColors.size());
+            for (int y = 0; y < image.getHeight(); y += 2) {
+                for (int x = 0; x < image.getWidth(); x += 2) {
+                    int logicalPixel = image.getRGB(x, y);
+                    assertEquals(logicalPixel, image.getRGB(x + 1, y), name + " has micro-detail at " + x + "," + y);
+                    assertEquals(logicalPixel, image.getRGB(x, y + 1), name + " has micro-detail at " + x + "," + y);
+                    assertEquals(logicalPixel, image.getRGB(x + 1, y + 1), name + " has micro-detail at " + x + "," + y);
+                }
+            }
         }
     }
 
