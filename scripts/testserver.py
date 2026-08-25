@@ -56,14 +56,17 @@ GRIM_URL = (
     "grimac-bukkit-2.3.74-5920e74.jar"
 )
 GRIM_SHA256 = "20f39cacc5cdbc8b7aff2df6e352174505ea77f5109c02b01dd369f9fe0aecca"
-GRIM_PRINTER_CHECKS = (
+GRIM_PRINTER_PLACE_CHECKS = (
     "AirLiquidPlace",
     "FabricatedPlace",
+    "FarPlace",
     "PositionPlace",
     "RotationPlace",
     "DuplicateRotPlace",
     "MultiPlace",
 )
+GRIM_PRINTER_PACKET_CHECKS = ("PacketOrderE",)
+GRIM_PRINTER_CHECKS = GRIM_PRINTER_PLACE_CHECKS + GRIM_PRINTER_PACKET_CHECKS
 
 #: Floodgate is a hard `depend:` in plugin.yml — without it the plugin will not
 #: load at all. Geyser and LuckPerms are soft, but the bridge talks to both.
@@ -160,22 +163,33 @@ def fetch_verified(url: str, destination: Path, expected_sha256: str) -> None:
 
 
 def grim_printer_config(text: str) -> str:
-    """Prevent only known Printer false positives from cancelling placements."""
+    """Prevent only known Printer false positives from undoing placements."""
     text = text.replace(
         "    # one is stood down. FarPlace still catches reach and FabricatedPlace still\n"
         "    # catches invented cursor packets — those two stay armed.",
+        "    # one is stood down. The InvalidPlace checks still reject malformed\n"
+        "    # placement packets.",
+    )
+    text = text.replace(
         "    # one is stood down. FarPlace still catches impossible reach, while the\n"
         "    # InvalidPlace checks still reject malformed placement packets.",
+        "    # one is stood down. The InvalidPlace checks still reject malformed\n"
+        "    # placement packets.",
     )
     lines = text.splitlines()
     for section in GRIM_PRINTER_CHECKS:
+        settings = (
+            ("cancelvl", "setbackvl")
+            if section in GRIM_PRINTER_PLACE_CHECKS
+            else ("setbackvl",)
+        )
         header = f"{section}:"
         try:
             start = next(index for index, line in enumerate(lines) if line.strip() == header)
         except StopIteration:
             if lines and lines[-1].strip():
                 lines.append("")
-            lines.extend((header, "    cancelvl: -1"))
+            lines.extend((header, *(f"    {setting}: -1" for setting in settings)))
             continue
         end = len(lines)
         for index in range(start + 1, len(lines)):
@@ -183,19 +197,18 @@ def grim_printer_config(text: str) -> str:
             if line and not line[0].isspace() and not line.startswith("#"):
                 end = index
                 break
-        setting = next(
-            (
-                index
-                for index in range(start + 1, end)
-                if lines[index].strip().lower().startswith("cancelvl:")
-            ),
-            None,
+        existing_settings = [
+            index
+            for index in range(start + 1, end)
+            if lines[index].strip().lower().startswith(
+                tuple(f"{setting}:" for setting in settings)
+            )
+        ]
+        for setting in reversed(existing_settings):
+            del lines[setting]
+        lines[start + 1:start + 1] = tuple(
+            f"    {setting}: -1" for setting in settings
         )
-        if setting is None:
-            lines.insert(start + 1, "    cancelvl: -1")
-        else:
-            indent = lines[setting][: len(lines[setting]) - len(lines[setting].lstrip())]
-            lines[setting] = f"{indent}cancelvl: -1"
     return "\n".join(lines) + "\n"
 
 
@@ -205,9 +218,21 @@ def grim_printer_punishments(text: str) -> str:
         "      # four by design, so they must not count towards the 60-in-5-minutes kick\n"
         "      # below — a long print run reaches 60 flags in under a minute. FarPlace,\n"
         "      # FabricatedPlace, MultiPlace and InvalidPlaceB still alert and still punish.",
-        "      # six by design, so they must not count towards the 60-in-5-minutes kick\n"
-        "      # below. They are logged by LitematicaPrinter without cancelling blocks.\n"
+        "      # eight by design, so they must not count towards broad punishment groups\n"
+        "      # below. They are logged by LitematicaPrinter without undoing blocks.\n"
+        "      # InvalidPlaceB remains fully enforced.",
+    )
+    text = text.replace(
+        "      # six by design, so they must not count towards the 60-in-5-minutes kick",
+        "      # eight by design, so they must not count towards broad punishment groups",
+    )
+    text = text.replace(
+        "      # seven by design, so they must not count towards the 60-in-5-minutes kick",
+        "      # eight by design, so they must not count towards broad punishment groups",
+    )
+    text = text.replace(
         "      # FarPlace and InvalidPlaceB remain fully enforced.",
+        "      # InvalidPlaceB remains fully enforced.",
     )
     lines = text.splitlines()
     exclusions = {
@@ -215,13 +240,30 @@ def grim_printer_punishments(text: str) -> str:
         for line in lines
         if line.strip().startswith('- "!') and line.strip().endswith('"')
     }
-    missing = [check for check in GRIM_PRINTER_CHECKS if check not in exclusions]
+    missing = [
+        check for check in GRIM_PRINTER_PLACE_CHECKS if check not in exclusions
+    ]
     if missing:
         place = next(
             index for index, line in enumerate(lines) if line.strip() == '- "Place"'
         )
         lines[place + 1:place + 1] = [f'      - "!{check}"' for check in missing]
-    if not any(line.strip() == "LitematicaPrinter:" for line in lines):
+    if "PacketOrderE" not in exclusions:
+        packet_order = next(
+            (
+                index
+                for index, line in enumerate(lines)
+                if line.strip() == '- "PacketOrder"'
+            ),
+            None,
+        )
+        if packet_order is not None:
+            lines.insert(packet_order + 1, '      - "!PacketOrderE"')
+    printer = next(
+        (index for index, line in enumerate(lines) if line.strip() == "LitematicaPrinter:"),
+        None,
+    )
+    if printer is None:
         group = [
             "  LitematicaPrinter:",
             "    remove-violations-after: 300",
@@ -236,6 +278,29 @@ def grim_printer_punishments(text: str) -> str:
             len(lines),
         )
         lines[combat:combat] = group
+    else:
+        end = next(
+            (
+                index
+                for index in range(printer + 1, len(lines))
+                if lines[index].startswith("  ")
+                and not lines[index].startswith("    ")
+                and lines[index].strip().endswith(":")
+            ),
+            len(lines),
+        )
+        commands = next(
+            index
+            for index in range(printer + 1, end)
+            if lines[index].strip() == "commands:"
+        )
+        existing = {
+            line.strip()[3:-1]
+            for line in lines[printer + 1:commands]
+            if line.strip().startswith('- "') and line.strip().endswith('"')
+        }
+        missing = [check for check in GRIM_PRINTER_CHECKS if check not in existing]
+        lines[commands:commands] = [f'      - "{check}"' for check in missing]
     return "\n".join(lines) + "\n"
 
 

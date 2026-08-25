@@ -40,6 +40,15 @@ final class LuckPermsService {
             "partner",
             "booster"
     );
+    static final Set<String> GRIM_PRINTER_PERMISSIONS = Set.of(
+            "grim.nomodifypacket.airliquidplace",
+            "grim.nomodifypacket.fabricatedplace",
+            "grim.nomodifypacket.farplace",
+            "grim.nomodifypacket.positionplace",
+            "grim.nomodifypacket.rotationplace",
+            "grim.nomodifypacket.duplicaterotplace",
+            "grim.nomodifypacket.multiplace"
+    );
 
     private final MGXAccessBridge plugin;
     private final LuckPerms luckPerms;
@@ -81,7 +90,12 @@ final class LuckPermsService {
             group.data().add(Node.builder("voicechat.groups").value(true).build());
             group.data().add(Node.builder("mgx.clans").value(true).build());
             group.data().add(Node.builder("mgx.leaderboard").value(true).build());
-        }).thenRun(() -> plugin.getLogger().info("Default players can use voice chat, clans and the leaderboard."))
+            GRIM_PRINTER_PERMISSIONS.forEach(permission ->
+                    group.data().add(Node.builder(permission).value(true).build())
+            );
+        }).thenRun(() -> plugin.getLogger().info(
+                        "Default players can use voice chat, clans, the leaderboard and Grim-safe Printer packets."
+                ))
                 .exceptionally(throwable -> {
                     plugin.getLogger().log(Level.WARNING, "Could not grant default player permissions", throwable);
                     return null;

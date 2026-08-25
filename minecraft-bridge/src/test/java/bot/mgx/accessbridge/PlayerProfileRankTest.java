@@ -70,6 +70,19 @@ class PlayerProfileRankTest {
     }
 
     @Test
+    void printerOnlyBypassesPacketModificationForKnownFalsePositives() {
+        assertEquals(7, LuckPermsService.GRIM_PRINTER_PERMISSIONS.size());
+        assertTrue(LuckPermsService.GRIM_PRINTER_PERMISSIONS.contains(
+                "grim.nomodifypacket.rotationplace"
+        ));
+        assertTrue(LuckPermsService.GRIM_PRINTER_PERMISSIONS.contains(
+                "grim.nomodifypacket.multiplace"
+        ));
+        assertFalse(LuckPermsService.GRIM_PRINTER_PERMISSIONS.contains("grim.nomodifypacket"));
+        assertFalse(LuckPermsService.GRIM_PRINTER_PERMISSIONS.contains("grim.exempt"));
+    }
+
+    @Test
     void boosterAddsAHeartOnTopOfLevelRewards() {
         PlayerProfile levelsOnly = new PlayerProfile(50, 5, true, "owner", "OWNER", 0, 0, false);
         PlayerProfile boosting = new PlayerProfile(50, 5, true, "owner", "OWNER", 0, 0, true);

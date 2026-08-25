@@ -1,0 +1,37 @@
+diff --git a/src/main/java/me/aleksilassila/litematica/printer/utils/InventoryUtils.java b/src/main/java/me/aleksilassila/litematica/printer/utils/InventoryUtils.java
+index 24a43f4..bc6bc18 100644
+--- a/src/main/java/me/aleksilassila/litematica/printer/utils/InventoryUtils.java
++++ b/src/main/java/me/aleksilassila/litematica/printer/utils/InventoryUtils.java
+@@ -7,16 +7,15 @@ import me.aleksilassila.litematica.printer.mixin.printer.litematica.EasyPlaceUti
+ import me.aleksilassila.litematica.printer.mixin.printer.litematica.InventoryUtilsAccessor;
+ import me.aleksilassila.litematica.printer.integration.inventory.MaterialRequest;
+ import me.aleksilassila.litematica.printer.integration.litematica.LitematicaPickSlotAdapter;
++import me.aleksilassila.litematica.printer.interaction.MiningInteractionPort;
+ import me.aleksilassila.litematica.printer.utils.minecraft.PlayerUtils;
+ import me.aleksilassila.litematica.printer.utils.minecraft.ToolSelectionUtils;
+ import me.aleksilassila.litematica.printer.utils.mods.QuickShulkerBridge;
+ import net.minecraft.client.Minecraft;
+-import net.minecraft.client.multiplayer.ClientPacketListener;
+ import net.minecraft.client.multiplayer.ClientLevel;
+ import net.minecraft.client.player.LocalPlayer;
+ import net.minecraft.core.NonNullList;
+ import net.minecraft.core.BlockPos;
+-import net.minecraft.network.protocol.game.ServerboundSetCarriedItemPacket;
+ import net.minecraft.world.entity.player.Inventory;
+ import net.minecraft.world.entity.player.Player;
+ import net.minecraft.world.inventory.ContainerInput;
+@@ -110,12 +109,10 @@ public class InventoryUtils {
+     }
+
+     public static void syncSelectedHotbarSlot() {
+-        LocalPlayer player = client.player;
+-        ClientPacketListener connection = client.getConnection();
+-        if (player == null || connection == null) {
++        if (client.player == null || client.gameMode == null) {
+             return;
+         }
+-        connection.send(new ServerboundSetCarriedItemPacket(getSelectedSlot(player.getInventory())));
++        ((MiningInteractionPort) client.gameMode).ensureCarriedItemSent();
+     }
+
+     /**
