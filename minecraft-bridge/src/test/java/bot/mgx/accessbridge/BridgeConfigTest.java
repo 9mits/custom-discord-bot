@@ -4,7 +4,9 @@ import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class BridgeConfigTest {
     @Test
@@ -12,6 +14,29 @@ class BridgeConfigTest {
         YamlConfiguration config = validConfiguration();
 
         assertEquals(6_000, BridgeConfig.load(config).leaderboardRefreshTicks());
+    }
+
+    @Test
+    void verificationIsRequiredByDefault() {
+        assertTrue(BridgeConfig.load(validConfiguration()).verificationRequired());
+    }
+
+    @Test
+    void localConfigurationCanExplicitlyDisableVerification() {
+        YamlConfiguration config = validConfiguration();
+        config.set("bridge-url", "ws://127.0.0.1:8765/minecraft-bridge");
+        config.set("allow-insecure-localhost", true);
+        config.set("verification-required", false);
+
+        assertFalse(BridgeConfig.load(config).verificationRequired());
+    }
+
+    @Test
+    void productionConfigurationCannotDisableVerification() {
+        YamlConfiguration config = validConfiguration();
+        config.set("verification-required", false);
+
+        assertThrows(IllegalArgumentException.class, () -> BridgeConfig.load(config));
     }
 
     @Test

@@ -117,6 +117,7 @@ bridge-url: "ws://127.0.0.1:8765/minecraft-bridge"
 bridge-secret: "{secret}"
 bridge-certificate-sha256: ""
 allow-insecure-localhost: true
+verification-required: false
 verification-expiry-seconds: 600
 reconnect-max-seconds: 60
 afk-timeout-seconds: 60
@@ -140,6 +141,27 @@ debug: true
 
 def log(message: str) -> None:
     print(f"[testserver] {message}", flush=True)
+
+
+def local_bridge_config(text: str) -> str:
+    """Forces the local-only verification bypass without weakening production."""
+    setting = "verification-required: false"
+    pattern = re.compile(r"(?m)^verification-required\s*:\s*.*$")
+    if pattern.search(text):
+        return pattern.sub(setting, text)
+    marker = "allow-insecure-localhost: true\n"
+    if marker in text:
+        return text.replace(marker, marker + setting + "\n", 1)
+    suffix = "" if text.endswith("\n") else "\n"
+    return text + suffix + setting + "\n"
+
+
+def configure_local_bridge(config: Path) -> None:
+    original = config.read_text()
+    patched = local_bridge_config(original)
+    if patched != original:
+        config.write_text(patched)
+        log("disabled account verification on the local test server")
 
 
 def fetch(url: str, destination: Path) -> None:
@@ -498,6 +520,7 @@ def setup(_: argparse.Namespace) -> int:
         # port, so the value only has to be well-formed, but "well-formed" is
         # exactly the check that rejected a placeholder here.
         config.write_text(BRIDGE_CONFIG.format(secret=secrets.token_hex(32)))
+    configure_local_bridge(config)
     problem = config_problem(config)
     if problem:
         log(f"WARNING: {config.name} would stop the plugin enabling: {problem}")
@@ -535,6 +558,7 @@ def deploy(_: argparse.Namespace) -> int:
         return result.returncode
     config = PLUGINS / "MGXAccessBridge" / "config.yml"
     if config.exists():
+        configure_local_bridge(config)
         problem = config_problem(config)
         if problem:
             log(f"WARNING: the plugin will refuse to enable: {problem}")

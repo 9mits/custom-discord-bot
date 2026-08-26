@@ -5,6 +5,27 @@ from unittest import mock
 from scripts import testserver
 
 
+class LocalBridgeConfigTests(unittest.TestCase):
+    def test_existing_production_setting_is_forced_off(self):
+        original = "allow-insecure-localhost: true\nverification-required: true\n"
+
+        patched = testserver.local_bridge_config(original)
+
+        self.assertIn("verification-required: false", patched)
+        self.assertNotIn("verification-required: true", patched)
+        self.assertEqual(patched, testserver.local_bridge_config(patched))
+
+    def test_missing_setting_is_added_to_existing_local_config(self):
+        original = "allow-insecure-localhost: true\nreconnect-max-seconds: 60\n"
+
+        patched = testserver.local_bridge_config(original)
+
+        self.assertIn(
+            "allow-insecure-localhost: true\nverification-required: false\n",
+            patched,
+        )
+
+
 class GrimPrinterConfigTests(unittest.TestCase):
     def test_printer_checks_never_cancel_or_set_back_and_patch_is_idempotent(self):
         original = """\

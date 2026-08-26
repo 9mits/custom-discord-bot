@@ -12,6 +12,7 @@ record BridgeConfig(
         byte[] secret,
         byte[] certificateSha256,
         boolean allowInsecureLocalhost,
+        boolean verificationRequired,
         int verificationExpirySeconds,
         int reconnectMaxSeconds,
         String scoreboardFooter,
@@ -27,6 +28,7 @@ record BridgeConfig(
         String secretText = config.getString("bridge-secret", "").trim();
         String certificatePinText = config.getString("bridge-certificate-sha256", "").trim();
         boolean allowInsecure = config.getBoolean("allow-insecure-localhost", false);
+        boolean verificationRequired = config.getBoolean("verification-required", true);
         int expiry = config.getInt("verification-expiry-seconds", 600);
         int reconnectMax = config.getInt("reconnect-max-seconds", 60);
         String scoreboardFooter = config.getString("scoreboard.footer", "discord.gg/mgx").trim();
@@ -54,6 +56,11 @@ record BridgeConfig(
         if (!secure && !localDevelopment) {
             throw new IllegalArgumentException(
                     "bridge-url must use wss://; ws:// is allowed only for explicit localhost development"
+            );
+        }
+        if (!verificationRequired && !localDevelopment) {
+            throw new IllegalArgumentException(
+                    "verification-required can be disabled only for explicit localhost development"
             );
         }
         byte[] secret;
@@ -89,6 +96,7 @@ record BridgeConfig(
                 secret,
                 certificateSha256,
                 allowInsecure,
+                verificationRequired,
                 expiry,
                 reconnectMax,
                 scoreboardFooter,

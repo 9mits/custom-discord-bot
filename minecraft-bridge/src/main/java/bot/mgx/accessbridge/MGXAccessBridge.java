@@ -71,6 +71,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private final ConcurrentHashMap<UUID, Component> verificationKicks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, PlayerConnectionIdentity> connectionIdentities =
             new ConcurrentHashMap<>();
+    private boolean verificationRequired = true;
 
     private LaunchService launchService;
     private ScheduledExecutorService networkExecutor;
@@ -125,6 +126,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             getLogger().severe("MGXAccessBridge configuration is invalid: " + exception.getMessage());
             getServer().getPluginManager().disablePlugin(this);
             return;
+        }
+        verificationRequired = bridgeConfig.verificationRequired();
+        if (!verificationRequired) {
+            getLogger().warning("Account verification is disabled by configuration.");
         }
 
         networkExecutor = Executors.newSingleThreadScheduledExecutor(runnable -> {
@@ -1164,6 +1169,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     /** Decides whether an account is already approved, verifies a pending claim, or refuses it. */
     private Verdict handleVerification(UUID uuid, String loginName) {
+        if (!verificationRequired) {
+            verificationKicks.remove(uuid);
+            return Verdict.allowed();
+        }
         VerificationIdentity.Resolved identity = resolveConnectingIdentity(uuid, loginName);
         if (isApprovedAccount(uuid, loginName, identity)) {
             verificationKicks.remove(uuid);

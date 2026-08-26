@@ -15,6 +15,9 @@ bridge-certificate-sha256: ""
 # Keep false in production. When true, ws:// is accepted only for localhost.
 allow-insecure-localhost: false
 
+# Keep enabled everywhere players access the real server. The local test harness
+# explicitly disables this so test clients can join without the Discord bot.
+verification-required: true
 verification-expiry-seconds: 600
 reconnect-max-seconds: 60
 
