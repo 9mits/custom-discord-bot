@@ -46,6 +46,7 @@ import java.util.regex.Pattern;
 
 /** A sealed world where an unknown player can safely prove Discord ownership. */
 final class VerificationLobbyService implements Listener, CommandExecutor {
+    static final String WORLD_NAME = "mgx_verification";
     private static final Pattern DISCORD_USERNAME = Pattern.compile("[A-Za-z0-9_.]{2,32}");
     private static final long REQUEST_COOLDOWN_MILLIS = 10_000L;
 
@@ -69,9 +70,9 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
     VerificationLobbyService(MGXAccessBridge plugin, BridgeClient bridge) {
         this.plugin = plugin;
         this.bridge = bridge;
-        World loaded = Bukkit.getWorld("mgx_verification");
+        World loaded = Bukkit.getWorld(WORLD_NAME);
         if (loaded == null) {
-            loaded = Bukkit.createWorld(new WorldCreator("mgx_verification")
+            loaded = Bukkit.createWorld(new WorldCreator(WORLD_NAME)
                     .environment(World.Environment.NORMAL)
                     .type(WorldType.FLAT)
                     .generateStructures(false));
@@ -90,6 +91,14 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         spawn = new Location(world, 0.5, y, 0.5, 0.0F, 0.0F);
         world.setSpawnLocation(spawn);
         Bukkit.getScheduler().runTaskTimer(plugin, this::remindPlayers, 200L, 200L);
+    }
+
+    static boolean isLobbyWorld(World candidate) {
+        return candidate != null && isLobbyWorldName(candidate.getName());
+    }
+
+    static boolean isLobbyWorldName(String candidate) {
+        return WORLD_NAME.equals(candidate);
     }
 
     void markAwaiting(

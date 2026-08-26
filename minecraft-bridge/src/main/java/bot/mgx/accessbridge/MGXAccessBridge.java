@@ -1316,6 +1316,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     private void lockLoadedWorldSpawns() {
         for (World world : getServer().getWorlds()) {
+            if (VerificationLobbyService.isLobbyWorld(world)) {
+                continue;
+            }
             lockWorldSpawn(world);
             applyWorldMemory(world);
             applyWorldLimits(world);
@@ -1438,6 +1441,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     @EventHandler
     public void onWorldLoad(WorldLoadEvent event) {
+        if (VerificationLobbyService.isLobbyWorld(event.getWorld())) {
+            return;
+        }
         lockWorldSpawn(event.getWorld());
         applyWorldMemory(event.getWorld());
         applyWorldLimits(event.getWorld());
@@ -1465,6 +1471,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     @EventHandler(ignoreCancelled = true)
     public void onSpawnChange(SpawnChangeEvent event) {
+        if (VerificationLobbyService.isLobbyWorld(event.getWorld())) {
+            return;
+        }
         lockWorldSpawn(event.getWorld());
     }
 
@@ -1473,6 +1482,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         Location loc = event.getSpawnLocation();
         World world = loc.getWorld();
         if (world == null || world.getEnvironment() != World.Environment.NORMAL) {
+            return;
+        }
+        if (VerificationLobbyService.isLobbyWorld(world)) {
             return;
         }
         Location spawn = exactWorldSpawn(world);
