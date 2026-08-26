@@ -307,6 +307,13 @@ loaded here with a graceful Paper restart before it can be considered for
 production. This is the automatic deployment target and needs no separate user
 approval. GravelHost is updated only after the user approves this exact test build.
 
+The Minecraft Discord bot registers `/mctest verification-panel` only when
+`MINECRAFT_TEST_MODE=1`. That command points the staging bot at the chosen channel
+and publishes its working verification panel. Production must leave the flag off.
+For an explicitly requested verification run, start or restart local Paper with
+`python scripts/testserver.py restart --verification`; without that switch the
+local bypass remains the safe default.
+
 The Minecraft EULA is left unaccepted; flipping `eula=true` is the user's to do.
 
 The staging bot runs locally, not on the panel. The panel runs `start.py`, which

@@ -7,7 +7,7 @@ from scripts import testserver
 
 
 class LocalBridgeConfigTests(unittest.TestCase):
-    def test_existing_production_setting_is_forced_off(self):
+    def test_existing_production_setting_is_forced_off_by_default(self):
         original = "allow-insecure-localhost: true\nverification-required: true\n"
 
         patched = testserver.local_bridge_config(original)
@@ -15,6 +15,21 @@ class LocalBridgeConfigTests(unittest.TestCase):
         self.assertIn("verification-required: false", patched)
         self.assertNotIn("verification-required: true", patched)
         self.assertEqual(patched, testserver.local_bridge_config(patched))
+
+    def test_explicit_test_run_can_require_verification(self):
+        original = "allow-insecure-localhost: true\nverification-required: false\n"
+
+        patched = testserver.local_bridge_config(
+            original,
+            verification_required=True,
+        )
+
+        self.assertIn("verification-required: true", patched)
+        self.assertNotIn("verification-required: false", patched)
+        self.assertEqual(
+            patched,
+            testserver.local_bridge_config(patched, verification_required=True),
+        )
 
     def test_missing_setting_is_added_to_existing_local_config(self):
         original = "allow-insecure-localhost: true\nreconnect-max-seconds: 60\n"

@@ -139,6 +139,22 @@ class MinecraftBotPolicyTests(unittest.TestCase):
             set(),
         )
 
+    def test_verification_panel_command_only_exists_in_minecraft_test_mode(self):
+        production_groups = self.bot._build_command_groups()
+        self.assertEqual(
+            {group.name for group in production_groups},
+            {"minecraft", "mcstaff", "mcadmin"},
+        )
+
+        self.bot.config = SimpleNamespace(test_mode=True)
+        test_groups = self.bot._build_command_groups()
+        staging = next(group for group in test_groups if group.name == "mctest")
+
+        self.assertTrue(staging.default_permissions.administrator)
+        self.assertEqual(
+            {command.name for command in staging.commands},
+            {"verification-panel"},
+        )
 
     def test_minecraft_presentation_uses_orange_brand_system(self):
         embed = info_embed("Status", "Operational", success=True)
@@ -978,6 +994,43 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
 
 
 class MinecraftConfigurationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_test_panel_command_configures_and_posts_the_working_panel(self):
+        bot = object.__new__(MinecraftAccessBot)
+        bot.config = SimpleNamespace(test_mode=True)
+        bot.require_administrator = AsyncMock(return_value=True)
+        bot.update_settings = AsyncMock()
+        bot.post_application_panel = AsyncMock(
+            return_value=SimpleNamespace(jump_url="https://discord.test/panel")
+        )
+        interaction = SimpleNamespace(
+            user=SimpleNamespace(id=42),
+            response=SimpleNamespace(defer=AsyncMock()),
+            edit_original_response=AsyncMock(),
+        )
+        channel = SimpleNamespace(id=99, mention="#verify-test")
+        test_group = next(
+            group for group in bot._build_command_groups() if group.name == "mctest"
+        )
+        command = next(
+            command
+            for command in test_group.commands
+            if command.name == "verification-panel"
+        )
+
+        await command.callback(interaction, channel)
+
+        interaction.response.defer.assert_awaited_once_with(
+            ephemeral=True,
+            thinking=True,
+        )
+        bot.update_settings.assert_awaited_once_with(
+            actor_id=42,
+            application_channel_id=99,
+        )
+        bot.post_application_panel.assert_awaited_once_with()
+        embed = interaction.edit_original_response.await_args.kwargs["embed"]
+        self.assertEqual(embed.title, "Test Verification Ready")
+
     def test_minimal_environment_is_enough_to_bootstrap(self):
         environment = {
             "MINECRAFT_DISCORD_BOT_TOKEN": "token",
@@ -993,6 +1046,19 @@ class MinecraftConfigurationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(config.member_role_id, 0)
         self.assertIsNone(config.bridge_tls_cert_path)
         self.assertIsNone(config.bridge_tls_key_path)
+        self.assertFalse(config.test_mode)
+
+    def test_minecraft_test_mode_is_explicit(self):
+        environment = {
+            "MINECRAFT_DISCORD_BOT_TOKEN": "token",
+            "MINECRAFT_GUILD_ID": "123456789",
+            "MINECRAFT_BRIDGE_SECRET": "ab" * 32,
+            "MINECRAFT_TEST_MODE": "true",
+        }
+        with patch.dict(os.environ, environment, clear=True):
+            config = MinecraftConfig.from_env()
+
+        self.assertTrue(config.test_mode)
 
     def test_bridge_tls_certificate_and_key_must_be_configured_together(self):
         environment = {
