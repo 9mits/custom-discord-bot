@@ -4,7 +4,9 @@
 This importer never draws or invents icon geometry. It only removes the flat
 generation backdrop, trims model artifacts, and scales the selected generated
 artwork onto a 16x16 logical pixel grid, then enlarges that grid exactly 2x for
-clean 32x32 inventory rendering.
+clean 32x32 inventory rendering. Potion reskins are the deliberate exception:
+their AI-edited source pixels are kept at native resolution after backdrop
+removal, because the supplied vanilla bottle is already the final art direction.
 """
 
 from __future__ import annotations
@@ -31,6 +33,10 @@ FOCUS_ONLY = {
     "golden_finality",
     "kingmakers_wake",
     "silver_reckoning",
+}
+NATIVE_QUALITY = {
+    "crate_luck_potion",
+    "fortune_potion",
 }
 
 
@@ -187,6 +193,15 @@ def prepare(source: Path, focus_only: bool = False) -> Image.Image:
     return logical.resize((CANVAS_SIZE, CANVAS_SIZE), Image.Resampling.NEAREST)
 
 
+def prepare_native(source: Path) -> Image.Image:
+    """Remove only the generation backdrop; preserve every source-art pixel."""
+    image = Image.open(source).convert("RGB")
+    alpha = meaningful_foreground(image, connected_background(image), False)
+    isolated = Image.new("RGBA", image.size, (0, 0, 0, 0))
+    isolated.paste(image, (0, 0), alpha)
+    return isolated
+
+
 def write_contact_sheet(output_root: Path, targets: dict[str, Path], destination: Path) -> None:
     names = sorted(targets, key=lambda name: (len(targets[name].parts), str(targets[name])))
     columns, cell_width, cell_height = 7, 180, 190
@@ -244,7 +259,12 @@ def main() -> None:
             raise SystemExit(f"missing generated source for {name}: {source}")
         target = args.output / relative_target
         target.parent.mkdir(parents=True, exist_ok=True)
-        prepare(source, focus_only=name in FOCUS_ONLY).save(target, optimize=True)
+        prepared = (
+            prepare_native(source)
+            if name in NATIVE_QUALITY
+            else prepare(source, focus_only=name in FOCUS_ONLY)
+        )
+        prepared.save(target, optimize=True)
 
     if args.contact_sheet:
         write_contact_sheet(args.output, targets, args.contact_sheet)

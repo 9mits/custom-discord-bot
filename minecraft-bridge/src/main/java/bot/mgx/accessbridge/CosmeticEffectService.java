@@ -310,12 +310,15 @@ final class CosmeticEffectService implements Listener {
     /** A miniature sun rises, gains orbiting bodies, throws a flare, then pulses outward. */
     private void drawSolarAura(Player owner, Location centre, double phase, int step) {
         Color gold = Color.fromRGB(255, 190, 35);
+        Color whiteGold = Color.fromRGB(255, 247, 178);
         double rise = CosmeticAnimation.smooth(CosmeticAnimation.phaseProgress(step, 0, 18));
         double sunY = step < 18 ? -0.72d + rise * 1.58d : 0.86d;
         Location sun = centre.clone().add(0d, sunY, 0d);
         dust(owner, sun, gold, 1.35f, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
         spawn(owner, sun, Particle.SMALL_FLAME, 1, 0.08d, 0.08d, 0.08d, 0.01d, null,
                 PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        drawVerticalStar(owner, sun, horizontalSide(owner), 0.38d,
+                phase * 0.38d, gold, whiteGold);
 
         double orbitOpen = CosmeticAnimation.smooth(
                 CosmeticAnimation.phaseProgress(step, 12, 32)
@@ -362,9 +365,12 @@ final class CosmeticEffectService implements Listener {
     /** Two heartbeats launch three crimson blades through a changing clover orbit. */
     private void drawCrimsonAura(Player owner, Location centre, double phase, int step) {
         Color crimson = Color.fromRGB(195, 8, 32);
+        Color rubyLight = Color.fromRGB(255, 78, 105);
         double firstBeat = Math.max(0d, 1d - Math.abs(step - 10d) / 5d);
         double secondBeat = Math.max(0d, 1d - Math.abs(step - 21d) / 4d);
         double beat = Math.max(firstBeat, secondBeat * 0.8d);
+        drawVerticalGem(owner, centre.clone().add(0d, 0.08d, 0d), horizontalSide(owner),
+                0.46d + beat * 0.1d, -phase * 0.48d, crimson, rubyLight);
         drawRing(owner, centre.clone().add(0d, 0.05d, 0d),
                 0.45d + beat * 0.85d, 12, phase, crimson, 1.05f,
                 PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
@@ -419,6 +425,17 @@ final class CosmeticEffectService implements Listener {
                 dust(owner, at, vine == 0 ? emerald : lime, 0.85f,
                         PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
             }
+        }
+        double crystalForm = CosmeticAnimation.easeOutBack(
+                CosmeticAnimation.phaseProgress(step, 12, 34)
+        );
+        for (int crystal = 0; crystal < 3; crystal++) {
+            double angle = -phase * 0.72d + crystal * Math.PI * 2d / 3d;
+            double height = -0.48d + crystal * 0.48d
+                    + Math.sin(phase * 0.7d + crystal) * 0.12d;
+            drawOrbitingCrystal(owner, centre, angle, 0.92d * crystalForm,
+                    height, 0.48d * crystalForm,
+                    crystal % 2 == 0 ? emerald : lime);
         }
         if (step >= 32 && step < 65) {
             double bloom = CosmeticAnimation.pingPong((step - 32d) / 33d);
@@ -493,6 +510,8 @@ final class CosmeticEffectService implements Listener {
             dust(owner, at, point % 2 == 0 ? star : ice, point % 2 == 0 ? 1.05f : 0.8f,
                     PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
         }
+        drawVerticalStar(owner, crown.clone().add(0d, 0.14d, 0d), horizontalSide(owner),
+                0.33d * assemble, -phase * 0.58d, ice, star);
         if (step >= 28 && step < 63) {
             double flight = CosmeticAnimation.phaseProgress(step, 28, 63);
             double angle = phase * 1.9d;
@@ -512,6 +531,69 @@ final class CosmeticEffectService implements Listener {
             drawRing(owner, crown, 0.2d + halo * 1.25d, 14, phase, ice, 0.75f,
                     PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
         }
+    }
+
+    /** A faceted ruby/medallion that visibly turns instead of reading as loose dust. */
+    private void drawVerticalGem(
+            Player owner, Location centre, Vector side, double scale,
+            double rotation, Color edge, Color highlight
+    ) {
+        Location[] points = new Location[4];
+        for (int point = 0; point < points.length; point++) {
+            double angle = rotation + point * Math.PI / 2d;
+            points[point] = centre.clone()
+                    .add(side.clone().multiply(Math.cos(angle) * scale))
+                    .add(0d, Math.sin(angle) * scale, 0d);
+        }
+        for (int edgeIndex = 0; edgeIndex < points.length; edgeIndex++) {
+            drawLine(owner, points[edgeIndex], points[(edgeIndex + 1) % points.length],
+                    3, edgeIndex % 2 == 0 ? highlight : edge, 0.92f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+        drawLine(owner, points[0], points[2], 3, edge, 0.72f,
+                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        drawLine(owner, points[1], points[3], 3, highlight, 0.72f,
+                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+    }
+
+    /** Alternating long and short rays form a readable rotating relic. */
+    private void drawVerticalStar(
+            Player owner, Location centre, Vector side, double radius,
+            double rotation, Color edge, Color highlight
+    ) {
+        for (int ray = 0; ray < 8; ray++) {
+            double angle = rotation + ray * Math.PI / 4d;
+            double length = radius * (ray % 2 == 0 ? 1d : 0.58d);
+            Location tip = centre.clone()
+                    .add(side.clone().multiply(Math.cos(angle) * length))
+                    .add(0d, Math.sin(angle) * length, 0d);
+            drawLine(owner, centre, tip, ray % 2 == 0 ? 4 : 3,
+                    ray % 2 == 0 ? highlight : edge, ray % 2 == 0 ? 0.9f : 0.72f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+    }
+
+    /** A pointed crystal with a moving facet orbits in the same spirit as Amethyst Orbit. */
+    private void drawOrbitingCrystal(
+            Player owner, Location centre, double angle, double radius,
+            double height, double length, Color colour
+    ) {
+        Vector radial = new Vector(Math.cos(angle), 0d, Math.sin(angle));
+        Vector tangent = new Vector(-Math.sin(angle), 0d, Math.cos(angle));
+        Location middle = centre.clone().add(radial.clone().multiply(radius)).add(0d, height, 0d);
+        Location base = middle.clone().add(radial.clone().multiply(-length * 0.16d))
+                .add(0d, -length * 0.42d, 0d);
+        Location tip = middle.clone().add(radial.clone().multiply(length * 0.22d))
+                .add(0d, length * 0.58d, 0d);
+        drawLine(owner, base, tip, 5, colour, 0.98f,
+                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        drawLine(owner,
+                middle.clone().add(tangent.clone().multiply(-length * 0.24d)),
+                middle.clone().add(tangent.clone().multiply(length * 0.24d)),
+                3, Color.fromRGB(210, 255, 185), 0.76f,
+                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        dust(owner, tip, Color.fromRGB(235, 255, 215), 0.72f,
+                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
     }
 
     private void drawTrail(
@@ -690,19 +772,47 @@ final class CosmeticEffectService implements Listener {
 
     private void drawPrismaticTrail(Player owner, List<Location> history) {
         Vector side = trailSide(history);
-        for (int prism = 0; prism < 2; prism++) {
-            int index = CosmeticAnimation.trailIndex(frame / 2L, history.size(), prism * 6);
-            double turn = frame * (0.24d + prism * 0.05d);
-            double scale = 0.48d + CosmeticAnimation.pingPong(
-                    frame * 0.08d + prism * 0.41d
-            ) * 0.28d;
-            Location centre = trailPoint(history, index, 0.52d + prism * 0.18d);
-            drawTrailDiamond(owner, centre, side, scale, turn,
-                    frame + prism * 13L);
-            spawnMoving(owner, centre, Particle.END_ROD,
-                    new Vector(0d, 0.055d, 0d), null,
+        int index = CosmeticAnimation.trailIndex(frame / 3L, history.size(), 0);
+        Location prism = trailPoint(history, index, 0.68d);
+        double turn = Math.sin(frame * 0.18d) * 0.16d;
+        double scale = 0.58d + CosmeticAnimation.pingPong(frame * 0.075d) * 0.16d;
+        Location top = prism.clone().add(side.clone().multiply(Math.sin(turn) * scale * 0.2d))
+                .add(0d, scale, 0d);
+        Location left = prism.clone().add(side.clone().multiply(-scale * Math.cos(turn)))
+                .add(0d, -scale * 0.5d, 0d);
+        Location right = prism.clone().add(side.clone().multiply(scale * Math.cos(turn)))
+                .add(0d, -scale * 0.5d, 0d);
+        Color glass = Color.fromRGB(220, 250, 255);
+        Color glassEdge = Color.fromRGB(135, 210, 255);
+        drawLine(owner, top, left, 4, glass, 0.86f,
+                PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+        drawLine(owner, left, right, 5, glassEdge, 0.78f,
+                PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+        drawLine(owner, right, top, 4, glass, 0.86f,
+                PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+
+        Location incoming = trailPoint(history, index + 2, 0.68d);
+        drawLine(owner, incoming, prism, 4, Color.fromRGB(255, 255, 235), 0.7f,
+                PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+        Color[] spectrum = {
+                Color.fromRGB(255, 65, 70),
+                Color.fromRGB(255, 205, 45),
+                Color.fromRGB(45, 220, 255),
+                Color.fromRGB(185, 75, 255)
+        };
+        double fan = 0.24d + CosmeticAnimation.pingPong(frame * 0.08d) * 0.18d;
+        for (int beam = 0; beam < spectrum.length; beam++) {
+            Location target = trailPoint(history, index + 5 + beam / 2, 0.56d)
+                    .add(side.clone().multiply((beam - 1.5d) * fan))
+                    .add(0d, (beam % 2 == 0 ? -0.12d : 0.12d), 0d);
+            drawLine(owner, prism, target, 5, spectrum[beam], 0.76f,
+                    PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+            dust(owner, target, spectrum[beam], 0.7f,
                     PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
         }
+        spawnMoving(owner, prism, Particle.ELECTRIC_SPARK,
+                new Vector(0d, 0.045d, 0d), null,
+                PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
     }
 
     private void drawKillEffect(
@@ -1351,6 +1461,9 @@ final class CosmeticEffectService implements Listener {
                 double formation = CosmeticAnimation.easeOutBack(
                         CosmeticAnimation.phaseProgress(step, 0, 24)
                 );
+                drawVerticalStar(owner, centre.clone().add(0d, 0.16d, 0d),
+                        horizontalSide(owner), 0.42d * formation,
+                        phase * 0.46d, violet, starlight);
                 for (int orbit = 0; orbit < 3; orbit++) {
                     int planets = 3 + orbit;
                     for (int body = 0; body < planets; body++) {
@@ -1408,6 +1521,9 @@ final class CosmeticEffectService implements Listener {
                 double ignite = CosmeticAnimation.easeOutBack(
                         CosmeticAnimation.phaseProgress(step, 18, 42)
                 );
+                drawVerticalGem(owner, crown.clone().add(0d, 0.08d, 0d),
+                        horizontalSide(owner), 0.4d * ignite,
+                        -phase * 0.5d, fire, molten);
                 for (int point = 0; point < 9; point++) {
                     double angle = -phase * 0.45d + point * Math.PI * 2d / 9d;
                     Location at = crown.clone().add(
@@ -1450,6 +1566,11 @@ final class CosmeticEffectService implements Listener {
                         CosmeticAnimation.phaseProgress(step, 0, 28)
                 );
                 double flap = Math.sin(step * 0.22d) * 0.28d;
+                drawVerticalGem(owner,
+                        centre.clone().add(backwards.clone().multiply(0.38d))
+                                .add(0d, 0.14d, 0d),
+                        side, 0.38d * unfold, phase * 0.34d,
+                        Color.fromRGB(28, 0, 48), Color.fromRGB(155, 65, 245));
                 for (int wing = 0; wing < 3; wing++) {
                     for (double direction : new double[]{-1d, 1d}) {
                         for (int point = 0; point < 6; point++) {
@@ -1489,32 +1610,7 @@ final class CosmeticEffectService implements Listener {
             Player owner, CosmeticCatalog.Definition definition, List<Location> history
     ) {
         switch (definition.id()) {
-            case "galaxy_wake" -> {
-                Vector side = trailSide(history);
-                for (int galaxy = 0; galaxy < 2; galaxy++) {
-                    int index = CosmeticAnimation.trailIndex(
-                            frame / 3L, history.size(), galaxy * 7
-                    );
-                    double radius = 0.42d + CosmeticAnimation.pingPong(
-                            frame * 0.09d + galaxy * 0.4d
-                    ) * 0.42d;
-                    Location core = trailPoint(history, index, 0.55d + galaxy * 0.2d);
-                    for (int star = 0; star < 10; star++) {
-                        double angle = frame * (0.3d + galaxy * 0.08d)
-                                + star * Math.PI / 5d;
-                        double lane = star % 2 == 0 ? radius : radius * 0.55d;
-                        Location at = core.clone()
-                                .add(side.clone().multiply(Math.cos(angle) * lane))
-                                .add(0d, Math.sin(angle) * lane * 0.62d, 0d);
-                        dust(owner, at, rainbow(frame + star * 5L + galaxy * 17L),
-                                star % 2 == 0 ? 1.05f : 0.72f,
-                                PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
-                    }
-                    spawnMoving(owner, core, galaxy == 0 ? Particle.END_ROD : Particle.FIREWORK,
-                            new Vector(0d, 0.065d, 0d), null,
-                            PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
-                }
-            }
+            case "galaxy_wake" -> drawGalaxyWake(owner, history);
             case "phantom_chains" -> {
                 Vector side = trailSide(history);
                 Color chainColour = Color.fromRGB(55, 220, 235);
@@ -1581,6 +1677,53 @@ final class CosmeticEffectService implements Listener {
             }
             default -> { }
         }
+    }
+
+    /** Twin spiral galaxies and a shooting star; deliberately never a rainbow prism. */
+    private void drawGalaxyWake(Player owner, List<Location> history) {
+        Vector side = trailSide(history);
+        Color[] cosmic = {
+                Color.fromRGB(58, 40, 145),
+                Color.fromRGB(105, 70, 235),
+                Color.fromRGB(55, 185, 255),
+                Color.fromRGB(220, 240, 255)
+        };
+        for (int galaxy = 0; galaxy < 2; galaxy++) {
+            int index = CosmeticAnimation.trailIndex(frame / 3L, history.size(), galaxy * 7);
+            Location core = trailPoint(history, index, 0.58d + galaxy * 0.18d);
+            double pulse = 0.78d + CosmeticAnimation.pingPong(
+                    frame * 0.065d + galaxy * 0.43d
+            ) * 0.3d;
+            double rotation = frame * (galaxy == 0 ? 0.24d : -0.2d);
+            for (int arm = 0; arm < 2; arm++) {
+                for (int star = 0; star < 7; star++) {
+                    double progress = (star + 1d) / 7d;
+                    double radius = progress * pulse;
+                    double angle = rotation + arm * Math.PI + progress * Math.PI * 2.2d;
+                    Location at = core.clone()
+                            .add(side.clone().multiply(Math.cos(angle) * radius))
+                            .add(0d, Math.sin(angle) * radius * 0.58d, 0d);
+                    Color colour = cosmic[(star + arm + galaxy) % cosmic.length];
+                    dust(owner, at, colour, star == 6 ? 0.95f : 0.7f,
+                            PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+                }
+            }
+            dust(owner, core, cosmic[3], galaxy == 0 ? 1.05f : 0.88f,
+                    PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+            spawnMoving(owner, core, Particle.REVERSE_PORTAL,
+                    new Vector(0d, 0.035d, 0d), null,
+                    PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+        }
+
+        int cometIndex = CosmeticAnimation.trailIndex(frame / 2L, history.size(), 4);
+        Location comet = trailPoint(history, cometIndex, 1.05d);
+        Location cometTail = trailPoint(history, cometIndex + 3, 0.72d)
+                .add(side.clone().multiply(Math.sin(frame * 0.22d) * 0.26d));
+        drawLine(owner, comet, cometTail, 5, cosmic[2], 0.78f,
+                PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+        spawnMoving(owner, comet, Particle.END_ROD,
+                new Vector(0d, 0.065d, 0d), null,
+                PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
     }
 
     private void drawSecretKill(
@@ -1862,28 +2005,6 @@ final class CosmeticEffectService implements Listener {
         }
     }
 
-    private void drawTrailDiamond(
-            Player owner, Location centre, Vector side, double scale,
-            double rotation, long colourFrame
-    ) {
-        Location[] points = new Location[4];
-        for (int point = 0; point < points.length; point++) {
-            double angle = rotation + point * Math.PI / 2d;
-            points[point] = centre.clone()
-                    .add(side.clone().multiply(Math.cos(angle) * scale))
-                    .add(0d, Math.sin(angle) * scale, 0d);
-        }
-        for (int edge = 0; edge < points.length; edge++) {
-            drawLine(owner, points[edge], points[(edge + 1) % points.length],
-                    4, rainbow(colourFrame + edge * 5L), 0.82f,
-                    PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
-        }
-        drawLine(owner, points[0], points[2], 4, rainbow(colourFrame + 23L),
-                0.68f, PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
-        drawLine(owner, points[1], points[3], 4, rainbow(colourFrame + 31L),
-                0.68f, PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
-    }
-
     private void drawTrailCrown(
             Player owner, Location centre, Vector side, Color colour, double scale
     ) {
@@ -2030,19 +2151,6 @@ final class CosmeticEffectService implements Listener {
             }
         }
         return viewers;
-    }
-
-    private static Color rainbow(long value) {
-        Color[] colours = {
-                Color.fromRGB(255, 45, 45),
-                Color.fromRGB(255, 175, 35),
-                Color.fromRGB(255, 240, 55),
-                Color.fromRGB(45, 230, 95),
-                Color.fromRGB(45, 190, 255),
-                Color.fromRGB(115, 75, 255),
-                Color.fromRGB(235, 65, 255)
-        };
-        return colours[(int) ((value / 3L) % colours.length)];
     }
 
     private static Color podiumColour(int rank) {

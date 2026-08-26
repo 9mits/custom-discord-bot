@@ -10,6 +10,7 @@ from PIL import Image
 REPO = Path(__file__).resolve().parents[1]
 RESOURCE_PACK = REPO / "assets" / "resourcepack"
 ITEM_TEXTURES = RESOURCE_PACK / "src" / "assets" / "mgx" / "textures" / "item"
+NATIVE_POTION_ICONS = {"crate_luck_potion", "fortune_potion"}
 
 
 class ResourcePackIconTests(unittest.TestCase):
@@ -24,22 +25,37 @@ class ResourcePackIconTests(unittest.TestCase):
         for path in icons:
             with self.subTest(icon=path.stem):
                 with Image.open(path) as image:
-                    self.assertEqual((32, 32), image.size)
                     self.assertEqual("RGBA", image.mode)
-                    colours = image.getcolors(maxcolors=257)
-                    self.assertIsNotNone(colours)
-                    self.assertLessEqual(len(colours), 24)
                     alpha = image.getchannel("A")
                     self.assertEqual({0, 255}, set(alpha.getdata()))
-                    pixels = image.load()
-                    for y in range(0, 32, 2):
-                        for x in range(0, 32, 2):
-                            block = {pixels[x + dx, y + dy] for dx in range(2) for dy in range(2)}
-                            self.assertEqual(1, len(block), "every logical pixel must be a crisp 2x2 block")
                     bounds = alpha.getbbox()
                     self.assertIsNotNone(bounds)
-                    self.assertGreaterEqual(bounds[2] - bounds[0], 14)
-                    self.assertGreaterEqual(bounds[3] - bounds[1], 20)
+                    if path.stem in NATIVE_POTION_ICONS:
+                        self.assertEqual(image.size[0], image.size[1])
+                        self.assertGreaterEqual(image.size[0], 160)
+                        colours = image.getcolors(maxcolors=1_000_000)
+                        self.assertIsNotNone(colours)
+                        self.assertGreater(len(colours), 24)
+                        self.assertGreaterEqual(bounds[2] - bounds[0], image.size[0] // 2)
+                        self.assertGreaterEqual(bounds[3] - bounds[1], image.size[1] * 3 // 4)
+                    else:
+                        self.assertEqual((32, 32), image.size)
+                        colours = image.getcolors(maxcolors=257)
+                        self.assertIsNotNone(colours)
+                        self.assertLessEqual(len(colours), 24)
+                        pixels = image.load()
+                        for y in range(0, 32, 2):
+                            for x in range(0, 32, 2):
+                                block = {
+                                    pixels[x + dx, y + dy]
+                                    for dx in range(2) for dy in range(2)
+                                }
+                                self.assertEqual(
+                                    1, len(block),
+                                    "every logical pixel must be a crisp 2x2 block",
+                                )
+                        self.assertGreaterEqual(bounds[2] - bounds[0], 14)
+                        self.assertGreaterEqual(bounds[3] - bounds[1], 20)
                 digests.add(hashlib.sha256(path.read_bytes()).digest())
 
         self.assertEqual(len(icons), len(digests), "custom icons must not be duplicate recolour assets")
