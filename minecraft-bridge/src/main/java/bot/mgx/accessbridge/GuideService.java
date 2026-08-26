@@ -18,6 +18,8 @@ import java.util.List;
 import java.util.Locale;
 
 final class GuideService implements CommandExecutor, TabCompleter {
+    static final String DISCORD_INVITE_URL = "https://discord.gg/mgx";
+    static final String DISCORD_INVITE_DISPLAY = "discord.gg/mgx";
     private final PlayerMenuService menus;
 
     GuideService(PlayerMenuService menus) {
@@ -213,8 +215,8 @@ final class GuideService implements CommandExecutor, TabCompleter {
         title(player, "COMMUNITY DISCORD");
         player.sendMessage(body("Join for server news, support, applications, level progression, and community chat."));
         player.sendMessage(Component.empty());
-        player.sendMessage(Component.text("discord.gg/mgx", ORANGE, TextDecoration.BOLD)
-                .clickEvent(ClickEvent.openUrl("https://discord.gg/mgx"))
+        player.sendMessage(Component.text(DISCORD_INVITE_DISPLAY, ORANGE, TextDecoration.BOLD)
+                .clickEvent(ClickEvent.openUrl(DISCORD_INVITE_URL))
                 .hoverEvent(HoverEvent.showText(Component.text("Open the Mysterious SMP X Discord", NamedTextColor.GRAY))));
         footer(player);
     }

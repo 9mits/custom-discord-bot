@@ -33,6 +33,17 @@ class AccessStatus(StrEnum):
     REVOKED = "REVOKED"
 
 
+class ReverseLinkStatus(StrEnum):
+    WAITING_FOR_MEMBER = "WAITING_FOR_MEMBER"
+    WAITING_FOR_APPROVAL = "WAITING_FOR_APPROVAL"
+    PROCESSING = "PROCESSING"
+    APPROVED = "APPROVED"
+    DENIED = "DENIED"
+    EXPIRED = "EXPIRED"
+    SUPERSEDED = "SUPERSEDED"
+    FAILED = "FAILED"
+
+
 class BridgeAction(StrEnum):
     APPROVE = "APPROVE"
     REVOKE = "REVOKE"
@@ -73,6 +84,23 @@ class MinecraftAccess:
     auto_detect_edition: bool = False
     status_channel_id: Optional[str] = None
     status_message_id: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class ReverseLinkRequest:
+    request_id: str
+    guild_id: str
+    discord_username: str
+    normalized_discord_username: str
+    discord_user_id: Optional[str]
+    edition: Edition
+    minecraft_uuid: str
+    xuid: Optional[str]
+    current_username: str
+    status: ReverseLinkStatus
+    expires_at: int
+    created_at: int
+    updated_at: int
 
 
 @dataclass(frozen=True)

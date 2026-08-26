@@ -44,6 +44,7 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.player_event_handler = AsyncMock()
         self.chat_message_handler = AsyncMock()
         self.server_event_handler = AsyncMock()
+        self.reverse_link_handler = AsyncMock()
         self.server = MinecraftBridgeServer(
             self.config,
             self.data,
@@ -52,6 +53,7 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
             player_event_handler=self.player_event_handler,
             chat_message_handler=self.chat_message_handler,
             server_event_handler=self.server_event_handler,
+            reverse_link_handler=self.reverse_link_handler,
         )
         await self.server.start()
         socket = self.server._site._server.sockets[0]
@@ -536,6 +538,46 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.server.supports_maintenance)
         self.assertFalse(await self.server.send_maintenance(True))
         await socket.close()
+
+    async def test_protocol_v10_forwards_minecraft_first_link_request_and_acks(self):
+        self.server._peer_protocol_version = 10
+        self.server._send = AsyncMock()
+        await self.server._handle_message({
+            "type": "LINK_REQUEST",
+            "payload": {
+                "request_id": "123e4567-e89b-12d3-a456-426614174999",
+                "discord_username": "test.user",
+                "edition": "JAVA",
+                "minecraft_uuid": "123e4567-e89b-12d3-a456-426614174000",
+                "current_username": "TestPlayer",
+                "xuid": None,
+            },
+            "idempotency_key": "link-request:one",
+        })
+
+        self.reverse_link_handler.assert_awaited_once_with(
+            request_id="123e4567-e89b-12d3-a456-426614174999",
+            discord_username="test.user",
+            edition=Edition.JAVA,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            current_username="TestPlayer",
+            xuid=None,
+        )
+        self.assertEqual(self.server._send.await_args.args[0], "LINK_REQUEST_ACK")
+
+    async def test_link_status_is_only_sent_to_protocol_v10(self):
+        self.server._socket = SimpleNamespace(closed=False)
+        self.server._send = AsyncMock()
+        self.server._peer_protocol_version = 9
+        self.assertFalse(await self.server.send_reverse_link_status(
+            request_id="request", minecraft_uuid="uuid", status="DM_SENT", message="Check Discord"
+        ))
+        self.server._peer_protocol_version = 10
+        self.assertTrue(await self.server.send_reverse_link_status(
+            request_id="request", minecraft_uuid="uuid", status="DM_SENT", message="Check Discord"
+        ))
+        self.assertEqual(self.server._send.await_args.args[0], "ACTION")
+        self.server._socket = None
 
     def test_the_plugin_advertises_the_protocol_version_the_bot_expects(self):
         # The plugin gates SERVER_EVENT on its own constant. If the two drift, in-game

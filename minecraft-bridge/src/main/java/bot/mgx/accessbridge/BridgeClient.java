@@ -30,9 +30,10 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
      * {@code minecraft_bot/bridge.py}. 5 added the SYNC_PROFILE rank fields;
      * 6 added the SYNC_WHITELIST directory snapshot; 7 added SERVER_EVENT, which
      * reports in-game actions to the Discord activity log; 8 added
-     * SET_MAINTENANCE, which holds the server closed before launch.
+     * SET_MAINTENANCE, which holds the server closed before launch; 9 added
+     * server-event toggles; 10 added the Minecraft-first Discord linking lobby.
      */
-    static final int PROTOCOL_VERSION = 9;
+    static final int PROTOCOL_VERSION = 10;
 
     private final MGXAccessBridge plugin;
     private final BridgeConfig config;
@@ -46,6 +47,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
     private final ConcurrentHashMap<String, PlayerActivity> playerActivityOutbox = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, JsonObject> minecraftChatOutbox = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, JsonObject> serverEventOutbox = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, JsonObject> linkRequestOutbox = new ConcurrentHashMap<>();
     private final StringBuilder inbound = new StringBuilder();
     private final AtomicBoolean connecting = new AtomicBoolean(false);
 
@@ -188,6 +190,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                     flushPlayerActivityOutbox();
                     flushMinecraftChatOutbox();
                     flushServerEventOutbox();
+                    flushLinkRequestOutbox();
                     // The bot holds standings in memory, so a restart leaves it with none.
                     // Republish at once rather than making it wait for the next interval.
                     plugin.republishLeaderboard();
@@ -214,6 +217,10 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                 case "SERVER_EVENT_ACK" -> {
                     String key = payload.get("event_idempotency_key").getAsString();
                     serverEventOutbox.remove(key);
+                }
+                case "LINK_REQUEST_ACK" -> {
+                    String requestId = payload.get("request_id").getAsString();
+                    linkRequestOutbox.remove(requestId);
                 }
                 case "ACTION" -> processAction(envelope.get("idempotency_key").getAsString(), payload);
                 default -> plugin.getLogger().warning("Ignored unsupported bridge message type: " + type);
@@ -285,6 +292,21 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             } catch (RuntimeException exception) {
                 recordAndSend(idempotencyKey, new ProcessedActionStore.Result(false, safeError(exception)));
             }
+            return;
+        }
+        if (action.equals("LINK_STATUS")) {
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                try {
+                    UUID minecraftUuid = UUID.fromString(payload.get("minecraft_uuid").getAsString());
+                    String status = optionalString(payload, "status");
+                    String message = optionalString(payload, "message");
+                    plugin.showVerificationLinkStatus(minecraftUuid, status, message);
+                    sendActionResult(idempotencyKey, new ProcessedActionStore.Result(true, ""));
+                } catch (RuntimeException exception) {
+                    sendActionResult(idempotencyKey,
+                            new ProcessedActionStore.Result(false, safeError(exception)));
+                }
+            });
             return;
         }
         if (action.equals("SYNC_WHITELIST")) {
@@ -515,6 +537,12 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                         }
                     }
                     verifiedAccounts.remove(payload.get("application_id").getAsLong());
+                    if (payload.has("reverse_request_id")) {
+                        plugin.completeVerificationLobby(
+                                minecraftUuid,
+                                optionalString(payload, "discord_username")
+                        );
+                    }
                 }
                 case "REVOKE" -> {
                     MinecraftEdition edition = MinecraftEdition.valueOf(payload.get("edition").getAsString());
@@ -649,6 +677,42 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             sendRaw(protocol.create("VERIFICATION", key, payload));
         }
         return true;
+    }
+
+    String queueLinkRequest(
+            MinecraftEdition edition,
+            UUID minecraftUuid,
+            String currentUsername,
+            String xuid,
+            String discordUsername
+    ) {
+        String requestId = UUID.randomUUID().toString();
+        JsonObject payload = new JsonObject();
+        payload.addProperty("request_id", requestId);
+        payload.addProperty("discord_username", discordUsername);
+        payload.addProperty("edition", edition.name());
+        payload.addProperty("minecraft_uuid", minecraftUuid.toString());
+        payload.addProperty("current_username", currentUsername);
+        if (xuid == null) {
+            payload.add("xuid", null);
+        } else {
+            payload.addProperty("xuid", xuid);
+        }
+        linkRequestOutbox.put(requestId, payload);
+        if (isConnected()) {
+            sendRaw(protocol.create("LINK_REQUEST", "link-request:" + requestId, payload));
+        }
+        return requestId;
+    }
+
+    private void flushLinkRequestOutbox() {
+        for (Map.Entry<String, JsonObject> entry : linkRequestOutbox.entrySet()) {
+            sendRaw(protocol.create(
+                    "LINK_REQUEST",
+                    "link-request:" + entry.getKey(),
+                    entry.getValue()
+            ));
+        }
     }
 
     private void flushVerificationOutbox() {
@@ -803,6 +867,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         flushPlayerActivityOutbox();
         flushMinecraftChatOutbox();
         flushServerEventOutbox();
+        flushLinkRequestOutbox();
         JsonObject payload = new JsonObject();
         payload.addProperty("server_id", config.serverId());
         payload.addProperty("pending_count", pending.size());

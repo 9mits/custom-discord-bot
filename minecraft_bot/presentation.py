@@ -10,7 +10,7 @@ from urllib.parse import quote
 
 import discord
 
-from .models import AccessStatus, MinecraftAccess
+from .models import AccessStatus, MinecraftAccess, ReverseLinkRequest
 
 
 BRAND_NAME = "Mysterious SMP X"
@@ -649,12 +649,19 @@ def live_status_embed(application: MinecraftAccess, settings) -> discord.Embed:
     return embed
 
 
-def approval_embed(settings) -> discord.Embed:
+def approval_embed(settings, information_channel_id: int | str | None = None) -> discord.Embed:
     # Deliberately says nothing about a maintenance hold. It used to, and promised
     # a "you will be notified when it opens" message that nothing ever sent — and
     # a hold can be lifted minutes after the DM, which left the wrong copy sitting
     # in somebody's inbox for good. The server states its own closure, on the kick
     # screen, at the moment it is true.
+    start_here = (
+        f"> Read <#{information_channel_id}> for all server information, or use the "
+        "[complete server guide](https://mysterioussmpx.blog/guide)."
+        if information_channel_id
+        else "> Read the [complete server guide](https://mysterioussmpx.blog/guide) "
+        "for commands, rules, and everything you need to get started."
+    )
     return info_embed(
         "Access Active",
         "> Your Minecraft account is verified and your access is now "
@@ -662,8 +669,23 @@ def approval_embed(settings) -> discord.Embed:
         "> Connect using the address for your edition below, with the same account "
         "you verified.\n"
         "\n"
-        + _connection_blocks(settings),
+        + _connection_blocks(settings)
+        + "\n\n**Start Here**\n"
+        + start_here,
         success=True,
+    )
+
+
+def reverse_link_request_embed(request: ReverseLinkRequest) -> discord.Embed:
+    return info_embed(
+        "Confirm Your Minecraft Account",
+        f"> A player currently connected as **{request.current_username}** wants to "
+        "link this Discord account.\n"
+        "> Approve only if that is you. The request expires in 10 minutes.\n\n"
+        f"**Edition:** {request.edition.value.title()}\n"
+        f"**Minecraft account:** `{request.current_username}`\n\n"
+        "> We will never ask for your Discord password, token, QR code, or login "
+        "details. This button only confirms the account already signed into Discord.",
     )
 
 
@@ -671,9 +693,11 @@ def application_dm_embed(
     application: MinecraftAccess,
     settings,
     notification: str,
+    *,
+    information_channel_id: int | str | None = None,
 ) -> discord.Embed:
     if notification == "decision" and application.status is AccessStatus.VERIFIED:
-        embed = approval_embed(settings)
+        embed = approval_embed(settings, information_channel_id)
         embed.colour = SUCCESS_COLOUR
     else:
         raise ValueError("This access record has no DM notification for its state")

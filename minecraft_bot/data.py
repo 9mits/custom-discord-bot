@@ -6,6 +6,7 @@ import asyncio
 import json
 import math
 import re
+import secrets
 import statistics
 import time
 import uuid
@@ -26,12 +27,14 @@ from .models import (
     InvalidTransition,
     MinecraftAccess,
     OutboxRecord,
+    ReverseLinkRequest,
+    ReverseLinkStatus,
 )
 
 
 JAVA_USERNAME = re.compile(r"^[A-Za-z0-9_]{3,16}$")
 BEDROCK_USERNAME = re.compile(r"^[\w -]{1,16}$", re.UNICODE)
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 COMMAND_LOG_RETENTION_DAYS = 30
 COMMAND_LOG_RETENTION_ROWS = 20_000
 
@@ -130,6 +133,29 @@ CREATE INDEX IF NOT EXISTS idx_minecraft_accounts_username
     ON minecraft_accounts(current_username COLLATE NOCASE, id DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_minecraft_accounts_xuid
     ON minecraft_accounts(xuid) WHERE xuid IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS minecraft_reverse_links (
+    request_id TEXT PRIMARY KEY,
+    guild_id TEXT NOT NULL,
+    discord_username TEXT NOT NULL,
+    normalized_discord_username TEXT NOT NULL,
+    discord_user_id TEXT,
+    edition TEXT NOT NULL CHECK (edition IN ('JAVA', 'BEDROCK')),
+    minecraft_uuid TEXT NOT NULL,
+    xuid TEXT,
+    current_username TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN (
+        'WAITING_FOR_MEMBER', 'WAITING_FOR_APPROVAL', 'PROCESSING',
+        'APPROVED', 'DENIED', 'EXPIRED', 'SUPERSEDED', 'FAILED'
+    )),
+    expires_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_reverse_links_discord
+    ON minecraft_reverse_links(normalized_discord_username, status, expires_at);
+CREATE INDEX IF NOT EXISTS idx_reverse_links_minecraft
+    ON minecraft_reverse_links(minecraft_uuid, status, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS minecraft_bridge_outbox {_OUTBOX_TABLE_SQL};
 CREATE INDEX IF NOT EXISTS idx_minecraft_outbox_status
@@ -473,6 +499,216 @@ class MinecraftDataManager:
             created_at=int(row["created_at"]),
             processed_at=row["processed_at"],
         )
+
+    @staticmethod
+    def _reverse_link(row: aiosqlite.Row | dict[str, Any]) -> ReverseLinkRequest:
+        return ReverseLinkRequest(
+            request_id=str(row["request_id"]),
+            guild_id=str(row["guild_id"]),
+            discord_username=str(row["discord_username"]),
+            normalized_discord_username=str(row["normalized_discord_username"]),
+            discord_user_id=(
+                str(row["discord_user_id"])
+                if row["discord_user_id"] is not None
+                else None
+            ),
+            edition=Edition(str(row["edition"])),
+            minecraft_uuid=str(row["minecraft_uuid"]),
+            xuid=str(row["xuid"]) if row["xuid"] is not None else None,
+            current_username=str(row["current_username"]),
+            status=ReverseLinkStatus(str(row["status"])),
+            expires_at=int(row["expires_at"]),
+            created_at=int(row["created_at"]),
+            updated_at=int(row["updated_at"]),
+        )
+
+    @staticmethod
+    def normalize_discord_username(username: str) -> tuple[str, str]:
+        cleaned = str(username or "").strip().lstrip("@").strip()
+        if not re.fullmatch(r"[A-Za-z0-9_.]{2,32}", cleaned):
+            raise ValueError(
+                "Use your exact Discord username (2-32 letters, numbers, dots, or underscores)"
+            )
+        return cleaned, cleaned.casefold()
+
+    async def create_reverse_link(
+        self,
+        *,
+        guild_id: int | str,
+        discord_username: str,
+        edition: Edition,
+        minecraft_uuid: str,
+        current_username: str,
+        xuid: Optional[str],
+        request_id: Optional[str] = None,
+        expires_seconds: int = 600,
+        now: Optional[int] = None,
+    ) -> ReverseLinkRequest:
+        current = _now() if now is None else int(now)
+        claimed_discord, normalized_discord = self.normalize_discord_username(discord_username)
+        try:
+            uuid.UUID(str(minecraft_uuid))
+        except ValueError as exc:
+            raise ValueError("Invalid Minecraft UUID") from exc
+        if edition is Edition.BEDROCK and not xuid:
+            raise ValueError("Bedrock verification requires a Floodgate XUID")
+        clean_minecraft = _clean_username(current_username)
+        if not clean_minecraft:
+            raise ValueError("Minecraft username is empty")
+        token = str(request_id or secrets.token_urlsafe(18))
+        db = self._connection()
+        async with self._write_lock:
+            try:
+                await self._begin(db)
+                existing = await db.execute_fetchall(
+                    "SELECT * FROM minecraft_reverse_links WHERE request_id=?", (token,)
+                )
+                if existing:
+                    await db.rollback()
+                    return self._reverse_link(existing[0])
+                await db.execute(
+                    "UPDATE minecraft_reverse_links SET status=?, updated_at=? "
+                    "WHERE minecraft_uuid=? AND status IN (?,?,?)",
+                    (
+                        ReverseLinkStatus.SUPERSEDED.value,
+                        current,
+                        str(minecraft_uuid),
+                        ReverseLinkStatus.WAITING_FOR_MEMBER.value,
+                        ReverseLinkStatus.WAITING_FOR_APPROVAL.value,
+                        ReverseLinkStatus.PROCESSING.value,
+                    ),
+                )
+                await db.execute(
+                    "INSERT INTO minecraft_reverse_links"
+                    "(request_id,guild_id,discord_username,normalized_discord_username,"
+                    "edition,minecraft_uuid,xuid,current_username,status,expires_at,created_at,updated_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        token,
+                        str(guild_id),
+                        claimed_discord,
+                        normalized_discord,
+                        edition.value,
+                        str(minecraft_uuid),
+                        str(xuid) if xuid is not None else None,
+                        clean_minecraft,
+                        ReverseLinkStatus.WAITING_FOR_MEMBER.value,
+                        current + max(60, int(expires_seconds)),
+                        current,
+                        current,
+                    ),
+                )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+        result = await self.get_reverse_link(token)
+        if result is None:
+            raise RuntimeError("Reverse link request did not persist")
+        return result
+
+    async def get_reverse_link(self, request_id: str) -> Optional[ReverseLinkRequest]:
+        rows = await self._connection().execute_fetchall(
+            "SELECT * FROM minecraft_reverse_links WHERE request_id=?", (str(request_id),)
+        )
+        return self._reverse_link(rows[0]) if rows else None
+
+    async def attach_reverse_link_member(
+        self, request_id: str, discord_user_id: int | str, *, now: Optional[int] = None
+    ) -> Optional[ReverseLinkRequest]:
+        current = _now() if now is None else int(now)
+        db = self._connection()
+        async with self._write_lock:
+            await db.execute(
+                "UPDATE minecraft_reverse_links SET discord_user_id=?, status=?, updated_at=? "
+                "WHERE request_id=? AND status=? AND expires_at>?",
+                (
+                    str(discord_user_id), ReverseLinkStatus.WAITING_FOR_APPROVAL.value,
+                    current, str(request_id), ReverseLinkStatus.WAITING_FOR_MEMBER.value, current,
+                ),
+            )
+            await db.commit()
+        return await self.get_reverse_link(request_id)
+
+    async def waiting_reverse_links_for_username(
+        self, username: str, *, now: Optional[int] = None
+    ) -> list[ReverseLinkRequest]:
+        current = _now() if now is None else int(now)
+        _cleaned, normalized = self.normalize_discord_username(username)
+        rows = await self._connection().execute_fetchall(
+            "SELECT * FROM minecraft_reverse_links WHERE normalized_discord_username=? "
+            "AND status=? AND expires_at>? ORDER BY created_at DESC",
+            (normalized, ReverseLinkStatus.WAITING_FOR_MEMBER.value, current),
+        )
+        return [self._reverse_link(row) for row in rows]
+
+    async def claim_reverse_link(
+        self, request_id: str, discord_user_id: int | str, *, now: Optional[int] = None
+    ) -> ReverseLinkRequest:
+        current = _now() if now is None else int(now)
+        db = self._connection()
+        async with self._write_lock:
+            cursor = await db.execute(
+                "UPDATE minecraft_reverse_links SET status=?, updated_at=? WHERE request_id=? "
+                "AND discord_user_id=? AND status=? AND expires_at>?",
+                (
+                    ReverseLinkStatus.PROCESSING.value, current, str(request_id),
+                    str(discord_user_id), ReverseLinkStatus.WAITING_FOR_APPROVAL.value, current,
+                ),
+            )
+            await db.commit()
+        result = await self.get_reverse_link(request_id)
+        if result is None:
+            raise InvalidTransition("This verification request no longer exists")
+        if cursor.rowcount != 1:
+            raise InvalidTransition("This verification request is expired, replaced, or already answered")
+        return result
+
+    async def finish_reverse_link(
+        self, request_id: str, status: ReverseLinkStatus, *, now: Optional[int] = None
+    ) -> Optional[ReverseLinkRequest]:
+        if status not in {
+            ReverseLinkStatus.APPROVED, ReverseLinkStatus.DENIED, ReverseLinkStatus.FAILED
+        }:
+            raise ValueError("Reverse link can only finish approved, denied, or failed")
+        current = _now() if now is None else int(now)
+        async with self._write_lock:
+            await self._connection().execute(
+                "UPDATE minecraft_reverse_links SET status=?, updated_at=? WHERE request_id=?",
+                (status.value, current, str(request_id)),
+            )
+            await self._connection().commit()
+        return await self.get_reverse_link(request_id)
+
+    async def expire_reverse_links(
+        self, *, now: Optional[int] = None
+    ) -> list[ReverseLinkRequest]:
+        current = _now() if now is None else int(now)
+        db = self._connection()
+        async with self._write_lock:
+            rows = await db.execute_fetchall(
+                "SELECT * FROM minecraft_reverse_links WHERE expires_at<=? "
+                "AND status IN (?,?)",
+                (
+                    current,
+                    ReverseLinkStatus.WAITING_FOR_MEMBER.value,
+                    ReverseLinkStatus.WAITING_FOR_APPROVAL.value,
+                ),
+            )
+            await db.execute(
+                "UPDATE minecraft_reverse_links SET status=?, updated_at=? WHERE expires_at<=? "
+                "AND status IN (?,?)",
+                (
+                    ReverseLinkStatus.EXPIRED.value, current, current,
+                    ReverseLinkStatus.WAITING_FOR_MEMBER.value,
+                    ReverseLinkStatus.WAITING_FOR_APPROVAL.value,
+                ),
+            )
+            await db.commit()
+        return [
+            self._reverse_link({**dict(row), "status": ReverseLinkStatus.EXPIRED.value, "updated_at": current})
+            for row in rows
+        ]
 
     async def _begin(self, db: aiosqlite.Connection) -> None:
         await db.execute("BEGIN IMMEDIATE")
@@ -868,6 +1104,8 @@ class MinecraftDataManager:
         current_username: str,
         xuid: Optional[str],
         event_idempotency_key: str,
+        reverse_request_id: Optional[str] = None,
+        discord_username: Optional[str] = None,
         now: Optional[int] = None,
     ) -> tuple[MinecraftAccess, bool]:
         current = _now() if now is None else int(now)
@@ -988,15 +1226,20 @@ class MinecraftDataManager:
                 # The durable outbox is what actually whitelists on Paper, so the
                 # retry and idempotency behaviour is identical to the old staff
                 # approval path. Only the trigger changed.
+                approval_payload = {
+                    "application_id": application.id,
+                    "edition": edition.value,
+                    "minecraft_uuid": minecraft_uuid,
+                    "verified_username": cleaned_actual,
+                }
+                if reverse_request_id:
+                    approval_payload["reverse_request_id"] = str(reverse_request_id)
+                if discord_username:
+                    approval_payload["discord_username"] = str(discord_username)[:32]
                 await self._queue(
                     db,
                     BridgeAction.APPROVE,
-                    {
-                        "application_id": application.id,
-                        "edition": edition.value,
-                        "minecraft_uuid": minecraft_uuid,
-                        "verified_username": cleaned_actual,
-                    },
+                    approval_payload,
                     idempotency_key=f"access:{application.id}:approve:{minecraft_uuid}",
                     access_id=application.id,
                     timestamp=current,
@@ -1065,6 +1308,7 @@ class MinecraftDataManager:
                 )
                 counts: dict[str, int] = {}
                 for table in (
+                    "minecraft_reverse_links",
                     "minecraft_bridge_outbox",
                     "minecraft_audit_log",
                     "minecraft_delivery_outbox",

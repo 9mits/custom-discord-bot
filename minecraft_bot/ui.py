@@ -26,6 +26,48 @@ from .presentation import (
 from .support import enqueue_support_request
 
 
+class ReverseLinkButton(
+    discord.ui.DynamicItem[discord.ui.Button],
+    template=r"minecraft:reverse:(?P<action>approve|deny):(?P<request>[A-Za-z0-9_-]{8,64})",
+):
+    """A durable DM control; every result is sent as a new message."""
+
+    def __init__(self, action: str, request_id: str, *, item=None) -> None:
+        self.action = action
+        self.request_id = request_id
+        super().__init__(
+            item or discord.ui.Button(
+                label="Yes, This Is Me" if action == "approve" else "No, Not Me",
+                style=(discord.ButtonStyle.success if action == "approve" else discord.ButtonStyle.danger),
+                custom_id=f"minecraft:reverse:{action}:{request_id}",
+            )
+        )
+
+    @classmethod
+    async def from_custom_id(cls, interaction, item, match):  # type: ignore[override]
+        return cls(match["action"], match["request"], item=item)
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        handler = getattr(interaction.client, "handle_reverse_link_decision", None)
+        if handler is None:
+            await interaction.followup.send("Verification is unavailable right now.", ephemeral=True)
+            return
+        message = await handler(
+            request_id=self.request_id,
+            discord_user=interaction.user,
+            approved=self.action == "approve",
+        )
+        await interaction.followup.send(message, ephemeral=True)
+
+
+class ReverseLinkView(discord.ui.View):
+    def __init__(self, request_id: str) -> None:
+        super().__init__(timeout=None)
+        self.add_item(ReverseLinkButton("approve", request_id))
+        self.add_item(ReverseLinkButton("deny", request_id))
+
+
 async def _validate_application_panel(interaction: discord.Interaction) -> bool:
     bot = interaction.client
     if interaction.guild_id != bot.config.guild_id:
@@ -718,5 +760,3 @@ class MinecraftControlView(discord.ui.View):
             ephemeral=True,
         )
         return False
-
-

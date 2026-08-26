@@ -556,16 +556,25 @@ Read the relevant file when you touch an area; these are the non-obvious points.
   tests fail, fix the asset or mapping—never relax the invariant. The complete
   rationale and prompt live in `assets/resourcepack/ICON_ART_DIRECTION.md`.
 - **Verification is the only gate on Minecraft access.** There is no
-  application form, no review queue and no staff approval: a member declares a
-  username in Discord, joins once with that account, and the plugin *allows* the
-  login rather than kicking them. Do not make that gate depend on Paper's vanilla
-  whitelist result: the Discord-synced approved-account directory is authoritative,
-  and an unknown account must receive the verification instructions even when
-  Paper initially reports the login as allowed. Pre-login, login, MONITOR, and a
-  delayed Geyser-safe join fallback enforce that rule. `AccessStatus` is `PENDING_VERIFICATION`,
+  application form, review queue or staff approval. Both directions are valid:
+  a Discord member can declare a Minecraft username and join once, or an unknown
+  Minecraft player is routed into the sealed `mgx_verification` world and runs
+  `/verify <exact Discord username>`. The second path never enters the SMP: it
+  permits only `/verify` and `/discord`, hides other players, blocks interaction,
+  and releases the player automatically only after the owner approves the fresh
+  DM. If the Discord username is not a guild member yet, schema 9 keeps the
+  request and `on_member_join` sends the DM automatically. Every request,
+  processing notice and result is a new DM; never edit an older verification DM.
+  Successful DMs resolve `information_channel_id` so they mention the channel
+  that actually holds the information panel, plus `mysterioussmpx.blog/guide`.
+  Do not make either path depend on Paper's vanilla whitelist result: the
+  Discord-synced approved-account directory is authoritative. Pre-login, login,
+  MONITOR, the isolated lobby, and a delayed Geyser-safe join fallback enforce
+  that rule. `AccessStatus` is `PENDING_VERIFICATION`,
   `VERIFIED`, `EXPIRED`, `CANCELLED`, `REVOKED` — the old ladder
   (`PENDING_APPLICATION`, `PENDING_REVIEW`, `APPROVAL_QUEUED`, `DENIED`) is gone
-  and schema 8 migrated it away. `VERIFIED` is set the instant ownership is
+  and schema 8 migrated it away; schema 9 added durable reverse-link requests.
+  `VERIFIED` is set the instant ownership is
   proved; the durable `APPROVE` outbox adds the real whitelist entry a moment
   later, and `verified-applications.json` on the plugin side is what lets a
   reconnect inside that window through. Keep that filename — renaming it orphans
