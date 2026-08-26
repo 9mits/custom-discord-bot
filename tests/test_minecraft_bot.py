@@ -156,7 +156,6 @@ class MinecraftBotPolicyTests(unittest.TestCase):
             {"verification-panel"},
         )
 
-
     def test_minecraft_presentation_uses_orange_brand_system(self):
         embed = info_embed("Status", "Operational", success=True)
 
