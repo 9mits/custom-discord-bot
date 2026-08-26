@@ -152,9 +152,9 @@ def log(message: str) -> None:
     print(f"[testserver] {message}", flush=True)
 
 
-def local_bridge_config(text: str) -> str:
-    """Forces the local-only verification bypass without weakening production."""
-    setting = "verification-required: false"
+def local_bridge_config(text: str, *, verification_required: bool = False) -> str:
+    """Sets the local-only verification mode without weakening production."""
+    setting = f"verification-required: {str(verification_required).lower()}"
     pattern = re.compile(r"(?m)^verification-required\s*:\s*.*$")
     if pattern.search(text):
         return pattern.sub(setting, text)
@@ -165,12 +165,16 @@ def local_bridge_config(text: str) -> str:
     return text + suffix + setting + "\n"
 
 
-def configure_local_bridge(config: Path) -> None:
+def configure_local_bridge(config: Path, *, verification_required: bool = False) -> None:
     original = config.read_text()
-    patched = local_bridge_config(original)
+    patched = local_bridge_config(
+        original,
+        verification_required=verification_required,
+    )
     if patched != original:
         config.write_text(patched)
-        log("disabled account verification on the local test server")
+        state = "enabled" if verification_required else "disabled"
+        log(f"{state} account verification on the local test server")
 
 
 def fetch(url: str, destination: Path) -> None:
@@ -735,6 +739,12 @@ def start(args: argparse.Namespace) -> int:
         log("the Minecraft EULA has not been accepted.")
         log(f"read https://aka.ms/MinecraftEULA, then set eula=true in {eula}")
         return 1
+    config = PLUGINS / "MGXAccessBridge" / "config.yml"
+    if config.exists():
+        configure_local_bridge(
+            config,
+            verification_required=bool(getattr(args, "verification", False)),
+        )
     match_production_limits()
     configure_grim()
     running = running_server_pid()
@@ -844,6 +854,11 @@ def main() -> int:
         sub.set_defaults(handler=handler)
         if name in ("start", "run", "restart"):
             sub.add_argument("--memory", default="2G", help="heap size, default 2G")
+            sub.add_argument(
+                "--verification",
+                action="store_true",
+                help="temporarily require Discord verification on this local run",
+            )
     args = parser.parse_args()
     return args.handler(args)
 

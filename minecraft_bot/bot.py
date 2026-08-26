@@ -3394,7 +3394,58 @@ class MinecraftAccessBot(commands.Bot):
                 view=self.control_view(interaction),
             )
 
-        return group, staff_group, admin_group
+        command_groups = [group, staff_group, admin_group]
+        config = getattr(self, "config", None)
+        if getattr(config, "test_mode", False):
+            test_group = app_commands.Group(
+                name="mctest",
+                description="Minecraft staging tools.",
+                default_permissions=discord.Permissions(administrator=True),
+            )
+
+            @test_group.command(
+                name="verification-panel",
+                description="Configure and post the verification panel for this test bot.",
+            )
+            @app_commands.describe(channel="Where the test verification panel should be posted.")
+            async def test_verification_panel(
+                interaction: discord.Interaction,
+                channel: discord.TextChannel,
+            ) -> None:
+                if not await self.require_administrator(interaction):
+                    return
+                await interaction.response.defer(ephemeral=True, thinking=True)
+                await self.update_settings(
+                    actor_id=interaction.user.id,
+                    application_channel_id=channel.id,
+                )
+                try:
+                    message = await self.post_application_panel()
+                except RuntimeError as exc:
+                    await interaction.edit_original_response(
+                        **branded_edit(
+                            info_embed(
+                                "Test Panel Not Posted",
+                                f"> {exc}",
+                                error=True,
+                            )
+                        )
+                    )
+                    return
+                await interaction.edit_original_response(
+                    **branded_edit(
+                        info_embed(
+                            "Test Verification Ready",
+                            f"> The working verification panel is now in {channel.mention}.\n"
+                            f"> [Open the panel]({message.jump_url}) and press **Verify** to test it.",
+                            success=True,
+                        )
+                    )
+                )
+
+            command_groups.append(test_group)
+
+        return tuple(command_groups)
 
 
 def run() -> None:

@@ -62,6 +62,7 @@ class MinecraftConfig:
     allow_insecure_localhost: bool
     bridge_tls_cert_path: Optional[Path] = None
     bridge_tls_key_path: Optional[Path] = None
+    test_mode: bool = False
 
     @property
     def database_path(self) -> Path:
@@ -125,6 +126,8 @@ class MinecraftConfig:
             ).strip().lower() in {"1", "true", "yes"},
             bridge_tls_cert_path=optional_path(tls_cert_text),
             bridge_tls_key_path=optional_path(tls_key_text),
+            test_mode=os.environ.get("MINECRAFT_TEST_MODE", "0").strip().lower()
+            in {"1", "true", "yes"},
         )
 
 
