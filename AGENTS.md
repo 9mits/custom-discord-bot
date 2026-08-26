@@ -544,7 +544,11 @@ Read the relevant file when you touch an area; these are the non-obvious points.
 - **Verification is the only gate on Minecraft access.** There is no
   application form, no review queue and no staff approval: a member declares a
   username in Discord, joins once with that account, and the plugin *allows* the
-  login rather than kicking them. `AccessStatus` is `PENDING_VERIFICATION`,
+  login rather than kicking them. Do not make that gate depend on Paper's vanilla
+  whitelist result: the Discord-synced approved-account directory is authoritative,
+  and an unknown account must receive the verification instructions even when
+  Paper initially reports the login as allowed. Pre-login, login, MONITOR, and a
+  delayed Geyser-safe join fallback enforce that rule. `AccessStatus` is `PENDING_VERIFICATION`,
   `VERIFIED`, `EXPIRED`, `CANCELLED`, `REVOKED` — the old ladder
   (`PENDING_APPLICATION`, `PENDING_REVIEW`, `APPROVAL_QUEUED`, `DENIED`) is gone
   and schema 8 migrated it away. `VERIFIED` is set the instant ownership is

@@ -448,6 +448,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                     entries.add(new WhitelistDirectory.Entry(
                             optionalString(player, "username"),
                             optionalString(player, "edition"),
+                            optionalUuid(player, "minecraft_uuid"),
                             optionalString(player, "discord_username")
                     ));
                 }
@@ -890,6 +891,18 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         return payload.has(key) && !payload.get(key).isJsonNull()
                 ? payload.get(key).getAsString()
                 : "";
+    }
+
+    private static UUID optionalUuid(JsonObject payload, String key) {
+        String value = optionalString(payload, key);
+        if (value.isBlank()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
     }
 
     private static String safeError(Throwable error) {
