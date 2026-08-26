@@ -8,6 +8,9 @@ new icon geometry pixel by pixel.
 
 - Design on a deliberate **16x16 logical pixel grid**, exported at 32x32 as exact
   2x2 blocks. This preserves strong Minecraft-scale pixels without tiny dotted detail.
+  The two potion reskins are the only exception: they retain the AI edit's native
+  resolution, colour depth, alpha, canvas, and pixel geometry without a second
+  downscale or palette reduction.
 - Use one strong silhouette, stepped square pixels, crisp edges, and no antialiasing.
 - Light from the upper left; use a dark lower-right outline and material shadow.
 - Use a restrained material palette. The importer caps the final sprite at 24 colours.
@@ -25,7 +28,7 @@ python assets/resourcepack/import_generated_icons.py \
 ```
 
 The manifest is intentionally local: it contains machine-specific paths to image-model
-outputs. The selected 16x16 PNGs committed under `src/` are the canonical assets.
+outputs. The selected PNGs committed under `src/` are the canonical assets.
 
 ## Shared generation prompt
 
@@ -114,3 +117,7 @@ antialiasing, extra detail, or watermark.
 `crate_luck_potion` changes the liquid to deep violet with one small molten-orange
 lucky spark. `fortune_potion` changes it to emerald/lime with one restrained gold
 clover-like glint.
+
+The importer removes the generated checkerboard backdrop from these two edits and
+does nothing else to their artwork. It must never resize, quantize, sharpen, blur,
+or rebuild their pixel grid.

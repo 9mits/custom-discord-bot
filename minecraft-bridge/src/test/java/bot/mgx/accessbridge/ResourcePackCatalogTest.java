@@ -74,7 +74,8 @@ class ResourcePackCatalogTest {
     }
 
     @Test
-    void customItemIconsUseCrispHighDefinitionSpritesWithARestrictedPalette() throws Exception {
+    void customItemIconsPreserveTheirIntendedQualityProfiles() throws Exception {
+        Set<String> nativePotions = Set.of("fortune_potion.png", "crate_luck_potion.png");
         Set<Path> icons = new HashSet<>();
         Path textures = SOURCE.resolve("assets/mgx/textures/item");
         icons.add(textures.resolve("crate_key.png"));
@@ -86,10 +87,15 @@ class ResourcePackCatalogTest {
         }
         for (Path icon : icons) {
             String name = icon.getFileName().toString();
+            boolean nativePotion = nativePotions.contains(name);
             BufferedImage image = ImageIO.read(icon.toFile());
             assertNotNull(image, name);
-            assertEquals(32, image.getWidth(), name);
-            assertEquals(32, image.getHeight(), name);
+            assertEquals(image.getWidth(), image.getHeight(), name);
+            if (nativePotion) {
+                assertTrue(image.getWidth() >= 160, name + " lost its native resolution");
+            } else {
+                assertEquals(32, image.getWidth(), name);
+            }
 
             Set<Integer> opaqueColors = new HashSet<>();
             boolean hasTransparentPixel = false;
@@ -107,7 +113,12 @@ class ResourcePackCatalogTest {
                 }
             }
             assertTrue(hasTransparentPixel, name + " needs transparent inventory padding");
-            assertTrue(opaqueColors.size() <= 24, name + " uses too many colors: " + opaqueColors.size());
+            if (nativePotion) {
+                assertTrue(opaqueColors.size() > 24, name + " was palette-reduced");
+                continue;
+            }
+            assertTrue(opaqueColors.size() <= 24,
+                    name + " uses too many colors: " + opaqueColors.size());
             for (int y = 0; y < image.getHeight(); y += 2) {
                 for (int x = 0; x < image.getWidth(); x += 2) {
                     int logicalPixel = image.getRGB(x, y);
