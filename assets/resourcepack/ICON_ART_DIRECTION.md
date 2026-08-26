@@ -114,10 +114,12 @@ No new bottle shape, label, text, particles outside the bottle, smooth painting,
 antialiasing, extra detail, or watermark.
 ```
 
-`crate_luck_potion` changes the liquid to deep violet with one small molten-orange
-lucky spark. `fortune_potion` changes it to emerald/lime with one restrained gold
-clover-like glint.
+`crate_luck_potion` changes the liquid to deep violet. `fortune_potion` changes it
+to emerald/lime.
 
-The importer removes the generated checkerboard backdrop from these two edits and
-does nothing else to their artwork. It must never resize, quantize, sharpen, blur,
-or rebuild their pixel grid.
+Image generation supplies only each liquid's colour and lighting ramp. The importer
+applies that ramp to the seven red liquid colours in the supplied 160x160 official
+Potion of Healing reference. Every cork, bottle, glass, highlight, shadow,
+transparent-padding, silhouette, and pixel coordinate remains byte-for-byte equal
+to that reference. The two results therefore look like true vanilla potion
+reskins, not redesigned bottles.

@@ -1,4 +1,5 @@
 import unittest
+import uuid
 from types import SimpleNamespace
 from unittest import mock
 
@@ -24,6 +25,33 @@ class LocalBridgeConfigTests(unittest.TestCase):
             "allow-insecure-localhost: true\nverification-required: false\n",
             patched,
         )
+
+
+class JavaResourcePackConfigTests(unittest.TestCase):
+    def test_pack_hash_updates_url_hash_and_cache_identity(self):
+        original = """\
+require-resource-pack=false
+resource-pack=http://old.invalid/old.zip
+resource-pack-sha1=old
+resource-pack-id=00000000-0000-0000-0000-000000000000
+motd=test
+"""
+
+        patched, pack_id = testserver.java_pack_properties(original, "a" * 40)
+
+        self.assertIn("require-resource-pack=true", patched)
+        self.assertIn(f"127.0.0.1:{testserver.PACK_SERVER_PORT}", patched)
+        self.assertIn("?sha1=" + "a" * 40, patched)
+        self.assertIn("resource-pack-sha1=" + "a" * 40, patched)
+        self.assertIn("resource-pack-id=" + pack_id, patched)
+        self.assertEqual(uuid.UUID(pack_id).version, 5)
+        self.assertEqual((patched, pack_id), testserver.java_pack_properties(patched, "a" * 40))
+
+    def test_changed_pack_hash_gets_a_different_cache_identity(self):
+        _, first = testserver.java_pack_properties("motd=test\n", "a" * 40)
+        _, second = testserver.java_pack_properties("motd=test\n", "b" * 40)
+
+        self.assertNotEqual(first, second)
 
 
 class GrimPrinterConfigTests(unittest.TestCase):

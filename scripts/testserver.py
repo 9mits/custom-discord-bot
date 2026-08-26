@@ -12,9 +12,9 @@ live server. This runs the same Paper build locally instead.
 
 The server lives in `runtime/testserver/`, which is git-ignored, so nothing here
 can reach a commit. It is deliberately NOT a copy of production: offline mode and
-no whitelist, so alt accounts can join to test the multiplayer events. It does not
-fetch the remote Java pack, so a slow GitHub cannot stall a test; the Bedrock pack
-is installed directly into Geyser because that path has no network dependency.
+no whitelist, so alt accounts can join to test the multiplayer events. Both packs
+are built locally: Java receives its ZIP from a loopback-only HTTP server and the
+Bedrock pack is installed directly into Geyser. Neither path depends on GitHub.
 
 Stdlib only, matching panel.py.
 """
@@ -34,7 +34,9 @@ import subprocess
 import sys
 import tarfile
 import time
+import urllib.error
 import urllib.request
+import uuid
 import zipfile
 from pathlib import Path
 
@@ -42,12 +44,19 @@ REPO = Path(__file__).resolve().parent.parent
 SERVER = REPO / "runtime" / "testserver"
 PLUGINS = SERVER / "plugins"
 BRIDGE = REPO / "minecraft-bridge"
+JAVA_RESOURCES = REPO / "assets" / "resourcepack"
+JAVA_BUILD = JAVA_RESOURCES / "build_pack.py"
+JAVA_PACK = JAVA_RESOURCES / "MysteriousSMPX.zip"
 BEDROCK_RESOURCES = REPO / "assets" / "resourcepack" / "bedrock"
 BEDROCK_BUILD = BEDROCK_RESOURCES / "build_pack.py"
 BEDROCK_PACK = BEDROCK_RESOURCES / "MysteriousSMPX-Bedrock.mcpack"
 BEDROCK_MAPPINGS = BEDROCK_RESOURCES / "mgx_items.json"
 TEST_BUILD_MANIFEST = SERVER / "test-build.json"
 SERVER_PID = SERVER / "server.pid"
+PACK_SERVER_PID = SERVER / "resource-pack-server.pid"
+PACK_SERVER_PORT = 8768
+PACK_SERVER_DIR = SERVER / "resourcepacks"
+INSTALLED_JAVA_PACK = PACK_SERVER_DIR / JAVA_PACK.name
 
 #: Pinned to the build production runs, so a test reproduces production's Paper.
 PAPER_VERSION = "1.21.11"
@@ -91,7 +100,7 @@ SERVER_PROPERTIES = """\
 online-mode=false
 white-list=false
 enforce-whitelist=false
-require-resource-pack=false
+require-resource-pack=true
 spawn-protection=0
 max-players=20
 view-distance=8
@@ -175,6 +184,93 @@ def fetch(url: str, destination: Path) -> None:
 
 def file_sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def file_sha1(path: Path) -> str:
+    return hashlib.sha1(path.read_bytes()).hexdigest()
+
+
+def java_pack_properties(text: str, sha1: str) -> tuple[str, str]:
+    """Point Paper at this exact local pack and invalidate old client caches."""
+    pack_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"mgx-test-resource-pack:{sha1}"))
+    updates = {
+        "require-resource-pack": "true",
+        "resource-pack": (
+            f"http://127.0.0.1:{PACK_SERVER_PORT}/{JAVA_PACK.name}?sha1={sha1}"
+        ),
+        "resource-pack-sha1": sha1,
+        "resource-pack-id": pack_id,
+    }
+    lines = text.splitlines()
+    found: set[str] = set()
+    for index, line in enumerate(lines):
+        key = line.split("=", 1)[0] if "=" in line and not line.startswith("#") else ""
+        if key in updates:
+            lines[index] = f"{key}={updates[key]}"
+            found.add(key)
+    lines.extend(f"{key}={value}" for key, value in updates.items() if key not in found)
+    return "\n".join(lines) + "\n", pack_id
+
+
+def configure_java_resource_pack(pack: Path) -> tuple[str, str]:
+    """Install the Java ZIP and make server.properties describe its exact bytes."""
+    PACK_SERVER_DIR.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(pack, INSTALLED_JAVA_PACK)
+    sha1 = file_sha1(INSTALLED_JAVA_PACK)
+    properties = SERVER / "server.properties"
+    original = properties.read_text() if properties.exists() else SERVER_PROPERTIES
+    patched, pack_id = java_pack_properties(original, sha1)
+    if patched != original:
+        properties.write_text(patched)
+        log("updated the Java resource-pack hash and cache identity")
+    return sha1, pack_id
+
+
+def pack_server_serves(pack: Path) -> bool:
+    """Confirm the loopback server returns the newly installed bytes."""
+    if not pack.is_file():
+        return False
+    wanted = file_sha1(pack)
+    url = f"http://127.0.0.1:{PACK_SERVER_PORT}/{pack.name}?probe={wanted}"
+    try:
+        with urllib.request.urlopen(url, timeout=2) as response:
+            return hashlib.sha1(response.read()).hexdigest() == wanted
+    except (OSError, urllib.error.URLError):
+        return False
+
+
+def ensure_pack_server() -> None:
+    """Keep one detached, loopback-only server available across Paper restarts."""
+    if pack_server_serves(INSTALLED_JAVA_PACK):
+        return
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "http.server",
+            str(PACK_SERVER_PORT),
+            "--bind",
+            "127.0.0.1",
+            "--directory",
+            str(PACK_SERVER_DIR),
+        ],
+        cwd=SERVER,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    PACK_SERVER_PID.write_text(f"{process.pid}\n")
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        if pack_server_serves(INSTALLED_JAVA_PACK):
+            log(f"serving the Java resource pack on 127.0.0.1:{PACK_SERVER_PORT}")
+            return
+        if process.poll() is not None:
+            break
+        time.sleep(0.1)
+    raise RuntimeError(
+        f"could not serve {INSTALLED_JAVA_PACK} on 127.0.0.1:{PACK_SERVER_PORT}"
+    )
 
 
 def fetch_verified(url: str, destination: Path, expected_sha256: str) -> None:
@@ -551,6 +647,11 @@ def deploy(_: argparse.Namespace) -> int:
     if result.returncode != 0:
         log("build failed; nothing installed")
         return result.returncode
+    log("building the Java resource pack")
+    result = subprocess.run([sys.executable, str(JAVA_BUILD)], cwd=JAVA_RESOURCES)
+    if result.returncode != 0:
+        log("Java resource build failed; nothing installed")
+        return result.returncode
     log("building the Bedrock resource pack and Geyser mappings")
     result = subprocess.run([sys.executable, str(BEDROCK_BUILD)], cwd=BEDROCK_RESOURCES)
     if result.returncode != 0:
@@ -573,6 +674,8 @@ def deploy(_: argparse.Namespace) -> int:
     installed_mappings.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(BEDROCK_PACK, installed_pack)
     shutil.copy2(BEDROCK_MAPPINGS, installed_mappings)
+    java_sha1, java_pack_id = configure_java_resource_pack(JAVA_PACK)
+    ensure_pack_server()
     with zipfile.ZipFile(installed) as archive:
         descriptor = archive.read("plugin.yml").decode("utf-8")
     match = re.search(r"(?m)^version:\s*[\"']?([^\"'\s]+)", descriptor)
@@ -591,6 +694,13 @@ def deploy(_: argparse.Namespace) -> int:
         "bytes": installed.stat().st_size,
         "sha256": digest,
         "jar": str(installed.relative_to(REPO)),
+        "java_pack": {
+            "path": str(INSTALLED_JAVA_PACK.relative_to(REPO)),
+            "bytes": INSTALLED_JAVA_PACK.stat().st_size,
+            "sha1": java_sha1,
+            "sha256": file_sha256(INSTALLED_JAVA_PACK),
+            "id": java_pack_id,
+        },
         "bedrock_pack": {
             "path": str(installed_pack.relative_to(REPO)),
             "bytes": installed_pack.stat().st_size,
@@ -607,6 +717,10 @@ def deploy(_: argparse.Namespace) -> int:
     log(f"  commit {revision}")
     log(f"  {installed.stat().st_size:,} bytes")
     log(f"  sha256 {digest}")
+    log(f"installed {INSTALLED_JAVA_PACK.name} for Java clients")
+    log(f"  sha1 {java_sha1}")
+    log(f"  sha256 {file_sha256(INSTALLED_JAVA_PACK)}")
+    log(f"  resource-pack-id {java_pack_id}")
     log(f"installed {installed_pack.name} for Geyser Bedrock clients")
     log(f"  sha256 {file_sha256(installed_pack)}")
     log(f"installed {installed_mappings.name} custom-item mappings")
