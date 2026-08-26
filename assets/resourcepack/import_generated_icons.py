@@ -5,8 +5,8 @@ This importer never draws or invents icon geometry. It only removes the flat
 generation backdrop, trims model artifacts, and scales the selected generated
 artwork onto a 16x16 logical pixel grid, then enlarges that grid exactly 2x for
 clean 32x32 inventory rendering. Potion reskins are the deliberate exception:
-their AI-edited source pixels are kept at native resolution after backdrop
-removal, because the supplied vanilla bottle is already the final art direction.
+the supplied official bottle is copied exactly and only its existing liquid
+pixels receive a colour ramp sampled from the corresponding generated edit.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 PACK_ROOT = Path(__file__).resolve().parent
 ITEM_ROOT = PACK_ROOT / "src/assets/mgx/textures/item"
+POTION_REFERENCE = PACK_ROOT / "icon-sources/potion_of_healing_reference.png"
 CANVAS_SIZE = 32
 LOGICAL_SIZE = 16
 CONTENT_SIZE = 14
@@ -34,9 +35,9 @@ FOCUS_ONLY = {
     "kingmakers_wake",
     "silver_reckoning",
 }
-NATIVE_QUALITY = {
-    "crate_luck_potion",
-    "fortune_potion",
+POTION_PROFILES = {
+    "crate_luck_potion": "violet",
+    "fortune_potion": "emerald",
 }
 
 
@@ -193,13 +194,62 @@ def prepare(source: Path, focus_only: bool = False) -> Image.Image:
     return logical.resize((CANVAS_SIZE, CANVAS_SIZE), Image.Resampling.NEAREST)
 
 
-def prepare_native(source: Path) -> Image.Image:
-    """Remove only the generation backdrop; preserve every source-art pixel."""
+def potion_liquid(colour: tuple[int, int, int, int], y: int) -> bool:
+    """Identify only the seven red liquid shades in the supplied vanilla icon."""
+    red, green, blue, alpha = colour
+    return (
+        alpha == 255
+        and y >= 70
+        and red >= 90
+        and red > green * 1.25
+        and red > blue * 1.18
+    )
+
+
+def generated_liquid_palette(source: Path, profile: str, shades: int) -> list[tuple[int, int, int]]:
+    """Sample a restrained liquid ramp from an AI-generated potion edit."""
     image = Image.open(source).convert("RGB")
-    alpha = meaningful_foreground(image, connected_background(image), False)
-    isolated = Image.new("RGBA", image.size, (0, 0, 0, 0))
-    isolated.paste(image, (0, 0), alpha)
-    return isolated
+    image.thumbnail((256, 256), Image.Resampling.BOX)
+    samples: list[tuple[int, int, int]] = []
+    for red, green, blue in image.getdata():
+        spread = max(red, green, blue) - min(red, green, blue)
+        if spread < 35:
+            continue
+        if profile == "emerald":
+            selected = green > red * 1.08 and green > blue * 1.05
+        else:
+            selected = red > green * 1.18 and blue > green * 1.18
+        if selected:
+            samples.append((red, green, blue))
+    if len(samples) < shades:
+        raise ValueError(f"generated source {source} has no usable {profile} liquid palette")
+    samples.sort(key=lambda colour: 299 * colour[0] + 587 * colour[1] + 114 * colour[2])
+    quantiles = (0.05, 0.18, 0.32, 0.48, 0.64, 0.80, 0.94)
+    return [samples[round((len(samples) - 1) * quantiles[index])] for index in range(shades)]
+
+
+def prepare_potion(source: Path, profile: str) -> Image.Image:
+    """Recolour liquid without changing one bottle, padding, or alpha pixel."""
+    bottle = Image.open(POTION_REFERENCE).convert("RGBA")
+    liquid_colours = sorted(
+        {
+            bottle.getpixel((x, y))[:3]
+            for y in range(bottle.height)
+            for x in range(bottle.width)
+            if potion_liquid(bottle.getpixel((x, y)), y)
+        },
+        key=lambda colour: 299 * colour[0] + 587 * colour[1] + 114 * colour[2],
+    )
+    palette = generated_liquid_palette(source, profile, len(liquid_colours))
+    replacements = dict(zip(liquid_colours, palette))
+    output = bottle.copy()
+    pixels = output.load()
+    for y in range(output.height):
+        for x in range(output.width):
+            colour = pixels[x, y]
+            if potion_liquid(colour, y):
+                pixels[x, y] = (*replacements[colour[:3]], colour[3])
+    return output
 
 
 def write_contact_sheet(output_root: Path, targets: dict[str, Path], destination: Path) -> None:
@@ -260,8 +310,8 @@ def main() -> None:
         target = args.output / relative_target
         target.parent.mkdir(parents=True, exist_ok=True)
         prepared = (
-            prepare_native(source)
-            if name in NATIVE_QUALITY
+            prepare_potion(source, POTION_PROFILES[name])
+            if name in POTION_PROFILES
             else prepare(source, focus_only=name in FOCUS_ONLY)
         )
         prepared.save(target, optimize=True)

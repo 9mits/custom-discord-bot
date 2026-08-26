@@ -21,12 +21,16 @@ import java.util.zip.ZipFile;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ResourcePackCatalogTest {
     private static final Path PACK = Path.of("..", "assets", "resourcepack");
     private static final Path SOURCE = PACK.resolve("src");
     private static final Path BEDROCK = PACK.resolve("bedrock");
+    private static final Path POTION_REFERENCE = PACK.resolve(
+            "icon-sources/potion_of_healing_reference.png"
+    );
 
     @Test
     void packDeclaresTheSupportedJavaRange() throws Exception {
@@ -46,6 +50,11 @@ class ResourcePackCatalogTest {
         assertModelResolves("mgx:crate_key");
         assertModelResolves("mgx:fortune_potion");
         assertModelResolves("mgx:crate_luck_potion");
+        assertNotEquals(
+                resolvedTexture("mgx:fortune_potion"),
+                resolvedTexture("mgx:crate_luck_potion"),
+                "the two custom potions must resolve to different textures"
+        );
         assertModelResolves(CosmeticCatalog.MASKED_MODEL_KEY);
         Map<String, String> textures = new HashMap<>();
         for (CosmeticCatalog.Definition definition : CosmeticCatalog.visualEntries()) {
@@ -92,7 +101,7 @@ class ResourcePackCatalogTest {
             assertNotNull(image, name);
             assertEquals(image.getWidth(), image.getHeight(), name);
             if (nativePotion) {
-                assertTrue(image.getWidth() >= 160, name + " lost its native resolution");
+                assertEquals(160, image.getWidth(), name + " must retain the official canvas");
             } else {
                 assertEquals(32, image.getWidth(), name);
             }
@@ -114,7 +123,7 @@ class ResourcePackCatalogTest {
             }
             assertTrue(hasTransparentPixel, name + " needs transparent inventory padding");
             if (nativePotion) {
-                assertTrue(opaqueColors.size() > 24, name + " was palette-reduced");
+                assertExactVanillaPotionGeometry(image, name);
                 continue;
             }
             assertTrue(opaqueColors.size() <= 24,
@@ -128,6 +137,41 @@ class ResourcePackCatalogTest {
                 }
             }
         }
+    }
+
+    private static void assertExactVanillaPotionGeometry(BufferedImage image, String name)
+            throws Exception {
+        BufferedImage reference = ImageIO.read(POTION_REFERENCE.toFile());
+        assertNotNull(reference, "official potion reference");
+        assertEquals(reference.getWidth(), image.getWidth(), name);
+        assertEquals(reference.getHeight(), image.getHeight(), name);
+        int changedLiquidPixels = 0;
+        for (int y = 0; y < image.getHeight(); y++) {
+            for (int x = 0; x < image.getWidth(); x++) {
+                int expected = reference.getRGB(x, y);
+                int actual = image.getRGB(x, y);
+                if (isPotionLiquid(expected, y)) {
+                    if (actual != expected) {
+                        changedLiquidPixels++;
+                    }
+                } else {
+                    assertEquals(expected, actual, name + " changed bottle pixel " + x + "," + y);
+                }
+            }
+        }
+        assertTrue(changedLiquidPixels > 0, name + " did not recolour its liquid");
+    }
+
+    private static boolean isPotionLiquid(int argb, int y) {
+        int alpha = argb >>> 24;
+        int red = argb >>> 16 & 0xff;
+        int green = argb >>> 8 & 0xff;
+        int blue = argb & 0xff;
+        return alpha == 255
+                && y >= 70
+                && red >= 90
+                && red > green * 1.25
+                && red > blue * 1.18;
     }
 
     @Test

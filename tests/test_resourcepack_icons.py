@@ -11,6 +11,18 @@ REPO = Path(__file__).resolve().parents[1]
 RESOURCE_PACK = REPO / "assets" / "resourcepack"
 ITEM_TEXTURES = RESOURCE_PACK / "src" / "assets" / "mgx" / "textures" / "item"
 NATIVE_POTION_ICONS = {"crate_luck_potion", "fortune_potion"}
+POTION_REFERENCE = RESOURCE_PACK / "icon-sources" / "potion_of_healing_reference.png"
+
+
+def is_potion_liquid(colour, y):
+    red, green, blue, alpha = colour
+    return (
+        alpha == 255
+        and y >= 70
+        and red >= 90
+        and red > green * 1.25
+        and red > blue * 1.18
+    )
 
 
 class ResourcePackIconTests(unittest.TestCase):
@@ -31,13 +43,35 @@ class ResourcePackIconTests(unittest.TestCase):
                     bounds = alpha.getbbox()
                     self.assertIsNotNone(bounds)
                     if path.stem in NATIVE_POTION_ICONS:
-                        self.assertEqual(image.size[0], image.size[1])
-                        self.assertGreaterEqual(image.size[0], 160)
-                        colours = image.getcolors(maxcolors=1_000_000)
-                        self.assertIsNotNone(colours)
-                        self.assertGreater(len(colours), 24)
-                        self.assertGreaterEqual(bounds[2] - bounds[0], image.size[0] // 2)
-                        self.assertGreaterEqual(bounds[3] - bounds[1], image.size[1] * 3 // 4)
+                        self.assertEqual((160, 160), image.size)
+                        with Image.open(POTION_REFERENCE) as reference:
+                            reference = reference.convert("RGBA")
+                            self.assertEqual(reference.getchannel("A").tobytes(), alpha.tobytes())
+                            changed_liquid = 0
+                            for y in range(160):
+                                for x in range(160):
+                                    expected = reference.getpixel((x, y))
+                                    actual = image.getpixel((x, y))
+                                    if is_potion_liquid(expected, y):
+                                        changed_liquid += actual != expected
+                                    else:
+                                        self.assertEqual(expected, actual, f"bottle changed at {x},{y}")
+                            self.assertGreater(changed_liquid, 0)
+                            liquid = [
+                                image.getpixel((x, y))[:3]
+                                for y in range(160)
+                                for x in range(160)
+                                if is_potion_liquid(reference.getpixel((x, y)), y)
+                            ]
+                            average = tuple(
+                                sum(colour[channel] for colour in liquid) / len(liquid)
+                                for channel in range(3)
+                            )
+                            if path.stem == "fortune_potion":
+                                self.assertGreater(average[1], max(average[0], average[2]) * 2)
+                            else:
+                                self.assertGreater(average[2], average[1] * 2)
+                                self.assertGreater(average[0], average[1] * 2)
                     else:
                         self.assertEqual((32, 32), image.size)
                         colours = image.getcolors(maxcolors=257)
