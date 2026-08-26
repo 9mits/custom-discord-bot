@@ -2586,6 +2586,21 @@ class MaintenanceModeTests(unittest.IsolatedAsyncioTestCase):
             with self.subTest(address=address):
                 self.assertIn(address, closed.description)
 
+    def test_approval_points_to_the_actual_information_panel_channel_and_guide(self):
+        from minecraft_bot.presentation import approval_embed
+
+        embed = approval_embed(
+            SimpleNamespace(
+                java_address="play.example.net",
+                bedrock_address="bedrock.example.net",
+                bedrock_port=19132,
+            ),
+            987654321,
+        )
+
+        self.assertIn("<#987654321>", embed.description)
+        self.assertIn("https://mysterioussmpx.blog/guide", embed.description)
+
 
 class LinkEditionPromptTests(unittest.IsolatedAsyncioTestCase):
     """The information panel is the only surface an accepted member can reach.
@@ -3770,4 +3785,3 @@ class MinecraftAccessGuardTests(unittest.IsolatedAsyncioTestCase):
             )
 
         bot.spawn_background_task.assert_not_called()
-

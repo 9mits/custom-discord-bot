@@ -13,6 +13,7 @@ from minecraft_bot.models import (
     DuplicateActiveVerification,
     Edition,
     InvalidTransition,
+    ReverseLinkStatus,
 )
 
 
@@ -43,6 +44,72 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             normalize_username(Edition.BEDROCK, ".FloodgatePrefix"),
             ("FloodgatePrefix", "floodgateprefix"),
+        )
+
+    async def test_reverse_link_persists_member_confirmation_lifecycle(self):
+        request = await self.data.create_reverse_link(
+            guild_id=10,
+            discord_username="@Test.User",
+            edition=Edition.JAVA,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            current_username="TestPlayer",
+            xuid=None,
+            request_id="request-one",
+            now=1000,
+        )
+        self.assertEqual(request.status, ReverseLinkStatus.WAITING_FOR_MEMBER)
+        self.assertEqual(request.normalized_discord_username, "test.user")
+
+        attached = await self.data.attach_reverse_link_member("request-one", 42, now=1001)
+        claimed = await self.data.claim_reverse_link("request-one", 42, now=1002)
+        finished = await self.data.finish_reverse_link(
+            "request-one", ReverseLinkStatus.APPROVED, now=1003
+        )
+
+        self.assertEqual(attached.discord_user_id, "42")
+        self.assertEqual(claimed.status, ReverseLinkStatus.PROCESSING)
+        self.assertEqual(finished.status, ReverseLinkStatus.APPROVED)
+        with self.assertRaises(InvalidTransition):
+            await self.data.claim_reverse_link("request-one", 42, now=1004)
+
+    async def test_new_reverse_link_replaces_old_request_and_waiting_member_lookup_is_exact(self):
+        common = dict(
+            guild_id=10,
+            discord_username="Test_User",
+            edition=Edition.JAVA,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            current_username="TestPlayer",
+            xuid=None,
+            now=1000,
+        )
+        first = await self.data.create_reverse_link(request_id="request-old", **common)
+        second = await self.data.create_reverse_link(request_id="request-new", **common)
+
+        self.assertEqual(
+            (await self.data.get_reverse_link(first.request_id)).status,
+            ReverseLinkStatus.SUPERSEDED,
+        )
+        waiting = await self.data.waiting_reverse_links_for_username("test_user", now=1001)
+        self.assertEqual([item.request_id for item in waiting], [second.request_id])
+        self.assertEqual(await self.data.waiting_reverse_links_for_username("test.user", now=1001), [])
+
+    async def test_reverse_link_expiry_is_explicit(self):
+        request = await self.data.create_reverse_link(
+            guild_id=10,
+            discord_username="Test_User",
+            edition=Edition.JAVA,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            current_username="TestPlayer",
+            xuid=None,
+            request_id="request-expire",
+            expires_seconds=60,
+            now=1000,
+        )
+        expired = await self.data.expire_reverse_links(now=1060)
+        self.assertEqual([item.request_id for item in expired], [request.request_id])
+        self.assertEqual(
+            (await self.data.get_reverse_link(request.request_id)).status,
+            ReverseLinkStatus.EXPIRED,
         )
         self.assertEqual(
             normalize_username(Edition.JAVA, "Dr_Ravager"),

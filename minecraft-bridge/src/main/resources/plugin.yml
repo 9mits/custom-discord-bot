@@ -26,6 +26,9 @@ commands:
   discord:
     description: Open the Mysterious SMP X Discord invite.
     usage: /discord
+  verify:
+    description: Link the Minecraft account currently in the verification lobby to Discord.
+    usage: /verify <discord_username>
   discordnames:
     description: Show or hide your linked Discord username in Minecraft.
     usage: /discordnames

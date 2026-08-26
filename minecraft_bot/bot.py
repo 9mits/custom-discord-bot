@@ -28,7 +28,16 @@ from . import clans
 from .bridge import MinecraftBridgeServer
 from .config import MinecraftConfig
 from .data import MinecraftDataManager
-from .models import AccessStatus, BridgeAction, Edition, InvalidTransition, MinecraftAccess, OutboxRecord
+from .models import (
+    AccessStatus,
+    BridgeAction,
+    Edition,
+    InvalidTransition,
+    MinecraftAccess,
+    OutboxRecord,
+    ReverseLinkRequest,
+    ReverseLinkStatus,
+)
 from .perks import (
     BOOSTER_ROLE_ID,
     LEVEL_ROLE_MILESTONES,
@@ -60,6 +69,7 @@ from .presentation import (
     verification_log_embed,
     application_card_files,
     live_status_embed,
+    reverse_link_request_embed,
 )
 from .settings import MinecraftSettings, SETTING_KEYS
 from .ui import (
@@ -67,7 +77,10 @@ from .ui import (
     LinkEditionView,
     LiveApplicationView,
     MinecraftControlView,
+    ReverseLinkButton,
+    ReverseLinkView,
 )
+from .information import CONFIG_CHANNEL as INFORMATION_CHANNEL_CONFIG
 
 
 logger = logging.getLogger("MinecraftAccessBot")
@@ -179,10 +192,12 @@ class MinecraftAccessBot(commands.Bot):
             chat_message_handler=self.handle_minecraft_chat,
             connected_handler=self.handle_bridge_connected,
             server_event_handler=self.handle_server_event,
+            reverse_link_handler=self.handle_reverse_link_request,
         )
         self.apply_rate_limit = RateLimiter(5)
         self.status_rate_limit = RateLimiter(10)
         self.chat_rate_limit = RateLimiter(2)
+        self.reverse_dm_rate_limit = RateLimiter(30)
         # Minecraft UUID -> linked Discord id, refreshed with the leaderboard so the
         # dropdowns can render mentions without hitting the database again.
         self.leaderboard_links: dict[str, str] = {}
@@ -218,6 +233,7 @@ class MinecraftAccessBot(commands.Bot):
             InformationButton,
             LinkEditionButton,
             SectionButton,
+            ReverseLinkButton,
         )
         await self.bridge.start()
         self.application_maintenance.start()
@@ -450,6 +466,20 @@ class MinecraftAccessBot(commands.Bot):
         except (discord.NotFound, discord.HTTPException):
             return None
 
+    async def _resolve_member_by_username(self, username: str) -> Optional[discord.Member]:
+        guild = await self._configured_guild()
+        if guild is None:
+            return None
+        normalized = str(username).casefold()
+        cached = [member for member in guild.members if member.name.casefold() == normalized]
+        if cached:
+            return cached[0]
+        try:
+            queried = await guild.query_members(query=username, limit=20, cache=True)
+        except (discord.Forbidden, discord.HTTPException):
+            return None
+        return next((member for member in queried if member.name.casefold() == normalized), None)
+
     async def _send_configured_log(
         self,
         channel_id: int,
@@ -603,8 +633,16 @@ class MinecraftAccessBot(commands.Bot):
                 raise RuntimeError("Discord user unavailable")
             icon = brand_icon_file()
             try:
+                information_channel_id = await self.data.get_config(INFORMATION_CHANNEL_CONFIG)
                 await user.send(
-                    **branded_send(application_dm_embed(application, self.settings, notification)),
+                    **branded_send(
+                        application_dm_embed(
+                            application,
+                            self.settings,
+                            notification,
+                            information_channel_id=information_channel_id,
+                        )
+                    ),
                     file=icon,
                 )
             finally:
@@ -1326,6 +1364,198 @@ class MinecraftAccessBot(commands.Bot):
             name=f"minecraft-verification:{application.id}",
         )
 
+    async def _send_reverse_link_dm(
+        self, request: ReverseLinkRequest, member: discord.Member
+    ) -> bool:
+        # An ACK can be lost after the DM arrived. A replay must not rate-limit and
+        # invalidate the still-live buttons on that already delivered message.
+        if request.status is not ReverseLinkStatus.WAITING_FOR_MEMBER:
+            return False
+        if not self.reverse_dm_rate_limit.claim(member.id):
+            await self.data.finish_reverse_link(request.request_id, ReverseLinkStatus.FAILED)
+            await self.bridge.send_reverse_link_status(
+                request_id=request.request_id,
+                minecraft_uuid=request.minecraft_uuid,
+                status="RATE_LIMITED",
+                message="A confirmation was recently sent to that Discord account. Wait 30 seconds, then use /verify again.",
+            )
+            return False
+        attached = await self.data.attach_reverse_link_member(request.request_id, member.id)
+        if attached is None or attached.status is not ReverseLinkStatus.WAITING_FOR_APPROVAL:
+            return False
+        try:
+            await member.send(
+                **branded_send(reverse_link_request_embed(attached)),
+                view=ReverseLinkView(attached.request_id),
+            )
+        except (discord.Forbidden, discord.HTTPException):
+            await self.data.finish_reverse_link(attached.request_id, ReverseLinkStatus.FAILED)
+            await self.bridge.send_reverse_link_status(
+                request_id=attached.request_id,
+                minecraft_uuid=attached.minecraft_uuid,
+                status="DMS_CLOSED",
+                message="Discord found you, but could not DM you. Allow direct messages from server members, then run /verify again.",
+            )
+            return False
+        await self.bridge.send_reverse_link_status(
+            request_id=attached.request_id,
+            minecraft_uuid=attached.minecraft_uuid,
+            status="DM_SENT",
+            message="Confirmation sent. Open the newest DM from Mysterious SMP X and press Yes, This Is Me.",
+        )
+        return True
+
+    async def handle_reverse_link_request(
+        self,
+        *,
+        request_id: str,
+        discord_username: str,
+        edition: Edition,
+        minecraft_uuid: str,
+        current_username: str,
+        xuid: Optional[str],
+    ) -> None:
+        request = await self.data.create_reverse_link(
+            guild_id=self.config.guild_id,
+            discord_username=discord_username,
+            edition=edition,
+            minecraft_uuid=minecraft_uuid,
+            current_username=current_username,
+            xuid=xuid,
+            request_id=request_id,
+        )
+        member = await self._resolve_member_by_username(request.discord_username)
+        if member is not None:
+            await self._send_reverse_link_dm(request, member)
+            return
+        await self.bridge.send_reverse_link_status(
+            request_id=request.request_id,
+            minecraft_uuid=request.minecraft_uuid,
+            status="JOIN_DISCORD",
+            message="That username is not in our Discord yet. Use /discord to join within 10 minutes; the confirmation DM arrives automatically. If it takes longer, run /verify again.",
+        )
+
+    async def on_member_join(self, member: discord.Member) -> None:
+        if member.guild.id != self.config.guild_id:
+            return
+        requests = await self.data.waiting_reverse_links_for_username(member.name)
+        for request in requests:
+            await self._send_reverse_link_dm(request, member)
+
+    async def handle_reverse_link_decision(
+        self,
+        *,
+        request_id: str,
+        discord_user: discord.User | discord.Member,
+        approved: bool,
+    ) -> str:
+        try:
+            request = await self.data.claim_reverse_link(request_id, discord_user.id)
+        except InvalidTransition as exc:
+            return str(exc)
+        if not approved:
+            await self.data.finish_reverse_link(request_id, ReverseLinkStatus.DENIED)
+            await discord_user.send(
+                **branded_send(info_embed(
+                    "Minecraft Link Declined",
+                    f"> The request from **{request.current_username}** was declined.\n"
+                    "> Nothing was linked. If this was unexpected, your Discord account is still safe.",
+                    success=True,
+                ))
+            )
+            await self.bridge.send_reverse_link_status(
+                request_id=request_id,
+                minecraft_uuid=request.minecraft_uuid,
+                status="DENIED",
+                message="The Discord account declined this request. Check the username and use /verify again.",
+            )
+            return "Declined. Nothing was linked, and a new confirmation message was sent."
+
+        guild = await self._configured_guild()
+        member = await self._resolve_guild_member(guild, discord_user.id)
+        if member is None:
+            await self.data.finish_reverse_link(request_id, ReverseLinkStatus.FAILED)
+            await discord_user.send(**branded_send(info_embed(
+                "Join the Discord First",
+                "> Your confirmation was received, but Discord linkage requires you to be in "
+                "the Mysterious SMP X server. Join it, then run `/verify` again in Minecraft.",
+                error=True,
+            )))
+            await self.bridge.send_reverse_link_status(
+                request_id=request_id,
+                minecraft_uuid=request.minecraft_uuid,
+                status="JOIN_DISCORD",
+                message="Join the Mysterious SMP X Discord, then use /verify again.",
+            )
+            return "Join the Mysterious SMP X Discord, then start a fresh request in Minecraft."
+
+        await discord_user.send(**branded_send(info_embed(
+            "Confirmation Received",
+            f"> **{request.current_username}** is yours. We are activating access now.\n"
+            "> Keep Minecraft open; the lobby will release you automatically.",
+            success=True,
+        )))
+        try:
+            recent = await self.data.list_access_for_user(member.id, limit=100)
+            pending = next(
+                (item for item in recent if item.status is AccessStatus.PENDING_VERIFICATION),
+                None,
+            )
+            pending_name = (
+                " ".join(pending.claimed_username.replace("_", " ").split()).casefold()
+                if pending is not None
+                else ""
+            )
+            request_name = " ".join(request.current_username.replace("_", " ").split()).casefold()
+            if pending is not None and pending_name != request_name:
+                raise InvalidTransition(
+                    f"You already have a pending verification for {pending.claimed_username}. "
+                    "Cancel it from /minecraft account, then run /verify again."
+                )
+            application = pending or await self.data.create_verification(
+                guild_id=self.config.guild_id,
+                discord_user_id=member.id,
+                edition=request.edition,
+                claimed_username=request.current_username,
+            )
+            application, changed = await self.data.record_verification(
+                access_id=application.id,
+                edition=request.edition,
+                minecraft_uuid=request.minecraft_uuid,
+                current_username=request.current_username,
+                xuid=request.xuid,
+                event_idempotency_key=f"reverse-link:{request.request_id}",
+                reverse_request_id=request.request_id,
+                discord_username=member.name,
+            )
+        except (InvalidTransition, ValueError) as exc:
+            await self.data.finish_reverse_link(request_id, ReverseLinkStatus.FAILED)
+            await discord_user.send(**branded_send(info_embed(
+                "Minecraft Link Needs Attention", f"> {exc}", error=True
+            )))
+            await self.bridge.send_reverse_link_status(
+                request_id=request_id,
+                minecraft_uuid=request.minecraft_uuid,
+                status="FAILED",
+                message=str(exc),
+            )
+            return str(exc)
+        await self.data.finish_reverse_link(request_id, ReverseLinkStatus.APPROVED)
+        if changed:
+            await self._send_configured_log(
+                self.settings.verification_log_channel_id,
+                verification_log_embed(application),
+            )
+        await self.bridge.send_reverse_link_status(
+            request_id=request_id,
+            minecraft_uuid=request.minecraft_uuid,
+            status="ACTIVATING",
+            message="Confirmed. Access is activating now; keep Minecraft open.",
+        )
+        if self.bridge.connected:
+            await self.bridge.dispatch_outbox()
+        return "Confirmed. A fresh status DM was sent; Minecraft will open automatically."
+
     async def _publish_verification(
         self,
         application: MinecraftAccess,
@@ -1349,6 +1579,29 @@ class MinecraftAccessBot(commands.Bot):
         application: Optional[MinecraftAccess],
     ) -> None:
         if application is None:
+            reverse_request_id = str(record.payload.get("reverse_request_id") or "")
+            if record.action is BridgeAction.APPROVE and reverse_request_id:
+                request = await self.data.get_reverse_link(reverse_request_id)
+                if request is not None and request.status is ReverseLinkStatus.APPROVED:
+                    await self.data.finish_reverse_link(
+                        reverse_request_id, ReverseLinkStatus.FAILED
+                    )
+                    await self.bridge.send_reverse_link_status(
+                        request_id=reverse_request_id,
+                        minecraft_uuid=request.minecraft_uuid,
+                        status="FAILED",
+                        message="Discord confirmed you, but the server could not activate access yet. Stay here or reconnect in a moment; the activation will retry automatically.",
+                    )
+                    if request.discord_user_id:
+                        user = self.get_user(int(request.discord_user_id))
+                        if user is not None:
+                            with suppress(discord.Forbidden, discord.HTTPException):
+                                await user.send(**branded_send(info_embed(
+                                    "Minecraft Activation Delayed",
+                                    "> Your ownership was confirmed, but Minecraft has not accepted the "
+                                    "activation yet. It will retry automatically; reconnect in a moment.",
+                                    error=True,
+                                )))
             if record.action in {BridgeAction.APPROVE, BridgeAction.REVOKE}:
                 logger.warning(
                     "Minecraft action %s failed for application %s: %s",
@@ -1809,6 +2062,14 @@ class MinecraftAccessBot(commands.Bot):
     async def application_maintenance(self) -> None:
         try:
             expired = await self.data.expire_pending(limit=100)
+            reverse_expired = await self.data.expire_reverse_links()
+            for request in reverse_expired:
+                await self.bridge.send_reverse_link_status(
+                    request_id=request.request_id,
+                    minecraft_uuid=request.minecraft_uuid,
+                    status="EXPIRED",
+                    message="That request expired. Use /verify again to receive a fresh Discord confirmation.",
+                )
             for application in expired:
                 await self.log_access_change(application)
                 await self.update_live_card(application)

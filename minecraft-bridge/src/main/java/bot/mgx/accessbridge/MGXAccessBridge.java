@@ -38,16 +38,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 
 public final class MGXAccessBridge extends JavaPlugin implements Listener {
-    // Two outcomes, because there are only two: either this account is verified
-    // and plays, or it is not and is told exactly how to become verified. The
-    // old ladder of six messages described an application queue that no longer
-    // exists, and the worst of them told a player that being kicked was normal.
-    private static final Component NOT_VERIFIED_MESSAGE = Component.text(
-            "You need to verify before you can play.\n\n"
-                    + "Open Discord, press Verify on the Mysterious SMP X panel, and enter this "
-                    + "exact username.\n"
-                    + "Then join again and you are in — no form, nothing to wait for."
-    );
     private static final Component CLOSED_MESSAGE = Component.text(
             "Mysterious SMP X is closed right now.\n\n"
                     + "The world is closed for everyone, verified or not. Check Discord for news."
@@ -114,6 +104,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private SpawnMobBarrierService spawnMobBarrier;
     private BroadcastDisplayService broadcastDisplayService;
     private TeleportWarmupService teleportWarmups;
+    private VerificationLobbyService verificationLobby;
     private final WhitelistDirectory whitelistDirectory = new WhitelistDirectory();
 
     @Override
@@ -215,6 +206,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         bridgeClient = new BridgeClient(
                 this, bridgeConfig, pending, processed, verificationEvents, verifiedAccounts, networkExecutor
         );
+        verificationLobby = new VerificationLobbyService(this, bridgeClient);
         chatRelayService = new ChatRelayService(bridgeClient, playerSettings);
         // Statistics live beside the main world, which is where the server writes them.
         PlayerStatsService statsService = new PlayerStatsService(
@@ -239,6 +231,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         );
         economyStore.onChange(leaderboardService::refreshSoon);
         sidebarService.useLeaderboardService(leaderboardService);
+        getServer().getPluginManager().registerEvents(verificationLobby, this);
         getServer().getPluginManager().registerEvents(this, this);
         getServer().getPluginManager().registerEvents(
                 new StarterKitService(this, getDataFolder().toPath().resolve("starter-kits.json")),
@@ -300,6 +293,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 || getCommand("pay") == null
                 || getCommand("bounty") == null
                 || getCommand("afk") == null
+                || getCommand("verify") == null
                 || getCommand("crate") == null
                 || getCommand("wardrobe") == null) {
             getLogger().severe("A required Minecraft command is missing from plugin.yml.");
@@ -314,6 +308,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("guide").setTabCompleter(guideService);
         getCommand("perks").setExecutor(guideService);
         getCommand("discord").setExecutor(guideService);
+        getCommand("verify").setExecutor(verificationLobby);
         getCommand("discordnames").setExecutor(identityService);
         PlayerSettingsService settingsService = new PlayerSettingsService(this, playerSettings, playerMenuService);
         getCommand("settings").setExecutor(settingsService);
@@ -1190,11 +1185,15 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                     || (identity.uuid() != null && verifiedAccounts.find(identity.uuid()).isPresent())) {
                 return Verdict.allowed();
             }
-            getLogger().info("No pending verification for " + loginName
-                    + " (cache=" + pending.size()
-                    + " names=" + pending.snapshotNames() + ")");
-            verificationKicks.put(uuid, NOT_VERIFIED_MESSAGE);
-            return Verdict.refuse(NOT_VERIFIED_MESSAGE);
+            UUID accountId = identity.uuid() != null ? identity.uuid() : uuid;
+            String accountName = firstNonBlank(identity.username(), loginName);
+            verificationLobby.markAwaiting(
+                    uuid, accountId, identity.edition(), accountName, identity.xuid()
+            );
+            verificationKicks.remove(uuid);
+            getLogger().info("Routing unverified player " + loginName
+                    + " into the isolated verification lobby.");
+            return Verdict.allowed();
         }
         MinecraftEdition edition = identity.edition();
         String xuid = identity.xuid();
@@ -1544,6 +1543,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             return;
         }
         Player player = event.getPlayer();
+        if (verificationLobby != null && verificationLobby.isLobbyPlayer(player.getUniqueId())) {
+            return;
+        }
         Verdict verdict = handleVerification(player.getUniqueId(), player.getName());
         if (verdict.allow()) {
             return;
@@ -1562,6 +1564,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         scheduleBedrockTerrainResync(event.getPlayer());
         Player player = event.getPlayer();
+        if (verificationLobby != null && verificationLobby.isLobbyPlayer(player.getUniqueId())) {
+            return;
+        }
         PlayerConnectionIdentity identity = resolveConnectionIdentity(
                 player.getUniqueId(), player.getName()
         );
@@ -1618,6 +1623,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     @EventHandler(priority = EventPriority.MONITOR)
     public void onPlayerQuit(PlayerQuitEvent event) {
         verificationKicks.remove(event.getPlayer().getUniqueId());
+        boolean verificationOnly = verificationLobby != null
+                && verificationLobby.isLobbyPlayer(event.getPlayer().getUniqueId());
         if (devBlogService != null) {
             // Restores their belongings before they leave, so logging out of
             // screenshot mode is not a way to lose an inventory.
@@ -1628,6 +1635,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             sidebarService.forget(event.getPlayer().getUniqueId());
         }
         PlayerConnectionIdentity identity = connectionIdentities.remove(event.getPlayer().getUniqueId());
+        if (verificationOnly) {
+            return;
+        }
         if (identity == null) {
             identity = resolveConnectionIdentity(
                     event.getPlayer().getUniqueId(), event.getPlayer().getName()
@@ -1682,5 +1692,17 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private record PlayerConnectionIdentity(
             MinecraftEdition edition, UUID uuid, String username, String xuid
     ) {
+    }
+
+    void showVerificationLinkStatus(UUID minecraftUuid, String status, String message) {
+        if (verificationLobby != null) {
+            verificationLobby.showStatus(minecraftUuid, status, message);
+        }
+    }
+
+    void completeVerificationLobby(UUID minecraftUuid, String discordUsername) {
+        if (verificationLobby != null) {
+            verificationLobby.release(minecraftUuid, discordUsername);
+        }
     }
 }

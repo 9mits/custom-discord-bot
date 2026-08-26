@@ -27,13 +27,15 @@ WHITELIST_SYNC_PROTOCOL_VERSION = 6
 SERVER_EVENT_PROTOCOL_VERSION = 7
 MAINTENANCE_PROTOCOL_VERSION = 8
 SERVER_EVENT_TOGGLE_PROTOCOL_VERSION = 9
-CURRENT_PROTOCOL_VERSION = SERVER_EVENT_TOGGLE_PROTOCOL_VERSION
+REVERSE_LINK_PROTOCOL_VERSION = 10
+CURRENT_PROTOCOL_VERSION = REVERSE_LINK_PROTOCOL_VERSION
 
 VerificationHandler = Callable[..., Awaitable[None]]
 ActionResultHandler = Callable[[OutboxRecord, Optional[Any]], Awaitable[None]]
 PlayerEventHandler = Callable[..., Awaitable[None]]
 ChatMessageHandler = Callable[..., Awaitable[None]]
 ServerEventHandler = Callable[..., Awaitable[None]]
+ReverseLinkHandler = Callable[..., Awaitable[None]]
 
 
 class MinecraftBridgeServer:
@@ -49,6 +51,7 @@ class MinecraftBridgeServer:
         leaderboard_handler: Optional[Callable[[dict[str, Any]], Awaitable[None]]] = None,
         connected_handler: Optional[Callable[[], Awaitable[None]]] = None,
         server_event_handler: Optional[ServerEventHandler] = None,
+        reverse_link_handler: Optional[ReverseLinkHandler] = None,
     ) -> None:
         self.config = config
         self.data = data
@@ -59,6 +62,7 @@ class MinecraftBridgeServer:
         self.leaderboard_handler = leaderboard_handler
         self.connected_handler = connected_handler
         self.server_event_handler = server_event_handler
+        self.reverse_link_handler = reverse_link_handler
         # Newest standings pushed by Paper; the leaderboard message renders from this.
         self.latest_leaderboard: dict[str, Any] = {}
         # Minecraft UUID -> clan standing and staff tools, pushed by Paper.
@@ -129,6 +133,10 @@ class MinecraftBridgeServer:
     @property
     def supports_whitelist_sync(self) -> bool:
         return self.connected and self._peer_protocol_version >= WHITELIST_SYNC_PROTOCOL_VERSION
+
+    @property
+    def supports_reverse_link(self) -> bool:
+        return self.connected and self._peer_protocol_version >= REVERSE_LINK_PROTOCOL_VERSION
 
     async def start(self) -> None:
         ssl_context = None
@@ -333,6 +341,29 @@ class MinecraftBridgeServer:
             await self._send(
                 "VERIFICATION_ACK",
                 {"application_id": int(payload["application_id"])},
+                idempotency_key=envelope["idempotency_key"],
+                expected_socket=source_socket,
+            )
+            return
+        if message_type == "LINK_REQUEST":
+            if self._peer_protocol_version < REVERSE_LINK_PROTOCOL_VERSION:
+                return
+            try:
+                if self.reverse_link_handler is not None:
+                    await self.reverse_link_handler(
+                        request_id=str(payload["request_id"]),
+                        discord_username=str(payload["discord_username"]),
+                        edition=Edition(str(payload["edition"]).upper()),
+                        minecraft_uuid=str(payload["minecraft_uuid"]),
+                        current_username=str(payload["current_username"]),
+                        xuid=(str(payload["xuid"]) if payload.get("xuid") is not None else None),
+                    )
+            except Exception:
+                logger.exception("Reverse-link request handler failed")
+                return
+            await self._send(
+                "LINK_REQUEST_ACK",
+                {"request_id": str(payload["request_id"])},
                 idempotency_key=envelope["idempotency_key"],
                 expected_socket=source_socket,
             )
@@ -725,6 +756,32 @@ class MinecraftBridgeServer:
                 "ACTION",
                 payload,
                 idempotency_key=f"whitelist:{secrets.token_hex(12)}",
+            )
+        except ConnectionError:
+            return False
+        return True
+
+    async def send_reverse_link_status(
+        self,
+        *,
+        request_id: str,
+        minecraft_uuid: str,
+        status: str,
+        message: str,
+    ) -> bool:
+        if not self.supports_reverse_link:
+            return False
+        try:
+            await self._send(
+                "ACTION",
+                {
+                    "action": "LINK_STATUS",
+                    "request_id": str(request_id),
+                    "minecraft_uuid": str(minecraft_uuid),
+                    "status": str(status)[:32],
+                    "message": str(message)[:500],
+                },
+                idempotency_key=f"link-status:{request_id}:{secrets.token_hex(6)}",
             )
         except ConnectionError:
             return False
