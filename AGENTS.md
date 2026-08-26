@@ -296,9 +296,12 @@ same pinned Paper build as production in the git-ignored `runtime/testserver/`,
 with Floodgate (a hard `depend:`), Geyser and LuckPerms alongside. It is
 deliberately not a copy of production — offline mode and no whitelist so alt
 accounts can join to test the multiplayer events, `verification-required: false`
-so the production Discord gate cannot lock testers out, no resource pack so a
-slow GitHub cannot stall a test, and a bridge URL pointing at a local port that
-need not be listening. Everything that does not need Discord works without a bot.
+so the production Discord gate cannot lock testers out, locally built Java and
+Bedrock resource packs so a remote host cannot stall a test, and a bridge URL
+pointing at a local port that need not be listening. Everything that does not need
+Discord works without a bot. `scripts/testserver.py` updates the Java pack SHA-1
+and deterministic cache identity on every deploy so clients cannot silently reuse
+an old icon pack.
 Every merged Minecraft plugin/config/resource-pack change must be installed and
 loaded here with a graceful Paper restart before it can be considered for
 production. This is the automatic deployment target and needs no separate user
@@ -542,6 +545,16 @@ Read the relevant file when you touch an area; these are the non-obvious points.
   custody and equipped selections, and refreshes carried tokens. Tokens stored in
   containers show old lore until they are picked up or moved through the wardrobe;
   the `CosmeticStore` value is canonical.
+- **Potion icons preserve the official bottle exactly.** Fortune Potion and Crate
+  Luck Potion are liquid-only reskins of
+  `assets/resourcepack/icon-sources/potion_of_healing_reference.png`. Image
+  generation supplies only the green or violet liquid palette; never commit its
+  reconstructed bottle. `import_generated_icons.py` applies that palette to the
+  canonical red-liquid pixels while preserving the alpha mask and every other RGBA
+  pixel byte-for-byte. The Python and Java resource-pack tests enforce this and
+  also require the two item models to resolve to different textures. If those
+  tests fail, fix the asset or mapping—never relax the invariant. The complete
+  rationale and prompt live in `assets/resourcepack/ICON_ART_DIRECTION.md`.
 - **Verification is the only gate on Minecraft access.** There is no
   application form, no review queue and no staff approval: a member declares a
   username in Discord, joins once with that account, and the plugin *allows* the

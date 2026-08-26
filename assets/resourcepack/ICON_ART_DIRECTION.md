@@ -8,9 +8,8 @@ new icon geometry pixel by pixel.
 
 - Design on a deliberate **16x16 logical pixel grid**, exported at 32x32 as exact
   2x2 blocks. This preserves strong Minecraft-scale pixels without tiny dotted detail.
-  The two potion reskins are the only exception: they retain the AI edit's native
-  resolution, colour depth, alpha, canvas, and pixel geometry without a second
-  downscale or palette reduction.
+  The two potion reskins are the only exception: they retain the supplied official
+  reference's exact 160x160 canvas, alpha mask, bottle pixels, and pixel geometry.
 - Use one strong silhouette, stepped square pixels, crisp edges, and no antialiasing.
 - Light from the upper left; use a dark lower-right outline and material shadow.
 - Use a restrained material palette. The importer caps the final sprite at 24 colours.
@@ -58,8 +57,8 @@ Avoid: flat symbol design, mobile-game gloss, smooth illustration, excessive det
 |---|---|
 | `aura` | Warm-gold magical core inside two offset orbital bands with a tiny sparkle. |
 | `crate_key` | Diagonal old-gold crate key with a faceted violet gem and distinctive notched bit. |
-| `crate_luck_potion` | Supplied official potion bottle silhouette reskinned with deep-violet liquid and a molten-orange lucky spark. |
-| `fortune_potion` | Supplied official potion bottle silhouette reskinned with emerald liquid and a small gold clover-like glint. |
+| `crate_luck_potion` | Supplied official potion bottle reskinned with deep-violet liquid only. |
+| `fortune_potion` | Supplied official potion bottle reskinned with emerald liquid only. |
 | `kill_effect` | Cracked dark-iron impact medallion struck by one diagonal crimson slash. |
 | `secret` | Faceted obsidian sealed relic with a recessed violet seam and mysterious glint. |
 | `trail` | Enchanted cyan boot angled forward with short stepped motion streaks. |
@@ -123,3 +122,17 @@ Potion of Healing reference. Every cork, bottle, glass, highlight, shadow,
 transparent-padding, silhouette, and pixel coordinate remains byte-for-byte equal
 to that reference. The two results therefore look like true vanilla potion
 reskins, not redesigned bottles.
+
+### Permanent potion invariant
+
+Never commit an image-generation output directly as either potion texture, even if
+it appears close to the reference. Image generation may propose the liquid colour
+ramp only. `import_generated_icons.py` must apply that ramp to
+`icon-sources/potion_of_healing_reference.png`; it must not resize, redraw,
+reinterpret, or regenerate the bottle.
+
+Both `tests/test_resourcepack_icons.py` and `ResourcePackCatalogTest` enforce this:
+the complete alpha mask and every non-liquid RGBA pixel must match the canonical
+reference, the two item models must resolve to different texture files, Fortune
+must remain green, and Crate Luck must remain violet. A failing invariant means the
+asset is wrong; do not weaken the test to accept a redesigned bottle.
