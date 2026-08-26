@@ -1007,7 +1007,14 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         if (!player.isOnline() || bypassesMaintenance(player)) {
             return;
         }
-        player.kick(verificationKicks.getOrDefault(player.getUniqueId(), CLOSED_MESSAGE));
+        player.kick(CLOSED_MESSAGE);
+    }
+
+    private void kickIfUnverified(org.bukkit.entity.Player player) {
+        Component message = verificationKicks.get(player.getUniqueId());
+        if (player.isOnline() && message != null) {
+            player.kick(message);
+        }
     }
 
     private void sweepMaintenance() {
@@ -1038,6 +1045,17 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
     }
 
+    /** Same Geyser-safe retry pattern as maintenance, but only while still unverified. */
+    private void scheduleVerificationKick(org.bukkit.entity.Player player) {
+        for (long delay : VerificationGate.JOIN_KICK_TICKS) {
+            if (delay == 0L) {
+                kickIfUnverified(player);
+            } else {
+                getServer().getScheduler().runTaskLater(this, () -> kickIfUnverified(player), delay);
+            }
+        }
+    }
+
     /**
      * Floodgate's 1.21 login path calls this event and then starts client
      * verification. A hold that only refused {@code PlayerLoginEvent} left
@@ -1048,9 +1066,11 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
     public void onPlayerPreLogin(AsyncPlayerPreLoginEvent event) {
         AsyncPlayerPreLoginEvent.Result incoming = event.getLoginResult();
-        if (!MaintenanceGate.isRefusable(
-                incoming == AsyncPlayerPreLoginEvent.Result.ALLOWED,
-                incoming == AsyncPlayerPreLoginEvent.Result.KICK_WHITELIST
+        boolean loginAllowed = incoming == AsyncPlayerPreLoginEvent.Result.ALLOWED;
+        boolean whitelistKick = incoming == AsyncPlayerPreLoginEvent.Result.KICK_WHITELIST;
+        if (!VerificationGate.isRefusable(
+                loginAllowed,
+                whitelistKick
         )) {
             return;
         }
@@ -1062,18 +1082,16 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER, CLOSED_MESSAGE);
             return;
         }
-        if (verdict.allow()) {
+        if (!VerificationGate.shouldRefuse(loginAllowed, whitelistKick, verdict.allow())) {
             // Overrides the vanilla whitelist refusal for this one connection. The
             // durable APPROVE adds the real entry a moment later.
             event.allow();
             return;
         }
-        // Only speak up when the whitelist already refused them. A member who is
-        // whitelisted and unverified-by-our-records is an existing player, and
-        // kicking them here would lock out everyone who predates this system.
-        if (incoming == AsyncPlayerPreLoginEvent.Result.KICK_WHITELIST) {
-            event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER, verdict.kick());
-        }
+        // Verification is its own gate. Depending on vanilla's whitelist result
+        // made this fail open whenever whitelist enforcement was disabled or an
+        // unlinked account was added manually.
+        event.disallow(AsyncPlayerPreLoginEvent.Result.KICK_OTHER, verdict.kick());
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
@@ -1083,9 +1101,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         // A ban or a full server is somebody else's refusal and carries a more
         // useful message than ours. They are not getting in either way.
         boolean whitelistKick = result == PlayerLoginEvent.Result.KICK_WHITELIST;
+        boolean loginAllowed = result == PlayerLoginEvent.Result.ALLOWED;
         boolean held = maintenanceHeld();
-        if (!MaintenanceGate.isRefusable(
-                result == PlayerLoginEvent.Result.ALLOWED,
+        if (!VerificationGate.isRefusable(
+                loginAllowed,
                 whitelistKick
         ) && !(held && result == PlayerLoginEvent.Result.KICK_OTHER)) {
             return;
@@ -1111,13 +1130,11 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             event.disallow(PlayerLoginEvent.Result.KICK_OTHER, CLOSED_MESSAGE);
             return;
         }
-        if (verdict.allow()) {
+        if (!VerificationGate.shouldRefuse(loginAllowed, whitelistKick, verdict.allow())) {
             event.allow();
             return;
         }
-        if (whitelistKick) {
-            event.disallow(PlayerLoginEvent.Result.KICK_OTHER, verdict.kick());
-        }
+        event.disallow(PlayerLoginEvent.Result.KICK_OTHER, verdict.kick());
     }
 
     /**
@@ -1129,25 +1146,29 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = false)
     @SuppressWarnings("deprecation") // Deliberate final guard against Floodgate re-allowing the login.
     public void onPlayerLoginMonitor(PlayerLoginEvent event) {
-        if (!MaintenanceGate.shouldRefuse(maintenanceHeld(), bypassesMaintenance(event.getPlayer()))) {
+        if (event.getResult() != PlayerLoginEvent.Result.ALLOWED) {
             return;
         }
-        if (event.getResult() == PlayerLoginEvent.Result.ALLOWED) {
+        if (MaintenanceGate.shouldRefuse(maintenanceHeld(), bypassesMaintenance(event.getPlayer()))) {
             event.disallow(
                     PlayerLoginEvent.Result.KICK_OTHER,
-                    verificationKicks.getOrDefault(event.getPlayer().getUniqueId(), CLOSED_MESSAGE)
+                    CLOSED_MESSAGE
             );
+            return;
+        }
+        Component verificationKick = verificationKicks.get(event.getPlayer().getUniqueId());
+        if (verificationKick != null) {
+            event.disallow(PlayerLoginEvent.Result.KICK_OTHER, verificationKick);
         }
     }
 
-    /**
-     * Matches a whitelist-refused login against the pending verifications.
-     *
-     * @return the message this login has earned, or null when there was nothing to
-     *         say — which leaves the refusal exactly as it was found.
-     */
+    /** Decides whether an account is already approved, verifies a pending claim, or refuses it. */
     private Verdict handleVerification(UUID uuid, String loginName) {
         VerificationIdentity.Resolved identity = resolveConnectingIdentity(uuid, loginName);
+        if (isApprovedAccount(uuid, loginName, identity)) {
+            verificationKicks.remove(uuid);
+            return Verdict.allowed();
+        }
         Optional<PendingVerification> match = pending.matchLogin(loginName);
         if (match.isEmpty() && identity.username() != null && !identity.username().equals(loginName)) {
             match = pending.matchLogin(identity.username());
@@ -1191,6 +1212,24 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         verificationKicks.put(uuid, UNAVAILABLE_MESSAGE);
         return Verdict.refuse(UNAVAILABLE_MESSAGE);
+    }
+
+    private boolean isApprovedAccount(
+            UUID loginUuid,
+            String loginName,
+            VerificationIdentity.Resolved identity
+    ) {
+        UUID accountId = identity.uuid() != null ? identity.uuid() : loginUuid;
+        String username = firstNonBlank(identity.username(), loginName);
+        if (whitelistDirectory.synced()) {
+            return whitelistDirectory.contains(accountId, username, identity.edition());
+        }
+        // During the short startup window before Discord pushes its authoritative
+        // snapshot, preserve existing Java access only when Paper's whitelist is
+        // actively enforcing and this UUID is already on it. A disabled whitelist
+        // must never be treated as proof of verification.
+        return getServer().hasWhitelist()
+                && getServer().getOfflinePlayer(accountId).isWhitelisted();
     }
 
     private VerificationIdentity.Resolved resolveConnectingIdentity(UUID uuid, String loginName) {
@@ -1487,6 +1526,22 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getLogger().warning("Removed " + player.getName()
                 + " after login: the server is closed for maintenance.");
         scheduleMaintenanceKick(player);
+    }
+
+    /** Final access guard for Floodgate paths that reach the world despite login refusal. */
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onVerificationJoin(PlayerJoinEvent event) {
+        if (maintenanceHeld()) {
+            return;
+        }
+        Player player = event.getPlayer();
+        Verdict verdict = handleVerification(player.getUniqueId(), player.getName());
+        if (verdict.allow()) {
+            return;
+        }
+        getLogger().warning("Removed " + player.getName()
+                + " after login: account is not verified.");
+        scheduleVerificationKick(player);
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
