@@ -295,9 +295,10 @@ convention does not apply — that rule is about the Discord bot's own output.
 same pinned Paper build as production in the git-ignored `runtime/testserver/`,
 with Floodgate (a hard `depend:`), Geyser and LuckPerms alongside. It is
 deliberately not a copy of production — offline mode and no whitelist so alt
-accounts can join to test the multiplayer events, no resource pack so a slow
-GitHub cannot stall a test, and a bridge URL pointing at a local port that need
-not be listening. Everything that does not need Discord works without a bot.
+accounts can join to test the multiplayer events, `verification-required: false`
+so the production Discord gate cannot lock testers out, no resource pack so a
+slow GitHub cannot stall a test, and a bridge URL pointing at a local port that
+need not be listening. Everything that does not need Discord works without a bot.
 Every merged Minecraft plugin/config/resource-pack change must be installed and
 loaded here with a graceful Paper restart before it can be considered for
 production. This is the automatic deployment target and needs no separate user
