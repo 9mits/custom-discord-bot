@@ -55,7 +55,7 @@ class ReverseLinkButton(
             # the environment holding this request may acknowledge or process it.
             return
         # A component defer acknowledges the click without creating Discord's
-        # visible "thinking" message. The final Access Active card is the only
+        # visible "thinking" message. The final success card is the only
         # success message the member needs.
         await interaction.response.defer()
         handler = getattr(interaction.client, "handle_reverse_link_decision", None)

@@ -305,19 +305,22 @@ def application_guide_embed() -> discord.Embed:
     return embed
 
 
-def application_apply_embed() -> discord.Embed:
-    """The step-by-step, kept on its own message so the button stands alone."""
+def application_apply_embed(settings) -> discord.Embed:
+    """The connection details and verification path, beside the Verify button."""
     embed = _panel_embed(
         "Join Mysterious SMP X",
-        "Verification is completed in Discord, then one join on the server.\n\n"
-        "**How it works**\n"
-        "> **1.** Press **Verify** and accept the server rules.\n"
-        "> **2.** Enter your exact Java username or Xbox gamertag.\n"
-        "> **3.** Join the server once within **10 minutes** using that account.\n"
-        "> **4.** You will be let straight in, and your access is active from that moment.\n\n"
-        "**Before you begin**\n"
+        "> Join the Minecraft server first. If your account is not linked yet, "
+        "you will enter the verification lobby.\n\n"
+        + _connection_blocks(settings)
+        + "\n\n**Verify after joining**\n"
+        "> **1.** In the lobby, type `/verify your_discord_username`.\n"
+        "> **2.** Open the DM from **Mysterious SMP X** and press "
+        "**Yes, This Is Me**.\n"
+        "> **3.** Keep Minecraft open—you will enter automatically.\n\n"
+        "**Before you join**\n"
         "> Enable direct messages from server members so the bot can reach you.\n"
-        "> Entered the wrong username? Press **Verify** again to cancel privately.",
+        "> Prefer to start here? Press **Verify** below and enter your Minecraft "
+        "username.",
     )
     embed.set_thumbnail(url=APPLY_ATTACHMENT_URI)
     return embed
@@ -593,8 +596,8 @@ def live_status_embed(application: MinecraftAccess, settings) -> discord.Embed:
     goes with them — it identifies the record to staff, not to the person waiting
     on it.
 
-    Only the two screens with something to act on carry more: a deadline where
-    one can run out, and the server addresses where they have to connect.
+    Only the pending screen carries more: a deadline where it can run out and
+    the server addresses where the player still has to connect.
     """
     status = application.status
     username = _safe(application.verified_username or application.claimed_username, 100)
@@ -617,12 +620,8 @@ def live_status_embed(application: MinecraftAccess, settings) -> discord.Embed:
         )
         show_connection = True
     elif status is AccessStatus.VERIFIED:
-        title = "Access Active"
-        body = (
-            f"> `{username}` is verified and your access is active.\n"
-            "> Connect using the address for your edition below."
-        )
-        show_connection = True
+        title = "Verification Successful!"
+        body = f"> `{username}` is verified and your access is active."
     elif status is AccessStatus.EXPIRED:
         title = "Verification Expired"
         body = (
@@ -663,14 +662,10 @@ def approval_embed(settings, information_channel_id: int | str | None = None) ->
         "for commands, rules, and everything you need to get started."
     )
     return info_embed(
-        "Access Active",
-        "> Your Minecraft account is verified and your access is now "
-        "active.\n"
-        "> Connect using the address for your edition below, with the same account "
-        "you verified.\n"
-        "\n"
-        + _connection_blocks(settings)
-        + "\n\n**Start Here**\n"
+        "Verification Successful!",
+        "> Your Minecraft account is verified and your access is active.\n"
+        "> Return to Minecraft—you will enter automatically.\n\n"
+        "**Start Here**\n"
         + start_here,
         success=True,
     )
