@@ -686,6 +686,14 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             String xuid,
             String discordUsername
     ) {
+        // Only the newest request for an account is meaningful.  During a bridge
+        // outage every /verify used to stay in this outbox, then all of them were
+        // replayed together and produced several confirmation/final-status DMs.
+        linkRequestOutbox.entrySet().removeIf(entry -> {
+            JsonObject queued = entry.getValue();
+            return queued.has("minecraft_uuid")
+                    && minecraftUuid.toString().equals(queued.get("minecraft_uuid").getAsString());
+        });
         String requestId = UUID.randomUUID().toString();
         JsonObject payload = new JsonObject();
         payload.addProperty("request_id", requestId);

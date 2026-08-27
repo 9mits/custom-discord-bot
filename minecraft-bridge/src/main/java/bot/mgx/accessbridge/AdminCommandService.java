@@ -40,7 +40,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     static final String PERMISSION = "mgxaccessbridge.admin";
     private static final List<String> SUBCOMMANDS = List.of(
             "startserver", "teststart", "pvp", "give", "ranks", "eco", "bounty", "hologram",
-            "reset", "devblog", "update", "serials", "cosmetics", "abuse", "event", "help"
+            "reset", "testverify", "devblog", "update", "serials", "cosmetics", "abuse", "event", "help"
     );
     private static final List<String> PVP_ACTIONS = List.of("on", "off", "status");
     private static final List<String> RANK_ACTIONS = List.of("hold", "release", "list");
@@ -131,6 +131,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 case "bounty" -> bounty(sender, args);
                 case "hologram", "holograms", "lb" -> hologram(sender, args);
                 case "reset" -> reset(sender, args);
+                case "testverify" -> testVerify(sender, args);
                 case "devblog", "screenshot" -> devBlog(sender, args);
                 case "update" -> publishUpdate(sender);
                 case "serials" -> serials(sender, args);
@@ -653,6 +654,27 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     // Data reset
     // ------------------------------------------------------------------
 
+    private void testVerify(CommandSender sender, String[] args) {
+        if (!plugin.isLocalTestServer()) {
+            throw new IllegalArgumentException("This command exists only on the local test server.");
+        }
+        if (!(sender instanceof Player player)) {
+            throw new IllegalArgumentException("Run this command as the account you want to test.");
+        }
+        if (args.length < 2 || !args[1].equalsIgnoreCase("reset")) {
+            throw new IllegalArgumentException("Usage: /mgxadmin testverify reset");
+        }
+        ServerEvent.of(
+                "test_unverify",
+                ServerEvent.CATEGORY_ADMIN,
+                player.getUniqueId(),
+                player.getName(),
+                plugin::recordServerEvent
+        ).summary(player.getName() + " reset their verification on the local test server.")
+                .record();
+        success(sender, "Verification reset requested. You will disconnect, then reconnect into the lobby.");
+    }
+
     private void reset(CommandSender sender, String[] args) {
         List<String> rest = new ArrayList<>(Arrays.asList(args).subList(1, args.length));
         boolean confirmed = rest.removeIf(argument -> argument.equalsIgnoreCase("confirm"));
@@ -768,6 +790,10 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 .append(Component.text("  place or remove a spawn leaderboard", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin reset", ORANGE)
                 .append(Component.text("  clear progress, keeping the world", NamedTextColor.GRAY)));
+        if (plugin.isLocalTestServer()) {
+            sender.sendMessage(Component.text("  /mgxadmin testverify reset", ORANGE)
+                    .append(Component.text("  unverify yourself for another test", NamedTextColor.GRAY)));
+        }
         sender.sendMessage(Component.text("  /mgxadmin serials reset <cosmetic> confirm", ORANGE)
                 .append(Component.text("  renumber one cosmetic without deleting it", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin cosmetics delete <player> confirm", ORANGE)
@@ -806,6 +832,9 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         String action = args[0].toLowerCase(Locale.ROOT);
         if (action.equals("pvp")) {
             return args.length == 2 ? partial(args[1], PVP_ACTIONS) : List.of();
+        }
+        if (action.equals("testverify")) {
+            return args.length == 2 ? partial(args[1], List.of("reset")) : List.of();
         }
         if (action.equals("devblog") || action.equals("screenshot")) {
             if (args.length == 2) {

@@ -88,6 +88,11 @@ final class CosmeticEffectService implements Listener {
         previousLocations.keySet().removeIf(uuid -> plugin.getServer().getPlayer(uuid) == null);
         trailHistories.keySet().removeIf(uuid -> plugin.getServer().getPlayer(uuid) == null);
         for (Player player : plugin.getServer().getOnlinePlayers()) {
+            if (VerificationLobbyService.isLobbyWorld(player.getWorld())) {
+                previousLocations.remove(player.getUniqueId());
+                trailHistories.remove(player.getUniqueId());
+                continue;
+            }
             Location now = player.getLocation();
             Location previous = previousLocations.put(player.getUniqueId(), now.clone());
             boolean movedInWorld = previous != null && previous.getWorld() == now.getWorld();
@@ -123,7 +128,7 @@ final class CosmeticEffectService implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerDeath(PlayerDeathEvent event) {
         Player killer = event.getPlayer().getKiller();
-        if (killer == null) {
+        if (killer == null || VerificationLobbyService.isLobbyWorld(killer.getWorld())) {
             return;
         }
         Location centre = event.getPlayer().getLocation().add(0d, 1d, 0d);

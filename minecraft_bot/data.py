@@ -34,7 +34,7 @@ from .models import (
 
 JAVA_USERNAME = re.compile(r"^[A-Za-z0-9_]{3,16}$")
 BEDROCK_USERNAME = re.compile(r"^[\w -]{1,16}$", re.UNICODE)
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 COMMAND_LOG_RETENTION_DAYS = 30
 COMMAND_LOG_RETENTION_ROWS = 20_000
 
@@ -236,6 +236,11 @@ CREATE TABLE IF NOT EXISTS minecraft_delivery_outbox (
 );
 CREATE INDEX IF NOT EXISTS idx_minecraft_delivery_due
     ON minecraft_delivery_outbox(next_attempt_at, id);
+
+CREATE TABLE IF NOT EXISTS minecraft_notification_receipts (
+    dedupe_key TEXT PRIMARY KEY,
+    sent_at INTEGER NOT NULL
+);
 """
 
 
@@ -1312,6 +1317,7 @@ class MinecraftDataManager:
                     "minecraft_bridge_outbox",
                     "minecraft_audit_log",
                     "minecraft_delivery_outbox",
+                    "minecraft_notification_receipts",
                     "minecraft_command_log",
                     "minecraft_bridge_events",
                     "minecraft_bridge_nonces",
@@ -1623,6 +1629,8 @@ class MinecraftDataManager:
         edition: Edition,
         moderator_id: int | str,
         reason: str,
+        *,
+        minecraft_uuid: Optional[str] = None,
     ) -> tuple[Optional[dict[str, Any]], list[MinecraftAccess], bool]:
         current = _now()
         db = self._connection()
@@ -1632,10 +1640,17 @@ class MinecraftDataManager:
         async with self._write_lock:
             try:
                 await self._begin(db)
-                account_rows = await db.execute_fetchall(
-                    "SELECT * FROM minecraft_accounts WHERE discord_user_id=? AND edition=? LIMIT 1",
-                    (str(discord_user_id), edition.value),
-                )
+                if minecraft_uuid:
+                    account_rows = await db.execute_fetchall(
+                        "SELECT * FROM minecraft_accounts WHERE discord_user_id=? AND edition=? "
+                        "AND minecraft_uuid=? LIMIT 1",
+                        (str(discord_user_id), edition.value, str(minecraft_uuid)),
+                    )
+                else:
+                    account_rows = await db.execute_fetchall(
+                        "SELECT * FROM minecraft_accounts WHERE discord_user_id=? AND edition=? LIMIT 1",
+                        (str(discord_user_id), edition.value),
+                    )
                 if not account_rows:
                     await db.rollback()
                     return None, [], False
@@ -2156,6 +2171,25 @@ class MinecraftDataManager:
                 ),
             )
             await db.commit()
+
+    async def claim_notification(self, dedupe_key: str, *, now: Optional[int] = None) -> bool:
+        """Claims a one-time user notification before any competing path can DM it.
+
+        Bridge verification and its eventual action result both redraw the same
+        application.  The redraw is harmless, but each used to send another copy
+        of the final decision DM.  A durable receipt makes that side effect exactly
+        once across concurrent handlers, reconnect replays, and process restarts.
+        """
+        current = _now() if now is None else int(now)
+        async with self._write_lock:
+            db = self._connection()
+            cursor = await db.execute(
+                "INSERT OR IGNORE INTO minecraft_notification_receipts"
+                "(dedupe_key, sent_at) VALUES (?, ?)",
+                (str(dedupe_key), current),
+            )
+            await db.commit()
+            return cursor.rowcount == 1
 
     async def get_due_deliveries(self, *, limit: int = 25, now: Optional[int] = None) -> list[DeliveryRecord]:
         current = _now() if now is None else int(now)

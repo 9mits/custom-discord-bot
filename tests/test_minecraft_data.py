@@ -46,6 +46,18 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
             ("FloodgatePrefix", "floodgateprefix"),
         )
 
+    async def test_notification_receipt_is_claimed_only_once(self):
+        key = "application:17:decision-dm"
+
+        self.assertTrue(await self.data.claim_notification(key, now=1000))
+        self.assertFalse(await self.data.claim_notification(key, now=1001))
+
+        rows = await self.data._connection().execute_fetchall(
+            "SELECT sent_at FROM minecraft_notification_receipts WHERE dedupe_key=?",
+            (key,),
+        )
+        self.assertEqual([row["sent_at"] for row in rows], [1000])
+
     async def test_reverse_link_persists_member_confirmation_lifecycle(self):
         request = await self.data.create_reverse_link(
             guild_id=10,
