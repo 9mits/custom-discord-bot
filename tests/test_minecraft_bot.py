@@ -111,7 +111,8 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         ):
             self.assertIn(name, staff_commands)
         for name in (
-            "setup", "information", "leaderboard", "log-channel", "chat-channel", "cleanheads",
+            "setup", "test-verification", "information", "leaderboard", "log-channel",
+            "chat-channel", "cleanheads",
         ):
             self.assertIn(name, admin_commands)
         self.assertNotIn("whois", staff_commands)
@@ -137,23 +138,6 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertEqual(
             {parameter.name for parameter in staff_commands["update"].parameters},
             set(),
-        )
-
-    def test_verification_panel_command_only_exists_in_minecraft_test_mode(self):
-        production_groups = self.bot._build_command_groups()
-        self.assertEqual(
-            {group.name for group in production_groups},
-            {"minecraft", "mcstaff", "mcadmin"},
-        )
-
-        self.bot.config = SimpleNamespace(test_mode=True)
-        test_groups = self.bot._build_command_groups()
-        staging = next(group for group in test_groups if group.name == "mctest")
-
-        self.assertTrue(staging.default_permissions.administrator)
-        self.assertEqual(
-            {command.name for command in staging.commands},
-            {"verification-panel"},
         )
 
     def test_minecraft_presentation_uses_orange_brand_system(self):
@@ -996,7 +980,6 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
 class MinecraftConfigurationTests(unittest.IsolatedAsyncioTestCase):
     async def test_test_panel_command_configures_and_posts_the_working_panel(self):
         bot = object.__new__(MinecraftAccessBot)
-        bot.config = SimpleNamespace(test_mode=True)
         bot.require_administrator = AsyncMock(return_value=True)
         bot.update_settings = AsyncMock()
         bot.post_application_panel = AsyncMock(
@@ -1008,13 +991,13 @@ class MinecraftConfigurationTests(unittest.IsolatedAsyncioTestCase):
             edit_original_response=AsyncMock(),
         )
         channel = SimpleNamespace(id=99, mention="#verify-test")
-        test_group = next(
-            group for group in bot._build_command_groups() if group.name == "mctest"
+        admin_group = next(
+            group for group in bot._build_command_groups() if group.name == "mcadmin"
         )
         command = next(
             command
-            for command in test_group.commands
-            if command.name == "verification-panel"
+            for command in admin_group.commands
+            if command.name == "test-verification"
         )
 
         await command.callback(interaction, channel)
@@ -1046,19 +1029,6 @@ class MinecraftConfigurationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(config.member_role_id, 0)
         self.assertIsNone(config.bridge_tls_cert_path)
         self.assertIsNone(config.bridge_tls_key_path)
-        self.assertFalse(config.test_mode)
-
-    def test_minecraft_test_mode_is_explicit(self):
-        environment = {
-            "MINECRAFT_DISCORD_BOT_TOKEN": "token",
-            "MINECRAFT_GUILD_ID": "123456789",
-            "MINECRAFT_BRIDGE_SECRET": "ab" * 32,
-            "MINECRAFT_TEST_MODE": "true",
-        }
-        with patch.dict(os.environ, environment, clear=True):
-            config = MinecraftConfig.from_env()
-
-        self.assertTrue(config.test_mode)
 
     def test_bridge_tls_certificate_and_key_must_be_configured_together(self):
         environment = {
