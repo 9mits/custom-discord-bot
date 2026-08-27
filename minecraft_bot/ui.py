@@ -48,7 +48,10 @@ class ReverseLinkButton(
         return cls(match["action"], match["request"], item=item)
 
     async def callback(self, interaction: discord.Interaction) -> None:
-        await interaction.response.defer(ephemeral=True, thinking=True)
+        # A component defer acknowledges the click without creating Discord's
+        # visible "thinking" message. The final Access Active card is the only
+        # success message the member needs.
+        await interaction.response.defer()
         handler = getattr(interaction.client, "handle_reverse_link_decision", None)
         if handler is None:
             await interaction.followup.send("Verification is unavailable right now.", ephemeral=True)
@@ -58,7 +61,14 @@ class ReverseLinkButton(
             discord_user=interaction.user,
             approved=self.action == "approve",
         )
-        await interaction.followup.send(message, ephemeral=True)
+        if message:
+            await interaction.followup.send(message, ephemeral=True)
+            return
+        if interaction.message is not None:
+            try:
+                await interaction.message.edit(view=None)
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                pass
 
 
 class ReverseLinkView(discord.ui.View):

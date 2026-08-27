@@ -1517,12 +1517,6 @@ class MinecraftAccessBot(commands.Bot):
             )
             return "Join the Mysterious SMP X Discord, then start a fresh request in Minecraft."
 
-        await discord_user.send(**branded_send(info_embed(
-            "Confirmation Received",
-            f"> **{request.current_username}** is yours. We are activating access now.\n"
-            "> Keep Minecraft open; the lobby will release you automatically.",
-            success=True,
-        )))
         try:
             recent = await self.data.list_access_for_user(member.id, limit=100)
             pending = next(
@@ -1582,7 +1576,9 @@ class MinecraftAccessBot(commands.Bot):
         )
         if self.bridge.connected:
             await self.bridge.dispatch_outbox()
-        return "Confirmed. A fresh status DM was sent; Minecraft will open automatically."
+        # The bridge's final Access Active card is the single success message.
+        # Returning an empty string also keeps the component acknowledgement silent.
+        return ""
 
     async def _publish_verification(
         self,

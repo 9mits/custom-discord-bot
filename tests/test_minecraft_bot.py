@@ -44,12 +44,76 @@ from minecraft_bot.setup import MinecraftSetupView
 from minecraft_bot.ui import (
     application_card_view,
     VerifyButton,
+    ReverseLinkButton,
     CancelPendingConfirmationView,
     MinecraftControlView,
     MinecraftApplicationModal,
     LiveApplicationView,
     RulesAgreementView,
 )
+
+
+class ReverseLinkSuccessTests(unittest.IsolatedAsyncioTestCase):
+    async def test_success_button_acknowledgement_is_silent(self):
+        button = ReverseLinkButton("approve", "request-12345678")
+        original = SimpleNamespace(edit=AsyncMock())
+        handler = AsyncMock(return_value="")
+        interaction = SimpleNamespace(
+            response=SimpleNamespace(defer=AsyncMock()),
+            followup=SimpleNamespace(send=AsyncMock()),
+            client=SimpleNamespace(handle_reverse_link_decision=handler),
+            user=SimpleNamespace(id=99),
+            message=original,
+        )
+
+        await button.callback(interaction)
+
+        interaction.response.defer.assert_awaited_once_with()
+        interaction.followup.send.assert_not_awaited()
+        original.edit.assert_awaited_once_with(view=None)
+
+    async def test_successful_link_sends_no_intermediate_dm(self):
+        request = SimpleNamespace(
+            request_id="request-12345678",
+            current_username="hellomits",
+            edition=Edition.JAVA,
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            xuid=None,
+        )
+        pending = SimpleNamespace(
+            id=17,
+            status=AccessStatus.PENDING_VERIFICATION,
+            claimed_username="hellomits",
+        )
+        member = SimpleNamespace(id=99, name="discord_user")
+        user = SimpleNamespace(id=99, send=AsyncMock())
+        bot = object.__new__(MinecraftAccessBot)
+        bot.data = SimpleNamespace(
+            claim_reverse_link=AsyncMock(return_value=request),
+            list_access_for_user=AsyncMock(return_value=[]),
+            create_verification=AsyncMock(return_value=pending),
+            record_verification=AsyncMock(return_value=(pending, False)),
+            finish_reverse_link=AsyncMock(),
+        )
+        bot._configured_guild = AsyncMock(return_value=SimpleNamespace())
+        bot._resolve_guild_member = AsyncMock(return_value=member)
+        bot._send_configured_log = AsyncMock()
+        bot.config = SimpleNamespace(guild_id=1)
+        bot.settings = SimpleNamespace(verification_log_channel_id=10)
+        bot.bridge = SimpleNamespace(
+            connected=False,
+            send_reverse_link_status=AsyncMock(return_value=True),
+            dispatch_outbox=AsyncMock(),
+        )
+
+        result = await bot.handle_reverse_link_decision(
+            request_id=request.request_id,
+            discord_user=user,
+            approved=True,
+        )
+
+        self.assertEqual(result, "")
+        user.send.assert_not_awaited()
 
 
 class MinecraftBotPolicyTests(unittest.TestCase):

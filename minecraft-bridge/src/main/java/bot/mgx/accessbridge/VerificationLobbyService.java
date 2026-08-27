@@ -2,7 +2,6 @@ package bot.mgx.accessbridge;
 
 import io.papermc.paper.event.player.AsyncPlayerSpawnLocationEvent;
 import io.papermc.paper.event.player.AsyncChatEvent;
-import net.kyori.adventure.bossbar.BossBar;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
@@ -57,14 +56,13 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
     static final String WORLD_NAME = "mgx_verification";
     private static final Pattern DISCORD_USERNAME = Pattern.compile("[A-Za-z0-9_.]{2,32}");
     private static final long REQUEST_COOLDOWN_MILLIS = 10_000L;
-    private static final long PROMPT_INTERVAL_TICKS = 40L;
-    private static final int ROOM_RADIUS = 12;
+    /** 2b2t's limbo proves it is alive with a sparse queue line in chat. */
+    private static final long PROMPT_INTERVAL_TICKS = 200L;
+    private static final int ROOM_RADIUS = 24;
     private static final int ROOM_FLOOR_Y = 64;
     private static final int ROOM_CEILING_Y = 72;
-    private static final Component VERIFY_PROMPT = Component.text(
-            "VERIFY  •  Type /verify <your Discord username>",
-            NamedTextColor.GOLD,
-            TextDecoration.BOLD
+    private static final Component VERIFY_PROMPT = queueLine(
+            "Type /verify <your Discord username>"
     );
 
     private record Session(
@@ -84,7 +82,6 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
     private final YamlConfiguration inventoryStashes;
     private final Map<UUID, Session> sessions = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastRequests = new ConcurrentHashMap<>();
-    private final Map<UUID, BossBar> promptBars = new ConcurrentHashMap<>();
     private final Map<UUID, Component> prompts = new ConcurrentHashMap<>();
     private final Set<UUID> releasing = ConcurrentHashMap.newKeySet();
 
@@ -154,46 +151,30 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
             case "DM_SENT" -> {
                 updatePrompt(
                         player,
-                        Component.text(
-                                "CHECK DISCORD  •  Open the newest DM and press Yes, This Is Me",
-                                NamedTextColor.AQUA,
-                                TextDecoration.BOLD
-                        ),
-                        BossBar.Color.BLUE
+                        queueLine("Waiting for your Discord confirmation")
                 );
-                player.showTitle(Title.title(
-                        Component.text("CHECK DISCORD", NamedTextColor.AQUA, TextDecoration.BOLD),
-                        Component.text("Open the newest DM and confirm", NamedTextColor.WHITE)
-                ));
             }
             case "JOIN_DISCORD" -> updatePrompt(
                     player,
-                    Component.text("JOIN DISCORD  •  Use /discord, then your DM arrives", NamedTextColor.LIGHT_PURPLE),
-                    BossBar.Color.PURPLE
+                    queueLine("Join with /discord, then use /verify again")
             );
             case "DMS_CLOSED" -> updatePrompt(
                     player,
-                    Component.text("ENABLE DISCORD DMs  •  Then run /verify again", NamedTextColor.RED),
-                    BossBar.Color.RED
+                    queueLine("Enable Discord DMs, then use /verify again")
             );
             case "RATE_LIMITED" -> updatePrompt(
                     player,
-                    Component.text("PLEASE WAIT  •  Then run /verify again", NamedTextColor.YELLOW),
-                    BossBar.Color.YELLOW
+                    queueLine("Please wait, then use /verify again")
             );
             case "ACTIVATING" -> updatePrompt(
                     player,
-                    Component.text("VERIFIED  •  Opening the SMP…", NamedTextColor.GREEN, TextDecoration.BOLD),
-                    BossBar.Color.GREEN
+                    queueLine("Verified — connecting to Mysterious SMP X...")
             );
             default -> updatePrompt(
                     player,
-                    Component.text(message, status.equals("FAILED") ? NamedTextColor.RED : NamedTextColor.YELLOW),
-                    status.equals("FAILED") ? BossBar.Color.RED : BossBar.Color.YELLOW
+                    queueLine(message)
             );
         }
-        player.sendMessage(Component.text(message, status.equals("FAILED")
-                ? NamedTextColor.RED : NamedTextColor.YELLOW));
     }
 
     void release(UUID accountUuid, String discordUsername) {
@@ -282,53 +263,45 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
             online.hidePlayer(plugin, player);
             player.hidePlayer(plugin, online);
         }
-        showInstructions(player, true);
-    }
-
-    private void showInstructions(Player player, boolean sendChatPrompt) {
-        player.showTitle(Title.title(
-                Component.text("DISCORD VERIFICATION", NamedTextColor.GOLD, TextDecoration.BOLD),
-                Component.text("Type /verify <your Discord username>", NamedTextColor.WHITE),
-                Title.Times.times(Duration.ofMillis(250), Duration.ofSeconds(5), Duration.ofMillis(500))
-        ));
-        updatePrompt(player, VERIFY_PROMPT, BossBar.Color.YELLOW);
-        if (!sendChatPrompt) {
-            return;
-        }
+        prompts.put(player.getUniqueId(), VERIFY_PROMPT);
+        // Essentials and other join listeners may speak later in the same event.
+        // Limbo should begin as a clean black screen with one queue line, so draw it
+        // after those messages and push the normal SMP history out of view.
         Bukkit.getScheduler().runTaskLater(plugin, () -> {
             if (!player.isOnline() || !protectedPlayer(player)) {
                 return;
             }
-            player.sendMessage(Component.text("VERIFY  →  ", NamedTextColor.GOLD, TextDecoration.BOLD)
-                    .append(Component.text("/verify your_discord_username", NamedTextColor.AQUA)
-                            .clickEvent(ClickEvent.suggestCommand("/verify "))
-                            .hoverEvent(HoverEvent.showText(Component.text("Click to enter your Discord username"))))
-                    .append(Component.text("  •  ", NamedTextColor.DARK_GRAY))
-                    .append(Component.text("Need Discord? Click here", NamedTextColor.LIGHT_PURPLE)
-                            .clickEvent(ClickEvent.openUrl(GuideService.DISCORD_INVITE_URL))
-                            .hoverEvent(HoverEvent.showText(Component.text(GuideService.DISCORD_INVITE_DISPLAY)))));
-        }, 20L);
+            player.sendMessage(Component.text("\n".repeat(40)));
+            showInstructions(player);
+        }, 2L);
     }
 
-    private void updatePrompt(Player player, Component prompt, BossBar.Color color) {
+    private void showInstructions(Player player) {
+        Component prompt = Component.text("Position in verification queue: ", NamedTextColor.GOLD)
+                .append(Component.text("awaiting ", NamedTextColor.GRAY))
+                .append(Component.text("/verify <your Discord username>", NamedTextColor.YELLOW)
+                        .clickEvent(ClickEvent.suggestCommand("/verify "))
+                        .hoverEvent(HoverEvent.showText(Component.text(
+                                "Click to enter your Discord username"
+                        ))))
+                .append(Component.text("  •  ", NamedTextColor.DARK_GRAY))
+                .append(Component.text("Need Discord?", NamedTextColor.GRAY)
+                        .clickEvent(ClickEvent.runCommand("/discord"))
+                        .hoverEvent(HoverEvent.showText(Component.text(
+                                GuideService.DISCORD_INVITE_DISPLAY
+                        ))));
+        updatePrompt(player, prompt);
+    }
+
+    private void updatePrompt(Player player, Component prompt) {
         UUID uuid = player.getUniqueId();
         prompts.put(uuid, prompt);
-        BossBar bar = promptBars.computeIfAbsent(uuid, ignored -> BossBar.bossBar(
-                prompt, 1.0F, color, BossBar.Overlay.PROGRESS
-        ));
-        bar.name(prompt);
-        bar.color(color);
-        player.showBossBar(bar);
-        player.sendActionBar(prompt);
+        player.sendMessage(prompt);
     }
 
     private void clearPrompt(Player player) {
         UUID uuid = player.getUniqueId();
-        BossBar bar = promptBars.remove(uuid);
         prompts.remove(uuid);
-        if (bar != null) {
-            player.hideBossBar(bar);
-        }
     }
 
     private void remindPlayers() {
@@ -336,11 +309,7 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
             Player player = Bukkit.getPlayer(uuid);
             if (player != null) {
                 Component prompt = prompts.getOrDefault(uuid, VERIFY_PROMPT);
-                BossBar bar = promptBars.get(uuid);
-                if (bar != null) {
-                    player.showBossBar(bar);
-                }
-                player.sendActionBar(prompt);
+                player.sendMessage(prompt);
             }
         }
     }
@@ -357,7 +326,7 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
             return true;
         }
         if (args.length != 1) {
-            showInstructions(player, false);
+            showInstructions(player);
             return true;
         }
         String discordUsername = args[0].strip();
@@ -393,28 +362,10 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
                 session.edition(), session.accountUuid(), session.username(), session.xuid(), discordUsername
         );
         if (bridgeConnected) {
-            Component waiting = Component.text(
-                    "REQUEST SENT  •  Waiting for Discord…", NamedTextColor.AQUA, TextDecoration.BOLD
-            );
-            updatePrompt(player, waiting, BossBar.Color.BLUE);
-            player.sendMessage(Component.text(
-                    "Request sent to @" + discordUsername + ". Watch for a new Discord DM.",
-                    NamedTextColor.AQUA
-            ));
+            updatePrompt(player, queueLine("Waiting for your Discord confirmation"));
         } else {
-            Component reconnecting = Component.text(
-                    "DM DELAYED  •  Discord service is reconnecting automatically",
-                    NamedTextColor.RED,
-                    TextDecoration.BOLD
-            );
-            updatePrompt(player, reconnecting, BossBar.Color.RED);
-            player.showTitle(Title.title(
-                    Component.text("DM DELAYED", NamedTextColor.RED, TextDecoration.BOLD),
-                    Component.text("Request saved • Discord service is reconnecting", NamedTextColor.WHITE)
-            ));
-            player.sendMessage(Component.text(
-                    "Discord verification is temporarily offline. Your request is saved and will send when it reconnects.",
-                    NamedTextColor.RED
+            updatePrompt(player, queueLine(
+                    "Discord is reconnecting; your request is saved"
             ));
         }
         return true;
@@ -424,7 +375,7 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         return isLobbyPlayer(player.getUniqueId());
     }
 
-    /** Build the same deterministic sealed room even when the flat world already existed. */
+    /** Build an invisible limbo cell even when the old flat lobby world already existed. */
     private void buildRoom() {
         for (int x = -ROOM_RADIUS; x <= ROOM_RADIUS; x++) {
             for (int z = -ROOM_RADIUS; z <= ROOM_RADIUS; z++) {
@@ -433,7 +384,7 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
                             || z == -ROOM_RADIUS || z == ROOM_RADIUS
                             || y == ROOM_FLOOR_Y || y == ROOM_CEILING_Y;
                     world.getBlockAt(x, y, z).setType(
-                            shell ? Material.BLACK_CONCRETE : Material.AIR,
+                            shell ? Material.BARRIER : Material.AIR,
                             false
                     );
                 }
@@ -531,7 +482,14 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         }
     }
 
-    @EventHandler public void onChat(AsyncChatEvent event) { if (protectedPlayer(event.getPlayer())) event.setCancelled(true); }
+    @EventHandler
+    public void onChat(AsyncChatEvent event) {
+        if (protectedPlayer(event.getPlayer())) {
+            event.setCancelled(true);
+            return;
+        }
+        event.viewers().removeIf(viewer -> viewer instanceof Player player && protectedPlayer(player));
+    }
     @EventHandler public void onBreak(BlockBreakEvent event) { if (protectedPlayer(event.getPlayer())) event.setCancelled(true); }
     @EventHandler public void onPlace(BlockPlaceEvent event) { if (protectedPlayer(event.getPlayer())) event.setCancelled(true); }
     @EventHandler public void onInteract(PlayerInteractEvent event) { if (protectedPlayer(event.getPlayer())) event.setCancelled(true); }
@@ -560,5 +518,10 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
             lastRequests.remove(uuid);
             releasing.remove(uuid);
         });
+    }
+
+    private static Component queueLine(String status) {
+        return Component.text("Position in verification queue: ", NamedTextColor.GOLD)
+                .append(Component.text(status, NamedTextColor.YELLOW));
     }
 }
