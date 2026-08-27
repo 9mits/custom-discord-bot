@@ -61,7 +61,10 @@ class ReverseLinkSuccessTests(unittest.IsolatedAsyncioTestCase):
         interaction = SimpleNamespace(
             response=SimpleNamespace(defer=AsyncMock()),
             followup=SimpleNamespace(send=AsyncMock()),
-            client=SimpleNamespace(handle_reverse_link_decision=handler),
+            client=SimpleNamespace(
+                owns_reverse_link_request=AsyncMock(return_value=True),
+                handle_reverse_link_decision=handler,
+            ),
             user=SimpleNamespace(id=99),
             message=original,
         )
@@ -71,6 +74,25 @@ class ReverseLinkSuccessTests(unittest.IsolatedAsyncioTestCase):
         interaction.response.defer.assert_awaited_once_with()
         interaction.followup.send.assert_not_awaited()
         original.edit.assert_awaited_once_with(view=None)
+
+    async def test_other_bridge_environment_does_not_acknowledge_button(self):
+        button = ReverseLinkButton("approve", "request-12345678")
+        handler = AsyncMock(return_value="")
+        interaction = SimpleNamespace(
+            response=SimpleNamespace(defer=AsyncMock()),
+            followup=SimpleNamespace(send=AsyncMock()),
+            client=SimpleNamespace(
+                owns_reverse_link_request=AsyncMock(return_value=False),
+                handle_reverse_link_decision=handler,
+            ),
+            user=SimpleNamespace(id=99),
+            message=SimpleNamespace(edit=AsyncMock()),
+        )
+
+        await button.callback(interaction)
+
+        interaction.response.defer.assert_not_awaited()
+        handler.assert_not_awaited()
 
     async def test_successful_link_sends_no_intermediate_dm(self):
         request = SimpleNamespace(

@@ -1580,6 +1580,10 @@ class MinecraftAccessBot(commands.Bot):
         # Returning an empty string also keeps the component acknowledgement silent.
         return ""
 
+    async def owns_reverse_link_request(self, request_id: str) -> bool:
+        """Whether this bridge environment created the Discord confirmation."""
+        return await self.data.get_reverse_link(request_id) is not None
+
     async def _publish_verification(
         self,
         application: MinecraftAccess,
