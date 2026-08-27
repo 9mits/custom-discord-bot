@@ -326,7 +326,18 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         }
         Optional<ProcessedActionStore.Result> existing = processedActions.get(idempotencyKey);
         if (existing.isPresent()) {
-            sendActionResult(idempotencyKey, existing.get());
+            ProcessedActionStore.Result result = existing.get();
+            if (shouldReplayVerificationRelease(action, payload, result)) {
+                UUID minecraftUuid = UUID.fromString(payload.get("minecraft_uuid").getAsString());
+                Bukkit.getScheduler().runTask(
+                        plugin,
+                        () -> plugin.completeVerificationLobby(
+                                minecraftUuid,
+                                optionalString(payload, "discord_username")
+                        )
+                );
+            }
+            sendActionResult(idempotencyKey, result);
             return;
         }
         if (!processedActions.reserve(idempotencyKey)) {
@@ -357,6 +368,17 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                     new ProcessedActionStore.Result(false, "Action is not allowlisted")
             );
         }
+    }
+
+    static boolean shouldReplayVerificationRelease(
+            String action,
+            JsonObject payload,
+            ProcessedActionStore.Result result
+    ) {
+        return "APPROVE".equals(action)
+                && result.success()
+                && payload.has("reverse_request_id")
+                && payload.has("minecraft_uuid");
     }
 
     /**

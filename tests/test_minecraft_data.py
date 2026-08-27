@@ -297,6 +297,15 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
             (sync_key,),
         )
         self.assertEqual(sync_rows[0]["status"], "CANCELLED")
+        outbox = await self.data.get_outbox_batch()
+        approval = next(record for record in outbox if record.action is BridgeAction.APPROVE)
+        self.assertEqual(
+            approval.idempotency_key,
+            (
+                f"access:{application.id}:approve:"
+                "123e4567-e89b-12d3-a456-426614174000:verification-1"
+            ),
+        )
 
     async def test_bedrock_verification_uses_real_name_and_xuid(self):
         application = await self.create_pending(
