@@ -755,6 +755,10 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
+        if (VerificationLobbyService.isLobbyWorld(event.getPlayer().getWorld())) {
+            hideKeyBar(event.getPlayer().getUniqueId());
+            return;
+        }
         items.upgradeLegacyKeys(event.getPlayer());
         onlineCreditStarted.put(event.getPlayer().getUniqueId(), System.currentTimeMillis());
         plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
@@ -771,6 +775,9 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         }
         long now = System.currentTimeMillis();
         for (Player player : plugin.getServer().getOnlinePlayers()) {
+            if (VerificationLobbyService.isLobbyWorld(player.getWorld())) {
+                continue;
+            }
             items.upgradeLegacyKeys(player);
             onlineCreditStarted.put(player.getUniqueId(), now);
         }
@@ -813,7 +820,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         long now = System.currentTimeMillis();
         for (Player player : plugin.getServer().getOnlinePlayers()) {
             UUID playerId = player.getUniqueId();
-            if (!settings.isEnabled(playerId, PlayerSettingsStore.Setting.KEY_TIMER_BAR)) {
+            if (VerificationLobbyService.isLobbyWorld(player.getWorld())
+                    || !settings.isEnabled(playerId, PlayerSettingsStore.Setting.KEY_TIMER_BAR)) {
                 hideKeyBar(playerId);
                 continue;
             }
@@ -866,6 +874,10 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         long now = System.currentTimeMillis();
         Map<UUID, Long> elapsed = new HashMap<>();
         for (Player player : plugin.getServer().getOnlinePlayers()) {
+            if (VerificationLobbyService.isLobbyWorld(player.getWorld())) {
+                onlineCreditStarted.remove(player.getUniqueId());
+                continue;
+            }
             Long previous = onlineCreditStarted.get(player.getUniqueId());
             if (previous == null) {
                 onlineCreditStarted.put(player.getUniqueId(), now);

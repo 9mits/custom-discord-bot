@@ -590,6 +590,11 @@ class MinecraftAccessBot(commands.Bot):
                 notifications.append("decision")
             delivered = True
             for notification in notifications:
+                claimed = await self.data.claim_notification(
+                    f"application:{application.id}:{notification}-dm"
+                )
+                if not claimed:
+                    continue
                 delivered = await self._send_application_dm(
                     application,
                     notification,
@@ -993,6 +998,29 @@ class MinecraftAccessBot(commands.Bot):
         """
         claimed = await self.data.claim_bridge_event(event_idempotency_key, "SERVER_EVENT")
         if not claimed or not event:
+            return
+        if event == "test_unverify":
+            if self.config.server_id != "mgx-local-test":
+                raise RuntimeError("Test verification reset is disabled on this server")
+            owners = await self.data.owners_for_uuids([actor_uuid])
+            owner_id = str(owners.get(str(actor_uuid), "") or "")
+            if not owner_id:
+                raise RuntimeError("That Minecraft account is not linked")
+            accounts = await self.data.list_accounts_for_user(owner_id)
+            account = next(
+                (row for row in accounts if str(row.get("minecraft_uuid")) == str(actor_uuid)),
+                None,
+            )
+            if account is None:
+                raise RuntimeError("That Minecraft account is not linked")
+            _removed, applications, _queued = await self.data.unlink_account(
+                owner_id,
+                Edition(str(account["edition"]).upper()),
+                owner_id,
+                "Local verification test reset",
+                minecraft_uuid=str(actor_uuid),
+            )
+            await self.finish_unlink(applications)
             return
         owners = await self.data.owners_for_uuids([actor_uuid] if actor_uuid else [])
         try:

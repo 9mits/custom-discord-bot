@@ -14,6 +14,7 @@ import org.bukkit.Difficulty;
 import org.bukkit.GameMode;
 import org.bukkit.GameRule;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.WorldCreator;
 import org.bukkit.WorldType;
@@ -36,7 +37,13 @@ import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.potion.PotionEffectType;
 
+import java.io.File;
+import java.io.IOException;
 import java.time.Duration;
 import java.util.Locale;
 import java.util.Map;
@@ -51,6 +58,9 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
     private static final Pattern DISCORD_USERNAME = Pattern.compile("[A-Za-z0-9_.]{2,32}");
     private static final long REQUEST_COOLDOWN_MILLIS = 10_000L;
     private static final long PROMPT_INTERVAL_TICKS = 40L;
+    private static final int ROOM_RADIUS = 12;
+    private static final int ROOM_FLOOR_Y = 64;
+    private static final int ROOM_CEILING_Y = 72;
     private static final Component VERIFY_PROMPT = Component.text(
             "VERIFY  •  Type /verify <your Discord username>",
             NamedTextColor.GOLD,
@@ -70,6 +80,8 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
     private final BridgeClient bridge;
     private final World world;
     private final Location spawn;
+    private final File inventoryFile;
+    private final YamlConfiguration inventoryStashes;
     private final Map<UUID, Session> sessions = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastRequests = new ConcurrentHashMap<>();
     private final Map<UUID, BossBar> promptBars = new ConcurrentHashMap<>();
@@ -93,12 +105,19 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         world.setDifficulty(Difficulty.PEACEFUL);
         world.setGameRule(GameRule.DO_MOB_SPAWNING, false);
         world.setGameRule(GameRule.DO_DAYLIGHT_CYCLE, false);
-        world.setTime(6000L);
+        world.setGameRule(GameRule.DO_WEATHER_CYCLE, false);
+        world.setGameRule(GameRule.KEEP_INVENTORY, true);
+        world.setTime(18000L);
+        world.setStorm(false);
+        world.setThundering(false);
         world.getWorldBorder().setCenter(0.5, 0.5);
-        world.getWorldBorder().setSize(48.0);
-        int y = world.getHighestBlockYAt(0, 0) + 1;
-        spawn = new Location(world, 0.5, y, 0.5, 0.0F, 0.0F);
+        // The player is contained by the room, not a distracting striped border.
+        world.getWorldBorder().setSize(2048.0);
+        buildRoom();
+        spawn = new Location(world, 0.5, ROOM_FLOOR_Y + 1.0, 0.5, 0.0F, 0.0F);
         world.setSpawnLocation(spawn);
+        inventoryFile = new File(plugin.getDataFolder(), "verification-inventories.yml");
+        inventoryStashes = YamlConfiguration.loadConfiguration(inventoryFile);
         Bukkit.getScheduler().runTaskTimer(
                 plugin, this::remindPlayers, PROMPT_INTERVAL_TICKS, PROMPT_INTERVAL_TICKS
         );
@@ -182,6 +201,7 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         if (player == null) {
             return;
         }
+        restoreIfNeeded(player);
         World main = Bukkit.getWorlds().stream()
                 .filter(candidate -> !candidate.equals(world))
                 .filter(candidate -> candidate.getEnvironment() == World.Environment.NORMAL)
@@ -207,8 +227,6 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         sessions.remove(player.getUniqueId());
         lastRequests.remove(player.getUniqueId());
         clearPrompt(player);
-        player.setGameMode(GameMode.SURVIVAL);
-        player.setInvulnerable(false);
         for (Player online : Bukkit.getOnlinePlayers()) {
             online.showPlayer(plugin, player);
             player.showPlayer(plugin, online);
@@ -244,11 +262,18 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
     public void onJoin(PlayerJoinEvent event) {
         Player player = event.getPlayer();
         if (!isLobbyPlayer(player.getUniqueId())) {
+            restoreIfNeeded(player);
             return;
         }
         event.joinMessage(null);
+        stashInventory(player);
         player.setGameMode(GameMode.ADVENTURE);
         player.setInvulnerable(true);
+        player.setFoodLevel(20);
+        player.setSaturation(20.0F);
+        player.addPotionEffect(new PotionEffect(
+                PotionEffectType.DARKNESS, PotionEffect.INFINITE_DURATION, 0, false, false, false
+        ));
         player.teleport(spawn, PlayerTeleportEvent.TeleportCause.PLUGIN);
         for (Player online : Bukkit.getOnlinePlayers()) {
             if (online.equals(player)) {
@@ -397,6 +422,99 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
 
     private boolean protectedPlayer(Player player) {
         return isLobbyPlayer(player.getUniqueId());
+    }
+
+    /** Build the same deterministic sealed room even when the flat world already existed. */
+    private void buildRoom() {
+        for (int x = -ROOM_RADIUS; x <= ROOM_RADIUS; x++) {
+            for (int z = -ROOM_RADIUS; z <= ROOM_RADIUS; z++) {
+                for (int y = ROOM_FLOOR_Y; y <= ROOM_CEILING_Y; y++) {
+                    boolean shell = x == -ROOM_RADIUS || x == ROOM_RADIUS
+                            || z == -ROOM_RADIUS || z == ROOM_RADIUS
+                            || y == ROOM_FLOOR_Y || y == ROOM_CEILING_Y;
+                    world.getBlockAt(x, y, z).setType(
+                            shell ? Material.BLACK_CONCRETE : Material.AIR,
+                            false
+                    );
+                }
+            }
+        }
+    }
+
+    /**
+     * The lobby must look empty without deleting a returning tester's belongings.
+     * The disk-backed stash also survives a disconnect or Paper restart mid-flow.
+     */
+    private void stashInventory(Player player) {
+        String root = player.getUniqueId().toString();
+        if (!inventoryStashes.isConfigurationSection(root)) {
+            ItemStack[] contents = player.getInventory().getContents();
+            inventoryStashes.set(root + ".size", contents.length);
+            for (int slot = 0; slot < contents.length; slot++) {
+                inventoryStashes.set(root + ".inventory." + slot, contents[slot]);
+            }
+            inventoryStashes.set(root + ".held-slot", player.getInventory().getHeldItemSlot());
+            inventoryStashes.set(root + ".experience", player.getExp());
+            inventoryStashes.set(root + ".level", player.getLevel());
+            inventoryStashes.set(root + ".total-experience", player.getTotalExperience());
+            inventoryStashes.set(root + ".game-mode", player.getGameMode().name());
+            inventoryStashes.set(root + ".invulnerable", player.isInvulnerable());
+            inventoryStashes.set(root + ".allow-flight", player.getAllowFlight());
+            inventoryStashes.set(root + ".flying", player.isFlying());
+            try {
+                inventoryStashes.save(inventoryFile);
+            } catch (IOException exception) {
+                inventoryStashes.set(root, null);
+                plugin.getLogger().severe("Could not protect " + player.getName()
+                        + "'s inventory before verification: " + exception.getMessage());
+                return;
+            }
+        }
+        player.getInventory().clear();
+        player.getInventory().setArmorContents(new ItemStack[4]);
+        player.getInventory().setItemInOffHand(null);
+        player.setExp(0.0F);
+        player.setLevel(0);
+        player.setTotalExperience(0);
+    }
+
+    /** Restore a lobby stash after approval, including approval completed while offline. */
+    void restoreIfNeeded(Player player) {
+        String root = player.getUniqueId().toString();
+        player.removePotionEffect(PotionEffectType.DARKNESS);
+        if (!inventoryStashes.isConfigurationSection(root)) {
+            return;
+        }
+        int size = Math.max(0, inventoryStashes.getInt(root + ".size"));
+        ItemStack[] contents = new ItemStack[size];
+        for (int slot = 0; slot < size; slot++) {
+            contents[slot] = inventoryStashes.getItemStack(root + ".inventory." + slot);
+        }
+        player.getInventory().clear();
+        player.getInventory().setContents(contents);
+        player.getInventory().setHeldItemSlot(Math.max(0, Math.min(8,
+                inventoryStashes.getInt(root + ".held-slot"))));
+        player.setExp((float) inventoryStashes.getDouble(root + ".experience"));
+        player.setLevel(inventoryStashes.getInt(root + ".level"));
+        player.setTotalExperience(inventoryStashes.getInt(root + ".total-experience"));
+        try {
+            player.setGameMode(GameMode.valueOf(
+                    inventoryStashes.getString(root + ".game-mode", GameMode.SURVIVAL.name())
+            ));
+        } catch (IllegalArgumentException ignored) {
+            player.setGameMode(GameMode.SURVIVAL);
+        }
+        player.setInvulnerable(inventoryStashes.getBoolean(root + ".invulnerable"));
+        player.setAllowFlight(inventoryStashes.getBoolean(root + ".allow-flight"));
+        player.setFlying(player.getAllowFlight() && inventoryStashes.getBoolean(root + ".flying"));
+        inventoryStashes.set(root, null);
+        try {
+            inventoryStashes.save(inventoryFile);
+        } catch (IOException exception) {
+            plugin.getLogger().warning("Restored " + player.getName()
+                    + " but could not clear their verification inventory stash: "
+                    + exception.getMessage());
+        }
     }
 
     @EventHandler(priority = EventPriority.LOWEST)

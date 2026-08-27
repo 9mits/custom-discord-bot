@@ -168,6 +168,7 @@ final class SidebarService {
             syncClanTeams(board.scoreboard, player);
         }
         boolean showSidebar = !suppressed.contains(player.getUniqueId())
+                && !VerificationLobbyService.isLobbyWorld(player.getWorld())
                 && settings.isEnabled(
                         player.getUniqueId(), PlayerSettingsStore.Setting.SCOREBOARD_ENABLED
                 );
@@ -433,6 +434,10 @@ final class SidebarService {
     }
 
     private void updateTabName(Player player, int nameColumn, int platformColumn) {
+        if (VerificationLobbyService.isLobbyWorld(player.getWorld())) {
+            player.playerListName(Component.text(player.getName(), NamedTextColor.GRAY));
+            return;
+        }
         PlayerProfile profile = perks.profile(player.getUniqueId());
         ClientPlatform platform = clientPlatform(player);
         Component rendered = rankTag(profile);
@@ -489,6 +494,14 @@ final class SidebarService {
     }
 
     private void updateTabHeaderAndFooter(Player player) {
+        if (VerificationLobbyService.isLobbyWorld(player.getWorld())) {
+            String key = "verification-lobby";
+            if (!key.equals(tabKeys.get(player.getUniqueId()))) {
+                tabKeys.put(player.getUniqueId(), key);
+                player.sendPlayerListHeaderAndFooter(Component.empty(), Component.empty());
+            }
+            return;
+        }
         Optional<ClanStore.ClanView> clan = clans.clanOf(player.getUniqueId());
         List<String> boosts = SidebarLayout.boostRows(
                 boostLabels(perks.clanPerks(player.getUniqueId())), SidebarLayout.BOOSTS_PER_ROW);

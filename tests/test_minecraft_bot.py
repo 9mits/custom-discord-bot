@@ -618,6 +618,30 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         user.send.assert_not_awaited()
         bot.data.set_status_message.assert_not_awaited()
 
+    async def test_verified_application_decision_dm_is_sent_only_once(self):
+        application = SimpleNamespace(
+            id=17,
+            discord_user_id="99",
+            status=AccessStatus.VERIFIED,
+        )
+        bot = object.__new__(MinecraftAccessBot)
+        bot._application_messages = {}
+        bot.data = SimpleNamespace(
+            get_access=AsyncMock(return_value=application),
+            claim_notification=AsyncMock(side_effect=[True, False]),
+        )
+        bot._send_application_dm = AsyncMock(return_value=True)
+
+        self.assertTrue(await bot.update_live_card(application))
+        self.assertTrue(await bot.update_live_card(application))
+
+        self.assertEqual(bot.data.claim_notification.await_count, 2)
+        bot._send_application_dm.assert_awaited_once_with(
+            application,
+            "decision",
+            queue_on_failure=True,
+        )
+
     async def test_the_application_channel_is_published_as_three_messages(self):
         # One message carries one set of buttons, so the reading and the Apply
         # button have to be separate messages to sit apart.

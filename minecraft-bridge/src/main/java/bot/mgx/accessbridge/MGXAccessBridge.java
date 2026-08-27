@@ -62,6 +62,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private final ConcurrentHashMap<UUID, PlayerConnectionIdentity> connectionIdentities =
             new ConcurrentHashMap<>();
     private boolean verificationRequired = true;
+    private boolean localTestServer;
 
     private LaunchService launchService;
     private ScheduledExecutorService networkExecutor;
@@ -119,6 +120,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             return;
         }
         verificationRequired = bridgeConfig.verificationRequired();
+        localTestServer = bridgeConfig.serverId().equals("mgx-local-test");
         if (!verificationRequired) {
             getLogger().warning("Account verification is disabled by configuration.");
         }
@@ -902,6 +904,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         if (bridgeClient != null && event != null) {
             bridgeClient.queueServerEvent(event);
         }
+    }
+
+    boolean isLocalTestServer() {
+        return localTestServer;
     }
 
     /**
