@@ -307,9 +307,9 @@ loaded here with a graceful Paper restart before it can be considered for
 production. This is the automatic deployment target and needs no separate user
 approval. GravelHost is updated only after the user approves this exact test build.
 
-The Minecraft Discord bot registers `/mctest verification-panel` only when
-`MINECRAFT_TEST_MODE=1`. That command points the staging bot at the chosen channel
-and publishes its working verification panel. Production must leave the flag off.
+`/mcadmin test-verification` is the administrator-only helper for publishing a
+working verification panel in a chosen test channel. It changes the Discord
+panel destination only; it never deploys or changes either Paper server.
 For an explicitly requested verification run, start or restart local Paper with
 `python scripts/testserver.py restart --verification`; without that switch the
 local bypass remains the safe default.
