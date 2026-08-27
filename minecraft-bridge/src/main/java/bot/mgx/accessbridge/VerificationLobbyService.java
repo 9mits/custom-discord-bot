@@ -34,6 +34,7 @@ import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
 import org.bukkit.event.player.PlayerJoinEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
+import org.bukkit.event.player.PlayerResourcePackStatusEvent;
 import org.bukkit.event.player.PlayerTeleportEvent;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
@@ -296,6 +297,23 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
             player.sendMessage(Component.text("\n".repeat(40)));
             showInstructions(player);
         }, 2L);
+    }
+
+    @EventHandler
+    public void onResourcePackStatus(PlayerResourcePackStatusEvent event) {
+        Player player = event.getPlayer();
+        if (!protectedPlayer(player)
+                || event.getStatus() != PlayerResourcePackStatusEvent.Status.SUCCESSFULLY_LOADED) {
+            return;
+        }
+        // A required Java pack covers the world with Mojang's loading screen, so
+        // any join title sent before this event is literally invisible. Repeat the
+        // compact guide once the player can actually see and act on it.
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (player.isOnline() && protectedPlayer(player)) {
+                showInstructions(player);
+            }
+        }, 5L);
     }
 
     private void showInstructions(Player player) {
