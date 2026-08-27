@@ -728,10 +728,8 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
             queue_on_failure=True,
         )
 
-    async def test_the_application_channel_is_published_as_three_messages(self):
-        # One message carries one set of buttons, so the reading and the Apply
-        # button have to be separate messages to sit apart.
-        sent = [SimpleNamespace(id=101), SimpleNamespace(id=102), SimpleNamespace(id=103)]
+    async def test_the_application_channel_is_published_as_two_messages(self):
+        sent = [SimpleNamespace(id=101), SimpleNamespace(id=102)]
         channel = SimpleNamespace(send=AsyncMock(side_effect=sent))
         bot = object.__new__(MinecraftAccessBot)
         bot.settings = SimpleNamespace(
@@ -748,30 +746,29 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
 
         result = await bot.post_application_panel()
 
-        self.assertEqual(channel.send.await_count, 3)
+        self.assertEqual(channel.send.await_count, 2)
         titles = [call.kwargs["embed"].title for call in channel.send.await_args_list]
         self.assertEqual(
             titles,
             [
-                "Welcome to Mysterious SMP X",
-                "Before You Join",
-                "Join Mysterious SMP X",
+                "Mysterious SMP X",
+                "JOIN THE SERVER",
             ],
         )
-        join_text = channel.send.await_args_list[2].kwargs["embed"].description
+        join_text = channel.send.await_args_list[1].kwargs["embed"].description
         self.assertIn("play.example.net", join_text)
         self.assertIn("bedrock.example.net", join_text)
         self.assertIn("19132", join_text)
-        self.assertIn("Join the Minecraft server first", join_text)
+        self.assertIn("Verify in 3 steps", join_text)
         # Apply is returned and tracked, because that is the message a press is
         # validated against.
-        self.assertIs(result, sent[2])
+        self.assertIs(result, sent[1])
         bot.data.set_configs.assert_awaited_once_with(
             {
                 "application_banner_message_id": "",
                 "application_welcome_message_id": "101",
-                "application_guide_message_id": "102",
-                "application_panel_message_id": "103",
+                "application_guide_message_id": "",
+                "application_panel_message_id": "102",
             }
         )
         for call in channel.send.await_args_list:
@@ -780,7 +777,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
                 file.close()
 
     async def test_only_the_apply_message_carries_the_apply_button(self):
-        sent = [SimpleNamespace(id=101), SimpleNamespace(id=102), SimpleNamespace(id=103)]
+        sent = [SimpleNamespace(id=101), SimpleNamespace(id=102)]
         channel = SimpleNamespace(send=AsyncMock(side_effect=sent))
         bot = object.__new__(MinecraftAccessBot)
         bot.settings = SimpleNamespace(
@@ -797,29 +794,64 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
 
         await bot.post_application_panel()
 
-        welcome, guide, apply = channel.send.await_args_list
+        welcome, apply = channel.send.await_args_list
         # An attachment:// thumbnail only renders if its file rides along on the
         # same message, so each panel carries its own.
-        self.assertEqual(
-            [file.filename for file in guide.kwargs["files"]],
-            ["mysterious_smp_x_about.png"],
-        )
         self.assertEqual(
             [file.filename for file in apply.kwargs["files"]],
             ["mysterious_smp_x_apply.png"],
         )
         self.assertIsNone(welcome.kwargs["view"])
         self.assertEqual(
-            [item.label for item in apply.kwargs["view"].children], ["Verify"]
+            [item.label for item in apply.kwargs["view"].children],
+            ["Verify From Discord"],
         )
-        # The guide carries the information panel's pages, minus the one that
-        # needs an account the applicant does not have yet.
-        from minecraft_bot.information import PAGES
-
-        guide_ids = {item.custom_id for item in guide.kwargs["view"].children}
-        self.assertEqual(guide_ids, {f"mgx_info:{page}" for page in PAGES})
         for call in channel.send.await_args_list:
             for file in call.kwargs["files"]:
+                file.close()
+
+    async def test_the_retired_third_panel_is_removed_during_refresh(self):
+        welcome = SimpleNamespace(id=101, edit=AsyncMock(), delete=AsyncMock())
+        guide = SimpleNamespace(id=102, edit=AsyncMock(), delete=AsyncMock())
+        apply = SimpleNamespace(id=103, edit=AsyncMock(), delete=AsyncMock())
+        messages = {101: welcome, 102: guide, 103: apply}
+        channel = SimpleNamespace(
+            fetch_message=AsyncMock(side_effect=lambda message_id: messages[message_id]),
+            send=AsyncMock(),
+        )
+        saved = {
+            "application_welcome_message_id": "101",
+            "application_guide_message_id": "102",
+            "application_panel_message_id": "103",
+        }
+        bot = object.__new__(MinecraftAccessBot)
+        bot.settings = SimpleNamespace(
+            application_channel_id=20,
+            java_address="play.example.net",
+            bedrock_address="bedrock.example.net",
+            bedrock_port=19132,
+        )
+        bot._configured_channel = AsyncMock(return_value=channel)
+        bot.data = SimpleNamespace(
+            get_config=AsyncMock(side_effect=lambda key: saved.get(key)),
+            set_configs=AsyncMock(),
+        )
+
+        result = await bot.post_application_panel()
+
+        self.assertIs(result, apply)
+        channel.send.assert_not_awaited()
+        welcome.edit.assert_awaited_once()
+        apply.edit.assert_awaited_once()
+        guide.delete.assert_awaited_once()
+        bot.data.set_configs.assert_awaited_once_with(
+            {
+                "application_banner_message_id": "",
+                "application_guide_message_id": "",
+            }
+        )
+        for message in (welcome, apply):
+            for file in message.edit.await_args.kwargs["attachments"]:
                 file.close()
 
     async def test_apply_reveals_cancel_only_for_pending_verification(self):
@@ -1886,49 +1918,26 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
         )
         self.assertNotIn("presents", description)
 
-    def test_both_panels_pitch_the_server_the_same_way(self):
-        # The same person reads the application panel before joining and the
-        # information panel after, so two descriptions meant two answers.
-        from minecraft_bot.presentation import (
-            SERVER_TAGLINE_PARAGRAPHS,
-            application_welcome_embed,
-        )
-        from minecraft_bot import information
+    def test_welcome_is_one_glance_and_still_explains_the_server(self):
+        from minecraft_bot.presentation import application_welcome_embed
 
-        welcome = application_welcome_embed().description
-        panel = information.overview_embed(0).description
+        embed = application_welcome_embed()
+        described = embed.description.casefold()
 
-        for paragraph in SERVER_TAGLINE_PARAGRAPHS:
-            with self.subTest(paragraph=paragraph[:32]):
-                self.assertIn(paragraph, welcome)
-                self.assertIn(paragraph, panel)
-
-    def test_welcome_showcases_what_the_server_offers(self):
-        # Someone reading this is deciding whether the server suits them, which
-        # they cannot tell from atmosphere alone.
-        from minecraft_bot.presentation import SERVER_FEATURES, application_welcome_embed
-
-        described = dict(SERVER_FEATURES)
-        shown = {
-            field.name: field
-            for field in application_welcome_embed().fields
-            if field.name in described
-        }
-
+        self.assertEqual(embed.fields, [])
+        self.assertLessEqual(len(embed.description.splitlines()), 5)
         for feature in (
-            "Economy",
-            "Clans",
-            "Levels",
-            "Voice chat",
-            "Leaderboards",
-            "Crossplay",
+            "java",
+            "bedrock",
+            "economy",
+            "clans",
+            "levels",
+            "leaderboards",
+            "griefing",
+            "raiding",
         ):
             with self.subTest(feature=feature):
-                self.assertIn(feature, shown)
-                self.assertEqual(described[feature], shown[feature].value)
-                # Columns, like the Contact Staff panel — one feature per field
-                # with its own name, so the showcase needs no header.
-                self.assertTrue(shown[feature].inline)
+                self.assertIn(feature, described)
 
     def test_welcome_only_advertises_commands_that_exist(self):
         # /spawn was once documented on a server that had never installed it.
@@ -3038,12 +3047,10 @@ class ApplicantVoiceTests(unittest.TestCase):
     def _every_public_panel_embed(self):
         from minecraft_bot.presentation import (
             application_apply_embed,
-            application_guide_embed,
             application_welcome_embed,
         )
 
         yield "welcome", application_welcome_embed()
-        yield "guide", application_guide_embed()
         yield "join", application_apply_embed(
             SimpleNamespace(
                 java_address="play.example.net",
@@ -3205,21 +3212,14 @@ class ApplicationCardCopyTests(unittest.TestCase):
 
 
 class WelcomePanelTests(unittest.TestCase):
-    def test_the_tagline_is_quoted_and_stays_one_block(self):
-        # Both paragraphs under one bar. The blank line between them has to be
-        # quoted too, or Discord ends the quote and only the first is inside it.
-        from minecraft_bot.presentation import (
-            SERVER_TAGLINE_PARAGRAPHS,
-            application_welcome_embed,
-        )
+    def test_the_summary_is_three_short_quoted_lines(self):
+        from minecraft_bot.presentation import application_welcome_embed
 
         lines = application_welcome_embed().description.splitlines()
         quoted = [line for line in lines if line.startswith(">")]
 
-        for paragraph in SERVER_TAGLINE_PARAGRAPHS:
-            with self.subTest(paragraph=paragraph[:30]):
-                self.assertIn(f"> {paragraph}", quoted)
-        self.assertEqual(len(quoted), len(SERVER_TAGLINE_PARAGRAPHS) * 2 - 1)
+        self.assertEqual(len(quoted), 3)
+        self.assertTrue(all(line != "> " for line in quoted))
 
     def test_the_partnership_line_reads_as_a_header_above_the_quote(self):
         from minecraft_bot.presentation import application_welcome_embed
@@ -3228,50 +3228,6 @@ class WelcomePanelTests(unittest.TestCase):
 
         self.assertFalse(first.startswith(">"))
         self.assertIn("in partnership with", first)
-
-
-class ApplicationGuideButtonTests(unittest.TestCase):
-    """Before You Join shows the information panel's own pages.
-
-    One set of pages behind both surfaces, so a change to a page reaches
-    applicants and members alike instead of drifting between two copies.
-    """
-
-    def test_every_information_page_is_offered(self):
-        from minecraft_bot.information import PAGES
-        from minecraft_bot.presentation import application_guide_view
-
-        offered = {
-            item.custom_id.split(":", 1)[1]
-            for item in application_guide_view().children
-        }
-
-        self.assertEqual(offered, set(PAGES))
-
-    def test_linking_an_edition_is_not_offered_to_applicants(self):
-        # It needs an account they do not have yet.
-        from minecraft_bot.presentation import application_guide_view
-
-        for item in application_guide_view().children:
-            with self.subTest(button=item.custom_id):
-                self.assertFalse(item.custom_id.startswith("mgx_info_link:"))
-
-    def test_the_buttons_survive_a_restart(self):
-        from minecraft_bot.presentation import application_guide_view
-
-        self.assertTrue(application_guide_view().is_persistent())
-
-    def test_the_guide_does_not_restate_the_welcome_features(self):
-        from minecraft_bot.presentation import application_guide_embed
-
-        names = {field.name for field in application_guide_embed().fields}
-        described = " ".join(field.value.casefold() for field in application_guide_embed().fields)
-
-        self.assertEqual(names, {"Can I play on my version?", "Nothing is safe"})
-        for leftover in ("shop", "auction", "treasury", "leaderboard", "richest"):
-            with self.subTest(leftover=leftover):
-                self.assertNotIn(leftover, described)
-
 
 class ApplicationCardReplacementTests(unittest.IsolatedAsyncioTestCase):
     """One application, one card.

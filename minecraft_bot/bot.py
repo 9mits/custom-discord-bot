@@ -50,10 +50,7 @@ from .presentation import (
     BRAND_NAME,
     FOOTER_ICON_URL,
     head_url,
-    about_image_file,
     application_apply_embed,
-    application_guide_embed,
-    application_guide_view,
     application_panel,
     application_welcome_embed,
     apply_image_file,
@@ -1285,13 +1282,11 @@ class MinecraftAccessBot(commands.Bot):
             await self.sync_player_profile(str(account["minecraft_uuid"]), after.id)
 
     async def post_application_panel(self) -> discord.Message:
-        """Publishes the application channel as three messages.
+        """Publishes the application channel as two immediately scannable messages.
 
-        Split because one message carries one set of buttons, and the reading and
-        the Apply button want to be apart: what the server is, what to know before
-        deciding, and then the single button that starts an application. The Apply
-        message keeps the `application_panel_message_id` key, because that is the
-        one `_validate_application_panel` checks a press against.
+        The first says what the server is. The second contains every connection
+        detail and the one primary flow. It keeps `application_panel_message_id`
+        because that is the message `_validate_application_panel` trusts.
         """
         channel = await self._configured_channel(self.settings.application_channel_id)
         if channel is None or not hasattr(channel, "send"):
@@ -1315,12 +1310,6 @@ class MinecraftAccessBot(commands.Bot):
                 application_panel_files(),
             ),
             (
-                "application_guide_message_id",
-                application_guide_embed(),
-                application_guide_view(),
-                [about_image_file()],
-            ),
-            (
                 "application_panel_message_id",
                 application_apply_embed(self.settings),
                 application_panel(),
@@ -1329,6 +1318,7 @@ class MinecraftAccessBot(commands.Bot):
         )
         existing = {key: await fetch_saved_message(key) for key, *_ in parts}
         banner = await fetch_saved_message("application_banner_message_id")
+        retired_guide = await fetch_saved_message("application_guide_message_id")
 
         # Components V2 messages cannot be edited back into plain embeds, and a
         # missing part would leave the channel half-published, so either every
@@ -1343,9 +1333,18 @@ class MinecraftAccessBot(commands.Bot):
                 await existing[key].edit(
                     content=None, embeds=[embed], attachments=files, view=view
                 )
+            if retired_guide is not None:
+                with suppress(discord.NotFound, discord.Forbidden, discord.HTTPException):
+                    await retired_guide.delete()
+            await self.data.set_configs(
+                {
+                    "application_banner_message_id": "",
+                    "application_guide_message_id": "",
+                }
+            )
             return existing["application_panel_message_id"]
 
-        for old_message in (banner, *existing.values()):
+        for old_message in (banner, retired_guide, *existing.values()):
             if old_message is not None:
                 with suppress(discord.NotFound, discord.Forbidden, discord.HTTPException):
                     await old_message.delete()
@@ -1356,6 +1355,7 @@ class MinecraftAccessBot(commands.Bot):
         await self.data.set_configs(
             {
                 "application_banner_message_id": "",
+                "application_guide_message_id": "",
                 **{key: str(message.id) for key, message in posted.items()},
             }
         )

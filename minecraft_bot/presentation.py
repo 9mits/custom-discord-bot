@@ -244,83 +244,33 @@ def _panel_embed(title: str, description: str) -> discord.Embed:
     return embed
 
 
-#: Each feature as (name, one line on what it is). Someone reading this is
-#: deciding whether the server suits them, so it lists what is actually here
-#: rather than describing the atmosphere twice. How any of it works belongs in
-#: the information panel they get after they can play.
-SERVER_FEATURES: tuple[tuple[str, str], ...] = (
-    ("Economy", "Shop, sell, player auctions and bounties"),
-    ("Clans", "Your own name, tag and colour, funded by a shared treasury"),
-    ("Levels", "Chatting in Discord earns permanent extra hearts and damage"),
-    ("Voice chat", "Proximity voice with whoever is standing near you"),
-    ("Leaderboards", "Top 10 richest and most kills"),
-    ("Crossplay", "Java and Bedrock in one shared world"),
-)
-
-
 def application_welcome_embed() -> discord.Embed:
-    """What the server is. The first thing anybody sees, so it sells nothing else."""
+    """The entire server pitch, readable before somebody reaches the join card."""
     welcome = _panel_embed(
-        "Welcome to Mysterious SMP X",
-        # The partnership line stays unquoted so it reads as a header above the
-        # quote rather than the first line of it.
+        "Mysterious SMP X",
         "**Mysterious Girlfriend X Discord, in partnership with r/MysteriousGirlfriendX.**\n\n"
-        + quote_block(SERVER_TAGLINE),
+        f"> **Java:** {JAVA_SUPPORTED_RANGE}  •  **Bedrock:** current versions\n"
+        "> Survival with economy, clans, levels and leaderboards.\n"
+        "> Griefing and raiding are allowed outside protected server builds.",
     )
-    # Inline fields lay the features out in columns, matching the Contact Staff
-    # panel. Each feature names itself, so the showcase needs no header of its
-    # own; keep the lines short enough not to wrap into a tall column.
-    for name, line in SERVER_FEATURES:
-        welcome.add_field(name=name, value=line, inline=True)
     welcome.set_image(url=LOGO_ATTACHMENT_URI)
     return welcome
 
 
-def application_guide_embed() -> discord.Embed:
-    """What you need to know before verifying. Features live on the welcome
-    message; how to play lives behind the buttons and on the information panel.
-    """
-    embed = _panel_embed("Before You Join", "")
-    embed.add_field(
-        name="Can I play on my version?",
-        value=(
-            f"> **Java** — {JAVA_SUPPORTED_RANGE}\n"
-            "> **Bedrock** — any current version, on phone, console or Windows\n"
-            f"> The server runs **{SERVER_VERSION}** and translates in both "
-            "directions, so join on whatever you already play."
-        ),
-        inline=False,
-    )
-    embed.add_field(
-        name="Nothing is safe",
-        value=(
-            "> The world is one hundred thousand blocks from spawn.\n"
-            "> Griefing and raiding are allowed. Bases, farms and clan towers "
-            "can all be taken or torn down. Spawn and server builds are the "
-            "only exception."
-        ),
-        inline=False,
-    )
-    embed.set_thumbnail(url=ABOUT_ATTACHMENT_URI)
-    return embed
-
-
 def application_apply_embed(settings) -> discord.Embed:
-    """The connection details and verification path, beside the Verify button."""
+    """One obvious action: join, then complete the three-step lobby flow."""
     embed = _panel_embed(
-        "Join Mysterious SMP X",
-        "> Join the Minecraft server first. If your account is not linked yet, "
-        "you will enter the verification lobby.\n\n"
-        + _connection_blocks(settings)
-        + "\n\n**Verify after joining**\n"
-        "> **1.** In the lobby, type `/verify your_discord_username`.\n"
-        "> **2.** Open the DM from **Mysterious SMP X** and press "
-        "**Yes, This Is Me**.\n"
-        "> **3.** Keep Minecraft open—you will enter automatically.\n\n"
-        "**Before you join**\n"
-        "> Enable direct messages from server members so the bot can reach you.\n"
-        "> Prefer to start here? Press **Verify** below and enter your Minecraft "
-        "username.",
+        "JOIN THE SERVER",
+        "> **Join now.** Unlinked players enter a private verification lobby.\n\n"
+        f"**Java (PC/Mac):** `{settings.java_address}`\n"
+        f"**Bedrock (phone/console/Windows):** `{settings.bedrock_address}`\n"
+        f"**Bedrock port:** `{settings.bedrock_port}`\n\n"
+        "**Verify in 3 steps**\n"
+        "> **1.** Join the server.\n"
+        "> **2.** Type `/verify your_discord_username` in the lobby.\n"
+        "> **3.** Open the newest bot DM and press **Yes, This Is Me**.\n"
+        "> You will enter automatically. Keep Minecraft open.\n\n"
+        "> **No DM?** Enable direct messages from server members and try again.",
     )
     embed.set_thumbnail(url=APPLY_ATTACHMENT_URI)
     return embed
@@ -487,27 +437,11 @@ def rules_embed(*, agreement: bool = False) -> discord.Embed:
 
 
 def application_panel() -> discord.ui.View:
-    """Just Verify. The reading lives on its own message above this one."""
+    """The optional Discord-first path beside the primary join-first instructions."""
     from .ui import VerifyButton
 
     view = discord.ui.View(timeout=None)
     view.add_item(VerifyButton())
-    return view
-
-
-def application_guide_view() -> discord.ui.View:
-    """The information panel's own buttons, so both surfaces show the same pages.
-
-    Everything except Link Other Accounts, which starts a new verification.
-
-    Imported inside the function because `information` reads its embeds back out
-    of this module, and importing it at module scope would close the loop.
-    """
-    from .information import PAGES, InformationButton
-
-    view = discord.ui.View(timeout=None)
-    for page in PAGES:
-        view.add_item(InformationButton(page))
     return view
 
 

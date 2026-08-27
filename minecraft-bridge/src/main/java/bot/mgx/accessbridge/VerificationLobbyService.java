@@ -57,32 +57,32 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
     static final String WORLD_NAME = "mgx_verification";
     private static final Pattern DISCORD_USERNAME = Pattern.compile("[A-Za-z0-9_.]{2,32}");
     private static final long REQUEST_COOLDOWN_MILLIS = 10_000L;
-    /** 2b2t's limbo proves it is alive with a sparse queue line in chat. */
+    /** A sparse status line proves the otherwise-black lobby is still responsive. */
     private static final long PROMPT_INTERVAL_TICKS = 200L;
     private static final long PROMPT_INTERVAL_MILLIS = PROMPT_INTERVAL_TICKS * 50L;
     private static final int ROOM_RADIUS = 24;
     private static final int ROOM_FLOOR_Y = 64;
     private static final int ROOM_CEILING_Y = 72;
-    private static final Component VERIFY_PROMPT = queueLine(
-            "Type /verify <your Discord username>"
+    static final Component VERIFY_PROMPT = statusLine(
+            "Step 1 of 2: type /verify <your Discord username>"
     );
-    private static final Component VERIFY_ACTION = Component.text("VERIFY  •  ", NamedTextColor.GOLD,
+    static final Component VERIFY_ACTION = Component.text("STEP 1 OF 2  •  ", NamedTextColor.GOLD,
                     TextDecoration.BOLD)
             .append(Component.text("/verify <Discord username>", NamedTextColor.YELLOW));
-    private static final Component CONFIRM_ACTION = Component.text("CHECK DISCORD  •  ",
+    private static final Component CONFIRM_ACTION = Component.text("STEP 2 OF 2  •  ",
                     NamedTextColor.GOLD,
                     TextDecoration.BOLD)
-            .append(Component.text("Press Yes, This Is Me", NamedTextColor.YELLOW));
+            .append(Component.text("Open newest DM → Yes, This Is Me", NamedTextColor.YELLOW));
     private static final Title.Times PERSISTENT_TITLE_TIMES = Title.Times.times(
             Duration.ZERO, Duration.ofSeconds(2), Duration.ZERO
     );
     private static final LobbyTitle VERIFY_TITLE = lobbyTitle(
-            "VERIFICATION REQUIRED", NamedTextColor.GOLD,
-            "Type /verify <your Discord username>", NamedTextColor.YELLOW
+            "LINK DISCORD TO PLAY", NamedTextColor.GOLD,
+            "Step 1: /verify <your Discord username>", NamedTextColor.YELLOW
     );
     private static final LobbyTitle CONFIRM_TITLE = lobbyTitle(
-            "CHECK DISCORD", NamedTextColor.GOLD,
-            "Press Yes, This Is Me", NamedTextColor.YELLOW
+            "CHECK YOUR DISCORD DMS", NamedTextColor.GOLD,
+            "Step 2: press Yes, This Is Me", NamedTextColor.YELLOW
     );
 
     private record LobbyTitle(Component heading, Component subtitle) {
@@ -180,38 +180,38 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
             case "DM_SENT" -> {
                 updatePrompt(
                         player,
-                        queueLine("Waiting for your Discord confirmation"),
+                        statusLine("Step 2 of 2: open the newest bot DM and confirm"),
                         CONFIRM_ACTION,
                         CONFIRM_TITLE
                 );
             }
             case "JOIN_DISCORD" -> updatePrompt(
                     player,
-                    queueLine("Join with /discord, then use /verify again"),
-                    Component.text("Join Discord with /discord, then run /verify again",
+                    statusLine(message),
+                    Component.text("1. /discord  •  2. Join  •  3. Check newest DM",
                             NamedTextColor.YELLOW),
-                    lobbyTitle("JOIN DISCORD", NamedTextColor.LIGHT_PURPLE,
-                            "Use /discord, then run /verify again", NamedTextColor.YELLOW)
+                    lobbyTitle("JOIN THE DISCORD", NamedTextColor.LIGHT_PURPLE,
+                            "/discord → join → check your DMs", NamedTextColor.YELLOW)
             );
             case "DMS_CLOSED" -> updatePrompt(
                     player,
-                    queueLine("Enable Discord DMs, then use /verify again"),
-                    Component.text("Enable Discord DMs, then run /verify again",
+                    statusLine(message),
+                    Component.text("Allow server-member DMs  •  Then /verify again",
                             NamedTextColor.RED),
-                    lobbyTitle("ENABLE DISCORD DMS", NamedTextColor.RED,
-                            "Then run /verify again", NamedTextColor.YELLOW)
+                    lobbyTitle("DISCORD DMS ARE CLOSED", NamedTextColor.RED,
+                            "Allow server-member DMs, then /verify again", NamedTextColor.YELLOW)
             );
             case "RATE_LIMITED" -> updatePrompt(
                     player,
-                    queueLine("Please wait, then use /verify again"),
-                    Component.text("Please wait a moment, then run /verify again",
+                    statusLine(message),
+                    Component.text("Check your newest DM  •  Or wait, then /verify again",
                             NamedTextColor.YELLOW),
-                    lobbyTitle("PLEASE WAIT", NamedTextColor.GOLD,
-                            "Run /verify again in a moment", NamedTextColor.YELLOW)
+                    lobbyTitle("A DM WAS ALREADY SENT", NamedTextColor.GOLD,
+                            "Check it first, or wait and try again", NamedTextColor.YELLOW)
             );
             case "ACTIVATING" -> updatePrompt(
                     player,
-                    queueLine("Verified — connecting to Mysterious SMP X..."),
+                    statusLine("Verification successful — entering Mysterious SMP X"),
                     Component.text("VERIFIED  •  Entering Mysterious SMP X...",
                             NamedTextColor.GREEN, TextDecoration.BOLD),
                     lobbyTitle("VERIFIED", NamedTextColor.GREEN,
@@ -219,7 +219,7 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
             );
             default -> updatePrompt(
                     player,
-                    queueLine(message),
+                    statusLine(message),
                     Component.text(message, NamedTextColor.YELLOW),
                     lobbyTitle("VERIFICATION REQUIRED", NamedTextColor.GOLD,
                             message, NamedTextColor.YELLOW)
@@ -346,8 +346,8 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
     }
 
     private void showInstructions(Player player) {
-        Component prompt = Component.text("Position in verification queue: ", NamedTextColor.GOLD)
-                .append(Component.text("awaiting ", NamedTextColor.GRAY))
+        Component prompt = Component.text("Step 1 of 2: ", NamedTextColor.GOLD,
+                        TextDecoration.BOLD)
                 .append(Component.text("/verify <your Discord username>", NamedTextColor.YELLOW)
                         .clickEvent(ClickEvent.suggestCommand("/verify "))
                         .hoverEvent(HoverEvent.showText(Component.text(
@@ -360,17 +360,20 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
                                 GuideService.DISCORD_INVITE_DISPLAY
                         ))));
         showCenterTitle(player, VERIFY_TITLE);
-        player.sendMessage(Component.text("VERIFICATION REQUIRED", NamedTextColor.GOLD,
+        player.sendMessage(Component.text("LINK DISCORD TO PLAY", NamedTextColor.GOLD,
                 TextDecoration.BOLD));
         player.sendMessage(Component.text("1. ", NamedTextColor.YELLOW, TextDecoration.BOLD)
                 .append(Component.text("Type ", NamedTextColor.WHITE))
                 .append(Component.text("/verify <your Discord username>", NamedTextColor.AQUA)
-                        .clickEvent(ClickEvent.suggestCommand("/verify "))));
+                        .clickEvent(ClickEvent.suggestCommand("/verify ")))
+                .append(Component.text(" — use your username, not display name.",
+                        NamedTextColor.GRAY)));
         player.sendMessage(Component.text("2. ", NamedTextColor.YELLOW, TextDecoration.BOLD)
-                .append(Component.text("Open the Discord DM and press ", NamedTextColor.WHITE))
+                .append(Component.text("Open the newest DM from Mysterious SMP X and press ",
+                        NamedTextColor.WHITE))
                 .append(Component.text("Yes, This Is Me", NamedTextColor.GREEN,
                         TextDecoration.BOLD)));
-        player.sendMessage(Component.text("You will enter automatically  •  Need Discord? ",
+        player.sendMessage(Component.text("Keep Minecraft open—you will enter automatically.  •  Need Discord? ",
                         NamedTextColor.GRAY)
                 .append(Component.text("/discord", NamedTextColor.LIGHT_PURPLE)
                         .clickEvent(ClickEvent.runCommand("/discord"))));
@@ -476,7 +479,8 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         }
         if (!DISCORD_USERNAME.matcher(discordUsername).matches()) {
             player.sendMessage(Component.text(
-                    "Use your exact Discord username: letters, numbers, dots, or underscores.",
+                    "That is not a valid Discord username. Use 2–32 letters, numbers, dots, "
+                            + "or underscores. Example: /verify 9mits",
                     NamedTextColor.RED
             ));
             return true;
@@ -485,7 +489,8 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         long previous = lastRequests.getOrDefault(player.getUniqueId(), 0L);
         if (now - previous < REQUEST_COOLDOWN_MILLIS) {
             long seconds = Math.max(1L, (REQUEST_COOLDOWN_MILLIS - (now - previous) + 999L) / 1000L);
-            player.sendMessage(Component.text("Wait " + seconds + " seconds before sending another request.",
+            player.sendMessage(Component.text("A request was just sent. Check your newest Discord DM, "
+                            + "or wait " + seconds + " seconds before trying again.",
                     NamedTextColor.YELLOW));
             return true;
         }
@@ -493,7 +498,8 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         if (session.edition() == MinecraftEdition.BEDROCK
                 && (session.xuid() == null || session.xuid().isBlank())) {
             player.sendMessage(Component.text(
-                    "Bedrock identity is still loading. Reconnect once, then use /verify again.",
+                    "Your Xbox account is still loading. Reconnect once, return to this lobby, "
+                            + "then use /verify again.",
                     NamedTextColor.YELLOW
             ));
             return true;
@@ -505,21 +511,21 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         if (bridgeConnected) {
             updatePrompt(
                     player,
-                    queueLine("Waiting for your Discord confirmation"),
+                    statusLine("Step 2 of 2: open the newest bot DM and confirm"),
                     CONFIRM_ACTION,
                     CONFIRM_TITLE
             );
         } else {
             Component reconnecting = Component.text(
-                    "Discord is reconnecting automatically — your request is saved",
+                    "Request saved  •  Stay here while Discord reconnects automatically",
                     NamedTextColor.YELLOW
             );
             updatePrompt(
                     player,
-                    queueLine("Discord is reconnecting; your request is saved"),
+                    statusLine("Discord is reconnecting; your request is safely saved"),
                     reconnecting,
                     lobbyTitle("DISCORD RECONNECTING", NamedTextColor.GOLD,
-                            "Your request is safely queued", NamedTextColor.YELLOW)
+                            "Stay here—no need to type it again", NamedTextColor.YELLOW)
             );
         }
         return true;
@@ -631,7 +637,8 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         if (!label.equals("verify") && !label.equals("discord")) {
             event.setCancelled(true);
             event.getPlayer().sendMessage(Component.text(
-                    "Finish verification first. Use /verify or /discord.", NamedTextColor.YELLOW
+                    "Only /verify and /discord work in this lobby. Link Discord first to enter.",
+                    NamedTextColor.YELLOW
             ));
         }
     }
@@ -674,8 +681,8 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         });
     }
 
-    private static Component queueLine(String status) {
-        return Component.text("Position in verification queue: ", NamedTextColor.GOLD)
+    private static Component statusLine(String status) {
+        return Component.text("Verification: ", NamedTextColor.GOLD)
                 .append(Component.text(status, NamedTextColor.YELLOW));
     }
 }
