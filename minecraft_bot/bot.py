@@ -1322,7 +1322,7 @@ class MinecraftAccessBot(commands.Bot):
             ),
             (
                 "application_panel_message_id",
-                application_apply_embed(),
+                application_apply_embed(self.settings),
                 application_panel(),
                 [apply_image_file()],
             ),
@@ -1576,7 +1576,7 @@ class MinecraftAccessBot(commands.Bot):
         )
         if self.bridge.connected:
             await self.bridge.dispatch_outbox()
-        # The bridge's final Access Active card is the single success message.
+        # The bridge's final verification-successful card is the single success message.
         # Returning an empty string also keeps the component acknowledgement silent.
         return ""
 

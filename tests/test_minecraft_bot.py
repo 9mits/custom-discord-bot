@@ -734,7 +734,12 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         sent = [SimpleNamespace(id=101), SimpleNamespace(id=102), SimpleNamespace(id=103)]
         channel = SimpleNamespace(send=AsyncMock(side_effect=sent))
         bot = object.__new__(MinecraftAccessBot)
-        bot.settings = SimpleNamespace(application_channel_id=20)
+        bot.settings = SimpleNamespace(
+            application_channel_id=20,
+            java_address="play.example.net",
+            bedrock_address="bedrock.example.net",
+            bedrock_port=19132,
+        )
         bot._configured_channel = AsyncMock(return_value=channel)
         bot.data = SimpleNamespace(
             get_config=AsyncMock(return_value=None),
@@ -753,6 +758,11 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
                 "Join Mysterious SMP X",
             ],
         )
+        join_text = channel.send.await_args_list[2].kwargs["embed"].description
+        self.assertIn("play.example.net", join_text)
+        self.assertIn("bedrock.example.net", join_text)
+        self.assertIn("19132", join_text)
+        self.assertIn("Join the Minecraft server first", join_text)
         # Apply is returned and tracked, because that is the message a press is
         # validated against.
         self.assertIs(result, sent[2])
@@ -773,7 +783,12 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         sent = [SimpleNamespace(id=101), SimpleNamespace(id=102), SimpleNamespace(id=103)]
         channel = SimpleNamespace(send=AsyncMock(side_effect=sent))
         bot = object.__new__(MinecraftAccessBot)
-        bot.settings = SimpleNamespace(application_channel_id=20)
+        bot.settings = SimpleNamespace(
+            application_channel_id=20,
+            java_address="play.example.net",
+            bedrock_address="bedrock.example.net",
+            bedrock_port=19132,
+        )
         bot._configured_channel = AsyncMock(return_value=channel)
         bot.data = SimpleNamespace(
             get_config=AsyncMock(return_value=None),
@@ -2727,10 +2742,12 @@ class MaintenanceModeTests(unittest.IsolatedAsyncioTestCase):
         opened = approval_embed(SimpleNamespace(maintenance_mode=False, **addresses))
 
         self.assertEqual(closed.description, opened.description)
-        self.assertIn("access is now active", opened.description)
+        self.assertEqual(opened.title, "Verification Successful!")
+        self.assertIn("access is active", opened.description)
+        self.assertIn("Return to Minecraft", opened.description)
         for address in ("play.example.net", "bedrock.example.net", "19132"):
             with self.subTest(address=address):
-                self.assertIn(address, closed.description)
+                self.assertNotIn(address, closed.description)
 
     def test_approval_points_to_the_actual_information_panel_channel_and_guide(self):
         from minecraft_bot.presentation import approval_embed
@@ -3027,7 +3044,13 @@ class ApplicantVoiceTests(unittest.TestCase):
 
         yield "welcome", application_welcome_embed()
         yield "guide", application_guide_embed()
-        yield "join", application_apply_embed()
+        yield "join", application_apply_embed(
+            SimpleNamespace(
+                java_address="play.example.net",
+                bedrock_address="bedrock.example.net",
+                bedrock_port=19132,
+            )
+        )
 
     def test_no_applicant_embed_slips_back_into_chattiness(self):
         for name, embed in self._every_applicant_embed():
@@ -3120,16 +3143,16 @@ class ApplicationCardCopyTests(unittest.TestCase):
     def test_the_title_says_where_they_are(self):
         expected = {
             AccessStatus.PENDING_VERIFICATION: "Verify Your Account",
-            AccessStatus.VERIFIED: "Access Active",
+            AccessStatus.VERIFIED: "Verification Successful!",
         }
         for status, title in expected.items():
             with self.subTest(status=status):
                 embed = live_status_embed(self._application(status), self._settings())
                 self.assertEqual(embed.title, title)
 
-    def test_the_two_screens_with_something_to_do_still_carry_it(self):
-        # A deadline where one can run out, and an address where they must connect.
-        # Trimming those away would make the card tidy and useless.
+    def test_only_pending_verification_carries_connection_details(self):
+        # A player awaiting verification still needs the address. Once verified,
+        # repeating it is noise because they completed the flow from Minecraft.
         verify = live_status_embed(
             self._application(AccessStatus.PENDING_VERIFICATION), self._settings()
         )
@@ -3141,9 +3164,10 @@ class ApplicationCardCopyTests(unittest.TestCase):
         self.assertIn("bedrock.example.net", self._text(verify))
         self.assertIn("19132", self._text(verify))
         self.assertIn("`7saori`", verify.description)
-        self.assertIn("play.example.net", self._text(approved))
-        self.assertIn("bedrock.example.net", self._text(approved))
-        self.assertIn("19132", self._text(approved))
+        self.assertIn("Verification Successful!", self._text(approved))
+        self.assertNotIn("play.example.net", self._text(approved))
+        self.assertNotIn("bedrock.example.net", self._text(approved))
+        self.assertNotIn("19132", self._text(approved))
 
     def test_a_deadline_reads_as_part_of_the_sentence(self):
         # Discord renders it as "in 3 days", which sits naturally after a verb and
@@ -3170,7 +3194,7 @@ class ApplicationCardCopyTests(unittest.TestCase):
         )
 
         self.assertEqual(self._text(held), self._text(open_server))
-        self.assertIn("play.example.net", self._text(held))
+        self.assertNotIn("play.example.net", self._text(held))
 
     def test_every_status_renders(self):
         for status in AccessStatus:
