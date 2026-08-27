@@ -59,6 +59,7 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
     private static final long REQUEST_COOLDOWN_MILLIS = 10_000L;
     /** 2b2t's limbo proves it is alive with a sparse queue line in chat. */
     private static final long PROMPT_INTERVAL_TICKS = 200L;
+    private static final long PROMPT_INTERVAL_MILLIS = PROMPT_INTERVAL_TICKS * 50L;
     private static final int ROOM_RADIUS = 24;
     private static final int ROOM_FLOOR_Y = 64;
     private static final int ROOM_CEILING_Y = 72;
@@ -92,6 +93,7 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
     private final Map<UUID, Long> lastRequests = new ConcurrentHashMap<>();
     private final Map<UUID, Component> prompts = new ConcurrentHashMap<>();
     private final Map<UUID, Component> actionBars = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> lastPromptMessages = new ConcurrentHashMap<>();
     private final Set<UUID> releasing = ConcurrentHashMap.newKeySet();
 
     VerificationLobbyService(MGXAccessBridge plugin, BridgeClient bridge) {
@@ -354,14 +356,18 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         UUID uuid = player.getUniqueId();
         prompts.put(uuid, prompt);
         actionBars.put(uuid, VERIFY_ACTION);
+        lastPromptMessages.put(uuid, System.currentTimeMillis());
         player.sendActionBar(VERIFY_ACTION);
     }
 
     private void updatePrompt(Player player, Component prompt, Component actionBar) {
         UUID uuid = player.getUniqueId();
-        prompts.put(uuid, prompt);
+        Component previous = prompts.put(uuid, prompt);
         actionBars.put(uuid, actionBar);
-        player.sendMessage(prompt);
+        if (!prompt.equals(previous)) {
+            player.sendMessage(prompt);
+            lastPromptMessages.put(uuid, System.currentTimeMillis());
+        }
         player.sendActionBar(actionBar);
     }
 
@@ -369,15 +375,19 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         UUID uuid = player.getUniqueId();
         prompts.remove(uuid);
         actionBars.remove(uuid);
+        lastPromptMessages.remove(uuid);
         player.sendActionBar(Component.empty());
     }
 
     private void remindPlayers() {
+        long now = System.currentTimeMillis();
         for (UUID uuid : sessions.keySet()) {
             Player player = Bukkit.getPlayer(uuid);
-            if (player != null) {
+            long lastMessage = lastPromptMessages.getOrDefault(uuid, 0L);
+            if (player != null && now - lastMessage >= PROMPT_INTERVAL_MILLIS) {
                 Component prompt = prompts.getOrDefault(uuid, VERIFY_PROMPT);
                 player.sendMessage(prompt);
+                lastPromptMessages.put(uuid, now);
             }
         }
     }
