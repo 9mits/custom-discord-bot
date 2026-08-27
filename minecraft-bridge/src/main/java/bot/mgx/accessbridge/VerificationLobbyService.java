@@ -64,14 +64,13 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
     private static final Component VERIFY_PROMPT = queueLine(
             "Type /verify <your Discord username>"
     );
-    private static final Component VERIFY_ACTION = Component.text("STEP 1  ", NamedTextColor.GOLD,
+    private static final Component VERIFY_ACTION = Component.text("VERIFY  •  ", NamedTextColor.GOLD,
                     TextDecoration.BOLD)
-            .append(Component.text("Type /verify <your Discord username>", NamedTextColor.YELLOW))
-            .append(Component.text("  •  Need Discord? /discord", NamedTextColor.GRAY));
-    private static final Component CONFIRM_ACTION = Component.text("STEP 2  ", NamedTextColor.GOLD,
+            .append(Component.text("/verify <Discord username>", NamedTextColor.YELLOW));
+    private static final Component CONFIRM_ACTION = Component.text("CHECK DISCORD  •  ",
+                    NamedTextColor.GOLD,
                     TextDecoration.BOLD)
-            .append(Component.text("Open your Discord DM and press Yes, This Is Me",
-                    NamedTextColor.YELLOW));
+            .append(Component.text("Press Yes, This Is Me", NamedTextColor.YELLOW));
 
     private record Session(
             UUID loginUuid,
@@ -330,12 +329,14 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
                 .append(Component.text("Open the Discord DM and press ", NamedTextColor.WHITE))
                 .append(Component.text("Yes, This Is Me", NamedTextColor.GREEN,
                         TextDecoration.BOLD)));
-        player.sendMessage(Component.text("You will enter automatically. Need Discord? ",
+        player.sendMessage(Component.text("You will enter automatically  •  Need Discord? ",
                         NamedTextColor.GRAY)
                 .append(Component.text("/discord", NamedTextColor.LIGHT_PURPLE)
                         .clickEvent(ClickEvent.runCommand("/discord"))));
-        player.sendMessage(Component.empty());
-        updatePrompt(player, prompt, VERIFY_ACTION);
+        UUID uuid = player.getUniqueId();
+        prompts.put(uuid, prompt);
+        actionBars.put(uuid, VERIFY_ACTION);
+        player.sendActionBar(VERIFY_ACTION);
     }
 
     private void updatePrompt(Player player, Component prompt, Component actionBar) {
