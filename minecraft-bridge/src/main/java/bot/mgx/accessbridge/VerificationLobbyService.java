@@ -64,6 +64,14 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
     private static final Component VERIFY_PROMPT = queueLine(
             "Type /verify <your Discord username>"
     );
+    private static final Component VERIFY_ACTION = Component.text("STEP 1  ", NamedTextColor.GOLD,
+                    TextDecoration.BOLD)
+            .append(Component.text("Type /verify <your Discord username>", NamedTextColor.YELLOW))
+            .append(Component.text("  •  Need Discord? /discord", NamedTextColor.GRAY));
+    private static final Component CONFIRM_ACTION = Component.text("STEP 2  ", NamedTextColor.GOLD,
+                    TextDecoration.BOLD)
+            .append(Component.text("Open your Discord DM and press Yes, This Is Me",
+                    NamedTextColor.YELLOW));
 
     private record Session(
             UUID loginUuid,
@@ -83,6 +91,7 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
     private final Map<UUID, Session> sessions = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastRequests = new ConcurrentHashMap<>();
     private final Map<UUID, Component> prompts = new ConcurrentHashMap<>();
+    private final Map<UUID, Component> actionBars = new ConcurrentHashMap<>();
     private final Set<UUID> releasing = ConcurrentHashMap.newKeySet();
 
     VerificationLobbyService(MGXAccessBridge plugin, BridgeClient bridge) {
@@ -118,6 +127,9 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         Bukkit.getScheduler().runTaskTimer(
                 plugin, this::remindPlayers, PROMPT_INTERVAL_TICKS, PROMPT_INTERVAL_TICKS
         );
+        // Chat fades quickly and many players never open it. Keep the single current
+        // action visible without filling the otherwise-empty queue screen with UI.
+        Bukkit.getScheduler().runTaskTimer(plugin, this::refreshActionBars, 20L, 20L);
     }
 
     static boolean isLobbyWorld(World candidate) {
@@ -151,28 +163,38 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
             case "DM_SENT" -> {
                 updatePrompt(
                         player,
-                        queueLine("Waiting for your Discord confirmation")
+                        queueLine("Waiting for your Discord confirmation"),
+                        CONFIRM_ACTION
                 );
             }
             case "JOIN_DISCORD" -> updatePrompt(
                     player,
-                    queueLine("Join with /discord, then use /verify again")
+                    queueLine("Join with /discord, then use /verify again"),
+                    Component.text("Join Discord with /discord, then run /verify again",
+                            NamedTextColor.YELLOW)
             );
             case "DMS_CLOSED" -> updatePrompt(
                     player,
-                    queueLine("Enable Discord DMs, then use /verify again")
+                    queueLine("Enable Discord DMs, then use /verify again"),
+                    Component.text("Enable Discord DMs, then run /verify again",
+                            NamedTextColor.RED)
             );
             case "RATE_LIMITED" -> updatePrompt(
                     player,
-                    queueLine("Please wait, then use /verify again")
+                    queueLine("Please wait, then use /verify again"),
+                    Component.text("Please wait a moment, then run /verify again",
+                            NamedTextColor.YELLOW)
             );
             case "ACTIVATING" -> updatePrompt(
                     player,
-                    queueLine("Verified — connecting to Mysterious SMP X...")
+                    queueLine("Verified — connecting to Mysterious SMP X..."),
+                    Component.text("VERIFIED  •  Entering Mysterious SMP X...",
+                            NamedTextColor.GREEN, TextDecoration.BOLD)
             );
             default -> updatePrompt(
                     player,
-                    queueLine(message)
+                    queueLine(message),
+                    Component.text(message, NamedTextColor.YELLOW)
             );
         }
     }
@@ -264,6 +286,7 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
             player.hidePlayer(plugin, online);
         }
         prompts.put(player.getUniqueId(), VERIFY_PROMPT);
+        actionBars.put(player.getUniqueId(), VERIFY_ACTION);
         // Essentials and other join listeners may speak later in the same event.
         // Limbo should begin as a clean black screen with one queue line, so draw it
         // after those messages and push the normal SMP history out of view.
@@ -290,18 +313,44 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
                         .hoverEvent(HoverEvent.showText(Component.text(
                                 GuideService.DISCORD_INVITE_DISPLAY
                         ))));
-        updatePrompt(player, prompt);
+        player.showTitle(Title.title(
+                Component.text("VERIFICATION REQUIRED", NamedTextColor.GOLD,
+                        TextDecoration.BOLD),
+                Component.text("Type /verify <your Discord username>", NamedTextColor.YELLOW),
+                Title.Times.times(Duration.ofMillis(250), Duration.ofSeconds(4),
+                        Duration.ofMillis(500))
+        ));
+        player.sendMessage(Component.text("VERIFICATION REQUIRED", NamedTextColor.GOLD,
+                TextDecoration.BOLD));
+        player.sendMessage(Component.text("1. ", NamedTextColor.YELLOW, TextDecoration.BOLD)
+                .append(Component.text("Type ", NamedTextColor.WHITE))
+                .append(Component.text("/verify <your Discord username>", NamedTextColor.AQUA)
+                        .clickEvent(ClickEvent.suggestCommand("/verify "))));
+        player.sendMessage(Component.text("2. ", NamedTextColor.YELLOW, TextDecoration.BOLD)
+                .append(Component.text("Open the Discord DM and press ", NamedTextColor.WHITE))
+                .append(Component.text("Yes, This Is Me", NamedTextColor.GREEN,
+                        TextDecoration.BOLD)));
+        player.sendMessage(Component.text("You will enter automatically. Need Discord? ",
+                        NamedTextColor.GRAY)
+                .append(Component.text("/discord", NamedTextColor.LIGHT_PURPLE)
+                        .clickEvent(ClickEvent.runCommand("/discord"))));
+        player.sendMessage(Component.empty());
+        updatePrompt(player, prompt, VERIFY_ACTION);
     }
 
-    private void updatePrompt(Player player, Component prompt) {
+    private void updatePrompt(Player player, Component prompt, Component actionBar) {
         UUID uuid = player.getUniqueId();
         prompts.put(uuid, prompt);
+        actionBars.put(uuid, actionBar);
         player.sendMessage(prompt);
+        player.sendActionBar(actionBar);
     }
 
     private void clearPrompt(Player player) {
         UUID uuid = player.getUniqueId();
         prompts.remove(uuid);
+        actionBars.remove(uuid);
+        player.sendActionBar(Component.empty());
     }
 
     private void remindPlayers() {
@@ -310,6 +359,16 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
             if (player != null) {
                 Component prompt = prompts.getOrDefault(uuid, VERIFY_PROMPT);
                 player.sendMessage(prompt);
+            }
+        }
+    }
+
+    private void refreshActionBars() {
+        for (UUID uuid : sessions.keySet()) {
+            Player player = Bukkit.getPlayer(uuid);
+            Component actionBar = actionBars.get(uuid);
+            if (player != null && actionBar != null) {
+                player.sendActionBar(actionBar);
             }
         }
     }
@@ -362,11 +421,21 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
                 session.edition(), session.accountUuid(), session.username(), session.xuid(), discordUsername
         );
         if (bridgeConnected) {
-            updatePrompt(player, queueLine("Waiting for your Discord confirmation"));
+            updatePrompt(
+                    player,
+                    queueLine("Waiting for your Discord confirmation"),
+                    CONFIRM_ACTION
+            );
         } else {
-            updatePrompt(player, queueLine(
-                    "Discord is reconnecting; your request is saved"
-            ));
+            Component reconnecting = Component.text(
+                    "Discord is reconnecting automatically — your request is saved",
+                    NamedTextColor.YELLOW
+            );
+            updatePrompt(
+                    player,
+                    queueLine("Discord is reconnecting; your request is saved"),
+                    reconnecting
+            );
         }
         return true;
     }
