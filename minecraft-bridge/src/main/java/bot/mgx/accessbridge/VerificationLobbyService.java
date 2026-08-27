@@ -2,6 +2,7 @@ package bot.mgx.accessbridge;
 
 import io.papermc.paper.event.player.AsyncPlayerSpawnLocationEvent;
 import io.papermc.paper.event.player.AsyncChatEvent;
+import net.kyori.adventure.bossbar.BossBar;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickEvent;
 import net.kyori.adventure.text.event.HoverEvent;
@@ -49,6 +50,12 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
     static final String WORLD_NAME = "mgx_verification";
     private static final Pattern DISCORD_USERNAME = Pattern.compile("[A-Za-z0-9_.]{2,32}");
     private static final long REQUEST_COOLDOWN_MILLIS = 10_000L;
+    private static final long PROMPT_INTERVAL_TICKS = 40L;
+    private static final Component VERIFY_PROMPT = Component.text(
+            "VERIFY  •  Type /verify <your Discord username>",
+            NamedTextColor.GOLD,
+            TextDecoration.BOLD
+    );
 
     private record Session(
             UUID loginUuid,
@@ -65,6 +72,8 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
     private final Location spawn;
     private final Map<UUID, Session> sessions = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastRequests = new ConcurrentHashMap<>();
+    private final Map<UUID, BossBar> promptBars = new ConcurrentHashMap<>();
+    private final Map<UUID, Component> prompts = new ConcurrentHashMap<>();
     private final Set<UUID> releasing = ConcurrentHashMap.newKeySet();
 
     VerificationLobbyService(MGXAccessBridge plugin, BridgeClient bridge) {
@@ -90,7 +99,9 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         int y = world.getHighestBlockYAt(0, 0) + 1;
         spawn = new Location(world, 0.5, y, 0.5, 0.0F, 0.0F);
         world.setSpawnLocation(spawn);
-        Bukkit.getScheduler().runTaskTimer(plugin, this::remindPlayers, 200L, 200L);
+        Bukkit.getScheduler().runTaskTimer(
+                plugin, this::remindPlayers, PROMPT_INTERVAL_TICKS, PROMPT_INTERVAL_TICKS
+        );
     }
 
     static boolean isLobbyWorld(World candidate) {
@@ -120,15 +131,50 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         if (player == null) {
             return;
         }
+        switch (status) {
+            case "DM_SENT" -> {
+                updatePrompt(
+                        player,
+                        Component.text(
+                                "CHECK DISCORD  •  Open the newest DM and press Yes, This Is Me",
+                                NamedTextColor.AQUA,
+                                TextDecoration.BOLD
+                        ),
+                        BossBar.Color.BLUE
+                );
+                player.showTitle(Title.title(
+                        Component.text("CHECK DISCORD", NamedTextColor.AQUA, TextDecoration.BOLD),
+                        Component.text("Open the newest DM and confirm", NamedTextColor.WHITE)
+                ));
+            }
+            case "JOIN_DISCORD" -> updatePrompt(
+                    player,
+                    Component.text("JOIN DISCORD  •  Use /discord, then your DM arrives", NamedTextColor.LIGHT_PURPLE),
+                    BossBar.Color.PURPLE
+            );
+            case "DMS_CLOSED" -> updatePrompt(
+                    player,
+                    Component.text("ENABLE DISCORD DMs  •  Then run /verify again", NamedTextColor.RED),
+                    BossBar.Color.RED
+            );
+            case "RATE_LIMITED" -> updatePrompt(
+                    player,
+                    Component.text("PLEASE WAIT  •  Then run /verify again", NamedTextColor.YELLOW),
+                    BossBar.Color.YELLOW
+            );
+            case "ACTIVATING" -> updatePrompt(
+                    player,
+                    Component.text("VERIFIED  •  Opening the SMP…", NamedTextColor.GREEN, TextDecoration.BOLD),
+                    BossBar.Color.GREEN
+            );
+            default -> updatePrompt(
+                    player,
+                    Component.text(message, status.equals("FAILED") ? NamedTextColor.RED : NamedTextColor.YELLOW),
+                    status.equals("FAILED") ? BossBar.Color.RED : BossBar.Color.YELLOW
+            );
+        }
         player.sendMessage(Component.text(message, status.equals("FAILED")
                 ? NamedTextColor.RED : NamedTextColor.YELLOW));
-        player.sendActionBar(Component.text(message, NamedTextColor.GOLD));
-        if (status.equals("DM_SENT")) {
-            player.showTitle(Title.title(
-                    Component.text("CHECK DISCORD", NamedTextColor.AQUA, TextDecoration.BOLD),
-                    Component.text("Open the newest DM and confirm", NamedTextColor.WHITE)
-            ));
-        }
     }
 
     void release(UUID accountUuid, String discordUsername) {
@@ -142,6 +188,7 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
                 .findFirst()
                 .orElse(null);
         if (main == null) {
+            clearPrompt(player);
             player.kick(Component.text("Verification succeeded. Reconnect in a moment."));
             return;
         }
@@ -151,6 +198,7 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         );
         if (!moved || player.getWorld().equals(world)) {
             releasing.remove(player.getUniqueId());
+            clearPrompt(player);
             player.kick(Component.text(
                     "Verification succeeded. Reconnect to enter Mysterious SMP X."
             ));
@@ -158,6 +206,7 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         }
         sessions.remove(player.getUniqueId());
         lastRequests.remove(player.getUniqueId());
+        clearPrompt(player);
         player.setGameMode(GameMode.SURVIVAL);
         player.setInvulnerable(false);
         for (Player online : Bukkit.getOnlinePlayers()) {
@@ -208,39 +257,65 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
             online.hidePlayer(plugin, player);
             player.hidePlayer(plugin, online);
         }
-        showInstructions(player);
+        showInstructions(player, true);
     }
 
-    private void showInstructions(Player player) {
+    private void showInstructions(Player player, boolean sendChatPrompt) {
         player.showTitle(Title.title(
-                Component.text("CONNECT DISCORD", NamedTextColor.GOLD, TextDecoration.BOLD),
-                Component.text("Type /verify your_discord_username", NamedTextColor.WHITE)
+                Component.text("DISCORD VERIFICATION", NamedTextColor.GOLD, TextDecoration.BOLD),
+                Component.text("Type /verify <your Discord username>", NamedTextColor.WHITE),
+                Title.Times.times(Duration.ofMillis(250), Duration.ofSeconds(5), Duration.ofMillis(500))
         ));
-        player.sendMessage(Component.empty());
-        player.sendMessage(Component.text("Welcome! Link Discord before entering the SMP.", NamedTextColor.GOLD));
-        player.sendMessage(Component.text("1. Type ", NamedTextColor.GRAY)
-                .append(Component.text("/verify your_discord_username", NamedTextColor.AQUA)));
-        player.sendMessage(Component.text("2. Open the newest DM from Mysterious SMP X.", NamedTextColor.GRAY));
-        player.sendMessage(Component.text("3. Press ", NamedTextColor.GRAY)
-                .append(Component.text("Yes, This Is Me", NamedTextColor.GREEN))
-                .append(Component.text(". You will enter automatically.", NamedTextColor.GRAY)));
-        player.sendMessage(Component.text("Not in Discord? Click here to join", NamedTextColor.LIGHT_PURPLE)
-                .clickEvent(ClickEvent.openUrl(GuideService.DISCORD_INVITE_URL))
-                .hoverEvent(HoverEvent.showText(Component.text(GuideService.DISCORD_INVITE_DISPLAY))));
-        player.sendMessage(Component.text(
-                "No passwords, codes, downloads, or Discord login details are ever requested.",
-                NamedTextColor.DARK_GRAY
+        updatePrompt(player, VERIFY_PROMPT, BossBar.Color.YELLOW);
+        if (!sendChatPrompt) {
+            return;
+        }
+        Bukkit.getScheduler().runTaskLater(plugin, () -> {
+            if (!player.isOnline() || !protectedPlayer(player)) {
+                return;
+            }
+            player.sendMessage(Component.text("VERIFY  →  ", NamedTextColor.GOLD, TextDecoration.BOLD)
+                    .append(Component.text("/verify your_discord_username", NamedTextColor.AQUA)
+                            .clickEvent(ClickEvent.suggestCommand("/verify "))
+                            .hoverEvent(HoverEvent.showText(Component.text("Click to enter your Discord username"))))
+                    .append(Component.text("  •  ", NamedTextColor.DARK_GRAY))
+                    .append(Component.text("Need Discord? Click here", NamedTextColor.LIGHT_PURPLE)
+                            .clickEvent(ClickEvent.openUrl(GuideService.DISCORD_INVITE_URL))
+                            .hoverEvent(HoverEvent.showText(Component.text(GuideService.DISCORD_INVITE_DISPLAY)))));
+        }, 20L);
+    }
+
+    private void updatePrompt(Player player, Component prompt, BossBar.Color color) {
+        UUID uuid = player.getUniqueId();
+        prompts.put(uuid, prompt);
+        BossBar bar = promptBars.computeIfAbsent(uuid, ignored -> BossBar.bossBar(
+                prompt, 1.0F, color, BossBar.Overlay.PROGRESS
         ));
+        bar.name(prompt);
+        bar.color(color);
+        player.showBossBar(bar);
+        player.sendActionBar(prompt);
+    }
+
+    private void clearPrompt(Player player) {
+        UUID uuid = player.getUniqueId();
+        BossBar bar = promptBars.remove(uuid);
+        prompts.remove(uuid);
+        if (bar != null) {
+            player.hideBossBar(bar);
+        }
     }
 
     private void remindPlayers() {
         for (UUID uuid : sessions.keySet()) {
             Player player = Bukkit.getPlayer(uuid);
             if (player != null) {
-                player.sendActionBar(Component.text(
-                        "Link Discord: /verify your_discord_username  •  Need Discord? /discord",
-                        NamedTextColor.GOLD
-                ));
+                Component prompt = prompts.getOrDefault(uuid, VERIFY_PROMPT);
+                BossBar bar = promptBars.get(uuid);
+                if (bar != null) {
+                    player.showBossBar(bar);
+                }
+                player.sendActionBar(prompt);
             }
         }
     }
@@ -257,7 +332,7 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
             return true;
         }
         if (args.length != 1) {
-            showInstructions(player);
+            showInstructions(player, false);
             return true;
         }
         String discordUsername = args[0].strip();
@@ -288,12 +363,35 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
             ));
             return true;
         }
+        boolean bridgeConnected = bridge.isConnected();
         bridge.queueLinkRequest(
                 session.edition(), session.accountUuid(), session.username(), session.xuid(), discordUsername
         );
-        player.sendMessage(Component.text("Request saved. Looking for @" + discordUsername + " on Discord…",
-                NamedTextColor.AQUA));
-        player.sendActionBar(Component.text("Verification request saved • Keep this screen open", NamedTextColor.GOLD));
+        if (bridgeConnected) {
+            Component waiting = Component.text(
+                    "REQUEST SENT  •  Waiting for Discord…", NamedTextColor.AQUA, TextDecoration.BOLD
+            );
+            updatePrompt(player, waiting, BossBar.Color.BLUE);
+            player.sendMessage(Component.text(
+                    "Request sent to @" + discordUsername + ". Watch for a new Discord DM.",
+                    NamedTextColor.AQUA
+            ));
+        } else {
+            Component reconnecting = Component.text(
+                    "DM DELAYED  •  Discord service is reconnecting automatically",
+                    NamedTextColor.RED,
+                    TextDecoration.BOLD
+            );
+            updatePrompt(player, reconnecting, BossBar.Color.RED);
+            player.showTitle(Title.title(
+                    Component.text("DM DELAYED", NamedTextColor.RED, TextDecoration.BOLD),
+                    Component.text("Request saved • Discord service is reconnecting", NamedTextColor.WHITE)
+            ));
+            player.sendMessage(Component.text(
+                    "Discord verification is temporarily offline. Your request is saved and will send when it reconnects.",
+                    NamedTextColor.RED
+            ));
+        }
         return true;
     }
 
@@ -338,6 +436,7 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         UUID uuid = event.getPlayer().getUniqueId();
+        clearPrompt(event.getPlayer());
         Bukkit.getScheduler().runTask(plugin, () -> {
             sessions.remove(uuid);
             lastRequests.remove(uuid);
