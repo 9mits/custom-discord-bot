@@ -48,6 +48,12 @@ class ReverseLinkButton(
         return cls(match["action"], match["request"], item=item)
 
     async def callback(self, interaction: discord.Interaction) -> None:
+        owns_request = getattr(interaction.client, "owns_reverse_link_request", None)
+        if owns_request is not None and not await owns_request(self.request_id):
+            # The test and production bridges may temporarily share one Discord bot
+            # identity. Both gateway sessions see the component interaction, but only
+            # the environment holding this request may acknowledge or process it.
+            return
         # A component defer acknowledges the click without creating Discord's
         # visible "thinking" message. The final Access Active card is the only
         # success message the member needs.
