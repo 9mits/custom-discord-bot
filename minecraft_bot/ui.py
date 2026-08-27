@@ -123,7 +123,7 @@ async def _validate_application_panel(interaction: discord.Interaction) -> bool:
 class VerifyButton(discord.ui.Button):
     def __init__(self) -> None:
         super().__init__(
-            label="Verify",
+            label="Verify From Discord",
             style=discord.ButtonStyle.primary,
             custom_id="minecraft:access:verify",
         )
