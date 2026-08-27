@@ -1245,7 +1245,15 @@ class MinecraftDataManager:
                     db,
                     BridgeAction.APPROVE,
                     approval_payload,
-                    idempotency_key=f"access:{application.id}:approve:{minecraft_uuid}",
+                    # Application ids can be reused after a testing wipe while
+                    # Paper deliberately retains its processed-action ledger.
+                    # Include the unique verification event so a later attempt
+                    # cannot be mistaken for an old approval and acknowledged
+                    # without releasing the live lobby player.
+                    idempotency_key=(
+                        f"access:{application.id}:approve:{minecraft_uuid}:"
+                        f"{event_idempotency_key}"
+                    ),
                     access_id=application.id,
                     timestamp=current,
                 )
