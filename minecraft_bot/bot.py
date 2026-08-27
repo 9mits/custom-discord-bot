@@ -51,6 +51,7 @@ from .presentation import (
     FOOTER_ICON_URL,
     head_url,
     application_apply_embed,
+    application_guide_view,
     application_panel,
     application_welcome_embed,
     apply_image_file,
@@ -1306,7 +1307,7 @@ class MinecraftAccessBot(commands.Bot):
             (
                 "application_welcome_message_id",
                 application_welcome_embed(),
-                None,
+                application_guide_view(),
                 application_panel_files(),
             ),
             (

@@ -244,15 +244,29 @@ def _panel_embed(title: str, description: str) -> discord.Embed:
     return embed
 
 
+#: Compact feature tiles keep the front page lively while the buttons beneath it
+#: carry the detailed handbook. Do not turn these back into prose.
+SERVER_FEATURES: tuple[tuple[str, str], ...] = (
+    ("Crossplay", "Java and Bedrock together"),
+    ("Economy", "Shop, sell, auctions and bounties"),
+    ("Clans", "Team up, level up and build together"),
+    ("Levels", "Earn permanent hearts and damage"),
+    ("Voice Chat", "Proximity voice in the world"),
+    ("Leaderboards", "Compete for the server podium"),
+)
+
+
 def application_welcome_embed() -> discord.Embed:
-    """The entire server pitch, readable before somebody reaches the join card."""
+    """A compact overview with visual feature tiles and handbook controls."""
     welcome = _panel_embed(
-        "Mysterious SMP X",
+        "Welcome to Mysterious SMP X",
         "**Mysterious Girlfriend X Discord, in partnership with r/MysteriousGirlfriendX.**\n\n"
-        f"> **Java:** {JAVA_SUPPORTED_RANGE}  •  **Bedrock:** current versions\n"
-        "> Survival with economy, clans, levels and leaderboards.\n"
-        "> Griefing and raiding are allowed outside protected server builds.",
+        "> Crossplay survival where you can build, compete, fight or play peacefully.\n"
+        "> Griefing and raiding are allowed outside protected server builds.\n"
+        f"> **Java:** {JAVA_SUPPORTED_RANGE}  •  **Bedrock:** current versions",
     )
+    for name, line in SERVER_FEATURES:
+        welcome.add_field(name=name, value=line, inline=True)
     welcome.set_image(url=LOGO_ATTACHMENT_URI)
     return welcome
 
@@ -262,9 +276,8 @@ def application_apply_embed(settings) -> discord.Embed:
     embed = _panel_embed(
         "JOIN THE SERVER",
         "> **Join now.** Unlinked players enter a private verification lobby.\n\n"
-        f"**Java (PC/Mac):** `{settings.java_address}`\n"
-        f"**Bedrock (phone/console/Windows):** `{settings.bedrock_address}`\n"
-        f"**Bedrock port:** `{settings.bedrock_port}`\n\n"
+        + _connection_blocks(settings)
+        + "\n\n"
         "**Verify in 3 steps**\n"
         "> **1.** Join the server.\n"
         "> **2.** Type `/verify your_discord_username` in the lobby.\n"
@@ -442,6 +455,16 @@ def application_panel() -> discord.ui.View:
 
     view = discord.ui.View(timeout=None)
     view.add_item(VerifyButton())
+    return view
+
+
+def application_guide_view() -> discord.ui.View:
+    """Every handbook button, kept under the compact welcome card."""
+    from .information import PAGES, InformationButton
+
+    view = discord.ui.View(timeout=None)
+    for page in PAGES:
+        view.add_item(InformationButton(page))
     return view
 
 

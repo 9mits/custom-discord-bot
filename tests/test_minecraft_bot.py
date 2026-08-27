@@ -751,7 +751,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             titles,
             [
-                "Mysterious SMP X",
+                "Welcome to Mysterious SMP X",
                 "JOIN THE SERVER",
             ],
         )
@@ -760,6 +760,10 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("bedrock.example.net", join_text)
         self.assertIn("19132", join_text)
         self.assertIn("Verify in 3 steps", join_text)
+        self.assertEqual(join_text.count("```text"), 3)
+        self.assertIn("```text\nplay.example.net\n```", join_text)
+        self.assertIn("```text\nbedrock.example.net\n```", join_text)
+        self.assertIn("```text\n19132\n```", join_text)
         # Apply is returned and tracked, because that is the message a press is
         # validated against.
         self.assertIs(result, sent[1])
@@ -776,7 +780,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
             for file in call.kwargs["files"]:
                 file.close()
 
-    async def test_only_the_apply_message_carries_the_apply_button(self):
+    async def test_both_messages_restore_their_controls(self):
         sent = [SimpleNamespace(id=101), SimpleNamespace(id=102)]
         channel = SimpleNamespace(send=AsyncMock(side_effect=sent))
         bot = object.__new__(MinecraftAccessBot)
@@ -801,7 +805,15 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
             [file.filename for file in apply.kwargs["files"]],
             ["mysterious_smp_x_apply.png"],
         )
-        self.assertIsNone(welcome.kwargs["view"])
+        from minecraft_bot.information import PAGES
+
+        information_buttons = {
+            item.custom_id for item in welcome.kwargs["view"].children
+        }
+        self.assertEqual(
+            information_buttons,
+            {f"mgx_info:{page}" for page in PAGES},
+        )
         self.assertEqual(
             [item.label for item in apply.kwargs["view"].children],
             ["Verify From Discord"],
@@ -1919,12 +1931,16 @@ class MinecraftApplicationPanelTests(unittest.TestCase):
         self.assertNotIn("presents", description)
 
     def test_welcome_is_one_glance_and_still_explains_the_server(self):
-        from minecraft_bot.presentation import application_welcome_embed
+        from minecraft_bot.presentation import SERVER_FEATURES, application_welcome_embed
 
         embed = application_welcome_embed()
-        described = embed.description.casefold()
+        described = " ".join(
+            [embed.description]
+            + [f"{field.name} {field.value}" for field in embed.fields]
+        ).casefold()
 
-        self.assertEqual(embed.fields, [])
+        self.assertEqual(len(embed.fields), len(SERVER_FEATURES))
+        self.assertTrue(all(field.inline for field in embed.fields))
         self.assertLessEqual(len(embed.description.splitlines()), 5)
         for feature in (
             "java",
