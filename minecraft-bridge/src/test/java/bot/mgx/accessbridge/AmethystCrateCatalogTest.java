@@ -226,4 +226,20 @@ final class AmethystCrateCatalogTest {
                 )
         );
     }
+    /**
+     * "Opening 3x Limited Amethyst Crate" spends a title bar on a qualifier before it
+     * reaches the crate. The screens use the short name; chat, the hologram and the key
+     * lore keep the full one, which is where "Limited" tells somebody something.
+     */
+    @Test
+    void crateScreensUseAShorterNameThanAnnouncementsDo() {
+        assertTrue(CrateKind.AMETHYST.displayName().contains("Limited"));
+        assertFalse(CrateKind.AMETHYST.menuName().contains("Limited"));
+        assertTrue(CrateKind.AMETHYST.menuName().contains("Amethyst"));
+        assertTrue(CrateKind.AMETHYST.menuName().length()
+                < CrateKind.AMETHYST.displayName().length());
+
+        // The default crate has nothing to shorten, so both names stay identical.
+        assertEquals(CrateKind.DEFAULT.displayName(), CrateKind.DEFAULT.menuName());
+    }
 }
