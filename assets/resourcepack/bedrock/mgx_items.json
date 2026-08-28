@@ -293,6 +293,15 @@
         "bedrock_options": {
           "icon": "mgx:cosmetic_astral_sovereign"
         }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/shattered_continuum",
+        "bedrock_identifier": "mgx:cosmetic_shattered_continuum",
+        "display_name": "Shattered Continuum",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_shattered_continuum"
+        }
       }
     ],
     "minecraft:magma_cream": [
@@ -513,6 +522,15 @@
         "bedrock_options": {
           "icon": "mgx:cosmetic_crystal_guillotine"
         }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/resonant_apotheosis",
+        "bedrock_identifier": "mgx:cosmetic_resonant_apotheosis",
+        "display_name": "Resonant Apotheosis",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_resonant_apotheosis"
+        }
       }
     ],
     "minecraft:end_crystal": [
@@ -534,6 +552,17 @@
         "display_name": "Geode Bloom",
         "bedrock_options": {
           "icon": "mgx:cosmetic_geode_bloom"
+        }
+      }
+    ],
+    "minecraft:crying_obsidian": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/crystalline_extinction",
+        "bedrock_identifier": "mgx:cosmetic_crystalline_extinction",
+        "display_name": "Crystalline Extinction",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_crystalline_extinction"
         }
       }
     ]

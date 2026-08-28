@@ -31,16 +31,41 @@ final class AmethystCrateCatalogTest {
     }
 
     @Test
-    void limitedPoolContainsTwoAnimatedCosmeticsPerCategory() {
+    void limitedPoolContainsTwoPublicAndOneSecretCosmeticPerCategory() {
         Map<CosmeticCatalog.Category, Integer> counts = new EnumMap<>(CosmeticCatalog.Category.class);
         CosmeticCatalog.amethystRewards().forEach(definition ->
                 counts.merge(definition.category(), 1, Integer::sum)
         );
         for (CosmeticCatalog.Category category : CosmeticCatalog.Category.values()) {
-            assertEquals(2, counts.getOrDefault(category, 0), category.name());
+            assertEquals(3, counts.getOrDefault(category, 0), category.name());
+            assertEquals(1, CosmeticCatalog.amethystRewards().stream()
+                    .filter(CosmeticCatalog.Definition::secret)
+                    .filter(definition -> definition.category() == category)
+                    .count(), category.name());
         }
-        assertEquals(6_000, CosmeticCatalog.amethystRewards().stream()
+        assertEquals(6_009, CosmeticCatalog.amethystRewards().stream()
                 .mapToInt(CosmeticCatalog.Definition::weight).sum());
+    }
+
+    @Test
+    void limitedSecretsRevealNothingInTheCrateDirectory() {
+        Set<String> expected = Set.of(
+                "crystalline_extinction", "resonant_apotheosis", "shattered_continuum"
+        );
+        Set<String> actual = new HashSet<>();
+        for (CosmeticCatalog.Definition definition : CosmeticCatalog.amethystRewards()) {
+            if (!definition.secret()) {
+                continue;
+            }
+            actual.add(definition.id());
+            assertEquals("???", definition.displayedChance());
+            assertEquals(CosmeticCatalog.MASKED_NAME, "???");
+            assertTrue(CosmeticItems.masksSecret(definition, true));
+            assertEquals(CosmeticCatalog.MASKED_MODEL_KEY,
+                    CosmeticItems.previewModelKey(definition, true));
+            assertEquals("BLACK_DYE", CosmeticItems.previewMaterialName(definition, true));
+        }
+        assertEquals(expected, actual);
     }
 
     @Test

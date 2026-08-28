@@ -144,7 +144,7 @@ final class AmethystItemService implements Listener {
         data.set(kindKey, PersistentDataType.STRING, kind);
         data.set(serialKey, PersistentDataType.STRING, UUID.randomUUID().toString());
         meta.setUnbreakable(true);
-        meta.addEnchant(Enchantment.UNBREAKING, 1, true);
+        meta.setEnchantmentGlintOverride(true);
         NamespacedKey model = NamespacedKey.fromString(modelKey);
         if (model != null) {
             meta.setItemModel(model);
@@ -617,12 +617,13 @@ final class AmethystItemService implements Listener {
         if (changed) {
             meta.lore(cleaned);
         }
-        if (meta.hasEnchantmentGlintOverride()) {
-            meta.setEnchantmentGlintOverride(null);
+        if (!meta.hasEnchantmentGlintOverride()
+                || !Boolean.TRUE.equals(meta.getEnchantmentGlintOverride())) {
+            meta.setEnchantmentGlintOverride(true);
             changed = true;
         }
-        if (!meta.hasEnchants()) {
-            meta.addEnchant(Enchantment.UNBREAKING, 1, true);
+        if (meta.getEnchantLevel(Enchantment.UNBREAKING) == 1) {
+            meta.removeEnchant(Enchantment.UNBREAKING);
             changed = true;
         }
         if (changed) {

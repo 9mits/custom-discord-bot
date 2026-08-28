@@ -1062,6 +1062,8 @@ final class CosmeticEffectService implements Listener {
             case "violet_detonation" -> new KillAccent(Color.fromRGB(160, 45, 255), 16, 36);
             case "reapers_verdict" -> new KillAccent(Color.fromRGB(185, 235, 245), 18, 35);
             case "divine_rupture" -> new KillAccent(Color.fromRGB(255, 215, 70), 20, 38);
+            case "crystalline_extinction" ->
+                    new KillAccent(Color.fromRGB(185, 105, 255), 22, 40);
             default -> new KillAccent(Color.WHITE, 14, 26);
         };
     }
@@ -1788,7 +1790,74 @@ final class CosmeticEffectService implements Listener {
                             PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
                 }
             }
+            case "resonant_apotheosis" -> drawResonantApotheosis(owner, centre, phase, step);
             default -> { }
+        }
+    }
+
+    /** A crystal crown awakens, changes formation, then opens into resonant wings. */
+    private void drawResonantApotheosis(
+            Player owner, Location centre, double phase, int step
+    ) {
+        Color royal = Color.fromRGB(132, 45, 225);
+        Color crystal = Color.fromRGB(218, 170, 255);
+        Color resonance = Color.fromRGB(125, 225, 255);
+        Vector side = horizontalSide(owner);
+        Vector forward = new Vector(-side.getZ(), 0d, side.getX());
+        double awaken = CosmeticAnimation.easeOutBack(
+                CosmeticAnimation.phaseProgress(step, 0, 18)
+        );
+        Location heart = centre.clone().add(0d, 0.18d, 0d);
+        drawVerticalGem(owner, heart, side, 0.42d * awaken,
+                phase * 0.34d, royal, crystal);
+
+        int formation = Math.min(2, step / 27);
+        int gems = 5 + formation * 2;
+        double radius = 0.62d + formation * 0.28d;
+        for (int gem = 0; gem < gems; gem++) {
+            double angle = phase * (formation % 2 == 0 ? 0.48d : -0.62d)
+                    + gem * Math.PI * 2d / gems;
+            double wave = Math.sin(angle * (2d + formation)) * (0.12d + formation * 0.09d);
+            Location at = heart.clone()
+                    .add(side.clone().multiply(Math.cos(angle) * radius * awaken))
+                    .add(forward.clone().multiply(Math.sin(angle) * radius * 0.7d * awaken))
+                    .add(0d, wave + (formation == 2 ? Math.cos(angle) * 0.38d : 0d), 0d);
+            dust(owner, at, gem % 3 == 0 ? resonance : crystal,
+                    formation == 2 ? 1.12f : 0.9f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+
+        double pulse = CosmeticAnimation.pingPong(step / 13d);
+        drawRing(owner, centre.clone().add(0d, -0.78d, 0d),
+                0.55d + pulse * 0.95d, 18, -phase * 0.7d,
+                formation == 2 ? resonance : royal, 0.78f,
+                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+
+        if (formation == 2) {
+            double open = CosmeticAnimation.smooth(
+                    CosmeticAnimation.phaseProgress(step, 54, 72)
+            );
+            Vector backwards = owner.getLocation().getDirection().setY(0d);
+            if (backwards.lengthSquared() < 0.001d) {
+                backwards = new Vector(0d, 0d, 1d);
+            }
+            backwards.normalize().multiply(-1d);
+            for (double direction : new double[]{-1d, 1d}) {
+                for (int shard = 1; shard <= 6; shard++) {
+                    double progress = shard / 6d;
+                    Location wing = centre.clone()
+                            .add(backwards.clone().multiply(0.3d + progress * 0.4d))
+                            .add(side.clone().multiply(direction * progress * open * 1.65d))
+                            .add(0d, -0.35d + Math.sin(progress * Math.PI) * open * 1.6d, 0d);
+                    dust(owner, wing, shard % 2 == 0 ? crystal : royal,
+                            1.05f, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+                }
+            }
+        }
+        if (step == 18 || step == 54 || step == 72) {
+            sound(owner, centre, Sound.BLOCK_AMETHYST_BLOCK_RESONATE,
+                    0.55f, step == 18 ? 0.82f : step == 54 ? 1.18f : 1.58f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
         }
     }
 
@@ -1861,7 +1930,45 @@ final class CosmeticEffectService implements Listener {
                             null, PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
                 }
             }
+            case "shattered_continuum" -> drawShatteredContinuum(owner, history);
             default -> { }
+        }
+    }
+
+    /** Vertical geode gates travel down the trail, snap shut, and scatter forward. */
+    private void drawShatteredContinuum(Player owner, List<Location> history) {
+        Vector side = trailSide(history);
+        Color violet = Color.fromRGB(145, 58, 235);
+        Color edge = Color.fromRGB(225, 185, 255);
+        Color fracture = Color.fromRGB(115, 225, 255);
+        for (int gate = 0; gate < 3; gate++) {
+            int index = CosmeticAnimation.trailIndex(frame / 2L, history.size(), gate * 5);
+            double life = CosmeticAnimation.pingPong(frame * 0.09d + gate * 0.31d);
+            double radius = 0.24d + life * 0.62d;
+            Location centre = trailPoint(history, index, 0.72d + gate * 0.12d);
+            for (int point = 0; point < 12; point++) {
+                double angle = point * Math.PI / 6d
+                        + frame * 0.07d * (gate % 2 == 0 ? 1d : -1d);
+                double broken = point % 4 == gate % 4 ? 0.78d : 1d;
+                Location at = centre.clone()
+                        .add(side.clone().multiply(Math.cos(angle) * radius * broken))
+                        .add(0d, Math.sin(angle) * radius * 1.22d, 0d);
+                dust(owner, at, point % 3 == 0 ? edge : violet,
+                        point % 3 == 0 ? 0.92f : 0.72f,
+                        PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+            }
+            Location splitTop = centre.clone().add(side.clone().multiply(-radius * 0.35d))
+                    .add(0d, radius * 0.85d, 0d);
+            Location splitBottom = centre.clone().add(side.clone().multiply(radius * 0.28d))
+                    .add(0d, -radius * 0.82d, 0d);
+            drawLine(owner, splitBottom, splitTop, 4, fracture, 0.8f,
+                    PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+            if (life < 0.16d) {
+                spawnMoving(owner, centre, Particle.END_ROD,
+                        side.clone().multiply(gate % 2 == 0 ? 0.085d : -0.085d)
+                                .setY(0.045d),
+                        null, PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+            }
         }
     }
 
@@ -1919,8 +2026,85 @@ final class CosmeticEffectService implements Listener {
             case "event_horizon" -> animateEventHorizon(owner, centre);
             case "reapers_verdict" -> animateReapersVerdict(owner, centre);
             case "divine_rupture" -> animateDivineRupture(owner, centre);
+            case "crystalline_extinction" -> animateCrystallineExtinction(owner, centre);
             default -> { }
         }
+    }
+
+    /** Six crystal jaws converge, erase the centre, and burst back as lethal shrapnel. */
+    private void animateCrystallineExtinction(Player owner, Location centre) {
+        Color voidViolet = Color.fromRGB(70, 12, 105);
+        Color amethyst = Color.fromRGB(165, 72, 245);
+        Color core = Color.fromRGB(235, 205, 255);
+        animate(owner, centre, 40, 2L, step -> {
+            if (step < 23) {
+                double close = CosmeticAnimation.smooth(step / 22d);
+                for (int jaw = 0; jaw < 6; jaw++) {
+                    double angle = jaw * Math.PI / 3d + step * 0.055d;
+                    double outerRadius = 2.75d - close * 1.85d;
+                    Location outer = centre.clone().add(
+                            Math.cos(angle) * outerRadius,
+                            -0.25d + (jaw % 2 == 0 ? 1.35d : -0.35d),
+                            Math.sin(angle) * outerRadius
+                    );
+                    Location fang = centre.clone().add(
+                            Math.cos(angle) * (0.35d + (1d - close) * 0.5d),
+                            0.25d + (jaw % 2 == 0 ? 0.3d : -0.15d),
+                            Math.sin(angle) * (0.35d + (1d - close) * 0.5d)
+                    );
+                    drawLine(owner, outer, fang, 7,
+                            jaw % 2 == 0 ? core : amethyst, 1.2f,
+                            PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                }
+                drawRing(owner, centre, 1.8d - close * 1.55d, 22,
+                        step * 0.42d, close > 0.75d ? core : voidViolet,
+                        0.9f + (float) close * 0.55f,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                if (step == 2) {
+                    sound(owner, centre, Sound.BLOCK_AMETHYST_BLOCK_RESONATE,
+                            1.15f, 0.5f,
+                            PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                }
+                if (step == 22) {
+                    spawn(owner, centre, Particle.SONIC_BOOM, 1,
+                            0d, 0d, 0d, 0d, null,
+                            PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                    spawn(owner, centre, Particle.EXPLOSION_EMITTER, 1,
+                            0d, 0d, 0d, 0d, null,
+                            PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                    sound(owner, centre, Sound.ENTITY_GENERIC_EXPLODE, 1.7f, 0.58f,
+                            PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                }
+                return;
+            }
+            double rupture = CosmeticAnimation.easeOutBack((step - 23d) / 16d);
+            for (int shard = 0; shard < 14; shard++) {
+                double angle = shard * 2.399963d + step * 0.16d;
+                double radius = rupture * (1.15d + (shard % 4) * 0.48d);
+                Location tip = centre.clone().add(
+                        Math.cos(angle) * radius,
+                        -0.2d + Math.sin(angle * 1.7d) * rupture * 1.45d,
+                        Math.sin(angle) * radius
+                );
+                Location root = centre.clone().add(
+                        Math.cos(angle) * Math.max(0d, radius - 0.75d),
+                        0.05d,
+                        Math.sin(angle) * Math.max(0d, radius - 0.75d)
+                );
+                drawLine(owner, root, tip, 4,
+                        shard % 3 == 0 ? core : amethyst, 0.95f,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            }
+            drawRing(owner, centre.clone().add(0d, -0.45d, 0d),
+                    0.2d + rupture * 3.1d, 30, -step * 0.38d,
+                    voidViolet, 1.2f,
+                    PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            if (step == 39) {
+                sound(owner, centre, Sound.BLOCK_AMETHYST_CLUSTER_BREAK,
+                        1.4f, 0.65f,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            }
+        });
     }
 
     /** A tilted accretion disk accelerates, consumes its stars, and erupts in polar jets. */
