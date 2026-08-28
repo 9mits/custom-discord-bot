@@ -98,6 +98,7 @@ Avoid: flat symbol design, mobile-game gloss, smooth illustration, excessive det
 | `cherry_blossom_trail` | Dark cherrywood twig carrying one dimensional blossom and drifting petals. |
 | `conquerors_march` | Battle-worn bronze war banner with a dark staff and embossed medal. |
 | `crimson_orbit` | Cut crimson gemstone held inside broken dark-red orbital bands. |
+| `crystalline_extinction` | Dark amethyst geode eclipse crushed by four violet crystal spikes around a white-lilac impact core. |
 | `divine_rupture` | Dominant white-gold lightning bolt splitting a cracked sunstone seal. |
 | `drool_trail` | Glossy aqua slime-droplet charm stretched by motion with two trailing drops. |
 | `ember_trail` | Charred ember-feather with a burnt spine, golden edge, and loose square coals. |
@@ -115,8 +116,10 @@ Avoid: flat symbol design, mobile-game gloss, smooth illustration, excessive det
 | `prismatic_trail` | Clear prism shard splitting into short red, gold, cyan, and violet ribbons. |
 | `reality_fracture` | Obsidian-glass shard split by a jagged magenta-and-cyan reality crack. |
 | `reapers_verdict` | Spectral scythe with a weathered handle, cold-silver blade, and violet soul-light. |
+| `resonant_apotheosis` | Regal faceted amethyst crown-crystal inside two broken resonance rings with a chime sparkle. |
 | `secret_silhouette` | Unknown relic enclosed in charcoal-black wrappings with only a muted-violet seam. |
 | `shining_light` | Tangible white-gold star relic with four stepped rays and a warm underside. |
+| `shattered_continuum` | Diagonal amethyst portal shard tearing through a broken ring with displaced crystal afterimages. |
 | `silver_reckoning` | Single cold-silver execution sword with dark steel fittings and a moonlit edge. |
 | `solar_imperium` | Heavy royal-gold crown with sun-ray points and a white-gold central gem. |
 | `solar_orbit` | Faceted miniature sun with one diagonal gold orbit and a tiny solar flare. |

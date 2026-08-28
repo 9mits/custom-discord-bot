@@ -49,6 +49,9 @@
     {"java_item": "minecraft:amethyst_cluster", "model": "mgx:cosmetic/crystal_guillotine", "bedrock_identifier": "mgx:cosmetic_crystal_guillotine", "display_name": "Crystal Guillotine"},
     {"java_item": "minecraft:end_crystal", "model": "mgx:cosmetic/violet_detonation", "bedrock_identifier": "mgx:cosmetic_violet_detonation", "display_name": "Violet Detonation"},
     {"java_item": "minecraft:amethyst_shard", "model": "mgx:cosmetic/shardstorm_wake", "bedrock_identifier": "mgx:cosmetic_shardstorm_wake", "display_name": "Shardstorm Wake"},
-    {"java_item": "minecraft:small_amethyst_bud", "model": "mgx:cosmetic/geode_bloom", "bedrock_identifier": "mgx:cosmetic_geode_bloom", "display_name": "Geode Bloom"}
+    {"java_item": "minecraft:small_amethyst_bud", "model": "mgx:cosmetic/geode_bloom", "bedrock_identifier": "mgx:cosmetic_geode_bloom", "display_name": "Geode Bloom"},
+    {"java_item": "minecraft:crying_obsidian", "model": "mgx:cosmetic/crystalline_extinction", "bedrock_identifier": "mgx:cosmetic_crystalline_extinction", "display_name": "Crystalline Extinction"},
+    {"java_item": "minecraft:amethyst_cluster", "model": "mgx:cosmetic/resonant_apotheosis", "bedrock_identifier": "mgx:cosmetic_resonant_apotheosis", "display_name": "Resonant Apotheosis"},
+    {"java_item": "minecraft:echo_shard", "model": "mgx:cosmetic/shattered_continuum", "bedrock_identifier": "mgx:cosmetic_shattered_continuum", "display_name": "Shattered Continuum"}
   ]
 }

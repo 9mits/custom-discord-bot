@@ -394,7 +394,7 @@ final class CrateCatalog {
     private static List<Reward> buildAmethystRewards() {
         List<Reward> rewards = new ArrayList<>();
         rewards.add(item(
-                "amethyst_shards", "32 Amethyst Shards", Category.RESOURCE, 25_000,
+                "amethyst_shards", "32 Amethyst Shards", Category.RESOURCE, 24_991,
                 "AMETHYST_SHARD", 32, "A bright stack of vanilla amethyst shards."
         ));
         rewards.add(item(

@@ -226,6 +226,21 @@ final class CosmeticCatalog {
                     "geode_bloom", "Geode Bloom", Category.TRAIL, 900,
                     "SMALL_AMETHYST_BUD",
                     "Tiny geodes sprout, open, and dissolve along the path you travelled."
+            ),
+            secretCosmetic(
+                    "crystalline_extinction", "Crystalline Extinction", Category.KILL_EFFECT,
+                    "CRYING_OBSIDIAN",
+                    "A crystal maw crushes the fallen into a violent violet singularity."
+            ),
+            secretCosmetic(
+                    "resonant_apotheosis", "Resonant Apotheosis", Category.AURA,
+                    "AMETHYST_CLUSTER",
+                    "A resonant crystal crown unfolds through ever-changing royal formations."
+            ),
+            secretCosmetic(
+                    "shattered_continuum", "Shattered Continuum", Category.TRAIL,
+                    "ECHO_SHARD",
+                    "Geode gates tear open, fracture, and chase every step through reality."
             )
     );
 
