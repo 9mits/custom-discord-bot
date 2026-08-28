@@ -16,6 +16,7 @@ import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
+import org.bukkit.enchantments.Enchantment;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -143,7 +144,7 @@ final class AmethystItemService implements Listener {
         data.set(kindKey, PersistentDataType.STRING, kind);
         data.set(serialKey, PersistentDataType.STRING, UUID.randomUUID().toString());
         meta.setUnbreakable(true);
-        meta.setEnchantmentGlintOverride(true);
+        meta.addEnchant(Enchantment.UNBREAKING, 1, true);
         NamespacedKey model = NamespacedKey.fromString(modelKey);
         if (model != null) {
             meta.setItemModel(model);
@@ -527,7 +528,7 @@ final class AmethystItemService implements Listener {
                 if (expired(stack, now)) {
                     dropped.remove();
                 } else {
-                    boolean changed = removeInactiveAuctionStatus(stack);
+                    boolean changed = upgradeLegacyItem(stack);
                     changed |= refreshCountdown(stack, now);
                     if (changed) {
                         dropped.setItemStack(stack);
@@ -567,7 +568,7 @@ final class AmethystItemService implements Listener {
                 changed = true;
                 removed = true;
             } else {
-                changed |= removeInactiveAuctionStatus(contents[index]);
+                changed |= upgradeLegacyItem(contents[index]);
                 changed |= refreshCountdown(contents[index], now);
             }
         }
@@ -605,19 +606,29 @@ final class AmethystItemService implements Listener {
         return true;
     }
 
-    boolean removeInactiveAuctionStatus(ItemStack item) {
+    boolean upgradeLegacyItem(ItemStack item) {
         if (!isTimed(item) || !item.hasItemMeta()) {
             return false;
         }
         ItemMeta meta = item.getItemMeta();
         List<Component> original = meta.lore();
         List<Component> cleaned = withoutInactiveAuctionStatus(original);
-        if (cleaned.equals(original == null ? List.of() : original)) {
-            return false;
+        boolean changed = !cleaned.equals(original == null ? List.of() : original);
+        if (changed) {
+            meta.lore(cleaned);
         }
-        meta.lore(cleaned);
-        item.setItemMeta(meta);
-        return true;
+        if (meta.hasEnchantmentGlintOverride()) {
+            meta.setEnchantmentGlintOverride(null);
+            changed = true;
+        }
+        if (!meta.hasEnchants()) {
+            meta.addEnchant(Enchantment.UNBREAKING, 1, true);
+            changed = true;
+        }
+        if (changed) {
+            item.setItemMeta(meta);
+        }
+        return changed;
     }
 
     static List<Component> withoutInactiveAuctionStatus(List<Component> lore) {

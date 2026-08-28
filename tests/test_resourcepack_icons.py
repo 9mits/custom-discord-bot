@@ -12,11 +12,18 @@ RESOURCE_PACK = REPO / "assets" / "resourcepack"
 ITEM_TEXTURES = RESOURCE_PACK / "src" / "assets" / "mgx" / "textures" / "item"
 NATIVE_POTION_ICONS = {"crate_luck_potion", "fortune_potion"}
 LINKED_ICON_SIZES = {
-    "amethyst_pickaxe": (256, 256),
-    "amethyst_shovel": (256, 256),
-    "amethyst_axe": (256, 256),
-    "amethyst_shield": (590, 876),
+    "amethyst_pickaxe": (16, 16),
+    "amethyst_shovel": (16, 16),
+    "amethyst_axe": (16, 16),
+    "amethyst_shield": (64, 64),
+    "amethyst_shield_icon": (590, 876),
     "amethyst_totem": (360, 360),
+}
+IMPORTED_MOD_HASHES = {
+    "amethyst_pickaxe": "65630e43cdb2634ae0fa77d9ac1d9bc2a2b657a59fb4ea32932d057f5afdb2d9",
+    "amethyst_shovel": "32b5016af36735c55d1614cf065d2b906eb58bb55fa4703fc7ddc9d799d78547",
+    "amethyst_axe": "5c43672b2716bcb2fd4f5e0c06c66080eb1cf00b60d8c72cc4d8f581bbbec030",
+    "amethyst_shield": "79c0eaaf8939888df6b0e28e1a080db648cd56a5a9622d74f51596a1e385ee01",
 }
 POTION_REFERENCE = RESOURCE_PACK / "icon-sources" / "potion_of_healing_reference.png"
 
@@ -38,7 +45,7 @@ class ResourcePackIconTests(unittest.TestCase):
 
     def test_custom_icons_are_valid_distinct_minecraft_sprites(self):
         icons = self.icon_paths()
-        self.assertEqual(54, len(icons))
+        self.assertEqual(55, len(icons))
 
         digests = set()
         for path in icons:
@@ -47,6 +54,9 @@ class ResourcePackIconTests(unittest.TestCase):
                     self.assertEqual("RGBA", image.mode)
                     if path.stem in LINKED_ICON_SIZES:
                         self.assertEqual(LINKED_ICON_SIZES[path.stem], image.size)
+                        expected_hash = IMPORTED_MOD_HASHES.get(path.stem)
+                        if expected_hash:
+                            self.assertEqual(expected_hash, hashlib.sha256(path.read_bytes()).hexdigest())
                         digests.add(hashlib.sha256(path.read_bytes()).digest())
                         continue
                     alpha = image.getchannel("A")
@@ -112,15 +122,22 @@ class ResourcePackIconTests(unittest.TestCase):
         with zipfile.ZipFile(pack) as archive:
             for item in catalog["items"]:
                 with self.subTest(item=item["bedrock_identifier"]):
-                    namespace, name = item["model"].split(":", 1)
-                    item_model = json.loads((
-                        RESOURCE_PACK / "src" / "assets" / namespace / "items" / f"{name}.json"
-                    ).read_text(encoding="utf-8"))
-                    model_namespace, model_name = item_model["model"]["model"].split(":", 1)
-                    model = json.loads((
-                        RESOURCE_PACK / "src" / "assets" / model_namespace / "models" / f"{model_name}.json"
-                    ).read_text(encoding="utf-8"))
-                    texture_namespace, texture_name = model["textures"]["layer0"].split(":", 1)
+                    explicit_icon = item.get("icon_texture")
+                    if explicit_icon:
+                        texture_namespace, texture_name = explicit_icon.split(":", 1)
+                    else:
+                        namespace, name = item["model"].split(":", 1)
+                        item_model = json.loads((
+                            RESOURCE_PACK / "src" / "assets" / namespace / "items" / f"{name}.json"
+                        ).read_text(encoding="utf-8"))["model"]
+                        while item_model["type"] == "minecraft:condition":
+                            item_model = item_model["on_false"]
+                        model_namespace, model_name = item_model["model"].split(":", 1)
+                        model = json.loads((
+                            RESOURCE_PACK / "src" / "assets" / model_namespace / "models" / f"{model_name}.json"
+                        ).read_text(encoding="utf-8"))
+                        texture = model["textures"].get("layer0", model["textures"].get("0"))
+                        texture_namespace, texture_name = texture.split(":", 1)
                     java_texture = (
                         RESOURCE_PACK / "src" / "assets" / texture_namespace / "textures" / f"{texture_name}.png"
                     )
