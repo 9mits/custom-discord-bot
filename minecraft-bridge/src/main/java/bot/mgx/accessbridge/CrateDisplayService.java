@@ -10,8 +10,10 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
+import org.bukkit.Color;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.Particle;
 import org.bukkit.World;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -27,6 +29,7 @@ import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.event.block.BlockExplodeEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.player.PlayerInteractEvent;
+import org.bukkit.scheduler.BukkitTask;
 
 import java.io.IOException;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -41,14 +44,30 @@ import java.util.UUID;
 /** Persistent, reusable physical crate chests and Bedrock-visible floating labels. */
 final class CrateDisplayService implements CommandExecutor, TabCompleter, Listener {
     private static final String TAG = "mgx_crate_display";
+    private static final Particle.DustOptions AMETHYST_BRIGHT = new Particle.DustOptions(
+            Color.fromRGB(196, 105, 255), 1.05f
+    );
+    private static final Particle.DustOptions AMETHYST_DEEP = new Particle.DustOptions(
+            Color.fromRGB(112, 48, 220), 0.9f
+    );
+    private static final Particle.DustOptions DEFAULT_ORANGE = new Particle.DustOptions(
+            Color.fromRGB(255, 139, 20), 0.95f
+    );
+    private static final Particle.DustOptions DEFAULT_GOLD = new Particle.DustOptions(
+            Color.fromRGB(255, 205, 55), 0.8f
+    );
     private record Placement(CrateKind kind, UUID worldId, int x, int y, int z) { }
 
+    private final MGXAccessBridge plugin;
     private final Path file;
     private final CrateService crates;
     private final Gson gson = new GsonBuilder().disableHtmlEscaping().create();
     private final List<Placement> placements = new ArrayList<>();
+    private BukkitTask particleTask;
+    private int particleFrame;
 
-    CrateDisplayService(Path file, CrateService crates) throws IOException {
+    CrateDisplayService(MGXAccessBridge plugin, Path file, CrateService crates) throws IOException {
+        this.plugin = plugin;
         this.file = file;
         this.crates = crates;
         Files.createDirectories(file.getParent());
@@ -176,10 +195,99 @@ final class CrateDisplayService implements CommandExecutor, TabCompleter, Listen
                     "1 Mysterious Crate Key", NamedTextColor.WHITE
             ));
         }
+        startParticles();
     }
 
     void stop() {
+        if (particleTask != null) {
+            particleTask.cancel();
+            particleTask = null;
+        }
         clearLabels();
+    }
+
+    private void startParticles() {
+        if (particleTask != null) {
+            return;
+        }
+        particleTask = Bukkit.getScheduler().runTaskTimer(
+                plugin, this::tickParticles, 1L, 4L
+        );
+    }
+
+    private void tickParticles() {
+        int frame = particleFrame++;
+        double phase = frame * 0.3d;
+        for (Placement placement : List.copyOf(placements)) {
+            World world = Bukkit.getWorld(placement.worldId());
+            if (world == null || !world.isChunkLoaded(placement.x() >> 4, placement.z() >> 4)) {
+                continue;
+            }
+            Location centre = new Location(
+                    world, placement.x() + 0.5d, placement.y() + 0.9d, placement.z() + 0.5d
+            );
+            if (!hasNearbyViewer(centre)) {
+                continue;
+            }
+            if (placement.kind() == CrateKind.AMETHYST) {
+                drawAmethyst(centre, phase, frame);
+            } else {
+                drawDefault(centre, phase, frame);
+            }
+        }
+    }
+
+    private static void drawAmethyst(Location centre, double phase, int frame) {
+        World world = centre.getWorld();
+        for (int shard = 0; shard < 3; shard++) {
+            double angle = phase + shard * Math.PI * 2d / 3d;
+            double rise = (frame * 0.055d + shard * 0.28d) % 0.85d;
+            double radius = 0.3d - rise * 0.12d;
+            Location point = centre.clone().add(
+                    Math.cos(angle) * radius, 0.08d + rise, Math.sin(angle) * radius
+            );
+            world.spawnParticle(
+                    Particle.DUST, point, 1, 0d, 0d, 0d, 0d,
+                    shard % 2 == 0 ? AMETHYST_BRIGHT : AMETHYST_DEEP
+            );
+        }
+        world.spawnParticle(
+                Particle.WITCH, centre.clone().add(0d, 0.25d, 0d),
+                1, 0.22d, 0.08d, 0.22d, 0.01d
+        );
+        if (frame % 8 == 0) {
+            world.spawnParticle(
+                    Particle.END_ROD, centre.clone().add(0d, 0.68d, 0d),
+                    1, 0.08d, 0.05d, 0.08d, 0.01d
+            );
+        }
+    }
+
+    private static void drawDefault(Location centre, double phase, int frame) {
+        World world = centre.getWorld();
+        for (int ember = 0; ember < 3; ember++) {
+            double angle = -phase * 0.75d + ember * Math.PI * 2d / 3d;
+            double radius = 0.36d + Math.sin(phase + ember) * 0.04d;
+            Location point = centre.clone().add(
+                    Math.cos(angle) * radius, 0.16d, Math.sin(angle) * radius
+            );
+            world.spawnParticle(
+                    Particle.DUST, point, 1, 0d, 0d, 0d, 0d,
+                    ember == 0 ? DEFAULT_GOLD : DEFAULT_ORANGE
+            );
+        }
+        if (frame % 3 == 0) {
+            world.spawnParticle(
+                    Particle.SMALL_FLAME, centre.clone().add(0d, 0.22d, 0d),
+                    1, 0.18d, 0.06d, 0.18d, 0.005d
+            );
+        }
+    }
+
+    private static boolean hasNearbyViewer(Location centre) {
+        return centre.getWorld().getPlayers().stream().anyMatch(player ->
+                player.getLocation().distanceSquared(centre) <= 48d * 48d
+        );
     }
 
     private void spawnLabel(Location at, Component name) {
