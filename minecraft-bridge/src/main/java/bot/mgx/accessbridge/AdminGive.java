@@ -13,7 +13,9 @@ final class AdminGive {
     /** Keys are handed over as items, so one command cannot exceed a stack. */
     static final int MAX_KEYS = 64;
 
-    static final List<String> TYPES = List.of("money", "key", "cosmetic", "cosmetics", "reward");
+    static final List<String> TYPES = List.of(
+            "money", "key", "cosmetic", "cosmetics", "reward", "amethyst"
+    );
 
     /** Every cosmetic an administrator can preview or grant through command completion. */
     static List<String> cosmeticIds() {
@@ -27,7 +29,8 @@ final class AdminGive {
         KEY,
         COSMETIC,
         LEADERBOARD_COSMETICS,
-        REWARD
+        REWARD,
+        AMETHYST_REWARDS
     }
 
     record Request(Type type, long amount, String cosmeticId) {
@@ -84,6 +87,9 @@ final class AdminGive {
                 }
                 return new Request(Type.REWARD, 1, value.trim().toLowerCase(Locale.ROOT));
             }
+            case "amethyst", "amethyst_crate", "amethyst_rewards" -> {
+                return new Request(Type.AMETHYST_REWARDS, 1, null);
+            }
             default -> throw new IllegalArgumentException(usage());
         }
     }
@@ -98,6 +104,6 @@ final class AdminGive {
 
     static String usage() {
         return "Usage: /mgxadmin give <player|everyone> "
-                + "<money|key|cosmetic <id>|cosmetics|reward <id>>";
+                + "<money|key|cosmetic <id>|cosmetics|reward <id>|amethyst>";
     }
 }

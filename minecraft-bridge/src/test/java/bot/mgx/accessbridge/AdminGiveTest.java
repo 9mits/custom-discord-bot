@@ -68,6 +68,15 @@ class AdminGiveTest {
     }
 
     @Test
+    void amethystShortcutGrantsTheCompleteLimitedPool() {
+        assertEquals(
+                new AdminGive.Request(AdminGive.Type.AMETHYST_REWARDS, 1L, null),
+                AdminGive.parse("amethyst", null)
+        );
+        assertTrue(AdminGive.TYPES.contains("amethyst"));
+    }
+
+    @Test
     void aliasesResolveAndUnknownTypesExplainThemselves() {
         assertEquals(AdminGive.Type.MONEY, AdminGive.parse("CASH", "10").type());
         assertEquals(AdminGive.Type.KEY, AdminGive.parse("Crates", "2").type());

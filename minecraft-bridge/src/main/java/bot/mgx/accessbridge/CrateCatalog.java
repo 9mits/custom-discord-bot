@@ -156,6 +156,16 @@ final class CrateCatalog {
         return AMETHYST_REWARDS;
     }
 
+    /** Every reward an administrator may grant, across permanent and limited crates. */
+    static List<Reward> everyReward() {
+        return java.util.stream.Stream.concat(REWARDS.stream(), AMETHYST_REWARDS.stream())
+                .toList();
+    }
+
+    static boolean isLimitedAmethyst(Reward reward) {
+        return reward != null && AMETHYST_REWARDS.contains(reward);
+    }
+
     static int totalWeight() {
         return REWARDS.stream().mapToInt(Reward::weight).sum();
     }

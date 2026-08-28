@@ -72,4 +72,12 @@ final class AmethystCrateCatalogTest {
         }
         assertEquals(4, timed);
     }
+
+    @Test
+    void adminRewardDirectoryIncludesEveryLimitedReward() {
+        assertTrue(CrateCatalog.everyReward().containsAll(CrateCatalog.amethyst()));
+        CrateCatalog.amethyst().forEach(reward -> assertTrue(
+                CrateCatalog.find(reward.id()).filter(CrateCatalog::isLimitedAmethyst).isPresent()
+        ));
+    }
 }

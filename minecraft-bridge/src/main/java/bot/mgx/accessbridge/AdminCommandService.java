@@ -367,14 +367,40 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                                 "No crate reward called '" + request.cosmeticId() + "'."
                         ));
                 if (reward.cosmetic()) {
-                    throw new IllegalArgumentException(
-                            "Use the cosmetic grant for cosmetic rewards."
+                    CosmeticCatalog.Definition definition = CosmeticCatalog
+                            .find(reward.cosmeticId())
+                            .orElseThrow(() -> new IllegalArgumentException(
+                                    "That cosmetic reward is no longer registered."
+                            ));
+                    int count = forEachTarget(
+                            targets, player -> grantCosmetic(player, definition)
                     );
+                    success(sender, "Gave " + definition.displayName() + " to "
+                            + describeTargets(targets, count) + ".");
+                    audit(sender, targets, definition.displayName(), count);
+                    return;
                 }
                 int count = forEachTarget(targets, player -> hand(player, crateItems.reward(reward)));
                 success(sender, "Gave " + reward.displayName() + " to "
                         + describeTargets(targets, count) + ".");
                 audit(sender, targets, reward.displayName(), count);
+            }
+            case AMETHYST_REWARDS -> {
+                int count = forEachTarget(targets, this::grantAmethystRewards);
+                String what = "one of every Limited Amethyst Crate reward";
+                success(sender, "Gave " + what + " to " + describeTargets(targets, count) + ".");
+                audit(sender, targets, what, count);
+            }
+        }
+    }
+
+    private void grantAmethystRewards(Player player) {
+        for (CrateCatalog.Reward reward : CrateCatalog.amethyst()) {
+            if (reward.cosmetic()) {
+                CosmeticCatalog.find(reward.cosmeticId())
+                        .ifPresent(definition -> grantCosmetic(player, definition));
+            } else {
+                hand(player, crateItems.reward(reward));
             }
         }
     }
@@ -780,6 +806,12 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 .append(Component.text("  hand over crate keys", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin give <player|everyone> cosmetic <id>", ORANGE)
                 .append(Component.text("  mint a cosmetic straight to them", NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin give <player|everyone> reward <id>", ORANGE)
+                .append(Component.text("  grant any permanent or limited crate reward",
+                        NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin give <player|everyone> amethyst", ORANGE)
+                .append(Component.text("  grant one of every Limited Amethyst Crate reward",
+                        NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin eco join on|off [amount]", ORANGE)
                 .append(Component.text("  pay everyone who joins", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin bounty set <player|everyone> <amount>", ORANGE)
@@ -918,8 +950,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 return partial(args[3], AdminGive.cosmeticIds());
             }
             if (args.length == 4 && args[2].equalsIgnoreCase("reward")) {
-                return partial(args[3], CrateCatalog.all().stream()
-                        .filter(reward -> !reward.cosmetic())
+                return partial(args[3], CrateCatalog.everyReward().stream()
                         .map(CrateCatalog.Reward::id).toList());
             }
             return List.of();
