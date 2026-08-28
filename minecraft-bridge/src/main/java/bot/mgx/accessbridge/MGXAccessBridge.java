@@ -355,7 +355,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(enderChests, this);
         try {
             crateDisplays = new CrateDisplayService(
-                    getDataFolder().toPath().resolve("crate-displays.json"), crates
+                    this, getDataFolder().toPath().resolve("crate-displays.json"), crates
             );
         } catch (IOException exception) {
             getLogger().severe("MGXAccessBridge could not open physical crates: "
