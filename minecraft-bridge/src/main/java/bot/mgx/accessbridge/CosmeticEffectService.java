@@ -12,6 +12,7 @@ import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.SoundCategory;
 import org.bukkit.World;
+import org.bukkit.WeatherType;
 import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Pose;
@@ -23,6 +24,8 @@ import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Vector;
+import org.bukkit.potion.PotionEffect;
+import org.bukkit.potion.PotionEffectType;
 
 import java.io.UncheckedIOException;
 import java.time.Duration;
@@ -60,6 +63,9 @@ final class CosmeticEffectService implements Listener {
     private static final String MUSIC_AURA_SOUND = "mgx:iridescent_imperium";
     private static final String RARITY_NAMEPLATE_TAG = "mgx_cosmetic_rarity_nameplate";
     private static final TextColor SECRET_REVEAL_COLOUR = TextColor.color(0xC77DFF);
+    /** Client-side sky the reveals borrow. Dusk for an Exotic, dead midnight for a Secret. */
+    private static final long EXOTIC_REVEAL_TIME = 15_500L;
+    private static final long SECRET_REVEAL_TIME = 18_000L;
     private static final long REVEAL_FRAME_TICKS = 2L;
     private static final int MYTHIC_REVEAL_FRAMES = 36;
     private static final int SECRET_REVEAL_FRAMES = 70;
@@ -78,6 +84,7 @@ final class CosmeticEffectService implements Listener {
     private final Set<String> failedSelectionClears = new HashSet<>();
     private final Map<UUID, MusicAuraState> musicAuraStates = new HashMap<>();
     private final Map<UUID, ArmorStand> rarityNameplates = new HashMap<>();
+    private final Map<UUID, AtmosphereState> revealAtmospheres = new HashMap<>();
     private final Map<UUID, FloatingPlayerState> floatingPlayers = new HashMap<>();
     private final Set<BossBar> activeRevealBars = new HashSet<>();
     private BukkitTask task;
@@ -156,6 +163,14 @@ final class CosmeticEffectService implements Listener {
         rarityNameplates.clear();
         for (UUID playerId : List.copyOf(floatingPlayers.keySet())) {
             restoreFloatingPlayer(playerId);
+        }
+        for (UUID playerId : List.copyOf(revealAtmospheres.keySet())) {
+            Player holder = plugin.getServer().getPlayer(playerId);
+            if (holder == null) {
+                revealAtmospheres.remove(playerId);
+            } else {
+                endRevealAtmosphere(holder);
+            }
         }
         for (BossBar bar : activeRevealBars) {
             for (Player viewer : plugin.getServer().getOnlinePlayers()) {
@@ -411,6 +426,61 @@ final class CosmeticEffectService implements Listener {
         removeRarityNameplate(playerId);
         stopMusicAura(playerId);
         restoreFloatingPlayer(playerId);
+        endRevealAtmosphere(event.getPlayer());
+    }
+
+    /** What the player's sky was before a reveal borrowed it. */
+    private record AtmosphereState(long timeOffset, boolean relative, WeatherType weather) {
+    }
+
+    /**
+     * Turns the world itself into part of the reveal.
+     *
+     * <p>Floating in sparkles under a normal midday sky reads as a particle effect. The
+     * sky, the weather and the light are the difference between an effect playing and
+     * something having gone wrong with the world. All of it is per-player and
+     * client-side, so nobody else's day changes and the real weather is untouched.
+     *
+     * <p>The previous override is saved rather than reset afterwards, because
+     * {@code /mgxadmin devblog} holds a sky of its own and a reveal must not clear it.
+     */
+    private void beginRevealAtmosphere(Player player, boolean intense) {
+        revealAtmospheres.putIfAbsent(player.getUniqueId(), new AtmosphereState(
+                player.getPlayerTimeOffset(), player.isPlayerTimeRelative(),
+                player.getPlayerWeather()
+        ));
+        player.setPlayerTime(intense ? SECRET_REVEAL_TIME : EXOTIC_REVEAL_TIME, false);
+        if (!intense) {
+            return;
+        }
+        player.setPlayerWeather(WeatherType.DOWNFALL);
+        // Three seconds of the world going out before it comes back wrong. Short on
+        // purpose: darkness that outlasts the opening hides the effect it introduces.
+        player.addPotionEffect(new PotionEffect(
+                PotionEffectType.DARKNESS, 60, 0, false, false, false
+        ));
+    }
+
+    private void endRevealAtmosphere(Player player) {
+        AtmosphereState previous = revealAtmospheres.remove(player.getUniqueId());
+        if (previous == null) {
+            return;
+        }
+        player.setPlayerTime(previous.timeOffset(), previous.relative());
+        if (previous.weather() == null) {
+            player.resetPlayerWeather();
+        } else {
+            player.setPlayerWeather(previous.weather());
+        }
+        player.removePotionEffect(PotionEffectType.DARKNESS);
+    }
+
+    /** Visual-only: no fire, no damage, and everybody nearby sees the same storm. */
+    private static void revealLightning(Player player, double radius, double angle) {
+        Location at = player.getLocation().add(
+                Math.cos(angle) * radius, 0d, Math.sin(angle) * radius
+        );
+        player.getWorld().strikeLightningEffect(at);
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -520,6 +590,10 @@ final class CosmeticEffectService implements Listener {
                         Duration.ofSeconds(1))
         ));
         playServerwideRevealSound(Sound.ENTITY_ENDER_DRAGON_GROWL, 0.85f, 1.25f);
+        // The sound Minecraft itself keeps for a rare advancement. Nobody has to be told
+        // what it means.
+        playServerwideRevealSound(Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f, 1f);
+        beginRevealAtmosphere(player, false);
         Location origin = player.getLocation().add(0d, 1d, 0d);
         Color voidColour = Color.fromRGB(38, 0, 70);
         Color violet = Color.fromRGB(210, 70, 255);
@@ -570,10 +644,14 @@ final class CosmeticEffectService implements Listener {
                 sound(player, origin, Sound.ENTITY_ELDER_GUARDIAN_CURSE, 0.9f, 1.3f, null);
                 playServerwideRevealSound(Sound.BLOCK_PORTAL_TRIGGER, 0.55f, 1.5f);
             }
-            if (step == 69) {
+            if (step == SECRET_REVEAL_FRAMES - 12) {
+                revealLightning(player, 9d, step * 0.4d);
+            }
+            if (step == SECRET_REVEAL_FRAMES - 1) {
                 spawn(player, origin, Particle.TOTEM_OF_UNDYING,
                         48, 0.7d, 1d, 0.7d, 0.16d, null, null);
                 sound(player, origin, Sound.ENTITY_WARDEN_SONIC_BOOM, 1.2f, 0.75f, null);
+                endRevealAtmosphere(player);
             }
         });
     }
@@ -607,6 +685,8 @@ final class CosmeticEffectService implements Listener {
             globalPlayerPulse(viewer, true);
         }
         playServerwideRevealSound(Sound.ENTITY_WITHER_SPAWN, 1.25f, 0.62f);
+        playServerwideRevealSound(Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f, 0.78f);
+        beginRevealAtmosphere(player, true);
         plugin.getServer().getScheduler().runTaskLater(
                 plugin,
                 () -> playServerwideRevealSound(Sound.BLOCK_END_PORTAL_SPAWN, 1.1f, 0.72f),
@@ -673,8 +753,16 @@ final class CosmeticEffectService implements Listener {
                             0.6f + (step % 50) / 50f, null);
                     sound(player, centre, Sound.ENTITY_LIGHTNING_BOLT_THUNDER, 0.7f, 1.4f, null);
                 }
+                // Real strikes walking a ring around the winner. The storm is the point:
+                // an Exotic borrows a dusk sky, a Secret tears the weather open.
+                if (step % 14 == 0) {
+                    revealLightning(player, 6d + (step % 3) * 2.5d, step * 0.77d);
+                }
                 if (step == 40 || step == 120 || step == 200) {
                     playServerwideRevealSound(Sound.ENTITY_ELDER_GUARDIAN_CURSE, 0.8f, 0.8f);
+                }
+                if (step == 200) {
+                    playServerwideRevealSound(Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f, 1.4f);
                 }
                 if (step == 80 || step == 160 || step == 230) {
                     spawn(player, centre, Particle.TOTEM_OF_UNDYING,
@@ -689,7 +777,8 @@ final class CosmeticEffectService implements Listener {
                     }
                 }
             }
-            if (step == 249) {
+            if (step == GENUINE_REVEAL_FRAMES - 1) {
+                endRevealAtmosphere(player);
                 restoreFloatingPlayer(player.getUniqueId());
                 for (Player viewer : plugin.getServer().getOnlinePlayers()) {
                     viewer.hideBossBar(bar);
