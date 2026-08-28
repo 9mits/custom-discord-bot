@@ -57,6 +57,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private static final int ODDS_PER_PAGE = 45;
     private static final int FILTER_PER_PAGE = 45;
     private static final int FILTER_CLEAR_SLOT = 49;
+    /** A breath after the effect ends before the menu comes back over it. */
+    private static final long REVEAL_SETTLE_TICKS = 20L;
     private static final int PREVIOUS_SLOT = 45;
     private static final int NEXT_SLOT = 53;
     private static final int REEL_FIRST = 19;
@@ -173,6 +175,13 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private final Map<UUID, Integer> autoTrashed = new HashMap<>();
     /** Set for exactly one result screen, so it can say the reward was thrown away. */
     private final Set<UUID> lastRewardTrashed = new java.util.HashSet<>();
+    /**
+     * Players whose menu is deliberately shut while a reveal plays.
+     *
+     * <p>Closing the menu is normally how somebody leaves an auto run, so without this
+     * the effect would end the run it interrupted.
+     */
+    private final Set<UUID> watchingReveal = new java.util.HashSet<>();
     private final Map<UUID, CrateKind> selectedKinds = new HashMap<>();
     private final Map<UUID, Long> onlineCreditStarted = new HashMap<>();
     private final Map<UUID, BossBar> keyBars = new HashMap<>();
@@ -735,8 +744,33 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         start(player, kind);
     }
 
-    /** Called once a reward lands: continues the run, or shows the result screen. */
+    /**
+     * Called once a reward lands.
+     *
+     * <p>Anything with an effect worth watching gets the menu out of the way and the run
+     * held until it finishes — a reel opening over the top of a Secret reveal is the
+     * one drop nobody gets to see. Everything else continues immediately, so an ordinary
+     * auto run is unaffected.
+     */
     private void afterReward(Player player, CrateCatalog.Reward reward, CrateKind kind) {
+        long revealTicks = CosmeticEffectService.revealDurationTicks(reward.revealTier());
+        if (revealTicks <= 0L) {
+            continueAfterReward(player, reward, kind);
+            return;
+        }
+        UUID watcherId = player.getUniqueId();
+        watchingReveal.add(watcherId);
+        player.closeInventory();
+        plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
+            watchingReveal.remove(watcherId);
+            if (!player.isOnline() || sessions.containsKey(watcherId)) {
+                return;
+            }
+            continueAfterReward(player, reward, kind);
+        }, revealTicks + REVEAL_SETTLE_TICKS);
+    }
+
+    private void continueAfterReward(Player player, CrateCatalog.Reward reward, CrateKind kind) {
         Integer remaining = autoRuns.get(player.getUniqueId());
         if (remaining == null) {
             openResult(player, reward, kind);
@@ -1091,6 +1125,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         // later actually walked away, and that is what ends the run.
         plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
             if (!player.isOnline()
+                    || watchingReveal.contains(player.getUniqueId())
                     || player.getOpenInventory().getTopInventory().getHolder() instanceof CrateMenu) {
                 return;
             }
@@ -1117,6 +1152,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         autoRuns.remove(player.getUniqueId());
         autoTrashed.remove(player.getUniqueId());
         lastRewardTrashed.remove(player.getUniqueId());
+        watchingReveal.remove(player.getUniqueId());
         hideKeyBar(player.getUniqueId());
         RollSession session = sessions.remove(player.getUniqueId());
         if (session != null && session.task != null) {

@@ -103,7 +103,7 @@ final class CosmeticItems {
         }
         lore.add(Component.empty());
         lore.add(masked
-                ? line("Rarity: ").append(obfuscated("Secret", NamedTextColor.DARK_PURPLE))
+                ? line("Rarity: ").append(obfuscated("Exotic", NamedTextColor.DARK_PURPLE))
                 : line("Rarity: " + definition.rarityDisplay()));
         if (!definition.leaderboardOnly()) {
             lore.add(masked
