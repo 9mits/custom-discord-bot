@@ -69,7 +69,6 @@ final class CosmeticEffectService implements Listener {
         /** Includes muted nearby viewers so raising 0% can restart the synced loop. */
         private final Map<UUID, Integer> observedVolumes = new HashMap<>();
         private long loop = -1L;
-        private int lastRenderedBeat = -1;
 
         MusicAuraState(long startedAtMillis) {
             this.startedAtMillis = startedAtMillis;
@@ -811,7 +810,11 @@ final class CosmeticEffectService implements Listener {
         }
     }
 
-    /** A sparse faceted conductor that snaps, recoils and changes colour on real song peaks. */
+    /**
+     * A faceted amethyst conductor changes formation and luxury-jewel palette with the
+     * supplied recording. Bass lifts the crown, mids widen the orbit, highs sharpen the
+     * facets, and measured transients create the visible beat hits.
+     */
     private void drawIridescentImperium(Player owner, Location centre) {
         MusicAuraState state = musicAuraStates.get(owner.getUniqueId());
         if (state == null) {
@@ -823,15 +826,12 @@ final class CosmeticEffectService implements Listener {
         double bass = sample.bass();
         double mid = sample.mid();
         double high = sample.high();
-        MusicAuraTimeline.Beat beat = MusicAuraTimeline.beatAt(phaseMillis);
-        double punch = beat.pulse();
-        double recoil = beat.recoil();
-        boolean strike = beat.strike() && beat.ordinal() != state.lastRenderedBeat;
-        if (strike) {
-            state.lastRenderedBeat = beat.ordinal();
-        }
+        // The source envelope is intentionally smooth enough to avoid visual noise.
+        // Expand its transient range here so ordinary beats visibly punch and the
+        // strongest attacks detonate instead of reading as a soft breathing motion.
+        double hit = Math.max(0d, Math.min(1d, (sample.onset() - 0.12d) * 1.7d));
         double time = phaseMillis / 1_000.0d;
-        int formation = beat.ordinal() < 0 ? 0 : Math.floorMod(beat.ordinal() / 12, 4);
+        int formation = (int) (phaseMillis / 6_000L) % 4;
 
         Color amethyst = Color.fromRGB(174, 77, 238);
         Color lilac = Color.fromRGB(236, 188, 255);
@@ -840,63 +840,62 @@ final class CosmeticEffectService implements Listener {
         Color emerald = Color.fromRGB(28, 151, 96);
         Color champagne = Color.fromRGB(242, 190, 92);
         Color[] couture = {ruby, sapphire, emerald, champagne};
-        int colourBeat = Math.max(0, beat.ordinal());
-        Color accent = couture[(colourBeat + formation) % couture.length];
+        int band = bass >= mid && bass >= high ? 0 : mid >= high ? 2 : 1;
+        Color accent = couture[(band + formation) % couture.length];
 
         Vector side = horizontalSide(owner);
         Vector forward = new Vector(-side.getZ(), 0d, side.getX());
         Location heart = centre.clone().add(
-                0d, -0.08d + bass * 0.18d + punch * 0.48d - recoil * 0.16d, 0d
+                0d, -0.18d + bass * 0.62d + hit * 0.82d, 0d
         );
         drawVerticalGem(
-                owner, heart, side,
-                0.34d + bass * 0.09d + punch * 0.25d - recoil * 0.09d,
-                time * 0.72d + colourBeat * 0.22d, amethyst, accent
+                owner, heart, side, 0.4d + bass * 0.28d + hit * 0.24d,
+                time * (0.9d + high * 0.9d), amethyst, accent
         );
 
-        // Eight deliberately spaced facets read as one moving formation. The old
-        // version used up to eighteen here plus three full rings, hiding the beat in a cloud.
-        int jewels = 8;
-        double orbitRadius = 0.72d + mid * 0.24d + punch * 0.82d - recoil * 0.24d;
+        int jewels = 12 + formation * 2;
+        double orbitRadius = 0.62d + mid * 1.05d + hit * 0.72d;
         for (int jewel = 0; jewel < jewels; jewel++) {
-            double angle = time * (0.62d + high * 0.35d) + colourBeat * 0.16d
+            double angle = time * (1.15d + high * 1.05d)
                     + jewel * Math.PI * 2d / jewels;
             double vertical = switch (formation) {
-                case 0 -> Math.sin(angle * 2d) * (0.25d + high * 0.28d);
-                case 1 -> Math.sin(jewel * Math.PI / (jewels - 1d)) * 1.15d - 0.48d;
-                case 2 -> -0.72d + jewel * (1.44d / (jewels - 1d));
-                default -> Math.cos(angle * 3d) * (0.32d + mid * 0.24d);
+                case 0 -> Math.sin(angle * 2d) * (0.35d + high * 0.55d);
+                case 1 -> Math.sin(jewel * Math.PI / Math.max(1, jewels - 1)) * 1.8d - 0.75d;
+                case 2 -> -1.05d + jewel * (2.15d / Math.max(1, jewels - 1));
+                default -> Math.cos(angle * 3d) * (0.55d + mid * 0.48d);
             };
             Location at = heart.clone()
                     .add(side.clone().multiply(Math.cos(angle) * orbitRadius))
                     .add(forward.clone().multiply(Math.sin(angle) * orbitRadius * 0.72d))
-                    .add(0d, vertical + punch * (jewel % 2 == 0 ? 0.32d : -0.18d), 0d);
+                    .add(0d, vertical + hit * (jewel % 2 == 0 ? 0.55d : -0.3d), 0d);
             Color jewelColour = jewel % 3 == 0
                     ? accent : jewel % 2 == 0 ? amethyst : lilac;
-            dust(owner, at, jewelColour, jewel % 3 == 0 ? 1.12f : 0.82f,
+            dust(owner, at, jewelColour, jewel % 3 == 0 ? 1.28f : 0.9f,
                     PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            if (high > 0.58d && jewel % 3 == 0) {
+                spawnMoving(owner, at, Particle.END_ROD,
+                        new Vector(0d, 0.04d + high * 0.07d + hit * 0.05d, 0d), null,
+                        PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            }
         }
 
-        Location crown = centre.clone().add(
-                0d, 1.12d + punch * 0.62d - recoil * 0.18d, 0d
-        );
-        for (int point = 0; point < 6; point++) {
-            double angle = -time * 0.48d + colourBeat * 0.12d
-                    + point * Math.PI * 2d / 6d;
-            double pointHeight = point % 2 == 0 ? 0.32d + high * 0.24d + punch * 0.34d : 0.08d;
+        Location crown = centre.clone().add(0d, 1.18d + bass * 0.32d + hit * 0.72d, 0d);
+        for (int point = 0; point < 12; point++) {
+            double angle = -time * 0.72d + point * Math.PI * 2d / 12d;
+            double pointHeight = point % 3 == 0 ? 0.45d + high * 0.55d + hit * 0.45d : 0.1d;
             Location at = crown.clone()
-                    .add(side.clone().multiply(Math.cos(angle) * (0.48d + punch * 0.2d)))
-                    .add(forward.clone().multiply(Math.sin(angle) * (0.48d + punch * 0.2d)))
+                    .add(side.clone().multiply(Math.cos(angle) * (0.55d + bass * 0.32d)))
+                    .add(forward.clone().multiply(Math.sin(angle) * (0.55d + bass * 0.32d)))
                     .add(0d, pointHeight, 0d);
-            dust(owner, at, point % 2 == 0 ? champagne : amethyst,
-                    point % 2 == 0 ? 0.98f : 0.76f,
+            dust(owner, at, point % 3 == 0 ? champagne : amethyst,
+                    point % 3 == 0 ? 1.05f : 0.78f,
                     PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
         }
 
-        // Six two-point meters still show the three frequency bands, while their
-        // shared beat extension makes the exact attack impossible to miss.
-        for (int bar = 0; bar < 6; bar++) {
-            double angle = bar * Math.PI * 2d / 6d - time * 0.24d;
+        // Ten columns are the literal audio visualizer: bass, mid and high energy
+        // independently change their height every 100 ms sample.
+        for (int bar = 0; bar < 10; bar++) {
+            double angle = bar * Math.PI * 2d / 10d - time * 0.35d;
             double bandEnergy = switch (bar % 3) {
                 case 0 -> bass;
                 case 1 -> mid;
@@ -904,34 +903,40 @@ final class CosmeticEffectService implements Listener {
             };
             Vector radial = side.clone().multiply(Math.cos(angle))
                     .add(forward.clone().multiply(Math.sin(angle)));
-            Location root = centre.clone().add(radial.clone().multiply(0.98d + punch * 0.38d))
+            Location root = centre.clone().add(radial.clone().multiply(1.08d + hit * 0.45d))
                     .add(0d, -0.88d, 0d);
-            Location tip = root.clone().add(
-                    0d, 0.22d + bandEnergy * 0.82d + punch * 1.05d - recoil * 0.22d, 0d
-            );
-            Color meter = couture[(bar + colourBeat) % couture.length];
-            dust(owner, root, meter, 0.72f, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
-            dust(owner, tip, meter, 0.98f + (float) punch * 0.18f,
+            Location tip = root.clone().add(0d, 0.25d + bandEnergy * 1.65d + hit * 0.8d, 0d);
+            drawLine(owner, root, tip, 4, couture[(bar + formation) % couture.length],
+                    0.92f + (float) hit * 0.35f,
                     PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
         }
 
-        drawRing(owner, centre.clone().add(0d, -0.38d, 0d),
-                0.52d + sample.energy() * 0.28d + punch * 0.58d - recoil * 0.16d,
-                12, time * (formation % 2 == 0 ? 0.9d : -0.9d), amethyst, 0.78f,
-                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
-
-        // The extra ring exists for exactly one rendered frame per selected onset.
-        // Motion—not particle accumulation—is what carries the impact.
-        if (strike) {
-            drawRing(owner, centre.clone().add(0d, -0.88d, 0d),
-                    0.65d + beat.strength() * 1.45d, 14,
-                    -time * 1.4d, accent, 1.04f,
+        double[] bands = {bass, mid, high};
+        for (int ring = 0; ring < bands.length; ring++) {
+            drawRing(owner, centre.clone().add(0d, -0.55d + ring * 0.55d, 0d),
+                    0.38d + bands[ring] * 1.18d + hit * 0.55d,
+                    18, time * (ring % 2 == 0 ? 1.8d : -1.8d),
+                    ring == 0 ? amethyst : ring == 1 ? accent : lilac,
+                    0.84f + (float) hit * 0.3f,
                     PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
-            if (beat.strength() > 0.9d) {
-                spawn(owner, heart, Particle.FLASH, 1,
-                        0d, 0d, 0d, 0d, null,
-                        PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
-            }
+        }
+
+        double groundPulse = 0.78d + sample.energy() * 1.05d + hit * 1.65d;
+        drawRing(owner, centre.clone().add(0d, -0.88d, 0d), groundPulse,
+                30, time * (formation % 2 == 0 ? 1.7d : -1.7d), accent, 1.02f,
+                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        if (hit >= 0.35d) {
+            drawRing(owner, heart, 0.3d + hit * 2.45d, 28,
+                    -time * 2.4d, lilac, 1.15f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            spawn(owner, crown, hit > 0.78d ? Particle.FLASH : Particle.FIREWORK,
+                    1, 0d, 0d, 0d, 0d, null,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            spawn(owner, heart, Particle.ELECTRIC_SPARK,
+                    3 + (int) Math.round(hit * 5d),
+                    0.25d + hit * 0.45d, 0.4d + hit * 0.6d, 0.25d + hit * 0.45d,
+                    0.02d + hit * 0.04d, null,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
         }
     }
 
