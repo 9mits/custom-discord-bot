@@ -115,7 +115,11 @@ final class PlayerSettingsStore {
         // Lives on the sell screen, not in /settings: it is a shop behaviour, and the
         // panel is for what you can see.
         AUTO_SELL("auto_sell_on", "Auto sell",
-                "Sell anything the shop buys as soon as it reaches your inventory.", false, null);
+                "Sell anything the shop buys as soon as it reaches your inventory.", false, null),
+        // Same reasoning: it changes what a crate costs to open, so it belongs on the
+        // crate screen where the keys are counted, not in the display panel.
+        CRATE_TRIPLE("crate_triple_on", "Open three at a time",
+                "Spin three reels per opening instead of one.", false, null);
 
         private final String key;
         private final String label;
