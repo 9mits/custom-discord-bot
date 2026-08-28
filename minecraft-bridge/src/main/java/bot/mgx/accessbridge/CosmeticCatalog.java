@@ -195,6 +195,39 @@ final class CosmeticCatalog {
                     "CHORUS_FRUIT", "Bright cracks split reality along the path travelled."
             )
     );
+    /** Limited Amethyst Crate cosmetics. Kept out of the permanent crate pool. */
+    private static final List<Definition> AMETHYST_REWARDS = List.of(
+            cosmetic(
+                    "amethyst_ascension", "Amethyst Ascension", Category.AURA, 1_500,
+                    "AMETHYST_SHARD",
+                    "A living crystal crown rises while faceted rings bloom around you."
+            ),
+            cosmetic(
+                    "geode_cathedral", "Geode Cathedral", Category.AURA, 700,
+                    "BUDDING_AMETHYST",
+                    "Rotating geode arches grow, chime, and collapse into violet light."
+            ),
+            cosmetic(
+                    "crystal_guillotine", "Crystal Guillotine", Category.KILL_EFFECT, 1_200,
+                    "AMETHYST_CLUSTER",
+                    "A descending crystal blade shatters the final blow into lethal shards."
+            ),
+            cosmetic(
+                    "violet_detonation", "Violet Detonation", Category.KILL_EFFECT, 600,
+                    "END_CRYSTAL",
+                    "A compressed amethyst core violently detonates in expanding rings."
+            ),
+            cosmetic(
+                    "shardstorm_wake", "Shardstorm Wake", Category.TRAIL, 1_100,
+                    "AMETHYST_SHARD",
+                    "Sweeping crystal crescents chase your steps and burst behind you."
+            ),
+            cosmetic(
+                    "geode_bloom", "Geode Bloom", Category.TRAIL, 900,
+                    "SMALL_AMETHYST_BUD",
+                    "Tiny geodes sprout, open, and dissolve along the path you travelled."
+            )
+    );
     private static final List<Definition> LEADERBOARD_REWARDS = List.of(
             leaderboardCosmetic(
                     "golden_finality", "Golden Finality", Category.KILL_EFFECT, 1,
@@ -272,9 +305,16 @@ final class CosmeticCatalog {
         return DEFINITIONS;
     }
 
+    static List<Definition> amethystRewards() {
+        return AMETHYST_REWARDS;
+    }
+
     /** Crate and leaderboard entries whose item models must ship in the resource pack. */
     static List<Definition> visualEntries() {
-        return java.util.stream.Stream.concat(DEFINITIONS.stream(), LEADERBOARD_REWARDS.stream())
+        return java.util.stream.Stream.of(
+                        DEFINITIONS.stream(), AMETHYST_REWARDS.stream(), LEADERBOARD_REWARDS.stream()
+                )
+                .flatMap(stream -> stream)
                 .toList();
     }
 

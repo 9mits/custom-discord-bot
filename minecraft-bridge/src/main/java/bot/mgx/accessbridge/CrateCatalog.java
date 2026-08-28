@@ -135,6 +135,7 @@ final class CrateCatalog {
     }
 
     private static final List<Reward> REWARDS = buildRewards();
+    private static final List<Reward> AMETHYST_REWARDS = buildAmethystRewards();
     private static final Map<String, Reward> BY_ID = indexRewards();
 
     private CrateCatalog() {
@@ -151,19 +152,27 @@ final class CrateCatalog {
         return REWARDS;
     }
 
+    static List<Reward> amethyst() {
+        return AMETHYST_REWARDS;
+    }
+
     static int totalWeight() {
         return REWARDS.stream().mapToInt(Reward::weight).sum();
     }
 
     /** Resolves one uniformly generated ticket in the inclusive range 0..99,999. */
     static Reward rewardAt(int ticket) {
+        return rewardAt(REWARDS, ticket);
+    }
+
+    static Reward rewardAt(List<Reward> rewards, int ticket) {
         if (ticket < 0 || ticket >= TOTAL_WEIGHT) {
             throw new IllegalArgumentException(
                     "Crate ticket must be between 0 and " + (TOTAL_WEIGHT - 1)
             );
         }
         int boundary = 0;
-        for (Reward reward : REWARDS) {
+        for (Reward reward : rewards) {
             boundary += reward.weight();
             if (ticket < boundary) {
                 return reward;
@@ -173,21 +182,29 @@ final class CrateCatalog {
     }
 
     static int luckyTotalWeight(int luckPercent) {
+        return luckyTotalWeight(REWARDS, luckPercent);
+    }
+
+    static int luckyTotalWeight(List<Reward> rewards, int luckPercent) {
         int safePercent = clampLuckPercent(luckPercent);
-        return REWARDS.stream().mapToInt(reward -> effectiveWeight(reward, safePercent)).sum();
+        return rewards.stream().mapToInt(reward -> effectiveWeight(reward, safePercent)).sum();
     }
 
     /** Rare rewards receive the advertised proportional weight while commons do not. */
     static Reward rewardAtLucky(int ticket, int luckPercent) {
+        return rewardAtLucky(REWARDS, ticket, luckPercent);
+    }
+
+    static Reward rewardAtLucky(List<Reward> rewards, int ticket, int luckPercent) {
         int safePercent = clampLuckPercent(luckPercent);
-        int total = luckyTotalWeight(safePercent);
+        int total = luckyTotalWeight(rewards, safePercent);
         if (ticket < 0 || ticket >= total) {
             throw new IllegalArgumentException(
                     "Lucky crate ticket must be between 0 and " + (total - 1)
             );
         }
         int boundary = 0;
-        for (Reward reward : REWARDS) {
+        for (Reward reward : rewards) {
             boundary += effectiveWeight(reward, safePercent);
             if (ticket < boundary) {
                 return reward;
@@ -358,6 +375,67 @@ final class CrateCatalog {
         return List.copyOf(rewards);
     }
 
+    private static List<Reward> buildAmethystRewards() {
+        List<Reward> rewards = new ArrayList<>();
+        rewards.add(item(
+                "amethyst_shards", "32 Amethyst Shards", Category.RESOURCE, 25_000,
+                "AMETHYST_SHARD", 32, "A bright stack of vanilla amethyst shards."
+        ));
+        rewards.add(item(
+                "amethyst_blocks", "16 Blocks of Amethyst", Category.RESOURCE, 18_000,
+                "AMETHYST_BLOCK", 16, "Sixteen musical amethyst building blocks."
+        ));
+        rewards.add(item(
+                "budding_amethyst", "2 Budding Amethyst", Category.TREASURE, 8_000,
+                "BUDDING_AMETHYST", 2, "Two rare blocks that grow amethyst buds."
+        ));
+        rewards.add(item(
+                "amethyst_clusters", "16 Amethyst Clusters", Category.RESOURCE, 12_000,
+                "AMETHYST_CLUSTER", 16, "A decorative bundle of full-grown clusters."
+        ));
+        rewards.add(item(
+                "amethyst_enchanted_apple", "Enchanted Golden Apple", Category.TREASURE, 5_000,
+                "ENCHANTED_GOLDEN_APPLE", 1, "A powerful enchanted golden apple."
+        ));
+        rewards.add(item(
+                "amethyst_excavation_i", "Excavation I", Category.ENCHANTMENT, 8_000,
+                "ENCHANTED_BOOK", 1, "A pickaxe enchantment that mines a 3x3 area."
+        ));
+        rewards.add(amethystItem(
+                "amethyst_pickaxe", "Amethyst Pickaxe", Category.TREASURE, 5_000,
+                "DIAMOND_PICKAXE", "mgx:amethyst_pickaxe",
+                "A 24-hour 3x3 pickaxe with automatic smelting."
+        ));
+        rewards.add(amethystItem(
+                "amethyst_shovel", "Amethyst Shovel", Category.TREASURE, 5_000,
+                "DIAMOND_SHOVEL", "mgx:amethyst_shovel",
+                "A 24-hour shovel that clears a 3x3 plane."
+        ));
+        rewards.add(amethystItem(
+                "amethyst_axe", "Amethyst Axe", Category.TREASURE, 4_000,
+                "DIAMOND_AXE", "mgx:amethyst_axe",
+                "A 24-hour axe that brings down an entire tree."
+        ));
+        rewards.add(amethystItem(
+                "amethyst_shield", "Amethyst Shield", Category.TREASURE, 2_500,
+                "SHIELD", "mgx:amethyst_shield",
+                "A 24-hour reactive shield with crystal combat abilities."
+        ));
+        rewards.add(amethystItem(
+                "amethyst_totem", "Amethyst Totem", Category.TREASURE, 1_500,
+                "TOTEM_OF_UNDYING", "mgx:amethyst_totem",
+                "A one-use crystal rescue with a ten-heart shell."
+        ));
+        for (CosmeticCatalog.Definition cosmetic : CosmeticCatalog.amethystRewards()) {
+            rewards.add(cosmetic(cosmetic));
+        }
+        int total = rewards.stream().mapToInt(Reward::weight).sum();
+        if (total != TOTAL_WEIGHT) {
+            throw new IllegalStateException("Amethyst crate weights total " + total);
+        }
+        return List.copyOf(rewards);
+    }
+
     private static Reward item(
             String id,
             String displayName,
@@ -403,9 +481,26 @@ final class CrateCatalog {
         );
     }
 
+    private static Reward amethystItem(
+            String id,
+            String displayName,
+            Category category,
+            int weight,
+            String material,
+            String modelKey,
+            String description
+    ) {
+        return new Reward(
+                id, displayName, category, weight, material, 1,
+                modelKey, null, description
+        );
+    }
+
     private static Map<String, Reward> indexRewards() {
         Map<String, Reward> indexed = new LinkedHashMap<>();
-        for (Reward reward : REWARDS) {
+        for (Reward reward : java.util.stream.Stream.concat(
+                REWARDS.stream(), AMETHYST_REWARDS.stream()
+        ).toList()) {
             if (indexed.putIfAbsent(reward.id(), reward) != null) {
                 throw new IllegalStateException("Duplicate crate reward ID " + reward.id());
             }

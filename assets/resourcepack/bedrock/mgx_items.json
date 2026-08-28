@@ -156,6 +156,24 @@
         "bedrock_options": {
           "icon": "mgx:cosmetic_galaxy_wake"
         }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/amethyst_ascension",
+        "bedrock_identifier": "mgx:cosmetic_amethyst_ascension",
+        "display_name": "Amethyst Ascension",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_amethyst_ascension"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/shardstorm_wake",
+        "bedrock_identifier": "mgx:cosmetic_shardstorm_wake",
+        "display_name": "Shardstorm Wake",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_shardstorm_wake"
+        }
       }
     ],
     "minecraft:nether_star": [
@@ -417,6 +435,105 @@
         "display_name": "Conqueror's March",
         "bedrock_options": {
           "icon": "mgx:cosmetic_conquerors_march"
+        }
+      }
+    ],
+    "minecraft:diamond_pickaxe": [
+      {
+        "type": "definition",
+        "model": "mgx:amethyst_pickaxe",
+        "bedrock_identifier": "mgx:amethyst_pickaxe",
+        "display_name": "Amethyst Pickaxe",
+        "bedrock_options": {
+          "icon": "mgx:amethyst_pickaxe"
+        }
+      }
+    ],
+    "minecraft:diamond_shovel": [
+      {
+        "type": "definition",
+        "model": "mgx:amethyst_shovel",
+        "bedrock_identifier": "mgx:amethyst_shovel",
+        "display_name": "Amethyst Shovel",
+        "bedrock_options": {
+          "icon": "mgx:amethyst_shovel"
+        }
+      }
+    ],
+    "minecraft:diamond_axe": [
+      {
+        "type": "definition",
+        "model": "mgx:amethyst_axe",
+        "bedrock_identifier": "mgx:amethyst_axe",
+        "display_name": "Amethyst Axe",
+        "bedrock_options": {
+          "icon": "mgx:amethyst_axe"
+        }
+      }
+    ],
+    "minecraft:shield": [
+      {
+        "type": "definition",
+        "model": "mgx:amethyst_shield",
+        "bedrock_identifier": "mgx:amethyst_shield",
+        "display_name": "Amethyst Shield",
+        "bedrock_options": {
+          "icon": "mgx:amethyst_shield"
+        }
+      }
+    ],
+    "minecraft:totem_of_undying": [
+      {
+        "type": "definition",
+        "model": "mgx:amethyst_totem",
+        "bedrock_identifier": "mgx:amethyst_totem",
+        "display_name": "Amethyst Totem",
+        "bedrock_options": {
+          "icon": "mgx:amethyst_totem"
+        }
+      }
+    ],
+    "minecraft:budding_amethyst": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/geode_cathedral",
+        "bedrock_identifier": "mgx:cosmetic_geode_cathedral",
+        "display_name": "Geode Cathedral",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_geode_cathedral"
+        }
+      }
+    ],
+    "minecraft:amethyst_cluster": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/crystal_guillotine",
+        "bedrock_identifier": "mgx:cosmetic_crystal_guillotine",
+        "display_name": "Crystal Guillotine",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_crystal_guillotine"
+        }
+      }
+    ],
+    "minecraft:end_crystal": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/violet_detonation",
+        "bedrock_identifier": "mgx:cosmetic_violet_detonation",
+        "display_name": "Violet Detonation",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_violet_detonation"
+        }
+      }
+    ],
+    "minecraft:small_amethyst_bud": [
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/geode_bloom",
+        "bedrock_identifier": "mgx:cosmetic_geode_bloom",
+        "display_name": "Geode Bloom",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_geode_bloom"
         }
       }
     ]

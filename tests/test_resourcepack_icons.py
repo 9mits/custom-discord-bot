@@ -11,6 +11,13 @@ REPO = Path(__file__).resolve().parents[1]
 RESOURCE_PACK = REPO / "assets" / "resourcepack"
 ITEM_TEXTURES = RESOURCE_PACK / "src" / "assets" / "mgx" / "textures" / "item"
 NATIVE_POTION_ICONS = {"crate_luck_potion", "fortune_potion"}
+LINKED_ICON_SIZES = {
+    "amethyst_pickaxe": (256, 256),
+    "amethyst_shovel": (256, 256),
+    "amethyst_axe": (256, 256),
+    "amethyst_shield": (590, 876),
+    "amethyst_totem": (360, 360),
+}
 POTION_REFERENCE = RESOURCE_PACK / "icon-sources" / "potion_of_healing_reference.png"
 
 
@@ -31,13 +38,17 @@ class ResourcePackIconTests(unittest.TestCase):
 
     def test_custom_icons_are_valid_distinct_minecraft_sprites(self):
         icons = self.icon_paths()
-        self.assertEqual(43, len(icons))
+        self.assertEqual(54, len(icons))
 
         digests = set()
         for path in icons:
             with self.subTest(icon=path.stem):
                 with Image.open(path) as image:
                     self.assertEqual("RGBA", image.mode)
+                    if path.stem in LINKED_ICON_SIZES:
+                        self.assertEqual(LINKED_ICON_SIZES[path.stem], image.size)
+                        digests.add(hashlib.sha256(path.read_bytes()).digest())
+                        continue
                     alpha = image.getchannel("A")
                     self.assertEqual({0, 255}, set(alpha.getdata()))
                     bounds = alpha.getbbox()

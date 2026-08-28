@@ -47,6 +47,15 @@ commands:
     usage: /crate [open|odds|claim]
     aliases: [crates]
     permission: mgx.crate
+  echest:
+    description: Open your Ender Chest remotely after discovering one in the world.
+    usage: /echest
+    aliases: [enderchest]
+    permission: mgx.echest
+  cratehologram:
+    description: Place or remove persistent physical crate chests.
+    usage: /cratehologram <set default|set amethyst|remove>
+    permission: mgxaccessbridge.admin
   whitelisted:
     description: List everyone with whitelist access and their Discord name.
     usage: /whitelisted [page]
@@ -130,6 +139,9 @@ permissions:
     default: true
   mgx.crate:
     description: Allows players to open crates and inspect their odds.
+    default: true
+  mgx.echest:
+    description: Allows remote Ender Chest access after the physical unlock.
     default: true
   mgx.afk:
     description: Allows players to set and clear their AFK status.

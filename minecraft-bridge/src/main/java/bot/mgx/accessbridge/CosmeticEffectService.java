@@ -308,7 +308,69 @@ final class CosmeticEffectService implements Listener {
             case "emerald_orbit" -> drawEmeraldAura(owner, centre, phase, step);
             case "amethyst_orbit" -> drawAmethystAura(owner, centre, phase, step);
             case "celestial_crown" -> drawCelestialCrown(owner, centre, phase, step);
+            case "amethyst_ascension" -> drawAmethystAscension(owner, centre, phase, step);
+            case "geode_cathedral" -> drawGeodeCathedral(owner, centre, phase, step);
             default -> { }
+        }
+    }
+
+    /** A crystal grows from the floor, unfolds into a crown, then ascends through two rings. */
+    private void drawAmethystAscension(Player owner, Location centre, double phase, int step) {
+        Color violet = Color.fromRGB(176, 92, 255);
+        Color shine = Color.fromRGB(238, 205, 255);
+        double grow = CosmeticAnimation.smooth(CosmeticAnimation.phaseProgress(step, 0, 24));
+        double lift = step < 48 ? 0d : CosmeticAnimation.smooth(
+                CosmeticAnimation.phaseProgress(step, 48, 79)) * 0.9d;
+        for (int shard = 0; shard < 6; shard++) {
+            double angle = phase * 0.45d + shard * Math.PI / 3d;
+            double radius = 0.22d + grow * 0.68d;
+            Location root = centre.clone().add(Math.cos(angle) * radius, -0.9d + lift,
+                    Math.sin(angle) * radius);
+            Location tip = root.clone().add(Math.cos(angle) * 0.18d,
+                    (0.25d + grow * 0.85d) * (shard % 2 == 0 ? 1d : 0.72d),
+                    Math.sin(angle) * 0.18d);
+            drawLine(owner, root, tip, 4, shard % 2 == 0 ? shine : violet, 0.92f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+        drawRing(owner, centre.clone().add(0d, -0.65d + lift, 0d),
+                0.3d + grow * 0.8d, 14, phase, violet, 0.9f,
+                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        drawRing(owner, centre.clone().add(0d, 0.75d + lift * 0.35d, 0d),
+                0.85d - grow * 0.3d, 10, -phase * 1.4d, shine, 0.72f,
+                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        if (step == 24 || step == 48) {
+            sound(owner, centre, Sound.BLOCK_AMETHYST_BLOCK_RESONATE, 0.7f,
+                    step == 24 ? 1.15f : 1.55f, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+    }
+
+    /** Four animated geode arches open like cathedral doors and collapse into a new layout. */
+    private void drawGeodeCathedral(Player owner, Location centre, double phase, int step) {
+        Color deep = Color.fromRGB(92, 34, 155);
+        Color crystal = Color.fromRGB(210, 145, 255);
+        double open = CosmeticAnimation.pingPong(step / 79d);
+        Vector side = horizontalSide(owner);
+        Vector forward = new Vector(-side.getZ(), 0d, side.getX());
+        for (int arch = 0; arch < 4; arch++) {
+            double angle = arch * Math.PI / 2d + phase * 0.18d;
+            Vector radial = side.clone().multiply(Math.cos(angle))
+                    .add(forward.clone().multiply(Math.sin(angle)));
+            Location base = centre.clone().add(radial.clone().multiply(0.45d + open * 0.7d))
+                    .add(0d, -0.85d, 0d);
+            Location peak = centre.clone().add(radial.clone().multiply(0.22d))
+                    .add(0d, 0.85d + open * 0.35d, 0d);
+            drawLine(owner, base, peak, 6, arch % 2 == 0 ? crystal : deep, 1.0f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            Location mirror = base.clone().subtract(radial.clone().multiply(0.34d));
+            drawLine(owner, mirror, peak, 5, crystal, 0.72f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+        if (step % 20 == 0) {
+            spawn(owner, centre.clone().add(0d, 0.2d, 0d), Particle.END_ROD, 5,
+                    0.35d, 0.65d, 0.35d, 0.02d, null,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            sound(owner, centre, Sound.BLOCK_AMETHYST_BLOCK_CHIME, 0.45f,
+                    0.8f + (step / 20) * 0.18f, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
         }
     }
 
@@ -623,7 +685,54 @@ final class CosmeticEffectService implements Listener {
             case "drool_trail" -> drawDroolTrail(owner, history);
             case "ender_trail" -> drawEnderTrail(owner, history);
             case "prismatic_trail" -> drawPrismaticTrail(owner, history);
+            case "shardstorm_wake" -> drawShardstormWake(owner, history);
+            case "geode_bloom" -> drawGeodeBloom(owner, history);
             default -> { }
+        }
+    }
+
+    /** Two chasing crescent blades cross the trail, then throw their tips outward. */
+    private void drawShardstormWake(Player owner, List<Location> history) {
+        Vector side = trailSide(history);
+        Color violet = Color.fromRGB(159, 60, 255);
+        Color bright = Color.fromRGB(225, 180, 255);
+        for (int blade = 0; blade < 2; blade++) {
+            int index = CosmeticAnimation.trailIndex(frame / 2L, history.size(), blade * 6);
+            double sweep = CosmeticAnimation.pingPong(frame * 0.14d + blade * 0.5d);
+            Location centre = trailPoint(history, index, 0.28d + blade * 0.34d);
+            for (int point = -3; point <= 3; point++) {
+                double t = point / 3d;
+                Location at = centre.clone().add(side.clone().multiply(t * (0.45d + sweep * 0.55d)))
+                        .add(0d, (1d - t * t) * (0.18d + sweep * 0.55d), 0d);
+                dust(owner, at, point == 0 ? bright : violet, point == 0 ? 1.0f : 0.72f,
+                        PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+            }
+            if (sweep > 0.9d) {
+                spawnMoving(owner, centre.clone().add(side.clone().multiply(blade == 0 ? 0.9d : -0.9d)),
+                        Particle.END_ROD, side.clone().multiply(blade == 0 ? 0.06d : -0.06d),
+                        null, PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+            }
+        }
+    }
+
+    /** Geodes visibly sprout, open into six points, then dissolve as the next one grows. */
+    private void drawGeodeBloom(Player owner, List<Location> history) {
+        Vector side = trailSide(history);
+        Color core = Color.fromRGB(116, 45, 185);
+        Color tip = Color.fromRGB(234, 202, 255);
+        for (int bloom = 0; bloom < 3; bloom++) {
+            int index = CosmeticAnimation.trailIndex(frame / 3L, history.size(), bloom * 4);
+            double open = CosmeticAnimation.pingPong(frame * 0.11d + bloom * 0.34d);
+            Location centre = trailPoint(history, index, 0.12d + bloom * 0.08d);
+            dust(owner, centre, core, 0.85f, PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+            for (int shard = 0; shard < 6; shard++) {
+                double angle = shard * Math.PI / 3d + frame * 0.08d;
+                Location point = centre.clone()
+                        .add(side.clone().multiply(Math.cos(angle) * open * 0.48d))
+                        .add(0d, Math.sin(angle) * open * 0.32d + open * 0.2d, 0d);
+                drawLine(owner, centre, point, 3, tip, 0.7f,
+                        PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+            }
         }
     }
 
@@ -841,6 +950,8 @@ final class CosmeticEffectService implements Listener {
             case "shining_light" -> animateShiningKill(owner, centre);
             case "void_collapse" -> animateVoidKill(owner, centre);
             case "soul_requiem" -> animateSoulKill(owner, centre);
+            case "crystal_guillotine" -> animateCrystalGuillotine(owner, centre);
+            case "violet_detonation" -> animateVioletDetonation(owner, centre);
             default -> { }
         }
     }
@@ -947,6 +1058,8 @@ final class CosmeticEffectService implements Listener {
                     new KillAccent(Color.fromRGB(135, 20, 190),
                             definition.secret() ? 23 : 16, definition.secret() ? 38 : 27);
             case "soul_requiem" -> new KillAccent(Color.fromRGB(30, 210, 225), 20, 29);
+            case "crystal_guillotine" -> new KillAccent(Color.fromRGB(205, 135, 255), 18, 34);
+            case "violet_detonation" -> new KillAccent(Color.fromRGB(160, 45, 255), 16, 36);
             case "reapers_verdict" -> new KillAccent(Color.fromRGB(185, 235, 245), 18, 35);
             case "divine_rupture" -> new KillAccent(Color.fromRGB(255, 215, 70), 20, 38);
             default -> new KillAccent(Color.WHITE, 14, 26);
@@ -954,6 +1067,74 @@ final class CosmeticEffectService implements Listener {
     }
 
     private record KillAccent(Color colour, int impactFrame, int frames) { }
+
+    /** Builds an enormous falling crystal blade, slams it, then fractures it sideways. */
+    private void animateCrystalGuillotine(Player owner, Location centre) {
+        Color edge = Color.fromRGB(235, 205, 255);
+        Color core = Color.fromRGB(128, 44, 205);
+        animate(owner, centre, 34, 2L, step -> {
+            if (step <= 18) {
+                double fall = CosmeticAnimation.smooth(step / 18d);
+                Location tip = centre.clone().add(0d, 4.2d - fall * 4.0d, 0d);
+                Location hilt = tip.clone().add(0d, 2.0d, 0d);
+                drawLine(owner, tip, hilt, 10, edge, 1.25f,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                drawLine(owner, tip.clone().add(-0.22d, 0.45d, 0d), hilt, 8, core, 0.9f,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                if (step == 18) {
+                    sound(owner, centre, Sound.BLOCK_AMETHYST_CLUSTER_BREAK, 1.4f, 0.45f,
+                            PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                }
+                return;
+            }
+            double fracture = CosmeticAnimation.easeOutBack((step - 18d) / 15d);
+            for (int shard = 0; shard < 12; shard++) {
+                double angle = shard * Math.PI / 6d;
+                Location at = centre.clone().add(Math.cos(angle) * fracture * 2.8d,
+                        -0.35d + (shard % 4) * 0.55d + fracture * 0.7d,
+                        Math.sin(angle) * fracture * 2.8d);
+                spawnMoving(owner, at, shard % 3 == 0 ? Particle.END_ROD : Particle.DUST,
+                        new Vector(Math.cos(angle) * 0.08d, 0.04d, Math.sin(angle) * 0.08d),
+                        shard % 3 == 0 ? null : new Particle.DustOptions(core, 0.95f),
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            }
+        });
+    }
+
+    /** Crushes three counter-rotating cores together before a multi-stage violet blast. */
+    private void animateVioletDetonation(Player owner, Location centre) {
+        Color violet = Color.fromRGB(177, 46, 255);
+        Color hot = Color.fromRGB(245, 205, 255);
+        animate(owner, centre, 36, 2L, step -> {
+            if (step < 16) {
+                double crush = 1d - CosmeticAnimation.smooth(step / 15d);
+                for (int coreIndex = 0; coreIndex < 3; coreIndex++) {
+                    double angle = coreIndex * Math.PI * 2d / 3d + step * (0.45d + coreIndex * 0.06d);
+                    Location coreAt = centre.clone().add(Math.cos(angle) * (0.3d + crush * 2d),
+                            Math.sin(angle * 2d) * 0.65d,
+                            Math.sin(angle) * (0.3d + crush * 2d));
+                    drawVerticalGem(owner, coreAt, horizontalSide(owner), 0.28d + crush * 0.3d,
+                            angle, violet, hot);
+                }
+                return;
+            }
+            double blast = CosmeticAnimation.easeOutBack((step - 16d) / 19d);
+            drawRing(owner, centre.clone().add(0d, -0.45d, 0d), 0.3d + blast * 3.7d,
+                    24, step * 0.28d, step % 2 == 0 ? hot : violet, 1.15f,
+                    PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            drawRing(owner, centre.clone().add(0d, 0.45d, 0d), 0.2d + blast * 2.5d,
+                    18, -step * 0.4d, violet, 0.9f,
+                    PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            if (step == 16 || step == 23 || step == 31) {
+                spawn(owner, centre, step == 16 ? Particle.FLASH : Particle.SONIC_BOOM,
+                        1, 0d, 0d, 0d, 0d, null,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                sound(owner, centre, Sound.ENTITY_GENERIC_EXPLODE, 1.2f,
+                        0.55f + (step - 16) * 0.035f,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            }
+        });
+    }
 
     /** A contracting heartbeat becomes crossed blades, then launches a blood fountain. */
     private void animateBloodKill(Player owner, Location centre) {

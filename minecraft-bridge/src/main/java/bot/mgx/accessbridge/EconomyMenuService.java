@@ -99,6 +99,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     private final EconomyStore money;
     private final AuctionStore auctions;
     private final CrateItems crateItems;
+    private final AmethystItemService amethystItems;
     private final PersonalNotificationService notifications;
     private final Map<UUID, String> auctionSearch = new ConcurrentHashMap<>();
     /** What each player is part-way through buying, cleared when the screen closes. */
@@ -125,6 +126,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             AuctionStore auctions,
             PlayerSettingsStore settings,
             CrateItems crateItems,
+            AmethystItemService amethystItems,
             PersonalNotificationService notifications
     ) {
         this.plugin = plugin;
@@ -132,6 +134,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         this.auctions = auctions;
         this.settings = settings;
         this.crateItems = crateItems;
+        this.amethystItems = amethystItems;
         this.notifications = notifications;
         int returnedKeys = auctions.returnRestrictedListings(
                 itemData -> crateItems.isKey(decodeItem(itemData)),
@@ -145,6 +148,38 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
 
     void useWardrobe(WardrobeService wardrobe) {
         this.wardrobe = wardrobe;
+    }
+
+    /** Returns every inactive clone of a serial the moment another clone activates. */
+    int returnActivatedAmethystListings() {
+        return auctions.returnRestrictedListings(
+                itemData -> {
+                    ItemStack item = decodeItem(itemData);
+                    return (amethystItems.isTimed(item) && !amethystItems.canList(item))
+                            || amethystItems.serial(item)
+                            .map(this::activatedSerialExists)
+                            .orElse(false);
+                },
+                System.currentTimeMillis()
+        );
+    }
+
+    private boolean activatedSerialExists(UUID serial) {
+        for (Player player : Bukkit.getOnlinePlayers()) {
+            for (ItemStack item : player.getInventory().getContents()) {
+                if (amethystItems.serial(item).filter(serial::equals).isPresent()
+                        && !amethystItems.canList(item)) {
+                    return true;
+                }
+            }
+            for (ItemStack item : player.getEnderChest().getContents()) {
+                if (amethystItems.serial(item).filter(serial::equals).isPresent()
+                        && !amethystItems.canList(item)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     Set<UUID> cosmeticSerialsOwnedBy(UUID owner, CosmeticItems cosmeticItems) {
@@ -1480,6 +1515,11 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         if (crateItems.isKey(held)) {
             throw new IllegalArgumentException(
                     "Crate keys cannot be listed in the auction house."
+            );
+        }
+        if (!amethystItems.canList(held)) {
+            throw new IllegalArgumentException(
+                    "Activated Amethyst equipment cannot be listed in the auction house."
             );
         }
         ItemStack listing = held.clone();

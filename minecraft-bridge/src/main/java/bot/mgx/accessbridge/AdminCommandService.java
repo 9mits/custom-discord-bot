@@ -881,7 +881,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 return partial(args[1], List.of("reset"));
             }
             if (args.length == 3 && args[1].equalsIgnoreCase("reset")) {
-                return partial(args[2], CosmeticCatalog.all().stream()
+                return partial(args[2], CosmeticCatalog.visualEntries().stream()
                         .map(CosmeticCatalog.Definition::id).toList());
             }
             if (args.length == 4) {

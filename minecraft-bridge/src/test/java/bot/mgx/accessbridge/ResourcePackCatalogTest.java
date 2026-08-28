@@ -12,6 +12,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -65,6 +66,11 @@ class ResourcePackCatalogTest {
             assertTrue(textures.putIfAbsent(texture, definition.id()) == null,
                     definition.id() + " reuses the icon for " + textures.get(texture));
         }
+        for (CrateCatalog.Reward reward : CrateCatalog.amethyst()) {
+            if (!reward.cosmetic() && reward.modelKey().startsWith("mgx:")) {
+                assertModelResolves(reward.modelKey());
+            }
+        }
     }
 
     @Test
@@ -85,6 +91,13 @@ class ResourcePackCatalogTest {
     @Test
     void customItemIconsPreserveTheirIntendedQualityProfiles() throws Exception {
         Set<String> nativePotions = Set.of("fortune_potion.png", "crate_luck_potion.png");
+        Map<String, List<Integer>> exactLinkedIcons = Map.of(
+                "amethyst_pickaxe.png", List.of(256, 256),
+                "amethyst_shovel.png", List.of(256, 256),
+                "amethyst_axe.png", List.of(256, 256),
+                "amethyst_shield.png", List.of(590, 876),
+                "amethyst_totem.png", List.of(360, 360)
+        );
         Set<Path> icons = new HashSet<>();
         Path textures = SOURCE.resolve("assets/mgx/textures/item");
         icons.add(textures.resolve("crate_key.png"));
@@ -94,11 +107,21 @@ class ResourcePackCatalogTest {
         for (CosmeticCatalog.Definition definition : CosmeticCatalog.visualEntries()) {
             icons.add(SOURCE.resolve(resolvedTexture(definition.modelKey())));
         }
+        for (CrateCatalog.Reward reward : CrateCatalog.amethyst()) {
+            if (!reward.cosmetic() && reward.modelKey().startsWith("mgx:")) {
+                icons.add(SOURCE.resolve(resolvedTexture(reward.modelKey())));
+            }
+        }
         for (Path icon : icons) {
             String name = icon.getFileName().toString();
             boolean nativePotion = nativePotions.contains(name);
             BufferedImage image = ImageIO.read(icon.toFile());
             assertNotNull(image, name);
+            if (exactLinkedIcons.containsKey(name)) {
+                assertEquals(exactLinkedIcons.get(name).get(0), image.getWidth(), name);
+                assertEquals(exactLinkedIcons.get(name).get(1), image.getHeight(), name);
+                continue;
+            }
             assertEquals(image.getWidth(), image.getHeight(), name);
             if (nativePotion) {
                 assertEquals(160, image.getWidth(), name + " must retain the official canvas");
@@ -222,6 +245,14 @@ class ResourcePackCatalogTest {
                     definition.modelKey(),
                     "minecraft:" + definition.materialName().toLowerCase(Locale.ROOT)
             );
+        }
+        for (CrateCatalog.Reward reward : CrateCatalog.amethyst()) {
+            if (!reward.cosmetic() && reward.modelKey().startsWith("mgx:")) {
+                expectedBases.put(
+                        reward.modelKey(),
+                        "minecraft:" + reward.materialName().toLowerCase(Locale.ROOT)
+                );
+            }
         }
 
         Map<String, String> actualBases = new HashMap<>();
