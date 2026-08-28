@@ -30,12 +30,16 @@ or pass these IDs through `import_generated_icons.py`.
 - `models/custom/amethyst_shield*.json` preserve only its normal and blocking
   Blockbench geometry; the source-only parent names were removed and the wrapper
   models were changed only to use the `mgx` namespace.
+- `textures/item/model/amethyst_cluster.png` is an exact copy of Minecraft
+  1.21.11's vanilla Amethyst Cluster texture. It keeps every shield layer on the
+  item atlas; directly referencing `minecraft:block/amethyst_cluster` makes the
+  client reject the model for mixing the item and block atlases.
 - Java renders the imported three-dimensional model as its inventory icon.
   `amethyst_shield_icon.png` is the original supplied Modrinth shield render kept
   only as Bedrock's flat-icon fallback because Bedrock cannot render Java item-model JSON.
 
 No classes, recipes, metadata, sounds, particles, entities, blocks, or any other
-content from the JAR belongs in this repository.
+content from the supplied mod JAR belongs in this repository.
 
 The local generated sources are imported with:
 

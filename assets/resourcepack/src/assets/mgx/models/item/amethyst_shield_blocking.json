@@ -2,7 +2,7 @@
   "parent": "mgx:custom/amethyst_shield_blocking",
   "textures": {
     "0": "mgx:item/amethyst_shield",
-    "1": "minecraft:block/amethyst_cluster",
+    "1": "mgx:item/model/amethyst_cluster",
     "particle": "minecraft:item/bamboo_door"
   }
 }
