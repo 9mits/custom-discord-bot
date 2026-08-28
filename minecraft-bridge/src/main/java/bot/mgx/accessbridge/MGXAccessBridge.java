@@ -97,6 +97,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private MaintenanceStore maintenanceStore;
     private ServerEventStore serverEventStore;
     private AutoPayStore autoPayStore;
+    private CrateFilterStore crateFilterStore;
     private AutoPayService autoPayService;
     private ServerEventService serverEventService;
     private BlogWatchService blogWatchService;
@@ -168,6 +169,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             );
             autoPayStore = new AutoPayStore(
                     getDataFolder().toPath().resolve("autopay.json")
+            );
+            crateFilterStore = new CrateFilterStore(
+                    getDataFolder().toPath().resolve("crate-filters.json")
             );
             identityStore = new DiscordIdentityStore(
                     getDataFolder().toPath().resolve("discord-identities.json")
@@ -339,7 +343,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 cosmeticEffects,
                 playerSettings,
                 perkService,
-                specialItems
+                specialItems,
+                crateFilterStore
         );
         getCommand("wardrobe").setExecutor(wardrobeService);
         getCommand("wardrobe").setTabCompleter(wardrobeService);
@@ -491,6 +496,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                         identityStore,
                         playerSettings,
                         crateStore,
+                        crateFilterStore,
                         cosmeticStore,
                         cosmeticItems,
                         trophyHeadStore,
