@@ -947,6 +947,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         for (int index = 0; index < shown; index++) {
             ItemStack item = decodeItem(waiting.get(index).itemData());
             if (item != null) {
+                amethystItems.removeInactiveAuctionStatus(item);
                 inventory.setItem(index, item);
             }
         }
@@ -1327,6 +1328,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                     "That listing cannot be handed over and was not charged for."
             );
         }
+        amethystItems.removeInactiveAuctionStatus(item);
         AuctionStore.Purchase purchase = auctions.buy(
                 player.getUniqueId(), menu.subject(), money, System.currentTimeMillis()
         );
@@ -1523,6 +1525,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             );
         }
         ItemStack listing = held.clone();
+        amethystItems.removeInactiveAuctionStatus(listing);
         String encoded = encodeItem(listing);
         ItemMeta listingMeta = listing.getItemMeta();
         String customName = listingMeta != null && listingMeta.hasDisplayName()
@@ -1573,6 +1576,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         for (AuctionStore.Mail mail : collected) {
             ItemStack item = decodeItem(mail.itemData());
             if (item != null) {
+                amethystItems.removeInactiveAuctionStatus(item);
                 give(player, item);
                 given++;
             }
@@ -1617,6 +1621,8 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         ItemStack item = decodeItem(listing.itemData());
         if (item == null) {
             item = new ItemStack(materialOf(listing.material()), Math.max(1, listing.amount()));
+        } else {
+            amethystItems.removeInactiveAuctionStatus(item);
         }
         ItemMeta meta = item.getItemMeta();
         if (meta == null) {
