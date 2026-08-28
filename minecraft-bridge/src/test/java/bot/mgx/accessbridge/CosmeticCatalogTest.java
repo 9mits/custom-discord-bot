@@ -244,6 +244,27 @@ class CosmeticCatalogTest {
     }
 
     /**
+     * A trail is invisible while its owner stands still and a kill effect is invisible
+     * until somebody dies, so neither may put a permanent line over a player's head.
+     */
+    @Test
+    void onlyAurasEarnAnOddsTag() {
+        List<CosmeticCatalog.Definition> tagged = CosmeticCatalog.visualEntries().stream()
+                .filter(CosmeticCatalog.Definition::nameplateWorthy)
+                .toList();
+
+        assertFalse(tagged.isEmpty());
+        for (CosmeticCatalog.Definition definition : tagged) {
+            assertEquals(CosmeticCatalog.Category.AURA, definition.category(), definition.id());
+        }
+        // Rare enough to have qualified on rarity alone: a Secret trail and a Mythic
+        // kill effect. Neither is what the line is reporting.
+        assertFalse(CosmeticCatalog.find("galaxy_wake").orElseThrow().nameplateWorthy());
+        assertFalse(CosmeticCatalog.find("soul_requiem").orElseThrow().nameplateWorthy());
+        assertTrue(CosmeticCatalog.find("astral_sovereign").orElseThrow().nameplateWorthy());
+    }
+
+    /**
      * The fallback family exists so an unassigned cosmetic still renders, not so new
      * ones can quietly skip the decision. Every cosmetic that actually gets a floating
      * odds tag has to name the family its particles belong to.

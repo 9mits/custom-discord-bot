@@ -47,6 +47,8 @@ final class CosmeticEffectService implements Listener {
     private static final String MUSIC_AURA_ID = CosmeticCatalog.HIDDEN_AMETHYST_COSMETIC_ID;
     private static final String MUSIC_AURA_SOUND = "mgx:iridescent_imperium";
     private static final String RARITY_NAMEPLATE_TAG = "mgx_cosmetic_rarity_nameplate";
+    /** Every ten seconds, because a stand nobody owns is a bug rather than the norm. */
+    private static final long NAMEPLATE_SWEEP_FRAMES = 100L;
     private final MGXAccessBridge plugin;
     private final CosmeticStore store;
     private final CosmeticItems items;
@@ -153,6 +155,9 @@ final class CosmeticEffectService implements Listener {
                 stopMusicAura(ownerId);
             }
         }
+        if (frame % NAMEPLATE_SWEEP_FRAMES == 0L) {
+            sweepOrphanedNameplates();
+        }
         for (Player player : plugin.getServer().getOnlinePlayers()) {
             if (VerificationLobbyService.isLobbyWorld(player.getWorld())) {
                 previousLocations.remove(player.getUniqueId());
@@ -173,10 +178,7 @@ final class CosmeticEffectService implements Listener {
             Optional<CosmeticCatalog.Definition> trailDefinition = active(
                     player, CosmeticCatalog.Category.TRAIL
             );
-            Optional<CosmeticCatalog.Definition> killEffect = active(
-                    player, CosmeticCatalog.Category.KILL_EFFECT
-            );
-            syncRarityNameplate(player, aura, trailDefinition, killEffect);
+            syncRarityNameplate(player, aura);
             if (aura.map(CosmeticCatalog.Definition::id).filter(MUSIC_AURA_ID::equals).isPresent()) {
                 syncMusicAura(player);
             } else {
@@ -209,27 +211,24 @@ final class CosmeticEffectService implements Listener {
         }
     }
 
-    private void syncRarityNameplate(
-            Player player,
-            Optional<CosmeticCatalog.Definition> aura,
-            Optional<CosmeticCatalog.Definition> trail,
-            Optional<CosmeticCatalog.Definition> killEffect
-    ) {
+    /**
+     * The floating odds line, driven by the equipped aura alone.
+     *
+     * <p>It used to take the rarest of the aura, trail and kill effect, so a player who
+     * had unequipped their aura still wore a tag for a trail that only appears when they
+     * move and a kill effect nobody had seen. The aura is the effect actually standing
+     * next to the line, and it is the only thing the line now reports.
+     */
+    private void syncRarityNameplate(Player player, Optional<CosmeticCatalog.Definition> aura) {
         if (!settings.isEnabled(
                 player.getUniqueId(), PlayerSettingsStore.Setting.RARITY_TAG_VISIBLE
         )) {
             removeRarityNameplate(player.getUniqueId());
             return;
         }
-        CosmeticCatalog.Definition rarest = null;
-        for (Optional<CosmeticCatalog.Definition> candidate : List.of(aura, trail, killEffect)) {
-            if (candidate.isEmpty() || !candidate.get().nameplateWorthy()) {
-                continue;
-            }
-            if (rarest == null || candidate.get().oneIn() > rarest.oneIn()) {
-                rarest = candidate.get();
-            }
-        }
+        CosmeticCatalog.Definition rarest = aura
+                .filter(CosmeticCatalog.Definition::nameplateWorthy)
+                .orElse(null);
         if (rarest == null) {
             removeRarityNameplate(player.getUniqueId());
             return;
@@ -251,6 +250,9 @@ final class CosmeticEffectService implements Listener {
                         entity.setPersistent(false);
                         entity.setCustomNameVisible(true);
                         entity.addScoreboardTag(RARITY_NAMEPLATE_TAG);
+                        entity.addScoreboardTag(
+                                RARITY_NAMEPLATE_TAG + ":" + player.getUniqueId()
+                        );
                     }
             );
             rarityNameplates.put(player.getUniqueId(), plate);
@@ -260,6 +262,44 @@ final class CosmeticEffectService implements Listener {
         target.setYaw(0f);
         target.setPitch(0f);
         plate.teleport(target);
+    }
+
+    /**
+     * Deletes any odds tag the service is not currently driving.
+     *
+     * <p>The map is the only handle on a stand, so anything that loses an entry — a
+     * crash between spawning and registering, a stand left by an older build — leaves a
+     * line floating in the world that nothing will ever remove. Each stand carries its
+     * owner's ID, so this can tell a live tag from a ghost without guessing.
+     */
+    private void sweepOrphanedNameplates() {
+        for (World world : plugin.getServer().getWorlds()) {
+            for (ArmorStand stand : world.getEntitiesByClass(ArmorStand.class)) {
+                if (!stand.getScoreboardTags().contains(RARITY_NAMEPLATE_TAG)) {
+                    continue;
+                }
+                UUID owner = nameplateOwner(stand);
+                if (owner != null && rarityNameplates.get(owner) == stand) {
+                    continue;
+                }
+                stand.remove();
+            }
+        }
+    }
+
+    private static UUID nameplateOwner(ArmorStand stand) {
+        String prefix = RARITY_NAMEPLATE_TAG + ":";
+        for (String tag : stand.getScoreboardTags()) {
+            if (!tag.startsWith(prefix)) {
+                continue;
+            }
+            try {
+                return UUID.fromString(tag.substring(prefix.length()));
+            } catch (IllegalArgumentException ignored) {
+                return null;
+            }
+        }
+        return null;
     }
 
     private void removeRarityNameplate(UUID playerId) {
@@ -306,11 +346,11 @@ final class CosmeticEffectService implements Listener {
             case SCROLL -> palette[
                     (int) Math.floorMod(frame / 2L + index, palette.length)
             ];
-            case PULSE -> palette[(int) Math.floorMod(frame / 8L, palette.length)];
+            case PULSE -> palette[(int) Math.floorMod(frame / 3L, palette.length)];
             // One highlight sweeps the line and then rests: the extra travel past the
             // end is the pause between passes, which is what makes it read as a glint.
             case SHIMMER -> {
-                int head = (int) Math.floorMod(frame / 2L, length + 8L);
+                int head = (int) Math.floorMod(frame, length + 8L);
                 int distance = Math.abs(head - index);
                 yield distance >= palette.length - 1 ? palette[0] : palette[distance + 1];
             }

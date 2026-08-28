@@ -174,8 +174,14 @@ final class CosmeticCatalog {
             return masked ? "1 in ???" : String.format(Locale.ROOT, "1 in %,d", oneIn());
         }
 
+        /**
+         * Auras only. A trail is invisible while its owner stands still and a kill
+         * effect is invisible until somebody dies, so tagging either one put a
+         * permanent odds line over a player wearing nothing anyone could see.
+         */
         boolean nameplateWorthy() {
-            return hiddenAmethystJackpot() || secret || rarityDisplay().equals("Mythic");
+            return category == Category.AURA
+                    && (hiddenAmethystJackpot() || secret || rarityDisplay().equals("Mythic"));
         }
 
         OddsFamily oddsFamily() {
