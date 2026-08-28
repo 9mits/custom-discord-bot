@@ -1,10 +1,13 @@
 package bot.mgx.accessbridge;
 
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
 import java.util.EnumMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -103,5 +106,25 @@ final class AmethystCrateCatalogTest {
         ));
         assertEquals("42m", AmethystItemService.remainingDuration(Duration.ofMinutes(42).toMillis()));
         assertEquals("30s", AmethystItemService.remainingDuration(Duration.ofSeconds(30).toMillis()));
+    }
+
+    @Test
+    void inactiveAuctionStatusIsRemovedWithoutTouchingActiveCountdown() {
+        Component description = Component.text("May be enchanted before or after activation.");
+        Component active = Component.text("ACTIVE — expires in 23h 48m", NamedTextColor.LIGHT_PURPLE);
+        assertEquals(
+                List.of(description),
+                AmethystItemService.withoutInactiveAuctionStatus(List.of(
+                        description,
+                        Component.empty(),
+                        Component.text("INACTIVE — safe to auction", NamedTextColor.GREEN)
+                ))
+        );
+        assertEquals(
+                List.of(description, Component.empty(), active),
+                AmethystItemService.withoutInactiveAuctionStatus(
+                        List.of(description, Component.empty(), active)
+                )
+        );
     }
 }

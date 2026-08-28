@@ -20,9 +20,6 @@ import java.util.UUID;
 final class CrateItems {
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private static final TextColor AMETHYST = TextColor.color(0xB56CFF);
-    private static final Component INACTIVE_AUCTION_STATUS = Component.text(
-            "INACTIVE — safe to auction", NamedTextColor.GREEN
-    ).decoration(TextDecoration.ITALIC, false);
     private final NamespacedKey keyMarker;
     private final NamespacedKey legacyKeyMarker;
     private final NamespacedKey rewardSpinMarker;
@@ -166,22 +163,21 @@ final class CrateItems {
     }
 
     ItemStack preview(CrateCatalog.Reward reward, CosmeticItems cosmetics) {
-        return preview(reward, cosmetics, false, false);
+        return preview(reward, cosmetics, false);
     }
 
     ItemStack oddsPreview(CrateCatalog.Reward reward, CosmeticItems cosmetics) {
-        return preview(reward, cosmetics, false, true);
+        return preview(reward, cosmetics, false);
     }
 
     ItemStack revealedPreview(CrateCatalog.Reward reward, CosmeticItems cosmetics) {
-        return preview(reward, cosmetics, true, false);
+        return preview(reward, cosmetics, true);
     }
 
     private ItemStack preview(
             CrateCatalog.Reward reward,
             CosmeticItems cosmetics,
-            boolean revealSecret,
-            boolean oddsScreen
+            boolean revealSecret
     ) {
         if (reward.cosmetic()) {
             return CosmeticCatalog.find(reward.cosmeticId())
@@ -206,9 +202,6 @@ final class CrateItems {
                         .decoration(TextDecoration.ITALIC, false));
             }
             List<Component> lore = new ArrayList<>(meta.lore() == null ? List.of() : meta.lore());
-            if (oddsScreen) {
-                lore.removeIf(INACTIVE_AUCTION_STATUS::equals);
-            }
             addLimitedAmethystLore(lore, reward);
             if (!lore.isEmpty()) {
                 lore.add(Component.empty());

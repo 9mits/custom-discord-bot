@@ -4,6 +4,7 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
@@ -184,10 +185,7 @@ final class AmethystItemService implements Listener {
                 line(ability), line(detail), Component.empty(),
                 line("Unbreakable for 24 hours after activation."),
                 line(trigger),
-                line("May be enchanted before or after activation."),
-                Component.empty(),
-                Component.text("INACTIVE — safe to auction", NamedTextColor.GREEN)
-                        .decoration(TextDecoration.ITALIC, false)
+                line("May be enchanted before or after activation.")
         );
     }
 
@@ -256,10 +254,10 @@ final class AmethystItemService implements Listener {
         PersistentDataContainer data = meta.getPersistentDataContainer();
         data.set(activatedKey, PersistentDataType.LONG, now);
         data.set(expiresKey, PersistentDataType.LONG, expires);
-        List<Component> old = new ArrayList<>(meta.lore() == null ? List.of() : meta.lore());
-        old.removeIf(component -> net.kyori.adventure.text.serializer.plain
-                .PlainTextComponentSerializer.plainText().serialize(component)
-                .startsWith("INACTIVE"));
+        List<Component> old = new ArrayList<>(withoutInactiveAuctionStatus(meta.lore()));
+        if (!old.isEmpty() && !old.get(old.size() - 1).equals(Component.empty())) {
+            old.add(Component.empty());
+        }
         old.add(activeCountdown(expires - now));
         meta.lore(old);
         item.setItemMeta(meta);
@@ -528,8 +526,12 @@ final class AmethystItemService implements Listener {
                 ItemStack stack = dropped.getItemStack();
                 if (expired(stack, now)) {
                     dropped.remove();
-                } else if (refreshCountdown(stack, now)) {
-                    dropped.setItemStack(stack);
+                } else {
+                    boolean changed = removeInactiveAuctionStatus(stack);
+                    changed |= refreshCountdown(stack, now);
+                    if (changed) {
+                        dropped.setItemStack(stack);
+                    }
                 }
             }
         }
@@ -564,8 +566,9 @@ final class AmethystItemService implements Listener {
                 contents[index] = null;
                 changed = true;
                 removed = true;
-            } else if (refreshCountdown(contents[index], now)) {
-                changed = true;
+            } else {
+                changed |= removeInactiveAuctionStatus(contents[index]);
+                changed |= refreshCountdown(contents[index], now);
             }
         }
         if (changed) {
@@ -584,8 +587,7 @@ final class AmethystItemService implements Listener {
         Component updated = activeCountdown(expires - now);
         for (int index = 0; index < lore.size(); index++) {
             Component current = lore.get(index);
-            String plain = net.kyori.adventure.text.serializer.plain
-                    .PlainTextComponentSerializer.plainText().serialize(current);
+            String plain = PlainTextComponentSerializer.plainText().serialize(current);
             if (!plain.startsWith("ACTIVE —")) {
                 continue;
             }
@@ -601,6 +603,31 @@ final class AmethystItemService implements Listener {
         meta.lore(lore);
         item.setItemMeta(meta);
         return true;
+    }
+
+    boolean removeInactiveAuctionStatus(ItemStack item) {
+        if (!isTimed(item) || !item.hasItemMeta()) {
+            return false;
+        }
+        ItemMeta meta = item.getItemMeta();
+        List<Component> original = meta.lore();
+        List<Component> cleaned = withoutInactiveAuctionStatus(original);
+        if (cleaned.equals(original == null ? List.of() : original)) {
+            return false;
+        }
+        meta.lore(cleaned);
+        item.setItemMeta(meta);
+        return true;
+    }
+
+    static List<Component> withoutInactiveAuctionStatus(List<Component> lore) {
+        List<Component> cleaned = new ArrayList<>(lore == null ? List.of() : lore);
+        cleaned.removeIf(component -> PlainTextComponentSerializer.plainText()
+                .serialize(component).startsWith("INACTIVE — safe to auction"));
+        while (!cleaned.isEmpty() && cleaned.get(cleaned.size() - 1).equals(Component.empty())) {
+            cleaned.remove(cleaned.size() - 1);
+        }
+        return List.copyOf(cleaned);
     }
 
     private static Component activeCountdown(long remainingMillis) {
