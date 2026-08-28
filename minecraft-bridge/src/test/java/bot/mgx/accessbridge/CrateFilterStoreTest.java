@@ -64,6 +64,30 @@ final class CrateFilterStoreTest {
     }
 
     /**
+     * A triple pull is three separate crates: three keys, three rewards, three reels.
+     * The rows it uses have to be real slots in the 45-slot roll screen, and each reel
+     * needs a clear seven-slot strip with its own centre.
+     */
+    @Test
+    void tripleRowsFitTheRollScreenWithoutOverlapping() {
+        int[] rows = {9, 18, 27};
+        assertEquals(CrateService.TRIPLE_PULL_SIZE, rows.length);
+
+        java.util.Set<Integer> used = new java.util.LinkedHashSet<>();
+        for (int row : rows) {
+            for (int slot = row; slot <= row + 8; slot++) {
+                assertTrue(slot >= 0 && slot < 45, "slot " + slot + " is off the screen");
+                assertTrue(used.add(slot), "row " + row + " overlaps another reel");
+            }
+            int reelFirst = row + 1;
+            int reelLast = row + 7;
+            assertEquals(row + 4, (reelFirst + reelLast) / 2,
+                    "the winning slot is not the middle of the strip");
+        }
+        assertEquals(27, used.size());
+    }
+
+    /**
      * The reel must not open over an effect. Anything with something to watch reports a
      * length the crate menu waits out; everything else reports zero and carries straight
      * on, which is what keeps an ordinary auto run at full speed.

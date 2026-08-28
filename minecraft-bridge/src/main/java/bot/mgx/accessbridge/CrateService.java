@@ -49,6 +49,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private static final int HUB_ODDS_SLOT = 15;
     private static final int HUB_AUTO_SLOT = 22;
     private static final int HUB_FILTER_SLOT = 24;
+    private static final int HUB_TRIPLE_SLOT = 20;
     private static final int RESULT_AGAIN_SLOT = 11;
     private static final int RESULT_AUTO_SLOT = 15;
     private static final int RESULT_BACK_SLOT = 22;
@@ -61,9 +62,12 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private static final long REVEAL_SETTLE_TICKS = 20L;
     private static final int PREVIOUS_SLOT = 45;
     private static final int NEXT_SLOT = 53;
-    private static final int REEL_FIRST = 19;
-    private static final int REEL_LAST = 25;
-    private static final int WINNING_SLOT = 22;
+    /** Row starts for a triple pull: the reel row, plus one above and one below. */
+    private static final int[] TRIPLE_ROWS = {9, 18, 27};
+    private static final int SINGLE_ROW = 18;
+    static final int TRIPLE_PULL_SIZE = 3;
+    /** Winners land one after another rather than all at once, so each one registers. */
+    private static final long LANE_REVEAL_TICKS = 6L;
     private static final int REEL_FRAMES = 31;
     /**
      * An auto run keeps the reel and its slowdown — that is the part worth watching —
@@ -109,10 +113,37 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         }
     }
 
+    /**
+     * One reel. Every lane's reward is drawn before the animation starts, so a triple
+     * pull is decided at the same moment a single one is — but only the first is written
+     * to the crash-safe pending slot, which holds one reward at a time. The rest are
+     * reserved as the reel in front of them pays out, and until then neither their key
+     * nor their reward exists anywhere but here. A crash mid-pull therefore costs a
+     * player nothing: the lanes that never reserved never charged them either.
+     */
+    private static final class Lane {
+        private final int reelFirst;
+        private final int reelLast;
+        private final int winningSlot;
+        private final CrateCatalog.Reward reward;
+        private CrateStore.Pending pending;
+
+        Lane(int rowStart, CrateCatalog.Reward reward) {
+            this.reelFirst = rowStart + 1;
+            this.reelLast = rowStart + 7;
+            this.winningSlot = rowStart + 4;
+            this.reward = reward;
+        }
+    }
+
+    /** What one reel actually paid out, and whether Auto Trash took it on the way. */
+    private record Payout(CrateCatalog.Reward reward, boolean trashed) {
+    }
+
     private static final class RollSession {
         private final UUID playerId;
-        private final CrateStore.Pending pending;
-        private final CrateCatalog.Reward reward;
+        private final List<Lane> lanes;
+        private final List<Payout> delivered = new ArrayList<>();
         private final CrateKind kind;
         private final Inventory inventory;
         private final boolean fast;
@@ -121,15 +152,13 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
 
         RollSession(
                 UUID playerId,
-                CrateStore.Pending pending,
-                CrateCatalog.Reward reward,
+                List<Lane> lanes,
                 CrateKind kind,
                 Inventory inventory,
                 boolean fast
         ) {
             this.playerId = playerId;
-            this.pending = pending;
-            this.reward = reward;
+            this.lanes = lanes;
             this.kind = kind;
             this.inventory = inventory;
             this.fast = fast;
@@ -378,6 +407,16 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 "Opens a crate with every key you hold.",
                 "You confirm the number before anything is spent."
         ));
+        int pull = pullSize(player);
+        inventory.setItem(HUB_TRIPLE_SLOT, MenuItems.button(
+                pull == 1 ? Material.LEVER : Material.REDSTONE_TORCH,
+                "Open Three At A Time: " + (pull == 1 ? "OFF" : "ON"),
+                pull == 1
+                        ? "Every opening spins one reel."
+                        : "Every opening spins three reels at once.",
+                "Costs " + (kind.keyCost() * TRIPLE_PULL_SIZE) + " keys per opening when on.",
+                "Auto Open uses it too."
+        ));
         int trashed = filters.count(player.getUniqueId());
         inventory.setItem(HUB_FILTER_SLOT, MenuItems.button(
                 Material.CAULDRON,
@@ -430,6 +469,27 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
      * cannot fill an inventory, and a mis-click that silently threw away a 1-in-500,000
      * aura is not a mistake worth allowing.
      */
+    private void toggleTriplePull(Player player, CrateKind kind) {
+        if (sessions.containsKey(player.getUniqueId())) {
+            PlayerMenuService.error(player, "Your crate is already opening.");
+            return;
+        }
+        boolean tripled;
+        try {
+            tripled = settings.toggle(
+                    player.getUniqueId(), PlayerSettingsStore.Setting.CRATE_TRIPLE
+            );
+        } catch (UncheckedIOException exception) {
+            plugin.getLogger().warning("Could not save the triple-pull setting for "
+                    + player.getUniqueId() + ": " + exception.getMessage());
+            PlayerMenuService.error(player, "That choice could not be saved.");
+            return;
+        }
+        player.playSound(player.getLocation(), Sound.BLOCK_LEVER_CLICK, 0.7f,
+                tripled ? 1.4f : 0.9f);
+        openKindHub(player, kind);
+    }
+
     private void openFilters(Player player, CrateKind kind, int requestedPage) {
         selectedKinds.put(player.getUniqueId(), kind);
         List<CrateCatalog.Reward> rewards = trashableRewards(kind);
@@ -540,44 +600,71 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             return;
         }
         selectedKinds.put(playerId, kind);
-        if (items.count(player) < kind.keyCost()) {
-            PlayerMenuService.error(player, "You need " + kind.keyCost()
-                    + (kind.keyCost() == 1 ? " Mysterious Crate Key" : " Mysterious Crate Keys")
+        int pull = pullSize(player);
+        int cost = kind.keyCost() * pull;
+        if (items.count(player) < cost) {
+            PlayerMenuService.error(player, "You need " + cost
+                    + (cost == 1 ? " Mysterious Crate Key" : " Mysterious Crate Keys")
                     + " to open this crate.");
             return;
         }
         int luck = specialItems.crateLuckPercent(player);
-        CrateCatalog.Reward reward = kind.randomReward(luck);
-        UUID spinId = UUID.randomUUID();
-        int consumed = items.remove(player, kind.keyCost());
-        if (consumed != kind.keyCost()) {
-            returnKeys(player, consumed);
-            PlayerMenuService.error(player, "Your keys moved before they could be consumed.");
-            return;
+        int[] rows = pull == 1 ? new int[]{SINGLE_ROW} : TRIPLE_ROWS;
+        List<Lane> lanes = new ArrayList<>();
+        for (int row : rows) {
+            lanes.add(new Lane(row, kind.randomReward(luck)));
         }
-        CrateStore.Pending pending;
-        try {
-            pending = store.reserve(playerId, spinId, reward.id(), now);
-        } catch (IllegalStateException | UncheckedIOException exception) {
-            returnKeys(player, kind.keyCost());
-            plugin.getLogger().warning("Could not reserve a crate reward: " + exception.getMessage());
-            PlayerMenuService.error(player, "That opening could not be saved. Your key was returned.");
+        if (!reserveLane(player, kind, lanes.get(0), now)) {
             return;
         }
 
         CrateMenu holder = new CrateMenu(Screen.ROLL, 1, kind);
         Inventory inventory = Bukkit.createInventory(
-                holder, 45, Component.text("Opening " + kind.displayName(), kind.colour())
+                holder, 45, Component.text(
+                        (pull == 1 ? "Opening " : "Opening " + pull + "x ") + kind.displayName(),
+                        kind.colour())
         );
         holder.inventory = inventory;
-        fillCrate(inventory, kind);
+        fillCrate(inventory, kind, lanes);
         RollSession session = new RollSession(
-                playerId, pending, reward, kind, inventory, autoRuns.containsKey(playerId)
+                playerId, lanes, kind, inventory, autoRuns.containsKey(playerId)
         );
         sessions.put(playerId, session);
         MenuItems.show(plugin, player, inventory);
         player.playSound(player.getLocation(), Sound.BLOCK_CHEST_OPEN, 0.9f, 0.85f);
         advance(session);
+    }
+
+    /**
+     * Spends one crate's keys and writes its reward to the pending slot.
+     *
+     * <p>Every failure here has to hand the keys back, because the reward it was paying
+     * for does not exist yet.
+     */
+    private boolean reserveLane(Player player, CrateKind kind, Lane lane, long now) {
+        int consumed = items.remove(player, kind.keyCost());
+        if (consumed != kind.keyCost()) {
+            returnKeys(player, consumed);
+            PlayerMenuService.error(player, "Your keys moved before they could be consumed.");
+            return false;
+        }
+        try {
+            lane.pending = store.reserve(
+                    player.getUniqueId(), UUID.randomUUID(), lane.reward.id(), now
+            );
+        } catch (IllegalStateException | UncheckedIOException exception) {
+            returnKeys(player, kind.keyCost());
+            plugin.getLogger().warning("Could not reserve a crate reward: " + exception.getMessage());
+            PlayerMenuService.error(player, "That opening could not be saved. Your key was returned.");
+            return false;
+        }
+        return true;
+    }
+
+    /** Three reels at a time when the player has asked for it, otherwise one. */
+    private int pullSize(Player player) {
+        return settings.isEnabled(player.getUniqueId(), PlayerSettingsStore.Setting.CRATE_TRIPLE)
+                ? TRIPLE_PULL_SIZE : 1;
     }
 
     private void advance(RollSession session) {
@@ -590,11 +677,14 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             finish(session, player);
             return;
         }
-        for (int slot = REEL_FIRST; slot < REEL_LAST; slot++) {
-            session.inventory.setItem(slot, session.inventory.getItem(slot + 1));
+        for (Lane lane : session.lanes) {
+            for (int slot = lane.reelFirst; slot < lane.reelLast; slot++) {
+                session.inventory.setItem(slot, session.inventory.getItem(slot + 1));
+            }
+            session.inventory.setItem(
+                    lane.reelLast, items.preview(session.kind.randomPreview(), cosmeticItems)
+            );
         }
-        CrateCatalog.Reward preview = session.kind.randomPreview();
-        session.inventory.setItem(REEL_LAST, items.preview(preview, cosmeticItems));
         player.playSound(
                 player.getLocation(),
                 session.settling()
@@ -612,18 +702,33 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void finish(RollSession session, Player player) {
-        for (int slot = REEL_FIRST; slot <= REEL_LAST; slot++) {
-            session.inventory.setItem(slot, slot == WINNING_SLOT
-                    ? items.revealedPreview(session.reward, cosmeticItems)
+        session.inventory.setItem(4, MenuItems.button(Material.CHEST, "Crate Opened"));
+        resolveLane(session, player, 0);
+    }
+
+    /**
+     * Pays out one reel, then starts the next.
+     *
+     * <p>Strictly one at a time: the pending slot holds a single reward, so a lane may
+     * only reserve once the lane before it has been handed over and cleared.
+     */
+    private void resolveLane(RollSession session, Player player, int index) {
+        Lane lane = session.lanes.get(index);
+        if (lane.pending == null
+                && !reserveLane(player, session.kind, lane, System.currentTimeMillis())) {
+            endPull(session, player);
+            return;
+        }
+        for (int slot = lane.reelFirst; slot <= lane.reelLast; slot++) {
+            session.inventory.setItem(slot, slot == lane.winningSlot
+                    ? items.revealedPreview(lane.reward, cosmeticItems)
                     : MenuItems.button(Material.BROWN_STAINED_GLASS_PANE, "Crate Panel"));
         }
-        session.inventory.setItem(4, MenuItems.button(Material.CHEST, "Crate Opened"));
-        session.inventory.setItem(13, MenuItems.button(Material.SPECTRAL_ARROW, "Winning Slot"));
-        session.inventory.setItem(31, MenuItems.button(Material.HOPPER, "Reward Locked In"));
-        player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1f, 1.15f);
+        player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1f,
+                1.15f + index * 0.12f);
         session.task = plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
-            sessions.remove(session.playerId);
             if (!deliverPending(player, true)) {
+                sessions.remove(session.playerId);
                 autoRuns.remove(session.playerId);
                 autoTrashed.remove(session.playerId);
                 PlayerMenuService.error(
@@ -631,12 +736,36 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 );
                 return;
             }
-            afterReward(player, session.reward, session.kind);
+            // Read per lane rather than once at the end: with three reels the flag
+            // describes the last delivery, so a bin on the first reel would otherwise be
+            // reported against the third.
+            session.delivered.add(new Payout(
+                    lane.reward, lastRewardTrashed.remove(player.getUniqueId())
+            ));
+            if (index + 1 < session.lanes.size()) {
+                session.task = plugin.getServer().getScheduler().runTaskLater(
+                        plugin, () -> resolveLane(session, player, index + 1), LANE_REVEAL_TICKS
+                );
+                return;
+            }
+            endPull(session, player);
         }, autoRuns.containsKey(session.playerId) ? 10L : 20L);
     }
 
+    private void endPull(RollSession session, Player player) {
+        sessions.remove(session.playerId);
+        if (session.delivered.isEmpty()) {
+            // Nothing was paid out, so there is no result to show and nothing to
+            // continue into. Leaving the run armed would hang it here forever.
+            autoRuns.remove(session.playerId);
+            autoTrashed.remove(session.playerId);
+            return;
+        }
+        afterReward(player, List.copyOf(session.delivered), session.kind);
+    }
+
     /** Shown once a reward lands, so opening another crate never needs the hub. */
-    private void openResult(Player player, CrateCatalog.Reward reward, CrateKind kind) {
+    private void openResult(Player player, List<Payout> payouts, CrateKind kind) {
         CrateMenu holder = new CrateMenu(Screen.RESULT, 1, kind);
         Inventory inventory = Bukkit.createInventory(
                 holder, 27, Component.text("Crate Opened", ORANGE)
@@ -646,23 +775,31 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         for (int slot = 0; slot < inventory.getSize(); slot++) {
             inventory.setItem(slot, panel);
         }
-        inventory.setItem(4, lastRewardTrashed.remove(player.getUniqueId())
-                ? trashedPreview(reward)
-                : items.revealedPreview(reward, cosmeticItems));
+        // Centred whatever the count, so one reward sits where one reward always sat.
+        int firstSlot = 4 - (payouts.size() - 1) / 2;
+        for (int index = 0; index < payouts.size(); index++) {
+            Payout payout = payouts.get(index);
+            inventory.setItem(firstSlot + index, payout.trashed()
+                    ? trashedPreview(payout.reward())
+                    : items.revealedPreview(payout.reward(), cosmeticItems));
+        }
         int keys = items.count(player);
-        boolean canOpen = keys >= kind.keyCost();
+        int pull = pullSize(player);
+        int cost = kind.keyCost() * pull;
+        boolean canOpen = keys >= cost;
         inventory.setItem(RESULT_AGAIN_SLOT, MenuItems.button(
                 canOpen ? Material.CHEST : Material.BARRIER,
-                canOpen ? "Open Again" : "Not Enough Keys",
-                canOpen ? "Spends " + kind.keyCost() + " of your " + keys + " keys."
-                        : "This crate needs " + kind.keyCost() + " keys."
+                canOpen ? (pull == 1 ? "Open Again" : "Open " + pull + " Again")
+                        : "Not Enough Keys",
+                canOpen ? "Spends " + cost + " of your " + keys + " keys."
+                        : "This needs " + cost + (cost == 1 ? " key." : " keys.")
         ));
-        int possible = keys / kind.keyCost();
+        int possible = keys / cost;
         inventory.setItem(RESULT_AUTO_SLOT, MenuItems.button(
                 possible > 0 ? Material.HOPPER : Material.BARRIER,
                 "Auto Open",
-                possible > 0 ? "Opens " + possible + " crates using "
-                        + (possible * kind.keyCost()) + " keys." : "You cannot afford this crate.",
+                possible > 0 ? "Opens " + (possible * pull) + " crates using "
+                        + (possible * cost) + " keys." : "You cannot afford this crate.",
                 possible > 0 ? "You confirm before anything is spent." : "Earn keys by playing."
         ));
         inventory.setItem(RESULT_BACK_SLOT, MenuItems.button(Material.BARRIER, "Close"));
@@ -695,15 +832,17 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             return;
         }
         int keys = items.count(player);
-        int opens = keys / kind.keyCost();
+        int pull = pullSize(player);
+        int cost = kind.keyCost() * pull;
+        int opens = keys / cost;
         if (opens <= 0) {
-            PlayerMenuService.error(player, "You need " + kind.keyCost()
+            PlayerMenuService.error(player, "You need " + cost
                     + " Mysterious Crate Keys to open this crate.");
             return;
         }
         CrateMenu holder = new CrateMenu(Screen.CONFIRM, 1, kind);
         Inventory inventory = Bukkit.createInventory(
-                holder, 27, Component.text("Open " + opens + " crates?", ORANGE)
+                holder, 27, Component.text("Open " + (opens * pull) + " crates?", ORANGE)
         );
         holder.inventory = inventory;
         ItemStack panel = MenuItems.button(Material.BROWN_STAINED_GLASS_PANE, "Crate Panel");
@@ -712,8 +851,10 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         }
         inventory.setItem(CONFIRM_YES_SLOT, MenuItems.button(
                 Material.LIME_CONCRETE,
-                "Confirm: spend " + (opens * kind.keyCost()) + " keys",
-                "Opens " + opens + " crates one after another.",
+                "Confirm: spend " + (opens * cost) + " keys",
+                pull == 1
+                        ? "Opens " + opens + " crates one after another."
+                        : "Runs " + opens + " pulls of " + pull + " reels each.",
                 kind.keyCost() == 1 ? "One key is spent per crate." : "Two keys are spent per crate.",
                 "Close the menu part way to keep the rest."
         ));
@@ -733,9 +874,10 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
      */
     private void beginAutoOpen(Player player, CrateKind kind) {
         int keys = items.count(player);
-        int opens = keys / kind.keyCost();
+        int cost = kind.keyCost() * pullSize(player);
+        int opens = keys / cost;
         if (opens <= 0) {
-            PlayerMenuService.error(player, "You need " + kind.keyCost()
+            PlayerMenuService.error(player, "You need " + cost
                     + " Mysterious Crate Keys to open this crate.");
             return;
         }
@@ -752,10 +894,14 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
      * one drop nobody gets to see. Everything else continues immediately, so an ordinary
      * auto run is unaffected.
      */
-    private void afterReward(Player player, CrateCatalog.Reward reward, CrateKind kind) {
-        long revealTicks = CosmeticEffectService.revealDurationTicks(reward.revealTier());
+    private void afterReward(Player player, List<Payout> payouts, CrateKind kind) {
+        // A triple pull waits for its best drop, not its last one.
+        long revealTicks = payouts.stream()
+                .mapToLong(payout ->
+                        CosmeticEffectService.revealDurationTicks(payout.reward().revealTier()))
+                .max().orElse(0L);
         if (revealTicks <= 0L) {
-            continueAfterReward(player, reward, kind);
+            continueAfterReward(player, payouts, kind);
             return;
         }
         UUID watcherId = player.getUniqueId();
@@ -766,18 +912,18 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             if (!player.isOnline() || sessions.containsKey(watcherId)) {
                 return;
             }
-            continueAfterReward(player, reward, kind);
+            continueAfterReward(player, payouts, kind);
         }, revealTicks + REVEAL_SETTLE_TICKS);
     }
 
-    private void continueAfterReward(Player player, CrateCatalog.Reward reward, CrateKind kind) {
+    private void continueAfterReward(Player player, List<Payout> payouts, CrateKind kind) {
         Integer remaining = autoRuns.get(player.getUniqueId());
         if (remaining == null) {
-            openResult(player, reward, kind);
+            openResult(player, payouts, kind);
             return;
         }
         int left = remaining - 1;
-        if (left <= 0 || items.count(player) < kind.keyCost()) {
+        if (left <= 0 || items.count(player) < kind.keyCost() * pullSize(player)) {
             autoRuns.remove(player.getUniqueId());
             Integer counted = autoTrashed.remove(player.getUniqueId());
             int trashed = counted == null ? 0 : counted;
@@ -791,7 +937,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                         NamedTextColor.GRAY
                 )));
             }
-            openResult(player, reward, kind);
+            openResult(player, payouts, kind);
             return;
         }
         autoRuns.put(player.getUniqueId(), left);
@@ -1044,6 +1190,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 confirmAutoOpen(player, menu.kind);
             } else if (event.getSlot() == HUB_FILTER_SLOT) {
                 openFilters(player, menu.kind, 1);
+            } else if (event.getSlot() == HUB_TRIPLE_SLOT) {
+                toggleTriplePull(player, menu.kind);
             }
         } else if (menu.screen == Screen.RESULT) {
             if (event.getSlot() == RESULT_AGAIN_SLOT) {
@@ -1406,22 +1554,27 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         inventory.setItem(4, MenuItems.button(Material.BARREL, "Mysterious Crates"));
     }
 
-    private void fillCrate(Inventory inventory, CrateKind kind) {
+    private void fillCrate(Inventory inventory, CrateKind kind, List<Lane> lanes) {
         ItemStack filler = MenuItems.button(Material.BROWN_STAINED_GLASS_PANE, "Crate Panel");
         for (int slot = 0; slot < inventory.getSize(); slot++) {
             inventory.setItem(slot, filler);
         }
         ItemStack brace = MenuItems.button(Material.IRON_BARS, "Iron Crate Brace");
-        for (int slot : List.of(0, 8, 9, 17, 27, 35, 36, 44)) {
+        for (int slot : List.of(0, 8, 36, 44)) {
             inventory.setItem(slot, brace);
         }
-        for (int slot = REEL_FIRST; slot <= REEL_LAST; slot++) {
-            CrateCatalog.Reward preview = kind.randomPreview();
-            inventory.setItem(slot, items.preview(preview, cosmeticItems));
+        for (Lane lane : lanes) {
+            for (int slot = lane.reelFirst; slot <= lane.reelLast; slot++) {
+                inventory.setItem(slot, items.preview(kind.randomPreview(), cosmeticItems));
+            }
+            // The marker sits at the end of the row rather than above and below it,
+            // because with three reels there is no row left to spare for a pointer.
+            inventory.setItem(lane.reelFirst - 1,
+                    MenuItems.button(Material.SPECTRAL_ARROW, "Winning Slot"));
+            inventory.setItem(lane.reelLast + 1,
+                    MenuItems.button(Material.HOPPER, "Reward Locked In"));
         }
         inventory.setItem(4, MenuItems.button(Material.BARREL, "Opening"));
-        inventory.setItem(13, MenuItems.button(Material.SPECTRAL_ARROW, "Winning Slot"));
-        inventory.setItem(31, MenuItems.button(Material.HOPPER, "Winning Slot"));
         inventory.setItem(40, MenuItems.button(
                 Material.TRIPWIRE_HOOK,
                 "Key Consumed",
