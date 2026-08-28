@@ -22,6 +22,7 @@ import java.util.UUID;
 /** Creates and recognises the unique bearer item for a cosmetic. */
 final class CosmeticItems {
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
+    private static final TextColor AMETHYST = TextColor.color(0xB56CFF);
     private static final int DESCRIPTION_LINE_LENGTH = 46;
     record TokenInfo(UUID serial, String cosmeticId, int generation) {
     }
@@ -80,6 +81,12 @@ final class CosmeticItems {
                 masked ? CosmeticCatalog.MASKED_DESCRIPTION : definition.description()
         )) {
             lore.add(line(descriptionLine));
+        }
+        if (CosmeticCatalog.isLimitedAmethyst(definition.id())) {
+            lore.add(Component.empty());
+            lore.add(Component.text(
+                    "Part of the Limited-Time Amethyst Crate", AMETHYST
+            ).decoration(TextDecoration.ITALIC, false));
         }
         lore.add(Component.empty());
         lore.add(line("Rarity: " + (masked ? "???" : definition.rarityDisplay())));

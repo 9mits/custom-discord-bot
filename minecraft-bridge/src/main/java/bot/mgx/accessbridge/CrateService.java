@@ -341,7 +341,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         int first = (page - 1) * ODDS_PER_PAGE;
         int last = Math.min(rewards.size(), first + ODDS_PER_PAGE);
         for (int index = first; index < last; index++) {
-            inventory.setItem(index - first, items.preview(rewards.get(index), cosmeticItems));
+            inventory.setItem(index - first, items.oddsPreview(rewards.get(index), cosmeticItems));
         }
         if (page > 1) {
             inventory.setItem(PREVIOUS_SLOT, MenuItems.button(Material.ARROW, "Previous Page"));

@@ -228,6 +228,11 @@ final class CosmeticCatalog {
                     "Tiny geodes sprout, open, and dissolve along the path you travelled."
             )
     );
+
+    static boolean isLimitedAmethyst(String cosmeticId) {
+        return cosmeticId != null && AMETHYST_REWARDS.stream()
+                .anyMatch(definition -> definition.id().equalsIgnoreCase(cosmeticId));
+    }
     private static final List<Definition> LEADERBOARD_REWARDS = List.of(
             leaderboardCosmetic(
                     "golden_finality", "Golden Finality", Category.KILL_EFFECT, 1,
