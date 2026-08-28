@@ -96,8 +96,9 @@ final class PlayerSettingsStore {
                 "Render your equipped trail for you.", true, Category.VISUALS),
         OWN_KILL_EFFECTS_VISIBLE("own_kill_effects_visible", "Your kill effects",
                 "Render your equipped kill effects for you.", true, Category.VISUALS),
-        RARITY_TAG_VISIBLE("rarity_tag_visible", "Your 1 in X tag",
-                "Display your equipped Mythic-or-rarer cosmetic odds below your nametag.",
+        RARITY_TAG_VISIBLE("rarity_tag_visible", "Your odds tag",
+                "Show the odds behind your rarest equipped cosmetic under your name. "
+                        + "Mythic and rarer only.",
                 true, Category.VISUALS),
         COSMETIC_SOUNDS("cosmetic_sounds", "Cosmetic sounds",
                 "Play sounds from cosmetic reveals and kill effects.", true, Category.VISUALS),
