@@ -632,7 +632,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             )));
             recordWin(player, pending, reward);
             if (definition.secret()) {
-                effects.playSecretReveal(player);
+                effects.playSecretReveal(player, definition);
             }
             return true;
         }

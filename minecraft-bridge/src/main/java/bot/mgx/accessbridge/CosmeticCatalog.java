@@ -15,6 +15,8 @@ import java.util.Optional;
  */
 final class CosmeticCatalog {
     static final int SECRET_WEIGHT = 3;
+    static final String HIDDEN_AMETHYST_COSMETIC_ID = "iridescent_imperium";
+    static final int HIDDEN_AMETHYST_ONE_IN = 1_000_000;
 
     enum Category {
         KILL_EFFECT("Kill Effects"),
@@ -69,6 +71,9 @@ final class CosmeticCatalog {
             if (leaderboardOnly()) {
                 return "Leaderboard #" + leaderboardRank;
             }
+            if (hiddenAmethystJackpot()) {
+                return "Exotic";
+            }
             if (secret) {
                 return "Secret";
             }
@@ -86,6 +91,21 @@ final class CosmeticCatalog {
 
         boolean leaderboardOnly() {
             return leaderboardRank > 0;
+        }
+
+        boolean hiddenAmethystJackpot() {
+            return id.equals(HIDDEN_AMETHYST_COSMETIC_ID);
+        }
+
+        int oneIn() {
+            if (hiddenAmethystJackpot()) {
+                return HIDDEN_AMETHYST_ONE_IN;
+            }
+            return Math.max(1, (int) Math.round(CrateCatalog.TOTAL_WEIGHT / (double) weight));
+        }
+
+        String oneInDisplay(boolean masked) {
+            return masked ? "1 in ???" : String.format(Locale.ROOT, "1 in %,d", oneIn());
         }
     }
 
@@ -198,32 +218,32 @@ final class CosmeticCatalog {
     /** Limited Amethyst Crate cosmetics. Kept out of the permanent crate pool. */
     private static final List<Definition> AMETHYST_REWARDS = List.of(
             cosmetic(
-                    "amethyst_ascension", "Amethyst Ascension", Category.AURA, 1_500,
+                    "amethyst_ascension", "Amethyst Ascension", Category.AURA, 100,
                     "AMETHYST_SHARD",
                     "A living crystal crown rises while faceted rings bloom around you."
             ),
             cosmetic(
-                    "geode_cathedral", "Geode Cathedral", Category.AURA, 700,
+                    "geode_cathedral", "Geode Cathedral", Category.AURA, 60,
                     "BUDDING_AMETHYST",
                     "Rotating geode arches grow, chime, and collapse into violet light."
             ),
             cosmetic(
-                    "crystal_guillotine", "Crystal Guillotine", Category.KILL_EFFECT, 1_200,
+                    "crystal_guillotine", "Crystal Guillotine", Category.KILL_EFFECT, 90,
                     "AMETHYST_CLUSTER",
                     "A descending crystal blade shatters the final blow into lethal shards."
             ),
             cosmetic(
-                    "violet_detonation", "Violet Detonation", Category.KILL_EFFECT, 600,
+                    "violet_detonation", "Violet Detonation", Category.KILL_EFFECT, 50,
                     "END_CRYSTAL",
                     "A compressed amethyst core violently detonates in expanding rings."
             ),
             cosmetic(
-                    "shardstorm_wake", "Shardstorm Wake", Category.TRAIL, 1_100,
+                    "shardstorm_wake", "Shardstorm Wake", Category.TRAIL, 80,
                     "AMETHYST_SHARD",
                     "Sweeping crystal crescents chase your steps and burst behind you."
             ),
             cosmetic(
-                    "geode_bloom", "Geode Bloom", Category.TRAIL, 900,
+                    "geode_bloom", "Geode Bloom", Category.TRAIL, 66,
                     "SMALL_AMETHYST_BUD",
                     "Tiny geodes sprout, open, and dissolve along the path you travelled."
             ),
@@ -244,8 +264,28 @@ final class CosmeticCatalog {
             )
     );
 
+    /**
+     * The event's true chase reward. It is indexed for ownership, admin testing, and
+     * resource-pack validation, but deliberately never enters the visible crate pool.
+     */
+    private static final List<Definition> HIDDEN_AMETHYST_REWARDS = List.of(
+            new Definition(
+                    HIDDEN_AMETHYST_COSMETIC_ID,
+                    "Iridescent Imperium",
+                    Category.AURA,
+                    1,
+                    true,
+                    "AMETHYST_CLUSTER",
+                    "mgx:cosmetic/" + HIDDEN_AMETHYST_COSMETIC_ID,
+                    "A couture amethyst heart conducts a living spectrum to the music.",
+                    0
+            )
+    );
+
     static boolean isLimitedAmethyst(String cosmeticId) {
-        return cosmeticId != null && AMETHYST_REWARDS.stream()
+        return cosmeticId != null && java.util.stream.Stream.concat(
+                        AMETHYST_REWARDS.stream(), HIDDEN_AMETHYST_REWARDS.stream()
+                )
                 .anyMatch(definition -> definition.id().equalsIgnoreCase(cosmeticId));
     }
     private static final List<Definition> LEADERBOARD_REWARDS = List.of(
@@ -329,10 +369,15 @@ final class CosmeticCatalog {
         return AMETHYST_REWARDS;
     }
 
+    static List<Definition> hiddenAmethystRewards() {
+        return HIDDEN_AMETHYST_REWARDS;
+    }
+
     /** Crate and leaderboard entries whose item models must ship in the resource pack. */
     static List<Definition> visualEntries() {
         return java.util.stream.Stream.of(
-                        DEFINITIONS.stream(), AMETHYST_REWARDS.stream(), LEADERBOARD_REWARDS.stream()
+                        DEFINITIONS.stream(), AMETHYST_REWARDS.stream(),
+                        HIDDEN_AMETHYST_REWARDS.stream(), LEADERBOARD_REWARDS.stream()
                 )
                 .flatMap(stream -> stream)
                 .toList();

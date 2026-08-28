@@ -43,7 +43,7 @@ final class AmethystCrateCatalogTest {
                     .filter(definition -> definition.category() == category)
                     .count(), category.name());
         }
-        assertEquals(6_009, CosmeticCatalog.amethystRewards().stream()
+        assertEquals(455, CosmeticCatalog.amethystRewards().stream()
                 .mapToInt(CosmeticCatalog.Definition::weight).sum());
     }
 
@@ -79,6 +79,73 @@ final class AmethystCrateCatalogTest {
     }
 
     @Test
+    void exoticJackpotIsOneInAMillionAndAbsentFromEveryPublishedPool() {
+        CosmeticCatalog.Definition exotic = CosmeticCatalog
+                .find(CosmeticCatalog.HIDDEN_AMETHYST_COSMETIC_ID).orElseThrow();
+        CrateCatalog.Reward reward = CrateCatalog.hiddenAmethyst().getFirst();
+
+        assertEquals("Iridescent Imperium", exotic.displayName());
+        assertEquals("Exotic", exotic.rarityDisplay());
+        assertEquals(1_000_000, exotic.oneIn());
+        assertEquals("1 in 1,000,000", exotic.oneInDisplay(false));
+        assertTrue(exotic.secret());
+        assertFalse(CosmeticCatalog.amethystRewards().contains(exotic));
+        assertFalse(CrateCatalog.amethyst().contains(reward));
+        assertFalse(CrateCatalog.all().contains(reward));
+        assertTrue(CrateCatalog.everyReward().contains(reward));
+        assertTrue(CrateCatalog.isHiddenAmethyst(reward));
+        assertEquals("1 in 1,000,000", reward.displayedChance());
+        assertEquals(reward, CrateCatalog.hiddenAmethystAt(0).orElseThrow());
+        assertTrue(CrateCatalog.hiddenAmethystAt(1).isEmpty());
+        assertTrue(CrateCatalog.hiddenAmethystAt(999_999).isEmpty());
+    }
+
+    @Test
+    void highValueEventRewardsStayRareAcrossTenThousandCommunityRolls() {
+        Map<String, Integer> maximumWeights = Map.of(
+                "amethyst_enchanted_apple", 50,
+                "amethyst_excavation_i", 5,
+                "amethyst_pickaxe", 20,
+                "amethyst_shovel", 25,
+                "amethyst_axe", 30,
+                "amethyst_shield", 5,
+                "amethyst_totem", 10
+        );
+        maximumWeights.forEach((id, maximum) -> assertTrue(
+                CrateCatalog.find(id).orElseThrow().weight() <= maximum, id
+        ));
+        Set<String> chaseIds = new HashSet<>(maximumWeights.keySet());
+        CosmeticCatalog.amethystRewards().forEach(
+                definition -> chaseIds.add("cosmetic_" + definition.id())
+        );
+        assertEquals(600, CrateCatalog.amethyst().stream()
+                .filter(reward -> chaseIds.contains(reward.id()))
+                .mapToInt(CrateCatalog.Reward::weight)
+                .sum());
+    }
+
+    @Test
+    void afkOpeningPoolHasUsefulVanillaFoodPotionsAndEnchantments() {
+        Set<String> expected = Set.of(
+                "amethyst_golden_carrots",
+                "amethyst_potion_regeneration_ii",
+                "amethyst_potion_night_vision",
+                "amethyst_potion_water_breathing",
+                "amethyst_enchant_mending_i",
+                "amethyst_enchant_protection_iv",
+                "amethyst_enchant_sharpness_v",
+                "amethyst_enchant_efficiency_v",
+                "amethyst_enchant_fortune_iii",
+                "amethyst_enchant_looting_iii",
+                "amethyst_enchant_silk_touch_i",
+                "amethyst_enchant_unbreaking_iii"
+        );
+        Set<String> actual = new HashSet<>();
+        CrateCatalog.amethyst().forEach(reward -> actual.add(reward.id()));
+        assertTrue(actual.containsAll(expected));
+    }
+
+    @Test
     void eventDeadlineIsSaturdaySeptemberFifthAtThreePmJst() {
         assertEquals(1_788_588_000_000L, CrateKind.AMETHYST.closesAt());
         assertTrue(CrateKind.AMETHYST.available(CrateKind.AMETHYST.closesAt() - 1));
@@ -105,6 +172,7 @@ final class AmethystCrateCatalogTest {
     @Test
     void adminRewardDirectoryIncludesEveryLimitedReward() {
         assertTrue(CrateCatalog.everyReward().containsAll(CrateCatalog.amethyst()));
+        assertTrue(CrateCatalog.amethystAdminRewards().containsAll(CrateCatalog.hiddenAmethyst()));
         CrateCatalog.amethyst().forEach(reward -> assertTrue(
                 CrateCatalog.find(reward.id()).isPresent()
         ));

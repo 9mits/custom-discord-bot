@@ -7,6 +7,7 @@ import org.bukkit.Color;
 import org.bukkit.Location;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
+import org.bukkit.SoundCategory;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
@@ -37,6 +38,8 @@ final class CosmeticEffectService implements Listener {
     private static final double VIEW_DISTANCE_SQUARED = 48d * 48d;
     private static final int TRAIL_HISTORY_SIZE = 14;
     private static final double TRAIL_RESET_DISTANCE_SQUARED = 12d * 12d;
+    private static final String MUSIC_AURA_ID = CosmeticCatalog.HIDDEN_AMETHYST_COSMETIC_ID;
+    private static final String MUSIC_AURA_SOUND = "mgx:iridescent_imperium";
     private final MGXAccessBridge plugin;
     private final CosmeticStore store;
     private final CosmeticItems items;
@@ -46,8 +49,19 @@ final class CosmeticEffectService implements Listener {
     private final Map<UUID, Location> previousLocations = new HashMap<>();
     private final Map<UUID, Deque<Location>> trailHistories = new HashMap<>();
     private final Set<String> failedSelectionClears = new HashSet<>();
+    private final Map<UUID, MusicAuraState> musicAuraStates = new HashMap<>();
     private BukkitTask task;
     private long frame;
+
+    private static final class MusicAuraState {
+        private final long startedAtMillis;
+        private final Set<UUID> listeners = new HashSet<>();
+        private long loop = -1L;
+
+        MusicAuraState(long startedAtMillis) {
+            this.startedAtMillis = startedAtMillis;
+        }
+    }
 
     CosmeticEffectService(
             MGXAccessBridge plugin,
@@ -81,16 +95,25 @@ final class CosmeticEffectService implements Listener {
         previousLocations.clear();
         trailHistories.clear();
         failedSelectionClears.clear();
+        for (UUID ownerId : List.copyOf(musicAuraStates.keySet())) {
+            stopMusicAura(ownerId);
+        }
     }
 
     private void tick() {
         frame++;
         previousLocations.keySet().removeIf(uuid -> plugin.getServer().getPlayer(uuid) == null);
         trailHistories.keySet().removeIf(uuid -> plugin.getServer().getPlayer(uuid) == null);
+        for (UUID ownerId : List.copyOf(musicAuraStates.keySet())) {
+            if (plugin.getServer().getPlayer(ownerId) == null) {
+                stopMusicAura(ownerId);
+            }
+        }
         for (Player player : plugin.getServer().getOnlinePlayers()) {
             if (VerificationLobbyService.isLobbyWorld(player.getWorld())) {
                 previousLocations.remove(player.getUniqueId());
                 trailHistories.remove(player.getUniqueId());
+                stopMusicAura(player.getUniqueId());
                 continue;
             }
             Location now = player.getLocation();
@@ -99,10 +122,16 @@ final class CosmeticEffectService implements Listener {
             double movementSquared = movedInWorld ? previous.distanceSquared(now) : 0d;
             boolean moving = movedInWorld && movementSquared > 0.0025d;
             long auraFrame = frame + CosmeticAnimation.playerOffset(player.getUniqueId(), 3);
+            Optional<CosmeticCatalog.Definition> aura = active(
+                    player, CosmeticCatalog.Category.AURA
+            );
+            if (aura.map(CosmeticCatalog.Definition::id).filter(MUSIC_AURA_ID::equals).isPresent()) {
+                syncMusicAura(player);
+            } else {
+                stopMusicAura(player.getUniqueId());
+            }
             if (CosmeticAnimation.renderAuraFrame(moving, auraFrame)) {
-                active(player, CosmeticCatalog.Category.AURA).ifPresent(
-                        definition -> drawAura(player, definition)
-                );
+                aura.ifPresent(definition -> drawAura(player, definition));
             }
             Deque<Location> history = trailHistories.computeIfAbsent(
                     player.getUniqueId(), ignored -> new ArrayDeque<>()
@@ -137,15 +166,25 @@ final class CosmeticEffectService implements Listener {
         );
     }
 
-    void playSecretReveal(Player player) {
+    void playSecretReveal(Player player, CosmeticCatalog.Definition definition) {
+        boolean exotic = definition.hiddenAmethystJackpot();
         player.showTitle(Title.title(
-                Component.text("UNKNOWN COSMETIC", NamedTextColor.DARK_PURPLE),
-                Component.text("Chance: ???", NamedTextColor.GRAY),
-                Title.Times.times(Duration.ofMillis(250), Duration.ofSeconds(3), Duration.ofSeconds(1))
+                Component.text(
+                        exotic ? "IRIDESCENT IMPERIUM" : "UNKNOWN COSMETIC",
+                        exotic ? NamedTextColor.LIGHT_PURPLE : NamedTextColor.DARK_PURPLE
+                ),
+                Component.text(
+                        exotic ? "EXOTIC • 1 in 1,000,000" : "Chance: ???",
+                        exotic ? NamedTextColor.GOLD : NamedTextColor.GRAY
+                ),
+                Title.Times.times(
+                        Duration.ofMillis(250), Duration.ofSeconds(exotic ? 5 : 3),
+                        Duration.ofSeconds(1)
+                )
         ));
         Location origin = player.getLocation().add(0d, 1d, 0d);
         Color shadow = Color.fromRGB(45, 0, 70);
-        Color reveal = Color.fromRGB(210, 80, 255);
+        Color reveal = exotic ? Color.fromRGB(244, 190, 90) : Color.fromRGB(210, 80, 255);
         animate(player, origin, 30, 2L, step -> {
             if (!player.isOnline()) {
                 return;
@@ -298,6 +337,10 @@ final class CosmeticEffectService implements Listener {
             drawLeaderboardAura(owner, definition, centre, phase, step);
             return;
         }
+        if (definition.id().equals(MUSIC_AURA_ID)) {
+            drawIridescentImperium(owner, centre);
+            return;
+        }
         if (definition.secret()) {
             drawSecretAura(owner, definition, centre, phase, step);
             return;
@@ -311,6 +354,142 @@ final class CosmeticEffectService implements Listener {
             case "amethyst_ascension" -> drawAmethystAscension(owner, centre, phase, step);
             case "geode_cathedral" -> drawGeodeCathedral(owner, centre, phase, step);
             default -> { }
+        }
+    }
+
+    private void syncMusicAura(Player owner) {
+        long now = System.currentTimeMillis();
+        MusicAuraState state = musicAuraStates.computeIfAbsent(
+                owner.getUniqueId(), ignored -> new MusicAuraState(now)
+        );
+        long loop = Math.max(0L, now - state.startedAtMillis) / MusicAuraTimeline.DURATION_MILLIS;
+        if (state.loop == loop) {
+            return;
+        }
+        for (UUID listenerId : List.copyOf(state.listeners)) {
+            Player listener = plugin.getServer().getPlayer(listenerId);
+            if (listener != null) {
+                listener.stopSound(MUSIC_AURA_SOUND, SoundCategory.MUSIC);
+            }
+        }
+        state.listeners.clear();
+        state.loop = loop;
+        for (Player viewer : viewers(
+                owner, owner.getLocation(), PlayerSettingsStore.Setting.OWN_AURA_VISIBLE
+        )) {
+            if (!settings.isEnabled(
+                    viewer.getUniqueId(), PlayerSettingsStore.Setting.COSMETIC_SOUNDS
+            )) {
+                continue;
+            }
+            viewer.playSound(
+                    owner.getLocation(), MUSIC_AURA_SOUND, SoundCategory.MUSIC, 0.72f, 1f
+            );
+            state.listeners.add(viewer.getUniqueId());
+        }
+    }
+
+    private void stopMusicAura(UUID ownerId) {
+        MusicAuraState state = musicAuraStates.remove(ownerId);
+        if (state == null) {
+            return;
+        }
+        for (UUID listenerId : state.listeners) {
+            Player listener = plugin.getServer().getPlayer(listenerId);
+            if (listener != null) {
+                listener.stopSound(MUSIC_AURA_SOUND, SoundCategory.MUSIC);
+            }
+        }
+    }
+
+    /**
+     * A faceted amethyst conductor changes formation and luxury-jewel palette with the
+     * supplied recording. Bass lifts the crown, mids widen the orbit, highs sharpen the
+     * facets, and measured transients create the visible beat hits.
+     */
+    private void drawIridescentImperium(Player owner, Location centre) {
+        MusicAuraState state = musicAuraStates.get(owner.getUniqueId());
+        if (state == null) {
+            return;
+        }
+        long elapsed = Math.max(0L, System.currentTimeMillis() - state.startedAtMillis);
+        long phaseMillis = elapsed % MusicAuraTimeline.DURATION_MILLIS;
+        MusicAuraTimeline.Sample sample = MusicAuraTimeline.at(phaseMillis);
+        double bass = sample.bass();
+        double mid = sample.mid();
+        double high = sample.high();
+        double hit = sample.onset();
+        double time = phaseMillis / 1_000.0d;
+        int formation = (int) (phaseMillis / 8_000L) % 4;
+
+        Color amethyst = Color.fromRGB(174, 77, 238);
+        Color lilac = Color.fromRGB(236, 188, 255);
+        Color ruby = Color.fromRGB(176, 31, 78);
+        Color sapphire = Color.fromRGB(52, 92, 205);
+        Color emerald = Color.fromRGB(28, 151, 96);
+        Color champagne = Color.fromRGB(242, 190, 92);
+        Color[] couture = {ruby, sapphire, emerald, champagne};
+        int band = bass >= mid && bass >= high ? 0 : mid >= high ? 2 : 1;
+        Color accent = couture[(band + formation) % couture.length];
+
+        Vector side = horizontalSide(owner);
+        Vector forward = new Vector(-side.getZ(), 0d, side.getX());
+        Location heart = centre.clone().add(0d, 0.08d + bass * 0.28d + hit * 0.34d, 0d);
+        drawVerticalGem(
+                owner, heart, side, 0.32d + bass * 0.18d + hit * 0.13d,
+                time * (0.65d + high * 0.5d), amethyst, lilac
+        );
+
+        int jewels = 6 + formation * 2;
+        double orbitRadius = 0.68d + mid * 0.72d + hit * 0.35d;
+        for (int jewel = 0; jewel < jewels; jewel++) {
+            double angle = time * (0.85d + high * 0.55d)
+                    + jewel * Math.PI * 2d / jewels;
+            double vertical = switch (formation) {
+                case 0 -> Math.sin(angle * 2d) * (0.22d + high * 0.28d);
+                case 1 -> Math.sin(jewel * Math.PI / Math.max(1, jewels - 1)) * 1.35d - 0.55d;
+                case 2 -> -0.8d + jewel * (1.65d / Math.max(1, jewels - 1));
+                default -> Math.cos(angle * 3d) * (0.42d + mid * 0.28d);
+            };
+            Location at = heart.clone()
+                    .add(side.clone().multiply(Math.cos(angle) * orbitRadius))
+                    .add(forward.clone().multiply(Math.sin(angle) * orbitRadius * 0.72d))
+                    .add(0d, vertical + hit * (jewel % 2 == 0 ? 0.24d : -0.12d), 0d);
+            Color jewelColour = jewel % 3 == 0
+                    ? accent : jewel % 2 == 0 ? amethyst : lilac;
+            dust(owner, at, jewelColour, jewel % 3 == 0 ? 1.12f : 0.78f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            if (high > 0.72d && jewel % 4 == 0) {
+                spawnMoving(owner, at, Particle.END_ROD,
+                        new Vector(0d, 0.025d + high * 0.04d, 0d), null,
+                        PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            }
+        }
+
+        Location crown = centre.clone().add(0d, 1.08d + hit * 0.48d, 0d);
+        for (int point = 0; point < 9; point++) {
+            double angle = -time * 0.44d + point * Math.PI * 2d / 9d;
+            double pointHeight = point % 3 == 0 ? 0.34d + high * 0.3d : 0.08d;
+            Location at = crown.clone()
+                    .add(side.clone().multiply(Math.cos(angle) * (0.48d + bass * 0.22d)))
+                    .add(forward.clone().multiply(Math.sin(angle) * (0.48d + bass * 0.22d)))
+                    .add(0d, pointHeight, 0d);
+            dust(owner, at, point % 3 == 0 ? champagne : amethyst,
+                    point % 3 == 0 ? 1.05f : 0.78f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+
+        double groundPulse = 0.7d + sample.energy() * 0.75d + hit * 1.2d;
+        drawRing(owner, centre.clone().add(0d, -0.88d, 0d), groundPulse,
+                18, time * (formation % 2 == 0 ? 1.1d : -1.1d), accent, 0.82f,
+                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        if (hit >= 0.76d) {
+            drawRing(owner, heart, 0.25d + hit * 1.65d, 20,
+                    -time * 1.7d, lilac, 0.92f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            spawn(owner, crown, hit > 0.94d ? Particle.FLASH : Particle.FIREWORK,
+                    1, 0d, 0d, 0d, 0d, null,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
         }
     }
 

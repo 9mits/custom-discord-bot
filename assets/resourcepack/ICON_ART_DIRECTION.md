@@ -110,6 +110,7 @@ Avoid: flat symbol design, mobile-game gloss, smooth illustration, excessive det
 | `galaxy_wake` | Blue-white stellar comet with a broad midnight-violet, star-filled tail. |
 | `golden_finality` | Single royal-gold execution sword with a sun-shaped royal fitting. |
 | `infernal_dominion` | Blackened nether-metal crown with lava cracks and a yellow-hot ember gem. |
+| `iridescent_imperium` | Dominant royal-amethyst resonance heart in a broken couture-gold crown ring, set with restrained ruby, sapphire, emerald, and champagne facets. |
 | `kingmakers_wake` | Torn royal-gold banner with a crown finial and purple mantle cloth. |
 | `moonlit_procession` | Thick silver-blue crescent comet with two dark-blue trailing facets. |
 | `phantom_chains` | Three interlocked dark-teal chain links filled with cyan soul-light. |

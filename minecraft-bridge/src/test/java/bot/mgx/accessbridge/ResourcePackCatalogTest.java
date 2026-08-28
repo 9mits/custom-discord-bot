@@ -123,6 +123,33 @@ class ResourcePackCatalogTest {
     }
 
     @Test
+    void exactEventSongAndDefinitionsShipForBothEditions() throws Exception {
+        Path song = SOURCE.resolve("assets/mgx/sounds/music/iridescent_imperium.ogg");
+        assertTrue(Files.size(song) > 3_000_000L);
+        try (ZipFile javaPack = new ZipFile(PACK.resolve("MysteriousSMPX.zip").toFile())) {
+            ZipEntry entry = javaPack.getEntry("assets/mgx/sounds/music/iridescent_imperium.ogg");
+            assertNotNull(entry);
+            try (InputStream input = javaPack.getInputStream(entry)) {
+                assertArrayEquals(Files.readAllBytes(song), input.readAllBytes());
+            }
+            JsonObject sounds = zipJson(javaPack, "assets/mgx/sounds.json");
+            assertTrue(sounds.has("iridescent_imperium"));
+        }
+        try (ZipFile bedrockPack = new ZipFile(
+                BEDROCK.resolve("MysteriousSMPX-Bedrock.mcpack").toFile()
+        )) {
+            ZipEntry entry = bedrockPack.getEntry("sounds/music/iridescent_imperium.ogg");
+            assertNotNull(entry);
+            try (InputStream input = bedrockPack.getInputStream(entry)) {
+                assertArrayEquals(Files.readAllBytes(song), input.readAllBytes());
+            }
+            JsonObject definitions = zipJson(bedrockPack, "sounds/sound_definitions.json");
+            assertTrue(definitions.getAsJsonObject("sound_definitions")
+                    .has("mgx:iridescent_imperium"));
+        }
+    }
+
+    @Test
     void customItemIconsPreserveTheirIntendedQualityProfiles() throws Exception {
         Set<String> nativePotions = Set.of("fortune_potion.png", "crate_luck_potion.png");
         Map<String, List<Integer>> exactLinkedIcons = Map.of(

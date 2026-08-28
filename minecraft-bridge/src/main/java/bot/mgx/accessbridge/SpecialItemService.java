@@ -101,6 +101,12 @@ final class SpecialItemService implements Listener {
         if (id.equals("amethyst_excavation_i")) {
             return Optional.of(enchantmentBook("enchant_excavation_i"));
         }
+        if (id.startsWith("amethyst_potion_")) {
+            return Optional.of(vanillaPotion(id.substring("amethyst_".length())));
+        }
+        if (id.startsWith("amethyst_enchant_")) {
+            return Optional.of(vanillaEnchantmentBook(id.substring("amethyst_".length())));
+        }
         if (id.startsWith("potion_")) {
             return Optional.of(vanillaPotion(id));
         }
@@ -479,6 +485,21 @@ final class SpecialItemService implements Listener {
                 effect = new PotionEffect(PotionEffectType.SPEED, 5 * 60 * 20, 1);
                 color = Color.fromRGB(85, 175, 245);
             }
+            case "potion_regeneration_ii" -> {
+                name = "Potion of Regeneration II";
+                effect = new PotionEffect(PotionEffectType.REGENERATION, 90 * 20, 1);
+                color = Color.fromRGB(205, 70, 135);
+            }
+            case "potion_night_vision" -> {
+                name = "Potion of Night Vision";
+                effect = new PotionEffect(PotionEffectType.NIGHT_VISION, 8 * 60 * 20, 0);
+                color = Color.fromRGB(55, 80, 175);
+            }
+            case "potion_water_breathing" -> {
+                name = "Potion of Water Breathing";
+                effect = new PotionEffect(PotionEffectType.WATER_BREATHING, 8 * 60 * 20, 0);
+                color = Color.fromRGB(45, 105, 205);
+            }
             default -> {
                 name = "Potion of Fire Resistance";
                 effect = new PotionEffect(PotionEffectType.FIRE_RESISTANCE, 5 * 60 * 20, 0);
@@ -489,6 +510,28 @@ final class SpecialItemService implements Listener {
                 .decoration(TextDecoration.ITALIC, false));
         meta.addCustomEffect(effect, true);
         meta.setColor(color);
+        item.setItemMeta(meta);
+        return item;
+    }
+
+    /** Standard vanilla-level books stay standard; only custom over-level books carry marks. */
+    private ItemStack vanillaEnchantmentBook(String id) {
+        int level = romanLevel(id);
+        String enchant = id.substring("enchant_".length(), id.lastIndexOf('_'));
+        Enchantment vanilla = switch (enchant) {
+            case "mending" -> Enchantment.MENDING;
+            case "protection" -> Enchantment.PROTECTION;
+            case "sharpness" -> Enchantment.SHARPNESS;
+            case "efficiency" -> Enchantment.EFFICIENCY;
+            case "fortune" -> Enchantment.FORTUNE;
+            case "looting" -> Enchantment.LOOTING;
+            case "silk_touch" -> Enchantment.SILK_TOUCH;
+            case "unbreaking" -> Enchantment.UNBREAKING;
+            default -> throw new IllegalArgumentException("Unknown vanilla enchantment " + id);
+        };
+        ItemStack item = new ItemStack(Material.ENCHANTED_BOOK);
+        EnchantmentStorageMeta meta = (EnchantmentStorageMeta) item.getItemMeta();
+        meta.addStoredEnchant(vanilla, level, false);
         item.setItemMeta(meta);
         return item;
     }

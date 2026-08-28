@@ -531,6 +531,15 @@
         "bedrock_options": {
           "icon": "mgx:cosmetic_resonant_apotheosis"
         }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/iridescent_imperium",
+        "bedrock_identifier": "mgx:cosmetic_iridescent_imperium",
+        "display_name": "Iridescent Imperium",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_iridescent_imperium"
+        }
       }
     ],
     "minecraft:end_crystal": [
