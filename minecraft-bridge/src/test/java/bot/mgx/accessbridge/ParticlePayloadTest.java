@@ -5,6 +5,7 @@ import org.bukkit.Particle;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
@@ -19,6 +20,21 @@ final class ParticlePayloadTest {
     void suppliesRequiredMotionDataForAnimatedParticles() {
         assertEquals(Float.class, Particle.DRAGON_BREATH.getDataType());
         assertEquals(1.0f, CosmeticEffectService.particleData(Particle.DRAGON_BREATH, null));
+    }
+
+    /**
+     * The genuine-secret reveal pulses every online player, and that call spawned FLASH
+     * directly rather than through the service's own helper. Paper rejected it with
+     * "missing required data class org.bukkit.Color", which aborted the pulse mid-way
+     * for everyone watching. Every particle that pulse uses is checked here, because
+     * the call site cannot reach the helper's settings-aware path.
+     */
+    @Test
+    void everyParticleInTheServerwidePulseHasItsRequiredData() {
+        assertEquals(Color.class, Particle.FLASH.getDataType());
+        assertNotNull(CosmeticEffectService.particleData(Particle.FLASH, null));
+        assertEquals(Void.class, Particle.TOTEM_OF_UNDYING.getDataType());
+        assertNull(CosmeticEffectService.particleData(Particle.TOTEM_OF_UNDYING, null));
     }
 
     @Test

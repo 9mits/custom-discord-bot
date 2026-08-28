@@ -12,20 +12,17 @@ import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.SoundCategory;
 import org.bukkit.World;
-import org.bukkit.entity.Display;
+import org.bukkit.entity.ArmorStand;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Pose;
 import org.bukkit.entity.Player;
-import org.bukkit.entity.TextDisplay;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.scheduler.BukkitTask;
-import org.bukkit.util.Transformation;
 import org.bukkit.util.Vector;
-import org.joml.Vector3f;
 
 import java.io.UncheckedIOException;
 import java.time.Duration;
@@ -45,19 +42,25 @@ import java.util.function.IntConsumer;
 final class CosmeticEffectService implements Listener {
     /** Ten animation frames a second, with fewer deliberate particles per frame. */
     private static final long PERIOD_TICKS = 2L;
+    /**
+     * The odds tag follows on every tick while everything else runs on two.
+     *
+     * <p>It is a separate entity teleported after the player, so the client interpolates
+     * its motion: at ten updates a second it visibly trailed anyone sprinting. Riding
+     * the player instead would remove the lag outright, but a passenger renders at
+     * vanilla's mount point above the head and takes the player's own nameplate with
+     * it, so the tag follows at twenty updates a second instead. Teleporting one marker
+     * stand per tagged player costs nothing next to the particle work.
+     */
+    private static final long NAMEPLATE_PERIOD_TICKS = 1L;
     private static final double VIEW_DISTANCE_SQUARED = 48d * 48d;
     private static final int TRAIL_HISTORY_SIZE = 14;
     private static final double TRAIL_RESET_DISTANCE_SQUARED = 12d * 12d;
     private static final String MUSIC_AURA_ID = CosmeticCatalog.HIDDEN_AMETHYST_COSMETIC_ID;
     private static final String MUSIC_AURA_SOUND = "mgx:iridescent_imperium";
     private static final String RARITY_NAMEPLATE_TAG = "mgx_cosmetic_rarity_nameplate";
-    /** Every ten seconds, because a tag nobody owns is a bug rather than the norm. */
+    /** Every ten seconds, because a stand nobody owns is a bug rather than the norm. */
     private static final long NAMEPLATE_SWEEP_FRAMES = 100L;
-    /**
-     * Where the odds line renders above a player's feet. Matches the armour stand this
-     * replaced, which sat just under the player's own name.
-     */
-    private static final double RARITY_NAMEPLATE_HEIGHT = 2.125d;
     private final MGXAccessBridge plugin;
     private final CosmeticStore store;
     private final CosmeticItems items;
@@ -68,10 +71,11 @@ final class CosmeticEffectService implements Listener {
     private final Map<UUID, Deque<Location>> trailHistories = new HashMap<>();
     private final Set<String> failedSelectionClears = new HashSet<>();
     private final Map<UUID, MusicAuraState> musicAuraStates = new HashMap<>();
-    private final Map<UUID, TextDisplay> rarityNameplates = new HashMap<>();
+    private final Map<UUID, ArmorStand> rarityNameplates = new HashMap<>();
     private final Map<UUID, FloatingPlayerState> floatingPlayers = new HashMap<>();
     private final Set<BossBar> activeRevealBars = new HashSet<>();
     private BukkitTask task;
+    private BukkitTask nameplateTask;
     private long frame;
 
     private static final class MusicAuraState {
@@ -120,6 +124,10 @@ final class CosmeticEffectService implements Listener {
             task = plugin.getServer().getScheduler().runTaskTimer(
                     plugin, this::tick, PERIOD_TICKS, PERIOD_TICKS
             );
+            nameplateTask = plugin.getServer().getScheduler().runTaskTimer(
+                    plugin, this::followWithNameplates,
+                    NAMEPLATE_PERIOD_TICKS, NAMEPLATE_PERIOD_TICKS
+            );
         }
     }
 
@@ -128,13 +136,17 @@ final class CosmeticEffectService implements Listener {
             task.cancel();
             task = null;
         }
+        if (nameplateTask != null) {
+            nameplateTask.cancel();
+            nameplateTask = null;
+        }
         previousLocations.clear();
         trailHistories.clear();
         failedSelectionClears.clear();
         for (UUID ownerId : List.copyOf(musicAuraStates.keySet())) {
             stopMusicAura(ownerId);
         }
-        rarityNameplates.values().forEach(TextDisplay::remove);
+        rarityNameplates.values().forEach(ArmorStand::remove);
         rarityNameplates.clear();
         for (UUID playerId : List.copyOf(floatingPlayers.keySet())) {
             restoreFloatingPlayer(playerId);
@@ -241,81 +253,66 @@ final class CosmeticEffectService implements Listener {
             removeRarityNameplate(player.getUniqueId());
             return;
         }
-        TextDisplay plate = rarityNameplates.get(player.getUniqueId());
+        ArmorStand plate = rarityNameplates.get(player.getUniqueId());
         if (plate == null || !plate.isValid() || plate.getWorld() != player.getWorld()) {
             if (plate != null) {
                 plate.remove();
             }
-            plate = spawnRarityNameplate(player);
+            plate = player.getWorld().spawn(
+                    player.getLocation().add(0d, -0.35d, 0d), ArmorStand.class,
+                    entity -> {
+                        entity.setVisible(false);
+                        entity.setMarker(true);
+                        entity.setGravity(false);
+                        entity.setInvulnerable(true);
+                        entity.setSilent(true);
+                        entity.setCollidable(false);
+                        entity.setPersistent(false);
+                        entity.setCustomNameVisible(true);
+                        entity.addScoreboardTag(RARITY_NAMEPLATE_TAG);
+                        entity.addScoreboardTag(
+                                RARITY_NAMEPLATE_TAG + ":" + player.getUniqueId()
+                        );
+                    }
+            );
             rarityNameplates.put(player.getUniqueId(), plate);
         }
-        // Death, a cross-world teleport and a few other things eject a passenger, so
-        // the mount is re-checked rather than assumed to have survived.
-        if (!player.equals(plate.getVehicle())) {
-            player.addPassenger(plate);
-        }
-        plate.text(rarityNameplate(rarest, frame));
-        alignRarityNameplate(player, plate);
+        plate.customName(rarityNameplate(rarest, frame));
+        plate.teleport(nameplateLocation(player));
     }
 
     /**
-     * A display ridden by the player rather than an armour stand teleported after them.
+     * Keeps every live odds tag on its owner.
      *
-     * <p>A teleported entity is interpolated by the client over several ticks, so the
-     * old tag visibly trailed a sprinting player no matter how often the server moved
-     * it. A passenger is drawn from the vehicle's own position, which removes the lag
-     * outright instead of shortening it.
+     * <p>Deliberately does nothing else: whether a tag should exist at all, and what it
+     * says, is decided by the main pass. This one only closes the gap between where the
+     * player is and where their tag was last told to be.
      */
-    private TextDisplay spawnRarityNameplate(Player player) {
-        TextDisplay display = player.getWorld().spawn(
-                player.getLocation(), TextDisplay.class,
-                entity -> {
-                    entity.setBillboard(Display.Billboard.CENTER);
-                    entity.setSeeThrough(true);
-                    entity.setPersistent(false);
-                    entity.setViewRange(1f);
-                    entity.addScoreboardTag(RARITY_NAMEPLATE_TAG);
-                    entity.addScoreboardTag(
-                            RARITY_NAMEPLATE_TAG + ":" + player.getUniqueId()
-                    );
-                }
-        );
-        player.addPassenger(display);
-        return display;
+    private void followWithNameplates() {
+        for (Map.Entry<UUID, ArmorStand> entry : rarityNameplates.entrySet()) {
+            Player owner = plugin.getServer().getPlayer(entry.getKey());
+            ArmorStand plate = entry.getValue();
+            if (owner == null || !plate.isValid() || plate.getWorld() != owner.getWorld()) {
+                continue;
+            }
+            plate.teleport(nameplateLocation(owner));
+        }
     }
 
-    /**
-     * Lifts the text to where the old nameplate sat, just under the player's own name.
-     *
-     * <p>Where vanilla parks a passenger is not ours to choose and is not worth
-     * hard-coding, so the offset is measured from the display's real position each time
-     * and corrected through the render translation. Rewriting the transformation is a
-     * metadata update, so it only happens when the number actually moves.
-     */
-    private static void alignRarityNameplate(Player player, TextDisplay plate) {
-        double mounted = plate.getLocation().getY() - player.getLocation().getY();
-        float lift = (float) (RARITY_NAMEPLATE_HEIGHT - mounted);
-        Transformation current = plate.getTransformation();
-        if (Math.abs(current.getTranslation().y() - lift) <= 0.02f) {
-            return;
-        }
-        plate.setTransformation(new Transformation(
-                new Vector3f(0f, lift, 0f),
-                current.getLeftRotation(),
-                current.getScale(),
-                current.getRightRotation()
-        ));
+    private static Location nameplateLocation(Player owner) {
+        Location target = owner.getLocation().add(0d, -0.35d, 0d);
+        target.setYaw(0f);
+        target.setPitch(0f);
+        return target;
     }
 
     /**
      * Deletes any odds tag the service is not currently driving.
      *
-     * <p>The map is the only handle on a tag, so anything that loses an entry — a
-     * crash between spawning and registering, a tag left by an older build — leaves a
-     * line floating in the world that nothing will ever remove. Each one carries its
-     * owner's ID, so this can tell a live tag from a ghost without guessing. It matches
-     * on the tag rather than the entity type, which is also what clears the armour
-     * stands earlier builds used.
+     * <p>The map is the only handle on a stand, so anything that loses an entry — a
+     * crash between spawning and registering, a stand left by an older build — leaves a
+     * line floating in the world that nothing will ever remove. Each stand carries its
+     * owner's ID, so this can tell a live tag from a ghost without guessing.
      */
     private void sweepOrphanedNameplates() {
         for (World world : plugin.getServer().getWorlds()) {
@@ -348,7 +345,7 @@ final class CosmeticEffectService implements Listener {
     }
 
     private void removeRarityNameplate(UUID playerId) {
-        TextDisplay plate = rarityNameplates.remove(playerId);
+        ArmorStand plate = rarityNameplates.remove(playerId);
         if (plate != null) {
             plate.remove();
         }
@@ -629,7 +626,11 @@ final class CosmeticEffectService implements Listener {
 
     private static void globalPlayerPulse(Player viewer, boolean opening) {
         Location at = viewer.getLocation().add(0d, 1d, 0d);
-        viewer.spawnParticle(Particle.FLASH, at, 1, 0d, 0d, 0d, 0d);
+        // FLASH takes a required Color in 1.21. Without one the spawn throws
+        // "missing required data class org.bukkit.Color" and aborts the pulse, which is
+        // what broke the genuine-secret reveal for every player watching it.
+        viewer.spawnParticle(Particle.FLASH, at, 1, 0d, 0d, 0d, 0d,
+                particleData(Particle.FLASH, null));
         viewer.spawnParticle(
                 Particle.TOTEM_OF_UNDYING, at,
                 opening ? 22 : 12,
