@@ -76,10 +76,12 @@ final class SpecialItemService implements Listener {
     private final NamespacedKey fortuneUntilKey;
     private final NamespacedKey crateLuckKey;
     private final NamespacedKey crateLuckUntilKey;
+    private final AmethystItemService amethystItems;
     private final Set<UUID> excavating = new HashSet<>();
 
-    SpecialItemService(MGXAccessBridge plugin) {
+    SpecialItemService(MGXAccessBridge plugin, AmethystItemService amethystItems) {
         this.plugin = plugin;
+        this.amethystItems = amethystItems;
         bookKey = new NamespacedKey(plugin, "special_enchant_book");
         excavationKey = new NamespacedKey(plugin, "excavation_level");
         potionKindKey = new NamespacedKey(plugin, "custom_potion");
@@ -92,6 +94,13 @@ final class SpecialItemService implements Listener {
 
     Optional<ItemStack> create(CrateCatalog.Reward reward) {
         String id = reward.id();
+        Optional<ItemStack> amethyst = amethystItems.create(reward);
+        if (amethyst.isPresent()) {
+            return amethyst;
+        }
+        if (id.equals("amethyst_excavation_i")) {
+            return Optional.of(enchantmentBook("enchant_excavation_i"));
+        }
         if (id.startsWith("potion_")) {
             return Optional.of(vanillaPotion(id));
         }

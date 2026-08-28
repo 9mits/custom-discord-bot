@@ -38,6 +38,17 @@
     {"java_item": "minecraft:copper_ingot", "model": "mgx:cosmetic/bronze_cataclysm", "bedrock_identifier": "mgx:cosmetic_bronze_cataclysm", "display_name": "Bronze Cataclysm"},
     {"java_item": "minecraft:copper_block", "model": "mgx:cosmetic/bronze_vanguard", "bedrock_identifier": "mgx:cosmetic_bronze_vanguard", "display_name": "Bronze Vanguard"},
     {"java_item": "minecraft:raw_copper", "model": "mgx:cosmetic/conquerors_march", "bedrock_identifier": "mgx:cosmetic_conquerors_march", "display_name": "Conqueror's March"},
-    {"java_item": "minecraft:black_dye", "model": "mgx:cosmetic/secret_silhouette", "bedrock_identifier": "mgx:cosmetic_secret_silhouette", "display_name": "Unknown Cosmetic"}
+    {"java_item": "minecraft:black_dye", "model": "mgx:cosmetic/secret_silhouette", "bedrock_identifier": "mgx:cosmetic_secret_silhouette", "display_name": "Unknown Cosmetic"},
+    {"java_item": "minecraft:diamond_pickaxe", "model": "mgx:amethyst_pickaxe", "bedrock_identifier": "mgx:amethyst_pickaxe", "display_name": "Amethyst Pickaxe"},
+    {"java_item": "minecraft:diamond_shovel", "model": "mgx:amethyst_shovel", "bedrock_identifier": "mgx:amethyst_shovel", "display_name": "Amethyst Shovel"},
+    {"java_item": "minecraft:diamond_axe", "model": "mgx:amethyst_axe", "bedrock_identifier": "mgx:amethyst_axe", "display_name": "Amethyst Axe"},
+    {"java_item": "minecraft:shield", "model": "mgx:amethyst_shield", "bedrock_identifier": "mgx:amethyst_shield", "display_name": "Amethyst Shield"},
+    {"java_item": "minecraft:totem_of_undying", "model": "mgx:amethyst_totem", "bedrock_identifier": "mgx:amethyst_totem", "display_name": "Amethyst Totem"},
+    {"java_item": "minecraft:amethyst_shard", "model": "mgx:cosmetic/amethyst_ascension", "bedrock_identifier": "mgx:cosmetic_amethyst_ascension", "display_name": "Amethyst Ascension"},
+    {"java_item": "minecraft:budding_amethyst", "model": "mgx:cosmetic/geode_cathedral", "bedrock_identifier": "mgx:cosmetic_geode_cathedral", "display_name": "Geode Cathedral"},
+    {"java_item": "minecraft:amethyst_cluster", "model": "mgx:cosmetic/crystal_guillotine", "bedrock_identifier": "mgx:cosmetic_crystal_guillotine", "display_name": "Crystal Guillotine"},
+    {"java_item": "minecraft:end_crystal", "model": "mgx:cosmetic/violet_detonation", "bedrock_identifier": "mgx:cosmetic_violet_detonation", "display_name": "Violet Detonation"},
+    {"java_item": "minecraft:amethyst_shard", "model": "mgx:cosmetic/shardstorm_wake", "bedrock_identifier": "mgx:cosmetic_shardstorm_wake", "display_name": "Shardstorm Wake"},
+    {"java_item": "minecraft:small_amethyst_bud", "model": "mgx:cosmetic/geode_bloom", "bedrock_identifier": "mgx:cosmetic_geode_bloom", "display_name": "Geode Bloom"}
   ]
 }

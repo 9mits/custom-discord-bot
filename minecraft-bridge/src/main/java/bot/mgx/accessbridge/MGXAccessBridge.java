@@ -90,6 +90,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private CosmeticStore cosmeticStore;
     private TrophyHeadStore trophyHeadStore;
     private CrateService crates;
+    private AmethystItemService amethystItems;
+    private CrateDisplayService crateDisplays;
     private CosmeticEffectService cosmeticEffects;
     private RankSyncStore rankSyncStore;
     private MaintenanceStore maintenanceStore;
@@ -297,6 +299,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 || getCommand("afk") == null
                 || getCommand("verify") == null
                 || getCommand("crate") == null
+                || getCommand("echest") == null
+                || getCommand("cratehologram") == null
                 || getCommand("wardrobe") == null) {
             getLogger().severe("A required Minecraft command is missing from plugin.yml.");
             getServer().getPluginManager().disablePlugin(this);
@@ -323,7 +327,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 this, cosmeticStore, cosmeticItems, wardrobeService, playerSettings,
                 leaderboardService
         );
-        SpecialItemService specialItems = new SpecialItemService(this);
+        amethystItems = new AmethystItemService(this);
+        SpecialItemService specialItems = new SpecialItemService(this, amethystItems);
         CrateItems crateItems = new CrateItems(this, cosmeticStore, specialItems);
         crates = new CrateService(
                 this,
@@ -340,10 +345,27 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("wardrobe").setTabCompleter(wardrobeService);
         getCommand("crate").setExecutor(crates);
         getCommand("crate").setTabCompleter(crates);
+        EnderChestService enderChests = new EnderChestService(this);
+        getCommand("echest").setExecutor(enderChests);
         getServer().getPluginManager().registerEvents(wardrobeService, this);
         getServer().getPluginManager().registerEvents(cosmeticEffects, this);
         getServer().getPluginManager().registerEvents(crates, this);
         getServer().getPluginManager().registerEvents(specialItems, this);
+        getServer().getPluginManager().registerEvents(amethystItems, this);
+        getServer().getPluginManager().registerEvents(enderChests, this);
+        try {
+            crateDisplays = new CrateDisplayService(
+                    getDataFolder().toPath().resolve("crate-displays.json"), crates
+            );
+        } catch (IOException exception) {
+            getLogger().severe("MGXAccessBridge could not open physical crates: "
+                    + exception.getMessage());
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
+        getCommand("cratehologram").setExecutor(crateDisplays);
+        getCommand("cratehologram").setTabCompleter(crateDisplays);
+        getServer().getPluginManager().registerEvents(crateDisplays, this);
         getServer().getPluginManager().registerEvents(
                 new TrophyHeadService(this, trophyHeadStore, playerSettings), this
         );
@@ -384,8 +406,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         economyMenus = new EconomyMenuService(
                 this, economyStore, auctionStore, playerSettings, crateItems,
+                amethystItems,
                 personalNotifications
         );
+        amethystItems.useAuctionSweep(economyMenus::returnActivatedAmethystListings);
         wardrobeService.useAuctionHouse(economyMenus);
         economyMenus.useWardrobe(wardrobeService);
         EconomyCommandService economyCommands = new EconomyCommandService(
@@ -488,6 +512,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         launchService = new LaunchService(this, getDataFolder().toPath());
         launchService.restoreOnEnable();
         crates.start();
+        amethystItems.start();
+        crateDisplays.refresh();
         cosmeticEffects.start();
         afkService.start();
         serverEventService.start();
@@ -553,6 +579,12 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         if (crates != null) {
             crates.stop();
+        }
+        if (amethystItems != null) {
+            amethystItems.stop();
+        }
+        if (crateDisplays != null) {
+            crateDisplays.stop();
         }
         if (cosmeticEffects != null) {
             cosmeticEffects.stop();

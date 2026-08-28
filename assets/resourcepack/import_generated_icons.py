@@ -43,11 +43,18 @@ POTION_PROFILES = {
 
 def catalog_targets() -> dict[str, Path]:
     roots = (ITEM_ROOT, ITEM_ROOT / "cosmetic")
-    return {
+    targets = {
         path.stem: path.relative_to(ITEM_ROOT)
         for root in roots
         for path in sorted(root.glob("*.png"))
     }
+    # A newly generated asset has a committed item model before it has its first
+    # texture. Include those model IDs so --partial can bootstrap the PNG itself.
+    model_root = PACK_ROOT / "src/assets/mgx/items"
+    for root, prefix in ((model_root, Path()), (model_root / "cosmetic", Path("cosmetic"))):
+        for path in sorted(root.glob("*.json")):
+            targets.setdefault(path.stem, prefix / f"{path.stem}.png")
+    return targets
 
 
 def border_median(image: Image.Image) -> tuple[int, int, int]:
@@ -291,6 +298,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--manifest", type=Path, required=True, help="JSON map of icon ID to generated PNG")
     parser.add_argument("--output", type=Path, required=True, help="Destination item-texture directory")
     parser.add_argument("--contact-sheet", type=Path, help="Optional labeled review sheet")
+    parser.add_argument(
+        "--partial",
+        action="store_true",
+        help="Import only manifest entries; every entry must still name a catalog target",
+    )
     return parser.parse_args()
 
 
@@ -298,12 +310,16 @@ def main() -> None:
     args = parse_args()
     sources = json.loads(args.manifest.read_text(encoding="utf-8"))
     targets = catalog_targets()
-    missing = sorted(set(targets) - set(sources))
+    missing = [] if args.partial else sorted(set(targets) - set(sources))
     unexpected = sorted(set(sources) - set(targets))
     if missing or unexpected:
         raise SystemExit(f"icon manifest mismatch: missing={missing}, unexpected={unexpected}")
 
-    for name, relative_target in targets.items():
+    selected_targets = {
+        name: targets[name]
+        for name in (sources if args.partial else targets)
+    }
+    for name, relative_target in selected_targets.items():
         source = Path(sources[name]).expanduser()
         if not source.is_file():
             raise SystemExit(f"missing generated source for {name}: {source}")
@@ -317,8 +333,8 @@ def main() -> None:
         prepared.save(target, optimize=True)
 
     if args.contact_sheet:
-        write_contact_sheet(args.output, targets, args.contact_sheet)
-    print(f"Prepared {len(targets)} generated icons in {args.output}")
+        write_contact_sheet(args.output, selected_targets, args.contact_sheet)
+    print(f"Prepared {len(selected_targets)} generated icons in {args.output}")
 
 
 if __name__ == "__main__":
