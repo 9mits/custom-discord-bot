@@ -66,6 +66,8 @@ final class CosmeticEffectService implements Listener {
     private static final class MusicAuraState {
         private final long startedAtMillis;
         private final Set<UUID> listeners = new HashSet<>();
+        /** Includes muted nearby viewers so raising 0% can restart the synced loop. */
+        private final Map<UUID, Integer> observedVolumes = new HashMap<>();
         private long loop = -1L;
 
         MusicAuraState(long startedAtMillis) {
@@ -723,6 +725,40 @@ final class CosmeticEffectService implements Listener {
         MusicAuraState state = musicAuraStates.computeIfAbsent(
                 owner.getUniqueId(), ignored -> new MusicAuraState(now)
         );
+        List<Player> currentViewers = viewers(
+                owner, owner.getLocation(), PlayerSettingsStore.Setting.OWN_AURA_VISIBLE
+        );
+        Set<UUID> currentViewerIds = new HashSet<>();
+        boolean volumeChanged = false;
+        for (Player viewer : currentViewers) {
+            UUID viewerId = viewer.getUniqueId();
+            currentViewerIds.add(viewerId);
+            int volume = settings.musicVolume(viewerId);
+            Integer previousVolume = state.observedVolumes.put(viewerId, volume);
+            if (previousVolume != null && previousVolume != volume) {
+                volumeChanged = true;
+            }
+        }
+        for (UUID listenerId : List.copyOf(state.listeners)) {
+            if (currentViewerIds.contains(listenerId)) {
+                continue;
+            }
+            Player listener = plugin.getServer().getPlayer(listenerId);
+            if (listener != null) {
+                listener.stopSound(MUSIC_AURA_SOUND, SoundCategory.MASTER);
+            }
+            state.listeners.remove(listenerId);
+        }
+        state.observedVolumes.keySet().retainAll(currentViewerIds);
+
+        // Sound volume is fixed when Minecraft receives the play packet. Restart the
+        // shared timeline as soon as any nearby viewer changes their server setting,
+        // keeping both the song and every beat-driven visual on the same timestamp.
+        if (volumeChanged) {
+            stopMusicAura(owner.getUniqueId());
+            state = new MusicAuraState(now);
+            musicAuraStates.put(owner.getUniqueId(), state);
+        }
         long loop = Math.max(0L, now - state.startedAtMillis) / MusicAuraTimeline.DURATION_MILLIS;
         if (state.loop == loop) {
             return;
@@ -734,11 +770,11 @@ final class CosmeticEffectService implements Listener {
             }
         }
         state.listeners.clear();
+        state.observedVolumes.clear();
         state.loop = loop;
-        for (Player viewer : viewers(
-                owner, owner.getLocation(), PlayerSettingsStore.Setting.OWN_AURA_VISIBLE
-        )) {
+        for (Player viewer : currentViewers) {
             int volume = settings.musicVolume(viewer.getUniqueId());
+            state.observedVolumes.put(viewer.getUniqueId(), volume);
             if (volume <= 0) {
                 continue;
             }
