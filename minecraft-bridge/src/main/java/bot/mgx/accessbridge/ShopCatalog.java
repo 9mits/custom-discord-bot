@@ -294,13 +294,21 @@ final class ShopCatalog {
                 offer("PRISMARINE_BRICKS", 64, 10_000),
                 offer("DARK_PRISMARINE", 64, 14_000),
                 offer("SEA_LANTERN", 64, 28_000),
+                offer("SEA_PICKLE", 64, 14_000),
                 offer("PACKED_ICE", 64, 8_000),
                 offer("BLUE_ICE", 64, 36_000),
                 offer("TUBE_CORAL_BLOCK", 64, 22_000),
                 offer("BRAIN_CORAL_BLOCK", 64, 22_000),
                 offer("BUBBLE_CORAL_BLOCK", 64, 22_000),
                 offer("FIRE_CORAL_BLOCK", 64, 22_000),
-                offer("HORN_CORAL_BLOCK", 64, 22_000)
+                offer("HORN_CORAL_BLOCK", 64, 22_000),
+                // Fans cost less than the block they grow on, because bone-mealing a
+                // block into fans is not a route the shop should undercut.
+                offer("TUBE_CORAL_FAN", 64, 18_000),
+                offer("BRAIN_CORAL_FAN", 64, 18_000),
+                offer("BUBBLE_CORAL_FAN", 64, 18_000),
+                offer("FIRE_CORAL_FAN", 64, 18_000),
+                offer("HORN_CORAL_FAN", 64, 18_000)
         ));
         catalog.put(Category.FARMING, List.of(
                 offer("WHEAT", 16, 1_120),
