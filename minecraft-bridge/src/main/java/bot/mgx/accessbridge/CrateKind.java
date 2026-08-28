@@ -11,11 +11,12 @@ import java.util.Optional;
 /** The independently selectable physical crates served by one reusable crate engine. */
 enum CrateKind {
     DEFAULT(
-            "default", "Default Crate", Material.CHEST, TextColor.color(0xFF9900),
+            "default", "Default Crate", "Default Crate", Material.CHEST,
+            TextColor.color(0xFF9900),
             1, Long.MAX_VALUE, CrateCatalog.all()
     ),
     AMETHYST(
-            "amethyst", "Limited Amethyst Crate", Material.AMETHYST_BLOCK,
+            "amethyst", "Limited Amethyst Crate", "Amethyst Crate", Material.AMETHYST_BLOCK,
             TextColor.color(0xB56CFF),
             2,
             // Saturday after next at 3:00 PM JST, resolved when the event was requested.
@@ -24,6 +25,7 @@ enum CrateKind {
 
     private final String key;
     private final String displayName;
+    private final String menuName;
     private final Material icon;
     private final TextColor colour;
     private final int keyCost;
@@ -33,6 +35,7 @@ enum CrateKind {
     CrateKind(
             String key,
             String displayName,
+            String menuName,
             Material icon,
             TextColor colour,
             int keyCost,
@@ -41,6 +44,7 @@ enum CrateKind {
     ) {
         this.key = key;
         this.displayName = displayName;
+        this.menuName = menuName;
         this.icon = icon;
         this.colour = colour;
         this.keyCost = keyCost;
@@ -54,6 +58,18 @@ enum CrateKind {
 
     String displayName() {
         return displayName;
+    }
+
+    /**
+     * The name the crate screens use.
+     *
+     * <p>Shorter on purpose: "Opening 3x Limited Amethyst Crate" is a title bar's worth
+     * of qualifier before it reaches the crate. Chat announcements, the hologram and the
+     * key lore keep the full name, which is where "Limited" is actually telling somebody
+     * something they did not already know.
+     */
+    String menuName() {
+        return menuName;
     }
 
     Material icon() {

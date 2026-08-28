@@ -361,12 +361,12 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         ));
         long now = System.currentTimeMillis();
         inventory.setItem(SELECT_DEFAULT_SLOT, MenuItems.button(
-                CrateKind.DEFAULT.icon(), CrateKind.DEFAULT.displayName(),
+                CrateKind.DEFAULT.icon(), CrateKind.DEFAULT.menuName(),
                 "Permanent rewards.", oddsOnly ? "View exact odds." : "1 key required."
         ));
         inventory.setItem(SELECT_AMETHYST_SLOT, MenuItems.button(
                 CrateKind.AMETHYST.available(now) ? CrateKind.AMETHYST.icon() : Material.BARRIER,
-                CrateKind.AMETHYST.displayName(), CrateKind.AMETHYST.remaining(now),
+                CrateKind.AMETHYST.menuName(), CrateKind.AMETHYST.remaining(now),
                 CrateKind.AMETHYST.available(now)
                         ? (oddsOnly ? "View exact odds." : "2 keys required.")
                         : "No longer open."
@@ -383,7 +383,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         selectedKinds.put(player.getUniqueId(), kind);
         CrateMenu holder = new CrateMenu(Screen.HUB, 1, kind);
         Inventory inventory = Bukkit.createInventory(
-                holder, 27, Component.text(kind.displayName(), kind.colour())
+                holder, 27, Component.text(kind.menuName(), kind.colour())
         );
         holder.inventory = inventory;
         fillHub(inventory);
@@ -393,7 +393,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         ));
         inventory.setItem(HUB_OPEN_SLOT, MenuItems.button(
                 kind.icon(),
-                "Open " + kind.displayName(),
+                "Open " + kind.menuName(),
                 "Spends " + kind.keyCost() + (kind.keyCost() == 1 ? " key." : " keys.")
         ));
         inventory.setItem(HUB_ODDS_SLOT, MenuItems.button(
@@ -442,7 +442,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         int page = Math.max(1, Math.min(pageCount, requestedPage));
         CrateMenu holder = new CrateMenu(Screen.ODDS, page, kind, oddsSelectorBack);
         Inventory inventory = Bukkit.createInventory(
-                holder, 54, Component.text(kind.displayName() + " Odds " + page + "/" + pageCount,
+                holder, 54, Component.text(kind.menuName() + " Odds " + page + "/" + pageCount,
                         kind.colour())
         );
         holder.inventory = inventory;
@@ -621,7 +621,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         CrateMenu holder = new CrateMenu(Screen.ROLL, 1, kind);
         Inventory inventory = Bukkit.createInventory(
                 holder, 45, Component.text(
-                        (pull == 1 ? "Opening " : "Opening " + pull + "x ") + kind.displayName(),
+                        (pull == 1 ? "Opening " : "Opening " + pull + "x ") + kind.menuName(),
                         kind.colour())
         );
         holder.inventory = inventory;
