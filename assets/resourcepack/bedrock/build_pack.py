@@ -24,21 +24,36 @@ def read_json(path: pathlib.Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def texture_path(texture_key: str) -> pathlib.Path:
+    namespace, name = texture_key.split(":", 1)
+    return JAVA_SOURCE / "assets" / namespace / "textures" / f"{name}.png"
+
+
 def model_texture(model_key: str) -> pathlib.Path:
     namespace, name = model_key.split(":", 1)
     item = read_json(JAVA_SOURCE / "assets" / namespace / "items" / f"{name}.json")
-    model_key = item["model"]["model"]
+    item_model = item["model"]
+    while item_model["type"] == "minecraft:condition":
+        item_model = item_model["on_false"]
+    model_key = item_model["model"]
     namespace, name = model_key.split(":", 1)
     model = read_json(JAVA_SOURCE / "assets" / namespace / "models" / f"{name}.json")
-    texture_key = model["textures"]["layer0"]
-    namespace, name = texture_key.split(":", 1)
-    return JAVA_SOURCE / "assets" / namespace / "textures" / f"{name}.png"
+    textures = model["textures"]
+    texture_key = textures.get("layer0", textures.get("0"))
+    if texture_key is None:
+        raise ValueError(f"model {model_key} has no inventory texture")
+    return texture_path(texture_key)
+
+
+def icon_texture(item: dict) -> pathlib.Path:
+    explicit = item.get("icon_texture")
+    return texture_path(explicit) if explicit else model_texture(item["model"])
 
 
 def source_version(items: list[dict]) -> list[int]:
     digest = hashlib.sha256(CATALOG.read_bytes())
     for item in items:
-        digest.update(model_texture(item["model"]).read_bytes())
+        digest.update(icon_texture(item).read_bytes())
     raw = digest.digest()
     return [int.from_bytes(raw[index:index + 2], "big") or 1 for index in (0, 2, 4)]
 
@@ -84,7 +99,7 @@ def main() -> None:
         texture_name = identifier.split(":", 1)[1]
         texture_path = f"textures/items/{texture_name}"
         texture_data[identifier] = {"textures": [texture_path]}
-        pack_files[f"{texture_path}.png"] = model_texture(model).read_bytes()
+        pack_files[f"{texture_path}.png"] = icon_texture(item).read_bytes()
 
     version = source_version(items)
     manifest = {

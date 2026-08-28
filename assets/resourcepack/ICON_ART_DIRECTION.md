@@ -1,8 +1,8 @@
 # Custom icon art direction
 
-All shipped MGX item and cosmetic textures are derived from artwork generated with
-ChatGPT's built-in image-generation tool. The pack must not use a script to draw
-new icon geometry pixel by pixel.
+MGX cosmetic textures are derived from artwork generated with ChatGPT's built-in
+image-generation tool. The pack must not use a script to draw new icon geometry
+pixel by pixel. Exact supplied source assets are the exceptions documented below.
 
 ## Production rules
 
@@ -16,6 +16,26 @@ new icon geometry pixel by pixel.
 - Keep the object dimensional without smooth gradients, glow haze, or mobile-game gloss.
 - Keep Java and Bedrock identical. Bedrock is always generated from the Java texture.
 - Review every icon both enlarged with nearest-neighbour scaling and at inventory size.
+
+### Locked Amethyst equipment assets
+
+The Amethyst Pickaxe, Shovel, Axe, and Shield are not generated artwork. Their
+textures and the Shield's normal/blocking geometry come directly from the
+user-supplied `Amethyst Revamped 1.2.4` JAR. Do not redraw, rescale, regenerate,
+or pass these IDs through `import_generated_icons.py`.
+
+- `amethyst_pickaxe.png`, `amethyst_shovel.png`, and `amethyst_axe.png` remain the
+  exact 16x16 item textures from that JAR.
+- `amethyst_shield.png` remains the exact 64x64 model texture atlas from that JAR.
+- `models/custom/amethyst_shield*.json` preserve only its normal and blocking
+  Blockbench geometry; the source-only parent names were removed and the wrapper
+  models were changed only to use the `mgx` namespace.
+- Java renders the imported three-dimensional model as its inventory icon.
+  `amethyst_shield_icon.png` is the original supplied Modrinth shield render kept
+  only as Bedrock's flat-icon fallback because Bedrock cannot render Java item-model JSON.
+
+No classes, recipes, metadata, sounds, particles, entities, blocks, or any other
+content from the JAR belongs in this repository.
 
 The local generated sources are imported with:
 

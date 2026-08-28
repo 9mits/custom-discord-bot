@@ -74,6 +74,35 @@ class ResourcePackCatalogTest {
     }
 
     @Test
+    void amethystShieldSwitchesBetweenTheImportedNormalAndBlockingModels() throws Exception {
+        Path itemPath = SOURCE.resolve("assets/mgx/items/amethyst_shield.json");
+        JsonObject definition = JsonParser.parseString(Files.readString(itemPath))
+                .getAsJsonObject().getAsJsonObject("model");
+        assertEquals("minecraft:condition", definition.get("type").getAsString());
+        assertEquals("minecraft:using_item", definition.get("property").getAsString());
+        assertEquals("mgx:item/amethyst_shield",
+                definition.getAsJsonObject("on_false").get("model").getAsString());
+        assertEquals("mgx:item/amethyst_shield_blocking",
+                definition.getAsJsonObject("on_true").get("model").getAsString());
+
+        for (String state : List.of("amethyst_shield", "amethyst_shield_blocking")) {
+            JsonObject wrapper = JsonParser.parseString(Files.readString(
+                    SOURCE.resolve("assets/mgx/models/item/" + state + ".json")
+            )).getAsJsonObject();
+            assertEquals("mgx:custom/" + state, wrapper.get("parent").getAsString());
+            assertEquals("mgx:item/amethyst_shield",
+                    wrapper.getAsJsonObject("textures").get("0").getAsString());
+
+            JsonObject geometry = JsonParser.parseString(Files.readString(
+                    SOURCE.resolve("assets/mgx/models/custom/" + state + ".json")
+            )).getAsJsonObject();
+            assertEquals("Made with Blockbench", geometry.get("credit").getAsString());
+            assertEquals(4, geometry.getAsJsonArray("elements").size());
+            assertTrue(geometry.has("display"));
+        }
+    }
+
+    @Test
     void committedZipExactlyContainsEverySourceFile() throws Exception {
         try (ZipFile zip = new ZipFile(PACK.resolve("MysteriousSMPX.zip").toFile());
              var paths = Files.walk(SOURCE)) {
@@ -92,10 +121,10 @@ class ResourcePackCatalogTest {
     void customItemIconsPreserveTheirIntendedQualityProfiles() throws Exception {
         Set<String> nativePotions = Set.of("fortune_potion.png", "crate_luck_potion.png");
         Map<String, List<Integer>> exactLinkedIcons = Map.of(
-                "amethyst_pickaxe.png", List.of(256, 256),
-                "amethyst_shovel.png", List.of(256, 256),
-                "amethyst_axe.png", List.of(256, 256),
-                "amethyst_shield.png", List.of(590, 876),
+                "amethyst_pickaxe.png", List.of(16, 16),
+                "amethyst_shovel.png", List.of(16, 16),
+                "amethyst_axe.png", List.of(16, 16),
+                "amethyst_shield.png", List.of(64, 64),
                 "amethyst_totem.png", List.of(360, 360)
         );
         Set<Path> icons = new HashSet<>();
@@ -290,7 +319,7 @@ class ResourcePackCatalogTest {
                 assertNotNull(entry, texture + " is missing from the Bedrock pack");
                 try (InputStream input = pack.getInputStream(entry)) {
                     assertArrayEquals(
-                            Files.readAllBytes(SOURCE.resolve(resolvedTexture(item.getKey()))),
+                            Files.readAllBytes(SOURCE.resolve(resolvedIconTexture(item.getKey()))),
                             input.readAllBytes(),
                             item.getKey()
                     );
@@ -307,14 +336,17 @@ class ResourcePackCatalogTest {
         assertTrue(Files.isRegularFile(itemFile), modelKey + " has no item definition");
 
         JsonObject item = JsonParser.parseString(Files.readString(itemFile)).getAsJsonObject();
-        String modelId = item.getAsJsonObject("model").get("model").getAsString();
+        String modelId = defaultItemModel(item).get("model").getAsString();
         String[] model = modelId.split(":", 2);
         Path modelFile = SOURCE.resolve("assets").resolve(model[0]).resolve("models")
                 .resolve(model[1] + ".json");
         assertTrue(Files.isRegularFile(modelFile), modelId + " has no model JSON");
 
         JsonObject modelJson = JsonParser.parseString(Files.readString(modelFile)).getAsJsonObject();
-        String textureId = modelJson.getAsJsonObject("textures").get("layer0").getAsString();
+        JsonObject textures = modelJson.getAsJsonObject("textures");
+        String textureId = textures.has("layer0")
+                ? textures.get("layer0").getAsString()
+                : textures.get("0").getAsString();
         String[] texture = textureId.split(":", 2);
         Path textureFile = SOURCE.resolve("assets").resolve(texture[0]).resolve("textures")
                 .resolve(texture[1] + ".png");
@@ -326,13 +358,38 @@ class ResourcePackCatalogTest {
         Path itemFile = SOURCE.resolve("assets").resolve(key[0]).resolve("items")
                 .resolve(key[1] + ".json");
         JsonObject item = JsonParser.parseString(Files.readString(itemFile)).getAsJsonObject();
-        String[] model = item.getAsJsonObject("model").get("model").getAsString().split(":", 2);
+        String[] model = defaultItemModel(item).get("model").getAsString().split(":", 2);
         Path modelFile = SOURCE.resolve("assets").resolve(model[0]).resolve("models")
                 .resolve(model[1] + ".json");
         JsonObject modelJson = JsonParser.parseString(Files.readString(modelFile)).getAsJsonObject();
-        String[] texture = modelJson.getAsJsonObject("textures").get("layer0")
-                .getAsString().split(":", 2);
+        JsonObject textures = modelJson.getAsJsonObject("textures");
+        String textureId = textures.has("layer0")
+                ? textures.get("layer0").getAsString()
+                : textures.get("0").getAsString();
+        String[] texture = textureId.split(":", 2);
         return "assets/" + texture[0] + "/textures/" + texture[1] + ".png";
+    }
+
+    private static String resolvedIconTexture(String modelKey) throws Exception {
+        JsonObject catalog = JsonParser.parseString(Files.readString(BEDROCK.resolve("catalog.json")))
+                .getAsJsonObject();
+        for (com.google.gson.JsonElement raw : catalog.getAsJsonArray("items")) {
+            JsonObject item = raw.getAsJsonObject();
+            if (!modelKey.equals(item.get("model").getAsString()) || !item.has("icon_texture")) {
+                continue;
+            }
+            String[] texture = item.get("icon_texture").getAsString().split(":", 2);
+            return "assets/" + texture[0] + "/textures/" + texture[1] + ".png";
+        }
+        return resolvedTexture(modelKey);
+    }
+
+    private static JsonObject defaultItemModel(JsonObject item) {
+        JsonObject model = item.getAsJsonObject("model");
+        while ("minecraft:condition".equals(model.get("type").getAsString())) {
+            model = model.getAsJsonObject("on_false");
+        }
+        return model;
     }
 
     private static JsonObject zipJson(ZipFile zip, String name) throws Exception {

@@ -39,6 +39,13 @@ POTION_PROFILES = {
     "crate_luck_potion": "violet",
     "fortune_potion": "emerald",
 }
+LOCKED_SOURCE_IDS = {
+    "amethyst_axe",
+    "amethyst_pickaxe",
+    "amethyst_shield",
+    "amethyst_shield_icon",
+    "amethyst_shovel",
+}
 
 
 def catalog_targets() -> dict[str, Path]:
@@ -47,12 +54,15 @@ def catalog_targets() -> dict[str, Path]:
         path.stem: path.relative_to(ITEM_ROOT)
         for root in roots
         for path in sorted(root.glob("*.png"))
+        if path.stem not in LOCKED_SOURCE_IDS
     }
     # A newly generated asset has a committed item model before it has its first
     # texture. Include those model IDs so --partial can bootstrap the PNG itself.
     model_root = PACK_ROOT / "src/assets/mgx/items"
     for root, prefix in ((model_root, Path()), (model_root / "cosmetic", Path("cosmetic"))):
         for path in sorted(root.glob("*.json")):
+            if path.stem in LOCKED_SOURCE_IDS:
+                continue
             targets.setdefault(path.stem, prefix / f"{path.stem}.png")
     return targets
 

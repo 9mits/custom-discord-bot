@@ -947,7 +947,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         for (int index = 0; index < shown; index++) {
             ItemStack item = decodeItem(waiting.get(index).itemData());
             if (item != null) {
-                amethystItems.removeInactiveAuctionStatus(item);
+                amethystItems.upgradeLegacyItem(item);
                 inventory.setItem(index, item);
             }
         }
@@ -1328,7 +1328,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                     "That listing cannot be handed over and was not charged for."
             );
         }
-        amethystItems.removeInactiveAuctionStatus(item);
+        amethystItems.upgradeLegacyItem(item);
         AuctionStore.Purchase purchase = auctions.buy(
                 player.getUniqueId(), menu.subject(), money, System.currentTimeMillis()
         );
@@ -1525,7 +1525,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             );
         }
         ItemStack listing = held.clone();
-        amethystItems.removeInactiveAuctionStatus(listing);
+        amethystItems.upgradeLegacyItem(listing);
         String encoded = encodeItem(listing);
         ItemMeta listingMeta = listing.getItemMeta();
         String customName = listingMeta != null && listingMeta.hasDisplayName()
@@ -1576,7 +1576,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         for (AuctionStore.Mail mail : collected) {
             ItemStack item = decodeItem(mail.itemData());
             if (item != null) {
-                amethystItems.removeInactiveAuctionStatus(item);
+                amethystItems.upgradeLegacyItem(item);
                 give(player, item);
                 given++;
             }
@@ -1622,7 +1622,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         if (item == null) {
             item = new ItemStack(materialOf(listing.material()), Math.max(1, listing.amount()));
         } else {
-            amethystItems.removeInactiveAuctionStatus(item);
+            amethystItems.upgradeLegacyItem(item);
         }
         ItemMeta meta = item.getItemMeta();
         if (meta == null) {
