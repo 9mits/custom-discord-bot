@@ -45,6 +45,26 @@ final class PlayerSettingsService implements CommandExecutor, TabCompleter {
             panel.open(player);
             return true;
         }
+        if (args[0].equalsIgnoreCase(PlayerSettingsStore.MUSIC_VOLUME_KEY)) {
+            try {
+                int volume;
+                if (args.length >= 2) {
+                    volume = store.setMusicVolume(player.getUniqueId(), Integer.parseInt(args[1]));
+                } else {
+                    volume = store.cycleMusicVolume(player.getUniqueId());
+                }
+                player.sendMessage(Component.text("Music-synced cosmetic volume: ", NamedTextColor.WHITE)
+                        .append(Component.text(volume + "%", volume == 0
+                                ? NamedTextColor.RED : NamedTextColor.AQUA, TextDecoration.BOLD)));
+            } catch (NumberFormatException exception) {
+                PlayerMenuService.error(player, "Use /settings music_volume <0-100>.");
+            } catch (UncheckedIOException exception) {
+                plugin.getLogger().warning("Could not save synced music volume: "
+                        + exception.getMessage());
+                PlayerMenuService.error(player, "That volume could not be saved. Please try again.");
+            }
+            return true;
+        }
         PlayerSettingsStore.Setting setting = PlayerSettingsStore.Setting.fromKey(args[0])
                 .filter(PlayerSettingsStore.Setting::inSettingsPanel)
                 .orElse(null);
@@ -77,11 +97,21 @@ final class PlayerSettingsService implements CommandExecutor, TabCompleter {
 
     @Override
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+        if (args.length == 2
+                && args[0].equalsIgnoreCase(PlayerSettingsStore.MUSIC_VOLUME_KEY)) {
+            String prefix = args[1].toLowerCase(Locale.ROOT);
+            return List.of("0", "25", "50", "75", "100").stream()
+                    .filter(value -> value.startsWith(prefix))
+                    .toList();
+        }
         if (args.length != 1) {
             return List.of();
         }
         String prefix = args[0].toLowerCase(Locale.ROOT);
         List<String> matches = new ArrayList<>();
+        if (PlayerSettingsStore.MUSIC_VOLUME_KEY.startsWith(prefix)) {
+            matches.add(PlayerSettingsStore.MUSIC_VOLUME_KEY);
+        }
         for (PlayerSettingsStore.Setting setting : PlayerSettingsStore.Setting.values()) {
             if (setting.inSettingsPanel() && setting.key().startsWith(prefix)) {
                 matches.add(setting.key());

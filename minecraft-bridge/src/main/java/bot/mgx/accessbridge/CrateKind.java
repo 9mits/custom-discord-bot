@@ -12,11 +12,12 @@ import java.util.Optional;
 enum CrateKind {
     DEFAULT(
             "default", "Default Crate", Material.CHEST, TextColor.color(0xFF9900),
-            Long.MAX_VALUE, CrateCatalog.all()
+            1, Long.MAX_VALUE, CrateCatalog.all()
     ),
     AMETHYST(
             "amethyst", "Limited Amethyst Crate", Material.AMETHYST_BLOCK,
             TextColor.color(0xB56CFF),
+            2,
             // Saturday after next at 3:00 PM JST, resolved when the event was requested.
             1_788_588_000_000L, CrateCatalog.amethyst()
     );
@@ -25,6 +26,7 @@ enum CrateKind {
     private final String displayName;
     private final Material icon;
     private final TextColor colour;
+    private final int keyCost;
     private final long closesAt;
     private final List<CrateCatalog.Reward> rewards;
 
@@ -33,6 +35,7 @@ enum CrateKind {
             String displayName,
             Material icon,
             TextColor colour,
+            int keyCost,
             long closesAt,
             List<CrateCatalog.Reward> rewards
     ) {
@@ -40,6 +43,7 @@ enum CrateKind {
         this.displayName = displayName;
         this.icon = icon;
         this.colour = colour;
+        this.keyCost = keyCost;
         this.closesAt = closesAt;
         this.rewards = rewards;
     }
@@ -58,6 +62,10 @@ enum CrateKind {
 
     TextColor colour() {
         return colour;
+    }
+
+    int keyCost() {
+        return keyCost;
     }
 
     List<CrateCatalog.Reward> rewards() {

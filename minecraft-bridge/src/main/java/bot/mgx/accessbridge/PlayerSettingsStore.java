@@ -27,6 +27,9 @@ import java.util.UUID;
  * on for everyone it means "hidden", and for an opt-in behaviour it means "switched on".
  */
 final class PlayerSettingsStore {
+    static final String MUSIC_VOLUME_KEY = "music_volume";
+    static final int DEFAULT_MUSIC_VOLUME = 100;
+    private static final String MUSIC_VOLUMES_JSON_KEY = "_music_volumes";
     enum Category {
         CHAT("Chat", "Choose which conversations and chat highlights reach you."),
         NOTIFICATIONS("Notifications", "Choose which server notices appear in chat."),
@@ -171,6 +174,8 @@ final class PlayerSettingsStore {
     private final Path file;
     /** Per player, the settings they have moved away from {@link Setting#enabledByDefault}. */
     private final LinkedHashMap<UUID, EnumSet<Setting>> overrides = new LinkedHashMap<>();
+    /** Percent volume for the music-synced aura; absent is the 100% default. */
+    private final LinkedHashMap<UUID, Integer> musicVolumes = new LinkedHashMap<>();
 
     PlayerSettingsStore(Path file) throws IOException {
         this.file = file;
@@ -181,6 +186,16 @@ final class PlayerSettingsStore {
         try {
             JsonObject root = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
             for (Map.Entry<String, JsonElement> entry : root.entrySet()) {
+                if (entry.getKey().equals(MUSIC_VOLUMES_JSON_KEY)) {
+                    for (Map.Entry<String, JsonElement> volume
+                            : entry.getValue().getAsJsonObject().entrySet()) {
+                        int percent = normalizeMusicVolume(volume.getValue().getAsInt());
+                        if (percent != DEFAULT_MUSIC_VOLUME) {
+                            musicVolumes.put(UUID.fromString(volume.getKey()), percent);
+                        }
+                    }
+                    continue;
+                }
                 EnumSet<Setting> moved = EnumSet.noneOf(Setting.class);
                 for (JsonElement value : entry.getValue().getAsJsonArray()) {
                     Setting.fromKey(value.getAsString()).ifPresent(moved::add);
@@ -198,6 +213,48 @@ final class PlayerSettingsStore {
         boolean moved = overrides.getOrDefault(playerId, EnumSet.noneOf(Setting.class))
                 .contains(setting);
         return moved != setting.enabledByDefault();
+    }
+
+    synchronized int musicVolume(UUID playerId) {
+        return musicVolumes.getOrDefault(playerId, DEFAULT_MUSIC_VOLUME);
+    }
+
+    /** Cycles downward for quick menu clicks: 100, 75, 50, 25, 0, then 100. */
+    synchronized int cycleMusicVolume(UUID playerId) {
+        int current = musicVolume(playerId);
+        int next = current >= 100 ? 75
+                : current >= 75 ? 50
+                : current >= 50 ? 25
+                : current >= 25 ? 0
+                : 100;
+        setMusicVolume(playerId, next);
+        return next;
+    }
+
+    synchronized int setMusicVolume(UUID playerId, int percent) {
+        int normalized = normalizeMusicVolume(percent);
+        Integer before = musicVolumes.get(playerId);
+        if (normalized == DEFAULT_MUSIC_VOLUME) {
+            musicVolumes.remove(playerId);
+        } else {
+            musicVolumes.put(playerId, normalized);
+        }
+        try {
+            save();
+        } catch (RuntimeException exception) {
+            if (before == null) {
+                musicVolumes.remove(playerId);
+            } else {
+                musicVolumes.put(playerId, before);
+            }
+            throw exception;
+        }
+        return normalized;
+    }
+
+    private static int normalizeMusicVolume(int percent) {
+        int clamped = Math.max(0, Math.min(100, percent));
+        return Math.round(clamped / 25.0f) * 25;
     }
 
     /** Flips one setting and returns its new state. */
@@ -248,16 +305,19 @@ final class PlayerSettingsStore {
 
     /** Forgets every player's toggles, so everyone starts back on the defaults. */
     synchronized int clearAll() {
-        int cleared = overrides.size();
+        int cleared = overrides.size() + musicVolumes.size();
         if (cleared == 0) {
             return 0;
         }
         LinkedHashMap<UUID, EnumSet<Setting>> before = new LinkedHashMap<>(overrides);
+        LinkedHashMap<UUID, Integer> volumesBefore = new LinkedHashMap<>(musicVolumes);
         overrides.clear();
+        musicVolumes.clear();
         try {
             save();
         } catch (RuntimeException exception) {
             overrides.putAll(before);
+            musicVolumes.putAll(volumesBefore);
             throw exception;
         }
         return cleared;
@@ -270,6 +330,13 @@ final class PlayerSettingsStore {
             moved.forEach(setting -> array.add(setting.key()));
             root.add(playerId.toString(), array);
         });
+        if (!musicVolumes.isEmpty()) {
+            JsonObject volumes = new JsonObject();
+            musicVolumes.forEach((playerId, percent) -> volumes.addProperty(
+                    playerId.toString(), percent
+            ));
+            root.add(MUSIC_VOLUMES_JSON_KEY, volumes);
+        }
         try {
             Path temporary = file.resolveSibling(file.getFileName() + ".tmp");
             Files.writeString(temporary, root.toString(), StandardCharsets.UTF_8);

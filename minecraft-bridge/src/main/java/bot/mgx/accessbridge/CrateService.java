@@ -313,7 +313,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 CrateKind.AMETHYST.available(now) ? CrateKind.AMETHYST.icon() : Material.BARRIER,
                 CrateKind.AMETHYST.displayName(), CrateKind.AMETHYST.remaining(now),
                 CrateKind.AMETHYST.available(now)
-                        ? (oddsOnly ? "View exact odds." : "1 key required.")
+                        ? (oddsOnly ? "View exact odds." : "2 keys required.")
                         : "No longer open."
         ));
         MenuItems.show(plugin, player, inventory);
@@ -339,7 +339,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         inventory.setItem(HUB_OPEN_SLOT, MenuItems.button(
                 kind.icon(),
                 "Open " + kind.displayName(),
-                "Spends one key."
+                "Spends " + kind.keyCost() + (kind.keyCost() == 1 ? " key." : " keys.")
         ));
         inventory.setItem(HUB_ODDS_SLOT, MenuItems.button(
                 Material.BOOK,
@@ -409,22 +409,26 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             return;
         }
         selectedKinds.put(playerId, kind);
-        if (items.count(player) <= 0) {
-            PlayerMenuService.error(player, "You need a Mysterious Crate Key to open a crate.");
+        if (items.count(player) < kind.keyCost()) {
+            PlayerMenuService.error(player, "You need " + kind.keyCost()
+                    + (kind.keyCost() == 1 ? " Mysterious Crate Key" : " Mysterious Crate Keys")
+                    + " to open this crate.");
             return;
         }
         int luck = specialItems.crateLuckPercent(player);
         CrateCatalog.Reward reward = kind.randomReward(luck);
         UUID spinId = UUID.randomUUID();
-        if (!items.consume(player)) {
-            PlayerMenuService.error(player, "Your key moved before it could be consumed.");
+        int consumed = items.remove(player, kind.keyCost());
+        if (consumed != kind.keyCost()) {
+            returnKeys(player, consumed);
+            PlayerMenuService.error(player, "Your keys moved before they could be consumed.");
             return;
         }
         CrateStore.Pending pending;
         try {
             pending = store.reserve(playerId, spinId, reward.id(), now);
         } catch (IllegalStateException | UncheckedIOException exception) {
-            returnKey(player);
+            returnKeys(player, kind.keyCost());
             plugin.getLogger().warning("Could not reserve a crate reward: " + exception.getMessage());
             PlayerMenuService.error(player, "That opening could not be saved. Your key was returned.");
             return;
@@ -512,16 +516,20 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         }
         inventory.setItem(4, items.revealedPreview(reward, cosmeticItems));
         int keys = items.count(player);
+        boolean canOpen = keys >= kind.keyCost();
         inventory.setItem(RESULT_AGAIN_SLOT, MenuItems.button(
-                keys > 0 ? Material.CHEST : Material.BARRIER,
-                keys > 0 ? "Open Again" : "No Keys Left",
-                keys > 0 ? "Spends one of your " + keys + " keys." : "Earn them by playing."
+                canOpen ? Material.CHEST : Material.BARRIER,
+                canOpen ? "Open Again" : "Not Enough Keys",
+                canOpen ? "Spends " + kind.keyCost() + " of your " + keys + " keys."
+                        : "This crate needs " + kind.keyCost() + " keys."
         ));
+        int possible = keys / kind.keyCost();
         inventory.setItem(RESULT_AUTO_SLOT, MenuItems.button(
-                keys > 0 ? Material.HOPPER : Material.BARRIER,
+                possible > 0 ? Material.HOPPER : Material.BARRIER,
                 "Auto Open",
-                keys > 0 ? "Opens all " + keys + " of your keys." : "You have no keys to spend.",
-                keys > 0 ? "You confirm before anything is spent." : "Earn them by playing."
+                possible > 0 ? "Opens " + possible + " crates using "
+                        + (possible * kind.keyCost()) + " keys." : "You cannot afford this crate.",
+                possible > 0 ? "You confirm before anything is spent." : "Earn keys by playing."
         ));
         inventory.setItem(RESULT_BACK_SLOT, MenuItems.button(Material.BARRIER, "Close"));
         MenuItems.show(plugin, player, inventory);
@@ -534,13 +542,15 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             return;
         }
         int keys = items.count(player);
-        if (keys <= 0) {
-            PlayerMenuService.error(player, "You need a Mysterious Crate Key to open a crate.");
+        int opens = keys / kind.keyCost();
+        if (opens <= 0) {
+            PlayerMenuService.error(player, "You need " + kind.keyCost()
+                    + " Mysterious Crate Keys to open this crate.");
             return;
         }
         CrateMenu holder = new CrateMenu(Screen.CONFIRM, 1, kind);
         Inventory inventory = Bukkit.createInventory(
-                holder, 27, Component.text("Use all " + keys + " keys?", ORANGE)
+                holder, 27, Component.text("Open " + opens + " crates?", ORANGE)
         );
         holder.inventory = inventory;
         ItemStack panel = MenuItems.button(Material.BROWN_STAINED_GLASS_PANE, "Crate Panel");
@@ -549,9 +559,9 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         }
         inventory.setItem(CONFIRM_YES_SLOT, MenuItems.button(
                 Material.LIME_CONCRETE,
-                "Confirm: spend all " + keys + " keys",
-                "Opens " + keys + " crates one after another.",
-                "Every key you are holding will be used.",
+                "Confirm: spend " + (opens * kind.keyCost()) + " keys",
+                "Opens " + opens + " crates one after another.",
+                kind.keyCost() == 1 ? "One key is spent per crate." : "Two keys are spent per crate.",
                 "Close the menu part way to keep the rest."
         ));
         inventory.setItem(CONFIRM_NO_SLOT, MenuItems.button(
@@ -570,11 +580,13 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
      */
     private void beginAutoOpen(Player player, CrateKind kind) {
         int keys = items.count(player);
-        if (keys <= 0) {
-            PlayerMenuService.error(player, "You need a Mysterious Crate Key to open a crate.");
+        int opens = keys / kind.keyCost();
+        if (opens <= 0) {
+            PlayerMenuService.error(player, "You need " + kind.keyCost()
+                    + " Mysterious Crate Keys to open this crate.");
             return;
         }
-        autoRuns.put(player.getUniqueId(), keys);
+        autoRuns.put(player.getUniqueId(), opens);
         start(player, kind);
     }
 
@@ -586,7 +598,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             return;
         }
         int left = remaining - 1;
-        if (left <= 0 || items.count(player) <= 0) {
+        if (left <= 0 || items.count(player) < kind.keyCost()) {
             autoRuns.remove(player.getUniqueId());
             player.sendMessage(PlayerMenuService.prefix().append(Component.text(
                     "Auto open finished.", NamedTextColor.GREEN
@@ -631,9 +643,6 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                     " It is stored in /wardrobe.", NamedTextColor.GRAY
             )));
             recordWin(player, pending, reward);
-            if (definition.secret()) {
-                effects.playSecretReveal(player, definition);
-            }
             return true;
         }
         if (items.carriesReward(player, pending.spinId())) {
@@ -692,40 +701,62 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             Player player, CrateStore.Pending pending, CrateCatalog.Reward reward
     ) {
         auditWin(player, pending, reward);
-        if (reward.rare()) {
-            announceRareWin(player, reward);
+        if (reward.revealTier() != CrateCatalog.RevealTier.NONE) {
+            announceTieredWin(player, reward);
+            effects.playCrateReveal(player, reward);
         }
     }
 
-    private void announceRareWin(Player player, CrateCatalog.Reward reward) {
-        Component announcement = PlayerMenuService.prefix()
+    private void announceTieredWin(Player player, CrateCatalog.Reward reward) {
+        CrateCatalog.RevealTier tier = reward.revealTier();
+        String crateName = CrateCatalog.isAmethyst(reward)
+                ? CrateKind.AMETHYST.displayName()
+                : CrateKind.DEFAULT.displayName();
+        Component announcement = PlayerMenuService.prefix();
+        if (tier == CrateCatalog.RevealTier.MYTHIC) {
+            announcement = announcement.append(Component.text("WOW! ", NamedTextColor.GOLD,
+                    TextDecoration.BOLD));
+        } else if (tier == CrateCatalog.RevealTier.SECRET) {
+            announcement = announcement.append(Component.text("NO WAY! ", NamedTextColor.LIGHT_PURPLE,
+                    TextDecoration.BOLD));
+        } else if (tier == CrateCatalog.RevealTier.GENUINE_SECRET) {
+            announcement = announcement.append(Component.text("✦ IMPOSSIBLE! ", NamedTextColor.GOLD,
+                    TextDecoration.BOLD));
+        }
+        announcement = announcement
                 .append(Component.text(player.getName(), NamedTextColor.GOLD, TextDecoration.BOLD))
-                .append(Component.text(" opened ", NamedTextColor.WHITE))
+                .append(Component.text(" opened a ", NamedTextColor.WHITE))
+                .append(Component.text(reward.rarityDisplay() + " ", tierColour(tier),
+                        TextDecoration.BOLD))
                 .append(Component.text(reward.displayName(), NamedTextColor.LIGHT_PURPLE,
                         TextDecoration.BOLD))
-                .append(Component.text(" from a Mysterious Crate", NamedTextColor.WHITE))
-                .append(Component.text(
-                        " (chance: " + reward.displayedChance() + ")",
-                        NamedTextColor.GRAY
-                ));
+                .append(Component.text(" from the " + crateName + "!", NamedTextColor.WHITE));
+        if (tier == CrateCatalog.RevealTier.GENUINE_SECRET) {
+            announcement = announcement.append(Component.text(
+                    " • 1 in " + String.format(Locale.ROOT, "%,d", CrateCatalog.HIDDEN_AMETHYST_ONE_IN),
+                    NamedTextColor.AQUA, TextDecoration.BOLD
+            ));
+        }
         if (reward.cosmetic()) {
             announcement = announcement.append(Component.text(
                     " • In existence: " + cosmetics.inExistence(reward.cosmeticId()),
                     NamedTextColor.DARK_AQUA
             ));
         }
-        // Every rare win is still announced, but only a sub-0.01% one is loud: a chime
-        // players hear several times an hour stops reading as something remarkable.
-        boolean chime = reward.jackpot();
         for (Player viewer : plugin.getServer().getOnlinePlayers()) {
             viewer.sendMessage(announcement);
-            if (chime) {
-                viewer.playSound(
-                        viewer.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f, 0.95f
-                );
-            }
         }
         plugin.getServer().getConsoleSender().sendMessage(announcement);
+    }
+
+    private static TextColor tierColour(CrateCatalog.RevealTier tier) {
+        return switch (tier) {
+            case LEGENDARY -> TextColor.color(0xFFB52E);
+            case MYTHIC -> TextColor.color(0xFF4FD8);
+            case SECRET -> TextColor.color(0xB56CFF);
+            case GENUINE_SECRET -> TextColor.color(0x53E5FF);
+            default -> NamedTextColor.WHITE;
+        };
     }
 
     private void auditWin(
@@ -1108,8 +1139,11 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         return delivered;
     }
 
-    private void returnKey(Player player) {
-        player.getInventory().addItem(items.key(1)).values().forEach(overflow ->
+    private void returnKeys(Player player, int count) {
+        if (count <= 0) {
+            return;
+        }
+        player.getInventory().addItem(items.key(count)).values().forEach(overflow ->
                 player.getWorld().dropItemNaturally(player.getLocation(), overflow));
     }
 
@@ -1153,7 +1187,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 .append(Component.text("You won ", NamedTextColor.WHITE))
                 .append(Component.text(reward.displayName(), NamedTextColor.GOLD, TextDecoration.BOLD))
                 .append(Component.text(
-                        " (" + reward.displayedChance() + ").", NamedTextColor.GRAY
+                        " (" + reward.actualChance() + ").", NamedTextColor.GRAY
                 ));
     }
 

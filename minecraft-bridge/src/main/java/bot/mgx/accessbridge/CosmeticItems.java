@@ -24,6 +24,15 @@ final class CosmeticItems {
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private static final TextColor AMETHYST = TextColor.color(0xB56CFF);
     private static final int DESCRIPTION_LINE_LENGTH = 46;
+    private static final TextColor SERIAL_GOLD = TextColor.color(0xFFD700);
+    private static final TextColor SERIAL_SILVER = TextColor.color(0xC0C0C0);
+    private static final TextColor SERIAL_BRONZE = TextColor.color(0xCD7F32);
+    private static final TextColor[] IMPERIUM_RAINBOW = {
+            TextColor.color(0xE95CFF), TextColor.color(0x8B6CFF),
+            TextColor.color(0x4DA6FF), TextColor.color(0x43E0C0),
+            TextColor.color(0xF5D76E), TextColor.color(0xFF9D57),
+            TextColor.color(0xFF5E8A)
+    };
     record TokenInfo(UUID serial, String cosmeticId, int generation) {
     }
 
@@ -50,7 +59,7 @@ final class CosmeticItems {
         List<Component> lore = new ArrayList<>(meta.lore() == null ? List.of() : meta.lore());
         if (token.serialNumber() > 0) {
             lore.add(Component.empty());
-            lore.add(line("Serial #" + token.serialNumber()));
+            lore.add(serialLine(token.serialNumber()));
         }
         meta.lore(lore);
         meta.setMaxStackSize(1);
@@ -71,12 +80,11 @@ final class CosmeticItems {
         }
         // Crate previews hide a secret completely. Won tokens and wardrobe entries
         // use the real name and model so ownership is a genuine reveal.
-        meta.displayName(Component.text(
-                        masked ? CosmeticCatalog.MASKED_NAME : definition.displayName(),
-                        colour(definition), TextDecoration.BOLD)
-                .decoration(TextDecoration.ITALIC, false));
+        meta.displayName(itemName(definition, masked));
         List<Component> lore = new ArrayList<>();
-        lore.add(line(masked ? "Unknown Cosmetic" : definition.category().displayName()));
+        lore.add(masked
+                ? obfuscated("Unknown Cosmetic", NamedTextColor.DARK_PURPLE)
+                : line(definition.category().displayName()));
         for (String descriptionLine : wrapDescription(
                 masked ? CosmeticCatalog.MASKED_DESCRIPTION : definition.description()
         )) {
@@ -88,13 +96,24 @@ final class CosmeticItems {
                     "Part of the Limited-Time Amethyst Crate", AMETHYST
             ).decoration(TextDecoration.ITALIC, false));
         }
+        if (!masked && definition.hiddenAmethystJackpot()) {
+            lore.add(Component.text("♫ MUSIC-SYNCED COSMETIC ♫", NamedTextColor.AQUA,
+                            TextDecoration.BOLD)
+                    .decoration(TextDecoration.ITALIC, false));
+        }
         lore.add(Component.empty());
-        lore.add(line("Rarity: " + (masked ? "???" : definition.rarityDisplay())));
+        lore.add(masked
+                ? line("Rarity: ").append(obfuscated("Secret", NamedTextColor.DARK_PURPLE))
+                : line("Rarity: " + definition.rarityDisplay()));
         if (!definition.leaderboardOnly()) {
-            lore.add(line("Odds: " + definition.oneInDisplay(masked)));
+            lore.add(masked
+                    ? line("Odds: 1 in ").append(obfuscated("100,000", NamedTextColor.DARK_PURPLE))
+                    : line("Odds: " + definition.oneInDisplay(false)));
         }
         if (oddsScreen) {
-            lore.add(line("Chance: " + definition.displayedChance()));
+            lore.add(masked
+                    ? line("Chance: ").append(obfuscated("0.001%", NamedTextColor.DARK_PURPLE))
+                    : line("Chance: " + definition.displayedChance()));
         }
         meta.lore(lore);
         NamespacedKey model = NamespacedKey.fromString(previewModelKey(definition, oddsScreen));
@@ -137,6 +156,51 @@ final class CosmeticItems {
 
     static boolean masksSecret(CosmeticCatalog.Definition definition, boolean oddsScreen) {
         return oddsScreen && definition.secret();
+    }
+
+    static Component serialLine(int serialNumber) {
+        TextColor numberColour = switch (serialNumber) {
+            case 1 -> SERIAL_GOLD;
+            case 2 -> SERIAL_SILVER;
+            case 3 -> SERIAL_BRONZE;
+            default -> NamedTextColor.GRAY;
+        };
+        Component number = Component.text(Integer.toString(serialNumber), numberColour)
+                .decoration(TextDecoration.ITALIC, false);
+        if (serialNumber <= 3) {
+            number = number.decoration(TextDecoration.BOLD, true);
+        }
+        return line("Serial #").append(number);
+    }
+
+    static Component itemName(CosmeticCatalog.Definition definition, boolean masked) {
+        if (masked) {
+            return obfuscated("????????????", NamedTextColor.DARK_PURPLE)
+                    .decoration(TextDecoration.BOLD, true);
+        }
+        if (!definition.hiddenAmethystJackpot()) {
+            return Component.text(definition.displayName(), colour(definition), TextDecoration.BOLD)
+                    .decoration(TextDecoration.ITALIC, false);
+        }
+        Component name = Component.empty();
+        int index = 0;
+        for (char character : definition.displayName().toCharArray()) {
+            if (character == ' ') {
+                name = name.append(Component.space());
+                continue;
+            }
+            name = name.append(Component.text(
+                    Character.toString(character),
+                    IMPERIUM_RAINBOW[index++ % IMPERIUM_RAINBOW.length],
+                    TextDecoration.BOLD
+            ));
+        }
+        return name.decoration(TextDecoration.ITALIC, false);
+    }
+
+    private static Component obfuscated(String text, TextColor colour) {
+        return Component.text(text, colour, TextDecoration.OBFUSCATED)
+                .decoration(TextDecoration.ITALIC, false);
     }
 
     static String previewMaterialName(

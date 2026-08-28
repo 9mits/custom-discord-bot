@@ -16,7 +16,7 @@ import java.util.Optional;
 final class CosmeticCatalog {
     static final int SECRET_WEIGHT = 3;
     static final String HIDDEN_AMETHYST_COSMETIC_ID = "iridescent_imperium";
-    static final int HIDDEN_AMETHYST_ONE_IN = 1_000_000;
+    static final int HIDDEN_AMETHYST_ONE_IN = 500_000;
 
     enum Category {
         KILL_EFFECT("Kill Effects"),
@@ -72,7 +72,7 @@ final class CosmeticCatalog {
                 return "Leaderboard #" + leaderboardRank;
             }
             if (hiddenAmethystJackpot()) {
-                return "Exotic";
+                return "Genuine Secret";
             }
             if (secret) {
                 return "Secret";
@@ -106,6 +106,10 @@ final class CosmeticCatalog {
 
         String oneInDisplay(boolean masked) {
             return masked ? "1 in ???" : String.format(Locale.ROOT, "1 in %,d", oneIn());
+        }
+
+        boolean nameplateWorthy() {
+            return hiddenAmethystJackpot() || secret || rarityDisplay().equals("Mythic");
         }
     }
 
@@ -277,7 +281,7 @@ final class CosmeticCatalog {
                     true,
                     "AMETHYST_CLUSTER",
                     "mgx:cosmetic/" + HIDDEN_AMETHYST_COSMETIC_ID,
-                    "A couture amethyst heart conducts a living spectrum to the music.",
+                    "A music-synced couture amethyst heart conducts a living spectrum to every beat.",
                     0
             )
     );

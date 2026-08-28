@@ -221,7 +221,7 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
             List<Component> lore = new ArrayList<>(meta.lore() == null ? List.of() : meta.lore());
             lore.add(Component.empty());
             if (selected.token().serialNumber() > 0) {
-                lore.add(line("Serial #" + selected.token().serialNumber()));
+                lore.add(CosmeticItems.serialLine(selected.token().serialNumber()));
                 lore.add(line("In existence: " + store.inExistence(definition.id())));
             } else {
                 lore.add(line("Admin preview — session only"));

@@ -83,6 +83,17 @@ final class PlayerMenuService implements Listener {
                     setting, settings.isEnabled(player.getUniqueId(), setting)
             ));
         }
+        if (category == PlayerSettingsStore.Category.VISUALS
+                && categorySettings.size() < SETTING_SLOTS.length) {
+            int volume = settings.musicVolume(player.getUniqueId());
+            inventory.setItem(SETTING_SLOTS[categorySettings.size()], button(
+                    volume == 0 ? Material.GRAY_DYE : Material.NOTE_BLOCK,
+                    "Synced music volume: " + volume + "%",
+                    "Controls music-synced cosmetic tracks.",
+                    "Uses the master channel, so Minecraft Music may stay at 0%.",
+                    "Click to cycle: 100 / 75 / 50 / 25 / 0."
+            ));
+        }
         if (category == PlayerSettingsStore.Category.PRIVACY) {
             inventory.setItem(SETTING_SLOTS[0], pane(
                     identities.isVisible(player.getUniqueId()),
@@ -224,6 +235,12 @@ final class PlayerMenuService implements Listener {
             } else {
                 List<PlayerSettingsStore.Setting> categorySettings = category.settings();
                 int settingIndex = indexOf(SETTING_SLOTS, slot);
+                if (category == PlayerSettingsStore.Category.VISUALS
+                        && settingIndex == categorySettings.size()) {
+                    settings.cycleMusicVolume(player.getUniqueId());
+                    openSettingsCategory(player, category);
+                    return;
+                }
                 if (settingIndex < 0 || settingIndex >= categorySettings.size()) {
                     return;
                 }
