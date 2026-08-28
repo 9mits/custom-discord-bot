@@ -215,6 +215,14 @@ final class CrateCatalog {
                 .toList();
     }
 
+    /** One real catalog entry for exercising the exact reveal path without granting it. */
+    static Optional<Reward> revealExample(RevealTier tier) {
+        if (tier == null || tier == RevealTier.NONE) {
+            return Optional.empty();
+        }
+        return everyReward().stream().filter(reward -> reward.revealTier() == tier).findFirst();
+    }
+
     static boolean isExclusiveAmethyst(Reward reward) {
         return reward != null
                 && (AMETHYST_REWARDS.contains(reward) || HIDDEN_AMETHYST_REWARDS.contains(reward))

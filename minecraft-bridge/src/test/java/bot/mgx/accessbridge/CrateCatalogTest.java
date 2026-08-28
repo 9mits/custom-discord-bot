@@ -306,6 +306,17 @@ class CrateCatalogTest {
     }
 
     @Test
+    void everyTestableRevealTierUsesARealCatalogReward() {
+        for (CrateCatalog.RevealTier tier : CrateCatalog.RevealTier.values()) {
+            if (tier == CrateCatalog.RevealTier.NONE) {
+                assertTrue(CrateCatalog.revealExample(tier).isEmpty());
+                continue;
+            }
+            assertEquals(tier, CrateCatalog.revealExample(tier).orElseThrow().revealTier());
+        }
+    }
+
+    @Test
     void lookupAcceptsCommandCaseAndRejectsMissingIds() {
         CrateCatalog.Reward mace = CrateCatalog.find("mace").orElseThrow();
 
