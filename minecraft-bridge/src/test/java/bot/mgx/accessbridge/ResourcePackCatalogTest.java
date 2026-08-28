@@ -92,6 +92,11 @@ class ResourcePackCatalogTest {
             assertEquals("mgx:custom/" + state, wrapper.get("parent").getAsString());
             assertEquals("mgx:item/amethyst_shield",
                     wrapper.getAsJsonObject("textures").get("0").getAsString());
+            assertEquals("mgx:item/model/amethyst_cluster",
+                    wrapper.getAsJsonObject("textures").get("1").getAsString());
+            assertTrue(Files.isRegularFile(SOURCE.resolve(
+                    "assets/mgx/textures/item/model/amethyst_cluster.png"
+            )));
 
             JsonObject geometry = JsonParser.parseString(Files.readString(
                     SOURCE.resolve("assets/mgx/models/custom/" + state + ".json")
