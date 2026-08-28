@@ -16,6 +16,12 @@ final class ParticlePayloadTest {
     }
 
     @Test
+    void suppliesRequiredMotionDataForAnimatedParticles() {
+        assertEquals(Float.class, Particle.DRAGON_BREATH.getDataType());
+        assertEquals(1.0f, CosmeticEffectService.particleData(Particle.DRAGON_BREATH, null));
+    }
+
+    @Test
     void preservesExplicitParticleDataAndLeavesUntypedParticlesEmpty() {
         Color colour = Color.fromRGB(255, 179, 0);
 

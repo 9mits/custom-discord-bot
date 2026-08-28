@@ -3097,6 +3097,9 @@ final class CosmeticEffectService implements Listener {
         if (data == null && particle.getDataType() == Color.class) {
             return Color.WHITE;
         }
+        if (data == null && particle.getDataType() == Float.class) {
+            return 1.0f;
+        }
         return data;
     }
 
