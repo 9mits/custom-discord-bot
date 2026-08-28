@@ -35,7 +35,7 @@ commands:
     aliases: [discordname]
   settings:
     description: Configure chat, notifications, cosmetics, privacy and scoreboard display.
-    usage: /settings [setting]
+    usage: /settings [setting] [value]
     aliases: [mysettings, prefs]
   wardrobe:
     description: Equip the cosmetics you own and list them in the auction house.

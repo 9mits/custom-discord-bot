@@ -292,6 +292,20 @@ class CrateCatalogTest {
     }
 
     @Test
+    void spectacleTiersOnlyEscalateLegendaryAndAbove() {
+        assertEquals(CrateCatalog.RevealTier.NONE,
+                CrateCatalog.find("totem_of_undying").orElseThrow().revealTier());
+        assertEquals(CrateCatalog.RevealTier.LEGENDARY,
+                CrateCatalog.find("mace").orElseThrow().revealTier());
+        assertEquals(CrateCatalog.RevealTier.MYTHIC,
+                CrateCatalog.find("cosmetic_prismatic_trail").orElseThrow().revealTier());
+        assertEquals(CrateCatalog.RevealTier.SECRET,
+                CrateCatalog.find("cosmetic_event_horizon").orElseThrow().revealTier());
+        assertEquals(CrateCatalog.RevealTier.GENUINE_SECRET,
+                CrateCatalog.find("cosmetic_iridescent_imperium").orElseThrow().revealTier());
+    }
+
+    @Test
     void lookupAcceptsCommandCaseAndRejectsMissingIds() {
         CrateCatalog.Reward mace = CrateCatalog.find("mace").orElseThrow();
 

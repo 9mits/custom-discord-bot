@@ -1,5 +1,9 @@
 package bot.mgx.accessbridge;
 
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.TextColor;
+import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer;
 import org.bukkit.Material;
 import org.bukkit.inventory.ItemFlag;
 import org.junit.jupiter.api.Test;
@@ -181,7 +185,7 @@ class CosmeticCatalogTest {
         assertEquals("Rare", CosmeticCatalog.find("ember_trail").orElseThrow().rarityDisplay());
         assertEquals("Mythic", CosmeticCatalog.find("prismatic_trail").orElseThrow().rarityDisplay());
         assertEquals("Secret", CosmeticCatalog.find("event_horizon").orElseThrow().rarityDisplay());
-        assertEquals("Exotic", CosmeticCatalog.find("iridescent_imperium")
+        assertEquals("Genuine Secret", CosmeticCatalog.find("iridescent_imperium")
                 .orElseThrow().rarityDisplay());
     }
 
@@ -213,6 +217,29 @@ class CosmeticCatalogTest {
     @Test
     void wearablePreviewMaterialsDoNotLeakVanillaAttributes() {
         assertTrue(List.of(CosmeticItems.previewFlags()).contains(ItemFlag.HIDE_ATTRIBUTES));
+    }
+
+    @Test
+    void firstThreeSerialNumbersUsePodiumMetalColours() {
+        assertEquals(TextColor.color(0xFFD700), CosmeticItems.serialLine(1).children().getFirst().color());
+        assertEquals(TextColor.color(0xC0C0C0), CosmeticItems.serialLine(2).children().getFirst().color());
+        assertEquals(TextColor.color(0xCD7F32), CosmeticItems.serialLine(3).children().getFirst().color());
+        assertEquals("Serial #1", PlainTextComponentSerializer.plainText()
+                .serialize(CosmeticItems.serialLine(1)));
+    }
+
+    @Test
+    void imperiumItemNameIsRainbowAndSecretPreviewsAreGlitched() {
+        CosmeticCatalog.Definition imperium = CosmeticCatalog
+                .find(CosmeticCatalog.HIDDEN_AMETHYST_COSMETIC_ID).orElseThrow();
+
+        Component revealed = CosmeticItems.itemName(imperium, false);
+        Component masked = CosmeticItems.itemName(imperium, true);
+
+        assertEquals("Iridescent Imperium",
+                PlainTextComponentSerializer.plainText().serialize(revealed));
+        assertTrue(revealed.children().stream().map(Component::color).distinct().count() >= 5);
+        assertEquals(TextDecoration.State.TRUE, masked.decoration(TextDecoration.OBFUSCATED));
     }
 
     private static long in(CosmeticCatalog.Category category) {

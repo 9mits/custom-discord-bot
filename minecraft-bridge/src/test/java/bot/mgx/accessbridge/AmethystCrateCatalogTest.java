@@ -79,25 +79,29 @@ final class AmethystCrateCatalogTest {
     }
 
     @Test
-    void exoticJackpotIsOneInAMillionAndAbsentFromEveryPublishedPool() {
+    void genuineSecretIsOneInFiveHundredThousandAndAbsentFromEveryPublishedPool() {
         CosmeticCatalog.Definition exotic = CosmeticCatalog
                 .find(CosmeticCatalog.HIDDEN_AMETHYST_COSMETIC_ID).orElseThrow();
         CrateCatalog.Reward reward = CrateCatalog.hiddenAmethyst().getFirst();
 
         assertEquals("Iridescent Imperium", exotic.displayName());
-        assertEquals("Exotic", exotic.rarityDisplay());
-        assertEquals(1_000_000, exotic.oneIn());
-        assertEquals("1 in 1,000,000", exotic.oneInDisplay(false));
+        assertEquals("Genuine Secret", exotic.rarityDisplay());
+        assertEquals(500_000, exotic.oneIn());
+        assertEquals("1 in 500,000", exotic.oneInDisplay(false));
+        assertTrue(exotic.description().toLowerCase(java.util.Locale.ROOT)
+                .contains("music-synced"));
+        assertTrue(exotic.nameplateWorthy());
         assertTrue(exotic.secret());
         assertFalse(CosmeticCatalog.amethystRewards().contains(exotic));
         assertFalse(CrateCatalog.amethyst().contains(reward));
         assertFalse(CrateCatalog.all().contains(reward));
         assertTrue(CrateCatalog.everyReward().contains(reward));
         assertTrue(CrateCatalog.isHiddenAmethyst(reward));
-        assertEquals("1 in 1,000,000", reward.displayedChance());
+        assertEquals("1 in 500,000", reward.displayedChance());
+        assertEquals(CrateCatalog.RevealTier.GENUINE_SECRET, reward.revealTier());
         assertEquals(reward, CrateCatalog.hiddenAmethystAt(0).orElseThrow());
         assertTrue(CrateCatalog.hiddenAmethystAt(1).isEmpty());
-        assertTrue(CrateCatalog.hiddenAmethystAt(999_999).isEmpty());
+        assertTrue(CrateCatalog.hiddenAmethystAt(499_999).isEmpty());
     }
 
     @Test
@@ -148,6 +152,8 @@ final class AmethystCrateCatalogTest {
     @Test
     void eventDeadlineIsSaturdaySeptemberFifthAtThreePmJst() {
         assertEquals(1_788_588_000_000L, CrateKind.AMETHYST.closesAt());
+        assertEquals(1, CrateKind.DEFAULT.keyCost());
+        assertEquals(2, CrateKind.AMETHYST.keyCost());
         assertTrue(CrateKind.AMETHYST.available(CrateKind.AMETHYST.closesAt() - 1));
         assertFalse(CrateKind.AMETHYST.available(CrateKind.AMETHYST.closesAt()));
         assertEquals("Event ended", CrateKind.AMETHYST.remaining(CrateKind.AMETHYST.closesAt()));

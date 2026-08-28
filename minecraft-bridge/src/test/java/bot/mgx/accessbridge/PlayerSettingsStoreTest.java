@@ -207,6 +207,34 @@ class PlayerSettingsStoreTest {
     }
 
     @Test
+    void syncedMusicVolumeIsIndependentPersistentAndRounded(@TempDir Path directory)
+            throws IOException {
+        Path file = directory.resolve("settings.json");
+        UUID player = UUID.randomUUID();
+        PlayerSettingsStore store = new PlayerSettingsStore(file);
+
+        assertEquals(100, store.musicVolume(player));
+        assertEquals(75, store.cycleMusicVolume(player));
+        assertEquals(50, store.cycleMusicVolume(player));
+        assertEquals(25, store.cycleMusicVolume(player));
+        assertEquals(0, store.cycleMusicVolume(player));
+        assertEquals(100, store.cycleMusicVolume(player));
+        assertEquals(75, store.setMusicVolume(player, 69));
+        assertEquals(75, new PlayerSettingsStore(file).musicVolume(player));
+        assertTrue(store.isEnabled(player, PlayerSettingsStore.Setting.COSMETIC_SOUNDS));
+    }
+
+    @Test
+    void resetAlsoRestoresSyncedMusicVolume(@TempDir Path directory) throws IOException {
+        PlayerSettingsStore store = new PlayerSettingsStore(directory.resolve("settings.json"));
+        UUID player = UUID.randomUUID();
+
+        store.setMusicVolume(player, 25);
+        assertEquals(1, store.clearAll());
+        assertEquals(100, store.musicVolume(player));
+    }
+
+    @Test
     void aPlayerBackAtDefaultsLeavesNothingBehind(@TempDir Path directory) throws IOException {
         Path file = directory.resolve("settings.json");
         PlayerSettingsStore store = new PlayerSettingsStore(file);

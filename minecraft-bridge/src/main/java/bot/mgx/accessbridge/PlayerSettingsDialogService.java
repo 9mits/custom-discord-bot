@@ -133,6 +133,21 @@ final class PlayerSettingsDialogService {
                     audience -> toggle(audience, category, setting)
             ));
         }
+        if (category == PlayerSettingsStore.Category.VISUALS) {
+            int volume = store.musicVolume(player.getUniqueId());
+            buttons.add(ActionButton.builder(Component.text(
+                            "Synced Music Volume: " + volume + "%",
+                            volume == 0 ? NamedTextColor.RED : NamedTextColor.AQUA,
+                            TextDecoration.BOLD
+                    ))
+                    .tooltip(Component.text(
+                            "Separate from Minecraft Music. Click to cycle 100 / 75 / 50 / 25 / 0.",
+                            NamedTextColor.GRAY
+                    ))
+                    .width(310)
+                    .action(callback((response, audience) -> cycleMusicVolume(audience)))
+                    .build());
+        }
         if (category == PlayerSettingsStore.Category.PRIVACY) {
             buttons.add(toggleButton(
                     "Discord Name",
@@ -208,6 +223,17 @@ final class PlayerSettingsDialogService {
             PlayerMenuService.error(player, "That setting could not be saved. Please try again.");
         }
         openCategory(player, PlayerSettingsStore.Category.PRIVACY);
+    }
+
+    private void cycleMusicVolume(Player player) {
+        try {
+            store.cycleMusicVolume(player.getUniqueId());
+        } catch (UncheckedIOException exception) {
+            plugin.getLogger().warning("Could not save synced music volume: "
+                    + exception.getMessage());
+            PlayerMenuService.error(player, "That volume could not be saved. Please try again.");
+        }
+        openCategory(player, PlayerSettingsStore.Category.VISUALS);
     }
 
     private DialogAction callback(BiConsumer<DialogResponseView, Player> callback) {

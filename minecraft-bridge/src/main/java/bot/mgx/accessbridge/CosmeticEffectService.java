@@ -1,7 +1,10 @@
 package bot.mgx.accessbridge;
 
+import net.kyori.adventure.bossbar.BossBar;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.title.Title;
 import org.bukkit.Color;
 import org.bukkit.Location;
@@ -9,11 +12,14 @@ import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.SoundCategory;
 import org.bukkit.World;
+import org.bukkit.entity.ArmorStand;
+import org.bukkit.entity.Pose;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.PlayerDeathEvent;
+import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Vector;
 
@@ -40,6 +46,7 @@ final class CosmeticEffectService implements Listener {
     private static final double TRAIL_RESET_DISTANCE_SQUARED = 12d * 12d;
     private static final String MUSIC_AURA_ID = CosmeticCatalog.HIDDEN_AMETHYST_COSMETIC_ID;
     private static final String MUSIC_AURA_SOUND = "mgx:iridescent_imperium";
+    private static final String RARITY_NAMEPLATE_TAG = "mgx_cosmetic_rarity_nameplate";
     private final MGXAccessBridge plugin;
     private final CosmeticStore store;
     private final CosmeticItems items;
@@ -50,6 +57,9 @@ final class CosmeticEffectService implements Listener {
     private final Map<UUID, Deque<Location>> trailHistories = new HashMap<>();
     private final Set<String> failedSelectionClears = new HashSet<>();
     private final Map<UUID, MusicAuraState> musicAuraStates = new HashMap<>();
+    private final Map<UUID, ArmorStand> rarityNameplates = new HashMap<>();
+    private final Map<UUID, FloatingPlayerState> floatingPlayers = new HashMap<>();
+    private final Set<BossBar> activeRevealBars = new HashSet<>();
     private BukkitTask task;
     private long frame;
 
@@ -61,6 +71,16 @@ final class CosmeticEffectService implements Listener {
         MusicAuraState(long startedAtMillis) {
             this.startedAtMillis = startedAtMillis;
         }
+    }
+
+    private record FloatingPlayerState(
+            Location returnLocation,
+            boolean gravity,
+            boolean invulnerable,
+            boolean collidable,
+            Pose pose,
+            boolean fixedPose
+    ) {
     }
 
     CosmeticEffectService(
@@ -81,6 +101,10 @@ final class CosmeticEffectService implements Listener {
 
     void start() {
         if (task == null) {
+            plugin.getServer().getWorlds().forEach(world -> world.getEntitiesByClass(ArmorStand.class)
+                    .stream()
+                    .filter(entity -> entity.getScoreboardTags().contains(RARITY_NAMEPLATE_TAG))
+                    .forEach(ArmorStand::remove));
             task = plugin.getServer().getScheduler().runTaskTimer(
                     plugin, this::tick, PERIOD_TICKS, PERIOD_TICKS
             );
@@ -98,12 +122,30 @@ final class CosmeticEffectService implements Listener {
         for (UUID ownerId : List.copyOf(musicAuraStates.keySet())) {
             stopMusicAura(ownerId);
         }
+        rarityNameplates.values().forEach(ArmorStand::remove);
+        rarityNameplates.clear();
+        for (UUID playerId : List.copyOf(floatingPlayers.keySet())) {
+            restoreFloatingPlayer(playerId);
+        }
+        for (BossBar bar : activeRevealBars) {
+            for (Player viewer : plugin.getServer().getOnlinePlayers()) {
+                viewer.hideBossBar(bar);
+            }
+        }
+        activeRevealBars.clear();
     }
 
     private void tick() {
         frame++;
         previousLocations.keySet().removeIf(uuid -> plugin.getServer().getPlayer(uuid) == null);
         trailHistories.keySet().removeIf(uuid -> plugin.getServer().getPlayer(uuid) == null);
+        rarityNameplates.entrySet().removeIf(entry -> {
+            if (plugin.getServer().getPlayer(entry.getKey()) != null && entry.getValue().isValid()) {
+                return false;
+            }
+            entry.getValue().remove();
+            return true;
+        });
         for (UUID ownerId : List.copyOf(musicAuraStates.keySet())) {
             if (plugin.getServer().getPlayer(ownerId) == null) {
                 stopMusicAura(ownerId);
@@ -114,6 +156,7 @@ final class CosmeticEffectService implements Listener {
                 previousLocations.remove(player.getUniqueId());
                 trailHistories.remove(player.getUniqueId());
                 stopMusicAura(player.getUniqueId());
+                removeRarityNameplate(player.getUniqueId());
                 continue;
             }
             Location now = player.getLocation();
@@ -125,12 +168,21 @@ final class CosmeticEffectService implements Listener {
             Optional<CosmeticCatalog.Definition> aura = active(
                     player, CosmeticCatalog.Category.AURA
             );
+            Optional<CosmeticCatalog.Definition> trailDefinition = active(
+                    player, CosmeticCatalog.Category.TRAIL
+            );
+            Optional<CosmeticCatalog.Definition> killEffect = active(
+                    player, CosmeticCatalog.Category.KILL_EFFECT
+            );
+            syncRarityNameplate(player, aura, trailDefinition, killEffect);
             if (aura.map(CosmeticCatalog.Definition::id).filter(MUSIC_AURA_ID::equals).isPresent()) {
                 syncMusicAura(player);
             } else {
                 stopMusicAura(player.getUniqueId());
             }
-            if (CosmeticAnimation.renderAuraFrame(moving, auraFrame)) {
+            boolean musicAura = aura.map(CosmeticCatalog.Definition::id)
+                    .filter(MUSIC_AURA_ID::equals).isPresent();
+            if (musicAura || CosmeticAnimation.renderAuraFrame(moving, auraFrame)) {
                 aura.ifPresent(definition -> drawAura(player, definition));
             }
             Deque<Location> history = trailHistories.computeIfAbsent(
@@ -146,12 +198,105 @@ final class CosmeticEffectService implements Listener {
                 history.removeLast();
             }
             if (moving) {
-                List<Location> trail = List.copyOf(history);
-                active(player, CosmeticCatalog.Category.TRAIL).ifPresent(
-                        definition -> drawTrail(player, definition, trail)
+                List<Location> trailPoints = List.copyOf(history);
+                trailDefinition.ifPresent(
+                        definition -> drawTrail(player, definition, trailPoints)
                 );
             }
         }
+    }
+
+    private void syncRarityNameplate(
+            Player player,
+            Optional<CosmeticCatalog.Definition> aura,
+            Optional<CosmeticCatalog.Definition> trail,
+            Optional<CosmeticCatalog.Definition> killEffect
+    ) {
+        CosmeticCatalog.Definition rarest = null;
+        for (Optional<CosmeticCatalog.Definition> candidate : List.of(aura, trail, killEffect)) {
+            if (candidate.isEmpty() || !candidate.get().nameplateWorthy()) {
+                continue;
+            }
+            if (rarest == null || candidate.get().oneIn() > rarest.oneIn()) {
+                rarest = candidate.get();
+            }
+        }
+        if (rarest == null) {
+            removeRarityNameplate(player.getUniqueId());
+            return;
+        }
+        ArmorStand plate = rarityNameplates.get(player.getUniqueId());
+        if (plate == null || !plate.isValid() || plate.getWorld() != player.getWorld()) {
+            if (plate != null) {
+                plate.remove();
+            }
+            plate = player.getWorld().spawn(
+                    player.getLocation().add(0d, -0.35d, 0d), ArmorStand.class,
+                    entity -> {
+                        entity.setVisible(false);
+                        entity.setMarker(true);
+                        entity.setGravity(false);
+                        entity.setInvulnerable(true);
+                        entity.setSilent(true);
+                        entity.setCollidable(false);
+                        entity.setPersistent(false);
+                        entity.setCustomNameVisible(true);
+                        entity.addScoreboardTag(RARITY_NAMEPLATE_TAG);
+                    }
+            );
+            rarityNameplates.put(player.getUniqueId(), plate);
+        }
+        plate.customName(rarityNameplate(rarest, frame));
+        Location target = player.getLocation().add(0d, -0.35d, 0d);
+        target.setYaw(0f);
+        target.setPitch(0f);
+        plate.teleport(target);
+    }
+
+    private void removeRarityNameplate(UUID playerId) {
+        ArmorStand plate = rarityNameplates.remove(playerId);
+        if (plate != null) {
+            plate.remove();
+        }
+    }
+
+    static Component rarityNameplate(CosmeticCatalog.Definition definition, long animationFrame) {
+        TextColor[] palette;
+        if (definition.hiddenAmethystJackpot()) {
+            palette = new TextColor[]{
+                    TextColor.color(0xE95CFF), TextColor.color(0x705CFF),
+                    TextColor.color(0x36CFFF), TextColor.color(0x42E59B),
+                    TextColor.color(0xF3D56B), TextColor.color(0xFF8055)
+            };
+        } else if (definition.secret()) {
+            palette = new TextColor[]{
+                    TextColor.color(0x7B2CFF), TextColor.color(0xCC55FF),
+                    TextColor.color(0xFF4FD8), TextColor.color(0x6B8CFF)
+            };
+        } else {
+            palette = new TextColor[]{
+                    TextColor.color(0xFF416C), TextColor.color(0xFF8B3D),
+                    TextColor.color(0xFFD35A), TextColor.color(0xFF4FB7)
+            };
+        }
+        String text = "✦ 1 IN " + String.format(java.util.Locale.ROOT, "%,d", definition.oneIn()) + " ✦";
+        int shift = (int) Math.floorMod(animationFrame / 2L, palette.length);
+        Component result = Component.empty();
+        for (int index = 0; index < text.length(); index++) {
+            result = result.append(Component.text(
+                    Character.toString(text.charAt(index)),
+                    palette[(index + shift) % palette.length], TextDecoration.BOLD
+            ));
+        }
+        return result;
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onQuit(PlayerQuitEvent event) {
+        UUID playerId = event.getPlayer().getUniqueId();
+        removeRarityNameplate(playerId);
+        stopMusicAura(playerId);
+        restoreFloatingPlayer(playerId);
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -166,95 +311,311 @@ final class CosmeticEffectService implements Listener {
         );
     }
 
-    void playSecretReveal(Player player, CosmeticCatalog.Definition definition) {
-        boolean exotic = definition.hiddenAmethystJackpot();
+    void playCrateReveal(Player player, CrateCatalog.Reward reward) {
+        switch (reward.revealTier()) {
+            case NONE, LEGENDARY -> { }
+            case MYTHIC -> playMythicReveal(player, reward);
+            case SECRET -> playSecretReveal(player, reward);
+            case GENUINE_SECRET -> playGenuineSecretReveal(player, reward);
+        }
+    }
+
+    private void playMythicReveal(Player player, CrateCatalog.Reward reward) {
         player.showTitle(Title.title(
-                Component.text(
-                        exotic ? "IRIDESCENT IMPERIUM" : "UNKNOWN COSMETIC",
-                        exotic ? NamedTextColor.LIGHT_PURPLE : NamedTextColor.DARK_PURPLE
-                ),
-                Component.text(
-                        exotic ? "EXOTIC • 1 in 1,000,000" : "Chance: ???",
-                        exotic ? NamedTextColor.GOLD : NamedTextColor.GRAY
-                ),
-                Title.Times.times(
-                        Duration.ofMillis(250), Duration.ofSeconds(exotic ? 5 : 3),
-                        Duration.ofSeconds(1)
-                )
+                Component.text("✦ MYTHIC DROP ✦", TextColor.color(0xFF4FD8), TextDecoration.BOLD),
+                Component.text(reward.displayName(), NamedTextColor.GOLD, TextDecoration.BOLD),
+                Title.Times.times(Duration.ofMillis(120), Duration.ofSeconds(3),
+                        Duration.ofMillis(650))
         ));
+        playServerwideRevealSound(Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f, 1.15f);
         Location origin = player.getLocation().add(0d, 1d, 0d);
-        Color shadow = Color.fromRGB(45, 0, 70);
-        Color reveal = exotic ? Color.fromRGB(244, 190, 90) : Color.fromRGB(210, 80, 255);
-        animate(player, origin, 30, 2L, step -> {
+        Color pink = Color.fromRGB(255, 70, 190);
+        Color gold = Color.fromRGB(255, 195, 50);
+        animate(player, origin, 36, 2L, step -> {
             if (!player.isOnline()) {
                 return;
             }
-            if (step < 9) {
-                double pull = CosmeticAnimation.smooth(step / 8d);
-                double radius = 2.2d - pull * 1.85d;
-                for (int shard = 0; shard < 16; shard++) {
-                    double angle = shard * Math.PI / 8d + step * 0.38d;
-                    Location at = origin.clone().add(
-                            Math.cos(angle) * radius,
-                            Math.sin(angle * 3d) * (0.8d - pull * 0.55d),
-                            Math.sin(angle) * radius
-                    );
-                    Vector inward = origin.toVector().subtract(at.toVector());
-                    if (inward.lengthSquared() > 0.001d) {
-                        inward.normalize().multiply(0.08d);
-                    }
-                    spawnMoving(player, at,
-                            shard % 4 == 0 ? Particle.REVERSE_PORTAL : Particle.DUST,
-                            inward, shard % 4 == 0 ? null
-                                    : new Particle.DustOptions(shadow, 1.05f), null);
-                }
-                if (step == 0) {
-                    sound(player, origin, Sound.BLOCK_END_PORTAL_SPAWN, 1.1f, 0.58f, null);
-                }
-                return;
-            }
-            if (step < 18) {
-                double unlock = CosmeticAnimation.easeOutBack((step - 9d) / 8d);
-                for (int helix = 0; helix < 12; helix++) {
-                    double progress = helix / 11d;
-                    double angle = step * 0.55d + progress * Math.PI * 4d;
-                    Location at = origin.clone().add(
-                            Math.cos(angle) * unlock * 0.65d,
-                            -0.8d + progress * 2.3d,
-                            Math.sin(angle) * unlock * 0.65d
-                    );
-                    dust(player, at, helix % 2 == 0 ? shadow : reveal,
-                            helix % 2 == 0 ? 1.2f : 0.85f, null);
-                }
-                if (step == 17) {
-                    spawn(player, origin, Particle.SONIC_BOOM, 1,
-                            0d, 0d, 0d, 0d, null, null);
-                    sound(player, origin, Sound.ENTITY_WARDEN_SONIC_BOOM, 0.8f, 1.35f, null);
-                }
-                return;
-            }
-            double breakOpen = CosmeticAnimation.easeOutBack((step - 18d) / 11d);
-            for (int ray = 0; ray < 12; ray++) {
-                double angle = ray * Math.PI / 6d + step * 0.14d;
+            double burst = CosmeticAnimation.easeOutBack(Math.min(1d, step / 14d));
+            drawRing(player, origin.clone().add(0d, (step % 12) * 0.08d - 0.45d, 0d),
+                    0.3d + burst * 2.2d, 24, step * 0.28d,
+                    step % 2 == 0 ? pink : gold, 1.05f, null);
+            for (int ray = 0; ray < 8; ray++) {
+                double angle = ray * Math.PI / 4d + step * 0.15d;
                 Location tip = origin.clone().add(
-                        Math.cos(angle) * breakOpen * 2.25d,
-                        Math.sin(angle * 2d) * breakOpen * 1.25d,
-                        Math.sin(angle) * breakOpen * 2.25d
+                        Math.cos(angle) * burst * 1.6d,
+                        Math.sin(step * 0.35d + ray) * 0.65d,
+                        Math.sin(angle) * burst * 1.6d
                 );
-                drawLine(player, origin, tip, 5, ray % 2 == 0 ? reveal : shadow,
-                        1.05f, null);
-                if (ray % 3 == 0) {
-                    spawnMoving(player, tip, Particle.END_ROD,
-                            new Vector(Math.cos(angle) * 0.07d, 0.045d,
-                                    Math.sin(angle) * 0.07d), null, null);
-                }
+                dust(player, tip, ray % 2 == 0 ? pink : gold, 1.15f, null);
             }
-            if (step == 29) {
+            if (step == 0 || step == 14 || step == 28) {
+                spawn(player, origin, Particle.FLASH, 1, 0d, 0d, 0d, 0d, null, null);
+            }
+            if (step == 35) {
                 spawn(player, origin, Particle.TOTEM_OF_UNDYING,
-                        18, 0.4d, 0.65d, 0.4d, 0.08d, null, null);
-                sound(player, origin, Sound.UI_TOAST_CHALLENGE_COMPLETE, 1.25f, 0.92f, null);
+                        30, 0.55d, 0.8d, 0.55d, 0.12d, null, null);
             }
         });
+    }
+
+    private void playSecretReveal(Player player, CrateCatalog.Reward reward) {
+        player.showTitle(Title.title(
+                Component.text("⚠ SECRET UNSEALED ⚠", TextColor.color(0xC24CFF),
+                        TextDecoration.BOLD),
+                Component.text(reward.displayName(), NamedTextColor.LIGHT_PURPLE,
+                        TextDecoration.BOLD),
+                Title.Times.times(Duration.ofMillis(100), Duration.ofSeconds(5),
+                        Duration.ofSeconds(1))
+        ));
+        playServerwideRevealSound(Sound.ENTITY_ENDER_DRAGON_GROWL, 0.85f, 1.25f);
+        Location origin = player.getLocation().add(0d, 1d, 0d);
+        Color voidColour = Color.fromRGB(38, 0, 70);
+        Color violet = Color.fromRGB(210, 70, 255);
+        Color cyan = Color.fromRGB(55, 220, 255);
+        animate(player, origin, 70, 2L, step -> {
+            if (!player.isOnline()) {
+                return;
+            }
+            double pulse = 0.55d + Math.sin(step * 0.42d) * 0.35d;
+            double radius = 0.7d + pulse + (step / 69d) * 1.7d;
+            drawRing(player, origin.clone().add(0d, -0.75d + (step % 20) * 0.09d, 0d),
+                    radius, 28, step * 0.3d, step % 3 == 0 ? cyan : violet, 1.1f, null);
+            for (int shard = 0; shard < 16; shard++) {
+                double angle = shard * Math.PI / 8d + step * 0.31d;
+                Location at = origin.clone().add(
+                        Math.cos(angle) * radius,
+                        Math.sin(angle * 3d + step * 0.22d) * 1.25d,
+                        Math.sin(angle) * radius
+                );
+                Vector inward = origin.toVector().subtract(at.toVector());
+                if (inward.lengthSquared() > 0.001d) {
+                    inward.normalize().multiply(step < 38 ? 0.12d : -0.1d);
+                }
+                spawnMoving(player, at, shard % 4 == 0 ? Particle.REVERSE_PORTAL : Particle.DUST,
+                        inward, shard % 4 == 0 ? null
+                                : new Particle.DustOptions(shard % 2 == 0 ? violet : voidColour, 1.2f),
+                        null);
+            }
+            if (step % 18 == 0) {
+                spawn(player, origin, Particle.SONIC_BOOM, 1,
+                        0d, 0d, 0d, 0d, null, null);
+                spawn(player, origin, Particle.FLASH, 1,
+                        0d, 0d, 0d, 0d, null, null);
+            }
+            if (step == 69) {
+                spawn(player, origin, Particle.TOTEM_OF_UNDYING,
+                        48, 0.7d, 1d, 0.7d, 0.16d, null, null);
+                sound(player, origin, Sound.ENTITY_WARDEN_SONIC_BOOM, 1.2f, 0.75f, null);
+            }
+        });
+    }
+
+    private void playGenuineSecretReveal(Player player, CrateCatalog.Reward reward) {
+        player.closeInventory();
+        beginFloatingPlayer(player);
+        player.showTitle(Title.title(
+                Component.text("✦ GENUINE SECRET ✦", TextColor.color(0x53E5FF),
+                        TextDecoration.BOLD),
+                Component.text("IRIDESCENT IMPERIUM • 1 IN 500,000", NamedTextColor.GOLD,
+                        TextDecoration.BOLD),
+                Title.Times.times(Duration.ofMillis(100), Duration.ofSeconds(8),
+                        Duration.ofSeconds(2))
+        ));
+        BossBar bar = BossBar.bossBar(
+                genuineBossbarName(player.getName(), 0), 1f,
+                BossBar.Color.PURPLE, BossBar.Overlay.NOTCHED_20
+        );
+        activeRevealBars.add(bar);
+        for (Player viewer : plugin.getServer().getOnlinePlayers()) {
+            viewer.showBossBar(bar);
+            viewer.showTitle(Title.title(
+                    Component.text("✦ GENUINE SECRET ✦", NamedTextColor.LIGHT_PURPLE,
+                            TextDecoration.BOLD),
+                    Component.text(player.getName() + " found " + reward.displayName(),
+                            NamedTextColor.GOLD),
+                    Title.Times.times(Duration.ofMillis(120), Duration.ofSeconds(3),
+                            Duration.ofMillis(600))
+            ));
+            globalPlayerPulse(viewer, true);
+        }
+        playServerwideRevealSound(Sound.ENTITY_WITHER_SPAWN, 1.25f, 0.62f);
+        plugin.getServer().getScheduler().runTaskLater(
+                plugin,
+                () -> playServerwideRevealSound(Sound.BLOCK_END_PORTAL_SPAWN, 1.1f, 0.72f),
+                45L
+        );
+
+        Color amethyst = Color.fromRGB(186, 74, 255);
+        Color sapphire = Color.fromRGB(55, 110, 255);
+        Color emerald = Color.fromRGB(45, 220, 145);
+        Color ruby = Color.fromRGB(235, 55, 110);
+        Color champagne = Color.fromRGB(255, 205, 95);
+        Color[] jewels = {amethyst, sapphire, emerald, ruby, champagne};
+        Location base = floatingPlayers.get(player.getUniqueId()).returnLocation().clone();
+        animate(player, base.clone().add(0d, 1d, 0d), 250, 2L, step -> {
+            floatGenuineWinner(player, step);
+            bar.progress(Math.max(0f, 1f - step / 249f));
+            if (step % 4 == 0) {
+                bar.name(genuineBossbarName(player.getName(), step));
+            }
+            if (player.isOnline()) {
+                Location centre = player.getLocation().add(0d, 0.9d, 0d);
+                double beat = 0.55d + Math.sin(step * 0.52d) * 0.35d;
+                double expanding = 0.9d + (step % 25) / 25d * 3.2d;
+                drawRing(player, centre.clone().add(0d, -0.85d, 0d), expanding,
+                        32, step * 0.24d, jewels[(step / 8) % jewels.length], 1.18f, null);
+                drawRing(player, centre.clone().add(0d, 0.55d, 0d),
+                        0.8d + beat * 1.25d, 24, -step * 0.33d,
+                        jewels[(step / 5 + 2) % jewels.length], 1.05f, null);
+                for (int pillar = 0; pillar < 12; pillar++) {
+                    double angle = pillar * Math.PI / 6d + step * 0.19d;
+                    double height = 0.55d + ((pillar + step) % 5) * 0.42d + beat;
+                    Location root = centre.clone().add(
+                            Math.cos(angle) * (1.15d + beat * 0.4d), -0.9d,
+                            Math.sin(angle) * (1.15d + beat * 0.4d)
+                    );
+                    drawLine(player, root, root.clone().add(0d, height, 0d), 5,
+                            jewels[pillar % jewels.length], 1.08f, null);
+                }
+                if (step % 20 == 0) {
+                    spawn(player, centre, Particle.FLASH, 1,
+                            0d, 0d, 0d, 0d, null, null);
+                    spawn(player, centre, Particle.SONIC_BOOM, 1,
+                            0d, 0d, 0d, 0d, null, null);
+                }
+                if (step == 80 || step == 160 || step == 230) {
+                    spawn(player, centre, Particle.TOTEM_OF_UNDYING,
+                            80, 1d, 1.5d, 1d, 0.2d, null, null);
+                    playServerwideRevealSound(
+                            step == 230 ? Sound.ENTITY_ENDER_DRAGON_GROWL
+                                    : Sound.ENTITY_WARDEN_SONIC_BOOM,
+                            1.1f, step == 230 ? 0.72f : 1.15f
+                    );
+                    for (Player viewer : plugin.getServer().getOnlinePlayers()) {
+                        globalPlayerPulse(viewer, false);
+                    }
+                }
+            }
+            if (step == 249) {
+                restoreFloatingPlayer(player.getUniqueId());
+                for (Player viewer : plugin.getServer().getOnlinePlayers()) {
+                    viewer.hideBossBar(bar);
+                }
+                activeRevealBars.remove(bar);
+            }
+        });
+    }
+
+    private void playServerwideRevealSound(Sound sound, float volume, float pitch) {
+        for (Player viewer : plugin.getServer().getOnlinePlayers()) {
+            if (settings.isEnabled(
+                    viewer.getUniqueId(), PlayerSettingsStore.Setting.COSMETIC_SOUNDS
+            )) {
+                viewer.playSound(viewer.getLocation(), sound, SoundCategory.MASTER, volume, pitch);
+            }
+        }
+    }
+
+    private static void globalPlayerPulse(Player viewer, boolean opening) {
+        Location at = viewer.getLocation().add(0d, 1d, 0d);
+        viewer.spawnParticle(Particle.FLASH, at, 1, 0d, 0d, 0d, 0d);
+        viewer.spawnParticle(
+                Particle.TOTEM_OF_UNDYING, at,
+                opening ? 22 : 12,
+                opening ? 0.55d : 0.35d,
+                opening ? 0.8d : 0.45d,
+                opening ? 0.55d : 0.35d,
+                opening ? 0.1d : 0.05d
+        );
+        viewer.sendActionBar(Component.text(
+                opening ? "✦ A GENUINE SECRET HAS ENTERED THE SERVER ✦"
+                        : "✦ THE IMPERIUM RESONATES ✦",
+                opening ? TextColor.color(0xE95CFF) : TextColor.color(0x53E5FF),
+                TextDecoration.BOLD
+        ));
+    }
+
+    static Component genuineBossbarName(String playerName, int step) {
+        TextColor[] palette = {
+                TextColor.color(0xE95CFF), TextColor.color(0x705CFF),
+                TextColor.color(0x36CFFF), TextColor.color(0x42E59B),
+                TextColor.color(0xF3D56B), TextColor.color(0xFF8055),
+                TextColor.color(0xFF4F91)
+        };
+        String text = "✦ " + playerName + " FOUND A GENUINE SECRET • 1 IN 500,000 ✦";
+        int shift = Math.floorMod(step / 3, palette.length);
+        Component result = Component.empty();
+        for (int index = 0; index < text.length(); index++) {
+            result = result.append(Component.text(
+                    Character.toString(text.charAt(index)),
+                    palette[(index + shift) % palette.length], TextDecoration.BOLD
+            ));
+        }
+        return result;
+    }
+
+    private void beginFloatingPlayer(Player player) {
+        restoreFloatingPlayer(player.getUniqueId());
+        floatingPlayers.put(player.getUniqueId(), new FloatingPlayerState(
+                player.getLocation().clone(), player.hasGravity(), player.isInvulnerable(),
+                player.isCollidable(), player.getPose(), player.hasFixedPose()
+        ));
+        player.setVelocity(new Vector());
+        player.setFallDistance(0f);
+        player.setGravity(false);
+        player.setInvulnerable(true);
+        player.setCollidable(false);
+        player.setPose(Pose.FALL_FLYING, true);
+    }
+
+    private void floatGenuineWinner(Player player, int step) {
+        FloatingPlayerState state = floatingPlayers.get(player.getUniqueId());
+        if (state == null) {
+            return;
+        }
+        if (!player.isOnline() || player.getWorld() != state.returnLocation().getWorld()) {
+            restoreFloatingPlayer(player.getUniqueId());
+            return;
+        }
+        if (step >= 150) {
+            restoreFloatingPlayer(player.getUniqueId());
+            return;
+        }
+        double progress = step / 149d;
+        double lift = Math.sin(progress * Math.PI);
+        double orbit = Math.sin(progress * Math.PI) * 0.22d;
+        double angle = step * 0.12d;
+        Location target = state.returnLocation().clone().add(
+                Math.cos(angle) * orbit,
+                lift * 1.75d + Math.sin(step * 0.3d) * 0.08d * lift,
+                Math.sin(angle) * orbit
+        );
+        target.setYaw(state.returnLocation().getYaw() + step * 4.5f);
+        target.setPitch(-18f + (float) Math.sin(step * 0.18d) * 8f);
+        player.setPose(Pose.FALL_FLYING, true);
+        player.setVelocity(new Vector());
+        player.setFallDistance(0f);
+        player.teleport(target);
+    }
+
+    private void restoreFloatingPlayer(UUID playerId) {
+        FloatingPlayerState state = floatingPlayers.remove(playerId);
+        if (state == null) {
+            return;
+        }
+        Player player = plugin.getServer().getPlayer(playerId);
+        if (player == null) {
+            return;
+        }
+        player.setGravity(state.gravity());
+        player.setInvulnerable(state.invulnerable());
+        player.setCollidable(state.collidable());
+        player.setPose(state.pose(), state.fixedPose());
+        player.setVelocity(new Vector());
+        player.setFallDistance(0f);
+        if (player.getWorld() == state.returnLocation().getWorld()) {
+            player.teleport(state.returnLocation());
+        }
     }
 
     private Optional<CosmeticCatalog.Definition> active(
@@ -369,7 +730,7 @@ final class CosmeticEffectService implements Listener {
         for (UUID listenerId : List.copyOf(state.listeners)) {
             Player listener = plugin.getServer().getPlayer(listenerId);
             if (listener != null) {
-                listener.stopSound(MUSIC_AURA_SOUND, SoundCategory.MUSIC);
+                listener.stopSound(MUSIC_AURA_SOUND, SoundCategory.MASTER);
             }
         }
         state.listeners.clear();
@@ -377,13 +738,18 @@ final class CosmeticEffectService implements Listener {
         for (Player viewer : viewers(
                 owner, owner.getLocation(), PlayerSettingsStore.Setting.OWN_AURA_VISIBLE
         )) {
-            if (!settings.isEnabled(
-                    viewer.getUniqueId(), PlayerSettingsStore.Setting.COSMETIC_SOUNDS
-            )) {
+            int volume = settings.musicVolume(viewer.getUniqueId());
+            if (volume <= 0) {
                 continue;
             }
             viewer.playSound(
-                    owner.getLocation(), MUSIC_AURA_SOUND, SoundCategory.MUSIC, 0.72f, 1f
+                    net.kyori.adventure.sound.Sound.sound(
+                            net.kyori.adventure.key.Key.key(MUSIC_AURA_SOUND),
+                            net.kyori.adventure.sound.Sound.Source.MASTER,
+                            volume / 100.0f,
+                            1f
+                    ),
+                    net.kyori.adventure.sound.Sound.Emitter.self()
             );
             state.listeners.add(viewer.getUniqueId());
         }
@@ -397,7 +763,7 @@ final class CosmeticEffectService implements Listener {
         for (UUID listenerId : state.listeners) {
             Player listener = plugin.getServer().getPlayer(listenerId);
             if (listener != null) {
-                listener.stopSound(MUSIC_AURA_SOUND, SoundCategory.MUSIC);
+                listener.stopSound(MUSIC_AURA_SOUND, SoundCategory.MASTER);
             }
         }
     }
@@ -418,9 +784,12 @@ final class CosmeticEffectService implements Listener {
         double bass = sample.bass();
         double mid = sample.mid();
         double high = sample.high();
-        double hit = sample.onset();
+        // The source envelope is intentionally smooth enough to avoid visual noise.
+        // Expand its transient range here so ordinary beats visibly punch and the
+        // strongest attacks detonate instead of reading as a soft breathing motion.
+        double hit = Math.max(0d, Math.min(1d, (sample.onset() - 0.12d) * 1.7d));
         double time = phaseMillis / 1_000.0d;
-        int formation = (int) (phaseMillis / 8_000L) % 4;
+        int formation = (int) (phaseMillis / 6_000L) % 4;
 
         Color amethyst = Color.fromRGB(174, 77, 238);
         Color lilac = Color.fromRGB(236, 188, 255);
@@ -434,61 +803,97 @@ final class CosmeticEffectService implements Listener {
 
         Vector side = horizontalSide(owner);
         Vector forward = new Vector(-side.getZ(), 0d, side.getX());
-        Location heart = centre.clone().add(0d, 0.08d + bass * 0.28d + hit * 0.34d, 0d);
+        Location heart = centre.clone().add(
+                0d, -0.18d + bass * 0.62d + hit * 0.82d, 0d
+        );
         drawVerticalGem(
-                owner, heart, side, 0.32d + bass * 0.18d + hit * 0.13d,
-                time * (0.65d + high * 0.5d), amethyst, lilac
+                owner, heart, side, 0.4d + bass * 0.28d + hit * 0.24d,
+                time * (0.9d + high * 0.9d), amethyst, accent
         );
 
-        int jewels = 6 + formation * 2;
-        double orbitRadius = 0.68d + mid * 0.72d + hit * 0.35d;
+        int jewels = 12 + formation * 2;
+        double orbitRadius = 0.62d + mid * 1.05d + hit * 0.72d;
         for (int jewel = 0; jewel < jewels; jewel++) {
-            double angle = time * (0.85d + high * 0.55d)
+            double angle = time * (1.15d + high * 1.05d)
                     + jewel * Math.PI * 2d / jewels;
             double vertical = switch (formation) {
-                case 0 -> Math.sin(angle * 2d) * (0.22d + high * 0.28d);
-                case 1 -> Math.sin(jewel * Math.PI / Math.max(1, jewels - 1)) * 1.35d - 0.55d;
-                case 2 -> -0.8d + jewel * (1.65d / Math.max(1, jewels - 1));
-                default -> Math.cos(angle * 3d) * (0.42d + mid * 0.28d);
+                case 0 -> Math.sin(angle * 2d) * (0.35d + high * 0.55d);
+                case 1 -> Math.sin(jewel * Math.PI / Math.max(1, jewels - 1)) * 1.8d - 0.75d;
+                case 2 -> -1.05d + jewel * (2.15d / Math.max(1, jewels - 1));
+                default -> Math.cos(angle * 3d) * (0.55d + mid * 0.48d);
             };
             Location at = heart.clone()
                     .add(side.clone().multiply(Math.cos(angle) * orbitRadius))
                     .add(forward.clone().multiply(Math.sin(angle) * orbitRadius * 0.72d))
-                    .add(0d, vertical + hit * (jewel % 2 == 0 ? 0.24d : -0.12d), 0d);
+                    .add(0d, vertical + hit * (jewel % 2 == 0 ? 0.55d : -0.3d), 0d);
             Color jewelColour = jewel % 3 == 0
                     ? accent : jewel % 2 == 0 ? amethyst : lilac;
-            dust(owner, at, jewelColour, jewel % 3 == 0 ? 1.12f : 0.78f,
+            dust(owner, at, jewelColour, jewel % 3 == 0 ? 1.28f : 0.9f,
                     PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
-            if (high > 0.72d && jewel % 4 == 0) {
+            if (high > 0.58d && jewel % 3 == 0) {
                 spawnMoving(owner, at, Particle.END_ROD,
-                        new Vector(0d, 0.025d + high * 0.04d, 0d), null,
+                        new Vector(0d, 0.04d + high * 0.07d + hit * 0.05d, 0d), null,
                         PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
             }
         }
 
-        Location crown = centre.clone().add(0d, 1.08d + hit * 0.48d, 0d);
-        for (int point = 0; point < 9; point++) {
-            double angle = -time * 0.44d + point * Math.PI * 2d / 9d;
-            double pointHeight = point % 3 == 0 ? 0.34d + high * 0.3d : 0.08d;
+        Location crown = centre.clone().add(0d, 1.18d + bass * 0.32d + hit * 0.72d, 0d);
+        for (int point = 0; point < 12; point++) {
+            double angle = -time * 0.72d + point * Math.PI * 2d / 12d;
+            double pointHeight = point % 3 == 0 ? 0.45d + high * 0.55d + hit * 0.45d : 0.1d;
             Location at = crown.clone()
-                    .add(side.clone().multiply(Math.cos(angle) * (0.48d + bass * 0.22d)))
-                    .add(forward.clone().multiply(Math.sin(angle) * (0.48d + bass * 0.22d)))
+                    .add(side.clone().multiply(Math.cos(angle) * (0.55d + bass * 0.32d)))
+                    .add(forward.clone().multiply(Math.sin(angle) * (0.55d + bass * 0.32d)))
                     .add(0d, pointHeight, 0d);
             dust(owner, at, point % 3 == 0 ? champagne : amethyst,
                     point % 3 == 0 ? 1.05f : 0.78f,
                     PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
         }
 
-        double groundPulse = 0.7d + sample.energy() * 0.75d + hit * 1.2d;
-        drawRing(owner, centre.clone().add(0d, -0.88d, 0d), groundPulse,
-                18, time * (formation % 2 == 0 ? 1.1d : -1.1d), accent, 0.82f,
-                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
-        if (hit >= 0.76d) {
-            drawRing(owner, heart, 0.25d + hit * 1.65d, 20,
-                    -time * 1.7d, lilac, 0.92f,
+        // Ten columns are the literal audio visualizer: bass, mid and high energy
+        // independently change their height every 100 ms sample.
+        for (int bar = 0; bar < 10; bar++) {
+            double angle = bar * Math.PI * 2d / 10d - time * 0.35d;
+            double bandEnergy = switch (bar % 3) {
+                case 0 -> bass;
+                case 1 -> mid;
+                default -> high;
+            };
+            Vector radial = side.clone().multiply(Math.cos(angle))
+                    .add(forward.clone().multiply(Math.sin(angle)));
+            Location root = centre.clone().add(radial.clone().multiply(1.08d + hit * 0.45d))
+                    .add(0d, -0.88d, 0d);
+            Location tip = root.clone().add(0d, 0.25d + bandEnergy * 1.65d + hit * 0.8d, 0d);
+            drawLine(owner, root, tip, 4, couture[(bar + formation) % couture.length],
+                    0.92f + (float) hit * 0.35f,
                     PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
-            spawn(owner, crown, hit > 0.94d ? Particle.FLASH : Particle.FIREWORK,
+        }
+
+        double[] bands = {bass, mid, high};
+        for (int ring = 0; ring < bands.length; ring++) {
+            drawRing(owner, centre.clone().add(0d, -0.55d + ring * 0.55d, 0d),
+                    0.38d + bands[ring] * 1.18d + hit * 0.55d,
+                    18, time * (ring % 2 == 0 ? 1.8d : -1.8d),
+                    ring == 0 ? amethyst : ring == 1 ? accent : lilac,
+                    0.84f + (float) hit * 0.3f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+
+        double groundPulse = 0.78d + sample.energy() * 1.05d + hit * 1.65d;
+        drawRing(owner, centre.clone().add(0d, -0.88d, 0d), groundPulse,
+                30, time * (formation % 2 == 0 ? 1.7d : -1.7d), accent, 1.02f,
+                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        if (hit >= 0.35d) {
+            drawRing(owner, heart, 0.3d + hit * 2.45d, 28,
+                    -time * 2.4d, lilac, 1.15f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            spawn(owner, crown, hit > 0.78d ? Particle.FLASH : Particle.FIREWORK,
                     1, 0d, 0d, 0d, 0d, null,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            spawn(owner, heart, Particle.ELECTRIC_SPARK,
+                    3 + (int) Math.round(hit * 5d),
+                    0.25d + hit * 0.45d, 0.4d + hit * 0.6d, 0.25d + hit * 0.45d,
+                    0.02d + hit * 0.04d, null,
                     PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
         }
     }

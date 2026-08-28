@@ -135,7 +135,9 @@ def main() -> None:
         "format_version": "1.14.0",
         "sound_definitions": {
             "mgx:iridescent_imperium": {
-                "category": "music",
+                # The server exposes its own /settings volume. UI bypasses Bedrock's
+                # Music slider while remaining under the client's master volume.
+                "category": "ui",
                 "sounds": [{
                     "name": "sounds/music/iridescent_imperium",
                     "stream": True,

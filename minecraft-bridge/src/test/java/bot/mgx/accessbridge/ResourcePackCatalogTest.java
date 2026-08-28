@@ -144,8 +144,9 @@ class ResourcePackCatalogTest {
                 assertArrayEquals(Files.readAllBytes(song), input.readAllBytes());
             }
             JsonObject definitions = zipJson(bedrockPack, "sounds/sound_definitions.json");
-            assertTrue(definitions.getAsJsonObject("sound_definitions")
-                    .has("mgx:iridescent_imperium"));
+            var imperium = definitions.getAsJsonObject("sound_definitions")
+                    .getAsJsonObject("mgx:iridescent_imperium");
+            assertEquals("ui", imperium.get("category").getAsString());
         }
     }
 

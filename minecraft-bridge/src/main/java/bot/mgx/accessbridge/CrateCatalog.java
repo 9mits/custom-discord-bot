@@ -25,6 +25,14 @@ final class CrateCatalog {
     static final int JACKPOT_WEIGHT = TOTAL_WEIGHT / 10_000;
     static final int HIDDEN_AMETHYST_ONE_IN = CosmeticCatalog.HIDDEN_AMETHYST_ONE_IN;
 
+    enum RevealTier {
+        NONE,
+        LEGENDARY,
+        MYTHIC,
+        SECRET,
+        GENUINE_SECRET
+    }
+
     enum Category {
         RESOURCE("Resources"),
         TRIAL("Trial Chamber"),
@@ -118,6 +126,9 @@ final class CrateCatalog {
         }
 
         String rarityDisplay() {
+            if (isHiddenAmethyst(this)) {
+                return "Genuine Secret";
+            }
             if (secret()) {
                 return "Secret";
             }
@@ -139,6 +150,20 @@ final class CrateCatalog {
                 return "Epic";
             }
             return "Legendary";
+        }
+
+        RevealTier revealTier() {
+            if (isHiddenAmethyst(this)) {
+                return RevealTier.GENUINE_SECRET;
+            }
+            if (secret()) {
+                return RevealTier.SECRET;
+            }
+            return switch (rarityDisplay()) {
+                case "Mythic" -> RevealTier.MYTHIC;
+                case "Legendary" -> RevealTier.LEGENDARY;
+                default -> RevealTier.NONE;
+            };
         }
     }
 
@@ -198,6 +223,11 @@ final class CrateCatalog {
 
     static boolean isHiddenAmethyst(Reward reward) {
         return reward != null && HIDDEN_AMETHYST_REWARDS.contains(reward);
+    }
+
+    static boolean isAmethyst(Reward reward) {
+        return reward != null
+                && (AMETHYST_REWARDS.contains(reward) || HIDDEN_AMETHYST_REWARDS.contains(reward));
     }
 
     /** A separate fixed jackpot roll keeps the reward absent from every published table. */
