@@ -34,7 +34,7 @@ import static bot.mgx.accessbridge.MenuItems.head;
  */
 final class PlayerMenuService implements Listener {
     private static final int[] CATEGORY_SLOTS = {10, 11, 12, 13, 14, 15, 16};
-    private static final int[] SETTING_SLOTS = {10, 12, 14, 16, 19, 21};
+    private static final int[] SETTING_SLOTS = {9, 10, 11, 12, 14, 15, 16, 17};
     private static final int BACK_SLOT = 22;
     private static final int SETTINGS_SIZE = 27;
 

@@ -40,7 +40,11 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     static final String PERMISSION = "mgxaccessbridge.admin";
     private static final List<String> SUBCOMMANDS = List.of(
             "startserver", "teststart", "pvp", "give", "ranks", "eco", "bounty", "hologram",
-            "reset", "testverify", "devblog", "update", "serials", "cosmetics", "abuse", "event", "help"
+            "reset", "testverify", "testcrate", "devblog", "update", "serials", "cosmetics",
+            "abuse", "event", "help"
+    );
+    private static final List<String> CRATE_REVEAL_TIERS = List.of(
+            "legendary", "mythic", "secret", "genuine"
     );
     private static final List<String> PVP_ACTIONS = List.of("on", "off", "status");
     private static final List<String> RANK_ACTIONS = List.of("hold", "release", "list");
@@ -73,6 +77,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     private final AdminEventService adminEvents;
     private final EconomyMenuService auctionHouse;
     private final UpdateNoticeService updateNotices;
+    private final CrateService crates;
 
     AdminCommandService(
             MGXAccessBridge plugin,
@@ -88,7 +93,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             DevBlogService devBlog,
             AdminEventService adminEvents,
             EconomyMenuService auctionHouse,
-            UpdateNoticeService updateNotices
+            UpdateNoticeService updateNotices,
+            CrateService crates
     ) {
         this.plugin = plugin;
         this.rankSync = rankSync;
@@ -104,6 +110,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         this.adminEvents = adminEvents;
         this.auctionHouse = auctionHouse;
         this.updateNotices = updateNotices;
+        this.crates = crates;
     }
 
     @Override
@@ -132,6 +139,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 case "hologram", "holograms", "lb" -> hologram(sender, args);
                 case "reset" -> reset(sender, args);
                 case "testverify" -> testVerify(sender, args);
+                case "testcrate", "cratetest", "testreveal" -> testCrateReveal(sender, args);
                 case "devblog", "screenshot" -> devBlog(sender, args);
                 case "update" -> publishUpdate(sender);
                 case "serials" -> serials(sender, args);
@@ -701,6 +709,52 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         success(sender, "Verification reset requested. You will disconnect, then reconnect into the lobby.");
     }
 
+    /** Runs the real reveal presentation without changing inventories or crate state. */
+    private void testCrateReveal(CommandSender sender, String[] args) {
+        if (!plugin.isLocalTestServer()) {
+            throw new IllegalArgumentException(
+                    "Crate reveal tests are available only on the local test server."
+            );
+        }
+        if (args.length < 2) {
+            throw new IllegalArgumentException(
+                    "Usage: /mgxadmin testcrate <legendary|mythic|secret|genuine> [player]"
+            );
+        }
+        CrateCatalog.RevealTier tier = switch (args[1].toLowerCase(Locale.ROOT)) {
+            case "legendary" -> CrateCatalog.RevealTier.LEGENDARY;
+            case "mythic" -> CrateCatalog.RevealTier.MYTHIC;
+            case "secret" -> CrateCatalog.RevealTier.SECRET;
+            case "genuine", "genuine-secret", "genuine_secret", "genuinesecret", "exotic" ->
+                    CrateCatalog.RevealTier.GENUINE_SECRET;
+            default -> throw new IllegalArgumentException(
+                    "Use legendary, mythic, secret, or genuine."
+            );
+        };
+        Player target;
+        if (args.length >= 3) {
+            target = Bukkit.getPlayerExact(args[2]);
+            if (target == null) {
+                throw new IllegalArgumentException("That player is not online.");
+            }
+        } else if (sender instanceof Player player) {
+            target = player;
+        } else {
+            throw new IllegalArgumentException(
+                    "Console must name an online player: /mgxadmin testcrate <rarity> <player>"
+            );
+        }
+        crates.testReveal(target, tier);
+        success(sender, "Ran the complete " + tier.name().toLowerCase(Locale.ROOT)
+                .replace('_', ' ') + " crate reveal for " + target.getName()
+                + ". No reward was granted.");
+        report(sender, "crate_reveal_test", "Tested a crate reward reveal")
+                .detail("player", target.getName())
+                .detail("tier", tier.name().toLowerCase(Locale.ROOT))
+                .detail("reward_granted", "false")
+                .record();
+    }
+
     private void reset(CommandSender sender, String[] args) {
         List<String> rest = new ArrayList<>(Arrays.asList(args).subList(1, args.length));
         boolean confirmed = rest.removeIf(argument -> argument.equalsIgnoreCase("confirm"));
@@ -825,6 +879,12 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         if (plugin.isLocalTestServer()) {
             sender.sendMessage(Component.text("  /mgxadmin testverify reset", ORANGE)
                     .append(Component.text("  unverify yourself for another test", NamedTextColor.GRAY)));
+            sender.sendMessage(Component.text(
+                            "  /mgxadmin testcrate <rarity> [player]", ORANGE
+                    ).append(Component.text(
+                            "  run the complete crate reveal without granting loot",
+                            NamedTextColor.GRAY
+                    )));
         }
         sender.sendMessage(Component.text("  /mgxadmin serials reset <cosmetic> confirm", ORANGE)
                 .append(Component.text("  renumber one cosmetic without deleting it", NamedTextColor.GRAY)));
@@ -867,6 +927,18 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         }
         if (action.equals("testverify")) {
             return args.length == 2 ? partial(args[1], List.of("reset")) : List.of();
+        }
+        if (action.equals("testcrate") || action.equals("cratetest")
+                || action.equals("testreveal")) {
+            if (args.length == 2) {
+                return partial(args[1], CRATE_REVEAL_TIERS);
+            }
+            if (args.length == 3) {
+                return partial(args[2], Bukkit.getOnlinePlayers().stream()
+                        .map(Player::getName)
+                        .toList());
+            }
+            return List.of();
         }
         if (action.equals("devblog") || action.equals("screenshot")) {
             if (args.length == 2) {

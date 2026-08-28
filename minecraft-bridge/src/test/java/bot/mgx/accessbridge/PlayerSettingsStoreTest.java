@@ -207,6 +207,20 @@ class PlayerSettingsStoreTest {
     }
 
     @Test
+    void rarityTagCanBeHiddenAndTheChoiceSurvivesRestart(@TempDir Path directory)
+            throws IOException {
+        Path file = directory.resolve("settings.json");
+        UUID player = UUID.randomUUID();
+        PlayerSettingsStore store = new PlayerSettingsStore(file);
+
+        assertTrue(store.isEnabled(player, PlayerSettingsStore.Setting.RARITY_TAG_VISIBLE));
+        assertFalse(store.toggle(player, PlayerSettingsStore.Setting.RARITY_TAG_VISIBLE));
+        assertFalse(new PlayerSettingsStore(file).isEnabled(
+                player, PlayerSettingsStore.Setting.RARITY_TAG_VISIBLE
+        ));
+    }
+
+    @Test
     void syncedMusicVolumeIsIndependentPersistentAndRounded(@TempDir Path directory)
             throws IOException {
         Path file = directory.resolve("settings.json");
