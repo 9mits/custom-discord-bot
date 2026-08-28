@@ -35,15 +35,11 @@ import org.bukkit.scheduler.BukkitTask;
 import org.bukkit.util.Vector;
 
 import java.time.Duration;
-import java.time.Instant;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -54,9 +50,6 @@ import java.util.concurrent.ThreadLocalRandom;
 final class AmethystItemService implements Listener {
     static final long ACTIVE_MILLIS = Duration.ofHours(24).toMillis();
     private static final TextColor AMETHYST = TextColor.color(0xB56CFF);
-    private static final DateTimeFormatter EXPIRY_FORMAT = DateTimeFormatter
-            .ofPattern("MMM d, HH:mm z", Locale.ENGLISH)
-            .withZone(ZoneId.of("Asia/Tokyo"));
     private static final Set<String> TIMED_KINDS = Set.of(
             "pickaxe", "shovel", "axe", "shield"
     );
@@ -267,8 +260,7 @@ final class AmethystItemService implements Listener {
         old.removeIf(component -> net.kyori.adventure.text.serializer.plain
                 .PlainTextComponentSerializer.plainText().serialize(component)
                 .startsWith("INACTIVE"));
-        old.add(Component.text("ACTIVE — expires " + EXPIRY_FORMAT.format(Instant.ofEpochMilli(expires)),
-                NamedTextColor.LIGHT_PURPLE).decoration(TextDecoration.ITALIC, false));
+        old.add(activeCountdown(expires - now));
         meta.lore(old);
         item.setItemMeta(meta);
         owner.sendMessage(PlayerMenuService.prefix()
@@ -533,8 +525,11 @@ final class AmethystItemService implements Listener {
         long now = System.currentTimeMillis();
         for (org.bukkit.World world : Bukkit.getWorlds()) {
             for (org.bukkit.entity.Item dropped : world.getEntitiesByClass(org.bukkit.entity.Item.class)) {
-                if (expired(dropped.getItemStack(), now)) {
+                ItemStack stack = dropped.getItemStack();
+                if (expired(stack, now)) {
                     dropped.remove();
+                } else if (refreshCountdown(stack, now)) {
+                    dropped.setItemStack(stack);
                 }
             }
         }
@@ -563,16 +558,71 @@ final class AmethystItemService implements Listener {
 
     private boolean purge(ItemStack[] contents, long now, java.util.function.Consumer<ItemStack[]> setter) {
         boolean changed = false;
+        boolean removed = false;
         for (int index = 0; index < contents.length; index++) {
             if (expired(contents[index], now)) {
                 contents[index] = null;
+                changed = true;
+                removed = true;
+            } else if (refreshCountdown(contents[index], now)) {
                 changed = true;
             }
         }
         if (changed) {
             setter.accept(contents);
         }
-        return changed;
+        return removed;
+    }
+
+    private boolean refreshCountdown(ItemStack item, long now) {
+        long expires = expiresAt(item);
+        if (expires <= now || !isTimed(item)) {
+            return false;
+        }
+        ItemMeta meta = item.getItemMeta();
+        List<Component> lore = new ArrayList<>(meta.lore() == null ? List.of() : meta.lore());
+        Component updated = activeCountdown(expires - now);
+        for (int index = 0; index < lore.size(); index++) {
+            Component current = lore.get(index);
+            String plain = net.kyori.adventure.text.serializer.plain
+                    .PlainTextComponentSerializer.plainText().serialize(current);
+            if (!plain.startsWith("ACTIVE —")) {
+                continue;
+            }
+            if (current.equals(updated)) {
+                return false;
+            }
+            lore.set(index, updated);
+            meta.lore(lore);
+            item.setItemMeta(meta);
+            return true;
+        }
+        lore.add(updated);
+        meta.lore(lore);
+        item.setItemMeta(meta);
+        return true;
+    }
+
+    private static Component activeCountdown(long remainingMillis) {
+        return Component.text(
+                "ACTIVE — expires in " + remainingDuration(remainingMillis),
+                NamedTextColor.LIGHT_PURPLE
+        ).decoration(TextDecoration.ITALIC, false);
+    }
+
+    static String remainingDuration(long remainingMillis) {
+        long safeMillis = Math.max(1L, remainingMillis);
+        if (safeMillis < 60_000L) {
+            long seconds = Math.max(1L, (safeMillis + 999L) / 1_000L);
+            return seconds + "s";
+        }
+        long totalMinutes = safeMillis / 60_000L;
+        long hours = totalMinutes / 60L;
+        long minutes = totalMinutes % 60L;
+        if (hours > 0L) {
+            return hours + "h " + minutes + "m";
+        }
+        return totalMinutes + "m";
     }
 
     private static Component line(String text) {

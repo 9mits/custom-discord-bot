@@ -71,6 +71,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
 
     private enum Screen {
         SELECT,
+        ODDS_SELECT,
         HUB,
         ODDS,
         ROLL,
@@ -82,12 +83,18 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         private final Screen screen;
         private final int page;
         private final CrateKind kind;
+        private final boolean oddsSelectorBack;
         private Inventory inventory;
 
         CrateMenu(Screen screen, int page, CrateKind kind) {
+            this(screen, page, kind, false);
+        }
+
+        CrateMenu(Screen screen, int page, CrateKind kind, boolean oddsSelectorBack) {
             this.screen = screen;
             this.page = page;
             this.kind = kind;
+            this.oddsSelectorBack = oddsSelectorBack;
         }
 
         @Override
@@ -208,10 +215,16 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 start(player, kind);
             }
             case "odds", "rewards" -> {
-                CrateKind kind = args.length >= 2
-                        ? CrateKind.from(args[1]).orElse(CrateKind.DEFAULT)
-                        : selectedKinds.getOrDefault(player.getUniqueId(), CrateKind.DEFAULT);
-                openOdds(player, kind, parsePage(args));
+                if (args.length < 2) {
+                    openOddsSelector(player);
+                    break;
+                }
+                CrateKind kind = CrateKind.from(args[1]).orElse(null);
+                if (kind == null) {
+                    PlayerMenuService.error(player, "Use default or amethyst.");
+                    break;
+                }
+                openOdds(player, kind, parsePage(args), true);
             }
             case "claim" -> {
                 if (sessions.containsKey(player.getUniqueId())) {
@@ -258,14 +271,26 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void openSelector(Player player) {
+        openSelector(player, false);
+    }
+
+    private void openOddsSelector(Player player) {
+        openSelector(player, true);
+    }
+
+    private void openSelector(Player player, boolean oddsOnly) {
         items.upgradeLegacyKeys(player);
         if (!sessions.containsKey(player.getUniqueId())) {
             deliverPending(player, false);
         }
         deliverBankedKeys(player, false);
-        CrateMenu holder = new CrateMenu(Screen.SELECT, 1, null);
+        CrateMenu holder = new CrateMenu(
+                oddsOnly ? Screen.ODDS_SELECT : Screen.SELECT, 1, null
+        );
         Inventory inventory = Bukkit.createInventory(
-                holder, 27, Component.text("Mysterious Crates", ORANGE)
+                holder, 27, Component.text(
+                        oddsOnly ? "Choose Crate Odds" : "Mysterious Crates", ORANGE
+                )
         );
         holder.inventory = inventory;
         fillHub(inventory);
@@ -282,12 +307,14 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         long now = System.currentTimeMillis();
         inventory.setItem(SELECT_DEFAULT_SLOT, MenuItems.button(
                 CrateKind.DEFAULT.icon(), CrateKind.DEFAULT.displayName(),
-                "Permanent rewards.", "1 key required."
+                "Permanent rewards.", oddsOnly ? "View exact odds." : "1 key required."
         ));
         inventory.setItem(SELECT_AMETHYST_SLOT, MenuItems.button(
                 CrateKind.AMETHYST.available(now) ? CrateKind.AMETHYST.icon() : Material.BARRIER,
                 CrateKind.AMETHYST.displayName(), CrateKind.AMETHYST.remaining(now),
-                CrateKind.AMETHYST.available(now) ? "1 key required." : "No longer open."
+                CrateKind.AMETHYST.available(now)
+                        ? (oddsOnly ? "View exact odds." : "1 key required.")
+                        : "No longer open."
         ));
         MenuItems.show(plugin, player, inventory);
     }
@@ -329,10 +356,16 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void openOdds(Player player, CrateKind kind, int requestedPage) {
+        openOdds(player, kind, requestedPage, false);
+    }
+
+    private void openOdds(
+            Player player, CrateKind kind, int requestedPage, boolean oddsSelectorBack
+    ) {
         List<CrateCatalog.Reward> rewards = kind.rewards();
         int pageCount = Math.max(1, (rewards.size() + ODDS_PER_PAGE - 1) / ODDS_PER_PAGE);
         int page = Math.max(1, Math.min(pageCount, requestedPage));
-        CrateMenu holder = new CrateMenu(Screen.ODDS, page, kind);
+        CrateMenu holder = new CrateMenu(Screen.ODDS, page, kind, oddsSelectorBack);
         Inventory inventory = Bukkit.createInventory(
                 holder, 54, Component.text(kind.displayName() + " Odds " + page + "/" + pageCount,
                         kind.colour())
@@ -731,12 +764,21 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         if (event.getClickedInventory() != event.getInventory()) {
             return;
         }
-        if (menu.screen == Screen.SELECT) {
+        if (menu.screen == Screen.SELECT || menu.screen == Screen.ODDS_SELECT) {
+            boolean oddsOnly = menu.screen == Screen.ODDS_SELECT;
             if (event.getSlot() == SELECT_DEFAULT_SLOT) {
-                openKindHub(player, CrateKind.DEFAULT);
+                if (oddsOnly) {
+                    openOdds(player, CrateKind.DEFAULT, 1, true);
+                } else {
+                    openKindHub(player, CrateKind.DEFAULT);
+                }
             } else if (event.getSlot() == SELECT_AMETHYST_SLOT) {
                 if (CrateKind.AMETHYST.available(System.currentTimeMillis())) {
-                    openKindHub(player, CrateKind.AMETHYST);
+                    if (oddsOnly) {
+                        openOdds(player, CrateKind.AMETHYST, 1, true);
+                    } else {
+                        openKindHub(player, CrateKind.AMETHYST);
+                    }
                 } else {
                     PlayerMenuService.error(player, "The Amethyst Crate event has ended.");
                 }
@@ -766,12 +808,16 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         } else if (menu.screen == Screen.ODDS) {
             if (event.getSlot() == PREVIOUS_SLOT) {
                 if (menu.page == 1) {
-                    openKindHub(player, menu.kind);
+                    if (menu.oddsSelectorBack) {
+                        openOddsSelector(player);
+                    } else {
+                        openKindHub(player, menu.kind);
+                    }
                 } else {
-                    openOdds(player, menu.kind, menu.page - 1);
+                    openOdds(player, menu.kind, menu.page - 1, menu.oddsSelectorBack);
                 }
             } else if (event.getSlot() == NEXT_SLOT) {
-                openOdds(player, menu.kind, menu.page + 1);
+                openOdds(player, menu.kind, menu.page + 1, menu.oddsSelectorBack);
             }
         }
     }
@@ -1146,11 +1192,11 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private static int parsePage(String[] args) {
-        if (args.length < 2) {
+        if (args.length < 3) {
             return 1;
         }
         try {
-            return Math.max(1, Integer.parseInt(args[1]));
+            return Math.max(1, Integer.parseInt(args[2]));
         } catch (NumberFormatException ignored) {
             return 1;
         }

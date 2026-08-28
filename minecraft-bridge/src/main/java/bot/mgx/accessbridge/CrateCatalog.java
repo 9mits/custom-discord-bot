@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * The single crate reward pool.
@@ -136,6 +137,10 @@ final class CrateCatalog {
 
     private static final List<Reward> REWARDS = buildRewards();
     private static final List<Reward> AMETHYST_REWARDS = buildAmethystRewards();
+    private static final Set<String> AMETHYST_EXCLUSIVE_IDS = Set.of(
+            "amethyst_pickaxe", "amethyst_shovel", "amethyst_axe",
+            "amethyst_shield", "amethyst_totem"
+    );
     private static final Map<String, Reward> BY_ID = indexRewards();
 
     private CrateCatalog() {
@@ -162,8 +167,9 @@ final class CrateCatalog {
                 .toList();
     }
 
-    static boolean isLimitedAmethyst(Reward reward) {
-        return reward != null && AMETHYST_REWARDS.contains(reward);
+    static boolean isExclusiveAmethyst(Reward reward) {
+        return reward != null && AMETHYST_REWARDS.contains(reward)
+                && (reward.cosmetic() || AMETHYST_EXCLUSIVE_IDS.contains(reward.id()));
     }
 
     static int totalWeight() {
