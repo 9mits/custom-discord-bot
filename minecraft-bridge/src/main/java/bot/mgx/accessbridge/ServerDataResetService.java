@@ -49,6 +49,7 @@ final class ServerDataResetService {
     private final DiscordIdentityStore identities;
     private final PlayerSettingsStore settings;
     private final CrateStore crates;
+    private final CrateFilterStore crateFilters;
     private final CosmeticStore cosmetics;
     private final CosmeticItems cosmeticItems;
     private final TrophyHeadStore trophyHeads;
@@ -70,6 +71,7 @@ final class ServerDataResetService {
             DiscordIdentityStore identities,
             PlayerSettingsStore settings,
             CrateStore crates,
+            CrateFilterStore crateFilters,
             CosmeticStore cosmetics,
             CosmeticItems cosmeticItems,
             TrophyHeadStore trophyHeads,
@@ -89,6 +91,7 @@ final class ServerDataResetService {
         this.identities = identities;
         this.settings = settings;
         this.crates = crates;
+        this.crateFilters = crateFilters;
         this.cosmetics = cosmetics;
         this.cosmeticItems = cosmeticItems;
         this.trophyHeads = trophyHeads;
@@ -176,7 +179,12 @@ final class ServerDataResetService {
             clear(ResetScope.SETTINGS, settings::clearAll, cleared, problems);
         }
         if (scopes.contains(ResetScope.CRATES)) {
-            clear(ResetScope.CRATES, crates::clearAll, cleared, problems);
+            clear(
+                    ResetScope.CRATES,
+                    () -> crates.clearAll() + crateFilters.clearAll(),
+                    cleared,
+                    problems
+            );
         }
         if (scopes.contains(ResetScope.COSMETICS)) {
             // Clearing the store bumps the generation, which makes any token still

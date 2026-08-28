@@ -48,12 +48,15 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private static final int HUB_OPEN_SLOT = 13;
     private static final int HUB_ODDS_SLOT = 15;
     private static final int HUB_AUTO_SLOT = 22;
+    private static final int HUB_FILTER_SLOT = 24;
     private static final int RESULT_AGAIN_SLOT = 11;
     private static final int RESULT_AUTO_SLOT = 15;
     private static final int RESULT_BACK_SLOT = 22;
     private static final int CONFIRM_YES_SLOT = 11;
     private static final int CONFIRM_NO_SLOT = 15;
     private static final int ODDS_PER_PAGE = 45;
+    private static final int FILTER_PER_PAGE = 45;
+    private static final int FILTER_CLEAR_SLOT = 49;
     private static final int PREVIOUS_SLOT = 45;
     private static final int NEXT_SLOT = 53;
     private static final int REEL_FIRST = 19;
@@ -76,7 +79,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         ODDS,
         ROLL,
         RESULT,
-        CONFIRM
+        CONFIRM,
+        FILTER
     }
 
     private static final class CrateMenu implements InventoryHolder {
@@ -161,9 +165,14 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private final PlayerSettingsStore settings;
     private final PlayerPerkService perks;
     private final SpecialItemService specialItems;
+    private final CrateFilterStore filters;
     private final Map<UUID, RollSession> sessions = new HashMap<>();
     /** Players part way through an auto run, and how many crates are still owed. */
     private final Map<UUID, Integer> autoRuns = new HashMap<>();
+    /** How many rewards Auto Trash has removed during the current auto run. */
+    private final Map<UUID, Integer> autoTrashed = new HashMap<>();
+    /** Set for exactly one result screen, so it can say the reward was thrown away. */
+    private final Set<UUID> lastRewardTrashed = new java.util.HashSet<>();
     private final Map<UUID, CrateKind> selectedKinds = new HashMap<>();
     private final Map<UUID, Long> onlineCreditStarted = new HashMap<>();
     private final Map<UUID, BossBar> keyBars = new HashMap<>();
@@ -179,7 +188,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             CosmeticEffectService effects,
             PlayerSettingsStore settings,
             PlayerPerkService perks,
-            SpecialItemService specialItems
+            SpecialItemService specialItems,
+            CrateFilterStore filters
     ) {
         this.plugin = plugin;
         this.store = store;
@@ -190,6 +200,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         this.settings = settings;
         this.perks = perks;
         this.specialItems = specialItems;
+        this.filters = filters;
     }
 
     @Override
@@ -226,6 +237,11 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 }
                 openOdds(player, kind, parsePage(args), true);
             }
+            case "trash", "filter" -> openFilters(
+                    player,
+                    selectedKinds.getOrDefault(player.getUniqueId(), CrateKind.DEFAULT),
+                    parsePage(args)
+            );
             case "claim" -> {
                 if (sessions.containsKey(player.getUniqueId())) {
                     PlayerMenuService.error(player, "Your crate is still opening.");
@@ -238,7 +254,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 }
             }
             default -> PlayerMenuService.error(
-                    player, "Use /crate, /crate open, /crate odds, or /crate claim."
+                    player,
+                    "Use /crate, /crate open, /crate odds, /crate trash, or /crate claim."
             );
         }
         return true;
@@ -248,7 +265,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
         if (args.length == 1) {
             String prefix = args[0].toLowerCase(Locale.ROOT);
-            return Stream.of("open", "odds", "claim")
+            return Stream.of("open", "odds", "trash", "claim")
                     .filter(value -> value.startsWith(prefix))
                     .toList();
         }
@@ -352,6 +369,16 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 "Opens a crate with every key you hold.",
                 "You confirm the number before anything is spent."
         ));
+        int trashed = filters.count(player.getUniqueId());
+        inventory.setItem(HUB_FILTER_SLOT, MenuItems.button(
+                Material.CAULDRON,
+                "Auto Trash",
+                trashed == 0
+                        ? "Nothing is being thrown away."
+                        : trashed + (trashed == 1 ? " reward is" : " rewards are") + " thrown away.",
+                "Pick the rewards you never want to receive.",
+                "They are still rolled and still counted."
+        ));
         MenuItems.show(plugin, player, inventory);
     }
 
@@ -385,6 +412,101 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             inventory.setItem(NEXT_SLOT, MenuItems.button(Material.ARROW, "Next Page"));
         }
         MenuItems.show(plugin, player, inventory);
+    }
+
+    /**
+     * The Auto Trash picker.
+     *
+     * <p>Cosmetics are deliberately absent: they go straight to {@code /wardrobe} and so
+     * cannot fill an inventory, and a mis-click that silently threw away a 1-in-500,000
+     * aura is not a mistake worth allowing.
+     */
+    private void openFilters(Player player, CrateKind kind, int requestedPage) {
+        selectedKinds.put(player.getUniqueId(), kind);
+        List<CrateCatalog.Reward> rewards = trashableRewards(kind);
+        int pageCount = Math.max(1, (rewards.size() + FILTER_PER_PAGE - 1) / FILTER_PER_PAGE);
+        int page = Math.max(1, Math.min(pageCount, requestedPage));
+        CrateMenu holder = new CrateMenu(Screen.FILTER, page, kind);
+        Inventory inventory = Bukkit.createInventory(
+                holder, 54,
+                Component.text("Auto Trash " + page + "/" + pageCount, kind.colour())
+        );
+        holder.inventory = inventory;
+        Set<String> discarded = filters.all(player.getUniqueId());
+        int first = (page - 1) * FILTER_PER_PAGE;
+        int last = Math.min(rewards.size(), first + FILTER_PER_PAGE);
+        for (int index = first; index < last; index++) {
+            CrateCatalog.Reward reward = rewards.get(index);
+            inventory.setItem(
+                    index - first,
+                    filterEntry(reward, discarded.contains(reward.id()))
+            );
+        }
+        inventory.setItem(PREVIOUS_SLOT, page > 1
+                ? MenuItems.button(Material.ARROW, "Previous Page")
+                : MenuItems.button(Material.BARRIER, "Back"));
+        if (page < pageCount) {
+            inventory.setItem(NEXT_SLOT, MenuItems.button(Material.ARROW, "Next Page"));
+        }
+        int trashed = filters.count(player.getUniqueId());
+        inventory.setItem(FILTER_CLEAR_SLOT, MenuItems.button(
+                trashed == 0 ? Material.GRAY_DYE : Material.LIME_DYE,
+                trashed == 0 ? "Nothing Is Trashed" : "Keep Everything Again",
+                trashed == 0
+                        ? "Click a reward to start throwing it away."
+                        : "Clears all " + trashed + " of your choices."
+        ));
+        MenuItems.show(plugin, player, inventory);
+    }
+
+    /** Item rewards only, in the order the odds pages already show them. */
+    private static List<CrateCatalog.Reward> trashableRewards(CrateKind kind) {
+        return kind.rewards().stream().filter(reward -> !reward.cosmetic()).toList();
+    }
+
+    private ItemStack filterEntry(CrateCatalog.Reward reward, boolean discarded) {
+        ItemStack entry = items.oddsPreview(reward, cosmeticItems);
+        ItemMeta meta = entry.getItemMeta();
+        if (meta == null) {
+            return entry;
+        }
+        List<Component> lore = meta.lore() == null
+                ? new ArrayList<>() : new ArrayList<>(meta.lore());
+        lore.add(Component.empty());
+        lore.add(Component.text(
+                discarded ? "Thrown away on sight" : "Delivered to you",
+                discarded ? NamedTextColor.RED : NamedTextColor.GREEN,
+                TextDecoration.BOLD
+        ).decoration(TextDecoration.ITALIC, false));
+        lore.add(Component.text(
+                discarded ? "Click to keep it again." : "Click to throw it away.",
+                NamedTextColor.GRAY
+        ).decoration(TextDecoration.ITALIC, false));
+        meta.lore(lore);
+        entry.setItemMeta(meta);
+        return entry;
+    }
+
+    private void toggleFilter(Player player, CrateKind kind, int page, int slot) {
+        List<CrateCatalog.Reward> rewards = trashableRewards(kind);
+        int index = (page - 1) * FILTER_PER_PAGE + slot;
+        if (index < 0 || index >= rewards.size()) {
+            return;
+        }
+        CrateCatalog.Reward reward = rewards.get(index);
+        boolean discarded;
+        try {
+            discarded = filters.toggle(player.getUniqueId(), reward.id());
+        } catch (UncheckedIOException exception) {
+            plugin.getLogger().warning("Could not save a crate filter for "
+                    + player.getUniqueId() + ": " + exception.getMessage());
+            PlayerMenuService.error(player, "That choice could not be saved.");
+            return;
+        }
+        player.playSound(player.getLocation(),
+                discarded ? Sound.ENTITY_ITEM_BREAK : Sound.ENTITY_ITEM_PICKUP, 0.6f,
+                discarded ? 0.8f : 1.4f);
+        openFilters(player, kind, page);
     }
 
     private void start(Player player) {
@@ -494,6 +616,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             sessions.remove(session.playerId);
             if (!deliverPending(player, true)) {
                 autoRuns.remove(session.playerId);
+                autoTrashed.remove(session.playerId);
                 PlayerMenuService.error(
                         player, "Your inventory is full. Make room, then use /crate claim."
                 );
@@ -514,7 +637,9 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         for (int slot = 0; slot < inventory.getSize(); slot++) {
             inventory.setItem(slot, panel);
         }
-        inventory.setItem(4, items.revealedPreview(reward, cosmeticItems));
+        inventory.setItem(4, lastRewardTrashed.remove(player.getUniqueId())
+                ? trashedPreview(reward)
+                : items.revealedPreview(reward, cosmeticItems));
         int keys = items.count(player);
         boolean canOpen = keys >= kind.keyCost();
         inventory.setItem(RESULT_AGAIN_SLOT, MenuItems.button(
@@ -533,6 +658,25 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         ));
         inventory.setItem(RESULT_BACK_SLOT, MenuItems.button(Material.BARRIER, "Close"));
         MenuItems.show(plugin, player, inventory);
+    }
+
+    /** The result screen still shows what was rolled, greyed out and named as binned. */
+    private ItemStack trashedPreview(CrateCatalog.Reward reward) {
+        ItemStack preview = items.revealedPreview(reward, cosmeticItems);
+        ItemMeta meta = preview.getItemMeta();
+        if (meta == null) {
+            return preview;
+        }
+        List<Component> lore = meta.lore() == null
+                ? new ArrayList<>() : new ArrayList<>(meta.lore());
+        lore.add(Component.empty());
+        lore.add(Component.text("Auto Trash threw this away.", NamedTextColor.RED,
+                TextDecoration.BOLD).decoration(TextDecoration.ITALIC, false));
+        lore.add(Component.text("It still counts as an opening.", NamedTextColor.GRAY)
+                .decoration(TextDecoration.ITALIC, false));
+        meta.lore(lore);
+        preview.setItemMeta(meta);
+        return preview;
     }
 
     /** Asks once, because the answer spends every key the player owns. */
@@ -587,6 +731,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             return;
         }
         autoRuns.put(player.getUniqueId(), opens);
+        autoTrashed.remove(player.getUniqueId());
         start(player, kind);
     }
 
@@ -600,9 +745,18 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         int left = remaining - 1;
         if (left <= 0 || items.count(player) < kind.keyCost()) {
             autoRuns.remove(player.getUniqueId());
+            Integer counted = autoTrashed.remove(player.getUniqueId());
+            int trashed = counted == null ? 0 : counted;
             player.sendMessage(PlayerMenuService.prefix().append(Component.text(
                     "Auto open finished.", NamedTextColor.GREEN
             )));
+            if (trashed > 0) {
+                player.sendMessage(PlayerMenuService.prefix().append(Component.text(
+                        "Auto Trash threw away " + trashed
+                                + (trashed == 1 ? " reward." : " rewards."),
+                        NamedTextColor.GRAY
+                )));
+            }
             openResult(player, reward, kind);
             return;
         }
@@ -611,6 +765,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private boolean deliverPending(Player player, boolean tellWhenFull) {
+        lastRewardTrashed.remove(player.getUniqueId());
         CrateStore.Pending pending = store.pending(player.getUniqueId()).orElse(null);
         if (pending == null) {
             items.finishOrphanedRewards(player);
@@ -642,6 +797,29 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             player.sendMessage(winMessage(reward).append(Component.text(
                     " It is stored in /wardrobe.", NamedTextColor.GRAY
             )));
+            recordWin(player, pending, reward);
+            return true;
+        }
+        // Applied only while the sealed reward item does not exist yet. Somebody who
+        // already carries one from an earlier spin keeps it, because Auto Trash decides
+        // what is handed over and never reaches into an inventory.
+        if (!items.carriesReward(player, pending.spinId())
+                && filters.discards(player.getUniqueId(), reward.id())) {
+            try {
+                if (!store.complete(player.getUniqueId(), pending.spinId())) {
+                    return false;
+                }
+            } catch (UncheckedIOException exception) {
+                plugin.getLogger().warning("Could not discard crate reward "
+                        + pending.spinId() + ": " + exception.getMessage());
+                PlayerMenuService.error(player, "Your reward could not be processed yet.");
+                return false;
+            }
+            UUID playerId = player.getUniqueId();
+            lastRewardTrashed.add(playerId);
+            if (autoRuns.containsKey(playerId)) {
+                autoTrashed.merge(playerId, 1, Integer::sum);
+            }
             recordWin(player, pending, reward);
             return true;
         }
@@ -830,6 +1008,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 openOdds(player, menu.kind, 1);
             } else if (event.getSlot() == HUB_AUTO_SLOT) {
                 confirmAutoOpen(player, menu.kind);
+            } else if (event.getSlot() == HUB_FILTER_SLOT) {
+                openFilters(player, menu.kind, 1);
             }
         } else if (menu.screen == Screen.RESULT) {
             if (event.getSlot() == RESULT_AGAIN_SLOT) {
@@ -844,6 +1024,24 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 beginAutoOpen(player, menu.kind);
             } else if (event.getSlot() == CONFIRM_NO_SLOT) {
                 openKindHub(player, menu.kind);
+            }
+        } else if (menu.screen == Screen.FILTER) {
+            if (event.getSlot() == PREVIOUS_SLOT) {
+                if (menu.page == 1) {
+                    openKindHub(player, menu.kind);
+                } else {
+                    openFilters(player, menu.kind, menu.page - 1);
+                }
+            } else if (event.getSlot() == NEXT_SLOT) {
+                openFilters(player, menu.kind, menu.page + 1);
+            } else if (event.getSlot() == FILTER_CLEAR_SLOT) {
+                if (filters.clear(player.getUniqueId()) > 0) {
+                    player.playSound(player.getLocation(),
+                            Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.7f, 1.2f);
+                }
+                openFilters(player, menu.kind, menu.page);
+            } else if (event.getSlot() < FILTER_PER_PAGE) {
+                toggleFilter(player, menu.kind, menu.page, event.getSlot());
             }
         } else if (menu.screen == Screen.ODDS) {
             if (event.getSlot() == PREVIOUS_SLOT) {
@@ -897,9 +1095,11 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 return;
             }
             Integer left = autoRuns.remove(player.getUniqueId());
+            Integer trashed = autoTrashed.remove(player.getUniqueId());
             if (left != null && left > 0) {
                 player.sendMessage(PlayerMenuService.prefix().append(Component.text(
-                        "Auto open stopped. " + items.count(player) + " keys left.",
+                        "Auto open stopped. " + items.count(player) + " keys left."
+                                + (trashed == null ? "" : " Auto Trash removed " + trashed + "."),
                         NamedTextColor.GRAY
                 )));
             }
@@ -915,6 +1115,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             creditOnline(Map.of(player.getUniqueId(), now - previous));
         }
         autoRuns.remove(player.getUniqueId());
+        autoTrashed.remove(player.getUniqueId());
+        lastRewardTrashed.remove(player.getUniqueId());
         hideKeyBar(player.getUniqueId());
         RollSession session = sessions.remove(player.getUniqueId());
         if (session != null && session.task != null) {

@@ -16,6 +16,7 @@ import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -240,6 +241,75 @@ class CosmeticCatalogTest {
                 PlainTextComponentSerializer.plainText().serialize(revealed));
         assertTrue(revealed.children().stream().map(Component::color).distinct().count() >= 5);
         assertEquals(TextDecoration.State.TRUE, masked.decoration(TextDecoration.OBFUSCATED));
+    }
+
+    /**
+     * The fallback family exists so an unassigned cosmetic still renders, not so new
+     * ones can quietly skip the decision. Every cosmetic that actually gets a floating
+     * odds tag has to name the family its particles belong to.
+     */
+    @Test
+    void oddsFamiliesCoverEveryTaggedCosmetic() {
+        List<String> unassigned = CosmeticCatalog.visualEntries().stream()
+                .filter(CosmeticCatalog.Definition::nameplateWorthy)
+                .filter(definition -> definition.oddsFamily() == CosmeticCatalog.OddsFamily.ROYAL)
+                .map(CosmeticCatalog.Definition::id)
+                .toList();
+
+        assertEquals(List.of(), unassigned);
+    }
+
+    @Test
+    void everyOddsFamilyHasEnoughColoursForItsMotion() {
+        for (CosmeticCatalog.OddsFamily family : CosmeticCatalog.OddsFamily.values()) {
+            int[] colours = family.colours();
+            assertTrue(colours.length >= 4, family + " has " + colours.length + " colours");
+            for (int colour : colours) {
+                assertTrue(colour >= 0 && colour <= 0xFFFFFF, family + " colour out of range");
+            }
+            assertFalse(family.glyph().isBlank(), family + " has no glyph");
+        }
+    }
+
+    @Test
+    void tagsOfDifferentFamiliesDoNotLookAlike() {
+        CosmeticCatalog.Definition crown = CosmeticCatalog.find("celestial_crown").orElseThrow();
+        CosmeticCatalog.Definition orbit = CosmeticCatalog.find("amethyst_orbit").orElseThrow();
+        CosmeticCatalog.Definition imperium = CosmeticCatalog
+                .find(CosmeticCatalog.HIDDEN_AMETHYST_COSMETIC_ID).orElseThrow();
+
+        assertEquals(CosmeticCatalog.OddsFamily.CELESTIAL, crown.oddsFamily());
+        assertEquals(CosmeticCatalog.OddsFamily.AMETHYST, orbit.oddsFamily());
+        assertEquals(CosmeticCatalog.OddsFamily.GENUINE, imperium.oddsFamily());
+
+        Set<TextColor> crownColours = coloursOf(CosmeticEffectService.rarityNameplate(crown, 0L));
+        Set<TextColor> orbitColours = coloursOf(CosmeticEffectService.rarityNameplate(orbit, 0L));
+        assertTrue(java.util.Collections.disjoint(crownColours, orbitColours));
+
+        assertEquals("\u2605 1 IN 6,250 \u2605", PlainTextComponentSerializer.plainText()
+                .serialize(CosmeticEffectService.rarityNameplate(crown, 0L)));
+    }
+
+    @Test
+    void pulsingTagsShareOneColourPerFrameAndScrollingOnesDoNot() {
+        CosmeticCatalog.Definition dominion = CosmeticCatalog
+                .find("infernal_dominion").orElseThrow();
+        CosmeticCatalog.Definition prismatic = CosmeticCatalog
+                .find("prismatic_trail").orElseThrow();
+
+        assertEquals(1, coloursOf(CosmeticEffectService.rarityNameplate(dominion, 4L)).size());
+        assertTrue(coloursOf(CosmeticEffectService.rarityNameplate(prismatic, 4L)).size() > 1);
+        assertNotEquals(
+                coloursOf(CosmeticEffectService.rarityNameplate(dominion, 4L)),
+                coloursOf(CosmeticEffectService.rarityNameplate(dominion, 12L))
+        );
+    }
+
+    private static Set<TextColor> coloursOf(Component nameplate) {
+        return nameplate.children().stream()
+                .map(Component::color)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toSet());
     }
 
     private static long in(CosmeticCatalog.Category category) {

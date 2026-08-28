@@ -44,7 +44,7 @@ commands:
     permission: mgx.cosmetics
   crate:
     description: Open Mysterious Crates, inspect exact odds and claim saved rewards.
-    usage: /crate [open|odds|claim]
+    usage: /crate [open|odds|trash|claim]
     aliases: [crates]
     permission: mgx.crate
   echest:

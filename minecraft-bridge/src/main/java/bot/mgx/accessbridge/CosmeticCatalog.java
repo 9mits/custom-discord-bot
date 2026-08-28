@@ -34,6 +34,72 @@ final class CosmeticCatalog {
         }
     }
 
+
+    /** How an odds tag animates its family palette. */
+    enum OddsMotion {
+        /** The palette scrolls along the text, one step every two frames. */
+        SCROLL,
+        /** Every character shares one colour and the whole line steps through the palette. */
+        PULSE,
+        /** A bright highlight travels across a steady base colour. */
+        SHIMMER
+    }
+
+    /**
+     * The visual family an odds tag borrows its colours from.
+     *
+     * <p>One palette for every Mythic, one for every Secret and one for the jackpot said
+     * nothing about what the player is actually wearing. Cosmetics that read as the same
+     * effect share a family instead, so the floating line matches the particles above it.
+     * Colours are plain RGB so this file stays free of server types.
+     */
+    enum OddsFamily {
+        AMETHYST("\u25c6", OddsMotion.SCROLL,
+                0xB44CEE, 0xD98BFF, 0x8A3FD1, 0xF0C4FF),
+        VOID("\u25c6", OddsMotion.PULSE,
+                0x8B3BD6, 0x4A1E7A, 0xC26BFF, 0x2B1140),
+        SOUL("\u2726", OddsMotion.SHIMMER,
+                0x3FA9C9, 0x9BF6FF, 0x4FE3E0, 0x1F5F82),
+        CELESTIAL("\u2605", OddsMotion.SHIMMER,
+                0xC9E3FF, 0xFFFFFF, 0xFFF3C4, 0xFFD35A),
+        INFERNAL("\u2726", OddsMotion.PULSE,
+                0xFF6A1A, 0xFFB347, 0xD62828, 0xFFE066),
+        ABYSSAL("\u25c6", OddsMotion.SCROLL,
+                0x1FB6A6, 0x0E5C63, 0x7FFFD4, 0x134E4A),
+        DIVINE("\u2605", OddsMotion.PULSE,
+                0xFFE9A3, 0xFFFFFF, 0xFFC93C, 0xBFE8FF),
+        PRISMATIC("\u2726", OddsMotion.SCROLL,
+                0xFF4D4D, 0xFFA64D, 0xFFF34D, 0x4DFF7A, 0x4DD2FF, 0x8A4DFF, 0xFF4DE1),
+        /** The Iridescent Imperium keeps the six-colour jackpot spectrum of its own aura. */
+        GENUINE("\u2726", OddsMotion.SCROLL,
+                0xE95CFF, 0x705CFF, 0x36CFFF, 0x42E59B, 0xF3D56B, 0xFF8055),
+        /** What an unassigned cosmetic falls back to: the palette every Mythic used to share. */
+        ROYAL("\u2726", OddsMotion.SCROLL,
+                0xFF416C, 0xFF8B3D, 0xFFD35A, 0xFF4FB7);
+
+        private final String glyph;
+        private final OddsMotion motion;
+        private final int[] colours;
+
+        OddsFamily(String glyph, OddsMotion motion, int... colours) {
+            this.glyph = glyph;
+            this.motion = motion;
+            this.colours = colours;
+        }
+
+        String glyph() {
+            return glyph;
+        }
+
+        OddsMotion motion() {
+            return motion;
+        }
+
+        int[] colours() {
+            return colours.clone();
+        }
+    }
+
     record Definition(
             String id,
             String displayName,
@@ -111,7 +177,49 @@ final class CosmeticCatalog {
         boolean nameplateWorthy() {
             return hiddenAmethystJackpot() || secret || rarityDisplay().equals("Mythic");
         }
+
+        OddsFamily oddsFamily() {
+            OddsFamily assigned = ODDS_FAMILIES.get(id);
+            return assigned == null ? OddsFamily.ROYAL : assigned;
+        }
     }
+
+    /**
+     * Which family each tag-worthy cosmetic belongs to. Grouped by what the effect
+     * actually looks like, not by which crate it came from — Ender Trail and Event
+     * Horizon are both violet tears in space, so both read as VOID.
+     *
+     * <p>{@code oddsFamiliesCoverEveryTaggedCosmetic} fails when a new Mythic or Secret
+     * is added without a line here, so the fallback stays a safety net rather than a
+     * silent default.
+     */
+    private static final Map<String, OddsFamily> ODDS_FAMILIES = Map.ofEntries(
+            Map.entry("void_collapse", OddsFamily.VOID),
+            Map.entry("ender_trail", OddsFamily.VOID),
+            Map.entry("event_horizon", OddsFamily.VOID),
+            Map.entry("reality_fracture", OddsFamily.VOID),
+            Map.entry("soul_requiem", OddsFamily.SOUL),
+            Map.entry("reapers_verdict", OddsFamily.SOUL),
+            Map.entry("phantom_chains", OddsFamily.SOUL),
+            Map.entry("celestial_crown", OddsFamily.CELESTIAL),
+            Map.entry("astral_sovereign", OddsFamily.CELESTIAL),
+            Map.entry("galaxy_wake", OddsFamily.CELESTIAL),
+            Map.entry("infernal_dominion", OddsFamily.INFERNAL),
+            Map.entry("divine_rupture", OddsFamily.DIVINE),
+            Map.entry("abyssal_seraph", OddsFamily.ABYSSAL),
+            Map.entry("prismatic_trail", OddsFamily.PRISMATIC),
+            Map.entry("amethyst_orbit", OddsFamily.AMETHYST),
+            Map.entry("amethyst_ascension", OddsFamily.AMETHYST),
+            Map.entry("geode_cathedral", OddsFamily.AMETHYST),
+            Map.entry("crystal_guillotine", OddsFamily.AMETHYST),
+            Map.entry("violet_detonation", OddsFamily.AMETHYST),
+            Map.entry("shardstorm_wake", OddsFamily.AMETHYST),
+            Map.entry("geode_bloom", OddsFamily.AMETHYST),
+            Map.entry("crystalline_extinction", OddsFamily.AMETHYST),
+            Map.entry("resonant_apotheosis", OddsFamily.AMETHYST),
+            Map.entry("shattered_continuum", OddsFamily.AMETHYST),
+            Map.entry(HIDDEN_AMETHYST_COSMETIC_ID, OddsFamily.GENUINE)
+    );
 
     private static final List<Definition> DEFINITIONS = List.of(
             cosmetic(
