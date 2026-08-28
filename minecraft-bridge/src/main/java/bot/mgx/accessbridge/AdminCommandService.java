@@ -395,7 +395,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     }
 
     private void grantAmethystRewards(Player player) {
-        for (CrateCatalog.Reward reward : CrateCatalog.amethyst()) {
+        for (CrateCatalog.Reward reward : CrateCatalog.amethystAdminRewards()) {
             if (reward.cosmetic()) {
                 CosmeticCatalog.find(reward.cosmeticId())
                         .ifPresent(definition -> grantCosmetic(player, definition));

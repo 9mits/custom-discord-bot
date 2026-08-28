@@ -1,0 +1,11 @@
+{
+  "iridescent_imperium": {
+    "sounds": [
+      {
+        "name": "mgx:music/iridescent_imperium",
+        "stream": true,
+        "preload": true
+      }
+    ]
+  }
+}

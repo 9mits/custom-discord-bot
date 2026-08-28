@@ -181,6 +181,21 @@ class CosmeticCatalogTest {
         assertEquals("Rare", CosmeticCatalog.find("ember_trail").orElseThrow().rarityDisplay());
         assertEquals("Mythic", CosmeticCatalog.find("prismatic_trail").orElseThrow().rarityDisplay());
         assertEquals("Secret", CosmeticCatalog.find("event_horizon").orElseThrow().rarityDisplay());
+        assertEquals("Exotic", CosmeticCatalog.find("iridescent_imperium")
+                .orElseThrow().rarityDisplay());
+    }
+
+    @Test
+    void crateCosmeticsExposeReciprocalOddsButPodiumRewardsDoNotPretendToBeRandom() {
+        CosmeticCatalog.Definition common = CosmeticCatalog.find("ember_trail").orElseThrow();
+        CosmeticCatalog.Definition secret = CosmeticCatalog.find("event_horizon").orElseThrow();
+        CosmeticCatalog.Definition podium = CosmeticCatalog
+                .leaderboardReward(1, CosmeticCatalog.Category.AURA).orElseThrow();
+
+        assertEquals("1 in 20", common.oneInDisplay(false));
+        assertEquals("1 in 33,333", secret.oneInDisplay(false));
+        assertEquals("1 in ???", secret.oneInDisplay(true));
+        assertTrue(podium.leaderboardOnly());
     }
 
     @Test

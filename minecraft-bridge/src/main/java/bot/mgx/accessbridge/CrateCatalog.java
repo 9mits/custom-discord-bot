@@ -23,6 +23,7 @@ final class CrateCatalog {
     static final int MAX_LUCK_PERCENT = 300;
     /** 0.01% of {@link #TOTAL_WEIGHT}; the server-wide chime is reserved for rarer wins. */
     static final int JACKPOT_WEIGHT = TOTAL_WEIGHT / 10_000;
+    static final int HIDDEN_AMETHYST_ONE_IN = CosmeticCatalog.HIDDEN_AMETHYST_ONE_IN;
 
     enum Category {
         RESOURCE("Resources"),
@@ -103,10 +104,16 @@ final class CrateCatalog {
         }
 
         String displayedChance() {
+            if (isHiddenAmethyst(this)) {
+                return String.format(Locale.ROOT, "1 in %,d", HIDDEN_AMETHYST_ONE_IN);
+            }
             return secret() ? "???" : percentage(weight);
         }
 
         String actualChance() {
+            if (isHiddenAmethyst(this)) {
+                return String.format(Locale.ROOT, "1 in %,d", HIDDEN_AMETHYST_ONE_IN);
+            }
             return percentage(weight);
         }
 
@@ -137,6 +144,8 @@ final class CrateCatalog {
 
     private static final List<Reward> REWARDS = buildRewards();
     private static final List<Reward> AMETHYST_REWARDS = buildAmethystRewards();
+    private static final List<Reward> HIDDEN_AMETHYST_REWARDS =
+            CosmeticCatalog.hiddenAmethystRewards().stream().map(CrateCatalog::cosmetic).toList();
     private static final Set<String> AMETHYST_EXCLUSIVE_IDS = Set.of(
             "amethyst_pickaxe", "amethyst_shovel", "amethyst_axe",
             "amethyst_shield", "amethyst_totem"
@@ -161,15 +170,45 @@ final class CrateCatalog {
         return AMETHYST_REWARDS;
     }
 
+    static List<Reward> hiddenAmethyst() {
+        return HIDDEN_AMETHYST_REWARDS;
+    }
+
+    static List<Reward> amethystAdminRewards() {
+        return java.util.stream.Stream.concat(
+                AMETHYST_REWARDS.stream(), HIDDEN_AMETHYST_REWARDS.stream()
+        ).toList();
+    }
+
     /** Every reward an administrator may grant, across permanent and limited crates. */
     static List<Reward> everyReward() {
-        return java.util.stream.Stream.concat(REWARDS.stream(), AMETHYST_REWARDS.stream())
+        return java.util.stream.Stream.of(
+                        REWARDS.stream(), AMETHYST_REWARDS.stream(),
+                        HIDDEN_AMETHYST_REWARDS.stream()
+                )
+                .flatMap(stream -> stream)
                 .toList();
     }
 
     static boolean isExclusiveAmethyst(Reward reward) {
-        return reward != null && AMETHYST_REWARDS.contains(reward)
+        return reward != null
+                && (AMETHYST_REWARDS.contains(reward) || HIDDEN_AMETHYST_REWARDS.contains(reward))
                 && (reward.cosmetic() || AMETHYST_EXCLUSIVE_IDS.contains(reward.id()));
+    }
+
+    static boolean isHiddenAmethyst(Reward reward) {
+        return reward != null && HIDDEN_AMETHYST_REWARDS.contains(reward);
+    }
+
+    /** A separate fixed jackpot roll keeps the reward absent from every published table. */
+    static Optional<Reward> hiddenAmethystAt(int ticket) {
+        if (ticket < 0 || ticket >= HIDDEN_AMETHYST_ONE_IN) {
+            throw new IllegalArgumentException(
+                    "Hidden Amethyst ticket must be between 0 and "
+                            + (HIDDEN_AMETHYST_ONE_IN - 1)
+            );
+        }
+        return ticket == 0 ? Optional.of(HIDDEN_AMETHYST_REWARDS.getFirst()) : Optional.empty();
     }
 
     static int totalWeight() {
@@ -394,51 +433,163 @@ final class CrateCatalog {
     private static List<Reward> buildAmethystRewards() {
         List<Reward> rewards = new ArrayList<>();
         rewards.add(item(
-                "amethyst_shards", "32 Amethyst Shards", Category.RESOURCE, 24_991,
+                "amethyst_shards", "32 Amethyst Shards", Category.RESOURCE, 15_000,
                 "AMETHYST_SHARD", 32, "A bright stack of vanilla amethyst shards."
         ));
         rewards.add(item(
-                "amethyst_blocks", "16 Blocks of Amethyst", Category.RESOURCE, 18_000,
+                "amethyst_blocks", "16 Blocks of Amethyst", Category.RESOURCE, 12_000,
                 "AMETHYST_BLOCK", 16, "Sixteen musical amethyst building blocks."
         ));
         rewards.add(item(
-                "budding_amethyst", "2 Budding Amethyst", Category.TREASURE, 8_000,
-                "BUDDING_AMETHYST", 2, "Two rare blocks that grow amethyst buds."
-        ));
-        rewards.add(item(
-                "amethyst_clusters", "16 Amethyst Clusters", Category.RESOURCE, 12_000,
+                "amethyst_clusters", "16 Amethyst Clusters", Category.RESOURCE, 9_000,
                 "AMETHYST_CLUSTER", 16, "A decorative bundle of full-grown clusters."
         ));
         rewards.add(item(
-                "amethyst_enchanted_apple", "Enchanted Golden Apple", Category.TREASURE, 5_000,
+                "amethyst_golden_carrots", "16 Golden Carrots", Category.RESOURCE, 10_000,
+                "GOLDEN_CARROT", 16, "Reliable food for long opening sessions."
+        ));
+        rewards.add(item(
+                "amethyst_experience_bottles", "16 Bottles o' Enchanting", Category.RESOURCE, 8_000,
+                "EXPERIENCE_BOTTLE", 16, "A bundle of experience for repairs and enchanting."
+        ));
+        rewards.add(item(
+                "amethyst_ender_pearls", "8 Ender Pearls", Category.RESOURCE, 6_000,
+                "ENDER_PEARL", 8, "Eight pearls for travel or Eyes of Ender."
+        ));
+        rewards.add(item(
+                "amethyst_iron_ingots", "16 Iron Ingots", Category.RESOURCE, 6_000,
+                "IRON_INGOT", 16, "A useful vanilla building and crafting bundle."
+        ));
+        rewards.add(item(
+                "amethyst_gold_ingots", "8 Gold Ingots", Category.RESOURCE, 5_000,
+                "GOLD_INGOT", 8, "Eight gold ingots for crafting or bartering."
+        ));
+        rewards.add(item(
+                "amethyst_emeralds", "4 Emeralds", Category.RESOURCE, 4_000,
+                "EMERALD", 4, "Four emeralds for villager trading."
+        ));
+        rewards.add(item(
+                "amethyst_diamonds", "2 Diamonds", Category.RESOURCE, 2_000,
+                "DIAMOND", 2, "Two diamonds for tools, armour, or trading."
+        ));
+        rewards.add(item(
+                "amethyst_glowstone", "32 Glowstone Dust", Category.RESOURCE, 4_000,
+                "GLOWSTONE_DUST", 32, "Bright dust for brewing and lighting."
+        ));
+        rewards.add(item(
+                "amethyst_lapis", "32 Lapis Lazuli", Category.RESOURCE, 3_000,
+                "LAPIS_LAZULI", 32, "A full enchanting-table supply."
+        ));
+        rewards.add(item(
+                "amethyst_redstone", "32 Redstone Dust", Category.RESOURCE, 3_000,
+                "REDSTONE", 32, "A compact redstone engineering supply."
+        ));
+        rewards.add(item(
+                "budding_amethyst", "2 Budding Amethyst", Category.TREASURE, 1_000,
+                "BUDDING_AMETHYST", 2, "Two rare blocks that grow amethyst buds."
+        ));
+        rewards.add(item(
+                "amethyst_golden_apples", "2 Golden Apples", Category.TREASURE, 1_000,
+                "GOLDEN_APPLE", 2, "Two vanilla golden apples for dangerous fights."
+        ));
+        rewards.add(item(
+                "amethyst_wind_charges", "16 Wind Charges", Category.TRIAL, 600,
+                "WIND_CHARGE", 16, "Movement and combat utility from trial chambers."
+        ));
+        rewards.add(item(
+                "amethyst_breeze_rods", "4 Breeze Rods", Category.TRIAL, 400,
+                "BREEZE_ROD", 4, "Four trial-chamber crafting drops."
+        ));
+        rewards.add(item(
+                "amethyst_potion_healing_ii", "Potion of Healing II", Category.POTION, 1_800,
+                "POTION", 1, "Instantly restores eight health points."
+        ));
+        rewards.add(item(
+                "amethyst_potion_strength_ii", "Potion of Strength II", Category.POTION, 1_000,
+                "POTION", 1, "A strong combat potion for difficult fights."
+        ));
+        rewards.add(item(
+                "amethyst_potion_swiftness_ii", "Potion of Swiftness II", Category.POTION, 1_000,
+                "POTION", 1, "A fast movement potion for combat or travel."
+        ));
+        rewards.add(item(
+                "amethyst_potion_fire_resistance", "Potion of Fire Resistance", Category.POTION, 800,
+                "POTION", 1, "Protection from fire and lava."
+        ));
+        rewards.add(item(
+                "amethyst_potion_regeneration_ii", "Potion of Regeneration II", Category.POTION, 600,
+                "POTION", 1, "Rapidly regenerates health for ninety seconds."
+        ));
+        rewards.add(item(
+                "amethyst_potion_night_vision", "Potion of Night Vision", Category.POTION, 400,
+                "POTION", 1, "Eight minutes of clear vision in darkness."
+        ));
+        rewards.add(item(
+                "amethyst_potion_water_breathing", "Potion of Water Breathing", Category.POTION, 400,
+                "POTION", 1, "Eight minutes of underwater breathing."
+        ));
+        rewards.add(item(
+                "amethyst_enchant_mending_i", "Mending", Category.ENCHANTMENT, 600,
+                "ENCHANTED_BOOK", 1, "The vanilla Mending enchantment."
+        ));
+        rewards.add(item(
+                "amethyst_enchant_protection_iv", "Protection IV", Category.ENCHANTMENT, 500,
+                "ENCHANTED_BOOK", 1, "Maximum vanilla general armour protection."
+        ));
+        rewards.add(item(
+                "amethyst_enchant_sharpness_v", "Sharpness V", Category.ENCHANTMENT, 500,
+                "ENCHANTED_BOOK", 1, "Maximum vanilla melee damage."
+        ));
+        rewards.add(item(
+                "amethyst_enchant_efficiency_v", "Efficiency V", Category.ENCHANTMENT, 500,
+                "ENCHANTED_BOOK", 1, "Maximum vanilla tool speed."
+        ));
+        rewards.add(item(
+                "amethyst_enchant_fortune_iii", "Fortune III", Category.ENCHANTMENT, 400,
+                "ENCHANTED_BOOK", 1, "Maximum vanilla Fortune."
+        ));
+        rewards.add(item(
+                "amethyst_enchant_looting_iii", "Looting III", Category.ENCHANTMENT, 300,
+                "ENCHANTED_BOOK", 1, "Maximum vanilla mob-drop Looting."
+        ));
+        rewards.add(item(
+                "amethyst_enchant_silk_touch_i", "Silk Touch", Category.ENCHANTMENT, 300,
+                "ENCHANTED_BOOK", 1, "Collects many blocks in their original form."
+        ));
+        rewards.add(item(
+                "amethyst_enchant_unbreaking_iii", "Unbreaking III", Category.ENCHANTMENT, 300,
+                "ENCHANTED_BOOK", 1, "Maximum vanilla durability protection."
+        ));
+        rewards.add(item(
+                "amethyst_enchanted_apple", "Enchanted Golden Apple", Category.TREASURE, 50,
                 "ENCHANTED_GOLDEN_APPLE", 1, "A powerful enchanted golden apple."
         ));
         rewards.add(item(
-                "amethyst_excavation_i", "Excavation I", Category.ENCHANTMENT, 8_000,
+                "amethyst_excavation_i", "Excavation I", Category.ENCHANTMENT, 5,
                 "ENCHANTED_BOOK", 1, "A pickaxe enchantment that mines a 3x3 area."
         ));
         rewards.add(amethystItem(
-                "amethyst_pickaxe", "Amethyst Pickaxe", Category.TREASURE, 5_000,
+                "amethyst_pickaxe", "Amethyst Pickaxe", Category.TREASURE, 20,
                 "DIAMOND_PICKAXE", "mgx:amethyst_pickaxe",
                 "A 24-hour 3x3 pickaxe with automatic smelting."
         ));
         rewards.add(amethystItem(
-                "amethyst_shovel", "Amethyst Shovel", Category.TREASURE, 5_000,
+                "amethyst_shovel", "Amethyst Shovel", Category.TREASURE, 25,
                 "DIAMOND_SHOVEL", "mgx:amethyst_shovel",
                 "A 24-hour shovel that clears a 3x3 plane."
         ));
         rewards.add(amethystItem(
-                "amethyst_axe", "Amethyst Axe", Category.TREASURE, 4_000,
+                "amethyst_axe", "Amethyst Axe", Category.TREASURE, 30,
                 "DIAMOND_AXE", "mgx:amethyst_axe",
                 "A 24-hour axe that brings down an entire tree."
         ));
         rewards.add(amethystItem(
-                "amethyst_shield", "Amethyst Shield", Category.TREASURE, 2_500,
+                "amethyst_shield", "Amethyst Shield", Category.TREASURE, 5,
                 "SHIELD", "mgx:amethyst_shield",
                 "A 24-hour reactive shield with crystal combat abilities."
         ));
         rewards.add(amethystItem(
-                "amethyst_totem", "Amethyst Totem", Category.TREASURE, 1_500,
+                "amethyst_totem", "Amethyst Totem", Category.TREASURE, 10,
                 "TOTEM_OF_UNDYING", "mgx:amethyst_totem",
                 "A one-use crystal rescue with a ten-heart shell."
         ));
@@ -514,9 +665,10 @@ final class CrateCatalog {
 
     private static Map<String, Reward> indexRewards() {
         Map<String, Reward> indexed = new LinkedHashMap<>();
-        for (Reward reward : java.util.stream.Stream.concat(
-                REWARDS.stream(), AMETHYST_REWARDS.stream()
-        ).toList()) {
+        for (Reward reward : java.util.stream.Stream.of(
+                        REWARDS.stream(), AMETHYST_REWARDS.stream(),
+                        HIDDEN_AMETHYST_REWARDS.stream()
+                ).flatMap(stream -> stream).toList()) {
             if (indexed.putIfAbsent(reward.id(), reward) != null) {
                 throw new IllegalStateException("Duplicate crate reward ID " + reward.id());
             }

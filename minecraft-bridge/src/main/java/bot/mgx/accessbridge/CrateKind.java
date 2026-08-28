@@ -94,6 +94,14 @@ enum CrateKind {
     }
 
     CrateCatalog.Reward randomReward(int luckPercent) {
+        if (this == AMETHYST) {
+            int jackpotTicket = java.util.concurrent.ThreadLocalRandom.current()
+                    .nextInt(CrateCatalog.HIDDEN_AMETHYST_ONE_IN);
+            Optional<CrateCatalog.Reward> jackpot = CrateCatalog.hiddenAmethystAt(jackpotTicket);
+            if (jackpot.isPresent()) {
+                return jackpot.get();
+            }
+        }
         int total = CrateCatalog.luckyTotalWeight(rewards, luckPercent);
         int ticket = java.util.concurrent.ThreadLocalRandom.current().nextInt(total);
         return CrateCatalog.rewardAtLucky(rewards, ticket, luckPercent);

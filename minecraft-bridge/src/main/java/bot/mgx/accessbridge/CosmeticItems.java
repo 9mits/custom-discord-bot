@@ -90,6 +90,9 @@ final class CosmeticItems {
         }
         lore.add(Component.empty());
         lore.add(line("Rarity: " + (masked ? "???" : definition.rarityDisplay())));
+        if (!definition.leaderboardOnly()) {
+            lore.add(line("Odds: " + definition.oneInDisplay(masked)));
+        }
         if (oddsScreen) {
             lore.add(line("Chance: " + definition.displayedChance()));
         }

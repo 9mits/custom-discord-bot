@@ -26,6 +26,7 @@ IMPORTED_MOD_HASHES = {
     "amethyst_shield": "79c0eaaf8939888df6b0e28e1a080db648cd56a5a9622d74f51596a1e385ee01",
 }
 POTION_REFERENCE = RESOURCE_PACK / "icon-sources" / "potion_of_healing_reference.png"
+EVENT_SONG_SHA256 = "768d3d503ac3e8ba39f6db1213a8296abcde9260944212fd5fe00d0f81ecc448"
 
 
 def is_potion_liquid(colour, y):
@@ -45,7 +46,7 @@ class ResourcePackIconTests(unittest.TestCase):
 
     def test_custom_icons_are_valid_distinct_minecraft_sprites(self):
         icons = self.icon_paths()
-        self.assertEqual(58, len(icons))
+        self.assertEqual(59, len(icons))
 
         digests = set()
         for path in icons:
@@ -146,6 +147,28 @@ class ResourcePackIconTests(unittest.TestCase):
                         java_texture.read_bytes(),
                         archive.read(f"textures/items/{bedrock_name}.png"),
                     )
+
+    def test_exact_event_song_ships_in_both_edition_packs(self):
+        java_sound = (
+            RESOURCE_PACK / "src" / "assets" / "mgx" / "sounds" / "music"
+            / "iridescent_imperium.ogg"
+        )
+        self.assertEqual(EVENT_SONG_SHA256, hashlib.sha256(java_sound.read_bytes()).hexdigest())
+        with zipfile.ZipFile(RESOURCE_PACK / "MysteriousSMPX.zip") as java_pack:
+            self.assertEqual(
+                java_sound.read_bytes(),
+                java_pack.read("assets/mgx/sounds/music/iridescent_imperium.ogg"),
+            )
+        with zipfile.ZipFile(RESOURCE_PACK / "bedrock" / "MysteriousSMPX-Bedrock.mcpack") as bedrock_pack:
+            self.assertEqual(
+                java_sound.read_bytes(),
+                bedrock_pack.read("sounds/music/iridescent_imperium.ogg"),
+            )
+            definitions = json.loads(bedrock_pack.read("sounds/sound_definitions.json"))
+            self.assertIn(
+                "mgx:iridescent_imperium",
+                definitions["sound_definitions"],
+            )
 
 
 if __name__ == "__main__":
