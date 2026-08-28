@@ -59,6 +59,12 @@ final class CosmeticEffectService implements Listener {
     private static final String MUSIC_AURA_ID = CosmeticCatalog.HIDDEN_AMETHYST_COSMETIC_ID;
     private static final String MUSIC_AURA_SOUND = "mgx:iridescent_imperium";
     private static final String RARITY_NAMEPLATE_TAG = "mgx_cosmetic_rarity_nameplate";
+    private static final TextColor SECRET_REVEAL_COLOUR = TextColor.color(0xC77DFF);
+    private static final long REVEAL_FRAME_TICKS = 2L;
+    private static final int MYTHIC_REVEAL_FRAMES = 36;
+    private static final int SECRET_REVEAL_FRAMES = 70;
+    private static final int GENUINE_REVEAL_FRAMES = 250;
+
     /** Every ten seconds, because a stand nobody owns is a bug rather than the norm. */
     private static final long NAMEPLATE_SWEEP_FRAMES = 100L;
     private final MGXAccessBridge plugin;
@@ -419,6 +425,19 @@ final class CosmeticEffectService implements Listener {
         );
     }
 
+    /**
+     * How long each reveal runs, in ticks. Published so the crate menu can stay out of
+     * the way for exactly as long as there is something to watch, then carry on.
+     */
+    static long revealDurationTicks(CrateCatalog.RevealTier tier) {
+        return switch (tier) {
+            case NONE, LEGENDARY -> 0L;
+            case MYTHIC -> MYTHIC_REVEAL_FRAMES * REVEAL_FRAME_TICKS;
+            case SECRET -> SECRET_REVEAL_FRAMES * REVEAL_FRAME_TICKS;
+            case GENUINE_SECRET -> GENUINE_REVEAL_FRAMES * REVEAL_FRAME_TICKS;
+        };
+    }
+
     void playCrateReveal(Player player, CrateCatalog.Reward reward) {
         switch (reward.revealTier()) {
             case NONE, LEGENDARY -> { }
@@ -439,7 +458,7 @@ final class CosmeticEffectService implements Listener {
         Location origin = player.getLocation().add(0d, 1d, 0d);
         Color pink = Color.fromRGB(255, 70, 190);
         Color gold = Color.fromRGB(255, 195, 50);
-        animate(player, origin, 36, 2L, step -> {
+        animate(player, origin, MYTHIC_REVEAL_FRAMES, REVEAL_FRAME_TICKS, step -> {
             if (!player.isOnline()) {
                 return;
             }
@@ -466,9 +485,34 @@ final class CosmeticEffectService implements Listener {
         });
     }
 
+    private static Sound[] exoticRevealSounds() {
+        return new Sound[]{
+                Sound.BLOCK_AMETHYST_BLOCK_CHIME,
+                Sound.BLOCK_CONDUIT_ACTIVATE,
+                Sound.ENTITY_ILLUSIONER_PREPARE_MIRROR,
+                Sound.BLOCK_ENCHANTMENT_TABLE_USE,
+                Sound.BLOCK_AMETHYST_CLUSTER_BREAK
+        };
+    }
+
+    private static Sound[] chaosRevealSounds() {
+        return new Sound[]{
+                Sound.ENTITY_WARDEN_SONIC_BOOM,
+                Sound.ENTITY_ENDER_DRAGON_GROWL,
+                Sound.BLOCK_END_PORTAL_SPAWN,
+                Sound.ENTITY_WITHER_SPAWN,
+                Sound.ENTITY_ELDER_GUARDIAN_CURSE,
+                Sound.BLOCK_RESPAWN_ANCHOR_DEPLETE,
+                Sound.ENTITY_ENDER_DRAGON_FLAP,
+                Sound.BLOCK_BEACON_POWER_SELECT,
+                Sound.ENTITY_EVOKER_CAST_SPELL,
+                Sound.ENTITY_WITHER_BREAK_BLOCK
+        };
+    }
+
     private void playSecretReveal(Player player, CrateCatalog.Reward reward) {
         player.showTitle(Title.title(
-                Component.text("⚠ SECRET UNSEALED ⚠", TextColor.color(0xC24CFF),
+                Component.text("⚠ EXOTIC UNSEALED ⚠", TextColor.color(0xC24CFF),
                         TextDecoration.BOLD),
                 Component.text(reward.displayName(), NamedTextColor.LIGHT_PURPLE,
                         TextDecoration.BOLD),
@@ -480,7 +524,8 @@ final class CosmeticEffectService implements Listener {
         Color voidColour = Color.fromRGB(38, 0, 70);
         Color violet = Color.fromRGB(210, 70, 255);
         Color cyan = Color.fromRGB(55, 220, 255);
-        animate(player, origin, 70, 2L, step -> {
+        Sound[] unsealing = exoticRevealSounds();
+        animate(player, origin, SECRET_REVEAL_FRAMES, REVEAL_FRAME_TICKS, step -> {
             if (!player.isOnline()) {
                 return;
             }
@@ -510,6 +555,21 @@ final class CosmeticEffectService implements Listener {
                 spawn(player, origin, Particle.FLASH, 1,
                         0d, 0d, 0d, 0d, null, null);
             }
+            // A single growl at the start and a boom at the end left the middle silent.
+            // The pitch climbs with the animation so the unsealing is something you can
+            // hear building rather than two unrelated noises.
+            if (step % 6 == 0) {
+                float rising = 0.7f + (step / (float) SECRET_REVEAL_FRAMES) * 0.8f;
+                sound(player, origin, unsealing[(step / 6) % unsealing.length],
+                        0.9f, rising, null);
+            }
+            if (step == 12) {
+                playServerwideRevealSound(Sound.BLOCK_BEACON_ACTIVATE, 0.7f, 1.4f);
+            }
+            if (step == 40) {
+                sound(player, origin, Sound.ENTITY_ELDER_GUARDIAN_CURSE, 0.9f, 1.3f, null);
+                playServerwideRevealSound(Sound.BLOCK_PORTAL_TRIGGER, 0.55f, 1.5f);
+            }
             if (step == 69) {
                 spawn(player, origin, Particle.TOTEM_OF_UNDYING,
                         48, 0.7d, 1d, 0.7d, 0.16d, null, null);
@@ -522,7 +582,7 @@ final class CosmeticEffectService implements Listener {
         player.closeInventory();
         beginFloatingPlayer(player);
         player.showTitle(Title.title(
-                Component.text("✦ GENUINE SECRET ✦", TextColor.color(0x53E5FF),
+                Component.text("✦ SECRET ✦", TextColor.color(0x53E5FF),
                         TextDecoration.BOLD),
                 Component.text("IRIDESCENT IMPERIUM • 1 IN 500,000", NamedTextColor.GOLD,
                         TextDecoration.BOLD),
@@ -537,7 +597,7 @@ final class CosmeticEffectService implements Listener {
         for (Player viewer : plugin.getServer().getOnlinePlayers()) {
             viewer.showBossBar(bar);
             viewer.showTitle(Title.title(
-                    Component.text("✦ GENUINE SECRET ✦", NamedTextColor.LIGHT_PURPLE,
+                    Component.text("✦ SECRET ✦", NamedTextColor.LIGHT_PURPLE,
                             TextDecoration.BOLD),
                     Component.text(player.getName() + " found " + reward.displayName(),
                             NamedTextColor.GOLD),
@@ -559,8 +619,10 @@ final class CosmeticEffectService implements Listener {
         Color ruby = Color.fromRGB(235, 55, 110);
         Color champagne = Color.fromRGB(255, 205, 95);
         Color[] jewels = {amethyst, sapphire, emerald, ruby, champagne};
+        Sound[] chaosPool = chaosRevealSounds();
         Location base = floatingPlayers.get(player.getUniqueId()).returnLocation().clone();
-        animate(player, base.clone().add(0d, 1d, 0d), 250, 2L, step -> {
+        animate(player, base.clone().add(0d, 1d, 0d), GENUINE_REVEAL_FRAMES,
+                REVEAL_FRAME_TICKS, step -> {
             floatGenuineWinner(player, step);
             bar.progress(Math.max(0f, 1f - step / 249f));
             if (step % 4 == 0) {
@@ -590,6 +652,29 @@ final class CosmeticEffectService implements Listener {
                             0d, 0d, 0d, 0d, null, null);
                     spawn(player, centre, Particle.SONIC_BOOM, 1,
                             0d, 0d, 0d, 0d, null, null);
+                }
+                // Chaos, but built rather than random: a dense overlapping stack around
+                // the winner, and only the landmark beats go out to the whole server, so
+                // twenty-five seconds of this does not become twenty-five seconds of
+                // noise in everybody else's ears.
+                if (step % 3 == 0) {
+                    Sound chaos = chaosPool[(step / 3) % chaosPool.length];
+                    float pitch = 0.55f + ((step * 7) % 13) / 13f * 1.35f;
+                    sound(player, centre, chaos, 1f, pitch, null);
+                }
+                if (step % 9 == 0) {
+                    sound(player, centre, Sound.ENTITY_WITHER_SHOOT, 0.8f,
+                            0.5f + ((step * 5) % 11) / 11f, null);
+                    sound(player, centre, Sound.BLOCK_AMETHYST_BLOCK_CHIME, 1f,
+                            0.6f + ((step * 3) % 17) / 17f * 1.4f, null);
+                }
+                if (step % 25 == 0) {
+                    sound(player, centre, Sound.ENTITY_GENERIC_EXPLODE, 0.9f,
+                            0.6f + (step % 50) / 50f, null);
+                    sound(player, centre, Sound.ENTITY_LIGHTNING_BOLT_THUNDER, 0.7f, 1.4f, null);
+                }
+                if (step == 40 || step == 120 || step == 200) {
+                    playServerwideRevealSound(Sound.ENTITY_ELDER_GUARDIAN_CURSE, 0.8f, 0.8f);
                 }
                 if (step == 80 || step == 160 || step == 230) {
                     spawn(player, centre, Particle.TOTEM_OF_UNDYING,
@@ -640,30 +725,26 @@ final class CosmeticEffectService implements Listener {
                 opening ? 0.1d : 0.05d
         );
         viewer.sendActionBar(Component.text(
-                opening ? "✦ A GENUINE SECRET HAS ENTERED THE SERVER ✦"
+                opening ? "✦ A SECRET HAS ENTERED THE SERVER ✦"
                         : "✦ THE IMPERIUM RESONATES ✦",
                 opening ? TextColor.color(0xE95CFF) : TextColor.color(0x53E5FF),
                 TextDecoration.BOLD
         ));
     }
 
+    /**
+     * One colour, held steady.
+     *
+     * <p>A seven-colour gradient scrolling through the rarest announcement on the server
+     * read as cheap rather than rare, so the bar states the fact and lets the effect
+     * around it do the work. The {@code step} is kept because the caller redraws the bar
+     * as its progress falls.
+     */
     static Component genuineBossbarName(String playerName, int step) {
-        TextColor[] palette = {
-                TextColor.color(0xE95CFF), TextColor.color(0x705CFF),
-                TextColor.color(0x36CFFF), TextColor.color(0x42E59B),
-                TextColor.color(0xF3D56B), TextColor.color(0xFF8055),
-                TextColor.color(0xFF4F91)
-        };
-        String text = "✦ " + playerName + " FOUND A GENUINE SECRET • 1 IN 500,000 ✦";
-        int shift = Math.floorMod(step / 3, palette.length);
-        Component result = Component.empty();
-        for (int index = 0; index < text.length(); index++) {
-            result = result.append(Component.text(
-                    Character.toString(text.charAt(index)),
-                    palette[(index + shift) % palette.length], TextDecoration.BOLD
-            ));
-        }
-        return result;
+        return Component.text(
+                "✦ " + playerName + " FOUND A SECRET • 1 IN 500,000 ✦",
+                SECRET_REVEAL_COLOUR, TextDecoration.BOLD
+        );
     }
 
     private void beginFloatingPlayer(Player player) {
@@ -702,8 +783,11 @@ final class CosmeticEffectService implements Listener {
                 lift * 1.75d + Math.sin(step * 0.3d) * 0.08d * lift,
                 Math.sin(angle) * orbit
         );
-        target.setYaw(state.returnLocation().getYaw() + step * 4.5f);
-        target.setPitch(-18f + (float) Math.sin(step * 0.18d) * 8f);
+        // Their camera is theirs. Spinning it for them made the best drop on the
+        // server the one moment a player cannot look at what they won.
+        Location looking = player.getLocation();
+        target.setYaw(looking.getYaw());
+        target.setPitch(looking.getPitch());
         player.setPose(Pose.FALL_FLYING, true);
         player.setVelocity(new Vector());
         player.setFallDistance(0f);

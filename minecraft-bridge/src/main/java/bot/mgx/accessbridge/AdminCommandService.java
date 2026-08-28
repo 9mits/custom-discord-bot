@@ -44,7 +44,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             "abuse", "event", "help"
     );
     private static final List<String> CRATE_REVEAL_TIERS = List.of(
-            "legendary", "mythic", "secret", "genuine"
+            "legendary", "mythic", "exotic", "secret"
     );
     private static final List<String> PVP_ACTIONS = List.of("on", "off", "status");
     private static final List<String> RANK_ACTIONS = List.of("hold", "release", "list");
@@ -718,17 +718,17 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         }
         if (args.length < 2) {
             throw new IllegalArgumentException(
-                    "Usage: /mgxadmin testcrate <legendary|mythic|secret|genuine> [player]"
+                    "Usage: /mgxadmin testcrate <legendary|mythic|exotic|secret> [player]"
             );
         }
         CrateCatalog.RevealTier tier = switch (args[1].toLowerCase(Locale.ROOT)) {
             case "legendary" -> CrateCatalog.RevealTier.LEGENDARY;
             case "mythic" -> CrateCatalog.RevealTier.MYTHIC;
-            case "secret" -> CrateCatalog.RevealTier.SECRET;
-            case "genuine", "genuine-secret", "genuine_secret", "genuinesecret", "exotic" ->
+            case "exotic" -> CrateCatalog.RevealTier.SECRET;
+            case "secret", "genuine", "genuine-secret", "genuine_secret", "genuinesecret" ->
                     CrateCatalog.RevealTier.GENUINE_SECRET;
             default -> throw new IllegalArgumentException(
-                    "Use legendary, mythic, secret, or genuine."
+                    "Use legendary, mythic, exotic, or secret."
             );
         };
         Player target;

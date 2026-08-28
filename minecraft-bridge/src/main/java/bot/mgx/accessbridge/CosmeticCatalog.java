@@ -138,10 +138,10 @@ final class CosmeticCatalog {
                 return "Leaderboard #" + leaderboardRank;
             }
             if (hiddenAmethystJackpot()) {
-                return "Genuine Secret";
+                return "Secret";
             }
             if (secret) {
-                return "Secret";
+                return "Exotic";
             }
             if (weight >= 2_000) {
                 return "Rare";

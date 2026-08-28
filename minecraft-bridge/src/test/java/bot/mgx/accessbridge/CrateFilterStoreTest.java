@@ -64,6 +64,38 @@ final class CrateFilterStoreTest {
     }
 
     /**
+     * The reel must not open over an effect. Anything with something to watch reports a
+     * length the crate menu waits out; everything else reports zero and carries straight
+     * on, which is what keeps an ordinary auto run at full speed.
+     */
+    @Test
+    void onlyRevealsWorthWatchingHoldTheCrateMenu() {
+        assertEquals(0L, CosmeticEffectService.revealDurationTicks(
+                CrateCatalog.RevealTier.NONE));
+        assertEquals(0L, CosmeticEffectService.revealDurationTicks(
+                CrateCatalog.RevealTier.LEGENDARY));
+
+        long mythic = CosmeticEffectService.revealDurationTicks(CrateCatalog.RevealTier.MYTHIC);
+        long exotic = CosmeticEffectService.revealDurationTicks(CrateCatalog.RevealTier.SECRET);
+        long secret = CosmeticEffectService.revealDurationTicks(
+                CrateCatalog.RevealTier.GENUINE_SECRET);
+
+        assertTrue(mythic > 0L);
+        assertTrue(exotic > mythic, "the rarer reveal runs longer");
+        assertTrue(secret > exotic, "the rarest reveal runs longest");
+    }
+
+    /** The tier names moved up one: what was Secret is Exotic, and the jackpot is Secret. */
+    @Test
+    void theJackpotIsTheOneCalledSecret() {
+        assertEquals("Secret", CosmeticCatalog
+                .find(CosmeticCatalog.HIDDEN_AMETHYST_COSMETIC_ID).orElseThrow().rarityDisplay());
+        assertEquals("Exotic", CosmeticCatalog
+                .find("event_horizon").orElseThrow().rarityDisplay());
+        assertEquals("Exotic", CrateCatalog.Category.SECRET.displayName());
+    }
+
+    /**
      * A cosmetic goes to {@code /wardrobe} rather than the inventory, so it cannot be
      * the reason an AFK run backs up — and throwing a 1-in-500,000 aura away by
      * mis-click is not a mistake the picker should be able to make.

@@ -185,8 +185,8 @@ class CosmeticCatalogTest {
         }
         assertEquals("Rare", CosmeticCatalog.find("ember_trail").orElseThrow().rarityDisplay());
         assertEquals("Mythic", CosmeticCatalog.find("prismatic_trail").orElseThrow().rarityDisplay());
-        assertEquals("Secret", CosmeticCatalog.find("event_horizon").orElseThrow().rarityDisplay());
-        assertEquals("Genuine Secret", CosmeticCatalog.find("iridescent_imperium")
+        assertEquals("Exotic", CosmeticCatalog.find("event_horizon").orElseThrow().rarityDisplay());
+        assertEquals("Secret", CosmeticCatalog.find("iridescent_imperium")
                 .orElseThrow().rarityDisplay());
     }
 

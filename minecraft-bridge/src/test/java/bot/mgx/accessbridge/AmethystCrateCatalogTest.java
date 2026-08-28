@@ -85,7 +85,7 @@ final class AmethystCrateCatalogTest {
         CrateCatalog.Reward reward = CrateCatalog.hiddenAmethyst().getFirst();
 
         assertEquals("Iridescent Imperium", exotic.displayName());
-        assertEquals("Genuine Secret", exotic.rarityDisplay());
+        assertEquals("Secret", exotic.rarityDisplay());
         assertEquals(500_000, exotic.oneIn());
         assertEquals("1 in 500,000", exotic.oneInDisplay(false));
         assertTrue(exotic.description().toLowerCase(java.util.Locale.ROOT)

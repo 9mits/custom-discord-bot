@@ -40,7 +40,7 @@ final class CrateCatalog {
         POTION("Potions"),
         ENCHANTMENT("Enchantments"),
         COSMETIC("Cosmetics"),
-        SECRET("Secret");
+        SECRET("Exotic");
 
         private final String displayName;
 
@@ -127,10 +127,10 @@ final class CrateCatalog {
 
         String rarityDisplay() {
             if (isHiddenAmethyst(this)) {
-                return "Genuine Secret";
+                return "Secret";
             }
             if (secret()) {
-                return "Secret";
+                return "Exotic";
             }
             if (cosmetic()) {
                 return CosmeticCatalog.find(cosmeticId)
