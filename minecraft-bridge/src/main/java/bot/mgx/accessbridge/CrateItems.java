@@ -245,7 +245,7 @@ final class CrateItems {
         ItemStack item = specialItems.create(reward)
                 .orElseGet(() -> new ItemStack(material, reward.amount()));
         ItemMeta meta = item.getItemMeta();
-        if (meta != null && CrateCatalog.isLimitedAmethyst(reward)) {
+        if (meta != null && CrateCatalog.isExclusiveAmethyst(reward)) {
             List<Component> lore = new ArrayList<>(meta.lore() == null ? List.of() : meta.lore());
             addLimitedAmethystLore(lore, reward);
             meta.lore(lore);
@@ -363,7 +363,7 @@ final class CrateItems {
     private static void addLimitedAmethystLore(
             List<Component> lore, CrateCatalog.Reward reward
     ) {
-        if (!CrateCatalog.isLimitedAmethyst(reward)) {
+        if (!CrateCatalog.isExclusiveAmethyst(reward)) {
             return;
         }
         Component provenance = Component.text(

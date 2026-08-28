@@ -2,6 +2,7 @@ package bot.mgx.accessbridge;
 
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -77,7 +78,30 @@ final class AmethystCrateCatalogTest {
     void adminRewardDirectoryIncludesEveryLimitedReward() {
         assertTrue(CrateCatalog.everyReward().containsAll(CrateCatalog.amethyst()));
         CrateCatalog.amethyst().forEach(reward -> assertTrue(
-                CrateCatalog.find(reward.id()).filter(CrateCatalog::isLimitedAmethyst).isPresent()
+                CrateCatalog.find(reward.id()).isPresent()
         ));
+    }
+
+    @Test
+    void onlyExclusiveRewardsReceiveLimitedProvenance() {
+        assertTrue(CrateCatalog.find("amethyst_shield")
+                .filter(CrateCatalog::isExclusiveAmethyst).isPresent());
+        assertTrue(CrateCatalog.find("cosmetic_geode_bloom")
+                .filter(CrateCatalog::isExclusiveAmethyst).isPresent());
+        assertFalse(CrateCatalog.find("amethyst_excavation_i")
+                .filter(CrateCatalog::isExclusiveAmethyst).isPresent());
+        assertFalse(CrateCatalog.find("amethyst_enchanted_apple")
+                .filter(CrateCatalog::isExclusiveAmethyst).isPresent());
+        assertFalse(CrateCatalog.find("amethyst_shards")
+                .filter(CrateCatalog::isExclusiveAmethyst).isPresent());
+    }
+
+    @Test
+    void activeItemCountdownIsRelativeAndTimezoneFree() {
+        assertEquals("23h 48m", AmethystItemService.remainingDuration(
+                Duration.ofHours(23).plusMinutes(48).toMillis()
+        ));
+        assertEquals("42m", AmethystItemService.remainingDuration(Duration.ofMinutes(42).toMillis()));
+        assertEquals("30s", AmethystItemService.remainingDuration(Duration.ofSeconds(30).toMillis()));
     }
 }
