@@ -40,12 +40,14 @@ import java.util.function.BiConsumer;
  * <p>Everything is addressed by id rather than by a live {@link Player}, so a
  * leaderboard row can open a card for somebody who has already logged off.
  */
-final class StatsDialogService implements CommandExecutor {
+final class StatsDialogService implements CommandExecutor, org.bukkit.event.Listener {
     private static final ClickCallback.Options CALLBACK_OPTIONS = ClickCallback.Options.builder()
             .uses(ClickCallback.UNLIMITED_USES)
             .lifetime(Duration.ofMinutes(10))
             .build();
     private static final int PROFILE_SIZE = 45;
+    private static final int PROFILE_BACK_SLOT = 36;
+    private static final int PROFILE_CLOSE_SLOT = 40;
     private static final String NAME_INPUT = "player_name";
 
     private final MGXAccessBridge plugin;
@@ -53,6 +55,9 @@ final class StatsDialogService implements CommandExecutor {
     private final CrateItems crateItems;
     private final SettingsClientSupport clientSupport;
     private final BedrockForms forms;
+    /** Where the open profile board should return to, per viewer. */
+    private final java.util.Map<UUID, java.util.function.Consumer<Player>> profileBack =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     StatsDialogService(
             MGXAccessBridge plugin,
@@ -312,8 +317,52 @@ final class StatsDialogService implements CommandExecutor {
         for (int index = 0; index < tiles.size() && index < slots.length; index++) {
             inventory.setItem(slots[index], tiles.get(index));
         }
-        inventory.setItem(40, MenuItems.button(Material.BARRIER, "Close"));
+        if (back != null) {
+            profileBack.put(viewer.getUniqueId(), back);
+            inventory.setItem(PROFILE_BACK_SLOT, MenuItems.button(
+                    Material.OAK_DOOR, "Back", "Return to where you came from."
+            ));
+        } else {
+            profileBack.remove(viewer.getUniqueId());
+        }
+        inventory.setItem(PROFILE_CLOSE_SLOT, MenuItems.button(Material.BARRIER, "Close"));
         MenuItems.show(plugin, viewer, inventory);
+    }
+
+    /**
+     * The profile board is read-only, so only Back and Close do anything. Handling it
+     * here rather than in the menu router is what lets Back know its destination.
+     */
+    @org.bukkit.event.EventHandler
+    public void onProfileClick(org.bukkit.event.inventory.InventoryClickEvent event) {
+        if (!(event.getInventory().getHolder() instanceof Menu menu)
+                || menu.kind() != Menu.Kind.PLAYER_PROFILE) {
+            return;
+        }
+        event.setCancelled(true);
+        if (!(event.getWhoClicked() instanceof Player player)) {
+            return;
+        }
+        int slot = event.getSlot();
+        if (slot != PROFILE_BACK_SLOT && slot != PROFILE_CLOSE_SLOT) {
+            return;
+        }
+        java.util.function.Consumer<Player> back = profileBack.remove(player.getUniqueId());
+        // Bedrock drops a screen opened from inside a click, so the next one waits a tick.
+        plugin.getServer().getScheduler().runTask(plugin, () -> {
+            if (!player.isOnline()) {
+                return;
+            }
+            player.closeInventory();
+            if (slot == PROFILE_BACK_SLOT && back != null) {
+                back.accept(player);
+            }
+        });
+    }
+
+    @org.bukkit.event.EventHandler
+    public void onQuit(org.bukkit.event.player.PlayerQuitEvent event) {
+        profileBack.remove(event.getPlayer().getUniqueId());
     }
 
     /** Green name, quiet figure — the tooltip labels what the grid cannot. */
