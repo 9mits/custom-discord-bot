@@ -103,7 +103,8 @@ final class PlayerSettingsDialogService {
                                 "Choose a category to change your Mysterious SMP X settings.",
                                 NamedTextColor.GRAY
                         ), 400)))
-                        .afterAction(DialogBase.DialogAfterAction.WAIT_FOR_RESPONSE)
+                        .afterAction(DialogBase.DialogAfterAction.NONE)
+                        .canCloseWithEscape(true)
                         .build())
                 .type(DialogType.multiAction(categories)
                         .columns(2)
@@ -168,7 +169,8 @@ final class PlayerSettingsDialogService {
                         .body(List.of(DialogBody.plainMessage(
                                 Component.text(category.description(), NamedTextColor.GRAY), 400
                         )))
-                        .afterAction(DialogBase.DialogAfterAction.WAIT_FOR_RESPONSE)
+                        .afterAction(DialogBase.DialogAfterAction.NONE)
+                        .canCloseWithEscape(true)
                         .build())
                 .type(DialogType.multiAction(buttons)
                         .columns(1)

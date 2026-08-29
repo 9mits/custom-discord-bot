@@ -8,6 +8,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.ItemFlag;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.inventory.meta.SkullMeta;
@@ -52,6 +53,20 @@ final class MenuItems {
         return MenuPaging.backSlot(size);
     }
 
+    /**
+     * Strips vanilla's own tooltip from a menu tile.
+     *
+     * <p>These items are buttons, not gear. A pickaxe used as an icon otherwise carries
+     * "When in Main Hand: 5 Attack Damage" under the label, which reads as part of the
+     * screen and is never what the tile is saying.
+     */
+    static void asButton(ItemMeta meta) {
+        meta.addItemFlags(ItemFlag.values());
+        // Paper only omits the attribute block when the item has an explicit empty set;
+        // the flag alone still leaves a gap on some clients.
+        meta.setAttributeModifiers(com.google.common.collect.ImmutableMultimap.of());
+    }
+
     static ItemStack button(Material material, String name, String... lore) {
         return button(material, name, List.of(lore));
     }
@@ -62,6 +77,7 @@ final class MenuItems {
         if (meta != null) {
             meta.displayName(title(name));
             meta.lore(loreOf(lore));
+            asButton(meta);
             item.setItemMeta(meta);
         }
         return item;
@@ -82,6 +98,7 @@ final class MenuItems {
             }
             meta.displayName(title(name));
             meta.lore(loreOf(lore));
+            asButton(meta);
             item.setItemMeta(meta);
         }
         return item;
@@ -103,6 +120,7 @@ final class MenuItems {
             meta.lore(lore.stream()
                     .map(line -> line.decoration(TextDecoration.ITALIC, false))
                     .toList());
+            asButton(meta);
             item.setItemMeta(meta);
         }
         return item;

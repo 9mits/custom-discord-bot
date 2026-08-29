@@ -60,6 +60,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     private final PlayerSettingsStore settings;
     private final ClanMenuService menus;
     private final ClanBattleStore clanBattles;
+    private ClanChooserService chooser;
 
     ClanService(
             MGXAccessBridge plugin,
@@ -79,6 +80,11 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         this.clanBattles = clanBattles;
     }
 
+    /** Wired after construction; the chooser needs this service's menus. */
+    void useChooser(ClanChooserService chooser) {
+        this.chooser = chooser;
+    }
+
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         args = CommandArgs.withoutEchoedSender(sender.getName(), args);
@@ -87,9 +93,10 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
             return true;
         }
         boolean infoAlias = command.getName().equalsIgnoreCase("claninfo");
-        // A bare /clans opens the menu for anyone who has a clan; players without one
-        // still get the text help, since every screen needs a clan to show.
-        String bare = store.clanOf(player.getUniqueId()).isPresent() ? "menu" : "help";
+        // A bare /clans asks which screen was meant. It used to go straight to the
+        // player's own clan and refuse anyone without one, which hid the directory
+        // from exactly the people looking for a clan to join.
+        String bare = "menu";
         String action = infoAlias ? "info" : args.length == 0 ? bare : args[0].toLowerCase(Locale.ROOT);
         try {
             switch (action) {
@@ -114,7 +121,13 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 case "allies", "alliances" -> allies(player);
                 case "leave" -> leave(player);
                 case "chat" -> chat(player, remainder(args, 1));
-                case "menu" -> menus.openHub(player);
+                case "menu" -> {
+                    if (chooser != null) {
+                        chooser.open(player);
+                    } else {
+                        menus.openHub(player);
+                    }
+                }
                 case "donate" -> {
                     if (args.length >= 2) {
                         menus.donate(player, EconomyFormat.parseAmount(args[1]));

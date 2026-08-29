@@ -19,8 +19,17 @@ import java.util.UUID;
 final class PlayerStatsParser {
     private static final String CUSTOM = "minecraft:custom";
     private static final String MINED = "minecraft:mined";
+    private static final String USED = "minecraft:used";
 
-    record Snapshot(long kills, long deaths, long playTimeTicks, long blocksMined, long walkedCm) {
+    record Snapshot(
+            long kills,
+            long deaths,
+            long playTimeTicks,
+            long blocksMined,
+            long walkedCm,
+            long mobKills,
+            long blocksPlaced
+    ) {
     }
 
     private PlayerStatsParser() {
@@ -53,7 +62,11 @@ final class PlayerStatsParser {
                     custom(stats, "minecraft:deaths"),
                     custom(stats, "minecraft:play_time"),
                     totalOf(stats, MINED),
-                    custom(stats, "minecraft:walk_one_cm")
+                    custom(stats, "minecraft:walk_one_cm"),
+                    custom(stats, "minecraft:mob_kills"),
+                    // Vanilla has no "placed" counter. Using a block item is the
+                    // closest it records, and is what the figure means elsewhere.
+                    totalOf(stats, USED)
             ));
         }
     }

@@ -101,8 +101,25 @@ final class QuickMenuDatapackTest {
         for (String removed : List.of("afk", "guide", "discord", "pay", "bal")) {
             assertFalse(commands.contains(removed), removed);
         }
-        for (String expected : List.of("stats", "tpmenu", "homes", "leaderboard")) {
+        for (String expected : List.of("stats", "tpmenu", "homes", "leaderboard", "warp")) {
             assertTrue(commands.contains(expected), expected);
+        }
+    }
+
+    @Test
+    void everyButtonLabelCarriesItsIconSprite() {
+        JsonObject dialog = new QuickMenuDatapack().menuDialog();
+
+        for (int index = 0; index < dialog.getAsJsonArray("actions").size(); index++) {
+            com.google.gson.JsonArray label = dialog.getAsJsonArray("actions").get(index)
+                    .getAsJsonObject().getAsJsonArray("label");
+            JsonObject sprite = label.get(0).getAsJsonObject();
+            assertEquals("object", sprite.get("type").getAsString());
+            assertEquals("atlas", sprite.get("object").getAsString());
+            // A sprite path that does not resolve draws a missing-texture square, so
+            // the folder has to follow whether the material is a block.
+            assertTrue(sprite.get("sprite").getAsString().matches("(block|item)/[a-z0-9_]+"),
+                    sprite.toString());
         }
     }
 }

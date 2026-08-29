@@ -75,7 +75,11 @@ final class MainMenuService implements CommandExecutor, Listener {
     private void showDialog(org.bukkit.entity.Player player) {
         List<ActionButton> buttons = new ArrayList<>();
         for (MainMenu entry : MainMenu.entries()) {
-            buttons.add(ActionButton.builder(Component.text(entry.label(), NamedTextColor.WHITE))
+            // The icon is the label's fastest half: a grid of words all read the same,
+            // and the same picture is what the chest fallback shows in its slot.
+            buttons.add(ActionButton.builder(Component.empty()
+                            .append(MenuText.sprite(entry.sprite()))
+                            .append(Component.text(" " + entry.label(), NamedTextColor.WHITE)))
                     .tooltip(Component.text(entry.tooltip(), NamedTextColor.GRAY))
                     .width(BUTTON_WIDTH)
                     .action(DialogAction.staticAction(
@@ -86,13 +90,12 @@ final class MainMenuService implements CommandExecutor, Listener {
                     .build());
         }
         Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(
-                                Component.text("Mysterious SMP X", ORANGE, TextDecoration.BOLD)
-                        )
+                .base(DialogBase.builder(MenuText.title("Mysterious SMP X"))
                         .body(List.of(DialogBody.plainMessage(
                                 Component.text("Choose where to go.", NamedTextColor.GRAY), 400
                         )))
                         .afterAction(DialogBase.DialogAfterAction.CLOSE)
+                        .canCloseWithEscape(true)
                         .build())
                 .type(DialogType.multiAction(buttons).columns(2).build()));
         player.showDialog(dialog);
@@ -129,8 +132,13 @@ final class MainMenuService implements CommandExecutor, Listener {
             return;
         }
         if (kind == Menu.Kind.PLAYER_PROFILE) {
-            // A profile board is read-only; the only click that does anything closes it.
-            plugin.getServer().getScheduler().runTask(plugin, (Runnable) player::closeInventory);
+            // Read-only board: the click is already cancelled, and only the Close tile
+            // should shut it. Closing on any click made the whole screen feel broken.
+            if (event.getCurrentItem() != null
+                    && event.getCurrentItem().getType() == org.bukkit.Material.BARRIER) {
+                plugin.getServer().getScheduler()
+                        .runTask(plugin, (Runnable) player::closeInventory);
+            }
             return;
         }
         if (kind == Menu.Kind.TELEPORT_PLAYERS) {
