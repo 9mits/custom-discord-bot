@@ -19,7 +19,7 @@ enum MainMenu {
     SHOP("Shop", "shop", "Buy blocks, gear and supplies.", Material.EMERALD, "item/emerald"),
     SELL("Sell", "sell", "Turn items into money.", Material.DIAMOND, "item/diamond"),
     ENDER_CHEST("Ender Chest", "echest", "Your storage, anywhere.", Material.ENDER_CHEST, "item/ender_eye"),
-    HOMES("Homes", "homes", "Travel to a home you have set.", Material.WHITE_BED, "item/white_bed"),
+    HOMES("Homes", "homes", "Travel to a home you have set.", Material.WHITE_BED, "item/oak_door"),
     WARPS("Warps", "warp", "Public places worth knowing.", Material.LODESTONE, "block/lodestone_top"),
     TELEPORT("Teleport", "tpmenu", "Ask to teleport to another player.", Material.ENDER_PEARL, "item/ender_pearl"),
     RTP("RTP", "rtp", "Drop somewhere new in the wild.", Material.COMPASS, "item/compass_00"),

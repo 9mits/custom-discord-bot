@@ -123,7 +123,7 @@ final class HomesDialogService {
         Dialog dialog = Dialog.create(builder -> builder.empty()
                 .base(DialogBase.builder(MenuText.title("Rename " + home))
                         .body(List.of(DialogBody.plainMessage(
-                                MenuText.body("Sets a new home here and removes the old one."), 400
+                                MenuText.body("Give this home a different name."), 400
                         )))
                         .inputs(List.of(DialogInput.text(NAME_INPUT,
                                         Component.text("New name", MenuText.LABEL))
@@ -141,15 +141,11 @@ final class HomesDialogService {
                                                 "Use letters, numbers, - and _ for a home name.");
                                         return;
                                     }
-                                    // Essentials has no rename, and a home is a position:
-                                    // standing on the old one is what makes this honest.
-                                    audience.performCommand("home " + home);
-                                    audience.sendMessage(Component.text(
-                                            "Teleporting to " + home + ". Run /sethome " + name
-                                                    + " when you arrive, then /delhome " + home
-                                                    + ".",
-                                            MenuText.LABEL
-                                    ));
+                                    // EssentialsX renames in place, so the home keeps its
+                                    // position and the player stays where they are.
+                                    audience.performCommand(
+                                            "renamehome " + home + " " + name
+                                    );
                                 }))
                                 .build(),
                         ActionButton.builder(Component.text("Cancel", MenuText.LABEL))

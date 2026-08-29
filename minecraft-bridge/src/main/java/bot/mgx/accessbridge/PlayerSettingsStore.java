@@ -41,7 +41,7 @@ final class PlayerSettingsStore {
                 "item/nether_star"),
         AUDIO("Audio", "Which sounds the server plays for you.", "block/note_block"),
         PRIVACY("Privacy", "Control which linked account details other players can see.",
-                "item/shield"),
+                "item/iron_door"),
         HUD("HUD & Bars", "Bars and overlays drawn on top of the game.",
                 "item/experience_bottle"),
         SCOREBOARD("Scoreboard", "Choose whether the sidebar appears and which sections it shows.",
