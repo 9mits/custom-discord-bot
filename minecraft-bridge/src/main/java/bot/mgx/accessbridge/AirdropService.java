@@ -749,12 +749,38 @@ final class AirdropService implements Listener {
         );
     }
 
-    private static void playSpawnCue(Player player) {
+    private void playSpawnCue(Player player) {
+        if (!settings.isEnabled(
+                player.getUniqueId(), PlayerSettingsStore.Setting.AIRDROP_SOUNDS
+        )) {
+            return;
+        }
         Location at = player.getLocation();
         player.playSound(at, Sound.EVENT_RAID_HORN, 2.2f, 0.8f);
         player.playSound(at, Sound.ENTITY_ENDER_DRAGON_GROWL, 1.35f, 1.15f);
         player.playSound(at, Sound.BLOCK_BEACON_ACTIVATE, 1.8f, 0.65f);
         player.playSound(at, Sound.BLOCK_AMETHYST_BLOCK_RESONATE, 1.5f, 0.75f);
+    }
+
+    /**
+     * Draws a particle only for the players who still want the beam.
+     *
+     * <p>{@code World.spawnParticle} reaches everyone in range regardless, so a
+     * per-player switch has to name its audience instead.
+     */
+    private <T> void spawnForViewers(
+            World world, Particle particle, Location at, int count,
+            double offsetX, double offsetY, double offsetZ, double extra, T data
+    ) {
+        for (Player viewer : world.getPlayers()) {
+            if (settings.isEnabled(
+                    viewer.getUniqueId(), PlayerSettingsStore.Setting.AIRDROP_PARTICLES
+            )) {
+                viewer.spawnParticle(
+                        particle, at, count, offsetX, offsetY, offsetZ, extra, data
+                );
+            }
+        }
     }
 
     static float remainingProgress(long now, long spawnedAt, long expiresAt) {
@@ -843,8 +869,8 @@ final class AirdropService implements Listener {
                         y + Math.sin(angle * 3d) * 0.35d,
                         Math.sin(angle) * radius
                 );
-                world.spawnParticle(
-                        Particle.DUST, at, 1, 0d, 0d, 0d, 0d,
+                spawnForViewers(
+                        world, Particle.DUST, at, 1, 0d, 0d, 0d, 0d,
                         new Particle.DustOptions(ring == 1 ? bright : deep, 1.15f)
                 );
             }

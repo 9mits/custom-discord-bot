@@ -74,7 +74,13 @@ final class ClanBattleService implements Listener {
                 NamedTextColor.YELLOW
         )));
         for (Player player : Bukkit.getOnlinePlayers()) {
-            player.playSound(player.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f, 0.9f);
+            if (settings.isEnabled(
+                    player.getUniqueId(), PlayerSettingsStore.Setting.EVENT_SOUNDS
+            )) {
+                player.playSound(
+                        player.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f, 0.9f
+                );
+            }
         }
         return active;
     }
@@ -247,7 +253,13 @@ final class ClanBattleService implements Listener {
                     .append(Component.text(grant.amount() + " Shards", NamedTextColor.AQUA,
                             TextDecoration.BOLD))
                     .append(Component.text(" from " + grant.source() + ".", NamedTextColor.WHITE)));
-            player.playSound(player.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f, 1.2f);
+            if (settings.isEnabled(
+                    player.getUniqueId(), PlayerSettingsStore.Setting.EVENT_SOUNDS
+            )) {
+                player.playSound(
+                        player.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f, 1.2f
+                );
+            }
         }
     }
 

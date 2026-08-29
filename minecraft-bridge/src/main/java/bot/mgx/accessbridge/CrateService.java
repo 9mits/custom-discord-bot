@@ -487,7 +487,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             PlayerMenuService.error(player, "That choice could not be saved.");
             return;
         }
-        player.playSound(player.getLocation(), Sound.BLOCK_LEVER_CLICK, 0.7f,
+        playCrateSound(player, Sound.BLOCK_LEVER_CLICK, 0.7f,
                 tripled ? 1.4f : 0.9f);
         openKindHub(player, kind);
     }
@@ -574,7 +574,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             PlayerMenuService.error(player, "That choice could not be saved.");
             return;
         }
-        player.playSound(player.getLocation(),
+        playCrateSound(player,
                 discarded ? Sound.ENTITY_ITEM_BREAK : Sound.ENTITY_ITEM_PICKUP, 0.6f,
                 discarded ? 0.8f : 1.4f);
         openFilters(player, kind, page);
@@ -634,7 +634,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         );
         sessions.put(playerId, session);
         MenuItems.show(plugin, player, inventory);
-        player.playSound(player.getLocation(), Sound.BLOCK_CHEST_OPEN, 0.9f, 0.85f);
+        playCrateSound(player, Sound.BLOCK_CHEST_OPEN, 0.9f, 0.85f);
         advance(session);
     }
 
@@ -692,8 +692,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                     lane.reelLast, items.preview(session.kind.randomPreview(), cosmeticItems)
             );
         }
-        player.playSound(
-                player.getLocation(),
+        playCrateSound(player,
                 session.settling()
                         ? Sound.BLOCK_NOTE_BLOCK_PLING
                         : Sound.BLOCK_WOODEN_BUTTON_CLICK_ON,
@@ -731,7 +730,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                     ? items.revealedPreview(lane.reward, cosmeticItems)
                     : MenuItems.button(Material.BROWN_STAINED_GLASS_PANE, "Crate Panel"));
         }
-        player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP, 1f,
+        playCrateSound(player, Sound.ENTITY_PLAYER_LEVELUP, 1f,
                 1.15f + index * 0.12f);
         session.task = plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
             if (!deliverPending(player, true)) {
@@ -1152,6 +1151,15 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         plugin.getServer().getConsoleSender().sendMessage(announcement);
     }
 
+    /** Crate audio is one preference, so it is gated once rather than per call. */
+    private void playCrateSound(Player player, Sound sound, float volume, float pitch) {
+        if (settings.isEnabled(
+                player.getUniqueId(), PlayerSettingsStore.Setting.CRATE_SOUNDS
+        )) {
+            player.playSound(player.getLocation(), sound, volume, pitch);
+        }
+    }
+
     private static TextColor tierColour(CrateCatalog.RevealTier tier) {
         return switch (tier) {
             case LEGENDARY -> TextColor.color(0xFFB52E);
@@ -1305,7 +1313,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 openFilters(player, menu.kind, menu.page + 1);
             } else if (event.getSlot() == FILTER_CLEAR_SLOT) {
                 if (filters.clear(player.getUniqueId()) > 0) {
-                    player.playSound(player.getLocation(),
+                    playCrateSound(player,
                             Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.7f, 1.2f);
                 }
                 openFilters(player, menu.kind, menu.page);
@@ -1631,7 +1639,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                             + (delivered == 1 ? "key" : "keys") + ".",
                     NamedTextColor.GREEN
             )));
-            player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.8f, 1.15f);
+            playCrateSound(player, Sound.ENTITY_EXPERIENCE_ORB_PICKUP, 0.8f, 1.15f);
         }
         return delivered;
     }
