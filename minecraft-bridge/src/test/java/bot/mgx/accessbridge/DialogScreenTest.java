@@ -25,15 +25,18 @@ final class DialogScreenTest {
             Path.of("src/main/java/bot/mgx/accessbridge");
 
     @Test
-    void noScreenUsesAnAfterActionThatLeavesTheGamePaused() throws IOException {
+    void noScreenLeavesTheClientWaitingOrPausedForever() throws IOException {
         for (Path file : dialogSources()) {
             String text = Files.readString(file, StandardCharsets.UTF_8);
-            // Dialogs pause the game. NONE never unpauses, so Paper refuses to build
-            // one, and WAIT_FOR_RESPONSE leaves "Waiting for Server" after escape.
-            assertTrue(!text.contains("DialogAfterAction.NONE"),
-                    file.getFileName() + " uses NONE, which Paper refuses outright");
+            // WAIT_FOR_RESPONSE leaves "Waiting for Server" on screen after escape.
             assertTrue(!text.contains("DialogAfterAction.WAIT_FOR_RESPONSE"),
                     file.getFileName() + " uses WAIT_FOR_RESPONSE, which hangs on escape");
+            // NONE never unpauses, so Paper refuses to build a pausing dialog that uses
+            // it. A screen that stays open has to say pause(false) as well.
+            if (text.contains("DialogAfterAction.NONE")) {
+                assertTrue(text.contains(".pause(false)"),
+                        file.getFileName() + " uses NONE without pause(false), which throws");
+            }
         }
     }
 
