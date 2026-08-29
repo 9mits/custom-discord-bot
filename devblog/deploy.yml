@@ -8,11 +8,14 @@ on:
     branches: ["main"]
     paths: ["devblog/**", ".github/workflows/devblog.yml"]
   workflow_dispatch:
-  # Refresh the live server figures on the home page. The build is ~40s, so this
-  # is cheap; GitHub may skip runs when the repo is quiet, which only means the
-  # numbers age rather than break — the page prints when they were checked.
+  # Refresh the live server figures on the home page. The build is ~40s, so five
+  # minutes - the shortest interval GitHub schedules - is affordable, and the page
+  # itself re-reads assets/stats.json every minute, so an open tab picks a new
+  # build up without a reload. GitHub may still skip runs when the repo is quiet,
+  # which only means the numbers age rather than break: the page prints when they
+  # were checked.
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "*/5 * * * *"
 
 # Allow one deploy at a time; a newer push supersedes a queued one.
 concurrency:

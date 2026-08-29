@@ -365,6 +365,14 @@ def build(site_url: str, include_drafts: bool = False) -> List[Post]:
     ]
     nav += [{"url": page.url, "label": page.nav, "slug": page.slug} for page in pages]
     stats = load_stats()
+    if stats is not None:
+        # Published beside the page so the browser can refresh the figures without
+        # waiting for the next rebuild. Safe by construction rather than by care:
+        # server_status.py writes counts, a version and a timestamp and nothing
+        # else - no address, no player names, no MOTD - and a test pins that.
+        (DIST_DIR / "assets" / "stats.json").write_text(
+            json.dumps(stats, indent=2) + "\n", encoding="utf-8"
+        )
 
     for page in pages:
         prefix = "../"

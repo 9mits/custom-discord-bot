@@ -591,10 +591,33 @@ a { color: inherit; }
 /* ===== community band ==================================================== */
 .community { padding: 4rem var(--rail) 0; }
 .community-card {
+  position: relative;
   max-width: var(--page-max); margin: 0 auto; padding: 3rem 2rem;
   background: var(--surface); border: 1px solid var(--line);
   border-radius: 30px; text-align: center;
   box-shadow: var(--lift-3);
+}
+/* Urabe leans out of the card rather than sitting inside it. Her render stops
+   mid-torso, so the bottom of the image is pinned to the card's bottom edge —
+   the border is what hides the cut — and she is tall enough to cross the top
+   one. Breaking the frame is the whole effect, so nothing on this card may set
+   overflow, and the card keeps a lane clear for her rather than letting her
+   land on the buttons. */
+.community-mascot {
+  display: block; width: min(9.5rem, 36vw); height: auto;
+  margin: -6.5rem auto .75rem;
+  pointer-events: none; -webkit-user-select: none; user-select: none;
+  filter: drop-shadow(0 14px 20px rgba(0, 0, 0, .28));
+}
+@media (min-width: 1024px) {
+  /* Clearance overhead for the part of her that leaves the card. */
+  .community { padding-top: 7rem; }
+  .community-card { text-align: left; padding-right: 20rem; }
+  .community-card .community-links { justify-content: flex-start; }
+  .community-mascot {
+    position: absolute; right: .25rem; bottom: 0; margin: 0;
+    width: min(19rem, 26vw);
+  }
 }
 .community-card h2 { margin: 0 0 .5rem; font-size: 2rem; font-weight: 700; color: var(--ink); }
 @media (min-width: 1024px) { .community-card h2 { font-size: 2.75rem; } }
@@ -887,24 +910,63 @@ FILTER_SCRIPT = """
 </script>
 """
 
-AGO_SCRIPT = """
+STATS_SCRIPT = """
 <script>
 (function () {
-  var el = document.querySelector("[data-ago]");
-  if (!el) return;
-  var then = Date.parse(el.getAttribute("data-ago"));
-  if (isNaN(then)) return;               // leave the absolute stamp in place
-  var mins = Math.round((Date.now() - then) / 60000);
-  if (mins < 0) return;                  // clock skew; the stamp is safer
-  var text;
-  if (mins < 1) text = "just now";
-  else if (mins < 60) text = mins + (mins === 1 ? " minute ago" : " minutes ago");
-  else {
-    var hrs = Math.round(mins / 60);
-    if (hrs < 24) text = hrs + (hrs === 1 ? " hour ago" : " hours ago");
-    else { var d = Math.round(hrs / 24); text = d + (d === 1 ? " day ago" : " days ago"); }
+  var band = document.querySelector('.stats[data-stats-src]');
+  var stamp = document.querySelector('[data-ago]');
+
+  function ago(el) {
+    if (!el) return;
+    var then = Date.parse(el.getAttribute('data-ago'));
+    if (isNaN(then)) return;               // leave the absolute stamp in place
+    var mins = Math.round((Date.now() - then) / 60000);
+    if (mins < 0) return;                  // clock skew; the stamp is safer
+    var text;
+    if (mins < 1) text = 'just now';
+    else if (mins < 60) text = mins + (mins === 1 ? ' minute ago' : ' minutes ago');
+    else {
+      var hrs = Math.round(mins / 60);
+      if (hrs < 24) text = hrs + (hrs === 1 ? ' hour ago' : ' hours ago');
+      else { var d = Math.round(hrs / 24); text = d + (d === 1 ? ' day ago' : ' days ago'); }
+    }
+    el.textContent = text;
   }
-  el.textContent = text;
+
+  ago(stamp);
+  if (!band || !window.fetch) return;     // the built-in numbers stand on their own
+
+  var busy = false;
+  function refresh() {
+    if (busy || document.hidden) return;  // nothing to show a tab nobody is looking at
+    busy = true;
+    // Cache-busted on purpose: the only reason to ask again is to get a newer file.
+    fetch(band.getAttribute('data-stats-src') + '?t=' + Date.now(), { cache: 'no-store' })
+      .then(function (response) { return response.ok ? response.json() : null; })
+      .then(function (data) {
+        if (!data || typeof data.online !== 'number' || typeof data.max !== 'number') return;
+        var values = { online: data.online, max: data.max, version: data.version };
+        Array.prototype.forEach.call(band.querySelectorAll('[data-stat]'), function (el) {
+          var next = values[el.getAttribute('data-stat')];
+          if (next === undefined || next === null) return;
+          if (String(next) !== el.textContent) el.textContent = String(next);
+        });
+        if (stamp && data.checked_at) {
+          stamp.setAttribute('datetime', data.checked_at);
+          stamp.setAttribute('data-ago', data.checked_at);
+        }
+        ago(stamp);
+      })
+      .catch(function () {})               // a failed poll leaves the built figures alone
+      .then(function () { busy = false; });
+  }
+
+  setInterval(refresh, 60000);
+  setInterval(function () { ago(stamp); }, 60000);
+  // Coming back to the tab is the moment stale numbers are most obvious.
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) refresh();
+  });
 })();
 </script>
 """
@@ -1063,10 +1125,12 @@ def _community(prefix: str) -> str:
         ) + buttons
     return (
         '<section class="community"><div class="community-card">'
+        '<img class="community-mascot" src="%sassets/urabe.png" alt="" aria-hidden="true"'
+        ' width="760" height="1015" decoding="async">'
         "<h2>Join our community!</h2>"
         "<p>Get the latest updates and more.</p>"
         '<div class="community-links">%s</div>'
-        "</div></section>" % buttons
+        "</div></section>" % (prefix, buttons)
     )
 
 
@@ -1146,21 +1210,31 @@ def _thumb(card: Dict[str, object]) -> str:
     )
 
 
-def _stats_band(stats: Optional[Dict[str, object]]) -> str:
+def _stats_band(stats: Optional[Dict[str, object]], prefix: str = "") -> str:
     """Three figures from the live server, or nothing at all.
 
-    Rendered at build time, so it is honest about being a snapshot: the page
-    prints when it was checked rather than implying a live read.
+    Baked in at build time and then refreshed in the browser from
+    `assets/stats.json` — the same document `server_status.py` writes, published
+    beside the page. That is safe by construction rather than by care: the file
+    holds counts, a version and a timestamp and nothing else, no address and no
+    player names, and a test pins that.
+
+    Still honest about being a snapshot. Polling a file the build refreshes every
+    few minutes makes the numbers fresher, not live, so the page keeps printing
+    when they were checked.
     """
     if not stats:
         return ""
-    tiles = [("Players online", str(stats["online"])), ("Server slots", str(stats["max"]))]
+    tiles = [
+        ("online", "Players online", str(stats["online"])),
+        ("max", "Server slots", str(stats["max"])),
+    ]
     if stats.get("version"):
-        tiles.append(("Running", str(stats["version"])))
+        tiles.append(("version", "Running", str(stats["version"])))
     cells = "".join(
-        '<div class="stat"><span class="stat-v">%s</span>'
-        '<span class="stat-k">%s</span></div>' % (_esc(value), _esc(key))
-        for key, value in tiles
+        '<div class="stat"><span class="stat-v" data-stat="%s">%s</span>'
+        '<span class="stat-k">%s</span></div>' % (key, _esc(value), _esc(label))
+        for key, label, value in tiles
     )
     checked = _esc(str(stats.get("checked_at") or ""))
     caption = (
@@ -1170,8 +1244,9 @@ def _stats_band(stats: Optional[Dict[str, object]]) -> str:
         else ""
     )
     return (
-        '<section class="stats"><div class="stats-card">'
-        '<div class="stats-row">%s</div>%s</div></section>' % (cells, caption)
+        '<section class="stats" data-stats-src="%sassets/stats.json">'
+        '<div class="stats-card">'
+        '<div class="stats-row">%s</div>%s</div></section>' % (prefix, cells, caption)
     )
 
 
@@ -1441,11 +1516,11 @@ def render_index(featured: Optional[Dict[str, object]], cards: Sequence[Dict[str
         archive = '<div class="empty">No updates posted yet. Check back soon.</div>'
 
     body = '<div class="page">%s%s%s%s%s</div>' % (
-        hero, _stats_band(stats), featured_strip, archive, _community(prefix)
+        hero, _stats_band(stats, prefix), featured_strip, archive, _community(prefix)
     )
     return _page(
         "%s Dev Blog" % SITE_NAME, SITE_TAGLINE, prefix, body, None, site_url,
-        current="index", scripts=COPY_SCRIPT + AGO_SCRIPT, nav=nav,
+        current="index", scripts=COPY_SCRIPT + STATS_SCRIPT, nav=nav,
     )
 
 

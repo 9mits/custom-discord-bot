@@ -8,6 +8,7 @@ or:
 
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import sys
@@ -270,6 +271,22 @@ class ThemeTests(unittest.TestCase):
             self.assertIn('class="footer-addr"', page)
         finally:
             theme.DISCORD_URL, theme.SERVER_ADDRESS = saved
+
+    def test_urabe_breaks_out_of_the_community_card(self):
+        band = theme._community("")
+        self.assertIn('class="community-mascot"', band)
+        self.assertIn('src="assets/urabe.png"', band)
+        # Decorative: the heading beside her already says what the band is for.
+        self.assertIn('alt=""', band)
+        self.assertIn('aria-hidden="true"', band)
+        # Popping out only works while the card neither clips her nor loses its
+        # positioning context.
+        self.assertIn(".community-card {\n  position: relative;", theme.STYLESHEET)
+        self.assertNotIn("overflow: hidden", theme.STYLESHEET.split("community band")[1]
+                         .split("/* =====")[0])
+
+    def test_the_mascot_is_addressed_relative_to_the_page_that_shows_her(self):
+        self.assertIn('src="../assets/urabe.png"', theme._community("../"))
 
     def test_titles_are_escaped(self):
         page = theme._page("<script>x</script>", "d", "", "<main></main>")
@@ -932,6 +949,27 @@ class ServerStatsTests(unittest.TestCase):
         finally:
             build.DATA_DIR = saved
 
+    def test_the_band_tells_the_browser_where_to_refetch(self):
+        band = theme._stats_band(
+            {"online": 11, "max": 50, "version": "1.21.11",
+             "checked_at": "2026-08-21T10:45:04Z"}
+        )
+        self.assertIn('data-stats-src="assets/stats.json"', band)
+        self.assertIn('data-stat="online"', band)
+        self.assertIn('data-stat="max"', band)
+        self.assertIn('data-stat="version"', band)
+
+    def test_the_refresh_script_polls_and_survives_a_failed_poll(self):
+        self.assertIn("data-stats-src", theme.STATS_SCRIPT)
+        self.assertIn("visibilitychange", theme.STATS_SCRIPT)
+        self.assertIn("setInterval", theme.STATS_SCRIPT)
+        # A poll that fails must leave the numbers the build put there.
+        self.assertIn(".catch(", theme.STATS_SCRIPT)
+
+    def test_the_schedule_refreshes_the_figures_every_five_minutes(self):
+        workflow = (Path(__file__).resolve().parents[1] / "deploy.yml").read_text(encoding="utf-8")
+        self.assertIn('cron: "*/5 * * * *"', workflow)
+
     def test_the_stats_file_is_git_ignored(self):
         ignore = (Path(__file__).resolve().parents[1] / ".gitignore").read_text(encoding="utf-8")
         self.assertIn("data/", ignore)
@@ -1081,6 +1119,35 @@ class BlogArchiveTests(unittest.TestCase):
         build.build("https://example.com")
         page = (build.DIST_DIR / "update-1" / "index.html").read_text(encoding="utf-8")
         self.assertIn('href="../blog/" aria-current="page"', page)
+
+    def test_the_figures_are_published_for_the_page_to_refetch(self):
+        self.post(1, "update-1")
+        saved = build.DATA_DIR
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        (tmp / "stats.json").write_text(
+            json.dumps({"online": 7, "max": 50, "version": "1.21.11",
+                        "checked_at": "2026-08-21T10:45:04Z"}),
+            encoding="utf-8",
+        )
+        build.DATA_DIR = tmp
+        try:
+            build.build("https://example.com")
+        finally:
+            build.DATA_DIR = saved
+        published = build.DIST_DIR / "assets" / "stats.json"
+        self.assertTrue(published.exists())
+        self.assertEqual(json.loads(published.read_text(encoding="utf-8"))["online"], 7)
+
+    def test_no_figures_means_no_published_file_to_mislead_anyone(self):
+        self.post(1, "update-1")
+        saved = build.DATA_DIR
+        build.DATA_DIR = Path(tempfile.mkdtemp())
+        try:
+            build.build("https://example.com")
+        finally:
+            build.DATA_DIR = saved
+        self.assertFalse((build.DIST_DIR / "assets" / "stats.json").exists())
 
 
 class EventArchiveTests(unittest.TestCase):
