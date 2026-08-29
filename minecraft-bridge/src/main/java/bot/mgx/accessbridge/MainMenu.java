@@ -19,17 +19,14 @@ enum MainMenu {
     SHOP("Shop", "shop", "Buy blocks, gear and supplies.", Material.EMERALD),
     SELL("Sell", "sell", "Turn items into money.", Material.HOPPER),
     ENDER_CHEST("Ender Chest", "echest", "Your storage, anywhere.", Material.ENDER_CHEST),
-    HOMES("Homes", "home", "Travel to a home you have set.", Material.WHITE_BED),
+    HOMES("Homes", "homes", "Travel to a home you have set.", Material.WHITE_BED),
+    TELEPORT("Teleport", "tpmenu", "Ask to teleport to another player.", Material.ENDER_PEARL),
     RANDOM_TELEPORT("Random Teleport", "rtp", "Drop somewhere new in the wild.", Material.COMPASS),
     CLANS("Clans", "clans", "Your clan, its treasury and its warps.", Material.SHIELD),
     LEADERBOARDS("Leaderboards", "leaderboard", "Who is winning, and at what.", Material.PLAYER_HEAD),
+    STATS("Stats", "stats", "Your numbers, and anyone else's.", Material.BOOK),
     BOUNTIES("Bounties", "bounty", "Claim a bounty, or put one up.", Material.IRON_SWORD),
-    BALANCE("Balance", "bal", "What you are carrying.", Material.SUNFLOWER),
-    PAY("Pay", "pay", "Send money to another player.", Material.PAPER),
     PERKS("Level Perks", "perks", "What each level unlocks.", Material.EXPERIENCE_BOTTLE),
-    GUIDE("Guide", "guide", "How the server works.", Material.BOOK),
-    AFK("Go AFK", "afk", "Mark yourself away.", Material.CLOCK),
-    DISCORD("Discord", "discord", "The server's Discord invite.", Material.PAINTING),
     SETTINGS("Settings", "settings", "Change how the server treats you.", Material.COMPARATOR);
 
     private final String label;

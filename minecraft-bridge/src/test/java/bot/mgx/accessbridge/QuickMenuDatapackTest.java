@@ -91,4 +91,18 @@ final class QuickMenuDatapackTest {
                 "a new major can change the dialog schema, so it is not accepted blind"
         );
     }
+
+    @Test
+    void theMenuOnlyOffersScreensAndNotPlainTextCommands() {
+        List<String> commands = QuickMenuDatapack.commands();
+
+        // These print a line and close; a button for them is a dead end, and the
+        // screens they used to sit beside are what the menu is for.
+        for (String removed : List.of("afk", "guide", "discord", "pay", "bal")) {
+            assertFalse(commands.contains(removed), removed);
+        }
+        for (String expected : List.of("stats", "tpmenu", "homes", "leaderboard")) {
+            assertTrue(commands.contains(expected), expected);
+        }
+    }
 }

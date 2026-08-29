@@ -37,6 +37,7 @@ final class TeleportMenuService implements Listener {
     private final MGXAccessBridge plugin;
     private final File warpsDirectory;
     private final File userdataDirectory;
+    private HomesDialogService homesDialog;
 
     TeleportMenuService(MGXAccessBridge plugin) {
         this.plugin = plugin;
@@ -56,12 +57,26 @@ final class TeleportMenuService implements Listener {
             openWarps(event.getPlayer(), 1);
         } else if (HOME_COMMANDS.contains(request.label())) {
             event.setCancelled(true);
-            openHomes(event.getPlayer(), 1);
+            openHomesPreferred(event.getPlayer());
         }
     }
 
     void openWarps(Player player, int page) {
         open(player, Menu.Kind.TELEPORT_WARPS, "Warps", page, warpNames(), Material.COMPASS);
+    }
+
+    /** Wired after construction; the dialog reads this service's home list. */
+    void useHomesDialog(HomesDialogService homesDialog) {
+        this.homesDialog = homesDialog;
+    }
+
+    /** The command entry point, which prefers the dialog when the client has one. */
+    void openHomesPreferred(Player player) {
+        if (homesDialog != null) {
+            homesDialog.open(player);
+            return;
+        }
+        openHomes(player, 1);
     }
 
     void openHomes(Player player, int page) {
@@ -162,6 +177,11 @@ final class TeleportMenuService implements Listener {
         }
         names.sort(String.CASE_INSENSITIVE_ORDER);
         return List.copyOf(names);
+    }
+
+    /** The dialog screen shows the same list this menu does. */
+    List<String> homeNamesOf(Player player) {
+        return homeNames(player);
     }
 
     private List<String> homeNames(Player player) {

@@ -59,6 +59,8 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
     private final DiscordIdentityService identities;
     private final CosmeticItems cosmeticItems;
     private final ClanBattleStore clanBattles;
+    private LeaderboardDialogService dialogs;
+    private SettingsClientSupport clientSupport;
 
     LeaderboardMenuService(
             MGXAccessBridge plugin,
@@ -93,7 +95,21 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
         return List.of();
     }
 
+    /** Wired after construction because the dialog screens read this service's data. */
+    void useDialogs(LeaderboardDialogService dialogs, SettingsClientSupport clientSupport) {
+        this.dialogs = dialogs;
+        this.clientSupport = clientSupport;
+    }
+
     void openHub(Player player) {
+        if (dialogs != null && clientSupport != null && clientSupport.supportsDialogs(player)) {
+            dialogs.openHub(player);
+            return;
+        }
+        openChestHub(player);
+    }
+
+    private void openChestHub(Player player) {
         Inventory inventory = create(
                 Menu.Kind.LEADERBOARD_HUB, null, 1, HUB_SIZE, "Leaderboard", null
         );
