@@ -103,7 +103,11 @@ final class PlayerSettingsDialogService {
                                 "Choose a category to change your Mysterious SMP X settings.",
                                 NamedTextColor.GRAY
                         ), 400)))
-                        .afterAction(DialogBase.DialogAfterAction.CLOSE)
+                        .afterAction(DialogBase.DialogAfterAction.NONE)
+                        // Not a blocking prompt: the screen stays up so a toggle
+                        // repaints in place instead of slamming shut on every click.
+                        // NONE is only legal on a dialog that does not pause.
+                        .pause(false)
                         .canCloseWithEscape(true)
                         .build())
                 .type(DialogType.multiAction(categories)
@@ -169,7 +173,11 @@ final class PlayerSettingsDialogService {
                         .body(List.of(DialogBody.plainMessage(
                                 Component.text(category.description(), NamedTextColor.GRAY), 400
                         )))
-                        .afterAction(DialogBase.DialogAfterAction.CLOSE)
+                        .afterAction(DialogBase.DialogAfterAction.NONE)
+                        // Not a blocking prompt: the screen stays up so a toggle
+                        // repaints in place instead of slamming shut on every click.
+                        // NONE is only legal on a dialog that does not pause.
+                        .pause(false)
                         .canCloseWithEscape(true)
                         .build())
                 .type(DialogType.multiAction(buttons)

@@ -145,7 +145,11 @@ final class StatsDialogService implements CommandExecutor {
         Dialog dialog = Dialog.create(builder -> builder.empty()
                 .base(DialogBase.builder(MenuText.title(profile.name()))
                         .body(body)
-                        .afterAction(DialogBase.DialogAfterAction.CLOSE)
+                        .afterAction(DialogBase.DialogAfterAction.NONE)
+                        // Not a blocking prompt: the screen stays up so a toggle
+                        // repaints in place instead of slamming shut on every click.
+                        // NONE is only legal on a dialog that does not pause.
+                        .pause(false)
                         .canCloseWithEscape(true)
                         .build())
                 .type(DialogType.multiAction(buttons).columns(1).build()));
@@ -251,7 +255,11 @@ final class StatsDialogService implements CommandExecutor {
         Dialog dialog = Dialog.create(builder -> builder.empty()
                 .base(DialogBase.builder(MenuText.title(title))
                         .body(List.of(DialogBody.plainMessage(MenuText.body(body), 400)))
-                        .afterAction(DialogBase.DialogAfterAction.CLOSE)
+                        .afterAction(DialogBase.DialogAfterAction.NONE)
+                        // Not a blocking prompt: the screen stays up so a toggle
+                        // repaints in place instead of slamming shut on every click.
+                        // NONE is only legal on a dialog that does not pause.
+                        .pause(false)
                         .canCloseWithEscape(true)
                         .build())
                 .type(DialogType.multiAction(shown).columns(columns).build()));
