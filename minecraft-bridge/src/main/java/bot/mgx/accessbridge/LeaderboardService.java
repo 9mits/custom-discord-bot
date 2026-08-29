@@ -352,6 +352,9 @@ final class LeaderboardService implements Listener {
                 break;
             }
             JsonObject row = new JsonObject();
+            // Every clan row carries its id so a reader can open that clan. Without it
+            // the name is only text, which is what made the boards unclickable.
+            row.addProperty("clan_id", clan.id().toString());
             row.addProperty("clan", clan.name());
             row.addProperty("members", clan.members().size());
             row.addProperty("colour", clan.themeColor());
@@ -368,6 +371,7 @@ final class LeaderboardService implements Listener {
         Map<String, Integer> members = new HashMap<>();
         Map<String, Integer> colours = new HashMap<>();
         Map<String, Integer> levels = new HashMap<>();
+        Map<String, String> ids = new HashMap<>();
         for (PlayerStats row : everyone) {
             Optional<ClanStore.ClanView> clan = clans.clanOf(row.minecraftUuid());
             if (clan.isEmpty()) {
@@ -378,6 +382,7 @@ final class LeaderboardService implements Listener {
             members.merge(name, 1, Integer::sum);
             colours.putIfAbsent(name, clan.get().themeColor());
             levels.putIfAbsent(name, clan.get().level());
+            ids.putIfAbsent(name, clan.get().id().toString());
         }
         List<Map.Entry<String, Long>> ranked = new ArrayList<>(totals.entrySet());
         ranked.sort(Map.Entry.<String, Long>comparingByValue().reversed());
@@ -387,6 +392,7 @@ final class LeaderboardService implements Listener {
                 break;
             }
             JsonObject row = new JsonObject();
+            row.addProperty("clan_id", ids.getOrDefault(entry.getKey(), ""));
             row.addProperty("clan", entry.getKey());
             row.addProperty("members", members.getOrDefault(entry.getKey(), 0));
             row.addProperty("colour", colours.getOrDefault(entry.getKey(), 0xFF9900));
