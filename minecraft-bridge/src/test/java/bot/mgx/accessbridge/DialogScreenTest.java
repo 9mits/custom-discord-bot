@@ -79,4 +79,26 @@ final class DialogScreenTest {
                     category + " -> " + path);
         }
     }
+
+    @Test
+    void everyClanBoardRowCarriesTheIdItsLinkNeeds() throws IOException {
+        String source = Files.readString(
+                SOURCE.resolve("LeaderboardService.java"), StandardCharsets.UTF_8
+        );
+        // A clan row without clan_id makes the name plain text: the click handler has
+        // nothing to open, so it silently does not attach. Every builder that emits a
+        // clan row has to emit the id beside it.
+        int clanRows = countOf(source, "row.addProperty(\"clan\"");
+        int clanIds = countOf(source, "row.addProperty(\"clan_id\"");
+        assertTrue(clanIds >= clanRows,
+                "clan rows: " + clanRows + ", rows carrying an id: " + clanIds);
+    }
+
+    private static int countOf(String haystack, String needle) {
+        int count = 0;
+        for (int at = haystack.indexOf(needle); at >= 0; at = haystack.indexOf(needle, at + 1)) {
+            count++;
+        }
+        return count;
+    }
 }

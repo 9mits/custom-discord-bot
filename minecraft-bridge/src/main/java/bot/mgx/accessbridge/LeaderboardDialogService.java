@@ -182,12 +182,17 @@ final class LeaderboardDialogService {
                 net.kyori.adventure.text.format.TextColor.color(colour)
         );
         String badges = text(row, "badges");
+        int members = row.has("members") ? row.get("members").getAsInt() : 0;
         Component line = Component.text("#" + rank + " ", MenuText.placeColour(rank))
                 .append(tag)
                 .append(Component.text(badges.isBlank() ? " " : "  " + badges + " ",
-                        NamedTextColor.WHITE))
-                .append(Component.text("— ", NamedTextColor.DARK_GRAY))
-                .append(Component.text(display, MenuText.VALUE));
+                        MenuText.GOLD))
+                .append(Component.text(" — ", NamedTextColor.DARK_GRAY))
+                .append(Component.text(display, MenuText.VALUE))
+                .append(members > 0
+                        ? Component.text("  ·  " + members
+                                + (members == 1 ? " member" : " members"), MenuText.LABEL)
+                        : Component.empty());
         UUID clanId = parseUuid(text(row, "clan_id"));
         if (clanId == null || clans == null) {
             return line;
@@ -198,15 +203,13 @@ final class LeaderboardDialogService {
                         Component.text("View this clan", MenuText.LABEL)))
                 .clickEvent(ClickEvent.callback(audience -> {
                     if (audience instanceof Player clicker && clicker.isOnline()) {
-                        openClan(clicker, clanId, viewer -> openBoard(viewer, board));
+                        openClan(clicker, clanId);
                     }
                 }, CALLBACK_OPTIONS));
     }
 
-    /** Opens a clan's page, remembering the board it was reached from. */
-    private void openClan(
-            Player viewer, UUID clanId, java.util.function.Consumer<Player> back
-    ) {
+    /** Opens the clan page {@code /claninfo} opens. */
+    private void openClan(Player viewer, UUID clanId) {
         clans.findClanById(clanId).ifPresentOrElse(
                 clan -> clanMenus.openInfo(viewer, clan, null),
                 () -> PlayerMenuService.error(viewer, "That clan no longer exists.")
