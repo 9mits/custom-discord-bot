@@ -29,26 +29,50 @@ final class ScreenExitTest {
 
     @Test
     void noScreenIsBuiltByHandWithoutAnExit() throws IOException {
-        Pattern inline = Pattern.compile("DialogType\\.multiAction\\(");
+        // Checked per enclosing method, not per file and not per character window.
+        // Per file let a screen with no exit pass because a sibling screen in the same
+        // class had a Back button, which is how the clan warps list shipped with no way
+        // out; a fixed window then mis-flagged pickers whose Back sat further up.
         List<String> offenders = new ArrayList<>();
         for (Path file : dialogSources()) {
             String text = Files.readString(file, StandardCharsets.UTF_8);
-            Matcher match = inline.matcher(text);
-            int handBuilt = 0;
-            while (match.find()) {
-                handBuilt++;
-            }
-            if (handBuilt == 0) {
-                continue;
-            }
-            // A hand-built multi-action screen has to supply its own way out.
-            boolean hasExit = text.contains("\"Back\"") || text.contains("\"Close\"");
-            if (!hasExit) {
-                offenders.add(file.getFileName() + " builds " + handBuilt
-                        + " screen(s) with no Back and no Close");
+            for (String method : methods(text)) {
+                if (!method.contains("DialogType.multiAction(")) {
+                    continue;
+                }
+                boolean hasExit = method.contains("\"Back\"")
+                        || method.contains("\"Close\"")
+                        || method.contains("Screens.show");
+                if (!hasExit) {
+                    offenders.add(file.getFileName() + " -> " + signature(method));
+                }
             }
         }
-        assertTrue(offenders.isEmpty(), "screens a player cannot leave: " + offenders);
+        assertTrue(offenders.isEmpty(),
+                "hand-built screens a player cannot leave: " + offenders);
+    }
+
+    /** Splits a source file on top-level method starts, which is enough to scope this. */
+    private static List<String> methods(String text) {
+        List<String> found = new ArrayList<>();
+        Matcher starts = Pattern.compile(
+                "\n    (?:private |public |static |void |boolean |[A-Z])[^\n]*\\{\n"
+        ).matcher(text);
+        List<Integer> offsets = new ArrayList<>();
+        while (starts.find()) {
+            offsets.add(starts.start());
+        }
+        for (int index = 0; index < offsets.size(); index++) {
+            int from = offsets.get(index);
+            int to = index + 1 < offsets.size() ? offsets.get(index + 1) : text.length();
+            found.add(text.substring(from, to));
+        }
+        return found;
+    }
+
+    private static String signature(String method) {
+        String first = method.strip().split("\n")[0];
+        return first.length() > 70 ? first.substring(0, 70) : first;
     }
 
     @Test
