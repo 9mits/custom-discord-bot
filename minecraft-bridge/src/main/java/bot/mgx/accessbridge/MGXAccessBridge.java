@@ -509,7 +509,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         clanMenuService.useWarpDialog(clanWarps);
         ClanDialogService clanDialogs = new ClanDialogService(
                 clanStore, clanMenuService, clanBattleStore, economyStore, statsDialogs,
-                dialogSupport, bedrockForms
+                profileStats, dialogSupport, bedrockForms
         );
         clanMenuService.useDialogs(clanDialogs);
         clanChooser.useClanDialogs(clanDialogs);

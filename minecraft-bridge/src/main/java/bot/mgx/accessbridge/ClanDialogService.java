@@ -49,6 +49,7 @@ final class ClanDialogService {
     private final ClanBattleStore clanBattles;
     private final EconomyStore money;
     private final StatsDialogService stats;
+    private final ProfileStatsService profiles;
     private final SettingsClientSupport clientSupport;
     private final BedrockForms forms;
 
@@ -58,6 +59,7 @@ final class ClanDialogService {
             ClanBattleStore clanBattles,
             EconomyStore money,
             StatsDialogService stats,
+            ProfileStatsService profiles,
             SettingsClientSupport clientSupport,
             BedrockForms forms
     ) {
@@ -66,6 +68,7 @@ final class ClanDialogService {
         this.clanBattles = clanBattles;
         this.money = money;
         this.stats = stats;
+        this.profiles = profiles;
         this.clientSupport = clientSupport;
         this.forms = forms;
     }
@@ -86,7 +89,7 @@ final class ClanDialogService {
                 new Entry("item/diamond", "Donors", "Who has given the most.",
                         this::openDonors),
                 new Entry("item/nether_star", "Upgrades", "Spend the treasury on levels.",
-                        p -> menus.openUpgrade(p)),
+                        this::openUpgrade),
                 new Entry("item/book", "Clan Info", "Leader, level, allies.",
                         p -> openInfo(p, clan.id(), this::openHub)),
                 new Entry("item/iron_chestplate", "Members",
@@ -316,23 +319,31 @@ final class ClanDialogService {
      * <p>The store checks the actor's rank on every one of these, so this only decides
      * what to show; a stale screen cannot be used to promote somebody.
      */
+    /**
+     * One card for a member: their standing in the clan and their own numbers together.
+     *
+     * <p>These were two screens, so seeing what somebody had actually done took three
+     * clicks through a card that only repeated their role. The full profile board is
+     * still one press away for the long tail of statistics.
+     */
     private void openMember(Player player, UUID clanId, UUID memberId, int page) {
         ClanStore.ClanView clan = clans.findClanById(clanId).orElse(null);
         if (clan == null) {
             return;
         }
         String name = clan.members().getOrDefault(memberId, "Unknown");
-        ClanStore.ClanRole viewerRole = clan.roleOf(player.getUniqueId());
-        boolean manages = viewerRole == ClanStore.ClanRole.LEADER;
+        ProfileStatsService.Profile profile = profiles.of(memberId, name);
+        boolean manages = clan.roleOf(player.getUniqueId()) == ClanStore.ClanRole.LEADER;
         boolean self = memberId.equals(player.getUniqueId());
         boolean targetIsLeader = memberId.equals(clan.leader());
+        boolean staff = clan.roleOf(memberId) == ClanStore.ClanRole.STAFF;
+        long donated = clan.donations().getOrDefault(memberId, 0L);
 
         List<Entry> entries = new ArrayList<>();
-        entries.add(new Entry("item/book", "View Stats", "Their numbers.",
-                audience -> stats.openCard(audience, memberId, name,
-                        viewer -> openMembers(viewer, clanId, page))));
+        entries.add(new Entry("item/book", "View Full Profile", "Every number we keep.",
+                audience -> stats.openProfile(audience, memberId, name,
+                        viewer -> openMember(viewer, clanId, memberId, page))));
         if (manages && !self && !targetIsLeader) {
-            boolean staff = clan.roleOf(memberId) == ClanStore.ClanRole.STAFF;
             entries.add(new Entry("item/gold_ingot", staff ? "Demote" : "Promote",
                     staff ? "Make them an ordinary member." : "Make them clan staff.",
                     audience -> setStaff(audience, memberId, !staff, clanId, page)));
@@ -351,9 +362,59 @@ final class ClanDialogService {
         }
         entries.add(new Entry("item/oak_door", "Back", "Return to the roster.",
                 audience -> openMembers(audience, clanId, page)));
-        if (!render(player, name, roleOf(clan, memberId) + " of " + clan.name(), entries, 2)) {
-            menus.openMembers(player, clanId, page, null);
+
+        if (!clientSupport.supportsDialogs(player)) {
+            List<BedrockForms.Button> buttons = new ArrayList<>();
+            for (Entry entry : entries) {
+                buttons.add(new BedrockForms.Button(
+                        entry.label(), () -> entry.action().accept(player)));
+            }
+            if (!forms.menu(player, name, String.join("\n",
+                    roleOf(clan, memberId) + " of " + clan.name(),
+                    "Donated: " + EconomyFormat.dollars(donated),
+                    Bukkit.getPlayer(memberId) != null ? "Online now" : "Offline",
+                    "",
+                    "Money: " + EconomyFormat.dollars(profile.money()),
+                    "Kills: " + StatsDialogService.compact(profile.playerKills()),
+                    "Deaths: " + StatsDialogService.compact(profile.deaths()),
+                    "Playtime: " + StatsDialogService.playtime(profile.playTimeTicks())
+            ), buttons)) {
+                menus.openMembers(player, clanId, page, null);
+            }
+            return;
         }
+        List<DialogBody> body = List.of(
+                DialogBody.plainMessage(Component.empty()
+                        .append(MenuText.head(memberId))
+                        .append(Component.text(" " + name + "  ", NamedTextColor.WHITE))
+                        .append(Component.text(roleOf(clan, memberId),
+                                roleColour(clan, memberId)))
+                        .append(Component.text(
+                                Bukkit.getPlayer(memberId) != null ? "  ·  online" : "  ·  offline",
+                                MenuText.LABEL)), 400),
+                DialogBody.plainMessage(Component.empty(), 400),
+                DialogBody.plainMessage(MenuText.stat("Donated", "item/gold_ingot",
+                        EconomyFormat.dollars(donated)), 400),
+                DialogBody.plainMessage(MenuText.stat("Money", "item/emerald",
+                        EconomyFormat.dollars(profile.money())), 400),
+                DialogBody.plainMessage(MenuText.stat("Kills", "item/diamond_sword",
+                        StatsDialogService.compact(profile.playerKills())), 400),
+                DialogBody.plainMessage(MenuText.stat("Deaths", "item/rotten_flesh",
+                        StatsDialogService.compact(profile.deaths())), 400),
+                DialogBody.plainMessage(MenuText.stat("Playtime", "item/clock_00",
+                        StatsDialogService.playtime(profile.playTimeTicks())), 400)
+        );
+        List<ActionButton> buttons = new ArrayList<>();
+        for (Entry entry : entries) {
+            buttons.add(ActionButton.builder(Component.empty()
+                            .append(MenuText.sprite(entry.sprite()))
+                            .append(Component.text(" " + entry.label(), NamedTextColor.WHITE)))
+                    .tooltip(Component.text(entry.tooltip(), MenuText.LABEL))
+                    .width(150)
+                    .action(callback((response, audience) -> entry.action().accept(audience)))
+                    .build());
+        }
+        show(player, name, body, buttons, 2);
     }
 
     private void setStaff(Player player, UUID memberId, boolean promote, UUID clanId, int page) {
@@ -376,6 +437,60 @@ final class ClanDialogService {
             return;
         }
         openMembers(player, clanId, page);
+    }
+
+    // ------------------------------------------------------------ upgrades
+
+    /** What the treasury can buy, and what it buys next. */
+    void openUpgrade(Player player) {
+        ClanStore.ClanView clan = clans.clanOf(player.getUniqueId()).orElse(null);
+        if (clan == null) {
+            return;
+        }
+        java.util.Optional<Integer> next = clan.nextLevel();
+        List<String> lines = new ArrayList<>();
+        lines.add("Level " + (clan.level() == 0 ? "unranked" : clan.level())
+                + "  ·  " + ClanLevel.warpSlots(clan.level()) + " warps");
+        lines.add("Treasury " + EconomyFormat.dollars(clan.balance()));
+        String levelOffer;
+        if (next.isEmpty()) {
+            levelOffer = "Nothing left to buy.";
+        } else {
+            ClanLevel.Cost cost = ClanLevel.costOf(next.get()).orElseThrow();
+            long short_ = ClanLevel.shortfall(clan.balance(), cost);
+            levelOffer = "Level " + next.get() + " costs "
+                    + EconomyFormat.dollars(cost.dollars())
+                    + (short_ > 0L ? "  (need " + EconomyFormat.dollars(short_) + " more)" : "");
+        }
+        lines.add(levelOffer);
+
+        List<Entry> entries = new ArrayList<>();
+        if (next.isPresent()) {
+            entries.add(new Entry("item/nether_star", "Buy Level " + next.get(),
+                    levelOffer, audience -> buy(audience, true)));
+        }
+        entries.add(new Entry("item/iron_chestplate", "Buy Member Slots",
+                clan.members().size() + "/" + clan.memberSlots() + " used.",
+                audience -> buy(audience, false)));
+        entries.add(new Entry("item/oak_door", "Back", "Return to the clan.", this::openHub));
+        if (!render(player, "Upgrades", String.join("  |  ", lines), entries, 2)) {
+            menus.openUpgrade(player);
+        }
+    }
+
+    private void buy(Player player, boolean level) {
+        try {
+            if (level) {
+                menus.buyLevelFor(player);
+            } else {
+                menus.buyMembersFor(player);
+            }
+        } catch (IOException | ClanStore.ClanException failure) {
+            PlayerMenuService.error(player, failure.getMessage() == null
+                    ? "That could not be bought." : failure.getMessage());
+            return;
+        }
+        openUpgrade(player);
     }
 
     // ---------------------------------------------------------------- info
