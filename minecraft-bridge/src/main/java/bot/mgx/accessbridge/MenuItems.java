@@ -87,6 +87,27 @@ final class MenuItems {
         return item;
     }
 
+    /**
+     * A button whose lore the caller has already drawn.
+     *
+     * <p>{@link #button(Material, String, List)} greys every line, which is right for
+     * the explanatory lore that makes up most of these screens and wrong for a line
+     * that has to be noticed — a countdown reading as body text is a countdown nobody
+     * reads.
+     */
+    static ItemStack detailed(Material material, String name, List<Component> lore) {
+        ItemStack item = new ItemStack(material);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.displayName(title(name));
+            meta.lore(lore.stream()
+                    .map(line -> line.decoration(TextDecoration.ITALIC, false))
+                    .toList());
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
     /** Draws the navigation row, showing an arrow only where there is somewhere to go. */
     static void paginate(Inventory inventory, int page, int total, boolean withBack) {
         if (MenuPaging.hasPrevious(page, total, PER_PAGE)) {

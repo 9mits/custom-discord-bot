@@ -128,6 +128,42 @@ final class AmethystCrateCatalogTest {
                 .sum());
     }
 
+    /**
+     * The shape of the curve, not any one weight.
+     *
+     * <p>The pool used to be 37% common, so five openings in eight paid uncommon or
+     * better and the rare tier read as routine. Commons carry it now.
+     */
+    @Test
+    void commonsCarryTheLimitedPool() {
+        Map<String, Integer> byTier = new java.util.HashMap<>();
+        for (CrateCatalog.Reward reward : CrateCatalog.amethyst()) {
+            byTier.merge(reward.rarityDisplay(), reward.weight(), Integer::sum);
+        }
+        assertEquals(63_000, byTier.get("Common"));
+        assertEquals(22_000, byTier.get("Uncommon"));
+        assertEquals(11_000, byTier.get("Rare"));
+        assertEquals(3_400, byTier.get("Epic"));
+        assertTrue(
+                byTier.get("Common") > byTier.get("Uncommon") + byTier.get("Rare")
+                        + byTier.get("Epic"),
+                "commons must outweigh everything above them"
+        );
+    }
+
+    /** The geode blocks an amethyst crate should always have been full of. */
+    @Test
+    void limitedPoolPaysTheGeodeItselfAsCommonLoot() {
+        for (String id : List.of(
+                "amethyst_calcite", "amethyst_smooth_basalt", "amethyst_tinted_glass"
+        )) {
+            CrateCatalog.Reward reward = CrateCatalog.find(id).orElseThrow(() -> new AssertionError(id));
+            assertEquals("Common", reward.rarityDisplay(), id);
+            assertTrue(CrateCatalog.amethyst().contains(reward), id);
+            assertFalse(CrateCatalog.isExclusiveAmethyst(reward), id);
+        }
+    }
+
     @Test
     void afkOpeningPoolHasUsefulVanillaFoodPotionsAndEnchantments() {
         Set<String> expected = Set.of(
@@ -157,6 +193,67 @@ final class AmethystCrateCatalogTest {
         assertTrue(CrateKind.AMETHYST.available(CrateKind.AMETHYST.closesAt() - 1));
         assertFalse(CrateKind.AMETHYST.available(CrateKind.AMETHYST.closesAt()));
         assertEquals("Event ended", CrateKind.AMETHYST.remaining(CrateKind.AMETHYST.closesAt()));
+    }
+
+    /**
+     * The countdown always moves.
+     *
+     * <p>{@link CrateKind#remaining(long)} rounds to two units, which is honest for a
+     * line drawn once and useless for a ticking one — a timer that shows "6d 23h" for
+     * an hour is indistinguishable from a broken timer.
+     */
+    @Test
+    void limitedCountdownRunsDownToTheSecond() {
+        long closes = CrateKind.AMETHYST.closesAt();
+        assertEquals("6d 23h 59m 59s", CrateKind.AMETHYST.countdown(
+                closes - Duration.ofDays(7).toMillis() + 1_000L
+        ));
+        assertEquals("23h 0m 5s", CrateKind.AMETHYST.countdown(
+                closes - Duration.ofHours(23).plusSeconds(5).toMillis()
+        ));
+        assertEquals("4m 9s", CrateKind.AMETHYST.countdown(
+                closes - Duration.ofMinutes(4).plusSeconds(9).toMillis()
+        ));
+        assertEquals("9s", CrateKind.AMETHYST.countdown(closes - 9_000L));
+        assertEquals("ENDED", CrateKind.AMETHYST.countdown(closes));
+        assertEquals("ENDED", CrateKind.AMETHYST.countdown(closes + 86_400_000L));
+    }
+
+    @Test
+    void onlyTheLimitedCrateCountsDown() {
+        assertTrue(CrateKind.AMETHYST.limited());
+        assertFalse(CrateKind.DEFAULT.limited());
+        assertEquals(Long.MAX_VALUE, CrateKind.DEFAULT.closesAt());
+    }
+
+    /**
+     * Every limited surface reads from one place, and reads on Bedrock.
+     *
+     * <p>Hex colour never reaches a Bedrock client, so the banner uses named colours;
+     * a countdown a Bedrock player cannot read is the one this most needs to reach.
+     */
+    @Test
+    void countdownBannerIsSharedAndBedrockSafe() {
+        long open = CrateKind.AMETHYST.closesAt() - Duration.ofMinutes(90).toMillis();
+        List<Component> live = CrateKind.AMETHYST.countdownLines(open);
+        assertEquals(2, live.size());
+        assertEquals(
+                "LIMITED TIME! LEAVING IN:",
+                ((net.kyori.adventure.text.TextComponent) live.get(0)).content()
+        );
+        assertEquals("1h 30m 0s", ((net.kyori.adventure.text.TextComponent) live.get(1)).content());
+        assertEquals(NamedTextColor.RED, live.get(0).color());
+        assertEquals(NamedTextColor.YELLOW, live.get(1).color());
+
+        List<Component> closed = CrateKind.AMETHYST.countdownLines(CrateKind.AMETHYST.closesAt());
+        assertEquals(
+                "LIMITED TIME EVENT",
+                ((net.kyori.adventure.text.TextComponent) closed.get(0)).content()
+        );
+        assertEquals(
+                "NOW CLOSED",
+                ((net.kyori.adventure.text.TextComponent) closed.get(1)).content()
+        );
     }
 
     @Test
