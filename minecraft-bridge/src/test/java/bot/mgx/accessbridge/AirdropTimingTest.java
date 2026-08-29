@@ -4,6 +4,8 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
 import java.util.HashSet;
+import java.util.List;
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 
@@ -28,5 +30,59 @@ final class AirdropTimingTest {
         assertEquals(Duration.ofMinutes(90).toMillis(), maximum);
         assertEquals(Duration.ofMinutes(30).toMillis(), AirdropService.DEFAULT_LIFETIME_MILLIS);
         assertTrue(observed.size() > 190, "each interval should be independently randomized");
+    }
+
+    @Test
+    void countdownDrainsContinuouslyAndRoundsTheVisibleSecondUp() {
+        long spawnedAt = 1_000L;
+        long expiresAt = spawnedAt + Duration.ofMinutes(30).toMillis();
+
+        assertEquals(1f, AirdropService.remainingProgress(spawnedAt, spawnedAt, expiresAt));
+        assertEquals(0.5f, AirdropService.remainingProgress(
+                spawnedAt + Duration.ofMinutes(15).toMillis(), spawnedAt, expiresAt
+        ));
+        assertEquals(0f, AirdropService.remainingProgress(expiresAt, spawnedAt, expiresAt));
+        assertEquals(0f, AirdropService.remainingProgress(expiresAt + 10_000L, spawnedAt, expiresAt));
+        assertEquals("30:00", AirdropService.formatCountdown(Duration.ofMinutes(30).toMillis()));
+        assertEquals("00:01", AirdropService.formatCountdown(1L));
+        assertEquals("00:00", AirdropService.formatCountdown(0L));
+    }
+
+    @Test
+    void chestTitlesFitWhileTheFullRarityLivesInTheWorldLabels() {
+        for (AirdropCatalog.Rarity rarity : AirdropCatalog.Rarity.values()) {
+            String title = AirdropService.chestTitle(rarity);
+            assertEquals(rarity.displayName() + " Airdrop", title);
+            assertTrue(title.length() <= 18, title);
+        }
+    }
+
+    @Test
+    void evenTheAllFeaturesTestSelectsOnlyOneCosmetic() {
+        Random random = new Random(44L);
+        Set<String> observed = new HashSet<>();
+        for (int roll = 0; roll < 100; roll++) {
+            Optional<String> selected = AirdropService.selectCosmetic(
+                    Optional.of("resonant_shatter"),
+                    AirdropCatalog.cosmeticIds(),
+                    random
+            );
+            assertTrue(selected.isPresent());
+            assertTrue(AirdropCatalog.cosmeticIds().contains(selected.orElseThrow()));
+            observed.add(selected.orElseThrow());
+        }
+        assertEquals(Set.copyOf(AirdropCatalog.cosmeticIds()), observed);
+        assertEquals(
+                Optional.of("crystalfall_wake"),
+                AirdropService.selectCosmetic(
+                        Optional.of("resonant_shatter"), List.of("crystalfall_wake"), random
+                )
+        );
+        assertEquals(
+                Optional.of("resonant_shatter"),
+                AirdropService.selectCosmetic(
+                        Optional.of("resonant_shatter"), List.of(), random
+                )
+        );
     }
 }

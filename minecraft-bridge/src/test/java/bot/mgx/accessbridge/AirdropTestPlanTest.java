@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class AirdropTestPlanTest {
     @Test
-    void allRunsAMythicDropWithEveryAirdropCosmetic() {
+    void allRunsAMythicDropWithEveryCosmeticAsAOneItemCandidatePool() {
         AirdropTestPlan.Request request = AirdropTestPlan.parse(
                 new String[]{"testairdrop", "all"}
         );

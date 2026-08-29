@@ -806,7 +806,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         if (!request.cosmeticIds().isEmpty()) {
             info(sender, request.cosmeticIds().size() == 1
                     ? "The requested cosmetic is guaranteed inside; claim it into /wardrobe."
-                    : "All three Airdrop cosmetics are guaranteed inside; claim them into /wardrobe.");
+                    : "One randomly selected Airdrop cosmetic is guaranteed inside. "
+                            + "Use cosmetic <type> to test a specific one.");
         }
         info(sender, "Use /mgxadmin testairdrop expire to test the timeout path immediately.");
         if (request.cosmeticIds().size() == AirdropCatalog.cosmeticIds().size()) {
@@ -817,7 +818,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 .detail("rarity", request.rarity().displayName())
                 .detail("world", drop.world())
                 .detail("coordinates", "X " + drop.x() + " Y " + drop.y() + " Z " + drop.z())
-                .detail("forced_cosmetics", request.cosmeticIds().size())
+                .detail("cosmetic_candidates", request.cosmeticIds().size())
                 .record();
     }
 
@@ -874,7 +875,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     private void sendAirdropTestHelp(CommandSender sender) {
         heading(sender, "Amethyst Airdrop test suite");
         sender.sendMessage(Component.text("  /mgxadmin testairdrop all", ORANGE)
-                .append(Component.text("  Mythic drop with all three cosmetics", NamedTextColor.GRAY)));
+                .append(Component.text("  Mythic drop with one guaranteed cosmetic", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin testairdrop <rarity>", ORANGE)
                 .append(Component.text("  real randomized loot at a nearby safe site", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin testairdrop cosmetic <type>", ORANGE)
