@@ -507,6 +507,20 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         clanChooser.useClanWarps(clanWarps);
         clanService.useClanWarps(clanWarps);
         clanMenuService.useWarpDialog(clanWarps);
+        ClanDialogService clanDialogs = new ClanDialogService(
+                clanStore, clanMenuService, clanBattleStore, economyStore, statsDialogs,
+                dialogSupport, bedrockForms
+        );
+        clanMenuService.useDialogs(clanDialogs);
+        clanChooser.useClanDialogs(clanDialogs);
+        clanService.useClanDialogs(clanDialogs);
+        clanDirectory.useClanDialogs(clanDialogs);
+        leaderboardDialogs.useClanDialogs(clanDialogs);
+        RecordListDialogs recordDialogs = new RecordListDialogs(
+                whitelistDirectory, bountyStore, economyStore, statsDialogs,
+                playerMenuService, dialogSupport, bedrockForms
+        );
+        playerMenuService.useRecordDialogs(recordDialogs);
         clanChooser.useDirectory(clanDirectory);
         clanService.useChooser(clanChooser);
         clanService.useDirectory(clanDirectory);
@@ -552,6 +566,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 this, economyStore, bountyStore, clanStore, personalNotifications,
                 playerSettings
         );
+        bountyService.useRecordDialogs(recordDialogs);
         getCommand("bounty").setExecutor(bountyService);
         getCommand("bounty").setTabCompleter(bountyService);
         getCommand("afk").setExecutor(afkService);

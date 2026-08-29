@@ -41,6 +41,7 @@ final class PlayerMenuService implements Listener {
     private final PlayerSettingsStore settings;
     private final DiscordIdentityService identities;
     private final WhitelistDirectory whitelist;
+    private RecordListDialogs records;
     private final MGXAccessBridge plugin;
 
     PlayerMenuService(
@@ -151,6 +152,26 @@ final class PlayerMenuService implements Listener {
      * <p>Figures come from {@link PlayerPerkService}, which is what actually applies
      * them — the old chat version restated them by hand and had drifted.
      */
+    void useRecordDialogs(RecordListDialogs records) {
+        this.records = records;
+    }
+
+    void openPerksPreferred(Player player) {
+        if (records != null) {
+            records.openPerks(player);
+        } else {
+            openPerks(player);
+        }
+    }
+
+    void openWhitelistPreferred(Player player, int page) {
+        if (records != null) {
+            records.openWhitelist(player, page);
+        } else {
+            openWhitelist(player, page);
+        }
+    }
+
     void openPerks(Player player) {
         Inventory inventory = create(Menu.Kind.PERKS, 1, SETTINGS_SIZE, "Level Perks");
         int[] milestones = {5, 10, 20, 30, 40, 50};

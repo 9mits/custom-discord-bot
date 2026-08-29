@@ -61,6 +61,7 @@ final class LeaderboardDialogService {
     private final ClanBattleStore clanBattles;
     private final ClanStore clans;
     private final ClanMenuService clanMenus;
+    private ClanDialogService clanDialogs;
 
     LeaderboardDialogService(
             LeaderboardService boards,
@@ -210,10 +211,18 @@ final class LeaderboardDialogService {
 
     /** Opens the clan page {@code /claninfo} opens. */
     private void openClan(Player viewer, UUID clanId) {
+        if (clanDialogs != null) {
+            clanDialogs.openInfo(viewer, clanId, null);
+            return;
+        }
         clans.findClanById(clanId).ifPresentOrElse(
                 clan -> clanMenus.openInfo(viewer, clan, null),
                 () -> PlayerMenuService.error(viewer, "That clan no longer exists.")
         );
+    }
+
+    void useClanDialogs(ClanDialogService clanDialogs) {
+        this.clanDialogs = clanDialogs;
     }
 
     private static UUID parseUuid(String raw) {

@@ -33,6 +33,7 @@ final class ClanChooserService {
     private final ClanMenuService menus;
     private ClanDirectoryService directory;
     private ClanWarpDialogService clanWarps;
+    private ClanDialogService clanDialogs;
     private final ClanStore clans;
     private final ClanBattleStore clanBattles;
     private final SettingsClientSupport clientSupport;
@@ -61,12 +62,16 @@ final class ClanChooserService {
         this.clanWarps = clanWarps;
     }
 
+    void useClanDialogs(ClanDialogService clanDialogs) {
+        this.clanDialogs = clanDialogs;
+    }
+
     void open(Player player) {
         ClanStore.ClanView own = clans.clanOf(player.getUniqueId()).orElse(null);
         if (!clientSupport.supportsDialogs(player)) {
             List<BedrockForms.Button> choices = new ArrayList<>();
             if (own != null) {
-                choices.add(new BedrockForms.Button("My Clan", () -> menus.openHub(player)));
+                choices.add(new BedrockForms.Button("My Clan", () -> openOwn(player)));
                 choices.add(new BedrockForms.Button("Clan Warps", () -> {
                     if (clanWarps != null) {
                         clanWarps.open(player);
@@ -82,7 +87,7 @@ final class ClanChooserService {
                 if (own == null) {
                     browse(player);
                 } else {
-                    menus.openHub(player);
+                    openOwn(player);
                 }
             }
             return;
@@ -127,6 +132,14 @@ final class ClanChooserService {
                         .build())
                 .type(DialogType.multiAction(buttons).columns(2).build()));
         player.showDialog(dialog);
+    }
+
+    private void openOwn(Player player) {
+        if (clanDialogs != null) {
+            clanDialogs.openHub(player);
+        } else {
+            menus.openHub(player);
+        }
     }
 
     private void browse(Player player) {

@@ -78,7 +78,7 @@ final class GuideService implements CommandExecutor, TabCompleter {
         }
 
         if (command.getName().equalsIgnoreCase("perks")) {
-            menus.openPerks(player);
+            menus.openPerksPreferred(player);
             return true;
         }
         String page = switch (command.getName().toLowerCase(Locale.ROOT)) {

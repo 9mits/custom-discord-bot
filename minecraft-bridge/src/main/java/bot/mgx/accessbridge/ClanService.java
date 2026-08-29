@@ -63,6 +63,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     private ClanChooserService chooser;
     private ClanDirectoryService directory;
     private ClanWarpDialogService clanWarps;
+    private ClanDialogService clanDialogs;
 
     ClanService(
             MGXAccessBridge plugin,
@@ -95,6 +96,10 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         this.clanWarps = clanWarps;
     }
 
+    void useClanDialogs(ClanDialogService clanDialogs) {
+        this.clanDialogs = clanDialogs;
+    }
+
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         args = CommandArgs.withoutEchoedSender(sender.getName(), args);
@@ -115,10 +120,9 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 case "invite", "add" -> invite(player, remainder(args, 1));
                 case "accept", "join" -> accept(player);
                 case "decline" -> decline(player);
-                case "info" -> menus.openInfo(player, remainder(args, infoAlias ? 0 : 1));
-                case "members", "roster" -> menus.openMembers(
-                        player, ownClan(player).id(), page(args, 1),
-                        Menu.Destination.of(Menu.Kind.CLAN_HUB));
+                case "info" -> openInfo(player, remainder(args, infoAlias ? 0 : 1));
+                case "members", "roster" -> menus.openMembersPreferred(
+                        player, ownClan(player).id(), page(args, 1));
                 case "list" -> {
                     if (directory != null) {
                         directory.open(player, page(args, 1));
@@ -141,18 +145,18 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                     if (chooser != null) {
                         chooser.open(player);
                     } else {
-                        menus.openHub(player);
+                        menus.openHubPreferred(player);
                     }
                 }
                 case "donate" -> {
                     if (args.length >= 2) {
                         menus.donate(player, EconomyFormat.parseAmount(args[1]));
                     } else {
-                        menus.openDonate(player);
+                        menus.openDonatePreferred(player);
                     }
                 }
-                case "balance", "vault", "bank" -> menus.openBalance(player);
-                case "donors", "contributors" -> menus.openDonors(player);
+                case "balance", "vault", "bank" -> menus.openBalancePreferred(player);
+                case "donors", "contributors" -> menus.openDonorsPreferred(player);
                 case "upgrade", "levelup" -> menus.openUpgrade(player);
                 case "warp", "warps" -> warp(player, args);
                 case "disband" -> disband(player, args.length >= 2 ? args[1] : "");
@@ -699,6 +703,16 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     }
 
     /** One way in, so the replaced screen is not reachable by another route. */
+    /** /claninfo resolves the name, then hands off to whichever screen fits. */
+    private void openInfo(Player player, String requestedName) {
+        if (clanDialogs == null) {
+            menus.openInfo(player, requestedName);
+            return;
+        }
+        menus.lookupClan(player, requestedName)
+                .ifPresent(clan -> clanDialogs.openInfo(player, clan.id(), null));
+    }
+
     private void openWarps(Player player) {
         if (clanWarps != null) {
             clanWarps.open(player);

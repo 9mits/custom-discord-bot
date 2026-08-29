@@ -40,6 +40,7 @@ final class ClanDirectoryService {
     private final ClanMenuService menus;
     private final ClanBattleStore clanBattles;
     private final SettingsClientSupport clientSupport;
+    private ClanDialogService clanDialogs;
 
     ClanDirectoryService(
             ClanStore clans,
@@ -51,6 +52,10 @@ final class ClanDirectoryService {
         this.menus = menus;
         this.clanBattles = clanBattles;
         this.clientSupport = clientSupport;
+    }
+
+    void useClanDialogs(ClanDialogService clanDialogs) {
+        this.clanDialogs = clanDialogs;
     }
 
     void open(Player viewer, int page) {
@@ -107,10 +112,14 @@ final class ClanDirectoryService {
                 .hoverEvent(HoverEvent.showText(Component.text("View this clan", MenuText.LABEL)))
                 .clickEvent(ClickEvent.callback(audience -> {
                     if (audience instanceof Player clicker && clicker.isOnline()) {
-                        clans.findClanById(clanId).ifPresentOrElse(
-                                found -> menus.openInfo(clicker, found, null),
-                                () -> PlayerMenuService.error(clicker, "That clan is gone.")
-                        );
+                        if (clanDialogs != null) {
+                            clanDialogs.openInfo(clicker, clanId, viewer -> open(viewer, 1));
+                        } else {
+                            clans.findClanById(clanId).ifPresentOrElse(
+                                    found -> menus.openInfo(clicker, found, null),
+                                    () -> PlayerMenuService.error(clicker, "That clan is gone.")
+                            );
+                        }
                     }
                 }, CALLBACK_OPTIONS));
     }
