@@ -223,20 +223,63 @@ final class StatsDialogService implements CommandExecutor {
         }
     }
 
-    /** Vanilla keeps mining per block, so the total is the sum of every material. */
-    private static long blocksBroken(Player player) {
-        long total = 0L;
+    /**
+     * The block materials each per-block statistic actually accepts, worked out once.
+     *
+     * <p>Probing every material on each open threw and caught hundreds of exceptions
+     * on the main thread, which is an expensive way to learn something that never
+     * changes while the server is running.
+     */
+    private static volatile List<Material> mined = List.of();
+    private static volatile List<Material> placed = List.of();
+
+    /**
+     * Learns which materials each statistic accepts, using the first player to ask.
+     * Bukkit only answers that question by throwing, and the answer never changes
+     * while the server runs, so it is worked out once instead of on every open.
+     */
+    private static void learnSupported(Player probe) {
+        if (!mined.isEmpty()) {
+            return;
+        }
+        mined = supported(probe, Statistic.MINE_BLOCK);
+        placed = supported(probe, Statistic.USE_ITEM);
+    }
+
+    private static List<Material> supported(Player probe, Statistic statistic) {
+        List<Material> materials = new ArrayList<>();
         for (Material material : Material.values()) {
             if (!material.isBlock() || material.isLegacy()) {
                 continue;
             }
+            // Bukkit has no "is this valid" query, so one probe per material at
+            // startup stands in for it and the result is reused from then on.
             try {
-                total += player.getStatistic(Statistic.MINE_BLOCK, material);
+                probe.getStatistic(statistic, material);
+                materials.add(material);
             } catch (IllegalArgumentException ignored) {
-                // Not every block material is a minable statistic.
+                // Not every block material is a statistic of this kind.
+            }
+        }
+        return List.copyOf(materials);
+    }
+
+    private static long total(Player player, Statistic statistic, List<Material> materials) {
+        long total = 0L;
+        for (Material material : materials) {
+            try {
+                total += player.getStatistic(statistic, material);
+            } catch (IllegalArgumentException ignored) {
+                // A material the server accepted at startup but not for this player.
             }
         }
         return total;
+    }
+
+    /** Vanilla keeps mining per block, so the total is the sum of every material. */
+    private static long blocksBroken(Player player) {
+        learnSupported(player);
+        return total(player, Statistic.MINE_BLOCK, mined);
     }
 
     /**
@@ -244,18 +287,8 @@ final class StatsDialogService implements CommandExecutor {
      * honest proxy, and is what the number has always meant on servers that show it.
      */
     private static long blocksPlaced(Player player) {
-        long total = 0L;
-        for (Material material : Material.values()) {
-            if (!material.isBlock() || material.isLegacy()) {
-                continue;
-            }
-            try {
-                total += player.getStatistic(Statistic.USE_ITEM, material);
-            } catch (IllegalArgumentException ignored) {
-                // Not every block material is a usable item.
-            }
-        }
-        return total;
+        learnSupported(player);
+        return total(player, Statistic.USE_ITEM, placed);
     }
 
     static String compact(long value) {
