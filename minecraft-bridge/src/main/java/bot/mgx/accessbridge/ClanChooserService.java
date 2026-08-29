@@ -100,7 +100,7 @@ final class ClanChooserService {
             String medals = ClanTag.plainMedals(clanBattles.badges(own.id())).strip();
             buttons.add(button("item/iron_chestplate", "My Clan",
                     "[" + own.name() + "]" + (medals.isBlank() ? "" : "  " + medals),
-                    menus::openHub));
+                    this::openOwn));
         }
         if (own != null) {
             buttons.add(button("item/ender_pearl", "Clan Warps",

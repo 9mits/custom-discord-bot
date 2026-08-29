@@ -85,4 +85,30 @@ final class ClientParityTest {
             return false;
         }
     }
+
+    /**
+     * A dialog button must not lead back to a chest screen.
+     *
+     * <p>The Java "My Clan" button pointed at {@code menus::openHub} — a method
+     * reference, which is how it survived a sweep that replaced the call form. Landing
+     * in a chest is worse than never leaving one, because every button inside it then
+     * leads further into the old UI and Back never comes home.
+     */
+    @Test
+    void noDialogButtonLeadsIntoAChestScreen() throws IOException {
+        java.util.regex.Pattern leak = java.util.regex.Pattern.compile(
+                "(menus|teleports|warps)::open[A-Z]\\w*"
+        );
+        List<String> leaks = new ArrayList<>();
+        for (Path file : dialogScreens()) {
+            String text = Files.readString(file, StandardCharsets.UTF_8);
+            java.util.regex.Matcher match = leak.matcher(text);
+            while (match.find()) {
+                if (!match.group().endsWith("Preferred")) {
+                    leaks.add(file.getFileName() + " -> " + match.group());
+                }
+            }
+        }
+        assertTrue(leaks.isEmpty(), "dialog buttons pointing at chest screens: " + leaks);
+    }
 }

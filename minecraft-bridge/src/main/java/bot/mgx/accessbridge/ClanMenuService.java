@@ -134,6 +134,14 @@ final class ClanMenuService implements Listener {
         }
     }
 
+    void openUpgradePreferred(Player player) {
+        if (dialogs != null) {
+            dialogs.openUpgrade(player);
+        } else {
+            openUpgrade(player);
+        }
+    }
+
     void openBalancePreferred(Player player) {
         if (dialogs != null) {
             dialogs.openBalance(player);
@@ -561,13 +569,13 @@ final class ClanMenuService implements Listener {
             case CLAN_HUB -> {
                 Menu.Destination hub = Menu.Destination.of(Menu.Kind.CLAN_HUB);
                 switch (slot) {
-                    case HUB_DONATE -> openDonate(player);
-                    case HUB_BALANCE -> openBalance(player);
-                    case HUB_INFO -> openInfo(player, requireOwnClan(player), hub);
+                    case HUB_DONATE -> openDonatePreferred(player);
+                    case HUB_BALANCE -> openBalancePreferred(player);
+                    case HUB_INFO -> openInfoPreferred(player, requireOwnClan(player));
                     case HUB_WARPS -> openWarpsPreferred(player);
-                    case HUB_MEMBERS -> openMembers(player, menu.subject(), 1, hub);
-                    case HUB_UPGRADE -> openUpgrade(player);
-                    case HUB_DONORS -> openDonors(player);
+                    case HUB_MEMBERS -> openMembersPreferred(player, menu.subject(), 1);
+                    case HUB_UPGRADE -> openUpgradePreferred(player);
+                    case HUB_DONORS -> openDonorsPreferred(player);
                     default -> { }
                 }
             }
@@ -623,6 +631,15 @@ final class ClanMenuService implements Listener {
         if (slot >= 0 && slot < PER_PAGE && index < clans.size()) {
             openInfo(player, clans.get(index), new Menu.Destination(Menu.Kind.CLAN_LIST, null, page));
         }
+    }
+
+    /** The dialog buys through the same path the chest button always used. */
+    void buyLevelFor(Player player) throws IOException {
+        buyLevel(player);
+    }
+
+    void buyMembersFor(Player player) throws IOException {
+        buyMembers(player);
     }
 
     private void buyLevel(Player player) throws IOException {
