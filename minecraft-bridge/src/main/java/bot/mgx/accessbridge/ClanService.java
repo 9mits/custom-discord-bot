@@ -62,6 +62,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     private final ClanBattleStore clanBattles;
     private ClanChooserService chooser;
     private ClanDirectoryService directory;
+    private ClanWarpDialogService clanWarps;
 
     ClanService(
             MGXAccessBridge plugin,
@@ -88,6 +89,10 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
 
     void useDirectory(ClanDirectoryService directory) {
         this.directory = directory;
+    }
+
+    void useClanWarps(ClanWarpDialogService clanWarps) {
+        this.clanWarps = clanWarps;
     }
 
     @Override
@@ -671,7 +676,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     private void warp(Player player, String[] args) throws IOException {
         ownClan(player);
         if (args.length == 1) {
-            menus.openWarps(player);
+            openWarps(player);
             return;
         }
         if (args[1].equalsIgnoreCase("set")) {
@@ -679,7 +684,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 throw new ClanStore.ClanException("Usage: /clans warp set <name>");
             }
             menus.setWarp(player, args[2]);
-            menus.openWarps(player);
+            openWarps(player);
             return;
         }
         if (args[1].equalsIgnoreCase("delete") || args[1].equalsIgnoreCase("remove")) {
@@ -687,10 +692,19 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 throw new ClanStore.ClanException("Usage: /clans warp delete <name>");
             }
             menus.removeWarp(player, args[2]);
-            menus.openWarps(player);
+            openWarps(player);
             return;
         }
         menus.useWarp(player, args[1]);
+    }
+
+    /** One way in, so the replaced screen is not reachable by another route. */
+    private void openWarps(Player player) {
+        if (clanWarps != null) {
+            clanWarps.open(player);
+        } else {
+            menus.openWarps(player);
+        }
     }
 
     private ClanStore.ClanView ownClan(Player player) {

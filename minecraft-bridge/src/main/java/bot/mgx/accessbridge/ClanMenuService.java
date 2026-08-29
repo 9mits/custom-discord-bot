@@ -65,6 +65,7 @@ final class ClanMenuService implements Listener {
     private final EconomyStore money;
     private final TeleportWarmupService warmups;
     private final ClanBattleStore clanBattles;
+    private ClanWarpDialogService warpDialog;
 
     ClanMenuService(
             MGXAccessBridge plugin,
@@ -80,6 +81,20 @@ final class ClanMenuService implements Listener {
         this.money = money;
         this.warmups = warmups;
         this.clanBattles = clanBattles;
+    }
+
+    /** Wired after construction; the dialog reads this service's warp data. */
+    void useWarpDialog(ClanWarpDialogService warpDialog) {
+        this.warpDialog = warpDialog;
+    }
+
+    /** Every route to the warps goes through here, so only one screen can open. */
+    void openWarpsPreferred(Player player) {
+        if (warpDialog != null) {
+            warpDialog.open(player);
+        } else {
+            openWarps(player);
+        }
     }
 
     void openHub(Player player) {
@@ -485,7 +500,7 @@ final class ClanMenuService implements Listener {
                     case HUB_DONATE -> openDonate(player);
                     case HUB_BALANCE -> openBalance(player);
                     case HUB_INFO -> openInfo(player, requireOwnClan(player), hub);
-                    case HUB_WARPS -> openWarps(player);
+                    case HUB_WARPS -> openWarpsPreferred(player);
                     case HUB_MEMBERS -> openMembers(player, menu.subject(), 1, hub);
                     case HUB_UPGRADE -> openUpgrade(player);
                     case HUB_DONORS -> openDonors(player);

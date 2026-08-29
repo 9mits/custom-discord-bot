@@ -102,6 +102,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private AmethystProgressStore amethystProgress;
     private ClanBattleStore clanBattleStore;
     private HomeIconStore homeIconStore;
+    private ClanWarpMetaStore clanWarpMetaStore;
     private ClanBattleService clanBattles;
     private TeleportMenuService teleportMenus;
     private AirdropService airdrops;
@@ -188,6 +189,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             );
             homeIconStore = new HomeIconStore(
                     getDataFolder().toPath().resolve("home-icons.json")
+            );
+            clanWarpMetaStore = new ClanWarpMetaStore(
+                    getDataFolder().toPath().resolve("clan-warps.json")
             );
             identityStore = new DiscordIdentityStore(
                     getDataFolder().toPath().resolve("discord-identities.json")
@@ -493,13 +497,15 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 clanStore, clanMenuService, clanBattleStore, dialogSupport
         );
         ClanWarpDialogService clanWarps = new ClanWarpDialogService(
-                clanStore, clanMenuService, dialogSupport
+                clanStore, clanMenuService, clanWarpMetaStore, dialogSupport
         );
         WarpChooserService warpChooser = new WarpChooserService(
                 teleportMenus, clanWarps, clanStore, dialogSupport
         );
         teleportMenus.useWarpChooser(warpChooser);
         clanChooser.useClanWarps(clanWarps);
+        clanService.useClanWarps(clanWarps);
+        clanMenuService.useWarpDialog(clanWarps);
         clanChooser.useDirectory(clanDirectory);
         clanService.useChooser(clanChooser);
         clanService.useDirectory(clanDirectory);
