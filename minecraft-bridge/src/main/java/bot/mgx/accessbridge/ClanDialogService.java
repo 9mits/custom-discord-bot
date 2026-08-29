@@ -1,13 +1,10 @@
 package bot.mgx.accessbridge;
 
-import io.papermc.paper.dialog.Dialog;
 import io.papermc.paper.dialog.DialogResponseView;
 import io.papermc.paper.registry.data.dialog.ActionButton;
-import io.papermc.paper.registry.data.dialog.DialogBase;
 import io.papermc.paper.registry.data.dialog.action.DialogAction;
 import io.papermc.paper.registry.data.dialog.body.DialogBody;
 import io.papermc.paper.registry.data.dialog.input.DialogInput;
-import io.papermc.paper.registry.data.dialog.type.DialogType;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickCallback;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -112,11 +109,11 @@ final class ClanDialogService {
                         clan.members().size() + "/" + clan.memberSlots() + " in the clan.",
                         p -> openMembers(p, clan.id(), 1, this::openHub)),
                 new Entry("item/ender_pearl", "Clan Warps", "Places your clan has set.",
-                        p -> menus.openWarpsPreferred(p)),
+                        p -> menus.openWarpsPreferred(p, this::openHub)),
                 new Entry("item/spyglass", "Browse Clans", "Every clan, A to Z.",
                         p -> {
                             if (directory != null) {
-                                directory.open(p, 1);
+                                directory.open(p, 1, this::openHub);
                             }
                         })
         );
@@ -137,42 +134,28 @@ final class ClanDialogService {
         long wallet = money.balance(player.getUniqueId());
         if (!clientSupport.supportsDialogs(player)) {
             if (!forms.prompt(player, "Donate", "Amount (you have "
-                    + EconomyFormat.dollars(wallet) + ")", "", typed -> donate(player, typed))) {
+                    + EconomyFormat.dollars(wallet) + ")", "", typed -> donate(player, typed),
+                    () -> openHub(player))) {
                 menus.openDonate(player);
             }
             return;
         }
-        Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(MenuText.title("Donate"))
-                        .body(List.of(
-                                DialogBody.plainMessage(MenuText.stat(
-                                        "Your wallet", "item/emerald",
-                                        EconomyFormat.dollars(wallet)), 400),
-                                DialogBody.plainMessage(MenuText.stat(
-                                        "Treasury", "block/gold_block",
-                                        EconomyFormat.dollars(clan.balance())), 400),
-                                DialogBody.plainMessage(
-                                        MenuText.body("Donations cannot be withdrawn."), 400)
-                        ))
-                        .inputs(List.of(DialogInput.text(AMOUNT_INPUT,
-                                        Component.text("Amount", MenuText.LABEL))
-                                .maxLength(20)
-                                .build()))
-                        .afterAction(DialogBase.DialogAfterAction.CLOSE)
-                        .canCloseWithEscape(true)
-                        .build())
-                .type(DialogType.confirmation(
-                        ActionButton.builder(Component.text("Donate", MenuText.VALUE))
-                                .width(150)
-                                .action(callback((response, audience) ->
-                                        donate(audience, response.getText(AMOUNT_INPUT))))
-                                .build(),
-                        ActionButton.builder(Component.text("Cancel", MenuText.LABEL))
-                                .width(150)
-                                .action(callback((response, audience) -> openHub(audience)))
-                                .build()
-                )));
-        player.showDialog(dialog);
+        Screens.confirm(player, "Donate", List.of(
+                        DialogBody.plainMessage(MenuText.stat(
+                                "Your wallet", "item/emerald",
+                                EconomyFormat.dollars(wallet)), 400),
+                        DialogBody.plainMessage(MenuText.stat(
+                                "Treasury", "block/gold_block",
+                                EconomyFormat.dollars(clan.balance())), 400),
+                        DialogBody.plainMessage(
+                                MenuText.body("Donations cannot be withdrawn."), 400)
+                ),
+                List.of(DialogInput.text(AMOUNT_INPUT, Component.text("Amount", MenuText.LABEL))
+                        .maxLength(20)
+                        .build()),
+                "Donate", MenuText.VALUE,
+                (response, audience) -> donate(audience, response.getText(AMOUNT_INPUT)),
+                this::openHub);
     }
 
     private void donate(Player player, String rawAmount) {
@@ -181,6 +164,9 @@ final class ClanDialogService {
             amount = EconomyFormat.parseAmount(rawAmount == null ? "" : rawAmount.strip());
         } catch (IllegalArgumentException failure) {
             PlayerMenuService.error(player, "That is not an amount.");
+            if (!clientSupport.supportsDialogs(player)) {
+                openDonate(player);
+            }
             return;
         }
         try {
@@ -188,6 +174,9 @@ final class ClanDialogService {
         } catch (IOException | ClanStore.ClanException failure) {
             PlayerMenuService.error(player, failure.getMessage() == null
                     ? "That donation could not be made." : failure.getMessage());
+            if (!clientSupport.supportsDialogs(player)) {
+                openDonate(player);
+            }
             return;
         }
         openHub(player);
@@ -260,10 +249,6 @@ final class ClanDialogService {
 
     // ------------------------------------------------------------- members
 
-    void openMembers(Player player, UUID clanId, int page) {
-        openMembers(player, clanId, page, viewer -> openInfo(viewer, clanId, null));
-    }
-
     void openMembers(Player player, UUID clanId, int page, Consumer<Player> back) {
         ClanStore.ClanView clan = clans.findClanById(clanId).orElse(null);
         if (clan == null) {
@@ -290,6 +275,8 @@ final class ClanDialogService {
                         () -> openMember(player, clanId, member.getKey(), current, back)
                 ));
             }
+            addBedrockPager(buttons, current, pages,
+                    target -> openMembers(player, clanId, target, back));
             if (!forms.menu(player, clan.name() + " Members",
                     roster.size() + "/" + clan.memberSlots() + " in the clan.", buttons, back)) {
                 menus.openMembers(player, clanId, current, null);
@@ -318,10 +305,12 @@ final class ClanDialogService {
         }
         List<ActionButton> buttons = new ArrayList<>();
         if (current > 1) {
-            buttons.add(button("Previous", audience -> openMembers(audience, clanId, current - 1)));
+            buttons.add(button("Previous",
+                    audience -> openMembers(audience, clanId, current - 1, back)));
         }
         if (current < pages) {
-            buttons.add(button("Next", audience -> openMembers(audience, clanId, current + 1)));
+            buttons.add(button("Next",
+                    audience -> openMembers(audience, clanId, current + 1, back)));
         }
         show(player, clan.name() + " Members",
                 body.isEmpty() ? List.of(DialogBody.plainMessage(
@@ -369,11 +358,12 @@ final class ClanDialogService {
                     audience -> {
                         if (!clientSupport.supportsDialogs(audience)) {
                             forms.confirm(audience, "Kick " + name,
-                                    "Remove them from the clan?", "Kick", "Cancel",
-                                    () -> kick(audience, memberId, clanId, page, back));
+                                    "Remove them from the clan?", "Kick",
+                                    () -> kick(audience, memberId, clanId, page, back),
+                                    () -> openMember(audience, clanId, memberId, page, back));
                             return;
                         }
-                        confirm(audience, "Kick " + name, "They will lose clan access.",
+                        confirm(audience, "Kick " + name, "They will lose clan access.", "Kick",
                                 () -> kick(audience, memberId, clanId, page, back),
                                 viewer -> openMember(viewer, clanId, memberId, page, back));
                     }));
@@ -394,7 +384,7 @@ final class ClanDialogService {
                     "Kills: " + StatsDialogService.compact(profile.playerKills()),
                     "Deaths: " + StatsDialogService.compact(profile.deaths()),
                     "Playtime: " + StatsDialogService.playtime(profile.playTimeTicks())
-            ), buttons)) {
+            ), buttons, audience -> openMembers(audience, clanId, page, back))) {
                 menus.openMembers(player, clanId, page, null);
             }
             return;
@@ -458,7 +448,7 @@ final class ClanDialogService {
                     ? "They could not be removed." : failure.getMessage());
             return;
         }
-        openMembers(player, clanId, page);
+        openMembers(player, clanId, page, back);
     }
 
     // ------------------------------------------------------------ upgrades
@@ -597,7 +587,7 @@ final class ClanDialogService {
                         entry.label(), () -> entry.action().accept(player)
                 ));
             }
-            return forms.menu(player, title, body, buttons);
+            return forms.menu(player, title, body, buttons, back);
         }
         List<ActionButton> buttons = new ArrayList<>();
         for (Entry entry : entries) {
@@ -615,26 +605,13 @@ final class ClanDialogService {
     }
 
     private void confirm(
-            Player player, String title, String body, Runnable onYes, Consumer<Player> onNo
+            Player player, String title, String body, String confirmLabel,
+            Runnable onYes, Consumer<Player> onNo
     ) {
-        Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(MenuText.title(title))
-                        .body(List.of(DialogBody.plainMessage(
-                                Component.text(body, NamedTextColor.RED), 400)))
-                        .afterAction(DialogBase.DialogAfterAction.CLOSE)
-                        .canCloseWithEscape(true)
-                        .build())
-                .type(DialogType.confirmation(
-                        ActionButton.builder(Component.text("Confirm", NamedTextColor.RED))
-                                .width(150)
-                                .action(callback((response, audience) -> onYes.run()))
-                                .build(),
-                        ActionButton.builder(Component.text("Cancel", MenuText.LABEL))
-                                .width(150)
-                                .action(callback((response, audience) -> onNo.accept(audience)))
-                                .build()
-                )));
-        player.showDialog(dialog);
+        Screens.confirm(player, title, List.of(DialogBody.plainMessage(
+                        Component.text(body, NamedTextColor.RED), 400)),
+                confirmLabel, NamedTextColor.RED,
+                audience -> onYes.run(), onNo);
     }
 
     private void show(
@@ -649,6 +626,20 @@ final class ClanDialogService {
                 .width(150)
                 .action(callback((response, audience) -> run.accept(audience)))
                 .build();
+    }
+
+    private static void addBedrockPager(
+            List<BedrockForms.Button> buttons,
+            int current,
+            int pages,
+            Consumer<Integer> go
+    ) {
+        if (current > 1) {
+            buttons.add(new BedrockForms.Button("Previous Page", () -> go.accept(current - 1)));
+        }
+        if (current < pages) {
+            buttons.add(new BedrockForms.Button("Next Page", () -> go.accept(current + 1)));
+        }
     }
 
     private static String nameOf(ClanStore.ClanView clan, UUID id) {

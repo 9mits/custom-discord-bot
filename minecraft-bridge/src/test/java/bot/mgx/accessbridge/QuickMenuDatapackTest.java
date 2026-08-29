@@ -38,6 +38,10 @@ final class QuickMenuDatapackTest {
         JsonObject dialog = new QuickMenuDatapack().menuDialog();
 
         assertEquals("minecraft:multi_action", dialog.get("type").getAsString());
+        assertEquals("none", dialog.get("after_action").getAsString(),
+                "closing after a command can close the dialog that command just opened");
+        assertFalse(dialog.get("pause").getAsBoolean(),
+                "a dialog using after_action none cannot pause the client");
         assertEquals(
                 MainMenu.entries().size(),
                 dialog.getAsJsonArray("actions").size()

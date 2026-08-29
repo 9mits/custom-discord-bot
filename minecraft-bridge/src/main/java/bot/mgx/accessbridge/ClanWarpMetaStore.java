@@ -92,6 +92,17 @@ final class ClanWarpMetaStore {
         persistOrRestore(before);
     }
 
+    /** Replaces the restricted list in one save. An empty set restores everyone. */
+    synchronized void allowOnly(UUID clanId, String warp, Set<UUID> playerIds) {
+        Map<String, Map<String, Saved>> before = copy();
+        Saved saved = entry(clanId, warp);
+        saved.allowed.clear();
+        if (playerIds != null) {
+            playerIds.forEach(playerId -> saved.allowed.add(playerId.toString()));
+        }
+        persistOrRestore(before);
+    }
+
     /** Clears the list, which restores the everyone default. */
     synchronized void allowEveryone(UUID clanId, String warp) {
         Map<String, Map<String, Saved>> before = copy();
@@ -104,21 +115,27 @@ final class ClanWarpMetaStore {
         if (owned == null) {
             return;
         }
-        Saved saved = owned.remove(key(from));
-        if (saved == null) {
+        String fromKey = key(from);
+        String toKey = key(to);
+        if (fromKey.equals(toKey)) {
             return;
         }
         Map<String, Map<String, Saved>> before = copy();
-        owned.put(key(to), saved);
+        Saved saved = owned.remove(fromKey);
+        if (saved == null) {
+            return;
+        }
+        owned.put(toKey, saved);
         persistOrRestore(before);
     }
 
     synchronized void forget(UUID clanId, String warp) {
         Map<String, Saved> owned = warps.get(clanId.toString());
-        if (owned == null || owned.remove(key(warp)) == null) {
+        if (owned == null || !owned.containsKey(key(warp))) {
             return;
         }
         Map<String, Map<String, Saved>> before = copy();
+        owned.remove(key(warp));
         if (owned.isEmpty()) {
             warps.remove(clanId.toString());
         }

@@ -1,12 +1,9 @@
 package bot.mgx.accessbridge;
 
-import io.papermc.paper.dialog.Dialog;
 import io.papermc.paper.dialog.DialogResponseView;
 import io.papermc.paper.registry.data.dialog.ActionButton;
-import io.papermc.paper.registry.data.dialog.DialogBase;
 import io.papermc.paper.registry.data.dialog.action.DialogAction;
 import io.papermc.paper.registry.data.dialog.body.DialogBody;
-import io.papermc.paper.registry.data.dialog.type.DialogType;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickCallback;
 import net.kyori.adventure.text.event.ClickEvent;
@@ -46,6 +43,7 @@ final class RecordListDialogs {
     private final PlayerMenuService menus;
     private final SettingsClientSupport clientSupport;
     private final BedrockForms forms;
+    private BountyService bountyMenus;
 
     RecordListDialogs(
             WhitelistDirectory whitelist,
@@ -63,6 +61,10 @@ final class RecordListDialogs {
         this.menus = menus;
         this.clientSupport = clientSupport;
         this.forms = forms;
+    }
+
+    void useBountyMenus(BountyService bountyMenus) {
+        this.bountyMenus = bountyMenus;
     }
 
     // ---------------------------------------------------------------- perks
@@ -119,16 +121,22 @@ final class RecordListDialogs {
             for (int index = first; index < last; index++) {
                 WhitelistDirectory.Entry entry = entries.get(index);
                 Player online = Bukkit.getPlayerExact(entry.username());
+                UUID id = entry.minecraftUuid();
                 buttons.add(new BedrockForms.Button(
                         entry.username() + (online != null ? " (online)" : ""),
                         () -> {
-                            if (online != null) {
-                                stats.openCard(player, online.getUniqueId(), online.getName(),
+                            if (id != null) {
+                                stats.openCard(player, id, entry.username(),
                                         viewer -> openWhitelist(viewer, current));
+                            } else {
+                                PlayerMenuService.error(player,
+                                        "No Minecraft profile is linked to that entry.");
                             }
                         }
                 ));
             }
+            addBedrockPager(buttons, current, pages,
+                    target -> openWhitelist(player, target));
             if (!forms.menu(player, "Whitelist",
                     entries.size() + " with access.", buttons)) {
                 menus.openWhitelist(player, current);
@@ -143,22 +151,22 @@ final class RecordListDialogs {
         for (int index = first; index < last; index++) {
             WhitelistDirectory.Entry entry = entries.get(index);
             Player online = Bukkit.getPlayerExact(entry.username());
+            UUID id = entry.minecraftUuid();
             Component line = Component.empty()
-                    .append(online == null
+                    .append(id == null
                             ? Component.text("• ", MenuText.LABEL)
-                            : MenuText.head(online.getUniqueId()))
+                            : MenuText.head(id))
                     .append(Component.text(" " + entry.username(), NamedTextColor.WHITE))
                     .append(Component.text("  " + (entry.edition().isBlank()
                             ? "Java" : entry.edition()), MenuText.LABEL));
-            if (entry.discordUsername() != null && !entry.discordUsername().isBlank()) {
-                line = line.append(Component.text("  @" + entry.discordUsername(),
-                        MenuText.VALUE));
+            String discordName = menus.visibleDiscordUsername(entry.minecraftUuid()).orElse(null);
+            if (discordName != null) {
+                line = line.append(Component.text("  @" + discordName, MenuText.VALUE));
             }
             line = line.append(Component.text(
                     online != null ? "  ·  online" : "", MenuText.VALUE));
-            if (online != null) {
-                UUID id = online.getUniqueId();
-                String name = online.getName();
+            if (id != null) {
+                String name = entry.username();
                 line = line.clickEvent(ClickEvent.callback(audience -> {
                     if (audience instanceof Player clicker && clicker.isOnline()) {
                         stats.openCard(clicker, id, name, viewer -> openWhitelist(viewer, current));
@@ -192,10 +200,17 @@ final class RecordListDialogs {
                                 viewer -> openBounties(viewer, current))
                 ));
             }
-            buttons.add(new BedrockForms.Button("Place A Bounty", () -> promptBounty(player)));
+            addBedrockPager(buttons, current, pages,
+                    target -> openBounties(player, target));
+            buttons.add(new BedrockForms.Button(
+                    "Place a Bounty", () -> promptBounty(player, current)));
             if (!forms.menu(player, "Bounties",
                     "On you: " + EconomyFormat.dollars(mine), buttons)) {
-                menus.openPerks(player);
+                if (bountyMenus != null) {
+                    bountyMenus.openBoard(player, current);
+                } else {
+                    PlayerMenuService.error(player, "The bounty board could not be opened.");
+                }
             }
             return;
         }
@@ -224,10 +239,10 @@ final class RecordListDialogs {
         }
         List<ActionButton> buttons = new ArrayList<>(
                 pager(current, pages, target -> openBounties(player, target)));
-        buttons.add(ActionButton.builder(Component.text("Place A Bounty", MenuText.VALUE))
+        buttons.add(ActionButton.builder(Component.text("Place a Bounty", MenuText.VALUE))
                 .tooltip(Component.text("Put money on somebody's head.", MenuText.LABEL))
                 .width(150)
-                .action(callback((response, audience) -> promptBounty(audience)))
+                .action(callback((response, audience) -> promptBounty(audience, current)))
                 .build());
         show(player, "Bounties", body, buttons, 2);
     }
@@ -237,54 +252,46 @@ final class RecordListDialogs {
      * could never ask for — the old board's empty state told the player to go and type
      * the command instead.
      */
-    private void promptBounty(Player player) {
+    private void promptBounty(Player player, int page) {
         if (!clientSupport.supportsDialogs(player)) {
-            forms.prompt(player, "Place A Bounty", "Player name", "", name ->
-                    forms.prompt(player, "Place A Bounty", "Amount", "", amount ->
-                            player.performCommand("bounty set " + name.strip() + " "
-                                    + amount.strip())));
+            forms.prompt(player, "Place a Bounty", "Player name", "", name ->
+                    forms.prompt(player, "Place a Bounty", "Amount", "", amount ->
+                            placeBounty(player, name, amount, page),
+                            () -> openBounties(player, page)),
+                    () -> openBounties(player, page));
             return;
         }
-        Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(MenuText.title("Place A Bounty"))
-                        .body(List.of(DialogBody.plainMessage(MenuText.stat(
-                                "Your wallet", "item/emerald",
-                                EconomyFormat.dollars(money.balance(player.getUniqueId()))), 400)))
-                        .inputs(List.of(
-                                io.papermc.paper.registry.data.dialog.input.DialogInput
-                                        .text(NAME_INPUT,
-                                                Component.text("Player", MenuText.LABEL))
-                                        .maxLength(16).build(),
-                                io.papermc.paper.registry.data.dialog.input.DialogInput
-                                        .text(AMOUNT_INPUT,
-                                                Component.text("Amount", MenuText.LABEL))
-                                        .maxLength(20).build()
-                        ))
-                        .afterAction(DialogBase.DialogAfterAction.CLOSE)
-                        .canCloseWithEscape(true)
-                        .build())
-                .type(DialogType.confirmation(
-                        ActionButton.builder(Component.text("Place", MenuText.VALUE))
-                                .width(150)
-                                .action(callback((response, audience) -> {
-                                    String name = text(response.getText(NAME_INPUT));
-                                    String amount = text(response.getText(AMOUNT_INPUT));
-                                    if (!name.matches("[A-Za-z0-9_]{1,16}") || amount.isBlank()) {
-                                        PlayerMenuService.error(
-                                                audience, "Give a player name and an amount."
-                                        );
-                                        return;
-                                    }
-                                    audience.performCommand("bounty set " + name + " " + amount);
-                                }))
-                                .build(),
-                        ActionButton.builder(Component.text("Cancel", MenuText.LABEL))
-                                .width(150)
-                                .action(callback((response, audience) ->
-                                        openBounties(audience, 1)))
-                                .build()
-                )));
-        player.showDialog(dialog);
+        Screens.confirm(player, "Place a Bounty",
+                List.of(DialogBody.plainMessage(MenuText.stat(
+                        "Your wallet", "item/emerald",
+                        EconomyFormat.dollars(money.balance(player.getUniqueId()))), 400)),
+                List.of(
+                        io.papermc.paper.registry.data.dialog.input.DialogInput
+                                .text(NAME_INPUT, Component.text("Player", MenuText.LABEL))
+                                .maxLength(16).build(),
+                        io.papermc.paper.registry.data.dialog.input.DialogInput
+                                .text(AMOUNT_INPUT, Component.text("Amount", MenuText.LABEL))
+                                .maxLength(20).build()
+                ),
+                "Place", MenuText.VALUE,
+                (response, audience) -> placeBounty(audience,
+                        response.getText(NAME_INPUT), response.getText(AMOUNT_INPUT), page),
+                audience -> openBounties(audience, page));
+    }
+
+    private void placeBounty(Player player, String rawName, String rawAmount, int page) {
+        String name = text(rawName);
+        String amount = text(rawAmount);
+        if (!name.matches("[A-Za-z0-9_]{1,16}") || amount.isBlank()
+                || amount.chars().anyMatch(Character::isWhitespace)) {
+            PlayerMenuService.error(player, "Give a player name and one valid amount.");
+            if (!clientSupport.supportsDialogs(player)) {
+                promptBounty(player, page);
+            }
+            return;
+        }
+        player.performCommand("bounty set " + name + " " + amount);
+        openBounties(player, page);
     }
 
     // -------------------------------------------------------------- shared
@@ -317,6 +324,20 @@ final class RecordListDialogs {
                     .build());
         }
         return buttons;
+    }
+
+    private static void addBedrockPager(
+            List<BedrockForms.Button> buttons,
+            int current,
+            int pages,
+            Consumer<Integer> go
+    ) {
+        if (current > 1) {
+            buttons.add(new BedrockForms.Button("Previous Page", () -> go.accept(current - 1)));
+        }
+        if (current < pages) {
+            buttons.add(new BedrockForms.Button("Next Page", () -> go.accept(current + 1)));
+        }
     }
 
     private void show(

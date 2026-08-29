@@ -37,7 +37,7 @@ import static bot.mgx.accessbridge.MenuItems.head;
  * ({@code /bounty set}, {@code /bounty clan}).
  */
 final class BountyService implements CommandExecutor, TabCompleter, Listener {
-    private static final int YOUR_BOUNTY_SLOT = 49;
+    private static final int YOUR_BOUNTY_SLOT = 48;
     private static final int HOW_SLOT = 47;
     private static final int REFRESH_SLOT = 50;
 
@@ -169,7 +169,7 @@ final class BountyService implements CommandExecutor, TabCompleter, Listener {
                 "Minimum " + EconomyFormat.dollars(BountyStore.MIN_BOUNTY) + "."
         ));
         inventory.setItem(REFRESH_SLOT, button(Material.SUNFLOWER, "Refresh"));
-        MenuItems.paginate(inventory, page, ranked.size(), false);
+        MenuItems.paginate(inventory, page, ranked.size(), true);
         MenuItems.show(plugin, player, inventory);
     }
 
@@ -185,6 +185,11 @@ final class BountyService implements CommandExecutor, TabCompleter, Listener {
             return;
         }
         int slot = event.getSlot();
+        if (slot == MenuItems.backSlot(event.getInventory().getSize())) {
+            player.closeInventory();
+            Screens.home(player);
+            return;
+        }
         if (slot == PREVIOUS_SLOT) {
             openBoard(player, menu.page() - 1);
             return;

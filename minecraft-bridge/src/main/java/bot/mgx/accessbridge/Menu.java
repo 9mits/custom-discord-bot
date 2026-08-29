@@ -69,13 +69,17 @@ final class Menu implements InventoryHolder {
     }
 
     /** A screen to return to: enough to redraw it exactly as it was left. */
-    record Destination(Kind kind, UUID subject, int page) {
+    record Destination(Kind kind, UUID subject, int page, Destination back) {
+        Destination(Kind kind, UUID subject, int page) {
+            this(kind, subject, page, null);
+        }
+
         static Destination of(Kind kind) {
-            return new Destination(kind, null, 1);
+            return new Destination(kind, null, 1, null);
         }
 
         static Destination of(Kind kind, UUID subject) {
-            return new Destination(kind, subject, 1);
+            return new Destination(kind, subject, 1, null);
         }
     }
 

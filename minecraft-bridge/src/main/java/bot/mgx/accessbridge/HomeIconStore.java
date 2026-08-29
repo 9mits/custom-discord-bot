@@ -61,21 +61,27 @@ final class HomeIconStore {
         if (owned == null) {
             return;
         }
-        String sprite = owned.remove(from.toLowerCase(Locale.ROOT));
-        if (sprite == null) {
+        String fromKey = from.toLowerCase(Locale.ROOT);
+        String toKey = to.toLowerCase(Locale.ROOT);
+        if (fromKey.equals(toKey)) {
             return;
         }
         Map<String, Map<String, String>> before = copy();
-        owned.put(to.toLowerCase(Locale.ROOT), sprite);
+        String sprite = owned.remove(fromKey);
+        if (sprite == null) {
+            return;
+        }
+        owned.put(toKey, sprite);
         persistOrRestore(before);
     }
 
     synchronized void forget(UUID playerId, String home) {
         Map<String, String> owned = icons.get(playerId.toString());
-        if (owned == null || owned.remove(home.toLowerCase(Locale.ROOT)) == null) {
+        if (owned == null || !owned.containsKey(home.toLowerCase(Locale.ROOT))) {
             return;
         }
         Map<String, Map<String, String>> before = copy();
+        owned.remove(home.toLowerCase(Locale.ROOT));
         if (owned.isEmpty()) {
             icons.remove(playerId.toString());
         }

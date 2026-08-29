@@ -1,13 +1,10 @@
 package bot.mgx.accessbridge;
 
-import io.papermc.paper.dialog.Dialog;
 import io.papermc.paper.dialog.DialogResponseView;
 import io.papermc.paper.registry.data.dialog.ActionButton;
-import io.papermc.paper.registry.data.dialog.DialogBase;
 import io.papermc.paper.registry.data.dialog.action.DialogAction;
 import io.papermc.paper.registry.data.dialog.body.DialogBody;
 import io.papermc.paper.registry.data.dialog.input.DialogInput;
-import io.papermc.paper.registry.data.dialog.type.DialogType;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickCallback;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -87,7 +84,7 @@ final class StatsDialogService implements CommandExecutor, org.bukkit.event.List
                 PlayerMenuService.error(player, "No player named " + args[0] + " is online.");
                 return true;
             }
-            openCard(player, target.getUniqueId(), target.getName());
+            openCard(player, target.getUniqueId(), target.getName(), null);
             return true;
         }
         openPicker(player);
@@ -121,7 +118,7 @@ final class StatsDialogService implements CommandExecutor, org.bukkit.event.List
                     .build());
         }
         buttons.add(ActionButton.builder(
-                        Component.text("+ Look Up A Player", MenuText.VALUE))
+                        Component.text("+ Look Up a Player", MenuText.VALUE))
                 .tooltip(Component.text("Type a name, online or not.", MenuText.LABEL))
                 .width(150)
                 .action(callback((response, audience) -> openLookup(audience)))
@@ -136,36 +133,21 @@ final class StatsDialogService implements CommandExecutor, org.bukkit.event.List
      * limit — only the picker, which can list nobody who has logged out.
      */
     void openLookup(Player viewer) {
-        Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(MenuText.title("Look Up A Player"))
-                        .body(List.of(DialogBody.plainMessage(
-                                MenuText.body("Type an exact Minecraft name."), 400
-                        )))
-                        .inputs(List.of(DialogInput.text(NAME_INPUT,
-                                        Component.text("Name", MenuText.LABEL))
-                                .maxLength(16)
-                                .build()))
-                        .afterAction(DialogBase.DialogAfterAction.CLOSE)
-                        .canCloseWithEscape(true)
-                        .build())
-                .type(DialogType.confirmation(
-                        ActionButton.builder(Component.text("View Stats", MenuText.VALUE))
-                                .width(150)
-                                .action(callback((response, audience) ->
-                                        lookUp(audience, response.getText(NAME_INPUT))))
-                                .build(),
-                        ActionButton.builder(Component.text("Cancel", MenuText.LABEL))
-                                .width(150)
-                                .action(callback((response, audience) -> openPicker(audience)))
-                                .build()
-                )));
-        viewer.showDialog(dialog);
+        Screens.confirm(viewer, "Look Up a Player",
+                Screens.body("Type an exact Minecraft name."),
+                List.of(DialogInput.text(NAME_INPUT, Component.text("Name", MenuText.LABEL))
+                        .maxLength(16)
+                        .build()),
+                "View Stats", MenuText.VALUE,
+                (response, audience) -> lookUp(audience, response.getText(NAME_INPUT)),
+                this::openPicker);
     }
 
     private void lookUp(Player viewer, String rawName) {
         String name = rawName == null ? "" : rawName.strip();
         if (!name.matches("[A-Za-z0-9_]{1,16}")) {
             PlayerMenuService.error(viewer, "That is not a Minecraft name.");
+            retryLookupIfBedrock(viewer);
             return;
         }
         Player online = Bukkit.getPlayerExact(name);
@@ -177,6 +159,7 @@ final class StatsDialogService implements CommandExecutor, org.bukkit.event.List
         org.bukkit.OfflinePlayer known = Bukkit.getOfflinePlayerIfCached(name);
         if (known == null) {
             PlayerMenuService.error(viewer, name + " has never played here.");
+            retryLookupIfBedrock(viewer);
             return;
         }
         openCard(viewer, known.getUniqueId(),
@@ -196,14 +179,24 @@ final class StatsDialogService implements CommandExecutor, org.bukkit.event.List
                     name, () -> openCard(viewer, id, name, this::openPicker)
             ));
         }
-        buttons.add(new BedrockForms.Button("Look Up A Player",
-                () -> forms.prompt(viewer, "Look Up A Player", "Name", "",
-                        typed -> lookUp(viewer, typed))));
+        buttons.add(new BedrockForms.Button("Look Up a Player",
+                () -> openBedrockLookup(viewer)));
         return forms.menu(viewer, "Player Stats", "Choose a player.", buttons);
     }
 
+    private void openBedrockLookup(Player viewer) {
+        forms.prompt(viewer, "Look Up a Player", "Name", "",
+                typed -> lookUp(viewer, typed), () -> openPicker(viewer));
+    }
+
+    private void retryLookupIfBedrock(Player viewer) {
+        if (!clientSupport.supportsDialogs(viewer)) {
+            openBedrockLookup(viewer);
+        }
+    }
+
     void openCard(Player viewer, UUID id, String fallbackName) {
-        openCard(viewer, id, fallbackName, this::openPicker);
+        openCard(viewer, id, fallbackName, null);
     }
 
     /**
@@ -225,7 +218,8 @@ final class StatsDialogService implements CommandExecutor, org.bukkit.event.List
                     "Playtime: " + playtime(profile.playTimeTicks())
             ), List.of(
                     new BedrockForms.Button("View Full Profile",
-                            () -> openProfile(viewer, id, profile.name(), back))
+                            () -> openProfile(viewer, id, profile.name(),
+                                    audience -> openCard(audience, id, profile.name(), back)))
             ), back);
             if (!shown) {
                 openProfile(viewer, id, fallbackName, back);
@@ -249,7 +243,9 @@ final class StatsDialogService implements CommandExecutor, org.bukkit.event.List
                         .tooltip(Component.text("Every number we keep.", MenuText.LABEL))
                         .width(150)
                         .action(callback((response, audience) ->
-                                openProfile(audience, id, profile.name(), back)))
+                                openProfile(audience, id, profile.name(),
+                                        viewer2 -> openCard(
+                                                viewer2, id, profile.name(), back))))
                         .build()
         );
         Screens.show(viewer, profile.name(), body, buttons, 1, back);
@@ -261,7 +257,7 @@ final class StatsDialogService implements CommandExecutor, org.bukkit.event.List
      * comfortably.
      */
     void openProfile(Player viewer, UUID id, String fallbackName) {
-        openProfile(viewer, id, fallbackName, this::openPicker);
+        openProfile(viewer, id, fallbackName, null);
     }
 
     void openProfile(
@@ -326,6 +322,9 @@ final class StatsDialogService implements CommandExecutor, org.bukkit.event.List
         if (!(event.getWhoClicked() instanceof Player player)) {
             return;
         }
+        if (event.getClickedInventory() != event.getInventory()) {
+            return;
+        }
         int slot = event.getSlot();
         if (slot != PROFILE_BACK_SLOT) {
             return;
@@ -341,6 +340,14 @@ final class StatsDialogService implements CommandExecutor, org.bukkit.event.List
                 back.accept(player);
             }
         });
+    }
+
+    @org.bukkit.event.EventHandler
+    public void onProfileDrag(org.bukkit.event.inventory.InventoryDragEvent event) {
+        if (event.getInventory().getHolder() instanceof Menu menu
+                && menu.kind() == Menu.Kind.PLAYER_PROFILE) {
+            event.setCancelled(true);
+        }
     }
 
     @org.bukkit.event.EventHandler

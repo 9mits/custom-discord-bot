@@ -75,15 +75,23 @@ class PlayerSettingsStoreTest {
         assertIterableEquals(List.of(
                 PlayerSettingsStore.Category.CHAT,
                 PlayerSettingsStore.Category.NOTIFICATIONS,
-                PlayerSettingsStore.Category.PVP,
                 PlayerSettingsStore.Category.VISUALS,
                 PlayerSettingsStore.Category.COSMETICS,
                 PlayerSettingsStore.Category.AUDIO,
                 PlayerSettingsStore.Category.PRIVACY,
-                PlayerSettingsStore.Category.HUD,
-                PlayerSettingsStore.Category.SCOREBOARD,
-                PlayerSettingsStore.Category.GENERAL
+                PlayerSettingsStore.Category.HUD
         ), List.of(PlayerSettingsStore.Category.values()));
+    }
+
+    @Test
+    void everyFallbackSettingsControlHasItsOwnSlot() {
+        assertTrue(PlayerSettingsStore.Category.values().length
+                <= PlayerMenuService.categorySlotCapacity());
+        for (PlayerSettingsStore.Category category : PlayerSettingsStore.Category.values()) {
+            assertTrue(category.settings().size() + PlayerMenuService.extraControlCount(category)
+                            <= PlayerMenuService.settingSlotCapacity(),
+                    category.label());
+        }
     }
 
     @Test

@@ -1,13 +1,9 @@
 package bot.mgx.accessbridge;
 
-import io.papermc.paper.dialog.Dialog;
 import io.papermc.paper.dialog.DialogResponseView;
 import io.papermc.paper.registry.data.dialog.ActionButton;
-import io.papermc.paper.registry.data.dialog.DialogBase;
 import io.papermc.paper.registry.data.dialog.action.DialogAction;
-import io.papermc.paper.registry.data.dialog.body.DialogBody;
 import io.papermc.paper.registry.data.dialog.input.DialogInput;
-import io.papermc.paper.registry.data.dialog.type.DialogType;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickCallback;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -90,16 +86,7 @@ final class HomesDialogService {
         for (String home : homes) {
             buttons.add(new BedrockForms.Button(home, () -> bedrockHome(player, home)));
         }
-        buttons.add(new BedrockForms.Button("New Home",
-                () -> forms.prompt(player, "New Home", "Name", "", typed -> {
-                    String name = clean(typed);
-                    if (name == null) {
-                        PlayerMenuService.error(player,
-                                "Use letters, numbers, - and _ for a home name.");
-                        return;
-                    }
-                    player.performCommand("sethome " + name);
-                })));
+        buttons.add(new BedrockForms.Button("New Home", () -> bedrockNewHome(player)));
         return forms.menu(player, "Homes", homes.isEmpty()
                 ? "You have not set a home yet." : "Choose a home.", buttons);
     }
@@ -115,19 +102,45 @@ final class HomesDialogService {
                             String name = clean(typed);
                             if (name == null) {
                                 PlayerMenuService.error(player,
-                                        "Use letters, numbers, - and _ for a home name.");
+                                        "Use 1-32 letters, numbers, - and _ for a home name.");
+                                bedrockHome(player, home);
+                                return;
+                            }
+                            if (!canRename(player, home, name)) {
+                                bedrockHome(player, home);
                                 return;
                             }
                             player.performCommand("renamehome " + home + " " + name);
                             homeIcons.rename(player.getUniqueId(), home, name);
-                        })),
+                            bedrockHome(player, name);
+                        }, () -> bedrockHome(player, home))),
                 new BedrockForms.Button("Delete",
                         () -> forms.confirm(player, "Delete " + home,
-                                "This cannot be undone.", "Delete", "Keep it", () -> {
+                                "This cannot be undone.", "Delete", () -> {
                                     player.performCommand("delhome " + home);
                                     homeIcons.forget(player.getUniqueId(), home);
-                                }))
+                                    open(player);
+                                }, () -> bedrockHome(player, home)))
         ), this::open);
+    }
+
+    private void bedrockNewHome(Player player) {
+        forms.prompt(player, "New Home", "Name", "", typed -> {
+            String name = clean(typed);
+            if (name == null) {
+                PlayerMenuService.error(player,
+                        "Use 1-32 letters, numbers, - and _ for a home name.");
+                bedrockNewHome(player);
+                return;
+            }
+            if (homeExists(player, name)) {
+                PlayerMenuService.error(player, "You already have a home called " + name + ".");
+                bedrockNewHome(player);
+                return;
+            }
+            player.performCommand("sethome " + name);
+            open(player);
+        }, () -> open(player));
     }
 
     /**
@@ -168,98 +181,67 @@ final class HomesDialogService {
     }
 
     private void openNewHome(Player player) {
-        Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(MenuText.title("New Home"))
-                        .body(List.of(DialogBody.plainMessage(
-                                MenuText.body("Names a home where you are standing."), 400
-                        )))
-                        .inputs(List.of(DialogInput.text(NAME_INPUT,
-                                        Component.text("Name", MenuText.LABEL))
-                                .maxLength(32)
-                                .build()))
-                        .afterAction(DialogBase.DialogAfterAction.CLOSE)
-                        .build())
-                .type(DialogType.confirmation(
-                        ActionButton.builder(Component.text("Set Home", MenuText.VALUE))
-                                .width(150)
-                                .action(callback((response, audience) -> {
-                                    String name = clean(response.getText(NAME_INPUT));
-                                    if (name == null) {
-                                        PlayerMenuService.error(audience,
-                                                "Use letters, numbers, - and _ for a home name.");
-                                        return;
-                                    }
-                                    audience.performCommand("sethome " + name);
-                                }))
-                                .build(),
-                        ActionButton.builder(Component.text("Cancel", MenuText.LABEL))
-                                .width(150)
-                                .action(callback((response, audience) -> open(audience)))
-                                .build()
-                )));
-        player.showDialog(dialog);
+        Screens.confirm(player, "New Home",
+                Screens.body("Set a home where you are standing."),
+                List.of(DialogInput.text(NAME_INPUT, Component.text("Name", MenuText.LABEL))
+                        .maxLength(32)
+                        .build()),
+                "Set Home", MenuText.VALUE,
+                (response, audience) -> {
+                    String name = clean(response.getText(NAME_INPUT));
+                    if (name == null) {
+                        PlayerMenuService.error(audience,
+                                "Use 1-32 letters, numbers, - and _ for a home name.");
+                        return;
+                    }
+                    if (homeExists(audience, name)) {
+                        PlayerMenuService.error(
+                                audience, "You already have a home called " + name + ".");
+                        return;
+                    }
+                    audience.performCommand("sethome " + name);
+                    open(audience);
+                },
+                this::open);
     }
 
     private void openRename(Player player, String home) {
-        Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(MenuText.title("Rename " + home))
-                        .body(List.of(DialogBody.plainMessage(
-                                MenuText.body("Give this home a different name."), 400
-                        )))
-                        .inputs(List.of(DialogInput.text(NAME_INPUT,
-                                        Component.text("New name", MenuText.LABEL))
-                                .maxLength(32)
-                                .build()))
-                        .afterAction(DialogBase.DialogAfterAction.CLOSE)
-                        .build())
-                .type(DialogType.confirmation(
-                        ActionButton.builder(Component.text("Rename", MenuText.VALUE))
-                                .width(150)
-                                .action(callback((response, audience) -> {
-                                    String name = clean(response.getText(NAME_INPUT));
-                                    if (name == null) {
-                                        PlayerMenuService.error(audience,
-                                                "Use letters, numbers, - and _ for a home name.");
-                                        return;
-                                    }
-                                    // EssentialsX renames in place, so the home keeps its
-                                    // position and the player stays where they are.
-                                    audience.performCommand(
-                                            "renamehome " + home + " " + name
-                                    );
-                                    homeIcons.rename(audience.getUniqueId(), home, name);
-                                }))
-                                .build(),
-                        ActionButton.builder(Component.text("Cancel", MenuText.LABEL))
-                                .width(150)
-                                .action(callback((response, audience) -> openHome(audience, home)))
-                                .build()
-                )));
-        player.showDialog(dialog);
+        Screens.confirm(player, "Rename " + home,
+                Screens.body("Give this home a different name."),
+                List.of(DialogInput.text(NAME_INPUT, Component.text("New name", MenuText.LABEL))
+                        .maxLength(32)
+                        .build()),
+                "Rename", MenuText.VALUE,
+                (response, audience) -> {
+                    String name = clean(response.getText(NAME_INPUT));
+                    if (name == null) {
+                        PlayerMenuService.error(audience,
+                                "Use 1-32 letters, numbers, - and _ for a home name.");
+                        return;
+                    }
+                    if (!canRename(audience, home, name)) {
+                        return;
+                    }
+                    // EssentialsX renames in place, so the home keeps its position and
+                    // the player stays where they are.
+                    audience.performCommand("renamehome " + home + " " + name);
+                    homeIcons.rename(audience.getUniqueId(), home, name);
+                    openHome(audience, name);
+                },
+                audience -> openHome(audience, home));
     }
 
     private void openDelete(Player player, String home) {
-        Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(MenuText.title("Delete " + home))
-                        .body(List.of(DialogBody.plainMessage(
-                                Component.text("This cannot be undone.", NamedTextColor.RED), 400
-                        )))
-                        .afterAction(DialogBase.DialogAfterAction.CLOSE)
-                        .build())
-                .type(DialogType.confirmation(
-                        ActionButton.builder(Component.text("Delete", NamedTextColor.RED))
-                                .width(150)
-                                .action(callback((response, audience) -> {
-                                    audience.performCommand("delhome " + home);
-                                    homeIcons.forget(audience.getUniqueId(), home);
-                                }))
-                                .build(),
-                        ActionButton.builder(Component.text("Keep it", MenuText.LABEL))
-                                .width(150)
-                                .action(callback((response, audience) -> openHome(audience, home)))
-                                .build()
-                )));
-        player.showDialog(dialog);
+        Screens.confirm(player, "Delete " + home,
+                List.of(io.papermc.paper.registry.data.dialog.body.DialogBody.plainMessage(
+                        Component.text("This cannot be undone.", NamedTextColor.RED), 400)),
+                "Delete", NamedTextColor.RED,
+                audience -> {
+                    audience.performCommand("delhome " + home);
+                    homeIcons.forget(audience.getUniqueId(), home);
+                    open(audience);
+                },
+                audience -> openHome(audience, home));
     }
 
     /**
@@ -363,6 +345,24 @@ final class HomesDialogService {
         }
         String name = raw.strip();
         return name.matches("[A-Za-z0-9_-]{1,32}") ? name : null;
+    }
+
+    private boolean homeExists(Player player, String name) {
+        return teleports.homeNamesOf(player).stream()
+                .anyMatch(existing -> existing.equalsIgnoreCase(name));
+    }
+
+    private boolean canRename(Player player, String current, String wanted) {
+        if (current.equalsIgnoreCase(wanted)) {
+            PlayerMenuService.error(player, "That home already has this name.");
+            return false;
+        }
+        if (homeExists(player, wanted)) {
+            PlayerMenuService.error(player,
+                    "You already have a home called " + wanted + ".");
+            return false;
+        }
+        return true;
     }
 
     private DialogAction callback(BiConsumer<DialogResponseView, Player> callback) {

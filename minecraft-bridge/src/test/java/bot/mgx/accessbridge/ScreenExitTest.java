@@ -53,6 +53,25 @@ final class ScreenExitTest {
     }
 
     @Test
+    void everyDialogIncludingConfirmationsUsesTheSharedRenderer() throws IOException {
+        List<String> offenders = new ArrayList<>();
+        try (Stream<Path> files = Files.list(SOURCE)) {
+            for (Path file : files.filter(ScreenExitTest::isJava).toList()) {
+                if (file.getFileName().toString().equals(RENDERER)) {
+                    continue;
+                }
+                if (Files.readString(file, StandardCharsets.UTF_8)
+                        .contains("Dialog.create(")) {
+                    offenders.add(file.getFileName().toString());
+                }
+            }
+        }
+        assertTrue(offenders.isEmpty(),
+                "dialogs built outside Screens can invent their own labels or exit policy: "
+                        + offenders);
+    }
+
+    @Test
     void noScreenBuildsItsOwnExit() throws IOException {
         List<String> offenders = new ArrayList<>();
         for (Path file : dialogSources()) {

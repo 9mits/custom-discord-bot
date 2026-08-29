@@ -104,17 +104,17 @@ final class ClanMenuService implements Listener {
 
     void openInfoPreferred(Player player, ClanStore.ClanView clan) {
         if (dialogs != null) {
-            dialogs.openInfo(player, clan.id(), null);
+            dialogs.openInfo(player, clan.id(), this::openHub);
         } else {
-            openInfo(player, clan, null);
+            openInfo(player, clan, Menu.Destination.of(Menu.Kind.CLAN_HUB));
         }
     }
 
     void openMembersPreferred(Player player, UUID clanId, int page) {
         if (dialogs != null) {
-            dialogs.openMembers(player, clanId, page);
+            dialogs.openMembers(player, clanId, page, null);
         } else {
-            openMembers(player, clanId, page, null);
+            openMembers(player, clanId, page, Menu.Destination.of(Menu.Kind.MAIN_MENU));
         }
     }
 
@@ -152,8 +152,12 @@ final class ClanMenuService implements Listener {
 
     /** Every route to the warps goes through here, so only one screen can open. */
     void openWarpsPreferred(Player player) {
+        openWarpsPreferred(player, null);
+    }
+
+    void openWarpsPreferred(Player player, java.util.function.Consumer<Player> back) {
         if (warpDialog != null) {
-            warpDialog.open(player);
+            warpDialog.open(player, back);
         } else {
             openWarps(player);
         }
@@ -162,15 +166,16 @@ final class ClanMenuService implements Listener {
     void openHub(Player player) {
         ClanStore.ClanView clan = requireOwnClan(player);
         Inventory inventory = create(
-                Menu.Kind.CLAN_HUB, clan.id(), 1, HUB_SIZE, "Clan  " + clan.name(), null
+                Menu.Kind.CLAN_HUB, clan.id(), 1, HUB_SIZE, "Clan  " + clan.name(),
+                Menu.Destination.of(Menu.Kind.MAIN_MENU)
         );
         inventory.setItem(HUB_DONATE, button(Material.GOLD_INGOT, "Donate",
                 "Give money to the clan.", "Donations cannot be taken back."));
         inventory.setItem(HUB_BALANCE, button(Material.SUNFLOWER, "Balance",
                 EconomyFormat.dollars(clan.balance()) + " in the treasury."));
-        inventory.setItem(HUB_INFO, button(Material.BOOK, "Clan info",
+        inventory.setItem(HUB_INFO, button(Material.BOOK, "Clan Info",
                 describeLevel(clan.level()), badgeSummary(clan.id()), "Leader, roster and theme."));
-        inventory.setItem(HUB_WARPS, button(Material.LODESTONE, "Clan warps",
+        inventory.setItem(HUB_WARPS, button(Material.LODESTONE, "Clan Warps",
                 clan.warps().size() + "/" + ClanLevel.warpSlots(clan.level()) + " locations.",
                 "Shared with every clan member."));
         inventory.setItem(HUB_MEMBERS, head(clan.leader(), "Members",
@@ -180,6 +185,7 @@ final class ClanMenuService implements Listener {
                 clan.members().size() + "/" + clan.memberSlots() + " members."));
         inventory.setItem(HUB_DONORS, button(Material.EMERALD, "Donors",
                 "Who has given what.", "Largest first."));
+        MenuItems.back(inventory);
         MenuItems.show(plugin, player, inventory);
     }
 
@@ -325,8 +331,10 @@ final class ClanMenuService implements Listener {
 
     /** The clan card. Works for any clan, not only the viewer's own. */
     void openInfo(Player player, ClanStore.ClanView clan, Menu.Destination back) {
+        Menu.Destination origin = back == null
+                ? Menu.Destination.of(Menu.Kind.MAIN_MENU) : back;
         Inventory inventory = create(
-                Menu.Kind.CLAN_INFO, clan.id(), 1, HUB_SIZE, "Clan  " + clan.name(), back
+                Menu.Kind.CLAN_INFO, clan.id(), 1, HUB_SIZE, "Clan  " + clan.name(), origin
         );
         String leader = clan.members().getOrDefault(clan.leader(), "Unknown");
         long online = clan.members().keySet().stream().filter(id -> Bukkit.getPlayer(id) != null).count();
@@ -352,9 +360,7 @@ final class ClanMenuService implements Listener {
         inventory.setItem(16, button(Material.SHIELD, "Allies", allyLore));
         inventory.setItem(INFO_MEMBERS, head(clan.leader(), "Members",
                 List.of(clan.members().size() + "/" + clan.memberSlots() + " — click to see them.")));
-        if (back != null) {
-            MenuItems.back(inventory);
-        }
+        MenuItems.back(inventory);
         MenuItems.show(plugin, player, inventory);
     }
 
@@ -375,6 +381,10 @@ final class ClanMenuService implements Listener {
     /** Every member, with the Discord name each of them chose to show. */
     void openMembers(Player player, UUID clanId, int page, Menu.Destination back) {
         ClanStore.ClanView clan = requireClan(clanId);
+        Menu.Destination origin = back == null
+                ? new Menu.Destination(Menu.Kind.CLAN_INFO, clan.id(), 1,
+                        Menu.Destination.of(Menu.Kind.MAIN_MENU))
+                : back;
         List<Map.Entry<UUID, String>> roster = new ArrayList<>(clan.members().entrySet());
         roster.sort((left, right) -> {
             int byRole = rank(clan, left.getKey()) - rank(clan, right.getKey());
@@ -383,7 +393,7 @@ final class ClanMenuService implements Listener {
         Inventory inventory = create(
                 Menu.Kind.CLAN_MEMBERS, clan.id(), page, BOARD_SIZE,
                 MenuItems.pagedTitle(clan.name() + " members", page, roster.size()),
-                back
+                origin
         );
         int first = MenuPaging.firstIndex(page, roster.size(), PER_PAGE);
         int last = MenuPaging.lastIndex(page, roster.size(), PER_PAGE);
@@ -406,17 +416,23 @@ final class ClanMenuService implements Listener {
                     .format(java.time.Instant.ofEpochMilli(joined)));
             inventory.setItem(index - first, head(member.getKey(), member.getValue(), lore));
         }
-        MenuItems.paginate(inventory, page, roster.size(), back != null);
+        MenuItems.paginate(inventory, page, roster.size(), true);
         MenuItems.show(plugin, player, inventory);
     }
 
     /** The clan directory. */
     void openList(Player player, int page) {
+        openList(player, page, null);
+    }
+
+    void openList(Player player, int page, Menu.Destination back) {
         List<ClanStore.ClanView> clans = store.list();
+        Menu.Destination origin = back == null
+                ? Menu.Destination.of(Menu.Kind.MAIN_MENU) : back;
         Inventory inventory = create(
                 Menu.Kind.CLAN_LIST, null, page, BOARD_SIZE,
                 MenuItems.pagedTitle("Clans", page, clans.size()),
-                null
+                origin
         );
         int first = MenuPaging.firstIndex(page, clans.size(), PER_PAGE);
         int last = MenuPaging.lastIndex(page, clans.size(), PER_PAGE);
@@ -435,7 +451,7 @@ final class ClanMenuService implements Listener {
             inventory.setItem(22, button(Material.BARRIER, "No clans yet",
                     "Found one with /clans create <name>."));
         }
-        MenuItems.paginate(inventory, page, clans.size(), false);
+        MenuItems.paginate(inventory, page, clans.size(), true);
         MenuItems.show(plugin, player, inventory);
     }
 
@@ -567,13 +583,19 @@ final class ClanMenuService implements Listener {
         }
         switch (menu.kind()) {
             case CLAN_HUB -> {
-                Menu.Destination hub = Menu.Destination.of(Menu.Kind.CLAN_HUB);
                 switch (slot) {
                     case HUB_DONATE -> openDonatePreferred(player);
                     case HUB_BALANCE -> openBalancePreferred(player);
                     case HUB_INFO -> openInfoPreferred(player, requireOwnClan(player));
                     case HUB_WARPS -> openWarpsPreferred(player);
-                    case HUB_MEMBERS -> openMembersPreferred(player, menu.subject(), 1);
+                    case HUB_MEMBERS -> {
+                        if (dialogs != null) {
+                            dialogs.openMembers(player, menu.subject(), 1, this::openHub);
+                        } else {
+                            openMembers(player, menu.subject(), 1,
+                                    Menu.Destination.of(Menu.Kind.CLAN_HUB));
+                        }
+                    }
                     case HUB_UPGRADE -> openUpgradePreferred(player);
                     case HUB_DONORS -> openDonorsPreferred(player);
                     default -> { }
@@ -584,7 +606,8 @@ final class ClanMenuService implements Listener {
                     // Back out of the roster returns to this card, still remembering
                     // whichever screen led here.
                     openMembers(player, menu.subject(), 1,
-                            new Menu.Destination(Menu.Kind.CLAN_INFO, menu.subject(), 1));
+                            new Menu.Destination(
+                                    Menu.Kind.CLAN_INFO, menu.subject(), 1, menu.back()));
                 }
             }
             case CLAN_MEMBERS -> {
@@ -596,9 +619,9 @@ final class ClanMenuService implements Listener {
             }
             case CLAN_LIST -> {
                 switch (slot) {
-                    case PREVIOUS_SLOT -> openList(player, menu.page() - 1);
-                    case NEXT_SLOT -> openList(player, menu.page() + 1);
-                    default -> openClanAt(player, menu.page(), slot);
+                    case PREVIOUS_SLOT -> openList(player, menu.page() - 1, menu.back());
+                    case NEXT_SLOT -> openList(player, menu.page() + 1, menu.back());
+                    default -> openClanAt(player, menu, slot);
                 }
             }
             case CLAN_DONATE -> donateClicked(player, slot);
@@ -617,19 +640,24 @@ final class ClanMenuService implements Listener {
     /** Reopens a remembered screen. Anything no longer reachable falls back to the hub. */
     private void openDestination(Player player, Menu.Destination back) {
         switch (back.kind()) {
-            case CLAN_LIST -> openList(player, back.page());
-            case CLAN_INFO -> openInfo(player, requireClan(back.subject()), Menu.Destination.of(Menu.Kind.CLAN_HUB));
+            case CLAN_LIST -> openList(player, back.page(), back.back());
+            case CLAN_INFO -> openInfo(player, requireClan(back.subject()), back.back());
             case CLAN_MEMBERS -> openMembers(player, back.subject(), back.page(),
-                    Menu.Destination.of(Menu.Kind.CLAN_HUB));
+                    back.back());
+            case MAIN_MENU -> {
+                player.closeInventory();
+                Screens.home(player);
+            }
             default -> openHub(player);
         }
     }
 
-    private void openClanAt(Player player, int page, int slot) {
+    private void openClanAt(Player player, Menu menu, int slot) {
         List<ClanStore.ClanView> clans = store.list();
-        int index = MenuPaging.firstIndex(page, clans.size(), PER_PAGE) + slot;
+        int index = MenuPaging.firstIndex(menu.page(), clans.size(), PER_PAGE) + slot;
         if (slot >= 0 && slot < PER_PAGE && index < clans.size()) {
-            openInfo(player, clans.get(index), new Menu.Destination(Menu.Kind.CLAN_LIST, null, page));
+            openInfo(player, clans.get(index), new Menu.Destination(
+                    Menu.Kind.CLAN_LIST, null, menu.page(), menu.back()));
         }
     }
 

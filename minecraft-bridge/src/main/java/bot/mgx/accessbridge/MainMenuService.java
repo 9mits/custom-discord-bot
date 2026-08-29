@@ -1,11 +1,7 @@
 package bot.mgx.accessbridge;
 
-import io.papermc.paper.dialog.Dialog;
 import io.papermc.paper.registry.data.dialog.ActionButton;
-import io.papermc.paper.registry.data.dialog.DialogBase;
 import io.papermc.paper.registry.data.dialog.action.DialogAction;
-import io.papermc.paper.registry.data.dialog.body.DialogBody;
-import io.papermc.paper.registry.data.dialog.type.DialogType;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextColor;
@@ -16,6 +12,7 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
 import org.bukkit.inventory.Inventory;
 
 import java.util.ArrayList;
@@ -32,6 +29,7 @@ final class MainMenuService implements CommandExecutor, Listener {
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private static final int BUTTON_WIDTH = 150;
     private static final int MENU_SIZE = 27;
+    private static final int EXIT_SLOT = MENU_SIZE - 1;
 
     private final MGXAccessBridge plugin;
     private final SettingsClientSupport clientSupport;
@@ -108,6 +106,8 @@ final class MainMenuService implements CommandExecutor, Listener {
                     entry.icon(), entry.label(), entry.tooltip()
             ));
         }
+        inventory.setItem(EXIT_SLOT, MenuItems.button(
+                org.bukkit.Material.BARRIER, "Close", "Leave the menu."));
         MenuItems.show(plugin, player, inventory);
     }
 
@@ -126,26 +126,41 @@ final class MainMenuService implements CommandExecutor, Listener {
         if (!(event.getWhoClicked() instanceof org.bukkit.entity.Player player)) {
             return;
         }
+        if (event.getClickedInventory() != event.getInventory()) {
+            return;
+        }
+        int slot = event.getSlot();
         if (kind == Menu.Kind.TELEPORT_PLAYERS) {
-            // Anything that is not a head is the Back tile, and Back here is home.
-            menu.option(event.getSlot()).ifPresentOrElse(
-                    name -> runLater(player, "tpa " + name),
-                    () -> plugin.getServer().getScheduler().runTask(plugin, () -> {
-                        if (player.isOnline()) {
-                            player.closeInventory();
-                            open(player);
-                        }
-                    })
-            );
+            menu.option(slot).ifPresent(name -> runLater(player, "tpa " + name));
+            if (slot == EXIT_SLOT) {
+                plugin.getServer().getScheduler().runTask(plugin, () -> {
+                    if (player.isOnline()) {
+                        player.closeInventory();
+                        open(player);
+                    }
+                });
+            }
+            return;
+        }
+        if (slot == EXIT_SLOT) {
+            player.closeInventory();
             return;
         }
         List<MainMenu> entries = MainMenu.entries();
-        int slot = event.getSlot();
         if (slot < 0 || slot >= entries.size()) {
             return;
         }
         String command = entries.get(slot).command();
         runLater(player, command);
+    }
+
+    @EventHandler
+    public void onDrag(InventoryDragEvent event) {
+        if (event.getInventory().getHolder() instanceof Menu menu
+                && (menu.kind() == Menu.Kind.MAIN_MENU
+                || menu.kind() == Menu.Kind.TELEPORT_PLAYERS)) {
+            event.setCancelled(true);
+        }
     }
 
     /**

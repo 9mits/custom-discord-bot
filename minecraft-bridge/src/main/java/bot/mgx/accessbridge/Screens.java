@@ -11,6 +11,7 @@ import io.papermc.paper.registry.data.dialog.type.DialogType;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickCallback;
 import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextColor;
 import org.bukkit.entity.Player;
 
 import java.time.Duration;
@@ -90,19 +91,6 @@ final class Screens {
                 DialogBase.DialogAfterAction.NONE);
     }
 
-    /** A screen whose buttons all lead elsewhere, so it should get out of the way. */
-    static void showAndClose(
-            Player player,
-            String title,
-            List<DialogBody> body,
-            List<ActionButton> buttons,
-            int columns,
-            Consumer<Player> back
-    ) {
-        draw(player, title, body, List.of(), withExit(buttons, back(back)), columns,
-                DialogBase.DialogAfterAction.CLOSE);
-    }
-
     /**
      * The main menu itself: the only screen the player cannot go back from, and so the
      * only one that offers Close. Nothing else may call this.
@@ -115,11 +103,65 @@ final class Screens {
             int columns
     ) {
         draw(player, title, body, List.of(), withExit(buttons, close()), columns,
-                DialogBase.DialogAfterAction.CLOSE);
+                DialogBase.DialogAfterAction.NONE);
     }
 
     static List<DialogBody> body(String text) {
         return List.of(DialogBody.plainMessage(MenuText.body(text), 400));
+    }
+
+    /**
+     * A two-way prompt. Confirm and Cancel are its complete navigation, so neither
+     * caller is allowed to invent a second cancel label or a different exit policy.
+     *
+     * <p>The prompt stays non-pausing and uses {@code NONE}. Validation can therefore
+     * leave the same fields on screen, while a successful callback can replace it with
+     * the correct parent without that replacement being closed afterwards.
+     */
+    static void confirm(
+            Player player,
+            String title,
+            List<DialogBody> body,
+            List<DialogInput> inputs,
+            String confirmLabel,
+            TextColor confirmColour,
+            BiConsumer<DialogResponseView, Player> onConfirm,
+            Consumer<Player> onCancel
+    ) {
+        Dialog dialog = Dialog.create(builder -> builder.empty()
+                .base(DialogBase.builder(MenuText.title(title))
+                        .body(body.isEmpty()
+                                ? List.of(DialogBody.plainMessage(Component.empty(), 400))
+                                : body)
+                        .inputs(inputs)
+                        .afterAction(DialogBase.DialogAfterAction.NONE)
+                        .pause(false)
+                        .canCloseWithEscape(true)
+                        .build())
+                .type(DialogType.confirmation(
+                        ActionButton.builder(Component.text(confirmLabel, confirmColour))
+                                .width(150)
+                                .action(callback(onConfirm))
+                                .build(),
+                        ActionButton.builder(Component.text("Cancel", MenuText.LABEL))
+                                .width(150)
+                                .action(callback((response, audience) -> onCancel.accept(audience)))
+                                .build()
+                )));
+        player.showDialog(dialog);
+    }
+
+    static void confirm(
+            Player player,
+            String title,
+            List<DialogBody> body,
+            String confirmLabel,
+            TextColor confirmColour,
+            Consumer<Player> onConfirm,
+            Consumer<Player> onCancel
+    ) {
+        confirm(player, title, body, List.of(), confirmLabel, confirmColour,
+                (response, audience) -> onConfirm.accept(audience), onCancel);
     }
 
     private static void draw(

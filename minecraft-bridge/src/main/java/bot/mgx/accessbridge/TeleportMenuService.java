@@ -123,7 +123,7 @@ final class TeleportMenuService implements Listener {
                             : "An administrator can create public warps."
             ));
         }
-        MenuItems.paginate(inventory, page, names.size(), false);
+        MenuItems.paginate(inventory, page, names.size(), true);
         MenuItems.show(plugin, player, inventory);
     }
 
@@ -139,19 +139,20 @@ final class TeleportMenuService implements Listener {
             return;
         }
         int slot = event.getSlot();
-        if (slot == PREVIOUS_SLOT) {
-            reopen(player, menu, menu.page() - 1);
-            return;
-        }
-        if (slot == NEXT_SLOT) {
-            reopen(player, menu, menu.page() + 1);
-            return;
-        }
-        menu.option(slot).ifPresent(name -> {
+        if (slot == MenuItems.backSlot(event.getInventory().getSize())) {
             player.closeInventory();
-            String command = menu.kind() == Menu.Kind.TELEPORT_HOMES ? "home " : "warp ";
-            player.performCommand("essentials:" + command + name);
-        });
+            Screens.home(player);
+        } else if (slot == PREVIOUS_SLOT) {
+            reopen(player, menu, menu.page() - 1);
+        } else if (slot == NEXT_SLOT) {
+            reopen(player, menu, menu.page() + 1);
+        } else {
+            menu.option(slot).ifPresent(name -> {
+                player.closeInventory();
+                String command = menu.kind() == Menu.Kind.TELEPORT_HOMES ? "home " : "warp ";
+                player.performCommand("essentials:" + command + name);
+            });
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = false)
