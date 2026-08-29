@@ -597,25 +597,30 @@ a { color: inherit; }
   border-radius: 30px; text-align: center;
   box-shadow: var(--lift-3);
 }
-/* Urabe leans out of the card rather than sitting inside it. Her render stops
-   mid-torso, so the bottom of the image is pinned to the card's bottom edge —
-   the border is what hides the cut — and she is tall enough to cross the top
-   one. Breaking the frame is the whole effect, so nothing on this card may set
-   overflow, and the card keeps a lane clear for her rather than letting her
-   land on the buttons. */
+/* Urabe leans out of the card rather than sitting inside it, crossing the top
+   edge and hanging below the bottom one so she reads as being in front of the
+   frame rather than inside it. Breaking the frame is the whole effect, so
+   nothing on this card may set overflow, and the card keeps a lane clear for
+   her rather than letting her land on the buttons.
+
+   Her render stops mid-torso, and below the card there is no section boundary
+   to hide that cut against, so the last of it is faded out. A hard horizontal
+   edge hanging in open space reads as a broken image; a fade reads as a crop. */
 .community-mascot {
   display: block; width: min(9.5rem, 36vw); height: auto;
   margin: -6.5rem auto .75rem;
   pointer-events: none; -webkit-user-select: none; user-select: none;
   filter: drop-shadow(0 14px 20px rgba(0, 0, 0, .28));
+  -webkit-mask-image: linear-gradient(to bottom, #000 84%, transparent 99%);
+  mask-image: linear-gradient(to bottom, #000 84%, transparent 99%);
 }
 @media (min-width: 1024px) {
   /* Clearance overhead for the part of her that leaves the card. */
   .community { padding-top: 7rem; }
-  .community-card { text-align: left; padding: 3.5rem 22rem 3.5rem 4rem; }
+  .community-card { text-align: left; padding: 3.5rem 22rem 3.5rem 6.5rem; }
   .community-card .community-links { justify-content: flex-start; }
   .community-mascot {
-    position: absolute; right: 3rem; bottom: 0; margin: 0;
+    position: absolute; right: 3rem; bottom: -3.5rem; margin: 0;
     width: min(21rem, 28vw);
   }
 }
