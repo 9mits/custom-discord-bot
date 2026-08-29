@@ -88,6 +88,7 @@ Avoid: flat symbol design, mobile-game gloss, smooth illustration, excessive det
 | `trail` | Enchanted cyan boot angled forward with short stepped motion streaks. |
 | `abyssal_seraph` | Obsidian seraph relic with six angular violet-black wings around a cyan void core. |
 | `amethyst_orbit` | Pointed violet amethyst shard passing through a pale-lilac orbit with two fragments. |
+| `airdrop_apotheosis` | Regal faceted amethyst drop-crystal suspended inside a broken angular lilac beacon halo with three orbiting fragments. |
 | `argent_dominion` | Silver lunar circlet with offset crescent halos and a pale-blue moonstone. |
 | `astral_sovereign` | Midnight star-crown relic with a cyan-white star and violet constellation arc. |
 | `blood_burst` | Faceted crimson impact crystal exploding into dark-red droplets and shards. |
@@ -99,6 +100,7 @@ Avoid: flat symbol design, mobile-game gloss, smooth illustration, excessive det
 | `conquerors_march` | Battle-worn bronze war banner with a dark staff and embossed medal. |
 | `crimson_orbit` | Cut crimson gemstone held inside broken dark-red orbital bands. |
 | `crystalline_extinction` | Dark amethyst geode eclipse crushed by four violet crystal spikes around a white-lilac impact core. |
+| `crystalfall_wake` | Diagonal bright amethyst comet with two short stepped violet shard-stream tails and a pale-lilac sparkle. |
 | `divine_rupture` | Dominant white-gold lightning bolt splitting a cracked sunstone seal. |
 | `drool_trail` | Glossy aqua slime-droplet charm stretched by motion with two trailing drops. |
 | `ember_trail` | Charred ember-feather with a burnt spine, golden edge, and loose square coals. |
@@ -116,6 +118,7 @@ Avoid: flat symbol design, mobile-game gloss, smooth illustration, excessive det
 | `phantom_chains` | Three interlocked dark-teal chain links filled with cyan soul-light. |
 | `prismatic_trail` | Clear prism shard splitting into short red, gold, cyan, and violet ribbons. |
 | `reality_fracture` | Obsidian-glass shard split by a jagged magenta-and-cyan reality crack. |
+| `resonant_shatter` | Heavy faceted amethyst meteor core split by a violent white-lilac impact crack with three exploding violet shards. |
 | `reapers_verdict` | Spectral scythe with a weathered handle, cold-silver blade, and violet soul-light. |
 | `resonant_apotheosis` | Regal faceted amethyst crown-crystal inside two broken resonance rings with a chime sparkle. |
 | `secret_silhouette` | Unknown relic enclosed in charcoal-black wrappings with only a muted-violet seam. |

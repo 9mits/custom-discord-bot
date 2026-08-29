@@ -21,6 +21,8 @@ import java.util.UUID;
 
 /** Creates and recognises the unique bearer item for a cosmetic. */
 final class CosmeticItems {
+    static final String AMETHYST_AIRDROP_SOURCE =
+            "Part of the limited-time Amethyst Airdrop";
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private static final TextColor AMETHYST = TextColor.color(0xB56CFF);
     private static final int DESCRIPTION_LINE_LENGTH = 46;
@@ -96,6 +98,12 @@ final class CosmeticItems {
                     "Part of the Limited-Time Amethyst Crate", AMETHYST
             ).decoration(TextDecoration.ITALIC, false));
         }
+        if (CosmeticCatalog.isAmethystAirdrop(definition.id())) {
+            lore.add(Component.empty());
+            lore.add(Component.text(
+                    AMETHYST_AIRDROP_SOURCE, AMETHYST
+            ).decoration(TextDecoration.ITALIC, false));
+        }
         if (!masked && definition.hiddenAmethystJackpot()) {
             lore.add(Component.text("♫ MUSIC-SYNCED COSMETIC ♫", NamedTextColor.AQUA,
                             TextDecoration.BOLD)
@@ -105,12 +113,12 @@ final class CosmeticItems {
         lore.add(masked
                 ? line("Rarity: ").append(obfuscated("Exotic", NamedTextColor.DARK_PURPLE))
                 : line("Rarity: " + definition.rarityDisplay()));
-        if (!definition.leaderboardOnly()) {
+        if (showsReciprocalOdds(definition)) {
             lore.add(masked
                     ? line("Odds: 1 in ").append(obfuscated("100,000", NamedTextColor.DARK_PURPLE))
                     : line("Odds: " + definition.oneInDisplay(false)));
         }
-        if (oddsScreen) {
+        if (showsExactChance(definition, oddsScreen)) {
             lore.add(masked
                     ? line("Chance: ").append(obfuscated("0.001%", NamedTextColor.DARK_PURPLE))
                     : line("Chance: " + definition.displayedChance()));
@@ -125,6 +133,17 @@ final class CosmeticItems {
         meta.addItemFlags(previewFlags());
         item.setItemMeta(meta);
         return item;
+    }
+
+    static boolean showsReciprocalOdds(CosmeticCatalog.Definition definition) {
+        return !definition.leaderboardOnly()
+                && !CosmeticCatalog.isAmethystAirdrop(definition.id());
+    }
+
+    static boolean showsExactChance(
+            CosmeticCatalog.Definition definition, boolean oddsScreen
+    ) {
+        return oddsScreen && !CosmeticCatalog.isAmethystAirdrop(definition.id());
     }
 
     static List<String> wrapDescription(String description) {

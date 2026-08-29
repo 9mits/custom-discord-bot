@@ -37,8 +37,8 @@ enum ResetScope {
     IDENTITIES("identities", "linked Discord names shown beside Minecraft names"),
     /** Per-player display toggles, so everyone returns to the defaults. */
     SETTINGS("settings", "per-player chat, nametag and Discord-name toggles"),
-    /** Opening history, hourly-key progress and rewards selected but not yet claimed. */
-    CRATES("crates", "crate limits, hourly keys, Auto Trash choices and pending rewards"),
+    /** Opening history, hourly-key progress, event boards and unclaimed rewards. */
+    CRATES("crates", "crate limits, hourly keys, Amethyst event boards, Auto Trash choices and pending rewards"),
     /** Vaulted and equipped cosmetics; physical tokens are invalidated by generation. */
     COSMETICS("cosmetics", "wardrobes, equipped cosmetics and token validity"),
     /** Anti-farming cooldowns for PvP trophy heads. */

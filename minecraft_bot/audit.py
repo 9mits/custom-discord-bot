@@ -132,6 +132,7 @@ SERVER_EVENT_TITLES: Mapping[str, str] = {
     "lootbox_key_grant": "Crate Keys Issued",
     "lootbox_rare_win": "Rare Crate Reward Won",
     "crate_open": "Crate Opened",
+    "airdrop_open": "Amethyst Airdrop Opened",
     "crate_reward": "Crate Reward Won",
     "player_kill": "Player Killed",
     "player_death": "Player Died",

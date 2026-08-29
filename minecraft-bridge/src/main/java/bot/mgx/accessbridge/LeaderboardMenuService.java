@@ -46,7 +46,9 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
     private static final int HUB_CLANS_KILLS = 12;
     private static final int HUB_PLAYERS_WEALTH = 14;
     private static final int HUB_PLAYERS_KILLS = 16;
+    private static final int HUB_AMETHYST_CRATES = 20;
     private static final int HUB_REWARDS = 22;
+    private static final int HUB_AMETHYST_AIRDROPS = 24;
     private static final DateTimeFormatter JOINED =
             DateTimeFormatter.ofPattern("d MMM yyyy", Locale.UK).withZone(ZoneId.systemDefault());
 
@@ -99,9 +101,13 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
                 "Who has the most money."));
         inventory.setItem(HUB_PLAYERS_KILLS, button(Material.DIAMOND_SWORD, "Player with most kills",
                 "Player kills, highest first."));
+        inventory.setItem(HUB_AMETHYST_CRATES, button(Material.AMETHYST_BLOCK,
+                "Most Amethyst Crates Opened", "The Amethyst Event crate race."));
         inventory.setItem(HUB_REWARDS, button(Material.NETHER_STAR, "Podium cosmetics",
                 "Exclusive sets for player leaderboard #1, #2 and #3.",
                 "They update automatically and can never be traded."));
+        inventory.setItem(HUB_AMETHYST_AIRDROPS, button(Material.CHEST,
+                "Most Amethyst Airdrops Opened", "First player to open each Airdrop scores."));
         MenuItems.show(plugin, player, inventory);
     }
 
@@ -120,9 +126,14 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
 
     void openPlayers(Player player, String board, int page) {
         List<JsonObject> rows = rows("individual", board);
-        String title = board.equals("kills") ? "Most kills" : "Richest players";
+        String title = switch (board) {
+            case "kills" -> "Most kills";
+            case "amethyst_crates" -> "Amethyst Crates Opened";
+            case "amethyst_airdrops" -> "Amethyst Airdrops Opened";
+            default -> "Richest players";
+        };
         Inventory inventory = create(
-                board.equals("kills") ? Menu.Kind.LEADERBOARD_PLAYERS_KILLS : Menu.Kind.LEADERBOARD_PLAYERS_WEALTH,
+                playerKind(board),
                 null, page, BOARD_SIZE,
                 MenuItems.pagedTitle(title, page, rows.size()),
                 Menu.Destination.of(Menu.Kind.LEADERBOARD_HUB)
@@ -245,12 +256,20 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
                     case HUB_CLANS_KILLS -> openClans(player, "kills", 1);
                     case HUB_PLAYERS_WEALTH -> openPlayers(player, "wealth", 1);
                     case HUB_PLAYERS_KILLS -> openPlayers(player, "kills", 1);
+                    case HUB_AMETHYST_CRATES -> openPlayers(player, "amethyst_crates", 1);
+                    case HUB_AMETHYST_AIRDROPS -> openPlayers(player, "amethyst_airdrops", 1);
                     case HUB_REWARDS -> openRewards(player);
                     default -> { }
                 }
             }
             case LEADERBOARD_PLAYERS_WEALTH -> pagePlayers(player, "wealth", menu, slot);
             case LEADERBOARD_PLAYERS_KILLS -> pagePlayers(player, "kills", menu, slot);
+            case LEADERBOARD_PLAYERS_AMETHYST_CRATES -> pagePlayers(
+                    player, "amethyst_crates", menu, slot
+            );
+            case LEADERBOARD_PLAYERS_AMETHYST_AIRDROPS -> pagePlayers(
+                    player, "amethyst_airdrops", menu, slot
+            );
             case LEADERBOARD_CLANS -> pageClans(player, "wealth", menu, slot);
             case LEADERBOARD_CLANS_KILLS -> pageClans(player, "kills", menu, slot);
             case LEADERBOARD_MEMBERS -> {
@@ -320,6 +339,8 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
             case LEADERBOARD_CLANS_KILLS -> openClans(player, "kills", Math.max(1, back.page()));
             case LEADERBOARD_PLAYERS_WEALTH -> openPlayers(player, "wealth", 1);
             case LEADERBOARD_PLAYERS_KILLS -> openPlayers(player, "kills", 1);
+            case LEADERBOARD_PLAYERS_AMETHYST_CRATES -> openPlayers(player, "amethyst_crates", 1);
+            case LEADERBOARD_PLAYERS_AMETHYST_AIRDROPS -> openPlayers(player, "amethyst_airdrops", 1);
             default -> openHub(player);
         }
     }
@@ -356,10 +377,21 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
         return kind == Menu.Kind.LEADERBOARD_HUB
                 || kind == Menu.Kind.LEADERBOARD_PLAYERS_WEALTH
                 || kind == Menu.Kind.LEADERBOARD_PLAYERS_KILLS
+                || kind == Menu.Kind.LEADERBOARD_PLAYERS_AMETHYST_CRATES
+                || kind == Menu.Kind.LEADERBOARD_PLAYERS_AMETHYST_AIRDROPS
                 || kind == Menu.Kind.LEADERBOARD_CLANS
                 || kind == Menu.Kind.LEADERBOARD_CLANS_KILLS
                 || kind == Menu.Kind.LEADERBOARD_MEMBERS
                 || kind == Menu.Kind.LEADERBOARD_REWARDS;
+    }
+
+    private static Menu.Kind playerKind(String board) {
+        return switch (board) {
+            case "kills" -> Menu.Kind.LEADERBOARD_PLAYERS_KILLS;
+            case "amethyst_crates" -> Menu.Kind.LEADERBOARD_PLAYERS_AMETHYST_CRATES;
+            case "amethyst_airdrops" -> Menu.Kind.LEADERBOARD_PLAYERS_AMETHYST_AIRDROPS;
+            default -> Menu.Kind.LEADERBOARD_PLAYERS_WEALTH;
+        };
     }
 
     private static UUID parseUuid(String value) {

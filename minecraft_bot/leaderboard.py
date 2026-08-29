@@ -22,11 +22,11 @@ logger = logging.getLogger(__name__)
 
 BRAND_COLOUR = discord.Color.from_rgb(255, 153, 0)
 PODIUM = 3
-#: Five rows keeps the pair of boards readable in one message.
+#: Ten rows keeps each selected board useful without making the embed too tall.
 DISPLAY_ROWS = 10
 #: Head emojis are a reward, so they outlive a single bad week on the board.
 EMOJI_RETENTION_DAYS = 14
-#: Five individual boards and three clan boards, three places each, plus room for
+#: Four individual boards and two clan boards, three places each, plus room for
 #: the turnover that retention deliberately holds on to.
 EMOJI_BUDGET = 32
 EMOJI_PREFIX = "mgx_head_"
@@ -39,6 +39,8 @@ DEFAULT_TYPE = "wealth"
 TYPE_LABELS: dict[str, str] = {
     "wealth": "Richest",
     "kills": "Most Kills",
+    "amethyst_crates": "Most Amethyst Crates Opened",
+    "amethyst_airdrops": "Most Amethyst Airdrops Opened",
 }
 #: Mirrors LeaderboardType.published on the Paper side.
 CLAN_TYPES = ("wealth", "kills")
@@ -184,9 +186,9 @@ class HeadEmojiStore:
     def _podium_players(self, snapshot: dict[str, Any]) -> dict[str, str]:
         """Every individual board mints heads for its own top three.
 
-        Restricting this to the default board left the other four showing bare rows,
-        because a player topping Distance Walked usually is not also the richest.
-        The ceiling is five boards times three places, and heavy overlap in practice
+        Restricting this to the default board left the other boards showing bare rows,
+        because a player leading an Amethyst Event board is not usually also richest.
+        The ceiling is four boards times three places, and heavy overlap in practice
         keeps it well under that.
         """
         players: dict[str, str] = {}

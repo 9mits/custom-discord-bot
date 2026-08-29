@@ -1,0 +1,902 @@
+package bot.mgx.accessbridge;
+
+import net.kyori.adventure.bossbar.BossBar;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextColor;
+import net.kyori.adventure.text.format.TextDecoration;
+import org.bukkit.Chunk;
+import org.bukkit.Color;
+import org.bukkit.HeightMap;
+import org.bukkit.Location;
+import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
+import org.bukkit.Particle;
+import org.bukkit.Sound;
+import org.bukkit.World;
+import org.bukkit.WorldBorder;
+import org.bukkit.block.Block;
+import org.bukkit.block.BlockState;
+import org.bukkit.block.Chest;
+import org.bukkit.block.Container;
+import org.bukkit.block.data.BlockData;
+import org.bukkit.entity.Player;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
+import org.bukkit.event.Listener;
+import org.bukkit.event.block.BlockBreakEvent;
+import org.bukkit.event.block.BlockExplodeEvent;
+import org.bukkit.event.block.BlockFromToEvent;
+import org.bukkit.event.block.BlockPistonExtendEvent;
+import org.bukkit.event.block.BlockPistonRetractEvent;
+import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.event.entity.EntityExplodeEvent;
+import org.bukkit.event.inventory.InventoryAction;
+import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryCloseEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.event.inventory.InventoryMoveItemEvent;
+import org.bukkit.event.inventory.InventoryOpenEvent;
+import org.bukkit.inventory.Inventory;
+import org.bukkit.inventory.ItemStack;
+import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataType;
+import org.bukkit.scheduler.BukkitTask;
+
+import java.io.UncheckedIOException;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.random.RandomGenerator;
+
+/** Random Amethyst Airdrops, their temporary structure, loot, effects, and cleanup. */
+final class AirdropService implements Listener {
+    static final long DEFAULT_MINIMUM_DELAY_MILLIS = Duration.ofMinutes(30).toMillis();
+    static final long DEFAULT_MAXIMUM_DELAY_MILLIS = Duration.ofMinutes(90).toMillis();
+    static final long DEFAULT_LIFETIME_MILLIS = Duration.ofMinutes(30).toMillis();
+    private static final long RETRY_DELAY_TICKS = Duration.ofMinutes(5).toSeconds() * 20L;
+    private static final long ANNOUNCEMENT_TICKS = 20L * 20L;
+    private static final long EFFECT_PERIOD_TICKS = 5L;
+    private static final int DEFAULT_MINIMUM_RADIUS = 500;
+    private static final int DEFAULT_ATTEMPTS = 24;
+    private static final int BORDER_MARGIN = 24;
+    private static final TextColor AMETHYST = TextColor.color(0xB56CFF);
+    private static final Set<InventoryAction> WITHDRAW_ACTIONS = EnumSet.of(
+            InventoryAction.PICKUP_ALL,
+            InventoryAction.PICKUP_HALF,
+            InventoryAction.PICKUP_ONE,
+            InventoryAction.PICKUP_SOME,
+            InventoryAction.MOVE_TO_OTHER_INVENTORY,
+            InventoryAction.DROP_ALL_SLOT,
+            InventoryAction.DROP_ONE_SLOT
+    );
+
+    private record BlockKey(UUID worldId, int x, int y, int z) {
+        static BlockKey of(Block block) {
+            return new BlockKey(
+                    block.getWorld().getUID(), block.getX(), block.getY(), block.getZ()
+            );
+        }
+
+        static BlockKey of(Location location) {
+            return new BlockKey(
+                    location.getWorld().getUID(),
+                    location.getBlockX(), location.getBlockY(), location.getBlockZ()
+            );
+        }
+    }
+
+    private record SavedBlock(Location location, BlockData data) {
+    }
+
+    private record Candidate(World world, int x, int z) {
+    }
+
+    private static final class ActiveAirdrop {
+        private final UUID id;
+        private final AirdropCatalog.Rarity rarity;
+        private final Location anchor;
+        private final Location chest;
+        private final List<SavedBlock> savedBlocks;
+        private final Set<BlockKey> protectedBlocks;
+        private final Set<Chunk> chunks;
+        private UUID firstOpener;
+
+        private ActiveAirdrop(
+                UUID id,
+                AirdropCatalog.Rarity rarity,
+                Location anchor,
+                Location chest,
+                List<SavedBlock> savedBlocks,
+                Set<BlockKey> protectedBlocks,
+                Set<Chunk> chunks
+        ) {
+            this.id = id;
+            this.rarity = rarity;
+            this.anchor = anchor;
+            this.chest = chest;
+            this.savedBlocks = savedBlocks;
+            this.protectedBlocks = protectedBlocks;
+            this.chunks = chunks;
+        }
+    }
+
+    private final MGXAccessBridge plugin;
+    private final CrateItems crateItems;
+    private final CosmeticStore cosmeticStore;
+    private final CosmeticItems cosmeticItems;
+    private final AmethystProgressStore progress;
+    private final NamespacedKey cosmeticMarker;
+    private final RandomGenerator random;
+    private final long minimumDelayMillis;
+    private final long maximumDelayMillis;
+    private final long lifetimeMillis;
+    private final int minimumRadius;
+    private final int attempts;
+    private final boolean enabled;
+
+    private ActiveAirdrop active;
+    private BukkitTask spawnTask;
+    private BukkitTask expiryTask;
+    private BukkitTask effectTask;
+    private BukkitTask announcementTask;
+    private BossBar announcementBar;
+    private volatile boolean stopped = true;
+
+    AirdropService(
+            MGXAccessBridge plugin,
+            CrateItems crateItems,
+            CosmeticStore cosmeticStore,
+            CosmeticItems cosmeticItems,
+            AmethystProgressStore progress
+    ) {
+        this(plugin, crateItems, cosmeticStore, cosmeticItems, progress,
+                ThreadLocalRandom.current());
+    }
+
+    AirdropService(
+            MGXAccessBridge plugin,
+            CrateItems crateItems,
+            CosmeticStore cosmeticStore,
+            CosmeticItems cosmeticItems,
+            AmethystProgressStore progress,
+            RandomGenerator random
+    ) {
+        this.plugin = plugin;
+        this.crateItems = crateItems;
+        this.cosmeticStore = cosmeticStore;
+        this.cosmeticItems = cosmeticItems;
+        this.progress = progress;
+        this.random = random;
+        cosmeticMarker = new NamespacedKey(plugin, "airdrop_cosmetic");
+        enabled = plugin.getConfig().getBoolean("airdrop.enabled", true);
+        long configuredMinimum = minutes("airdrop.minimum-delay-minutes", 30L);
+        long configuredMaximum = minutes("airdrop.maximum-delay-minutes", 90L);
+        minimumDelayMillis = Math.min(configuredMinimum, configuredMaximum);
+        maximumDelayMillis = Math.max(configuredMinimum, configuredMaximum);
+        lifetimeMillis = minutes("airdrop.lifetime-minutes", 30L);
+        minimumRadius = Math.max(0, plugin.getConfig().getInt(
+                "airdrop.minimum-radius", DEFAULT_MINIMUM_RADIUS
+        ));
+        attempts = Math.clamp(plugin.getConfig().getInt(
+                "airdrop.location-attempts", DEFAULT_ATTEMPTS
+        ), 1, 100);
+    }
+
+    void start() {
+        stop();
+        stopped = false;
+        if (enabled && CrateKind.AMETHYST.available(System.currentTimeMillis())) {
+            scheduleNext();
+        }
+    }
+
+    void stop() {
+        stopped = true;
+        cancel(spawnTask);
+        spawnTask = null;
+        removeActive(false, null);
+        hideAnnouncement();
+    }
+
+    private long minutes(String path, long fallback) {
+        long value = Math.clamp(plugin.getConfig().getLong(path, fallback), 1L, 1_440L);
+        return Duration.ofMinutes(value).toMillis();
+    }
+
+    private void scheduleNext() {
+        if (stopped || !enabled || spawnTask != null
+                || !CrateKind.AMETHYST.available(System.currentTimeMillis())) {
+            return;
+        }
+        long delayMillis = randomDelayMillis(random, minimumDelayMillis, maximumDelayMillis);
+        long delayTicks = Math.max(1L, delayMillis / 50L);
+        spawnTask = plugin.getServer().getScheduler().runTaskLater(
+                plugin, this::scheduledSpawn, delayTicks
+        );
+    }
+
+    static long randomDelayMillis(RandomGenerator random, long minimum, long maximum) {
+        if (random == null || minimum < 0L || maximum < minimum) {
+            throw new IllegalArgumentException("Airdrop delay bounds are invalid");
+        }
+        return minimum == maximum ? minimum : random.nextLong(minimum, maximum + 1L);
+    }
+
+    private void scheduledSpawn() {
+        spawnTask = null;
+        if (stopped || !CrateKind.AMETHYST.available(System.currentTimeMillis())) {
+            return;
+        }
+        if (active != null) {
+            spawnTask = plugin.getServer().getScheduler().runTaskLater(
+                    plugin, this::scheduledSpawn, RETRY_DELAY_TICKS
+            );
+            return;
+        }
+        attemptSpawn(AirdropCatalog.randomRarity(random), 0);
+    }
+
+    private void attemptSpawn(AirdropCatalog.Rarity rarity, int attempt) {
+        if (stopped || active != null
+                || !CrateKind.AMETHYST.available(System.currentTimeMillis())) {
+            return;
+        }
+        if (attempt >= attempts) {
+            plugin.getLogger().warning(
+                    "Could not find safe ground for an Amethyst Airdrop after "
+                            + attempts + " attempts; retrying in five minutes."
+            );
+            spawnTask = plugin.getServer().getScheduler().runTaskLater(
+                    plugin, this::scheduledSpawn, RETRY_DELAY_TICKS
+            );
+            return;
+        }
+        Candidate candidate = randomCandidate();
+        if (candidate == null) {
+            spawnTask = plugin.getServer().getScheduler().runTaskLater(
+                    plugin, this::scheduledSpawn, RETRY_DELAY_TICKS
+            );
+            return;
+        }
+        candidate.world().getChunkAtAsync(candidate.x() >> 4, candidate.z() >> 4, true)
+                .whenComplete((chunk, error) -> {
+                    if (stopped) {
+                        return;
+                    }
+                    plugin.getServer().getScheduler().runTask(
+                            plugin, () -> finishAttempt(rarity, attempt, candidate, error)
+                    );
+                });
+    }
+
+    private void finishAttempt(
+            AirdropCatalog.Rarity rarity,
+            int attempt,
+            Candidate candidate,
+            Throwable error
+    ) {
+        if (stopped || active != null) {
+            return;
+        }
+        if (error != null) {
+            plugin.getLogger().warning("Could not load an Airdrop chunk: " + error.getMessage());
+            attemptSpawn(rarity, attempt + 1);
+            return;
+        }
+        Location anchor = findAnchor(candidate);
+        if (anchor == null || !safeStructureSite(anchor)) {
+            attemptSpawn(rarity, attempt + 1);
+            return;
+        }
+        try {
+            createAirdrop(anchor, rarity);
+        } catch (RuntimeException exception) {
+            plugin.getLogger().warning("Could not create an Amethyst Airdrop: "
+                    + exception.getMessage());
+            attemptSpawn(rarity, attempt + 1);
+            return;
+        }
+        scheduleNext();
+    }
+
+    private Candidate randomCandidate() {
+        List<World> worlds = plugin.getServer().getWorlds().stream()
+                .filter(world -> world.getEnvironment() == World.Environment.NORMAL
+                        || world.getEnvironment() == World.Environment.NETHER)
+                .filter(world -> !VerificationLobbyService.isLobbyWorld(world))
+                .toList();
+        if (worlds.isEmpty()) {
+            plugin.getLogger().warning("No Overworld or Nether is loaded for Amethyst Airdrops.");
+            return null;
+        }
+        World world = worlds.get(random.nextInt(worlds.size()));
+        WorldBorder border = world.getWorldBorder();
+        Location centre = border.getCenter();
+        int limit = Math.max(1, (int) Math.floor(border.getSize() / 2d) - BORDER_MARGIN);
+        int localMinimum = world.getEnvironment() == World.Environment.NETHER
+                ? Math.max(64, minimumRadius / 8)
+                : minimumRadius;
+        for (int index = 0; index < 24; index++) {
+            int x = centre.getBlockX() + random.nextInt(-limit, limit + 1);
+            int z = centre.getBlockZ() + random.nextInt(-limit, limit + 1);
+            if ((long) x * x + (long) z * z < (long) localMinimum * localMinimum) {
+                continue;
+            }
+            return new Candidate(world, x, z);
+        }
+        return null;
+    }
+
+    private Location findAnchor(Candidate candidate) {
+        World world = candidate.world();
+        int x = candidate.x();
+        int z = candidate.z();
+        if (world.getEnvironment() == World.Environment.NORMAL) {
+            int groundY = world.getHighestBlockYAt(x, z, HeightMap.MOTION_BLOCKING_NO_LEAVES);
+            Block ground = world.getBlockAt(x, groundY, z);
+            if (!ground.getType().isSolid() || ground.isLiquid()) {
+                return null;
+            }
+            return new Location(world, x, groundY + 1, z);
+        }
+        int ceiling = Math.min(world.getMaxHeight() - AirdropStructure.height() - 3, 116);
+        for (int y = ceiling; y >= world.getMinHeight() + 5; y--) {
+            Block ground = world.getBlockAt(x, y, z);
+            if (!ground.getType().isSolid()
+                    || ground.getType() == Material.BEDROCK
+                    || ground.isLiquid()) {
+                continue;
+            }
+            boolean clear = true;
+            for (int above = 1; above <= AirdropStructure.height() + 1; above++) {
+                if (!replaceable(world.getBlockAt(x, y + above, z))) {
+                    clear = false;
+                    break;
+                }
+            }
+            if (clear) {
+                return new Location(world, x, y + 1, z);
+            }
+        }
+        return null;
+    }
+
+    private boolean safeStructureSite(Location anchor) {
+        World world = anchor.getWorld();
+        if (anchor.getBlockY() < world.getMinHeight() + 1
+                || anchor.getBlockY() + AirdropStructure.height() >= world.getMaxHeight()) {
+            return false;
+        }
+        WorldBorder border = world.getWorldBorder();
+        for (AirdropStructure.Placement placement : AirdropStructure.blueprint()) {
+            Block block = world.getBlockAt(
+                    anchor.getBlockX() + placement.x(),
+                    anchor.getBlockY() + placement.y(),
+                    anchor.getBlockZ() + placement.z()
+            );
+            if (!border.isInside(block.getLocation()) || block.getState() instanceof Container) {
+                return false;
+            }
+            if (placement.y() > 0 && !replaceable(block)) {
+                return false;
+            }
+            if (placement.y() == 0 && !replaceable(block) && !naturalGround(block.getType())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void createAirdrop(Location anchor, AirdropCatalog.Rarity rarity) {
+        List<SavedBlock> saved = new ArrayList<>();
+        Set<BlockKey> protectedBlocks = new HashSet<>();
+        Set<Chunk> chunks = new HashSet<>();
+        for (AirdropStructure.Placement placement : AirdropStructure.blueprint()) {
+            Block block = anchor.getWorld().getBlockAt(
+                    anchor.getBlockX() + placement.x(),
+                    anchor.getBlockY() + placement.y(),
+                    anchor.getBlockZ() + placement.z()
+            );
+            saved.add(new SavedBlock(block.getLocation(), block.getBlockData().clone()));
+            protectedBlocks.add(BlockKey.of(block));
+            Chunk chunk = block.getChunk();
+            if (chunks.add(chunk)) {
+                chunk.addPluginChunkTicket(plugin);
+            }
+            block.setType(placement.material(), false);
+        }
+
+        try {
+            Location chestLocation = anchor.clone().add(0d, 1d, 0d);
+            BlockState state = chestLocation.getBlock().getState();
+            if (!(state instanceof Chest chest)) {
+                throw new IllegalStateException("The Amethyst Airdrop chest could not be created");
+            }
+            chest.customName(Component.text(
+                    rarity.displayName() + " Amethyst Airdrop", rarityColour(rarity),
+                    TextDecoration.BOLD
+            ));
+            chest.update(true, false);
+            fillChest(chest.getBlockInventory(), AirdropCatalog.roll(rarity, random));
+
+            active = new ActiveAirdrop(
+                    UUID.randomUUID(), rarity, anchor.clone(), chestLocation,
+                    List.copyOf(saved), Set.copyOf(protectedBlocks), Set.copyOf(chunks)
+            );
+            effectTask = plugin.getServer().getScheduler().runTaskTimer(
+                    plugin, this::drawEffects, 1L, EFFECT_PERIOD_TICKS
+            );
+            expiryTask = plugin.getServer().getScheduler().runTaskLater(
+                    plugin,
+                    () -> removeActive(true, "The " + rarity.displayName()
+                            + " Amethyst Airdrop expired unclaimed."),
+                    Math.max(1L, lifetimeMillis / 50L)
+            );
+            announceSpawn(active);
+            plugin.getLogger().info("Spawned " + rarity.displayName() + " Amethyst Airdrop at "
+                    + coordinates(chestLocation) + " in " + worldName(anchor.getWorld()));
+        } catch (RuntimeException exception) {
+            active = null;
+            cancel(expiryTask);
+            expiryTask = null;
+            cancel(effectTask);
+            effectTask = null;
+            hideAnnouncement();
+            restore(saved, chunks);
+            throw exception;
+        }
+    }
+
+    private void fillChest(Inventory inventory, AirdropCatalog.Contents contents) {
+        List<ItemStack> items = new ArrayList<>();
+        for (int portion : StackSplit.portions(contents.keys(), 64)) {
+            items.add(crateItems.key(portion));
+        }
+        Map<Material, Integer> totals = new LinkedHashMap<>();
+        for (AirdropCatalog.MaterialLoot reward : contents.materialLoot()) {
+            Material material = Material.matchMaterial(reward.materialName());
+            if (material == null) {
+                plugin.getLogger().warning("Unknown Airdrop material " + reward.materialName());
+                continue;
+            }
+            totals.merge(material, reward.amount(), Math::addExact);
+        }
+        totals.forEach((material, amount) -> {
+            ItemStack template = new ItemStack(material);
+            for (int portion : StackSplit.portions(amount, template.getMaxStackSize())) {
+                ItemStack stack = template.clone();
+                stack.setAmount(portion);
+                items.add(stack);
+            }
+        });
+        contents.cosmeticId().ifPresent(cosmeticId -> {
+            CosmeticCatalog.find(cosmeticId).ifPresent(definition -> {
+                ItemStack preview = cosmeticItems.preview(definition, false);
+                ItemMeta meta = preview.getItemMeta();
+                meta.getPersistentDataContainer().set(
+                        cosmeticMarker, PersistentDataType.STRING, cosmeticId
+                );
+                preview.setItemMeta(meta);
+                items.add(preview);
+            });
+        });
+        List<Integer> slots = new ArrayList<>();
+        for (int slot = 0; slot < inventory.getSize(); slot++) {
+            slots.add(slot);
+        }
+        shuffle(slots);
+        if (items.size() > slots.size()) {
+            throw new IllegalStateException("Amethyst Airdrop generated too many loot stacks");
+        }
+        for (int index = 0; index < items.size(); index++) {
+            inventory.setItem(slots.get(index), items.get(index));
+        }
+    }
+
+    private void shuffle(List<Integer> slots) {
+        for (int index = slots.size() - 1; index > 0; index--) {
+            Collections.swap(slots, index, random.nextInt(index + 1));
+        }
+    }
+
+    private void announceSpawn(ActiveAirdrop drop) {
+        String where = coordinates(drop.chest);
+        String world = worldName(drop.chest.getWorld());
+        Component announcement = Component.text(
+                        "AIRDROP » ", AMETHYST, TextDecoration.BOLD
+                )
+                .append(Component.text(drop.rarity.displayName() + " Amethyst Airdrop",
+                        rarityColour(drop.rarity), TextDecoration.BOLD))
+                .append(Component.text(" at " + where + " in the " + world + "!",
+                        NamedTextColor.WHITE));
+        broadcast(announcement);
+        hideAnnouncement();
+        announcementBar = BossBar.bossBar(
+                Component.text(
+                        drop.rarity.displayName().toUpperCase(Locale.ROOT)
+                                + " AIRDROP • " + world.toUpperCase(Locale.ROOT)
+                                + " • " + where,
+                        rarityColour(drop.rarity), TextDecoration.BOLD
+                ),
+                1f,
+                BossBar.Color.PURPLE,
+                BossBar.Overlay.PROGRESS
+        );
+        for (Player player : plugin.getServer().getOnlinePlayers()) {
+            player.showBossBar(announcementBar);
+            player.playSound(player.getLocation(), Sound.BLOCK_BEACON_ACTIVATE, 1f, 0.8f);
+            player.playSound(player.getLocation(), Sound.BLOCK_AMETHYST_BLOCK_CHIME, 1f, 1.1f);
+        }
+        announcementTask = plugin.getServer().getScheduler().runTaskLater(
+                plugin, this::hideAnnouncement, ANNOUNCEMENT_TICKS
+        );
+    }
+
+    private void hideAnnouncement() {
+        cancel(announcementTask);
+        announcementTask = null;
+        if (announcementBar == null) {
+            return;
+        }
+        for (Player player : plugin.getServer().getOnlinePlayers()) {
+            player.hideBossBar(announcementBar);
+        }
+        announcementBar = null;
+    }
+
+    private void drawEffects() {
+        ActiveAirdrop drop = active;
+        if (drop == null) {
+            return;
+        }
+        World world = drop.chest.getWorld();
+        Location centre = drop.chest.clone().add(0.5d, 1.1d, 0.5d);
+        Color deep = Color.fromRGB(132, 43, 214);
+        Color bright = Color.fromRGB(220, 154, 255);
+        double phase = System.currentTimeMillis() / 900.0d;
+        for (int ring = 0; ring < 3; ring++) {
+            double radius = 2.8d + ring * 1.15d;
+            double y = -0.25d + ring * 0.8d;
+            for (int point = 0; point < 24; point++) {
+                double angle = phase * (ring % 2 == 0 ? 1d : -1d)
+                        + point * Math.PI * 2d / 24d;
+                Location at = centre.clone().add(
+                        Math.cos(angle) * radius,
+                        y + Math.sin(angle * 3d) * 0.35d,
+                        Math.sin(angle) * radius
+                );
+                world.spawnParticle(
+                        Particle.DUST, at, 1, 0d, 0d, 0d, 0d,
+                        new Particle.DustOptions(ring == 1 ? bright : deep, 1.15f)
+                );
+            }
+        }
+        world.spawnParticle(
+                Particle.REVERSE_PORTAL, centre, 18, 3.5d, 1.8d, 3.5d, 0.03d
+        );
+        int beamHeight = Math.min(48, world.getMaxHeight() - centre.getBlockY() - 1);
+        for (int y = 0; y <= beamHeight; y += 2) {
+            Location at = centre.clone().add(0d, y, 0d);
+            world.spawnParticle(Particle.END_ROD, at, 1, 0.05d, 0.18d, 0.05d, 0d);
+            world.spawnParticle(
+                    Particle.DUST, at, 1, 0.08d, 0.08d, 0.08d, 0d,
+                    new Particle.DustOptions(y % 4 == 0 ? bright : deep, 1.25f)
+            );
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onOpen(InventoryOpenEvent event) {
+        if (!(event.getPlayer() instanceof Player player)
+                || !isActiveInventory(event.getInventory())
+                || active == null
+                || active.firstOpener != null) {
+            return;
+        }
+        try {
+            progress.recordAirdropOpened(player.getUniqueId());
+        } catch (UncheckedIOException exception) {
+            plugin.getLogger().warning("Could not record an Airdrop opening: "
+                    + exception.getMessage());
+            return;
+        }
+        active.firstOpener = player.getUniqueId();
+        ServerEvent.of(
+                "airdrop_open",
+                ServerEvent.CATEGORY_CRATE,
+                player.getUniqueId(),
+                player.getName(),
+                plugin::recordServerEvent
+        ).summary(player.getName() + " opened a " + active.rarity.displayName()
+                        + " Amethyst Airdrop")
+                .detail("rarity", active.rarity.displayName())
+                .detail("world", worldName(active.chest.getWorld()))
+                .detail("coordinates", coordinates(active.chest))
+                .detail("airdrop_id", active.id.toString())
+                .record();
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = false)
+    public void onClick(InventoryClickEvent event) {
+        Inventory top = event.getView().getTopInventory();
+        if (!(event.getWhoClicked() instanceof Player player) || !isActiveInventory(top)) {
+            return;
+        }
+        int rawSlot = event.getRawSlot();
+        if (rawSlot < 0) {
+            return;
+        }
+        if (rawSlot < top.getSize()) {
+            ItemStack current = event.getCurrentItem();
+            String cosmeticId = airdropCosmetic(current);
+            if (cosmeticId != null) {
+                event.setCancelled(true);
+                claimCosmetic(player, top, rawSlot, cosmeticId);
+                return;
+            }
+            if (!WITHDRAW_ACTIONS.contains(event.getAction())) {
+                event.setCancelled(true);
+                return;
+            }
+        } else if (event.isShiftClick()) {
+            event.setCancelled(true);
+            return;
+        } else if (event.getAction() == InventoryAction.COLLECT_TO_CURSOR) {
+            event.setCancelled(true);
+            return;
+        }
+        plugin.getServer().getScheduler().runTask(plugin, this::removeIfEmpty);
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = false)
+    public void onDrag(InventoryDragEvent event) {
+        Inventory top = event.getView().getTopInventory();
+        if (!isActiveInventory(top)) {
+            return;
+        }
+        if (event.getRawSlots().stream().anyMatch(slot -> slot < top.getSize())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = false)
+    public void onInventoryMove(InventoryMoveItemEvent event) {
+        if (isActiveInventory(event.getSource()) || isActiveInventory(event.getDestination())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onClose(InventoryCloseEvent event) {
+        if (isActiveInventory(event.getInventory())) {
+            plugin.getServer().getScheduler().runTask(plugin, this::removeIfEmpty);
+        }
+    }
+
+    private void claimCosmetic(Player player, Inventory inventory, int slot, String cosmeticId) {
+        CosmeticCatalog.Definition definition = CosmeticCatalog.find(cosmeticId).orElse(null);
+        if (definition == null || !CosmeticCatalog.isAmethystAirdrop(cosmeticId)) {
+            PlayerMenuService.error(player, "That Airdrop cosmetic is invalid.");
+            return;
+        }
+        try {
+            cosmeticStore.mint(player.getUniqueId(), cosmeticId, UUID.randomUUID());
+        } catch (RuntimeException exception) {
+            plugin.getLogger().warning("Could not mint Airdrop cosmetic: " + exception.getMessage());
+            PlayerMenuService.error(player, "That cosmetic could not be stored yet.");
+            return;
+        }
+        inventory.setItem(slot, null);
+        player.sendMessage(PlayerMenuService.prefix()
+                .append(Component.text("You found ", NamedTextColor.WHITE))
+                .append(Component.text(definition.displayName(), AMETHYST, TextDecoration.BOLD))
+                .append(Component.text(". It is stored in /wardrobe.", NamedTextColor.GRAY)));
+        player.playSound(player.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f, 1.35f);
+        plugin.getServer().getScheduler().runTask(plugin, this::removeIfEmpty);
+    }
+
+    private String airdropCosmetic(ItemStack item) {
+        if (item == null || item.getType().isAir() || !item.hasItemMeta()) {
+            return null;
+        }
+        return item.getItemMeta().getPersistentDataContainer()
+                .get(cosmeticMarker, PersistentDataType.STRING);
+    }
+
+    private void removeIfEmpty() {
+        ActiveAirdrop drop = active;
+        if (drop == null) {
+            return;
+        }
+        BlockState state = drop.chest.getBlock().getState();
+        if (!(state instanceof Chest chest)) {
+            removeActive(true, "The Amethyst Airdrop vanished after its chest was disturbed.");
+            return;
+        }
+        for (ItemStack item : chest.getBlockInventory().getContents()) {
+            if (item != null && !item.getType().isAir()) {
+                return;
+            }
+        }
+        removeActive(true, "The " + drop.rarity.displayName()
+                + " Amethyst Airdrop was looted.");
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onBreak(BlockBreakEvent event) {
+        if (protectedBlock(event.getBlock())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onPlace(BlockPlaceEvent event) {
+        if (protectedBlock(event.getBlockPlaced())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onFlow(BlockFromToEvent event) {
+        if (protectedBlock(event.getBlock()) || protectedBlock(event.getToBlock())) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onPistonExtend(BlockPistonExtendEvent event) {
+        if (event.getBlocks().stream().anyMatch(this::protectedBlock)
+                || event.getBlocks().stream()
+                .map(block -> block.getRelative(event.getDirection()))
+                .anyMatch(this::protectedBlock)) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onPistonRetract(BlockPistonRetractEvent event) {
+        if (event.getBlocks().stream().anyMatch(this::protectedBlock)) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onBlockExplode(BlockExplodeEvent event) {
+        event.blockList().removeIf(this::protectedBlock);
+    }
+
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
+    public void onEntityExplode(EntityExplodeEvent event) {
+        event.blockList().removeIf(this::protectedBlock);
+    }
+
+    private boolean protectedBlock(Block block) {
+        ActiveAirdrop drop = active;
+        return drop != null && drop.protectedBlocks.contains(BlockKey.of(block));
+    }
+
+    private boolean isActiveInventory(Inventory inventory) {
+        ActiveAirdrop drop = active;
+        if (drop == null || !(inventory.getHolder() instanceof Chest chest)) {
+            return false;
+        }
+        return BlockKey.of(chest.getLocation()).equals(BlockKey.of(drop.chest));
+    }
+
+    private void removeActive(boolean announce, String message) {
+        ActiveAirdrop drop = active;
+        active = null;
+        cancel(expiryTask);
+        expiryTask = null;
+        cancel(effectTask);
+        effectTask = null;
+        hideAnnouncement();
+        if (drop == null) {
+            return;
+        }
+        BlockState state = drop.chest.getBlock().getState();
+        if (state instanceof Chest chest) {
+            for (org.bukkit.entity.HumanEntity viewer
+                    : List.copyOf(chest.getBlockInventory().getViewers())) {
+                viewer.closeInventory();
+            }
+            chest.getBlockInventory().clear();
+        }
+        restore(drop.savedBlocks, drop.chunks);
+        if (announce && message != null && !message.isBlank()) {
+            broadcast(Component.text("AIRDROP » ", AMETHYST, TextDecoration.BOLD)
+                    .append(Component.text(message, NamedTextColor.WHITE)));
+        }
+    }
+
+    private void restore(List<SavedBlock> saved, Set<Chunk> chunks) {
+        List<SavedBlock> reversed = new ArrayList<>(saved);
+        Collections.reverse(reversed);
+        for (SavedBlock original : reversed) {
+            original.location().getBlock().setBlockData(original.data(), false);
+        }
+        for (Chunk chunk : chunks) {
+            chunk.removePluginChunkTicket(plugin);
+        }
+    }
+
+    private void broadcast(Component message) {
+        for (Player player : plugin.getServer().getOnlinePlayers()) {
+            player.sendMessage(message);
+        }
+        plugin.getServer().getConsoleSender().sendMessage(message);
+    }
+
+    private static boolean replaceable(Block block) {
+        Material material = block.getType();
+        return material.isAir() || material == Material.SHORT_GRASS
+                || material == Material.TALL_GRASS
+                || material == Material.SNOW
+                || material == Material.VINE
+                || material == Material.DEAD_BUSH
+                || material == Material.FERN
+                || material == Material.LARGE_FERN
+                || material == Material.CRIMSON_ROOTS
+                || material == Material.WARPED_ROOTS
+                || material == Material.NETHER_SPROUTS;
+    }
+
+    private static boolean naturalGround(Material material) {
+        String name = material.name();
+        return material == Material.GRASS_BLOCK
+                || material == Material.DIRT
+                || material == Material.COARSE_DIRT
+                || material == Material.PODZOL
+                || material == Material.MYCELIUM
+                || material == Material.STONE
+                || material == Material.DEEPSLATE
+                || material == Material.SAND
+                || material == Material.RED_SAND
+                || material == Material.GRAVEL
+                || material == Material.CLAY
+                || material == Material.NETHERRACK
+                || material == Material.SOUL_SAND
+                || material == Material.SOUL_SOIL
+                || material == Material.CRIMSON_NYLIUM
+                || material == Material.WARPED_NYLIUM
+                || material == Material.BASALT
+                || material == Material.BLACKSTONE
+                || name.endsWith("_ORE")
+                || name.endsWith("_TERRACOTTA");
+    }
+
+    private static TextColor rarityColour(AirdropCatalog.Rarity rarity) {
+        return switch (rarity) {
+            case COMMON -> NamedTextColor.WHITE;
+            case RARE -> NamedTextColor.AQUA;
+            case LEGENDARY -> TextColor.color(0xFFB52E);
+            case MYTHIC -> TextColor.color(0xFF4FD8);
+        };
+    }
+
+    private static String coordinates(Location location) {
+        return "X " + location.getBlockX()
+                + " • Y " + location.getBlockY()
+                + " • Z " + location.getBlockZ();
+    }
+
+    private static String worldName(World world) {
+        return world.getEnvironment() == World.Environment.NETHER ? "Nether" : "Overworld";
+    }
+
+    private static void cancel(BukkitTask task) {
+        if (task != null) {
+            task.cancel();
+        }
+    }
+}

@@ -219,6 +219,12 @@ settings system. The full reward table, custom item behavior, custody rules, and
 administrator key command are documented in
 [minecraft-crates.md](minecraft-crates.md).
 
+During the Amethyst Event, the plugin also schedules temporary Airdrops in the
+Overworld or Nether. Chat and boss-bar announcements provide their rarity and exact
+coordinates; their loot chances remain server-private. The complete lifecycle,
+terrain restoration, three Airdrop-only cosmetics, and separate Amethyst Crate and
+Airdrop leaderboards are documented in [minecraft-crates.md](minecraft-crates.md).
+
 The Java resource-pack source is under `assets/resourcepack/src`; every cosmetic and
 custom potion has its own committed 16x16 texture. Rebuild
 `assets/resourcepack/MysteriousSMPX.zip` after changing a texture or model. Deployment must update

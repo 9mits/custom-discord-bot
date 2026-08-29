@@ -283,6 +283,8 @@ final class LeaderboardService implements Listener {
             case PLAYTIME -> "Playtime";
             case BLOCKS_MINED -> "Blocks Mined";
             case BLOCKS_WALKED -> "Blocks Walked";
+            case AMETHYST_CRATES -> "Amethyst Crates Opened";
+            case AMETHYST_AIRDROPS -> "Amethyst Airdrops Opened";
         };
     }
 

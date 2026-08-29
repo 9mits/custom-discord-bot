@@ -174,6 +174,15 @@
         "bedrock_options": {
           "icon": "mgx:cosmetic_shardstorm_wake"
         }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/crystalfall_wake",
+        "bedrock_identifier": "mgx:cosmetic_crystalfall_wake",
+        "display_name": "Crystalfall Wake",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_crystalfall_wake"
+        }
       }
     ],
     "minecraft:nether_star": [
@@ -511,6 +520,15 @@
         "bedrock_options": {
           "icon": "mgx:cosmetic_geode_cathedral"
         }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/airdrop_apotheosis",
+        "bedrock_identifier": "mgx:cosmetic_airdrop_apotheosis",
+        "display_name": "Airdrop Apotheosis",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_airdrop_apotheosis"
+        }
       }
     ],
     "minecraft:amethyst_cluster": [
@@ -539,6 +557,15 @@
         "display_name": "Iridescent Imperium",
         "bedrock_options": {
           "icon": "mgx:cosmetic_iridescent_imperium"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/resonant_shatter",
+        "bedrock_identifier": "mgx:cosmetic_resonant_shatter",
+        "display_name": "Resonant Shatter",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_resonant_shatter"
         }
       }
     ],

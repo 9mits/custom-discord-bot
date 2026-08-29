@@ -13,7 +13,9 @@ enum LeaderboardType {
     KILLS(true),
     PLAYTIME(true),
     BLOCKS_MINED(false),
-    BLOCKS_WALKED(false);
+    BLOCKS_WALKED(false),
+    AMETHYST_CRATES(false),
+    AMETHYST_AIRDROPS(false);
 
     private final boolean clanEligible;
 
@@ -27,7 +29,10 @@ enum LeaderboardType {
 
     /** The boards Discord and {@code /leaderboard} actually show. */
     boolean published() {
-        return this == WEALTH || this == KILLS;
+        return this == WEALTH
+                || this == KILLS
+                || this == AMETHYST_CRATES
+                || this == AMETHYST_AIRDROPS;
     }
 
     /** Renders a raw figure the way players read it, not the way the game stores it. */
@@ -51,6 +56,8 @@ enum LeaderboardType {
             case PLAYTIME -> "◷";
             case BLOCKS_MINED -> "⛏";
             case BLOCKS_WALKED -> "»";
+            case AMETHYST_CRATES -> "◇";
+            case AMETHYST_AIRDROPS -> "◆";
         };
     }
 

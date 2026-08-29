@@ -1457,7 +1457,10 @@ class MinecraftLeaderboardRenderTests(unittest.TestCase):
 
     def test_clan_boards_exclude_per_player_only_types(self):
         self.assertEqual(tuple(self.leaderboard.boards_for("clan")), ("wealth", "kills"))
-        self.assertEqual(tuple(self.leaderboard.boards_for("individual")), ("wealth", "kills"))
+        self.assertEqual(
+            tuple(self.leaderboard.boards_for("individual")),
+            ("wealth", "kills", "amethyst_crates", "amethyst_airdrops"),
+        )
 
     def test_emoji_names_are_discord_safe(self):
         self.assertEqual(self.leaderboard._emoji_name("Not.A-Name!"), "mgx_head_NotAName")

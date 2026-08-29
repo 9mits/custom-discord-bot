@@ -19,6 +19,8 @@ import java.util.stream.Stream;
  *
  * <p>Wealth is the player's wallet. Anyone with money but no statistics file is
  * still listed, so a sale is enough to appear on the richest board.
+ * Amethyst Event progress is merged after those figures, including players whose
+ * only recorded activity is an event opening.
  *
  * <p>Unchanged files are not parsed again, and usernames are remembered after the
  * first lookup so the five-minute pass does not keep warming Paper's offline-player
@@ -28,16 +30,23 @@ final class PlayerStatsService {
     private final MGXAccessBridge plugin;
     private final Path statsDirectory;
     private final EconomyStore money;
+    private final AmethystProgressStore amethystProgress;
     private final Map<UUID, Cached> cache = new HashMap<>();
     private final Map<UUID, String> rememberedNames = new HashMap<>();
 
     private record Cached(long mtime, PlayerStatsParser.Snapshot snapshot) {
     }
 
-    PlayerStatsService(MGXAccessBridge plugin, Path statsDirectory, EconomyStore money) {
+    PlayerStatsService(
+            MGXAccessBridge plugin,
+            Path statsDirectory,
+            EconomyStore money,
+            AmethystProgressStore amethystProgress
+    ) {
         this.plugin = plugin;
         this.statsDirectory = statsDirectory;
         this.money = money;
+        this.amethystProgress = amethystProgress;
     }
 
     /**
@@ -84,9 +93,24 @@ final class PlayerStatsService {
             if (seen.contains(live.getKey()) || live.getValue() <= 0L) {
                 continue;
             }
+            seen.add(live.getKey());
             all.add(PlayerStats.empty(
                     live.getKey(), usernameOf(live.getKey(), knownNames)
             ).withKills(live.getValue()).withWealth(money.balance(live.getKey())));
+        }
+        Map<UUID, AmethystProgressStore.Counts> eventProgress = amethystProgress.snapshots();
+        for (int index = 0; index < all.size(); index++) {
+            PlayerStats row = all.get(index);
+            all.set(index, row.withAmethystProgress(eventProgress.getOrDefault(
+                    row.minecraftUuid(), new AmethystProgressStore.Counts(0L, 0L)
+            )));
+        }
+        for (Map.Entry<UUID, AmethystProgressStore.Counts> entry : eventProgress.entrySet()) {
+            if (seen.add(entry.getKey())) {
+                all.add(PlayerStats.empty(
+                        entry.getKey(), usernameOf(entry.getKey(), knownNames)
+                ).withAmethystProgress(entry.getValue()));
+            }
         }
         cache.keySet().removeIf(uuid -> !seen.contains(uuid));
         return all;

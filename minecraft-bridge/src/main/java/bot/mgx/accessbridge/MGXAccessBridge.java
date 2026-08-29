@@ -99,6 +99,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private ServerEventStore serverEventStore;
     private AutoPayStore autoPayStore;
     private CrateFilterStore crateFilterStore;
+    private AmethystProgressStore amethystProgress;
+    private AirdropService airdrops;
     private AutoPayService autoPayService;
     private ServerEventService serverEventService;
     private BlogWatchService blogWatchService;
@@ -174,6 +176,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             crateFilterStore = new CrateFilterStore(
                     getDataFolder().toPath().resolve("crate-filters.json")
             );
+            amethystProgress = new AmethystProgressStore(
+                    getDataFolder().toPath().resolve("amethyst-event-progress.json")
+            );
             identityStore = new DiscordIdentityStore(
                     getDataFolder().toPath().resolve("discord-identities.json")
             );
@@ -221,7 +226,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         PlayerStatsService statsService = new PlayerStatsService(
                 this,
                 getServer().getWorlds().get(0).getWorldFolder().toPath().resolve("stats"),
-                economyStore
+                economyStore,
+                amethystProgress
         );
         capabilityService = new CapabilityService(
                 this,
@@ -239,6 +245,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 bridgeConfig.leaderboardRefreshTicks()
         );
         economyStore.onChange(leaderboardService::refreshSoon);
+        amethystProgress.onChange(leaderboardService::refreshSoon);
         sidebarService.useLeaderboardService(leaderboardService);
         getServer().getPluginManager().registerEvents(verificationLobby, this);
         getServer().getPluginManager().registerEvents(this, this);
@@ -345,7 +352,11 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 playerSettings,
                 perkService,
                 specialItems,
-                crateFilterStore
+                crateFilterStore,
+                amethystProgress
+        );
+        airdrops = new AirdropService(
+                this, crateItems, cosmeticStore, cosmeticItems, amethystProgress
         );
         getCommand("wardrobe").setExecutor(wardrobeService);
         getCommand("wardrobe").setTabCompleter(wardrobeService);
@@ -356,6 +367,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(wardrobeService, this);
         getServer().getPluginManager().registerEvents(cosmeticEffects, this);
         getServer().getPluginManager().registerEvents(crates, this);
+        getServer().getPluginManager().registerEvents(airdrops, this);
         getServer().getPluginManager().registerEvents(specialItems, this);
         getServer().getPluginManager().registerEvents(amethystItems, this);
         getServer().getPluginManager().registerEvents(enderChests, this);
@@ -498,6 +510,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                         playerSettings,
                         crateStore,
                         crateFilterStore,
+                        amethystProgress,
                         cosmeticStore,
                         cosmeticItems,
                         trophyHeadStore,
@@ -523,6 +536,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(activityLog, this);
         activityLog.start();
         crates.start();
+        airdrops.start();
         amethystItems.start();
         crateDisplays.refresh();
         cosmeticEffects.start();
@@ -590,6 +604,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         if (crates != null) {
             crates.stop();
+        }
+        if (airdrops != null) {
+            airdrops.stop();
         }
         if (amethystItems != null) {
             amethystItems.stop();
