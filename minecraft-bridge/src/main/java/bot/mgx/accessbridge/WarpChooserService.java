@@ -29,6 +29,8 @@ final class WarpChooserService {
             .lifetime(Duration.ofMinutes(10))
             .build();
 
+    private static final int PER_PAGE = 14;
+
     private final TeleportMenuService warps;
     private final ClanWarpDialogService clanWarps;
     private final ClanStore clans;
@@ -52,24 +54,26 @@ final class WarpChooserService {
     void open(Player player) {
         boolean hasClan = clans.clanOf(player.getUniqueId()).isPresent();
         if (!hasClan) {
-            warps.openWarps(player, 1);
+            // No clan means no choice to make, so skip straight to the server warps
+            // rather than charging a click for a menu with one real option.
+            openServerWarps(player, 1);
             return;
         }
         if (!clientSupport.supportsDialogs(player)) {
             // Without this a Bedrock player could not reach their clan warps from the
             // Warps button at all, which is the whole reason the chooser exists.
             boolean shown = forms.menu(player, "Warps", "Where are you going?", List.of(
-                    new BedrockForms.Button("Server Warps", () -> warps.openWarps(player, 1)),
+                    new BedrockForms.Button("Server Warps", () -> openServerWarps(player, 1)),
                     new BedrockForms.Button("Clan Warps", () -> clanWarps.open(player))
             ));
             if (!shown) {
-                warps.openWarps(player, 1);
+                openServerWarps(player, 1);
             }
             return;
         }
         List<ActionButton> buttons = new ArrayList<>();
         buttons.add(button("block/lodestone_top", "Server Warps",
-                "Public places anyone can reach.", audience -> warps.openWarps(audience, 1)));
+                "Public places anyone can reach.", audience -> openServerWarps(audience, 1)));
         buttons.add(button("item/ender_pearl", "Clan Warps",
                 "Places your clan has set.", clanWarps::open));
         buttons.add(ActionButton.builder(Component.text("Close", MenuText.LABEL))
@@ -86,6 +90,69 @@ final class WarpChooserService {
                         .build())
                 .type(DialogType.multiAction(buttons).columns(2).build()));
         player.showDialog(dialog);
+    }
+
+    /**
+     * The public warps, which had no screen of their own at all: the Warps button led
+     * straight into the chest list for everybody, clan or not.
+     */
+    void openServerWarps(Player player, int page) {
+        List<String> names = warps.warpNamesOf();
+        if (!clientSupport.supportsDialogs(player)) {
+            List<BedrockForms.Button> buttons = new ArrayList<>();
+            for (String name : names) {
+                buttons.add(new BedrockForms.Button(name,
+                        () -> player.performCommand("essentials:warp " + name)));
+            }
+            if (!forms.menu(player, "Warps",
+                    names.isEmpty() ? "No warps yet." : "Choose a warp.", buttons)) {
+                warps.openWarps(player, page);
+            }
+            return;
+        }
+        int pages = Math.max(1, (names.size() + PER_PAGE - 1) / PER_PAGE);
+        int current = Math.clamp(page, 1, pages);
+        int first = (current - 1) * PER_PAGE;
+        int last = Math.min(names.size(), first + PER_PAGE);
+        List<ActionButton> buttons = new ArrayList<>();
+        for (int index = first; index < last; index++) {
+            String name = names.get(index);
+            buttons.add(ActionButton.builder(Component.empty()
+                            .append(MenuText.sprite("block/lodestone_top"))
+                            .append(Component.text(" " + name, NamedTextColor.WHITE)))
+                    .tooltip(Component.text("Travel to this warp.", MenuText.LABEL))
+                    .width(150)
+                    .action(callback((response, audience) ->
+                            audience.performCommand("essentials:warp " + name)))
+                    .build());
+        }
+        if (current > 1) {
+            buttons.add(plain("Previous", audience -> openServerWarps(audience, current - 1)));
+        }
+        if (current < pages) {
+            buttons.add(plain("Next", audience -> openServerWarps(audience, current + 1)));
+        }
+        buttons.add(ActionButton.builder(Component.text("Close", MenuText.LABEL))
+                .width(150)
+                .action(callback((response, audience) -> audience.closeDialog()))
+                .build());
+        Dialog dialog = Dialog.create(builder -> builder.empty()
+                .base(DialogBase.builder(MenuText.title("Warps"))
+                        .body(List.of(DialogBody.plainMessage(MenuText.body(
+                                names.isEmpty() ? "No warps yet." : "Choose a warp."
+                        ), 400)))
+                        .afterAction(DialogBase.DialogAfterAction.CLOSE)
+                        .canCloseWithEscape(true)
+                        .build())
+                .type(DialogType.multiAction(buttons).columns(2).build()));
+        player.showDialog(dialog);
+    }
+
+    private ActionButton plain(String label, java.util.function.Consumer<Player> run) {
+        return ActionButton.builder(Component.text(label, NamedTextColor.WHITE))
+                .width(150)
+                .action(callback((response, audience) -> run.accept(audience)))
+                .build();
     }
 
     private ActionButton button(
