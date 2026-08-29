@@ -134,6 +134,14 @@ floating odds tag is exposed.
 successfully delivered or deliberately Auto Trashed, so reconnect recovery cannot
 double-count an opening.
 
+On the local Paper test server, `/mgxadmin testairdrop all` places a nearby Mythic
+test Airdrop with all three cosmetics guaranteed alongside its real randomized loot.
+The same command accepts an individual rarity or `cosmetic <kill|trail|aura|all>`.
+`status`, `expire`, and `remove` exercise inspection and both cleanup paths without a
+30-minute wait. `progress <crates> <airdrops> [player]` sets exact leaderboard test
+fixtures, and `progress reset [player]` removes them. Every action is hard-disabled
+unless the plugin is running with the local test-server identity.
+
 ## Wardrobe and physical ownership
 
 `/wardrobe` separates Kill Effects, Auras, and Trails. A won secret appears inside

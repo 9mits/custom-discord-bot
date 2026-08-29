@@ -53,6 +53,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
@@ -127,6 +128,19 @@ final class AirdropService implements Listener {
             this.savedBlocks = savedBlocks;
             this.protectedBlocks = protectedBlocks;
             this.chunks = chunks;
+        }
+    }
+
+    record Snapshot(
+            AirdropCatalog.Rarity rarity,
+            String world,
+            int x,
+            int y,
+            int z
+    ) {
+        String describe() {
+            return rarity.displayName() + " Amethyst Airdrop at X " + x + " • Y " + y
+                    + " • Z " + z + " in the " + world;
         }
     }
 
@@ -206,6 +220,68 @@ final class AirdropService implements Listener {
         spawnTask = null;
         removeActive(false, null);
         hideAnnouncement();
+    }
+
+    Optional<Snapshot> snapshot() {
+        ActiveAirdrop drop = active;
+        return drop == null ? Optional.empty() : Optional.of(snapshot(drop));
+    }
+
+    Snapshot spawnTest(
+            Player player,
+            AirdropCatalog.Rarity rarity,
+            List<String> forcedCosmetics
+    ) {
+        if (!plugin.isLocalTestServer()) {
+            throw new IllegalArgumentException(
+                    "Airdrop tests are available only on the local test server."
+            );
+        }
+        if (active != null) {
+            throw new IllegalArgumentException(
+                    "An Airdrop is already active. Loot it or use /mgxadmin testairdrop remove."
+            );
+        }
+        if (player.getWorld().getEnvironment() != World.Environment.NORMAL
+                && player.getWorld().getEnvironment() != World.Environment.NETHER) {
+            throw new IllegalArgumentException("Run the Airdrop test in the Overworld or Nether.");
+        }
+        if (VerificationLobbyService.isLobbyWorld(player.getWorld())) {
+            throw new IllegalArgumentException("Leave the verification lobby before testing Airdrops.");
+        }
+        List<String> cosmetics = forcedCosmetics == null
+                ? List.of() : forcedCosmetics.stream().distinct().toList();
+        if (cosmetics.stream().anyMatch(id -> !CosmeticCatalog.isAmethystAirdrop(id))) {
+            throw new IllegalArgumentException("That is not an Amethyst Airdrop cosmetic.");
+        }
+        Location anchor = findTestAnchor(player);
+        if (anchor == null) {
+            throw new IllegalArgumentException(
+                    "No safe test site was found nearby. Move into open terrain and try again."
+            );
+        }
+        cancel(spawnTask);
+        spawnTask = null;
+        createAirdrop(anchor, rarity, cosmetics);
+        scheduleNext();
+        return snapshot(active);
+    }
+
+    boolean expireTest() {
+        if (active == null) {
+            return false;
+        }
+        String rarity = active.rarity.displayName();
+        removeActive(true, "The " + rarity + " Amethyst Airdrop expired unclaimed.");
+        return true;
+    }
+
+    boolean removeTest() {
+        if (active == null) {
+            return false;
+        }
+        removeActive(false, null);
+        return true;
     }
 
     private long minutes(String path, long fallback) {
@@ -371,6 +447,28 @@ final class AirdropService implements Listener {
         return null;
     }
 
+    private Location findTestAnchor(Player player) {
+        World world = player.getWorld();
+        int originX = player.getLocation().getBlockX();
+        int originZ = player.getLocation().getBlockZ();
+        double facing = Math.toRadians(player.getLocation().getYaw() + 90d);
+        for (int radius = 12; radius <= 96; radius += 6) {
+            for (int point = 0; point < 16; point++) {
+                double angle = facing + point * Math.PI * 2d / 16d;
+                int x = originX + (int) Math.round(Math.cos(angle) * radius);
+                int z = originZ + (int) Math.round(Math.sin(angle) * radius);
+                if (!world.isChunkLoaded(x >> 4, z >> 4)) {
+                    continue;
+                }
+                Location anchor = findAnchor(new Candidate(world, x, z));
+                if (anchor != null && safeStructureSite(anchor)) {
+                    return anchor;
+                }
+            }
+        }
+        return null;
+    }
+
     private boolean safeStructureSite(Location anchor) {
         World world = anchor.getWorld();
         if (anchor.getBlockY() < world.getMinHeight() + 1
@@ -398,6 +496,14 @@ final class AirdropService implements Listener {
     }
 
     private void createAirdrop(Location anchor, AirdropCatalog.Rarity rarity) {
+        createAirdrop(anchor, rarity, List.of());
+    }
+
+    private void createAirdrop(
+            Location anchor,
+            AirdropCatalog.Rarity rarity,
+            List<String> forcedCosmetics
+    ) {
         List<SavedBlock> saved = new ArrayList<>();
         Set<BlockKey> protectedBlocks = new HashSet<>();
         Set<Chunk> chunks = new HashSet<>();
@@ -427,7 +533,9 @@ final class AirdropService implements Listener {
                     TextDecoration.BOLD
             ));
             chest.update(true, false);
-            fillChest(chest.getBlockInventory(), AirdropCatalog.roll(rarity, random));
+            fillChest(
+                    chest.getBlockInventory(), AirdropCatalog.roll(rarity, random), forcedCosmetics
+            );
 
             active = new ActiveAirdrop(
                     UUID.randomUUID(), rarity, anchor.clone(), chestLocation,
@@ -457,7 +565,11 @@ final class AirdropService implements Listener {
         }
     }
 
-    private void fillChest(Inventory inventory, AirdropCatalog.Contents contents) {
+    private void fillChest(
+            Inventory inventory,
+            AirdropCatalog.Contents contents,
+            List<String> forcedCosmetics
+    ) {
         List<ItemStack> items = new ArrayList<>();
         for (int portion : StackSplit.portions(contents.keys(), 64)) {
             items.add(crateItems.key(portion));
@@ -479,17 +591,21 @@ final class AirdropService implements Listener {
                 items.add(stack);
             }
         });
-        contents.cosmeticId().ifPresent(cosmeticId -> {
-            CosmeticCatalog.find(cosmeticId).ifPresent(definition -> {
-                ItemStack preview = cosmeticItems.preview(definition, false);
-                ItemMeta meta = preview.getItemMeta();
-                meta.getPersistentDataContainer().set(
-                        cosmeticMarker, PersistentDataType.STRING, cosmeticId
-                );
-                preview.setItemMeta(meta);
-                items.add(preview);
-            });
-        });
+        List<String> cosmeticIds = new ArrayList<>();
+        contents.cosmeticId().ifPresent(cosmeticIds::add);
+        forcedCosmetics.stream()
+                .filter(id -> !cosmeticIds.contains(id))
+                .forEach(cosmeticIds::add);
+        cosmeticIds.forEach(cosmeticId -> CosmeticCatalog.find(cosmeticId)
+                .ifPresent(definition -> {
+                    ItemStack preview = cosmeticItems.preview(definition, false);
+                    ItemMeta meta = preview.getItemMeta();
+                    meta.getPersistentDataContainer().set(
+                            cosmeticMarker, PersistentDataType.STRING, cosmeticId
+                    );
+                    preview.setItemMeta(meta);
+                    items.add(preview);
+                }));
         List<Integer> slots = new ArrayList<>();
         for (int slot = 0; slot < inventory.getSize(); slot++) {
             slots.add(slot);
@@ -892,6 +1008,16 @@ final class AirdropService implements Listener {
 
     private static String worldName(World world) {
         return world.getEnvironment() == World.Environment.NETHER ? "Nether" : "Overworld";
+    }
+
+    private static Snapshot snapshot(ActiveAirdrop drop) {
+        return new Snapshot(
+                drop.rarity,
+                worldName(drop.chest.getWorld()),
+                drop.chest.getBlockX(),
+                drop.chest.getBlockY(),
+                drop.chest.getBlockZ()
+        );
     }
 
     private static void cancel(BukkitTask task) {

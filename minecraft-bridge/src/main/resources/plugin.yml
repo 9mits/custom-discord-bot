@@ -118,7 +118,7 @@ commands:
     permission: mgx.rtp
   mgxadmin:
     description: Give rewards, run events, hold rank sync, and reset data.
-    usage: /mgxadmin <give|abuse|startserver|teststart|testcrate|pvp|ranks|eco|bounty|hologram|serials|reset>
+    usage: /mgxadmin <give|abuse|startserver|teststart|testcrate|testairdrop|pvp|ranks|eco|bounty|hologram|serials|reset>
     aliases: [mcadmin]
     permission: mgxaccessbridge.admin
 permissions:

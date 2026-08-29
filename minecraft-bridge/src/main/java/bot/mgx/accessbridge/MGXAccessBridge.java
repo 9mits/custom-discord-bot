@@ -526,7 +526,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 new AdminEventService(this, crateItems, chaosService),
                 economyMenus,
                 updateNotices,
-                crates
+                crates,
+                airdrops,
+                amethystProgress
         );
         getCommand("mgxadmin").setExecutor(adminService);
         getCommand("mgxadmin").setTabCompleter(adminService);
