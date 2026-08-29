@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "bot.mgx"
-version = "6.28.2"
+version = "6.29.0"
 
 repositories {
     mavenCentral()

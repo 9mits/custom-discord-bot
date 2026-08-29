@@ -101,6 +101,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private CrateFilterStore crateFilterStore;
     private AmethystProgressStore amethystProgress;
     private ClanBattleStore clanBattleStore;
+    private HomeIconStore homeIconStore;
     private ClanBattleService clanBattles;
     private TeleportMenuService teleportMenus;
     private AirdropService airdrops;
@@ -184,6 +185,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             );
             clanBattleStore = new ClanBattleStore(
                     getDataFolder().toPath().resolve("clan-battles.json")
+            );
+            homeIconStore = new HomeIconStore(
+                    getDataFolder().toPath().resolve("home-icons.json")
             );
             identityStore = new DiscordIdentityStore(
                     getDataFolder().toPath().resolve("discord-identities.json")
@@ -475,7 +479,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 new TeleportDialogService(this, dialogSupport);
         getCommand("tpmenu").setExecutor(teleportDialogs);
         HomesDialogService homesDialogs =
-                new HomesDialogService(teleportMenus, dialogSupport);
+                new HomesDialogService(teleportMenus, dialogSupport, homeIconStore);
         LeaderboardDialogService leaderboardDialogs = new LeaderboardDialogService(
                 leaderboardService, statsDialogs, clanBattleStore, clanStore, clanMenuService
         );
@@ -488,6 +492,14 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         ClanDirectoryService clanDirectory = new ClanDirectoryService(
                 clanStore, clanMenuService, clanBattleStore, dialogSupport
         );
+        ClanWarpDialogService clanWarps = new ClanWarpDialogService(
+                clanStore, clanMenuService, dialogSupport
+        );
+        WarpChooserService warpChooser = new WarpChooserService(
+                teleportMenus, clanWarps, clanStore, dialogSupport
+        );
+        teleportMenus.useWarpChooser(warpChooser);
+        clanChooser.useClanWarps(clanWarps);
         clanChooser.useDirectory(clanDirectory);
         clanService.useChooser(clanChooser);
         clanService.useDirectory(clanDirectory);

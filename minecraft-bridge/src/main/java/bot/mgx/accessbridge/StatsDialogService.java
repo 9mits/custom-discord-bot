@@ -6,6 +6,7 @@ import io.papermc.paper.registry.data.dialog.ActionButton;
 import io.papermc.paper.registry.data.dialog.DialogBase;
 import io.papermc.paper.registry.data.dialog.action.DialogAction;
 import io.papermc.paper.registry.data.dialog.body.DialogBody;
+import io.papermc.paper.registry.data.dialog.input.DialogInput;
 import io.papermc.paper.registry.data.dialog.type.DialogType;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickCallback;
@@ -45,6 +46,7 @@ final class StatsDialogService implements CommandExecutor {
             .lifetime(Duration.ofMinutes(10))
             .build();
     private static final int PROFILE_SIZE = 45;
+    private static final String NAME_INPUT = "player_name";
 
     private final MGXAccessBridge plugin;
     private final ProfileStatsService profiles;
@@ -109,7 +111,67 @@ final class StatsDialogService implements CommandExecutor {
                             openCard(audience, id, name, this::openPicker)))
                     .build());
         }
+        buttons.add(ActionButton.builder(
+                        Component.text("+ Look Up A Player", MenuText.VALUE))
+                .tooltip(Component.text("Type a name, online or not.", MenuText.LABEL))
+                .width(150)
+                .action(callback((response, audience) -> openLookup(audience)))
+                .build());
         show(viewer, "Player Stats", "Click a player to view their stats", buttons, 2);
+    }
+
+    /**
+     * Opens anyone by name, whether or not they are here.
+     *
+     * <p>Their statistics are on disk either way, so being offline was never the real
+     * limit — only the picker, which can list nobody who has logged out.
+     */
+    void openLookup(Player viewer) {
+        Dialog dialog = Dialog.create(builder -> builder.empty()
+                .base(DialogBase.builder(MenuText.title("Look Up A Player"))
+                        .body(List.of(DialogBody.plainMessage(
+                                MenuText.body("Type an exact Minecraft name."), 400
+                        )))
+                        .inputs(List.of(DialogInput.text(NAME_INPUT,
+                                        Component.text("Name", MenuText.LABEL))
+                                .maxLength(16)
+                                .build()))
+                        .afterAction(DialogBase.DialogAfterAction.CLOSE)
+                        .canCloseWithEscape(true)
+                        .build())
+                .type(DialogType.confirmation(
+                        ActionButton.builder(Component.text("View Stats", MenuText.VALUE))
+                                .width(150)
+                                .action(callback((response, audience) ->
+                                        lookUp(audience, response.getText(NAME_INPUT))))
+                                .build(),
+                        ActionButton.builder(Component.text("Cancel", MenuText.LABEL))
+                                .width(150)
+                                .action(callback((response, audience) -> openPicker(audience)))
+                                .build()
+                )));
+        viewer.showDialog(dialog);
+    }
+
+    private void lookUp(Player viewer, String rawName) {
+        String name = rawName == null ? "" : rawName.strip();
+        if (!name.matches("[A-Za-z0-9_]{1,16}")) {
+            PlayerMenuService.error(viewer, "That is not a Minecraft name.");
+            return;
+        }
+        Player online = Bukkit.getPlayerExact(name);
+        if (online != null) {
+            openCard(viewer, online.getUniqueId(), online.getName(), this::openPicker);
+            return;
+        }
+        // Paper's cache answers for anyone who has joined before, without a web call.
+        org.bukkit.OfflinePlayer known = Bukkit.getOfflinePlayerIfCached(name);
+        if (known == null) {
+            PlayerMenuService.error(viewer, name + " has never played here.");
+            return;
+        }
+        openCard(viewer, known.getUniqueId(),
+                known.getName() == null ? name : known.getName(), this::openPicker);
     }
 
     void openCard(Player viewer, UUID id, String fallbackName) {
@@ -135,7 +197,7 @@ final class StatsDialogService implements CommandExecutor {
                 DialogBody.plainMessage(MenuText.head(id), 400),
                 DialogBody.plainMessage(Component.empty(), 400),
                 DialogBody.plainMessage(MenuText.stat(
-                        "Money", Material.EMERALD, EconomyFormat.dollars(profile.money())
+                        "Money", "item/emerald", EconomyFormat.dollars(profile.money())
                 ), 400),
                 DialogBody.plainMessage(MenuText.stat("Kills", compact(profile.playerKills())), 400),
                 DialogBody.plainMessage(MenuText.stat("Deaths", compact(profile.deaths())), 400),

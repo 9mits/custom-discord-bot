@@ -6,6 +6,7 @@ import io.papermc.paper.registry.data.dialog.ActionButton;
 import io.papermc.paper.registry.data.dialog.DialogBase;
 import io.papermc.paper.registry.data.dialog.action.DialogAction;
 import io.papermc.paper.registry.data.dialog.body.DialogBody;
+import io.papermc.paper.registry.data.dialog.input.DialogInput;
 import io.papermc.paper.registry.data.dialog.type.DialogType;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickCallback;
@@ -37,6 +38,7 @@ final class TeleportDialogService implements CommandExecutor {
             .lifetime(Duration.ofMinutes(5))
             .build();
     private static final int MENU_SIZE = 27;
+    private static final String NAME_INPUT = "player_name";
 
     private final MGXAccessBridge plugin;
     private final SettingsClientSupport clientSupport;
@@ -60,7 +62,7 @@ final class TeleportDialogService implements CommandExecutor {
 
     void open(Player viewer) {
         List<Player> targets = targets(viewer);
-        if (targets.isEmpty()) {
+        if (!clientSupport.supportsDialogs(viewer) && targets.isEmpty()) {
             PlayerMenuService.error(viewer, "Nobody else is online to teleport to.");
             return;
         }

@@ -55,4 +55,34 @@ final class SpriteExistsTest {
     private static String texture(String sprite) {
         return "assets/minecraft/textures/" + sprite + ".png";
     }
+
+    /**
+     * Sweeps the source for every {@code "item/..."} and {@code "block/..."} literal.
+     *
+     * <p>Checking only the two enums missed the ones written inline, which is how a
+     * bed icon survived in the homes screen after the same path was fixed in the menu.
+     */
+    @Test
+    void noSpriteLiteralAnywhereNamesAMissingTexture() throws IOException {
+        Path jar = CANDIDATES.stream().filter(Files::isRegularFile).findFirst().orElse(null);
+        Assumptions.assumeTrue(jar != null, "no client jar on this machine");
+
+        java.util.regex.Pattern literal =
+                java.util.regex.Pattern.compile("\"((?:item|block)/[a-z0-9_]+)\"");
+        List<String> missing = new ArrayList<>();
+        try (ZipFile client = new ZipFile(jar.toFile());
+                java.util.stream.Stream<Path> files =
+                        Files.list(Path.of("src/main/java/bot/mgx/accessbridge"))) {
+            for (Path file : files.filter(f -> f.toString().endsWith(".java")).toList()) {
+                java.util.regex.Matcher match =
+                        literal.matcher(Files.readString(file, java.nio.charset.StandardCharsets.UTF_8));
+                while (match.find()) {
+                    if (client.getEntry(texture(match.group(1))) == null) {
+                        missing.add(file.getFileName() + " -> " + match.group(1));
+                    }
+                }
+            }
+        }
+        assertTrue(missing.isEmpty(), "sprites pointing at nothing: " + missing);
+    }
 }
