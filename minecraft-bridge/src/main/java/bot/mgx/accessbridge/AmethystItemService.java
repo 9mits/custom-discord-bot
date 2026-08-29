@@ -144,7 +144,6 @@ final class AmethystItemService implements Listener {
         data.set(kindKey, PersistentDataType.STRING, kind);
         data.set(serialKey, PersistentDataType.STRING, UUID.randomUUID().toString());
         meta.setUnbreakable(true);
-        meta.setEnchantmentGlintOverride(true);
         NamespacedKey model = NamespacedKey.fromString(modelKey);
         if (model != null) {
             meta.setItemModel(model);
@@ -166,7 +165,6 @@ final class AmethystItemService implements Listener {
         if (model != null) {
             meta.setItemModel(model);
         }
-        meta.setEnchantmentGlintOverride(true);
         meta.lore(List.of(
                 line("Saves you from death, then detonates."),
                 line("Cleanses debuffs and grants regeneration,"),
@@ -617,9 +615,12 @@ final class AmethystItemService implements Listener {
         if (changed) {
             meta.lore(cleaned);
         }
-        if (!meta.hasEnchantmentGlintOverride()
-                || !Boolean.TRUE.equals(meta.getEnchantmentGlintOverride())) {
-            meta.setEnchantmentGlintOverride(true);
+        // Cleared rather than forced false: these carry a designed model, and a
+        // forced glint over one reads as a sticker rather than an enchantment. The
+        // pickaxe, axe and shovel can still be enchanted for real, and that glint is
+        // vanilla's to draw — overriding it off would hide a genuine enchantment.
+        if (meta.hasEnchantmentGlintOverride()) {
+            meta.setEnchantmentGlintOverride(null);
             changed = true;
         }
         if (meta.getEnchantLevel(Enchantment.UNBREAKING) == 1) {
