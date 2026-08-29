@@ -107,8 +107,11 @@ affected by vanilla Fortune. Excavation I is pickaxe-only and breaks the matchin
 While the Amethyst Event is active, one Airdrop is scheduled after a fresh random
 delay between 30 and 90 minutes. It chooses either the Overworld or Nether, stays
 inside that world's configured border, loads a safe natural site, and constructs a
-temporary amethyst altar around a chest. The spawn announcement and 20-second boss
-bar both show the exact rarity, world, and block coordinates.
+temporary amethyst altar around a chest. The spawn announcement and boss bar both
+show the exact rarity, world, and block coordinates. The boss bar remains
+visible for the full lifetime and drains against a live timer until the Airdrop is
+looted or expires. A Bedrock-safe two-line hologram above the chest displays its
+rarity and the same second-by-second countdown.
 
 Common, Rare, Legendary, and Mythic Airdrops use progressively stronger private
 loot tables. Every chest includes roughly one to four stacks of Mysterious Crate
@@ -120,7 +123,9 @@ The altar has rotating purple rings and a tall beacon-like particle column. It i
 protected from block edits, fluids, pistons, explosions, and hopper extraction.
 The first player to open the chest receives one **Amethyst Airdrop Opened** credit.
 When the chest is emptied—or 30 minutes passes—the chest, altar, effects, chunk
-tickets, and announcement state are removed and the original terrain is restored.
+tickets, hologram, and announcement state are removed and the original terrain is
+restored through a large purple disappearance burst. Spawn cues play directly to
+every online player so distance and world do not mute the announcement.
 
 Rare Airdrops have a small opportunity to contain an event cosmetic; Legendary and
 Mythic Airdrops are the primary source. The three equally selected possibilities are
@@ -135,7 +140,8 @@ successfully delivered or deliberately Auto Trashed, so reconnect recovery canno
 double-count an opening.
 
 On the local Paper test server, `/mgxadmin testairdrop all` places a nearby Mythic
-test Airdrop with all three cosmetics guaranteed alongside its real randomized loot.
+test Airdrop with one randomly selected cosmetic guaranteed alongside its real
+randomized loot. No Airdrop can ever contain more than one cosmetic.
 The same command accepts an individual rarity or `cosmetic <kill|trail|aura|all>`.
 `status`, `expire`, and `remove` exercise inspection and both cleanup paths without a
 30-minute wait. `progress <crates> <airdrops> [player]` sets exact leaderboard test
