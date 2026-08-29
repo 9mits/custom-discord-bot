@@ -662,7 +662,7 @@ final class ClanMenuService implements Listener {
         if (ClanLevel.warpSlots(upgraded.level()) > previousWarpSlots) {
             announce(upgraded, Component.text("  +1 clan warp slot", NamedTextColor.WHITE));
         }
-        openUpgrade(player);
+        openUpgradePreferred(player);
     }
 
     private void buyMembers(Player player) throws IOException {
@@ -676,7 +676,7 @@ final class ClanMenuService implements Listener {
                 .record();
         announce(upgraded, Component.text(
                 "The clan can now hold " + upgraded.memberSlots() + " members.", ORANGE));
-        openUpgrade(player);
+        openUpgradePreferred(player);
     }
 
     @EventHandler(priority = EventPriority.NORMAL)
