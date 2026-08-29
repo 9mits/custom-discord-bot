@@ -95,7 +95,7 @@ final class LeaderboardDialogService {
                         .body(List.of(DialogBody.plainMessage(
                                 MenuText.body("Pick a board."), 400
                         )))
-                        .afterAction(DialogBase.DialogAfterAction.NONE)
+                        .afterAction(DialogBase.DialogAfterAction.CLOSE)
                         .canCloseWithEscape(true)
                         .build())
                 .type(DialogType.multiAction(buttons).columns(3).build()));
@@ -153,7 +153,7 @@ final class LeaderboardDialogService {
         Dialog dialog = Dialog.create(builder -> builder.empty()
                 .base(DialogBase.builder(MenuText.title(title))
                         .body(List.copyOf(body))
-                        .afterAction(DialogBase.DialogAfterAction.NONE)
+                        .afterAction(DialogBase.DialogAfterAction.CLOSE)
                         .canCloseWithEscape(true)
                         .build())
                 .type(DialogType.multiAction(buttons).columns(1).build()));

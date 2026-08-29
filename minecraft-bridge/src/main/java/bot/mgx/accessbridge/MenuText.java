@@ -31,6 +31,12 @@ final class MenuText {
     static final TextColor SILVER = TextColor.color(0xC9D6E4);
     static final TextColor BRONZE = TextColor.color(0xCD7F32);
     private static final Key BLOCK_ATLAS = Key.key("minecraft", "blocks");
+    /**
+     * 1.21.11 moved item textures out of the blocks atlas into their own. Pointing an
+     * item sprite at the blocks atlas draws a missing-texture square, which is what
+     * every icon in the menu did before this.
+     */
+    private static final Key ITEM_ATLAS = Key.key("minecraft", "items");
 
     private MenuText() {
     }
@@ -56,9 +62,15 @@ final class MenuText {
                 + material.name().toLowerCase(Locale.ROOT));
     }
 
-    /** An icon named by its exact texture path, for the ones the split gets wrong. */
+    /** An icon named by its exact texture path, which also picks the atlas it lives in. */
     static Component sprite(String path) {
-        return Component.object(ObjectContents.sprite(BLOCK_ATLAS, Key.key("minecraft", path)));
+        return Component.object(ObjectContents.sprite(
+                atlasFor(path), Key.key("minecraft", path)
+        ));
+    }
+
+    static Key atlasFor(String path) {
+        return path.startsWith("block/") ? BLOCK_ATLAS : ITEM_ATLAS;
     }
 
     /** {@code Label: value} with the value carrying the colour. */

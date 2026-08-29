@@ -132,7 +132,8 @@ final class QuickMenuDatapack {
         JsonObject sprite = new JsonObject();
         sprite.addProperty("type", "object");
         sprite.addProperty("object", "atlas");
-        sprite.addProperty("atlas", "minecraft:blocks");
+        sprite.addProperty("atlas", entry.sprite().startsWith("block/")
+                ? "minecraft:blocks" : "minecraft:items");
         sprite.addProperty("sprite", entry.sprite());
         JsonArray label = new JsonArray();
         label.add(sprite);
