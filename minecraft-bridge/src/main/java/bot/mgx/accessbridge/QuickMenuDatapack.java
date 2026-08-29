@@ -24,10 +24,18 @@ import java.util.List;
  * enable and a restart is asked for when they actually changed.
  */
 final class QuickMenuDatapack {
-    /** 1.21.11's data pack format. The range keeps a version bump from silently unloading it. */
-    private static final int PACK_FORMAT = 94;
-    private static final int MIN_PACK_FORMAT = 88;
-    private static final int MAX_PACK_FORMAT = 99;
+    /**
+     * 1.21.11's data pack version, as a {@code [major, minor]} pair. Anything above
+     * format 81 must declare {@code min_format} and {@code max_format} or the server
+     * refuses the metadata outright, and {@code pack_format} no longer stands in for
+     * them — Bukkit's own generated pack in the same folder is the reference.
+     *
+     * <p>The range accepts any minor bump of the same major. A new major can change
+     * the dialog schema itself, so the pack should be revisited rather than loaded.
+     */
+    private static final int PACK_MAJOR = 94;
+    private static final int MIN_PACK_MINOR = 0;
+    private static final int MAX_PACK_MINOR = 99;
     private static final String NAMESPACE = "mgx";
     private static final String DIALOG_NAME = "menu";
     private static final String PACK_FOLDER = "mgx_menu";
@@ -67,17 +75,21 @@ final class QuickMenuDatapack {
         return true;
     }
 
-    private JsonObject packMeta() {
+    JsonObject packMeta() {
         JsonObject pack = new JsonObject();
         pack.addProperty("description", "Mysterious SMP X quick-actions menu");
-        pack.addProperty("pack_format", PACK_FORMAT);
-        JsonArray supported = new JsonArray();
-        supported.add(MIN_PACK_FORMAT);
-        supported.add(MAX_PACK_FORMAT);
-        pack.add("supported_formats", supported);
+        pack.add("min_format", version(PACK_MAJOR, MIN_PACK_MINOR));
+        pack.add("max_format", version(PACK_MAJOR, MAX_PACK_MINOR));
         JsonObject meta = new JsonObject();
         meta.add("pack", pack);
         return meta;
+    }
+
+    private static JsonArray version(int major, int minor) {
+        JsonArray version = new JsonArray();
+        version.add(major);
+        version.add(minor);
+        return version;
     }
 
     JsonObject menuDialog() {
