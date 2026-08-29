@@ -141,14 +141,20 @@ enum CrateKind {
     }
 
     /**
-     * The two-line countdown banner every limited-crate surface shares.
+     * The two-line countdown banner every limited-crate surface shares, or nothing
+     * at all for a crate that is not going anywhere.
      *
      * <p>One source for the wording and the colours, so the crate screens, the
-     * physical chest's hologram and anything added later cannot drift apart. Named
-     * colours only: hex never reaches a Bedrock client, and this is the line a
-     * Bedrock player most needs to be able to read.
+     * physical chest's hologram and anything added later cannot drift apart — and
+     * the permanent crate is refused here rather than at each call site, because a
+     * caller that forgets is a Default Crate advertising a deadline it does not
+     * have. Named colours only: hex never reaches a Bedrock client, and this is the
+     * line a Bedrock player most needs to be able to read.
      */
     List<Component> countdownLines(long now) {
+        if (!limited()) {
+            return List.of();
+        }
         if (!available(now)) {
             return List.of(
                     Component.text(LIMITED_HEADLINE_CLOSED, NamedTextColor.DARK_GRAY, TextDecoration.BOLD),

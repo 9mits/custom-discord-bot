@@ -478,27 +478,31 @@ final class CrateCatalog {
      */
     private static List<Reward> buildAmethystRewards() {
         List<Reward> rewards = new ArrayList<>();
-        // Common - 63,000 of 100,000. The geode blocks are what an amethyst crate
-        // should be full of, and they were missing entirely.
+        // Common - 63,000 of 100,000, and every one of them purple.
+        //
+        // The geode shell was the obvious theme and the wrong one: calcite is white
+        // stone and smooth basalt and tinted glass both read as black, so five
+        // openings in eight paid out something that looked like rubble. What the
+        // crate is called is what it should be full of.
         rewards.add(item(
                 "amethyst_shards", "32 Amethyst Shards", Category.RESOURCE, 13_000,
                 "AMETHYST_SHARD", 32, "A bright stack of vanilla amethyst shards."
         ));
         rewards.add(item(
-                "amethyst_calcite", "64 Calcite", Category.RESOURCE, 10_000,
-                "CALCITE", 64, "The pale middle shell of an amethyst geode."
-        ));
-        rewards.add(item(
-                "amethyst_smooth_basalt", "64 Smooth Basalt", Category.RESOURCE, 10_000,
-                "SMOOTH_BASALT", 64, "The dark outer shell of an amethyst geode."
-        ));
-        rewards.add(item(
-                "amethyst_tinted_glass", "16 Tinted Glass", Category.RESOURCE, 10_000,
-                "TINTED_GLASS", 16, "Glass that blocks light, made from amethyst shards."
-        ));
-        rewards.add(item(
                 "amethyst_blocks", "16 Blocks of Amethyst", Category.RESOURCE, 10_000,
                 "AMETHYST_BLOCK", 16, "Sixteen musical amethyst building blocks."
+        ));
+        rewards.add(item(
+                "amethyst_purpur", "64 Purpur Blocks", Category.RESOURCE, 10_000,
+                "PURPUR_BLOCK", 64, "A full stack of violet End stone brick."
+        ));
+        rewards.add(item(
+                "amethyst_purple_glass", "32 Purple Stained Glass", Category.RESOURCE, 10_000,
+                "PURPLE_STAINED_GLASS", 32, "Amethyst light, in a pane you can build with."
+        ));
+        rewards.add(item(
+                "amethyst_purple_concrete", "64 Purple Concrete", Category.RESOURCE, 10_000,
+                "PURPLE_CONCRETE", 64, "The flattest, richest purple in the game."
         ));
         rewards.add(item(
                 "amethyst_golden_carrots", "16 Golden Carrots", Category.RESOURCE, 10_000,

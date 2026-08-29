@@ -56,7 +56,51 @@ final class CosmeticEffectService implements Listener {
      * stand per tagged player costs nothing next to the particle work.
      */
     private static final long NAMEPLATE_PERIOD_TICKS = 1L;
-    private static final double VIEW_DISTANCE_SQUARED = 48d * 48d;
+    /**
+     * How far one main-pass frame moves the odds tag's gradient.
+     *
+     * <p>The tag is retitled on the main pass, every two ticks, so these are per tenth
+     * of a second. Slow on purpose: the point is that it drifts, not that it flickers.
+     */
+    private static final double SCROLL_SPEED = 0.06d;
+    /** Palette entries between one character and the next along the line. */
+    private static final double SCROLL_SPREAD = 0.34d;
+    private static final double PULSE_SPEED = 0.045d;
+    /** Frames the shimmer highlight spends crossing one character. */
+    private static final double SHIMMER_FRAMES = 3d;
+    /** Characters' worth of stillness between one sweep and the next. */
+    private static final double SHIMMER_REST = 5d;
+    /**
+     * Characters either side of the head that the highlight reaches.
+     *
+     * <p>Deliberately not the palette size. Tying the width of the glint to how many
+     * colours a family happens to have gave the four-colour families a highlight
+     * three characters wide, which is a bright spot rather than a sweep.
+     */
+    private static final double SHIMMER_WIDTH = 5d;
+    /** How far the resting colour drifts per frame, under the highlight. */
+    private static final double SHIMMER_DRIFT = 0.02d;
+    static final double VIEW_DISTANCE_SQUARED = 48d * 48d;
+    /**
+     * How close you have to be to hear a cosmetic.
+     *
+     * <p>An aura is visible at 48 blocks, which is right for something you look at
+     * and wrong for something you listen to. At that range one player's soundtrack
+     * covers most of a base whether or not anyone wanted it, and it says exactly
+     * where its owner is standing long before they are in sight. Sixteen blocks is
+     * close enough to be part of meeting somebody and short enough not to carry.
+     */
+    static final double HEARING_DISTANCE_SQUARED = 16d * 16d;
+    /**
+     * Frames between one ambient note and the next.
+     *
+     * <p>The main pass runs every two ticks, so this is a little over three seconds.
+     * Long enough that it reads as an atmosphere around a player rather than a loop
+     * playing at them, which is the difference between rare and irritating.
+     */
+    private static final long AURA_SOUND_FRAMES = 32L;
+    /** Quiet on purpose; the listener's own cosmetic volume scales it further. */
+    private static final float AURA_SOUND_VOLUME = 0.45f;
     private static final int TRAIL_HISTORY_SIZE = 14;
     private static final double TRAIL_RESET_DISTANCE_SQUARED = 12d * 12d;
     private static final String MUSIC_AURA_ID = CosmeticCatalog.HIDDEN_AMETHYST_COSMETIC_ID;
@@ -225,6 +269,7 @@ final class CosmeticEffectService implements Listener {
             } else {
                 stopMusicAura(player.getUniqueId());
             }
+            aura.ifPresent(definition -> playAuraAmbience(player, definition));
             // The music aura used to render every tick while every other aura thinned
             // out. At sprint speed that is one formation per block travelled, so the
             // ring smeared into a trail instead of orbiting the player.
@@ -398,6 +443,15 @@ final class CosmeticEffectService implements Listener {
         return result;
     }
 
+    /**
+     * The colour one character of the odds tag is drawn in.
+     *
+     * <p>Every motion samples a continuous position along the palette and blends the
+     * two entries either side of it. Snapping to whole palette entries was what made
+     * the tag look cheap: a four-colour palette stepping once every few frames is
+     * four hard edges marching along the text, and the eye reads the steps rather
+     * than the movement. Blending turns the same palette into a gradient that slides.
+     */
     private static TextColor oddsColour(
             TextColor[] palette,
             CosmeticCatalog.OddsMotion motion,
@@ -405,19 +459,59 @@ final class CosmeticEffectService implements Listener {
             int index,
             int length
     ) {
-        return switch (motion) {
-            case SCROLL -> palette[
-                    (int) Math.floorMod(frame / 2L + index, palette.length)
-            ];
-            case PULSE -> palette[(int) Math.floorMod(frame / 3L, palette.length)];
-            // One highlight sweeps the line and then rests: the extra travel past the
-            // end is the pause between passes, which is what makes it read as a glint.
+        double position = switch (motion) {
+            // A gradient the length of the palette, drifting along the text.
+            case SCROLL -> frame * SCROLL_SPEED + index * SCROLL_SPREAD;
+            // The whole line breathes together, so there is no spatial term.
+            case PULSE -> frame * PULSE_SPEED;
+            // One highlight sweeps the line and then rests: the travel past the end
+            // is the pause between passes, which is what makes it read as a glint.
+            // Eased so it swells and fades rather than switching on, and it enters
+            // and leaves a full reach beyond either end — a head that reappears at
+            // the first character is a jump however smooth the rest of the pass is.
             case SHIMMER -> {
-                int head = (int) Math.floorMod(frame, length + 8L);
-                int distance = Math.abs(head - index);
-                yield distance >= palette.length - 1 ? palette[0] : palette[distance + 1];
+                double span = length + SHIMMER_REST + SHIMMER_WIDTH * 2d;
+                double head = Math.floorMod(frame, (long) Math.ceil(span * SHIMMER_FRAMES))
+                        / SHIMMER_FRAMES - SHIMMER_WIDTH;
+                double distance = Math.min(SHIMMER_WIDTH, Math.abs(head - index));
+                // 1 under the head, 0 at the edge of the highlight, eased at both.
+                double glow = (1d + Math.cos(Math.PI * distance / SHIMMER_WIDTH)) / 2d;
+                // The line breathes underneath, so the glint travels over moving
+                // colour rather than over a base that sits on one palette entry
+                // between passes. The head lands on whole characters, so without
+                // this the whole motion samples the palette at a handful of fixed
+                // points and the glint is the only thing that is not static.
+                yield frame * SHIMMER_DRIFT + (palette.length - 1) * glow;
             }
         };
+        return blend(palette, position);
+    }
+
+    /**
+     * Samples a palette at a fractional position, wrapping, mixing in linear RGB.
+     *
+     * <p>sRGB values are gamma-encoded, so averaging them directly darkens the middle
+     * of every blend and a violet-to-white ramp sags grey halfway across. Squaring
+     * into linear light, mixing, and taking the root back is what keeps the midpoint
+     * as bright as the ends.
+     */
+    private static TextColor blend(TextColor[] palette, double position) {
+        int size = palette.length;
+        double wrapped = ((position % size) + size) % size;
+        int first = (int) Math.floor(wrapped);
+        double mix = wrapped - first;
+        TextColor from = palette[first % size];
+        TextColor to = palette[(first + 1) % size];
+        return TextColor.color(
+                channel(from.red(), to.red(), mix),
+                channel(from.green(), to.green(), mix),
+                channel(from.blue(), to.blue(), mix)
+        );
+    }
+
+    private static int channel(int from, int to, double mix) {
+        double linear = from * from * (1d - mix) + to * to * mix;
+        return Math.clamp((int) Math.round(Math.sqrt(linear)), 0, 255);
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -1008,9 +1102,7 @@ final class CosmeticEffectService implements Listener {
         MusicAuraState state = musicAuraStates.computeIfAbsent(
                 owner.getUniqueId(), ignored -> new MusicAuraState(now)
         );
-        List<Player> currentViewers = viewers(
-                owner, owner.getLocation(), PlayerSettingsStore.Setting.OWN_AURA_VISIBLE
-        );
+        List<Player> currentViewers = listeners(owner);
         Set<UUID> currentViewerIds = new HashSet<>();
         boolean volumeChanged = false;
         for (Player viewer : currentViewers) {
@@ -3406,6 +3498,76 @@ final class CosmeticEffectService implements Listener {
                 viewer.playSound(location, sound, volume, pitch);
             }
         }
+    }
+
+    /**
+     * Who is close enough to hear one player's cosmetic.
+     *
+     * <p>The same permission rules as seeing it — somebody who has turned cosmetics
+     * off is not serenaded by them either — inside a much smaller radius. Walking
+     * out of it drops the listener, and every caller stops whatever it had started
+     * for anybody who leaves the list.
+     */
+    private List<Player> listeners(Player owner) {
+        Location centre = owner.getLocation();
+        return viewers(owner, centre, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE).stream()
+                .filter(viewer -> viewer.getWorld() == centre.getWorld()
+                        && viewer.getLocation().distanceSquared(centre) <= HEARING_DISTANCE_SQUARED)
+                .toList();
+    }
+
+    /**
+     * The ambience around the auras rare enough to carry an odds tag.
+     *
+     * <p>Tied to exactly the same test as the tag, so the rule is one thing rather
+     * than two that can disagree: if an aura announces its odds over somebody's head,
+     * it also has a sound. The Iridescent Imperium is the exception and already has
+     * one — a chime laid over a composed track is worse than either alone.
+     *
+     * <p>Played to the listener rather than positionally so the player's own cosmetic
+     * volume governs it exactly as it governs the music, and kept quiet and slow: it
+     * is meant to be noticed once, not listened to.
+     */
+    private void playAuraAmbience(Player owner, CosmeticCatalog.Definition aura) {
+        if (frame % AURA_SOUND_FRAMES != 0L || aura.id().equals(MUSIC_AURA_ID)) {
+            return;
+        }
+        String sound = auraAmbience(aura);
+        if (sound == null) {
+            return;
+        }
+        // A family's own pitch, so two Mythics standing together are still telling
+        // you two different things.
+        float pitch = 0.85f + (Math.floorMod(aura.oddsFamily().ordinal(), 7)) * 0.06f;
+        for (Player listener : listeners(owner)) {
+            int volume = settings.musicVolume(listener.getUniqueId());
+            if (volume <= 0) {
+                continue;
+            }
+            listener.playSound(
+                    listener.getLocation(), sound, SoundCategory.PLAYERS,
+                    (volume / 100.0f) * AURA_SOUND_VOLUME, pitch
+            );
+        }
+    }
+
+    /**
+     * The sound one aura carries, or null for an aura not rare enough to be heard.
+     *
+     * <p>Named rather than resolved to a {@link Sound}: that enum reads the server's
+     * sound registry the moment it is touched, so a constant here would make the one
+     * rule worth pinning — which rarities are audible — impossible to unit test.
+     */
+    static String auraAmbience(CosmeticCatalog.Definition aura) {
+        if (!aura.nameplateWorthy()) {
+            return null;
+        }
+        if (aura.hiddenAmethystJackpot()) {
+            return "block.conduit.ambient.short";
+        }
+        return aura.secret()
+                ? "block.beacon.ambient"          // Exotic: deep and wrong-sounding
+                : "block.amethyst_block.chime";   // Mythic: crystalline
     }
 
     private List<Player> viewers(

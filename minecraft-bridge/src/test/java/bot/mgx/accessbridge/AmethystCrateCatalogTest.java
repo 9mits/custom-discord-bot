@@ -151,16 +151,33 @@ final class AmethystCrateCatalogTest {
         );
     }
 
-    /** The geode blocks an amethyst crate should always have been full of. */
+    /**
+     * The commons are what the crate is called.
+     *
+     * <p>The geode shell was the obvious theme and the wrong one — calcite is white
+     * stone, and smooth basalt and tinted glass both read as black — so most
+     * openings paid out something that looked like rubble.
+     */
     @Test
-    void limitedPoolPaysTheGeodeItselfAsCommonLoot() {
-        for (String id : List.of(
+    void everyCommonInTheLimitedPoolIsPurple() {
+        Set<String> purple = Set.of(
+                "AMETHYST_SHARD", "AMETHYST_BLOCK", "PURPUR_BLOCK",
+                "PURPLE_STAINED_GLASS", "PURPLE_CONCRETE",
+                // The one exception, and it earns it: nothing else in the pool feeds you.
+                "GOLDEN_CARROT"
+        );
+        List<CrateCatalog.Reward> commons = CrateCatalog.amethyst().stream()
+                .filter(reward -> reward.rarityDisplay().equals("Common"))
+                .toList();
+        assertEquals(6, commons.size());
+        for (CrateCatalog.Reward reward : commons) {
+            assertTrue(purple.contains(reward.materialName()), reward.id());
+            assertFalse(CrateCatalog.isExclusiveAmethyst(reward), reward.id());
+        }
+        for (String gone : List.of(
                 "amethyst_calcite", "amethyst_smooth_basalt", "amethyst_tinted_glass"
         )) {
-            CrateCatalog.Reward reward = CrateCatalog.find(id).orElseThrow(() -> new AssertionError(id));
-            assertEquals("Common", reward.rarityDisplay(), id);
-            assertTrue(CrateCatalog.amethyst().contains(reward), id);
-            assertFalse(CrateCatalog.isExclusiveAmethyst(reward), id);
+            assertTrue(CrateCatalog.find(gone).isEmpty(), gone);
         }
     }
 
@@ -219,11 +236,23 @@ final class AmethystCrateCatalogTest {
         assertEquals("ENDED", CrateKind.AMETHYST.countdown(closes + 86_400_000L));
     }
 
+    /**
+     * The permanent crate has no deadline to advertise.
+     *
+     * <p>Refused by the banner itself rather than at each call site: a caller that
+     * forgets is a Default Crate telling players it is leaving, which is exactly what
+     * the chest hologram did.
+     */
     @Test
     void onlyTheLimitedCrateCountsDown() {
         assertTrue(CrateKind.AMETHYST.limited());
         assertFalse(CrateKind.DEFAULT.limited());
         assertEquals(Long.MAX_VALUE, CrateKind.DEFAULT.closesAt());
+
+        assertEquals(List.of(), CrateKind.DEFAULT.countdownLines(0L));
+        assertEquals(List.of(), CrateKind.DEFAULT.countdownLines(System.currentTimeMillis()));
+        assertEquals(List.of(), CrateKind.DEFAULT.countdownLines(Long.MAX_VALUE - 1L));
+        assertEquals(2, CrateKind.AMETHYST.countdownLines(System.currentTimeMillis()).size());
     }
 
     /**
@@ -270,6 +299,29 @@ final class AmethystCrateCatalogTest {
             }
         }
         assertEquals(4, timed);
+    }
+
+    /**
+     * The amethyst equipment wears its own model, not a sticker.
+     *
+     * <p>A forced glint over a designed icon reads as fake, and on the pickaxe, axe
+     * and shovel it also lies: those can be enchanted for real, and vanilla's own
+     * glint is the thing that should say so. Asserted against the source because
+     * building one of these items needs a running server.
+     */
+    @Test
+    void amethystEquipmentNeverForcesAnEnchantmentGlint() {
+        String source;
+        try {
+            source = java.nio.file.Files.readString(java.nio.file.Path.of(
+                    "src/main/java/bot/mgx/accessbridge/AmethystItemService.java"
+            ));
+        } catch (java.io.IOException exception) {
+            throw new AssertionError(exception);
+        }
+        assertFalse(source.contains("setEnchantmentGlintOverride(true)"), source.length() + "");
+        // Items already in circulation have theirs taken off rather than left on.
+        assertTrue(source.contains("setEnchantmentGlintOverride(null)"));
     }
 
     @Test
