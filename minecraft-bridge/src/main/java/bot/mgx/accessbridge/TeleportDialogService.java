@@ -42,10 +42,14 @@ final class TeleportDialogService implements CommandExecutor {
 
     private final MGXAccessBridge plugin;
     private final SettingsClientSupport clientSupport;
+    private final BedrockForms forms;
 
-    TeleportDialogService(MGXAccessBridge plugin, SettingsClientSupport clientSupport) {
+    TeleportDialogService(
+            MGXAccessBridge plugin, SettingsClientSupport clientSupport, BedrockForms forms
+    ) {
         this.plugin = plugin;
         this.clientSupport = clientSupport;
+        this.forms = forms;
     }
 
     @Override
@@ -67,7 +71,24 @@ final class TeleportDialogService implements CommandExecutor {
             return;
         }
         if (!clientSupport.supportsDialogs(viewer)) {
-            openChest(viewer, targets);
+            List<BedrockForms.Button> buttons = new ArrayList<>();
+            for (Player target : targets) {
+                String name = target.getName();
+                buttons.add(new BedrockForms.Button(name,
+                        () -> viewer.performCommand("tpa " + name)));
+            }
+            buttons.add(new BedrockForms.Button("Type A Name",
+                    () -> forms.prompt(viewer, "Teleport To", "Name", "", typed -> {
+                        String name = typed.strip();
+                        if (!name.matches("[A-Za-z0-9_]{1,16}")) {
+                            PlayerMenuService.error(viewer, "That is not a Minecraft name.");
+                            return;
+                        }
+                        viewer.performCommand("tpa " + name);
+                    })));
+            if (!forms.menu(viewer, "Teleport", "Choose a player.", buttons)) {
+                openChest(viewer, targets);
+            }
             return;
         }
         List<ActionButton> buttons = new ArrayList<>();

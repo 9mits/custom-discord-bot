@@ -36,17 +36,20 @@ final class ClanChooserService {
     private final ClanStore clans;
     private final ClanBattleStore clanBattles;
     private final SettingsClientSupport clientSupport;
+    private final BedrockForms forms;
 
     ClanChooserService(
             ClanMenuService menus,
             ClanStore clans,
             ClanBattleStore clanBattles,
-            SettingsClientSupport clientSupport
+            SettingsClientSupport clientSupport,
+            BedrockForms forms
     ) {
         this.menus = menus;
         this.clans = clans;
         this.clanBattles = clanBattles;
         this.clientSupport = clientSupport;
+        this.forms = forms;
     }
 
     /** Wired after construction; the directory and the chooser reference each other. */
@@ -61,12 +64,26 @@ final class ClanChooserService {
     void open(Player player) {
         ClanStore.ClanView own = clans.clanOf(player.getUniqueId()).orElse(null);
         if (!clientSupport.supportsDialogs(player)) {
-            // Without dialogs the directory is still the safe landing: it works whether
-            // or not the player has a clan.
-            if (own == null) {
-                browse(player);
-            } else {
-                menus.openHub(player);
+            List<BedrockForms.Button> choices = new ArrayList<>();
+            if (own != null) {
+                choices.add(new BedrockForms.Button("My Clan", () -> menus.openHub(player)));
+                choices.add(new BedrockForms.Button("Clan Warps", () -> {
+                    if (clanWarps != null) {
+                        clanWarps.open(player);
+                    } else {
+                        menus.openWarps(player);
+                    }
+                }));
+            }
+            choices.add(new BedrockForms.Button("Browse Clans", () -> browse(player)));
+            if (!forms.menu(player, "Clans",
+                    own == null ? "You are not in a clan yet." : "Your clan, or everyone else's.",
+                    choices)) {
+                if (own == null) {
+                    browse(player);
+                } else {
+                    menus.openHub(player);
+                }
             }
             return;
         }

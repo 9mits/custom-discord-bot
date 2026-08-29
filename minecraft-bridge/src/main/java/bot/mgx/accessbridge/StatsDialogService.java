@@ -52,17 +52,20 @@ final class StatsDialogService implements CommandExecutor {
     private final ProfileStatsService profiles;
     private final CrateItems crateItems;
     private final SettingsClientSupport clientSupport;
+    private final BedrockForms forms;
 
     StatsDialogService(
             MGXAccessBridge plugin,
             ProfileStatsService profiles,
             CrateItems crateItems,
-            SettingsClientSupport clientSupport
+            SettingsClientSupport clientSupport,
+            BedrockForms forms
     ) {
         this.plugin = plugin;
         this.profiles = profiles;
         this.crateItems = crateItems;
         this.clientSupport = clientSupport;
+        this.forms = forms;
     }
 
     @Override
@@ -90,7 +93,9 @@ final class StatsDialogService implements CommandExecutor {
     /** The player list, mirroring the teleport picker so the two read the same. */
     void openPicker(Player viewer) {
         if (!clientSupport.supportsDialogs(viewer)) {
-            openProfile(viewer, viewer.getUniqueId(), viewer.getName());
+            if (!bedrockPicker(viewer)) {
+                openProfile(viewer, viewer.getUniqueId(), viewer.getName());
+            }
             return;
         }
         List<ActionButton> buttons = new ArrayList<>();
@@ -174,6 +179,25 @@ final class StatsDialogService implements CommandExecutor {
                 known.getName() == null ? name : known.getName(), this::openPicker);
     }
 
+    /** The same picker as a Bedrock form, including the look-up a chest cannot offer. */
+    private boolean bedrockPicker(Player viewer) {
+        List<BedrockForms.Button> buttons = new ArrayList<>();
+        for (Player online : Bukkit.getOnlinePlayers()) {
+            if (VerificationLobbyService.isLobbyWorld(online.getWorld())) {
+                continue;
+            }
+            UUID id = online.getUniqueId();
+            String name = online.getName();
+            buttons.add(new BedrockForms.Button(
+                    name, () -> openCard(viewer, id, name, this::openPicker)
+            ));
+        }
+        buttons.add(new BedrockForms.Button("Look Up A Player",
+                () -> forms.prompt(viewer, "Look Up A Player", "Name", "",
+                        typed -> lookUp(viewer, typed))));
+        return forms.menu(viewer, "Player Stats", "Choose a player.", buttons);
+    }
+
     void openCard(Player viewer, UUID id, String fallbackName) {
         openCard(viewer, id, fallbackName, this::openPicker);
     }
@@ -190,7 +214,19 @@ final class StatsDialogService implements CommandExecutor {
     ) {
         ProfileStatsService.Profile profile = profiles.of(id, fallbackName);
         if (!clientSupport.supportsDialogs(viewer)) {
-            openProfile(viewer, id, fallbackName, back);
+            boolean shown = forms.menu(viewer, profile.name(), String.join("\n",
+                    "Money: " + EconomyFormat.dollars(profile.money()),
+                    "Kills: " + compact(profile.playerKills()),
+                    "Deaths: " + compact(profile.deaths()),
+                    "Playtime: " + playtime(profile.playTimeTicks())
+            ), List.of(
+                    new BedrockForms.Button("View Full Profile",
+                            () -> openProfile(viewer, id, profile.name(), back)),
+                    new BedrockForms.Button("Back", () -> back.accept(viewer))
+            ));
+            if (!shown) {
+                openProfile(viewer, id, fallbackName, back);
+            }
             return;
         }
         List<DialogBody> body = List.of(
