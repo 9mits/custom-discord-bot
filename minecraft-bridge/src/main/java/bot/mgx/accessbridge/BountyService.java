@@ -46,19 +46,22 @@ final class BountyService implements CommandExecutor, TabCompleter, Listener {
     private final BountyStore bounties;
     private final ClanStore clans;
     private final PersonalNotificationService notifications;
+    private final PlayerSettingsStore settings;
 
     BountyService(
             MGXAccessBridge plugin,
             EconomyStore money,
             BountyStore bounties,
             ClanStore clans,
-            PersonalNotificationService notifications
+            PersonalNotificationService notifications,
+            PlayerSettingsStore settings
     ) {
         this.plugin = plugin;
         this.money = money;
         this.bounties = bounties;
         this.clans = clans;
         this.notifications = notifications;
+        this.settings = settings;
     }
 
     @Override
@@ -254,7 +257,8 @@ final class BountyService implements CommandExecutor, TabCompleter, Listener {
                 prefix().append(Component.text(claimed, NamedTextColor.GRAY)),
                 Component.text("Your bounty was claimed by " + killer.getName(), NamedTextColor.RED)
         );
-        Bukkit.broadcast(prefix().append(Component.text(
+        PlayerBroadcast.broadcast(settings,
+                PlayerSettingsStore.Setting.BOUNTY_MESSAGES, prefix().append(Component.text(
                 killer.getName() + " claimed " + EconomyFormat.dollars(payout)
                         + " on " + victim.getName() + ".",
                 NamedTextColor.GRAY
@@ -358,7 +362,8 @@ final class BountyService implements CommandExecutor, TabCompleter, Listener {
         info(target, source + " put " + EconomyFormat.dollars(amount)
                 + " on your head. Total: " + EconomyFormat.dollars(total) + ".");
         if (fromClan) {
-            Bukkit.broadcast(prefix().append(Component.text(
+            PlayerBroadcast.broadcast(settings,
+                PlayerSettingsStore.Setting.BOUNTY_MESSAGES, prefix().append(Component.text(
                     "[" + source + "] put " + EconomyFormat.dollars(amount)
                             + " on " + target.getName() + ".",
                     NamedTextColor.GRAY
