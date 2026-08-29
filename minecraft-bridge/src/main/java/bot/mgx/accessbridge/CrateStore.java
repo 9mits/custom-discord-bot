@@ -22,7 +22,7 @@ import java.util.UUID;
 final class CrateStore {
     static final long HOURLY_KEY_MILLIS = Duration.ofHours(1).toMillis();
 
-    record Pending(UUID spinId, String rewardId, long reservedAt) {
+    record Pending(UUID spinId, String rewardId, CrateKind crateKind, long reservedAt) {
     }
 
     record KeyCredit(int earned, int banked, long millisUntilNext) {
@@ -57,6 +57,7 @@ final class CrateStore {
                 pending.put(UUID.fromString(entry.getKey()), new Pending(
                         UUID.fromString(value.get("spin_id").getAsString()),
                         value.get("reward_id").getAsString(),
+                        savedKind(value),
                         value.get("reserved_at").getAsLong()
                 ));
             }
@@ -79,12 +80,14 @@ final class CrateStore {
         }
     }
 
-    synchronized Pending reserve(UUID playerId, UUID spinId, String rewardId, long now) {
+    synchronized Pending reserve(
+            UUID playerId, UUID spinId, String rewardId, CrateKind crateKind, long now
+    ) {
         if (pending.containsKey(playerId)) {
             throw new IllegalStateException("A reward is already waiting for this player.");
         }
         LinkedHashMap<UUID, Pending> pendingBefore = new LinkedHashMap<>(pending);
-        Pending reservation = new Pending(spinId, rewardId, now);
+        Pending reservation = new Pending(spinId, rewardId, crateKind, now);
         pending.put(playerId, reservation);
         try {
             save();
@@ -239,6 +242,7 @@ final class CrateStore {
             JsonObject value = new JsonObject();
             value.addProperty("spin_id", reward.spinId().toString());
             value.addProperty("reward_id", reward.rewardId());
+            value.addProperty("crate_kind", reward.crateKind().key());
             value.addProperty("reserved_at", reward.reservedAt());
             savedPending.add(playerId.toString(), value);
         });
@@ -288,5 +292,20 @@ final class CrateStore {
     private static JsonObject object(JsonObject parent, String key) {
         JsonElement value = parent.get(key);
         return value == null || !value.isJsonObject() ? new JsonObject() : value.getAsJsonObject();
+    }
+
+    /** Older reservations predate crate-kind persistence; infer their only event crate safely. */
+    private static CrateKind savedKind(JsonObject value) {
+        JsonElement raw = value.get("crate_kind");
+        if (raw != null && raw.isJsonPrimitive()) {
+            Optional<CrateKind> parsed = CrateKind.from(raw.getAsString());
+            if (parsed.isPresent()) {
+                return parsed.get();
+            }
+        }
+        return CrateCatalog.find(value.get("reward_id").getAsString())
+                .filter(CrateCatalog::isAmethyst)
+                .map(ignored -> CrateKind.AMETHYST)
+                .orElse(CrateKind.DEFAULT);
     }
 }

@@ -14,7 +14,7 @@ final class AdminGive {
     static final int MAX_KEYS = 64;
 
     static final List<String> TYPES = List.of(
-            "money", "key", "cosmetic", "cosmetics", "reward", "amethyst"
+            "money", "key", "shard", "cosmetic", "cosmetics", "reward", "amethyst"
     );
 
     /** Every cosmetic an administrator can preview or grant through command completion. */
@@ -27,6 +27,7 @@ final class AdminGive {
     enum Type {
         MONEY,
         KEY,
+        SHARD,
         COSMETIC,
         LEADERBOARD_COSMETICS,
         REWARD,
@@ -64,6 +65,15 @@ final class AdminGive {
                     );
                 }
                 return new Request(Type.KEY, amount, null);
+            }
+            case "shard", "shards" -> {
+                int amount = value == null ? 1 : parseCount(value);
+                if (amount < 1 || amount > MAX_KEYS) {
+                    throw new IllegalArgumentException(
+                            "Give between 1 and " + MAX_KEYS + " Shards at a time."
+                    );
+                }
+                return new Request(Type.SHARD, amount, null);
             }
             case "cosmetic" -> {
                 if (value == null || value.isBlank()) {
@@ -104,6 +114,6 @@ final class AdminGive {
 
     static String usage() {
         return "Usage: /mgxadmin give <player|everyone> "
-                + "<money|key|cosmetic <id>|cosmetics|reward <id>|amethyst>";
+                + "<money|key|shard|cosmetic <id>|cosmetics|reward <id>|amethyst>";
     }
 }

@@ -28,6 +28,20 @@ class AdminGiveTest {
     }
 
     @Test
+    void shardsDefaultToOneAndStopAtAStack() {
+        assertEquals(
+                new AdminGive.Request(AdminGive.Type.SHARD, 1L, null),
+                AdminGive.parse("shard", null)
+        );
+        assertEquals(
+                new AdminGive.Request(AdminGive.Type.SHARD, 64L, null),
+                AdminGive.parse("shards", "64")
+        );
+        assertThrows(IllegalArgumentException.class, () -> AdminGive.parse("shard", "65"));
+        assertTrue(AdminGive.TYPES.contains("shard"));
+    }
+
+    @Test
     void cosmeticsCarryTheirIdNormalised() {
         assertEquals(
                 new AdminGive.Request(AdminGive.Type.COSMETIC, 1L, "ember_trail"),
@@ -55,6 +69,7 @@ class AdminGiveTest {
         assertTrue(AdminGive.cosmeticIds().contains("solar_imperium"));
         assertTrue(AdminGive.cosmeticIds().contains("argent_dominion"));
         assertTrue(AdminGive.cosmeticIds().contains("bronze_vanguard"));
+        assertTrue(AdminGive.cosmeticIds().contains("galactic_conquest"));
     }
 
     @Test

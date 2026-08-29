@@ -176,6 +176,18 @@ class CosmeticCatalogTest {
     }
 
     @Test
+    void clanBattleChampionAuraIsExclusiveAndPermanent() {
+        CosmeticCatalog.Definition aura = CosmeticCatalog.find("galactic_conquest").orElseThrow();
+
+        assertEquals(CosmeticCatalog.Category.AURA, aura.category());
+        assertTrue(aura.clanBattleOnly());
+        assertFalse(aura.leaderboardOnly());
+        assertFalse(CosmeticCatalog.all().contains(aura));
+        assertEquals("Clan Battle Champion", aura.rarityDisplay());
+        assertTrue(aura.description().contains("Only obtainable from the Crates Clan Battle"));
+    }
+
+    @Test
     void everyEntryHasPlayerFacingMetadata() {
         for (CosmeticCatalog.Definition definition : CosmeticCatalog.visualEntries()) {
             assertFalse(definition.displayName().isBlank());

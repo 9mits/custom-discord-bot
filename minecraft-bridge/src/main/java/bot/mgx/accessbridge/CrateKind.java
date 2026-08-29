@@ -16,15 +16,45 @@ enum CrateKind {
     DEFAULT(
             "default", "Default Crate", "Default Crate", Material.CHEST,
             TextColor.color(0xFF9900),
-            1, Long.MAX_VALUE, CrateCatalog.all()
+            Currency.KEY, 1, Long.MAX_VALUE, CrateCatalog.all()
     ),
     AMETHYST(
             "amethyst", "Limited Amethyst Crate", "Amethyst Crate", Material.AMETHYST_BLOCK,
             TextColor.color(0xB56CFF),
-            2,
+            Currency.KEY, 2,
             // Saturday after next at 3:00 PM JST, resolved when the event was requested.
             1_788_588_000_000L, CrateCatalog.amethyst()
+    ),
+    SHARD(
+            "shard", "Shard Crate", "Shard Crate", Material.ECHO_SHARD,
+            TextColor.color(0x53E5FF),
+            Currency.SHARD, 1, Long.MAX_VALUE, CrateCatalog.shard()
     );
+
+    enum Currency {
+        KEY("key", "keys", "Mysterious Crate Key", "Mysterious Crate Keys"),
+        SHARD("Shard", "Shards", "Shard", "Shards");
+
+        private final String singular;
+        private final String plural;
+        private final String fullSingular;
+        private final String fullPlural;
+
+        Currency(String singular, String plural, String fullSingular, String fullPlural) {
+            this.singular = singular;
+            this.plural = plural;
+            this.fullSingular = fullSingular;
+            this.fullPlural = fullPlural;
+        }
+
+        String shortName(int amount) {
+            return amount == 1 ? singular : plural;
+        }
+
+        String fullName(int amount) {
+            return amount == 1 ? fullSingular : fullPlural;
+        }
+    }
 
     /** What a limited crate leads with while it is still open. */
     static final String LIMITED_HEADLINE = "LIMITED TIME! LEAVING IN:";
@@ -36,6 +66,7 @@ enum CrateKind {
     private final String menuName;
     private final Material icon;
     private final TextColor colour;
+    private final Currency currency;
     private final int keyCost;
     private final long closesAt;
     private final List<CrateCatalog.Reward> rewards;
@@ -46,6 +77,7 @@ enum CrateKind {
             String menuName,
             Material icon,
             TextColor colour,
+            Currency currency,
             int keyCost,
             long closesAt,
             List<CrateCatalog.Reward> rewards
@@ -55,6 +87,7 @@ enum CrateKind {
         this.menuName = menuName;
         this.icon = icon;
         this.colour = colour;
+        this.currency = currency;
         this.keyCost = keyCost;
         this.closesAt = closesAt;
         this.rewards = rewards;
@@ -92,12 +125,16 @@ enum CrateKind {
         return keyCost;
     }
 
+    Currency currency() {
+        return currency;
+    }
+
     List<CrateCatalog.Reward> rewards() {
         return rewards;
     }
 
     boolean available(long now) {
-        return now < closesAt;
+        return !limited() || now < closesAt;
     }
 
     long closesAt() {
@@ -168,7 +205,7 @@ enum CrateKind {
     }
 
     String remaining(long now) {
-        if (this == DEFAULT) {
+        if (!limited()) {
             return "Always available";
         }
         long millis = Math.max(0L, closesAt - now);
@@ -190,6 +227,14 @@ enum CrateKind {
 
     CrateCatalog.Reward randomReward(int luckPercent) {
         if (this == AMETHYST) {
+            int jackpotTicket = java.util.concurrent.ThreadLocalRandom.current()
+                    .nextInt(CrateCatalog.HIDDEN_AMETHYST_ONE_IN);
+            Optional<CrateCatalog.Reward> jackpot = CrateCatalog.hiddenAmethystAt(jackpotTicket);
+            if (jackpot.isPresent()) {
+                return jackpot.get();
+            }
+        }
+        if (this == SHARD) {
             int jackpotTicket = java.util.concurrent.ThreadLocalRandom.current()
                     .nextInt(CrateCatalog.HIDDEN_AMETHYST_ONE_IN);
             Optional<CrateCatalog.Reward> jackpot = CrateCatalog.hiddenAmethystAt(jackpotTicket);

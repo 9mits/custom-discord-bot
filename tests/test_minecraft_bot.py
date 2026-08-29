@@ -1456,11 +1456,41 @@ class MinecraftLeaderboardRenderTests(unittest.TestCase):
         self.assertIn("No standings yet", embed.description)
 
     def test_clan_boards_exclude_per_player_only_types(self):
-        self.assertEqual(tuple(self.leaderboard.boards_for("clan")), ("wealth", "kills"))
+        self.assertEqual(
+            tuple(self.leaderboard.boards_for("clan")),
+            ("wealth", "kills", "clan_battle"),
+        )
         self.assertEqual(
             tuple(self.leaderboard.boards_for("individual")),
             ("wealth", "kills", "amethyst_crates", "amethyst_airdrops"),
         )
+
+    def test_clan_battle_uses_live_event_name_objective_rank_and_badges(self):
+        snapshot = {
+            "clan_battle": {
+                "name": "Crates Clan Battle",
+                "objective": "Open the most crates!",
+            },
+            "clan": {
+                "clan_battle": [{
+                    "rank": 2,
+                    "clan": "Wolves",
+                    "level": 4,
+                    "members": 7,
+                    "display": "1,250 openings",
+                    "badges": "G x2 B",
+                }]
+            },
+        }
+
+        embed = self.leaderboard.build_embed(
+            snapshot, scope="clan", board="clan_battle"
+        )
+
+        self.assertEqual(embed.title, "Crates Clan Battle — Clans")
+        self.assertIn("Open the most crates!", embed.description)
+        self.assertIn("**#2**", embed.description)
+        self.assertIn("G x2 B", embed.description)
 
     def test_emoji_names_are_discord_safe(self):
         self.assertEqual(self.leaderboard._emoji_name("Not.A-Name!"), "mgx_head_NotAName")

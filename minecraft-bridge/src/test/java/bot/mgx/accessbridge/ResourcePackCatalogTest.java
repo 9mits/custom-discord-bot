@@ -299,6 +299,7 @@ class ResourcePackCatalogTest {
 
         Map<String, String> expectedBases = new HashMap<>();
         expectedBases.put("mgx:crate_key", "minecraft:trial_key");
+        expectedBases.put("mgx:shard", "minecraft:amethyst_shard");
         expectedBases.put("mgx:fortune_potion", "minecraft:potion");
         expectedBases.put("mgx:crate_luck_potion", "minecraft:potion");
         expectedBases.put(CosmeticCatalog.MASKED_MODEL_KEY, "minecraft:black_dye");

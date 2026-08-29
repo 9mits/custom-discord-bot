@@ -104,7 +104,7 @@ final class AmethystItemService implements Listener {
     }
 
     Optional<ItemStack> create(CrateCatalog.Reward reward) {
-        String id = reward.id();
+        String id = reward.sourceId();
         return switch (id) {
             case "amethyst_pickaxe" -> Optional.of(createTimed(
                     Material.DIAMOND_PICKAXE, "pickaxe", "Amethyst Pickaxe",

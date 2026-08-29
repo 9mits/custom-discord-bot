@@ -41,7 +41,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     private static final List<String> SUBCOMMANDS = List.of(
             "startserver", "teststart", "pvp", "give", "ranks", "eco", "bounty", "hologram",
             "reset", "testverify", "testcrate", "testairdrop", "devblog", "update", "serials",
-            "cosmetics", "abuse", "event", "help"
+            "cosmetics", "clanbattle", "abuse", "event", "help"
     );
     private static final List<String> CRATE_REVEAL_TIERS = List.of(
             "legendary", "mythic", "exotic", "secret"
@@ -60,7 +60,11 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     private static final List<String> JOIN_ACTIONS = List.of("on", "off");
     private static final List<String> EVERYONE = List.of("everyone", "*", "all");
     private static final List<String> HOLOGRAM_BOARDS = List.of(
-            "wealth", "kills", "clans-wealth", "clans-kills", "remove"
+            "wealth", "kills", "amethyst-crates", "amethyst-airdrops",
+            "clans-wealth", "clans-kills", "clan-battle", "remove"
+    );
+    private static final List<String> CLAN_BATTLE_ACTIONS = List.of(
+            "start", "status", "end", "cancel"
     );
 
     private final MGXAccessBridge plugin;
@@ -80,6 +84,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     private final CrateService crates;
     private final AirdropService airdrops;
     private final AmethystProgressStore amethystProgress;
+    private final ClanBattleService clanBattles;
 
     AdminCommandService(
             MGXAccessBridge plugin,
@@ -98,7 +103,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             UpdateNoticeService updateNotices,
             CrateService crates,
             AirdropService airdrops,
-            AmethystProgressStore amethystProgress
+            AmethystProgressStore amethystProgress,
+            ClanBattleService clanBattles
     ) {
         this.plugin = plugin;
         this.rankSync = rankSync;
@@ -117,6 +123,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         this.crates = crates;
         this.airdrops = airdrops;
         this.amethystProgress = amethystProgress;
+        this.clanBattles = clanBattles;
     }
 
     @Override
@@ -151,6 +158,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 case "update" -> publishUpdate(sender);
                 case "serials" -> serials(sender, args);
                 case "cosmetics" -> cosmetics(sender, args);
+                case "clanbattle", "clan-battle" -> clanBattle(sender, args);
                 case "abuse" -> {
                     String summary = adminEvents.run(sender, args);
                     success(sender, summary + ".");
@@ -357,6 +365,13 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 int amount = (int) request.amount();
                 int count = forEachTarget(targets, player -> hand(player, crateItems.key(amount)));
                 String what = amount + (amount == 1 ? " crate key" : " crate keys");
+                success(sender, "Gave " + what + " to " + describeTargets(targets, count) + ".");
+                audit(sender, targets, what, count);
+            }
+            case SHARD -> {
+                int amount = (int) request.amount();
+                int count = forEachTarget(targets, player -> hand(player, crateItems.shard(amount)));
+                String what = amount + (amount == 1 ? " Shard" : " Shards");
                 success(sender, "Gave " + what + " to " + describeTargets(targets, count) + ".");
                 audit(sender, targets, what, count);
             }
@@ -958,6 +973,48 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         }
     }
 
+    private void clanBattle(CommandSender sender, String[] args) {
+        String action = args.length < 2 ? "status" : args[1].toLowerCase(Locale.ROOT);
+        switch (action) {
+            case "status" -> info(sender, clanBattles.status());
+            case "start" -> {
+                ClanBattleStore.Kind kind = ClanBattleStore.Kind.from(
+                        args.length >= 3 ? args[2] : "crates"
+                ).orElseThrow(() -> new IllegalArgumentException(
+                        "Use /mgxadmin clanbattle start crates."
+                ));
+                ClanBattleStore.ActiveView active = clanBattles.startBattle(kind);
+                success(sender, "Started " + active.kind().displayName() + ".");
+                report(sender, "clan_battle_start", "Started " + active.kind().displayName())
+                        .detail("battle_id", active.id().toString())
+                        .detail("kind", active.kind().id())
+                        .record();
+            }
+            case "end" -> {
+                ClanBattleStore.CompletedView completed = clanBattles.endBattle();
+                success(sender, "Ended " + completed.kind().displayName() + " and awarded "
+                        + completed.winners().size() + " winning clan placement(s).");
+                report(sender, "clan_battle_end", "Ended " + completed.kind().displayName())
+                        .detail("battle_id", completed.id().toString())
+                        .detail("winning_placements", completed.winners().size())
+                        .record();
+            }
+            case "cancel" -> {
+                if (args.length < 3 || !args[2].equalsIgnoreCase("confirm")) {
+                    throw new IllegalArgumentException(
+                            "Use /mgxadmin clanbattle cancel confirm. This awards nothing."
+                    );
+                }
+                clanBattles.cancelBattle();
+                success(sender, "Cancelled the active clan battle without rewards.");
+                report(sender, "clan_battle_cancel", "Cancelled the active clan battle").record();
+            }
+            default -> throw new IllegalArgumentException(
+                    "Use /mgxadmin clanbattle <start crates|status|end|cancel confirm>."
+            );
+        }
+    }
+
     private void sendResetHelp(CommandSender sender) {
         heading(sender, "Reset scopes");
         for (ResetScope scope : ResetScope.values()) {
@@ -991,6 +1048,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 .append(Component.text("  add money", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin give <player|everyone> key [amount]", ORANGE)
                 .append(Component.text("  hand over crate keys", NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin give <player|everyone> shard [amount]", ORANGE)
+                .append(Component.text("  hand over permanent Shard Crate currency", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin give <player|everyone> cosmetic <id>", ORANGE)
                 .append(Component.text("  mint a cosmetic straight to them", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin give <player|everyone> reward <id>", ORANGE)
@@ -1007,6 +1066,11 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 .append(Component.text("  bounty everyone who joins, once each", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin hologram <board|remove>", ORANGE)
                 .append(Component.text("  place or remove a spawn leaderboard", NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text(
+                        "  /mgxadmin clanbattle <start crates|status|end|cancel confirm>", ORANGE
+                ).append(Component.text(
+                        "  control the current clan event and its rewards", NamedTextColor.GRAY
+                )));
         sender.sendMessage(Component.text("  /mgxadmin reset", ORANGE)
                 .append(Component.text("  clear progress, keeping the world", NamedTextColor.GRAY)));
         if (plugin.isLocalTestServer()) {
@@ -1226,6 +1290,19 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         if (action.equals("hologram") || action.equals("holograms") || action.equals("lb")) {
             if (args.length == 2) {
                 return partial(args[1], HOLOGRAM_BOARDS);
+            }
+            return List.of();
+        }
+        if (action.equals("clanbattle") || action.equals("clan-battle")) {
+            if (args.length == 2) {
+                return partial(args[1], CLAN_BATTLE_ACTIONS);
+            }
+            if (args.length == 3 && args[1].equalsIgnoreCase("start")) {
+                return partial(args[2], Arrays.stream(ClanBattleStore.Kind.values())
+                        .map(ClanBattleStore.Kind::id).toList());
+            }
+            if (args.length == 3 && args[1].equalsIgnoreCase("cancel")) {
+                return partial(args[2], List.of("confirm"));
             }
             return List.of();
         }

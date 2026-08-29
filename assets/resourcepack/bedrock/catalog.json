@@ -56,6 +56,8 @@
     {"java_item": "minecraft:amethyst_cluster", "model": "mgx:cosmetic/iridescent_imperium", "bedrock_identifier": "mgx:cosmetic_iridescent_imperium", "display_name": "Iridescent Imperium"},
     {"java_item": "minecraft:amethyst_cluster", "model": "mgx:cosmetic/resonant_shatter", "bedrock_identifier": "mgx:cosmetic_resonant_shatter", "display_name": "Resonant Shatter"},
     {"java_item": "minecraft:amethyst_shard", "model": "mgx:cosmetic/crystalfall_wake", "bedrock_identifier": "mgx:cosmetic_crystalfall_wake", "display_name": "Crystalfall Wake"},
-    {"java_item": "minecraft:budding_amethyst", "model": "mgx:cosmetic/airdrop_apotheosis", "bedrock_identifier": "mgx:cosmetic_airdrop_apotheosis", "display_name": "Airdrop Apotheosis"}
+    {"java_item": "minecraft:budding_amethyst", "model": "mgx:cosmetic/airdrop_apotheosis", "bedrock_identifier": "mgx:cosmetic_airdrop_apotheosis", "display_name": "Airdrop Apotheosis"},
+    {"java_item": "minecraft:amethyst_shard", "model": "mgx:shard", "bedrock_identifier": "mgx:shard", "display_name": "Shard"},
+    {"java_item": "minecraft:nether_star", "model": "mgx:cosmetic/galactic_conquest", "bedrock_identifier": "mgx:cosmetic_galactic_conquest", "display_name": "Galactic Conquest"}
   ]
 }

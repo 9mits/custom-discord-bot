@@ -64,19 +64,22 @@ final class ClanMenuService implements Listener {
     private final DiscordIdentityService identities;
     private final EconomyStore money;
     private final TeleportWarmupService warmups;
+    private final ClanBattleStore clanBattles;
 
     ClanMenuService(
             MGXAccessBridge plugin,
             ClanStore store,
             DiscordIdentityService identities,
             EconomyStore money,
-            TeleportWarmupService warmups
+            TeleportWarmupService warmups,
+            ClanBattleStore clanBattles
     ) {
         this.plugin = plugin;
         this.store = store;
         this.identities = identities;
         this.money = money;
         this.warmups = warmups;
+        this.clanBattles = clanBattles;
     }
 
     void openHub(Player player) {
@@ -89,7 +92,7 @@ final class ClanMenuService implements Listener {
         inventory.setItem(HUB_BALANCE, button(Material.SUNFLOWER, "Balance",
                 EconomyFormat.dollars(clan.balance()) + " in the treasury."));
         inventory.setItem(HUB_INFO, button(Material.BOOK, "Clan info",
-                describeLevel(clan.level()), "Leader, roster and theme."));
+                describeLevel(clan.level()), badgeSummary(clan.id()), "Leader, roster and theme."));
         inventory.setItem(HUB_WARPS, button(Material.LODESTONE, "Clan warps",
                 clan.warps().size() + "/" + ClanLevel.warpSlots(clan.level()) + " locations.",
                 "Shared with every clan member."));
@@ -251,9 +254,11 @@ final class ClanMenuService implements Listener {
         String leader = clan.members().getOrDefault(clan.leader(), "Unknown");
         long online = clan.members().keySet().stream().filter(id -> Bukkit.getPlayer(id) != null).count();
         inventory.setItem(11, head(clan.leader(), "Leader", List.of(leader)));
-        inventory.setItem(12, button(Material.NETHER_STAR, "Level",
-                describeLevel(clan.level()),
-                "Treasury " + EconomyFormat.dollars(clan.balance()) + "."));
+        List<String> levelLore = new ArrayList<>();
+        levelLore.add(describeLevel(clan.level()));
+        levelLore.addAll(clanBattles.badges(clan.id()).lore());
+        levelLore.add("Treasury " + EconomyFormat.dollars(clan.balance()) + ".");
+        inventory.setItem(12, button(Material.NETHER_STAR, "Level & Battle Badges", levelLore));
         inventory.setItem(13, button(Material.WHITE_BANNER, "Theme",
                 String.format("#%06X", clan.themeColor())));
         inventory.setItem(14, button(Material.CLOCK, "Online",
@@ -330,13 +335,14 @@ final class ClanMenuService implements Listener {
         int last = MenuPaging.lastIndex(page, clans.size(), PER_PAGE);
         for (int index = first; index < last; index++) {
             ClanStore.ClanView clan = clans.get(index);
+            List<String> lore = new ArrayList<>();
+            lore.add(describeLevel(clan.level()));
+            lore.addAll(clanBattles.badges(clan.id()).lore());
+            lore.add(clan.members().size() + "/" + clan.memberSlots() + " members.");
+            lore.add("Treasury " + EconomyFormat.dollars(clan.balance()) + ".");
             inventory.setItem(index - first, head(clan.leader(),
-                    clan.name() + "  " + ClanLevel.badge(clan.level()),
-                    List.of(
-                            describeLevel(clan.level()),
-                            clan.members().size() + "/" + clan.memberSlots() + " members.",
-                            "Treasury " + EconomyFormat.dollars(clan.balance()) + "."
-                    )));
+                    clan.name() + "  " + ClanLevel.badge(clan.level()) + badgeSuffix(clan.id()),
+                    lore));
         }
         if (clans.isEmpty()) {
             inventory.setItem(22, button(Material.BARRIER, "No clans yet",
@@ -740,6 +746,17 @@ final class ClanMenuService implements Listener {
 
     private static String describeLevel(int level) {
         return level == 0 ? "Unranked." : "Level " + level + ".";
+    }
+
+    private String badgeSummary(UUID clanId) {
+        ClanBattleStore.Badges badges = clanBattles.badges(clanId);
+        return badges.empty() ? "No Clan Battle badges yet."
+                : "Clan Battle badges: " + badges.compact();
+    }
+
+    private String badgeSuffix(UUID clanId) {
+        String compact = clanBattles.badges(clanId).compact();
+        return compact.isBlank() ? "" : "  " + compact;
     }
 
     private static boolean hasPreservedData(ItemStack item) {

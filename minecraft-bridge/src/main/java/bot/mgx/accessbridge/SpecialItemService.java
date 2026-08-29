@@ -93,7 +93,7 @@ final class SpecialItemService implements Listener {
     }
 
     Optional<ItemStack> create(CrateCatalog.Reward reward) {
-        String id = reward.id();
+        String id = reward.sourceId();
         Optional<ItemStack> amethyst = amethystItems.create(reward);
         if (amethyst.isPresent()) {
             return amethyst;

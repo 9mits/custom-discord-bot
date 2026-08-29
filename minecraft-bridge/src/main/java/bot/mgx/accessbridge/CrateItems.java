@@ -21,6 +21,8 @@ final class CrateItems {
     private static final TextColor ORANGE = TextColor.color(0xFF9900);
     private static final TextColor AMETHYST = TextColor.color(0xB56CFF);
     private final NamespacedKey keyMarker;
+    private final NamespacedKey shardMarker;
+    private final NamespacedKey shardGrantMarker;
     private final NamespacedKey legacyKeyMarker;
     private final NamespacedKey rewardSpinMarker;
     private final NamespacedKey legacyRewardSpinMarker;
@@ -31,11 +33,47 @@ final class CrateItems {
             MGXAccessBridge plugin, CosmeticStore cosmeticStore, SpecialItemService specialItems
     ) {
         keyMarker = new NamespacedKey(plugin, "crate_key");
+        shardMarker = new NamespacedKey(plugin, "shard");
+        shardGrantMarker = new NamespacedKey(plugin, "shard_grant");
         legacyKeyMarker = new NamespacedKey(plugin, "lootbox_key");
         rewardSpinMarker = new NamespacedKey(plugin, "crate_reward_spin");
         legacyRewardSpinMarker = new NamespacedKey(plugin, "lootbox_reward_spin");
         this.cosmeticStore = cosmeticStore;
         this.specialItems = specialItems;
+    }
+
+    ItemStack shard(int amount) {
+        ItemStack item = new ItemStack(Material.AMETHYST_SHARD, Math.max(1, Math.min(64, amount)));
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.displayName(Component.text("Shard", TextColor.color(0x53E5FF), TextDecoration.BOLD)
+                    .decoration(TextDecoration.ITALIC, false));
+            meta.lore(List.of(
+                    Component.text("Extremely rare permanent crate currency.", NamedTextColor.LIGHT_PURPLE)
+                            .decoration(TextDecoration.ITALIC, false),
+                    line("Use it to open the Shard Crate.")
+            ));
+            meta.getPersistentDataContainer().set(shardMarker, PersistentDataType.BYTE, (byte) 1);
+            NamespacedKey model = NamespacedKey.fromString("mgx:shard");
+            if (model != null) {
+                meta.setItemModel(model);
+            }
+            meta.setEnchantmentGlintOverride(true);
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    ItemStack shard(int amount, UUID grantId) {
+        ItemStack item = shard(amount);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.getPersistentDataContainer().set(
+                    shardGrantMarker, PersistentDataType.STRING, grantId.toString()
+            );
+            item.setItemMeta(meta);
+        }
+        return item;
     }
 
     ItemStack key(int amount) {
@@ -68,6 +106,12 @@ final class CrateItems {
                 || data.has(legacyKeyMarker, PersistentDataType.BYTE);
     }
 
+    boolean isShard(ItemStack item) {
+        return item != null && !item.getType().isAir() && item.hasItemMeta()
+                && item.getItemMeta().getPersistentDataContainer()
+                .has(shardMarker, PersistentDataType.BYTE);
+    }
+
     int count(Player player) {
         int total = 0;
         for (ItemStack item : player.getInventory().getStorageContents()) {
@@ -80,6 +124,17 @@ final class CrateItems {
             total += offHand.getAmount();
         }
         return total;
+    }
+
+    int countShards(Player player) {
+        int total = 0;
+        for (ItemStack item : player.getInventory().getStorageContents()) {
+            if (isShard(item)) {
+                total += item.getAmount();
+            }
+        }
+        ItemStack offHand = player.getInventory().getItemInOffHand();
+        return isShard(offHand) ? total + offHand.getAmount() : total;
     }
 
     void upgradeLegacyKeys(Player player) {
@@ -163,6 +218,87 @@ final class CrateItems {
             }
         }
         return requested - remaining;
+    }
+
+    int removeShards(Player player, int requested) {
+        int remaining = Math.max(0, requested);
+        ItemStack[] storage = player.getInventory().getStorageContents();
+        for (int index = 0; index < storage.length && remaining > 0; index++) {
+            ItemStack item = storage[index];
+            if (!isShard(item)) {
+                continue;
+            }
+            int removed = Math.min(remaining, item.getAmount());
+            remaining -= removed;
+            if (removed == item.getAmount()) {
+                storage[index] = null;
+            } else {
+                item.setAmount(item.getAmount() - removed);
+            }
+        }
+        player.getInventory().setStorageContents(storage);
+        if (remaining > 0) {
+            ItemStack offHand = player.getInventory().getItemInOffHand();
+            if (isShard(offHand)) {
+                int removed = Math.min(remaining, offHand.getAmount());
+                remaining -= removed;
+                if (removed == offHand.getAmount()) {
+                    player.getInventory().setItemInOffHand(null);
+                } else {
+                    offHand.setAmount(offHand.getAmount() - removed);
+                }
+            }
+        }
+        return requested - remaining;
+    }
+
+    boolean carriesShardGrant(Player player, UUID grantId) {
+        for (ItemStack item : player.getInventory().getStorageContents()) {
+            if (shardGrant(item).filter(grantId::equals).isPresent()) {
+                return true;
+            }
+        }
+        return shardGrant(player.getInventory().getItemInOffHand()).filter(grantId::equals).isPresent();
+    }
+
+    void finishShardGrant(Player player, UUID grantId) {
+        int recovered = 0;
+        ItemStack[] storage = player.getInventory().getStorageContents();
+        for (int index = 0; index < storage.length; index++) {
+            if (shardGrant(storage[index]).filter(grantId::equals).isEmpty()) {
+                continue;
+            }
+            recovered += storage[index].getAmount();
+            storage[index] = null;
+        }
+        player.getInventory().setStorageContents(storage);
+        ItemStack offHand = player.getInventory().getItemInOffHand();
+        if (shardGrant(offHand).filter(grantId::equals).isPresent()) {
+            recovered += offHand.getAmount();
+            player.getInventory().setItemInOffHand(null);
+        }
+        for (int portion : StackSplit.portions(recovered, 64)) {
+            player.getInventory().addItem(shard(portion)).values().forEach(overflow ->
+                    player.getWorld().dropItemNaturally(player.getLocation(), overflow));
+        }
+    }
+
+    boolean removeShardGrant(Player player, UUID grantId) {
+        ItemStack[] storage = player.getInventory().getStorageContents();
+        for (int index = 0; index < storage.length; index++) {
+            if (shardGrant(storage[index]).filter(grantId::equals).isEmpty()) {
+                continue;
+            }
+            storage[index] = null;
+            player.getInventory().setStorageContents(storage);
+            return true;
+        }
+        ItemStack offHand = player.getInventory().getItemInOffHand();
+        if (shardGrant(offHand).filter(grantId::equals).isPresent()) {
+            player.getInventory().setItemInOffHand(null);
+            return true;
+        }
+        return false;
     }
 
     ItemStack preview(CrateCatalog.Reward reward, CosmeticItems cosmetics) {
@@ -323,6 +459,23 @@ final class CrateItems {
         if (raw == null) {
             raw = data.get(legacyRewardSpinMarker, PersistentDataType.STRING);
         }
+        if (raw == null) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(UUID.fromString(raw));
+        } catch (IllegalArgumentException ignored) {
+            return Optional.empty();
+        }
+    }
+
+    private Optional<UUID> shardGrant(ItemStack item) {
+        if (item == null || item.getType().isAir() || !item.hasItemMeta()) {
+            return Optional.empty();
+        }
+        String raw = item.getItemMeta().getPersistentDataContainer().get(
+                shardGrantMarker, PersistentDataType.STRING
+        );
         if (raw == null) {
             return Optional.empty();
         }

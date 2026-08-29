@@ -137,13 +137,16 @@ final class CosmeticItems {
 
     static boolean showsReciprocalOdds(CosmeticCatalog.Definition definition) {
         return !definition.leaderboardOnly()
-                && !CosmeticCatalog.isAmethystAirdrop(definition.id());
+                && !CosmeticCatalog.isAmethystAirdrop(definition.id())
+                && !definition.clanBattleOnly();
     }
 
     static boolean showsExactChance(
             CosmeticCatalog.Definition definition, boolean oddsScreen
     ) {
-        return oddsScreen && !CosmeticCatalog.isAmethystAirdrop(definition.id());
+        return oddsScreen
+                && !CosmeticCatalog.isAmethystAirdrop(definition.id())
+                && !definition.clanBattleOnly();
     }
 
     static List<String> wrapDescription(String description) {

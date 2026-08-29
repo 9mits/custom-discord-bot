@@ -20,7 +20,7 @@ class CrateStoreTest {
         Path legacy = directory.resolve("lootboxes.json");
         UUID player = UUID.randomUUID();
         UUID opening = UUID.randomUUID();
-        new CrateStore(legacy).reserve(player, opening, "mace", 12_000L);
+        new CrateStore(legacy).reserve(player, opening, "mace", CrateKind.DEFAULT, 12_000L);
 
         CrateStore migrated = CrateStore.open(directory);
 
@@ -36,12 +36,13 @@ class CrateStoreTest {
         UUID player = UUID.randomUUID();
         UUID spin = UUID.randomUUID();
         long reservedAt = 42_000L;
-        new CrateStore(file).reserve(player, spin, "mace", reservedAt);
+        new CrateStore(file).reserve(player, spin, "mace", CrateKind.SHARD, reservedAt);
 
         CrateStore reloaded = new CrateStore(file);
         CrateStore.Pending pending = reloaded.pending(player).orElseThrow();
         assertEquals(spin, pending.spinId());
         assertEquals("mace", pending.rewardId());
+        assertEquals(CrateKind.SHARD, pending.crateKind());
         assertEquals(reservedAt, pending.reservedAt());
         assertEquals(pending, reloaded.pendingRewards().get(player));
 
@@ -56,12 +57,12 @@ class CrateStoreTest {
         CrateStore store = new CrateStore(directory.resolve("crates.json"));
         UUID player = UUID.randomUUID();
         CrateStore.Pending first = store.reserve(
-                player, UUID.randomUUID(), "totem_of_undying", 1_000L
+                player, UUID.randomUUID(), "totem_of_undying", CrateKind.DEFAULT, 1_000L
         );
 
         IllegalStateException failure = assertThrows(
                 IllegalStateException.class,
-                () -> store.reserve(player, UUID.randomUUID(), "diamonds", 2_000L)
+                () -> store.reserve(player, UUID.randomUUID(), "diamonds", CrateKind.DEFAULT, 2_000L)
         );
 
         assertTrue(failure.getMessage().contains("already waiting"));
@@ -143,9 +144,9 @@ class CrateStoreTest {
         UUID first = UUID.randomUUID();
         UUID second = UUID.randomUUID();
         UUID completed = UUID.randomUUID();
-        store.reserve(first, completed, "raw_gold", 100L);
+        store.reserve(first, completed, "raw_gold", CrateKind.DEFAULT, 100L);
         store.complete(first, completed);
-        store.reserve(second, UUID.randomUUID(), "golden_apple", 200L);
+        store.reserve(second, UUID.randomUUID(), "golden_apple", CrateKind.DEFAULT, 200L);
         store.creditOnline(Map.of(first, CrateStore.HOURLY_KEY_MILLIS));
 
         assertEquals(2, store.clearAll());
