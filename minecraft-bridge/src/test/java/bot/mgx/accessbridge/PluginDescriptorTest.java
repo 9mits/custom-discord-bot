@@ -39,6 +39,9 @@ class PluginDescriptorTest {
         Map<String, Object> commands = (Map<String, Object>) root.get("commands");
         assertNotNull(commands, "commands block failed to parse");
         assertTrue(commands.containsKey("mgxadmin"), "the operator command must be declared");
+        assertTrue(((Map<?, ?>) commands.get("mgxadmin")).get("usage").toString()
+                        .contains("testairdrop"),
+                "the local Airdrop test suite must be discoverable from command usage");
         for (Map.Entry<String, Object> entry : commands.entrySet()) {
             assertTrue(entry.getValue() instanceof Map,
                     entry.getKey() + " did not parse as a mapping; check for an unquoted colon");

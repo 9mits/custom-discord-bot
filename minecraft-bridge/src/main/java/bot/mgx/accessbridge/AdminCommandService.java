@@ -40,8 +40,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     static final String PERMISSION = "mgxaccessbridge.admin";
     private static final List<String> SUBCOMMANDS = List.of(
             "startserver", "teststart", "pvp", "give", "ranks", "eco", "bounty", "hologram",
-            "reset", "testverify", "testcrate", "devblog", "update", "serials", "cosmetics",
-            "abuse", "event", "help"
+            "reset", "testverify", "testcrate", "testairdrop", "devblog", "update", "serials",
+            "cosmetics", "abuse", "event", "help"
     );
     private static final List<String> CRATE_REVEAL_TIERS = List.of(
             "legendary", "mythic", "exotic", "secret"
@@ -78,6 +78,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     private final EconomyMenuService auctionHouse;
     private final UpdateNoticeService updateNotices;
     private final CrateService crates;
+    private final AirdropService airdrops;
+    private final AmethystProgressStore amethystProgress;
 
     AdminCommandService(
             MGXAccessBridge plugin,
@@ -94,7 +96,9 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             AdminEventService adminEvents,
             EconomyMenuService auctionHouse,
             UpdateNoticeService updateNotices,
-            CrateService crates
+            CrateService crates,
+            AirdropService airdrops,
+            AmethystProgressStore amethystProgress
     ) {
         this.plugin = plugin;
         this.rankSync = rankSync;
@@ -111,6 +115,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         this.auctionHouse = auctionHouse;
         this.updateNotices = updateNotices;
         this.crates = crates;
+        this.airdrops = airdrops;
+        this.amethystProgress = amethystProgress;
     }
 
     @Override
@@ -140,6 +146,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 case "reset" -> reset(sender, args);
                 case "testverify" -> testVerify(sender, args);
                 case "testcrate", "cratetest", "testreveal" -> testCrateReveal(sender, args);
+                case "testairdrop", "airdroptest", "testdrop" -> testAirdrop(sender, args);
                 case "devblog", "screenshot" -> devBlog(sender, args);
                 case "update" -> publishUpdate(sender);
                 case "serials" -> serials(sender, args);
@@ -755,6 +762,131 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 .record();
     }
 
+    private void testAirdrop(CommandSender sender, String[] args) {
+        if (!plugin.isLocalTestServer()) {
+            throw new IllegalArgumentException(
+                    "Airdrop tests are available only on the local test server."
+            );
+        }
+        AirdropTestPlan.Request request = AirdropTestPlan.parse(args);
+        switch (request.action()) {
+            case HELP -> sendAirdropTestHelp(sender);
+            case SPAWN -> spawnTestAirdrop(sender, request);
+            case STATUS -> showAirdropTestStatus(sender, request.targetName());
+            case EXPIRE -> {
+                if (!airdrops.expireTest()) {
+                    throw new IllegalArgumentException("There is no active Airdrop to expire.");
+                }
+                success(sender, "Expired the active Airdrop and restored its site.");
+                report(sender, "airdrop_test_expire", "Expired a local test Airdrop").record();
+            }
+            case REMOVE -> {
+                if (!airdrops.removeTest()) {
+                    throw new IllegalArgumentException("There is no active Airdrop to remove.");
+                }
+                success(sender, "Removed the active Airdrop and restored its site.");
+                report(sender, "airdrop_test_remove", "Removed a local test Airdrop").record();
+            }
+            case PROGRESS_SET -> setAirdropTestProgress(sender, request, false);
+            case PROGRESS_RESET -> setAirdropTestProgress(sender, request, true);
+        }
+    }
+
+    private void spawnTestAirdrop(CommandSender sender, AirdropTestPlan.Request request) {
+        if (!(sender instanceof Player player)) {
+            throw new IllegalArgumentException(
+                    "Run the spawn test in game so the Airdrop can appear near you."
+            );
+        }
+        AirdropService.Snapshot drop = airdrops.spawnTest(
+                player, request.rarity(), request.cosmeticIds()
+        );
+        success(sender, "Spawned " + drop.describe() + ".");
+        info(sender, "Opening it tests the Airdrop leaderboard. Emptying it tests full cleanup.");
+        if (!request.cosmeticIds().isEmpty()) {
+            info(sender, request.cosmeticIds().size() == 1
+                    ? "The requested cosmetic is guaranteed inside; claim it into /wardrobe."
+                    : "All three Airdrop cosmetics are guaranteed inside; claim them into /wardrobe.");
+        }
+        info(sender, "Use /mgxadmin testairdrop expire to test the timeout path immediately.");
+        if (request.cosmeticIds().size() == AirdropCatalog.cosmeticIds().size()) {
+            info(sender, "Use /mgxadmin testairdrop progress 12 8, then /leaderboard, "
+                    + "to test both Amethyst boards.");
+        }
+        report(sender, "airdrop_test_spawn", "Spawned a local test Airdrop")
+                .detail("rarity", request.rarity().displayName())
+                .detail("world", drop.world())
+                .detail("coordinates", "X " + drop.x() + " Y " + drop.y() + " Z " + drop.z())
+                .detail("forced_cosmetics", request.cosmeticIds().size())
+                .record();
+    }
+
+    private void showAirdropTestStatus(CommandSender sender, String targetName) {
+        info(sender, airdrops.snapshot().map(AirdropService.Snapshot::describe)
+                .orElse("No Airdrop is active."));
+        OfflinePlayer target = optionalTestTarget(sender, targetName);
+        if (target == null) {
+            return;
+        }
+        AmethystProgressStore.Counts counts = amethystProgress.counts(target.getUniqueId());
+        info(sender, nameOf(target) + ": " + counts.cratesOpened()
+                + " Amethyst Crates, " + counts.airdropsOpened() + " Amethyst Airdrops.");
+    }
+
+    private void setAirdropTestProgress(
+            CommandSender sender,
+            AirdropTestPlan.Request request,
+            boolean reset
+    ) {
+        OfflinePlayer target = requireTestTarget(sender, request.targetName());
+        long crates = reset ? 0L : request.cratesOpened();
+        long drops = reset ? 0L : request.airdropsOpened();
+        try {
+            amethystProgress.set(target.getUniqueId(), crates, drops);
+        } catch (java.io.UncheckedIOException exception) {
+            throw new IllegalArgumentException("The leaderboard test fixture could not be saved.");
+        }
+        success(sender, (reset ? "Reset" : "Set") + " Amethyst Event test progress for "
+                + nameOf(target) + ": " + crates + " crates, " + drops + " Airdrops.");
+        info(sender, "Open /leaderboard to inspect both Amethyst Event boards.");
+        report(sender, "airdrop_test_progress", "Changed local Amethyst leaderboard test progress")
+                .detail("player", nameOf(target))
+                .detail("crates", crates)
+                .detail("airdrops", drops)
+                .record();
+    }
+
+    private OfflinePlayer optionalTestTarget(CommandSender sender, String targetName) {
+        if (targetName != null) {
+            return requireNamedPlayer(targetName);
+        }
+        return sender instanceof Player player ? player : null;
+    }
+
+    private OfflinePlayer requireTestTarget(CommandSender sender, String targetName) {
+        OfflinePlayer target = optionalTestTarget(sender, targetName);
+        if (target == null) {
+            throw new IllegalArgumentException("Console must name a player for this test.");
+        }
+        return target;
+    }
+
+    private void sendAirdropTestHelp(CommandSender sender) {
+        heading(sender, "Amethyst Airdrop test suite");
+        sender.sendMessage(Component.text("  /mgxadmin testairdrop all", ORANGE)
+                .append(Component.text("  Mythic drop with all three cosmetics", NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin testairdrop <rarity>", ORANGE)
+                .append(Component.text("  real randomized loot at a nearby safe site", NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin testairdrop cosmetic <type>", ORANGE)
+                .append(Component.text("  force kill, trail, aura, or all", NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin testairdrop progress <crates> <airdrops>", ORANGE)
+                .append(Component.text("  set both leaderboard fixtures", NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin testairdrop progress reset", ORANGE)
+                .append(Component.text("  remove your leaderboard fixture", NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin testairdrop status|expire|remove", ORANGE)
+                .append(Component.text("  inspect or clean up the active test", NamedTextColor.GRAY)));
+    }
+
     private void reset(CommandSender sender, String[] args) {
         List<String> rest = new ArrayList<>(Arrays.asList(args).subList(1, args.length));
         boolean confirmed = rest.removeIf(argument -> argument.equalsIgnoreCase("confirm"));
@@ -885,6 +1017,11 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                             "  run the complete crate reveal without granting loot",
                             NamedTextColor.GRAY
                     )));
+            sender.sendMessage(Component.text("  /mgxadmin testairdrop all", ORANGE)
+                    .append(Component.text(
+                            "  test Airdrops, cosmetics, cleanup, and event boards",
+                            NamedTextColor.GRAY
+                    )));
         }
         sender.sendMessage(Component.text("  /mgxadmin serials reset <cosmetic> confirm", ORANGE)
                 .append(Component.text("  renumber one cosmetic without deleting it", NamedTextColor.GRAY)));
@@ -937,6 +1074,40 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 return partial(args[2], Bukkit.getOnlinePlayers().stream()
                         .map(Player::getName)
                         .toList());
+            }
+            return List.of();
+        }
+        if (action.equals("testairdrop") || action.equals("airdroptest")
+                || action.equals("testdrop")) {
+            if (args.length == 2) {
+                return partial(args[1], AirdropTestPlan.ACTIONS);
+            }
+            if (args.length == 3 && (args[1].equalsIgnoreCase("cosmetic")
+                    || args[1].equalsIgnoreCase("cosmetics"))) {
+                return partial(args[2], AirdropTestPlan.COSMETICS);
+            }
+            if (args.length == 3 && (args[1].equalsIgnoreCase("progress")
+                    || args[1].toLowerCase(Locale.ROOT).startsWith("leaderboard"))) {
+                return partial(args[2], List.of("reset", "10"));
+            }
+            if (args.length == 3 && args[1].equalsIgnoreCase("status")) {
+                return partial(args[2], Bukkit.getOfflinePlayers().length == 0
+                        ? List.of()
+                        : Arrays.stream(Bukkit.getOfflinePlayers())
+                                .map(AdminCommandService::nameOf)
+                                .toList());
+            }
+            if (args.length == 4 && args[1].equalsIgnoreCase("progress")
+                    && args[2].equalsIgnoreCase("reset")) {
+                return partial(args[3], Arrays.stream(Bukkit.getOfflinePlayers())
+                        .map(AdminCommandService::nameOf).toList());
+            }
+            if (args.length == 4 && args[1].equalsIgnoreCase("progress")) {
+                return partial(args[3], List.of("8"));
+            }
+            if (args.length == 5 && args[1].equalsIgnoreCase("progress")) {
+                return partial(args[4], Arrays.stream(Bukkit.getOfflinePlayers())
+                        .map(AdminCommandService::nameOf).toList());
             }
             return List.of();
         }

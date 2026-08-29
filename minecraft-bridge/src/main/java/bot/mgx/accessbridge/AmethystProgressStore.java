@@ -88,6 +88,13 @@ final class AmethystProgressStore {
         return after.airdropsOpened();
     }
 
+    synchronized Counts set(UUID playerId, long cratesOpened, long airdropsOpened) {
+        Counts before = counts(playerId);
+        Counts after = new Counts(cratesOpened, airdropsOpened);
+        update(playerId, before, after);
+        return after;
+    }
+
     synchronized int clearAll() {
         int cleared = counts.size();
         if (cleared == 0) {
@@ -106,7 +113,11 @@ final class AmethystProgressStore {
     }
 
     private void update(UUID playerId, Counts before, Counts after) {
-        counts.put(playerId, after);
+        if (after.empty()) {
+            counts.remove(playerId);
+        } else {
+            counts.put(playerId, after);
+        }
         try {
             save();
         } catch (RuntimeException exception) {
