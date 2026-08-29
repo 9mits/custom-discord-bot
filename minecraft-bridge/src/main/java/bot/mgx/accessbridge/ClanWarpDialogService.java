@@ -158,9 +158,8 @@ final class ClanWarpDialogService {
                 new BedrockForms.Button("Delete",
                         () -> forms.confirm(player, "Delete " + warp,
                                 "This cannot be undone.", "Delete", "Keep it",
-                                () -> deleteWarp(player, warp))),
-                new BedrockForms.Button("Back", () -> open(player))
-        ));
+                                () -> deleteWarp(player, warp)))
+        ), this::open);
     }
 
     /** One toggle per member, submitted together, which is how a Bedrock form works. */
@@ -209,7 +208,8 @@ final class ClanWarpDialogService {
                 bedrockWarp(player, warp);
             }));
         }
-        forms.menu(player, "Choose Icon", "Pick an icon for " + warp + ".", buttons);
+        forms.menu(player, "Choose Icon", "Pick an icon for " + warp + ".", buttons,
+                viewer -> bedrockWarp(viewer, warp));
     }
 
     /** Shared by both delete paths so the store and the clan cannot drift apart. */
@@ -246,12 +246,12 @@ final class ClanWarpDialogService {
                                 : allowed.size() + " member(s) can use it.",
                         audience -> openPermissions(audience, warp)),
                 action("Delete", "Remove this warp for good.",
-                        audience -> openDelete(audience, warp), NamedTextColor.RED),
-                action("Back", "Return to the warps.", this::open)
+                        audience -> openDelete(audience, warp), NamedTextColor.RED)
         );
         show(player, warp, allowed.isEmpty()
                 ? "Everyone in the clan can travel here."
-                : "Only chosen members can travel here.", new ArrayList<>(buttons), 2);
+                : "Only chosen members can travel here.", new ArrayList<>(buttons), 2,
+                this::open);
     }
 
     /** Who may travel here. An empty list is the everyone default, not a locked warp. */
@@ -292,11 +292,10 @@ final class ClanWarpDialogService {
                     meta.allowEveryone(clan.id(), warp);
                     openPermissions(audience, warp);
                 }));
-        buttons.add(action("Back", "Return to " + warp + ".",
-                audience -> openWarp(audience, warp)));
         show(player, warp + " Permissions", allowed.isEmpty()
                 ? "Nobody has been chosen, so everyone can travel here."
-                : "Only the members marked YES can travel here.", buttons, 1);
+                : "Only the members marked YES can travel here.", buttons, 1,
+                audience -> openWarp(audience, warp));
     }
 
     private void openRename(Player player, String warp) {
@@ -445,26 +444,15 @@ final class ClanWarpDialogService {
                         1
                 )))
                 .build());
-        buttons.add(action("Back", "Return to " + warp + ".",
-                audience -> openWarp(audience, warp)));
-
-        Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(MenuText.title("Choose Icon"))
-                        .body(List.of(DialogBody.plainMessage(MenuText.body(
-                                matches.isEmpty()
-                                        ? "Nothing matches that."
-                                        : "Page " + current + " of " + pages + "."
-                        ), 400)))
-                        .inputs(List.of(io.papermc.paper.registry.data.dialog.input.DialogInput
-                                .text(SEARCH_INPUT, Component.text("Search", MenuText.LABEL))
-                                .maxLength(32)
-                                .build()))
-                        .afterAction(DialogBase.DialogAfterAction.NONE)
-                        .pause(false)
-                        .canCloseWithEscape(true)
-                        .build())
-                .type(DialogType.multiAction(buttons).columns(3).build()));
-        player.showDialog(dialog);
+        Screens.show(player, "Choose Icon",
+                Screens.body(matches.isEmpty()
+                        ? "Nothing matches that."
+                        : "Page " + current + " of " + pages + "."),
+                List.of(io.papermc.paper.registry.data.dialog.input.DialogInput
+                        .text(SEARCH_INPUT, Component.text("Search", MenuText.LABEL))
+                        .maxLength(32)
+                        .build()),
+                buttons, 3, audience -> openWarp(audience, warp));
     }
 
     private ActionButton action(
@@ -487,9 +475,10 @@ final class ClanWarpDialogService {
     }
 
     private void show(
-            Player player, String title, String body, List<ActionButton> buttons, int columns
+            Player player, String title, String body, List<ActionButton> buttons, int columns,
+            java.util.function.Consumer<Player> back
     ) {
-        Screens.show(player, title, Screens.body(body), buttons, columns, this::open);
+        Screens.show(player, title, Screens.body(body), buttons, columns, back);
     }
 
     /** The warmup, permissions and world checks stay with the existing command path. */

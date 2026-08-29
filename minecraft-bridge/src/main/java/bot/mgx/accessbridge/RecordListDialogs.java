@@ -85,7 +85,7 @@ final class RecordListDialogs {
             boolean shown = forms.menu(player, "Level Perks",
                     String.join("\n", lines)
                             + "\n\nEarn them by chatting in the Discord; roles sync automatically.",
-                    List.of(new BedrockForms.Button("Close", () -> { })));
+                    List.of());
             if (!shown) {
                 menus.openPerks(player);
             }
@@ -102,7 +102,7 @@ final class RecordListDialogs {
         body.add(DialogBody.plainMessage(Component.empty(), 400));
         body.add(DialogBody.plainMessage(MenuText.body(
                 "Earn them by chatting in the Discord. Roles sync automatically."), 400));
-        show(player, "Level Perks", body, List.of(close()), 1);
+        show(player, "Level Perks", body, List.of(), 1);
     }
 
     // ------------------------------------------------------------ whitelist
@@ -316,15 +316,7 @@ final class RecordListDialogs {
                     .action(callback((response, audience) -> go.accept(current + 1)))
                     .build());
         }
-        buttons.add(close());
         return buttons;
-    }
-
-    private ActionButton close() {
-        return ActionButton.builder(Component.text("Close", MenuText.LABEL))
-                .width(150)
-                .action(callback((response, audience) -> audience.closeDialog()))
-                .build();
     }
 
     private void show(

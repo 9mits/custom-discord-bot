@@ -230,9 +230,9 @@ final class ClanDialogService {
                                 nameOf(clan, donor.getKey()), this::openDonors)
                 ));
             }
-            buttons.add(new BedrockForms.Button("Back", () -> openHub(player)));
             if (!forms.menu(player, "Donors",
-                    ranked.isEmpty() ? "No donations yet." : "Who has given the most.", buttons)) {
+                    ranked.isEmpty() ? "No donations yet." : "Who has given the most.", buttons,
+                    this::openHub)) {
                 menus.openDonors(player);
             }
             return;
@@ -290,9 +290,8 @@ final class ClanDialogService {
                         () -> openMember(player, clanId, member.getKey(), current, back)
                 ));
             }
-            buttons.add(new BedrockForms.Button("Back", () -> back.accept(player)));
             if (!forms.menu(player, clan.name() + " Members",
-                    roster.size() + "/" + clan.memberSlots() + " in the clan.", buttons)) {
+                    roster.size() + "/" + clan.memberSlots() + " in the clan.", buttons, back)) {
                 menus.openMembers(player, clanId, current, null);
             }
             return;
@@ -538,9 +537,6 @@ final class ClanDialogService {
             buttons.add(new BedrockForms.Button("Members",
                     () -> openMembers(player, clanId, 1,
                             viewer -> openInfo(viewer, clanId, back))));
-            if (back != null) {
-                buttons.add(new BedrockForms.Button("Back", () -> back.accept(player)));
-            }
             if (!forms.menu(player, clan.name(), String.join("\n",
                     "Leader: " + clan.members().getOrDefault(clan.leader(), "Unknown"),
                     "Level: " + (clan.level() == 0 ? "Unranked" : String.valueOf(clan.level())),
@@ -549,7 +545,7 @@ final class ClanDialogService {
                     "Members: " + clan.members().size() + "/" + clan.memberSlots(),
                     "Online: " + online,
                     "Allies: " + allies
-            ), buttons)) {
+            ), buttons, back)) {
                 menus.openInfo(player, clan, null);
             }
             return;

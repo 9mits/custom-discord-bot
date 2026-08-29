@@ -47,7 +47,6 @@ final class StatsDialogService implements CommandExecutor, org.bukkit.event.List
             .build();
     private static final int PROFILE_SIZE = 45;
     private static final int PROFILE_BACK_SLOT = 36;
-    private static final int PROFILE_CLOSE_SLOT = 40;
     private static final String NAME_INPUT = "player_name";
 
     private final MGXAccessBridge plugin;
@@ -226,9 +225,8 @@ final class StatsDialogService implements CommandExecutor, org.bukkit.event.List
                     "Playtime: " + playtime(profile.playTimeTicks())
             ), List.of(
                     new BedrockForms.Button("View Full Profile",
-                            () -> openProfile(viewer, id, profile.name(), back)),
-                    new BedrockForms.Button("Back", () -> back.accept(viewer))
-            ));
+                            () -> openProfile(viewer, id, profile.name(), back))
+            ), back);
             if (!shown) {
                 openProfile(viewer, id, fallbackName, back);
             }
@@ -249,27 +247,12 @@ final class StatsDialogService implements CommandExecutor, org.bukkit.event.List
         List<ActionButton> buttons = List.of(
                 ActionButton.builder(Component.text("View Full Profile", NamedTextColor.WHITE))
                         .tooltip(Component.text("Every number we keep.", MenuText.LABEL))
-                        .width(310)
+                        .width(150)
                         .action(callback((response, audience) ->
                                 openProfile(audience, id, profile.name(), back)))
-                        .build(),
-                ActionButton.builder(Component.text("Back", MenuText.LABEL))
-                        .width(310)
-                        .action(callback((response, audience) -> back.accept(audience)))
                         .build()
         );
-        Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(MenuText.title(profile.name()))
-                        .body(body)
-                        .afterAction(DialogBase.DialogAfterAction.NONE)
-                        // Not a blocking prompt: the screen stays up so a toggle
-                        // repaints in place instead of slamming shut on every click.
-                        // NONE is only legal on a dialog that does not pause.
-                        .pause(false)
-                        .canCloseWithEscape(true)
-                        .build())
-                .type(DialogType.multiAction(buttons).columns(1).build()));
-        viewer.showDialog(dialog);
+        Screens.show(viewer, profile.name(), body, buttons, 1, back);
     }
 
     /**
@@ -317,21 +300,21 @@ final class StatsDialogService implements CommandExecutor, org.bukkit.event.List
         for (int index = 0; index < tiles.size() && index < slots.length; index++) {
             inventory.setItem(slots[index], tiles.get(index));
         }
-        if (back != null) {
-            profileBack.put(viewer.getUniqueId(), back);
-            inventory.setItem(PROFILE_BACK_SLOT, MenuItems.button(
-                    Material.OAK_DOOR, "Back", "Return to where you came from."
-            ));
-        } else {
-            profileBack.remove(viewer.getUniqueId());
-        }
-        inventory.setItem(PROFILE_CLOSE_SLOT, MenuItems.button(Material.BARRIER, "Close"));
+        // One exit, the same one the dialog screens draw: this board is always reached
+        // from a card, so Back is the only honest button. Without an origin it goes to
+        // the main menu rather than offering a second way out.
+        profileBack.put(viewer.getUniqueId(), back == null ? Screens::home : back);
+        inventory.setItem(PROFILE_BACK_SLOT, MenuItems.button(
+                Material.OAK_DOOR, "Back", back == null
+                        ? "Return to the main menu."
+                        : "Return to where you came from."
+        ));
         MenuItems.show(plugin, viewer, inventory);
     }
 
     /**
-     * The profile board is read-only, so only Back and Close do anything. Handling it
-     * here rather than in the menu router is what lets Back know its destination.
+     * The profile board is read-only, so only Back does anything. Handling it here
+     * rather than in the menu router is what lets Back know its destination.
      */
     @org.bukkit.event.EventHandler
     public void onProfileClick(org.bukkit.event.inventory.InventoryClickEvent event) {
@@ -344,7 +327,7 @@ final class StatsDialogService implements CommandExecutor, org.bukkit.event.List
             return;
         }
         int slot = event.getSlot();
-        if (slot != PROFILE_BACK_SLOT && slot != PROFILE_CLOSE_SLOT) {
+        if (slot != PROFILE_BACK_SLOT) {
             return;
         }
         java.util.function.Consumer<Player> back = profileBack.remove(player.getUniqueId());
@@ -354,7 +337,7 @@ final class StatsDialogService implements CommandExecutor, org.bukkit.event.List
                 return;
             }
             player.closeInventory();
-            if (slot == PROFILE_BACK_SLOT && back != null) {
+            if (back != null) {
                 back.accept(player);
             }
         });

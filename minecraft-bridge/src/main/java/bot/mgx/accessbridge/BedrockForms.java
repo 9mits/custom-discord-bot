@@ -44,12 +44,28 @@ final class BedrockForms {
         }
     }
 
-    /** A titled list of buttons: the shape most of these screens actually are. */
+    /**
+     * A titled list of buttons: the shape most of these screens actually are.
+     *
+     * <p>The exit is appended here for the same reason {@link Screens} appends it on
+     * Java — so a screen cannot hand itself two ways out, or none. {@code back} is
+     * where the caller came from; without one the exit goes to the main menu, which is
+     * the only screen a Bedrock player can be sent to with nothing behind it.
+     */
     boolean menu(Player player, String title, String body, List<Button> buttons) {
-        if (buttons.isEmpty()) {
-            return false;
-        }
-        List<Button> choices = List.copyOf(buttons);
+        return menu(player, title, body, buttons, null);
+    }
+
+    boolean menu(
+            Player player, String title, String body, List<Button> buttons,
+            Consumer<Player> back
+    ) {
+        // An empty list is a real screen, not a failure: "No bounties standing" plus a
+        // way out beats falling through to an empty chest.
+        List<Button> choices = new ArrayList<>(buttons);
+        Consumer<Player> exit = back == null ? Screens::home : back;
+        choices.add(new Button("Back", () -> exit.accept(player)));
+        choices = List.copyOf(choices);
         SimpleForm.Builder form = SimpleForm.builder().title(title);
         if (body != null && !body.isBlank()) {
             form.content(body);
@@ -57,10 +73,11 @@ final class BedrockForms {
         for (Button button : choices) {
             form.button(button.label());
         }
+        List<Button> sent = choices;
         form.validResultHandler(response -> onMain(() -> {
             int index = response.clickedButtonId();
-            if (index >= 0 && index < choices.size()) {
-                choices.get(index).action().run();
+            if (index >= 0 && index < sent.size()) {
+                sent.get(index).action().run();
             }
         }));
         return send(player, form.build());

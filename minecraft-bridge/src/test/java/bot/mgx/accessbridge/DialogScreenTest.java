@@ -33,10 +33,15 @@ final class DialogScreenTest {
                     file.getFileName() + " uses WAIT_FOR_RESPONSE, which hangs on escape");
             // NONE never unpauses, so Paper refuses to build a pausing dialog that uses
             // it. A screen that stays open has to say pause(false) as well.
-            if (text.contains("DialogAfterAction.NONE")) {
-                assertTrue(text.contains(".pause(false)"),
-                        file.getFileName() + " uses NONE without pause(false), which throws");
+            if (!text.contains("DialogAfterAction.NONE")) {
+                continue;
             }
+            // Screens is the one place allowed to state it once, by deriving pause from
+            // the after-action so the two cannot be set to contradict each other.
+            boolean derived = text.contains(
+                    "boolean pause = afterAction != DialogBase.DialogAfterAction.NONE;");
+            assertTrue(derived || text.contains(".pause(false)"),
+                    file.getFileName() + " uses NONE without pause(false), which throws");
         }
     }
 

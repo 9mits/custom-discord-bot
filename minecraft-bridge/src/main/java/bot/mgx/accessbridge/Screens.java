@@ -6,6 +6,7 @@ import io.papermc.paper.registry.data.dialog.ActionButton;
 import io.papermc.paper.registry.data.dialog.DialogBase;
 import io.papermc.paper.registry.data.dialog.action.DialogAction;
 import io.papermc.paper.registry.data.dialog.body.DialogBody;
+import io.papermc.paper.registry.data.dialog.input.DialogInput;
 import io.papermc.paper.registry.data.dialog.type.DialogType;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickCallback;
@@ -22,12 +23,22 @@ import java.util.function.Consumer;
  * One way to draw a screen, so every screen leaves the same way.
  *
  * <p>Each service used to build its own dialog and add whatever exit it felt like,
- * which produced screens with Back, screens with Close, screens with both and screens
- * with neither. The exit is not a decision a screen should get to make: a screen
- * opened from somewhere goes Back, a screen opened from a command or a key Closes, and
- * that follows from whether the caller passed an origin.
+ * which produced screens with Back, screens with Close, screens with both, and one
+ * with two Closes. The exit is not a decision a screen gets to make.
  *
- * <p>Callers pass their own buttons and the origin, never the exit itself.
+ * <p>The rule is depth, not preference. <strong>Close belongs to the main menu and
+ * nowhere else</strong>, because it is the only screen with nothing behind it.
+ * Everything else is somewhere further in, so everything else goes Back: to the
+ * caller that opened it, or — when a command opened it directly and there is no
+ * caller — to the main menu, which is home. A screen therefore never has to know
+ * whether it was reached by key, command or button; it passes an origin or it passes
+ * nothing, and either way the player gets exactly one way out that goes the
+ * direction they expect.
+ *
+ * <p>Escape is deliberately not the Back button. {@code canCloseWithEscape} leaves
+ * the whole stack in one press, so a player four screens deep is never trapped
+ * pressing it four times; no {@code exitAction} is set, because that would rebind
+ * escape to a single step back.
  */
 final class Screens {
     static final ClickCallback.Options CALLBACKS = ClickCallback.Options.builder()
@@ -35,7 +46,21 @@ final class Screens {
             .lifetime(Duration.ofMinutes(10))
             .build();
 
+    /**
+     * How to open the main menu, installed once at enable. Closing is the fallback so
+     * that a Back is never a dead button if the menu service is unavailable.
+     */
+    private static volatile Consumer<Player> home = Player::closeDialog;
+
     private Screens() {
+    }
+
+    static void installHome(Consumer<Player> opener) {
+        home = opener == null ? Player::closeDialog : opener;
+    }
+
+    static void home(Player player) {
+        home.accept(player);
     }
 
     /** A screen that stays open while the player works in it. */
@@ -47,21 +72,22 @@ final class Screens {
             int columns,
             Consumer<Player> back
     ) {
-        List<ActionButton> all = new ArrayList<>(buttons);
-        all.add(exit(back));
-        Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(MenuText.title(title))
-                        .body(body.isEmpty()
-                                ? List.of(DialogBody.plainMessage(Component.empty(), 400))
-                                : body)
-                        // Not a blocking prompt: the screen stays up so a toggle repaints
-                        // in place. NONE is only legal on a dialog that does not pause.
-                        .afterAction(DialogBase.DialogAfterAction.NONE)
-                        .pause(false)
-                        .canCloseWithEscape(true)
-                        .build())
-                .type(DialogType.multiAction(all).columns(columns).build()));
-        player.showDialog(dialog);
+        show(player, title, body, List.of(), buttons, columns, back);
+    }
+
+    /** The same, with a text field — searching and naming, which a chest cannot ask. */
+    static void show(
+            Player player,
+            String title,
+            List<DialogBody> body,
+            List<DialogInput> inputs,
+            List<ActionButton> buttons,
+            int columns,
+            Consumer<Player> back
+    ) {
+        // Not a blocking prompt: the screen stays up so a toggle repaints in place.
+        draw(player, title, body, inputs, withExit(buttons, back(back)), columns,
+                DialogBase.DialogAfterAction.NONE);
     }
 
     /** A screen whose buttons all lead elsewhere, so it should get out of the way. */
@@ -73,39 +99,80 @@ final class Screens {
             int columns,
             Consumer<Player> back
     ) {
-        List<ActionButton> all = new ArrayList<>(buttons);
-        all.add(exit(back));
-        Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(MenuText.title(title))
-                        .body(body.isEmpty()
-                                ? List.of(DialogBody.plainMessage(Component.empty(), 400))
-                                : body)
-                        .afterAction(DialogBase.DialogAfterAction.CLOSE)
-                        .canCloseWithEscape(true)
-                        .build())
-                .type(DialogType.multiAction(all).columns(columns).build()));
-        player.showDialog(dialog);
+        draw(player, title, body, List.of(), withExit(buttons, back(back)), columns,
+                DialogBase.DialogAfterAction.CLOSE);
+    }
+
+    /**
+     * The main menu itself: the only screen the player cannot go back from, and so the
+     * only one that offers Close. Nothing else may call this.
+     */
+    static void showHome(
+            Player player,
+            String title,
+            List<DialogBody> body,
+            List<ActionButton> buttons,
+            int columns
+    ) {
+        draw(player, title, body, List.of(), withExit(buttons, close()), columns,
+                DialogBase.DialogAfterAction.CLOSE);
     }
 
     static List<DialogBody> body(String text) {
         return List.of(DialogBody.plainMessage(MenuText.body(text), 400));
     }
 
-    /**
-     * Back when the caller said where from, Close when it is the first screen. Exactly
-     * one of the two, always present.
-     */
-    private static ActionButton exit(Consumer<Player> back) {
-        if (back == null) {
-            return ActionButton.builder(Component.text("Close", MenuText.LABEL))
-                    .width(150)
-                    .action(callback((response, audience) -> audience.closeDialog()))
-                    .build();
-        }
+    private static void draw(
+            Player player,
+            String title,
+            List<DialogBody> body,
+            List<DialogInput> inputs,
+            List<ActionButton> buttons,
+            int columns,
+            DialogBase.DialogAfterAction afterAction
+    ) {
+        // Paper refuses to build a dialog that pauses the game and then never unpauses
+        // it, which is how an invalid after-action once took /leaderboard, /stats and
+        // /settings down together. Deriving it here means the pair cannot be got wrong.
+        boolean pause = afterAction != DialogBase.DialogAfterAction.NONE;
+        Dialog dialog = Dialog.create(builder -> builder.empty()
+                .base(DialogBase.builder(MenuText.title(title))
+                        .body(body.isEmpty()
+                                ? List.of(DialogBody.plainMessage(Component.empty(), 400))
+                                : body)
+                        .inputs(inputs)
+                        .afterAction(afterAction)
+                        .pause(pause)
+                        .canCloseWithEscape(true)
+                        .build())
+                // No exitAction: escape leaves the menu entirely rather than stepping
+                // back one screen, and the grid holds the single Back or Close.
+                .type(DialogType.multiAction(buttons).columns(columns).build()));
+        player.showDialog(dialog);
+    }
+
+    private static List<ActionButton> withExit(List<ActionButton> buttons, ActionButton exit) {
+        List<ActionButton> all = new ArrayList<>(buttons);
+        all.add(exit);
+        return all;
+    }
+
+    /** Back to the caller, or to the main menu when a command opened this directly. */
+    private static ActionButton back(Consumer<Player> back) {
+        Consumer<Player> target = back == null ? Screens::home : back;
         return ActionButton.builder(Component.text("Back", MenuText.LABEL))
-                .tooltip(Component.text("Return to where you came from.", MenuText.LABEL))
+                .tooltip(Component.text(back == null
+                        ? "Return to the main menu."
+                        : "Return to where you came from.", MenuText.LABEL))
                 .width(150)
-                .action(callback((response, audience) -> back.accept(audience)))
+                .action(callback((response, audience) -> target.accept(audience)))
+                .build();
+    }
+
+    private static ActionButton close() {
+        return ActionButton.builder(Component.text("Close", MenuText.LABEL))
+                .width(150)
+                .action(callback((response, audience) -> audience.closeDialog()))
                 .build();
     }
 
