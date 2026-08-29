@@ -609,6 +609,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         if (!reserveLane(player, kind, lanes.get(0), now)) {
             return;
         }
+        auditOpen(player, kind, pull, cost, luck);
 
         CrateMenu holder = new CrateMenu(Screen.ROLL, 1, kind);
         Inventory inventory = Bukkit.createInventory(
@@ -1118,21 +1119,65 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         };
     }
 
+    /** One line for the keys leaving a player's hands, before anything is won. */
+    private void auditOpen(Player player, CrateKind kind, int pull, int cost, int luck) {
+        ServerEvent.Builder builder = ServerEvent.of(
+                "crate_open",
+                ServerEvent.CATEGORY_CRATE,
+                player.getUniqueId(),
+                player.getName(),
+                plugin::recordServerEvent
+        ).summary(player.getName() + " opened "
+                        + (pull == 1 ? "the " : pull + "x the ") + kind.displayName())
+                .detail("crate", kind.displayName())
+                .detail("openings", pull)
+                .detail("keys_spent", cost);
+        if (luck != CrateCatalog.NO_LUCK_PERCENT) {
+            builder.detail("crate_luck", luck + "%");
+        }
+        builder.record();
+    }
+
+    /**
+     * Every reward, and a second louder line for the ones worth noticing.
+     *
+     * <p>Two events rather than one because they answer different questions and are
+     * read in different places: a crate log wants everything a crate has ever paid
+     * out, and the important log wants only what somebody would want telling about.
+     * Which channel each lands in is the routing table's decision, not this one's.
+     */
     private void auditWin(
             Player player, CrateStore.Pending pending, CrateCatalog.Reward reward
     ) {
+        CrateKind kind = selectedKinds.getOrDefault(player.getUniqueId(), CrateKind.DEFAULT);
+        ServerEvent.of(
+                "crate_reward",
+                ServerEvent.CATEGORY_CRATE,
+                player.getUniqueId(),
+                player.getName(),
+                plugin::recordServerEvent
+        ).summary(player.getName() + " won " + reward.displayName()
+                        + " from the " + kind.displayName())
+                .detail("reward", reward.displayName())
+                .detail("rarity", reward.rarityDisplay())
+                .detail("chance", reward.displayedChance())
+                .detail("crate", kind.displayName())
+                .detail("opening_id", pending.spinId().toString())
+                .record();
         if (!reward.highImpact()) {
             return;
         }
         ServerEvent.of(
                 "crate_rare_win",
-                ServerEvent.CATEGORY_ECONOMY,
+                ServerEvent.CATEGORY_CRATE,
                 player.getUniqueId(),
                 player.getName(),
                 plugin::recordServerEvent
         ).summary(player.getName() + " won " + reward.displayName() + " from a crate")
                 .detail("reward", reward.displayName())
+                .detail("rarity", reward.rarityDisplay())
                 .detail("chance", reward.displayedChance())
+                .detail("crate", kind.displayName())
                 .detail("opening_id", pending.spinId().toString())
                 .record();
     }

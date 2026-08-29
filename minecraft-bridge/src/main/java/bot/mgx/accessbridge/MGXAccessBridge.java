@@ -92,6 +92,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private CrateService crates;
     private AmethystItemService amethystItems;
     private CrateDisplayService crateDisplays;
+    private ActivityLogService activityLog;
     private CosmeticEffectService cosmeticEffects;
     private RankSyncStore rankSyncStore;
     private MaintenanceStore maintenanceStore;
@@ -518,6 +519,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("mgxadmin").setTabCompleter(adminService);
         launchService = new LaunchService(this, getDataFolder().toPath());
         launchService.restoreOnEnable();
+        activityLog = new ActivityLogService(this, getConfig().getConfigurationSection("activity-log"));
+        getServer().getPluginManager().registerEvents(activityLog, this);
+        activityLog.start();
         crates.start();
         amethystItems.start();
         crateDisplays.refresh();
@@ -589,6 +593,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         if (amethystItems != null) {
             amethystItems.stop();
+        }
+        if (activityLog != null) {
+            activityLog.stop();
+            activityLog = null;
         }
         if (crateDisplays != null) {
             crateDisplays.stop();
@@ -939,10 +947,22 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
      * the bot already audits its own commands, and logging them again would double
      * every entry.
      */
+    /**
+     * Sends one in-game action to the Discord activity log.
+     *
+     * <p>The topic gate lives here rather than at each call site so it covers every
+     * emitter, including the ones written after it. A topic switched off in
+     * {@code config.yml} is never queued at all; muting it in Discord instead is the
+     * other half of the same control, and either alone is enough.
+     */
     void recordServerEvent(ServerEvent event) {
-        if (bridgeClient != null && event != null) {
-            bridgeClient.queueServerEvent(event);
+        if (bridgeClient == null || event == null) {
+            return;
         }
+        if (activityLog != null && !activityLog.reports(event.category())) {
+            return;
+        }
+        bridgeClient.queueServerEvent(event);
     }
 
     boolean isLocalTestServer() {

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from typing import Any, Mapping
+
+from . import logroutes
 
 
 DEFAULT_JAVA_ADDRESS = "104.254.131.178:50548"
@@ -26,6 +28,7 @@ SETTING_KEYS = (
     "bedrock_address",
     "bedrock_port",
     "maintenance_mode",
+    "log_routes",
 )
 
 _HOST = re.compile(r"^(?:[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?|\[[0-9A-Fa-f:]+\])$")
@@ -121,6 +124,10 @@ class MinecraftSettings:
     #: Pre-launch hold. Applications, verification and acceptance all continue;
     #: the server itself refuses to let anybody in until this is lifted.
     maintenance_mode: bool = False
+    #: Topic -> channel id, for the log streams an administrator has routed by
+    #: hand. Absent topics inherit; a stored 0 is a deliberate mute. Normalised
+    #: and read through `logroutes`, which owns what a topic is.
+    log_routes: dict = field(default_factory=dict)
 
     @classmethod
     def from_sources(cls, bootstrap_config, stored: Mapping[str, Any]) -> "MinecraftSettings":
@@ -163,6 +170,7 @@ class MinecraftSettings:
             bedrock_address=bedrock_address,
             bedrock_port=bedrock_port,
             maintenance_mode=_as_bool(stored_or("maintenance_mode", False)),
+            log_routes=logroutes.normalize(stored_or("log_routes", {})),
         )
 
     def with_updates(self, **updates: Any) -> "MinecraftSettings":
@@ -199,6 +207,8 @@ class MinecraftSettings:
             normalized["bedrock_port"] = normalize_port(normalized["bedrock_port"])
         if "maintenance_mode" in normalized:
             normalized["maintenance_mode"] = _as_bool(normalized["maintenance_mode"])
+        if "log_routes" in normalized:
+            normalized["log_routes"] = logroutes.normalize(normalized["log_routes"])
         candidate = replace(self, **normalized)
         if (
             candidate.application_channel_id

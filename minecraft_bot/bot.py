@@ -25,6 +25,8 @@ from .audit import (
     truncate as truncate_audit_value,
 )
 from . import clans
+from . import logroutes
+from .logpanel import LogRoutingView, routing_embed
 from .bridge import MinecraftBridgeServer
 from .config import MinecraftConfig
 from .data import MinecraftDataManager
@@ -518,13 +520,13 @@ class MinecraftAccessBot(commands.Bot):
 
     async def log_application_submission(self, application: MinecraftAccess) -> None:
         await self._send_configured_log(
-            self.settings.application_log_channel_id,
+            logroutes.resolve(self.settings, "application"),
             application_log_embed(application),
         )
 
     async def log_access_change(self, application: MinecraftAccess) -> None:
         await self._send_configured_log(
-            self.settings.application_log_channel_id,
+            logroutes.resolve(self.settings, "application"),
             application_log_embed(application),
         )
 
@@ -963,7 +965,7 @@ class MinecraftAccessBot(commands.Bot):
         if joined:
             await self.sync_player_profile(minecraft_uuid, discord_user_id)
         await self._send_configured_log(
-            self.settings.player_log_channel_id,
+            logroutes.resolve(self.settings, "session"),
             player_activity_embed(
                 joined=joined,
                 username=current_username,
@@ -1566,7 +1568,7 @@ class MinecraftAccessBot(commands.Bot):
         await self.data.finish_reverse_link(request_id, ReverseLinkStatus.APPROVED)
         if changed:
             await self._send_configured_log(
-                self.settings.verification_log_channel_id,
+                logroutes.resolve(self.settings, "verification"),
                 verification_log_embed(application),
             )
         await self.bridge.send_reverse_link_status(
@@ -1597,7 +1599,7 @@ class MinecraftAccessBot(commands.Bot):
             await self.update_live_card(application, create_if_missing=False)
             return
         await self._send_configured_log(
-            self.settings.verification_log_channel_id,
+            logroutes.resolve(self.settings, "verification"),
             verification_log_embed(application),
         )
         await self.update_live_card(application)
@@ -3023,6 +3025,81 @@ class MinecraftAccessBot(commands.Bot):
                     name=f"minecraft-retry:{application}",
                 )
 
+        @admin_group.command(
+            name="logs",
+            description="Open the Minecraft log routing panel.",
+        )
+        async def logs_panel(interaction: discord.Interaction) -> None:
+            if not await self.require_administrator(interaction):
+                return
+            view = LogRoutingView(self, interaction.user.id)
+            await interaction.response.send_message(
+                **branded_send(routing_embed(self.settings)),
+                view=view,
+                ephemeral=True,
+            )
+
+        @admin_group.command(
+            name="log-route",
+            description="Send one kind of Minecraft log to a channel.",
+        )
+        @app_commands.describe(
+            topic="The log stream to route",
+            channel="Where to write it; leave empty to put it back on what it inherits",
+            mute="Write this stream nowhere at all",
+        )
+        @app_commands.choices(
+            topic=[
+                app_commands.Choice(name=entry.label, value=entry.key)
+                for entry in logroutes.TOPICS
+            ]
+        )
+        async def log_route(
+            interaction: discord.Interaction,
+            topic: app_commands.Choice[str],
+            channel: Optional[discord.TextChannel] = None,
+            mute: bool = False,
+        ) -> None:
+            if not await self.require_administrator(interaction):
+                return
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            if mute and channel is not None:
+                await interaction.edit_original_response(
+                    **branded_edit(
+                        info_embed(
+                            "Route Not Changed",
+                            "> Choose a channel or mute the stream, not both.",
+                            error=True,
+                        )
+                    ),
+                    view=self.control_view(interaction),
+                )
+                return
+            # None clears the override; 0 mutes; an id routes.
+            target = logroutes.MUTED if mute else (channel.id if channel else None)
+            try:
+                routes = logroutes.with_route(self.settings, topic.value, target)
+            except ValueError as exc:
+                await interaction.edit_original_response(
+                    **branded_edit(info_embed("Route Not Changed", f"> {exc}", error=True)),
+                    view=self.control_view(interaction),
+                )
+                return
+            await self.update_settings(actor_id=interaction.user.id, log_routes=routes)
+            await interaction.edit_original_response(
+                **branded_edit(
+                    info_embed(
+                        "Minecraft Log Routed",
+                        f"> **{topic.name}** — "
+                        f"{logroutes.destination_label(self.settings, topic.value)}\n\n"
+                        "The change takes effect immediately. "
+                        "Run `/mcadmin logs` to see every stream at once.",
+                        success=True,
+                    )
+                ),
+                view=self.control_view(interaction),
+            )
+
         @admin_group.command(name="log-channel", description="Configure or disable a Minecraft event log.")
         @app_commands.describe(
             log="Event stream to configure",
@@ -3313,7 +3390,8 @@ class MinecraftAccessBot(commands.Bot):
                         "`/mcadmin setup` — the setup dashboard\n"
                         "`/mcadmin information` — post the server guide panel\n"
                         "`/mcadmin leaderboard` — choose the player or clan leaderboard channel\n"
-                        "`/mcadmin log-channel` — choose the Activity and Important log channels\n"
+                        "`/mcadmin logs` — route every kind of log to the channel it belongs in\n"
+                        "`/mcadmin log-channel` — set the Activity and Important channels at once\n"
                         "`/mcadmin chat-channel` — two-way Minecraft chat sync\n"
                         "`/mcadmin maintenance` — hold the server closed before "
                         "launch, or open it again\n"
