@@ -47,6 +47,7 @@ final class BountyService implements CommandExecutor, TabCompleter, Listener {
     private final ClanStore clans;
     private final PersonalNotificationService notifications;
     private final PlayerSettingsStore settings;
+    private RecordListDialogs records;
 
     BountyService(
             MGXAccessBridge plugin,
@@ -70,7 +71,7 @@ final class BountyService implements CommandExecutor, TabCompleter, Listener {
         try {
             if (args.length == 0 || args[0].equalsIgnoreCase("list")) {
                 if (sender instanceof Player player) {
-                    openBoard(player, 1);
+                    openBoardPreferred(player, 1);
                 } else {
                     list(sender);
                 }
@@ -108,6 +109,18 @@ final class BountyService implements CommandExecutor, TabCompleter, Listener {
             );
         }
         return List.of();
+    }
+
+    void useRecordDialogs(RecordListDialogs records) {
+        this.records = records;
+    }
+
+    void openBoardPreferred(Player player, int page) {
+        if (records != null) {
+            records.openBounties(player, page);
+        } else {
+            openBoard(player, page);
+        }
     }
 
     void openBoard(Player player, int page) {

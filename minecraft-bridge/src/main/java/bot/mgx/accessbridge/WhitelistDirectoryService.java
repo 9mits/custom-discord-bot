@@ -45,7 +45,7 @@ final class WhitelistDirectoryService implements CommandExecutor, TabCompleter {
                     page = 1;
                 }
             }
-            menus.openWhitelist(player, page);
+            menus.openWhitelistPreferred(player, page);
             return true;
         }
         // Console has no inventory, so it keeps the text listing.

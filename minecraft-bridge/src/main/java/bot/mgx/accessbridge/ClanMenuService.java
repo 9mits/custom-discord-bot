@@ -66,6 +66,7 @@ final class ClanMenuService implements Listener {
     private final TeleportWarmupService warmups;
     private final ClanBattleStore clanBattles;
     private ClanWarpDialogService warpDialog;
+    private ClanDialogService dialogs;
 
     ClanMenuService(
             MGXAccessBridge plugin,
@@ -86,6 +87,59 @@ final class ClanMenuService implements Listener {
     /** Wired after construction; the dialog reads this service's warp data. */
     void useWarpDialog(ClanWarpDialogService warpDialog) {
         this.warpDialog = warpDialog;
+    }
+
+    void useDialogs(ClanDialogService dialogs) {
+        this.dialogs = dialogs;
+    }
+
+    /** One way into each clan screen, so the chest version cannot be reached twice. */
+    void openHubPreferred(Player player) {
+        if (dialogs != null) {
+            dialogs.openHub(player);
+        } else {
+            openHub(player);
+        }
+    }
+
+    void openInfoPreferred(Player player, ClanStore.ClanView clan) {
+        if (dialogs != null) {
+            dialogs.openInfo(player, clan.id(), null);
+        } else {
+            openInfo(player, clan, null);
+        }
+    }
+
+    void openMembersPreferred(Player player, UUID clanId, int page) {
+        if (dialogs != null) {
+            dialogs.openMembers(player, clanId, page);
+        } else {
+            openMembers(player, clanId, page, null);
+        }
+    }
+
+    void openDonorsPreferred(Player player) {
+        if (dialogs != null) {
+            dialogs.openDonors(player);
+        } else {
+            openDonors(player);
+        }
+    }
+
+    void openDonatePreferred(Player player) {
+        if (dialogs != null) {
+            dialogs.openDonate(player);
+        } else {
+            openDonate(player);
+        }
+    }
+
+    void openBalancePreferred(Player player) {
+        if (dialogs != null) {
+            dialogs.openBalance(player);
+        } else {
+            openBalance(player);
+        }
     }
 
     /** Every route to the warps goes through here, so only one screen can open. */
@@ -294,6 +348,16 @@ final class ClanMenuService implements Listener {
             MenuItems.back(inventory);
         }
         MenuItems.show(plugin, player, inventory);
+    }
+
+    /** Resolves a clan by name with the same errors the command already produced. */
+    java.util.Optional<ClanStore.ClanView> lookupClan(Player player, String requestedName) {
+        try {
+            return java.util.Optional.of(lookup(player, requestedName));
+        } catch (ClanStore.ClanException failure) {
+            error(player, failure.getMessage());
+            return java.util.Optional.empty();
+        }
     }
 
     void openInfo(Player player, String requestedName) {
