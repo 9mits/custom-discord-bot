@@ -170,6 +170,11 @@ final class TeleportMenuService implements Listener {
         }
     }
 
+    /** The dialog lists the same warps this menu does. */
+    List<String> warpNamesOf() {
+        return warpNames();
+    }
+
     private List<String> warpNames() {
         File[] files = warpsDirectory.listFiles((directory, name) ->
                 name.toLowerCase(Locale.ROOT).endsWith(".yml"));
