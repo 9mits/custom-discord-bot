@@ -497,9 +497,11 @@ final class ClanDialogService {
         } catch (IOException | ClanStore.ClanException failure) {
             PlayerMenuService.error(player, failure.getMessage() == null
                     ? "That could not be bought." : failure.getMessage());
+            openUpgrade(player);
             return;
         }
-        openUpgrade(player);
+        // The purchase reopens the upgrade screen itself, so reopening it here as well
+        // would draw it twice over.
     }
 
     // ---------------------------------------------------------------- info
