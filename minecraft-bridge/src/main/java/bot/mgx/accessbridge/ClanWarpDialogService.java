@@ -107,18 +107,13 @@ final class ClanWarpDialogService {
         }
 
         int slots = ClanLevel.warpSlots(clan.level());
-        Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(MenuText.title(clan.name() + " Warps"))
-                        .body(List.of(DialogBody.plainMessage(MenuText.body(
-                                names.isEmpty()
-                                        ? "No clan warps yet. Set one with /clans setwarp <name>."
-                                        : names.size() + " of " + slots + " used."
-                        ), 400)))
-                        .afterAction(DialogBase.DialogAfterAction.CLOSE)
-                        .canCloseWithEscape(true)
-                        .build())
-                .type(DialogType.multiAction(buttons).columns(2).build()));
-        player.showDialog(dialog);
+        // Reached from the clan hub and from the warp list, so it Closes rather than
+        // guessing which of the two to send the player back to.
+        Screens.showAndClose(player, clan.name() + " Warps", Screens.body(
+                names.isEmpty()
+                        ? "No clan warps yet. Set one with /clans setwarp <name>."
+                        : names.size() + " of " + slots + " used."
+        ), buttons, 2, null);
     }
 
     /** Bedrock gets the same list, the same gating and the same management actions. */
