@@ -492,9 +492,6 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         // The chest screens stay as the Bedrock and pre-1.21.6 path, so each command
         // asks the client what it can render rather than picking one for everyone.
         leaderboardMenus.useDialogs(leaderboardDialogs, dialogSupport);
-        ClanChooserService clanChooser = new ClanChooserService(
-                clanMenuService, clanStore, clanBattleStore, dialogSupport, bedrockForms
-        );
         ClanDirectoryService clanDirectory = new ClanDirectoryService(
                 clanStore, clanMenuService, clanBattleStore, dialogSupport
         );
@@ -505,7 +502,6 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 teleportMenus, clanWarps, clanStore, dialogSupport, bedrockForms
         );
         teleportMenus.useWarpChooser(warpChooser);
-        clanChooser.useClanWarps(clanWarps);
         clanService.useClanWarps(clanWarps);
         clanMenuService.useWarpDialog(clanWarps);
         ClanDialogService clanDialogs = new ClanDialogService(
@@ -513,17 +509,15 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 profileStats, dialogSupport, bedrockForms
         );
         clanMenuService.useDialogs(clanDialogs);
-        clanChooser.useClanDialogs(clanDialogs);
         clanService.useClanDialogs(clanDialogs);
         clanDirectory.useClanDialogs(clanDialogs);
+        clanDialogs.useDirectory(clanDirectory);
         leaderboardDialogs.useClanDialogs(clanDialogs);
         RecordListDialogs recordDialogs = new RecordListDialogs(
                 whitelistDirectory, bountyStore, economyStore, statsDialogs,
                 playerMenuService, dialogSupport, bedrockForms
         );
         playerMenuService.useRecordDialogs(recordDialogs);
-        clanChooser.useDirectory(clanDirectory);
-        clanService.useChooser(clanChooser);
         clanService.useDirectory(clanDirectory);
         teleportMenus.useHomesDialog(homesDialogs);
         AuctionStore auctionStore;

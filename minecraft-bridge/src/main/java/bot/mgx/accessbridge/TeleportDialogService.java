@@ -102,19 +102,11 @@ final class TeleportDialogService implements CommandExecutor {
                     .action(callback((response, audience) -> request(audience, id)))
                     .build());
         }
-        buttons.add(ActionButton.builder(Component.text("Close", MenuText.LABEL))
-                .width(150)
-                .action(callback((response, audience) -> audience.closeDialog()))
-                .build());
-        Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(MenuText.title("Teleport"))
-                        .body(List.of(DialogBody.plainMessage(
-                                MenuText.body("Click a player to teleport"), 400
-                        )))
-                        .afterAction(DialogBase.DialogAfterAction.CLOSE)
-                        .build())
-                .type(DialogType.multiAction(buttons).columns(2).build()));
-        viewer.showDialog(dialog);
+        Screens.showAndClose(viewer, "Teleport", Screens.body(
+                targets.isEmpty()
+                        ? "Nobody else is online. You can still type a name."
+                        : "Click a player to teleport"
+        ), buttons, 2, null);
     }
 
     private void openChest(Player viewer, List<Player> targets) {

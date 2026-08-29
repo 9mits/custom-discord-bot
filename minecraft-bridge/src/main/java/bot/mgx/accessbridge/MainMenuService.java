@@ -89,16 +89,9 @@ final class MainMenuService implements CommandExecutor, Listener {
                     ))
                     .build());
         }
-        Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(MenuText.title("Mysterious SMP X"))
-                        .body(List.of(DialogBody.plainMessage(
-                                Component.text("Choose where to go.", NamedTextColor.GRAY), 400
-                        )))
-                        .afterAction(DialogBase.DialogAfterAction.CLOSE)
-                        .canCloseWithEscape(true)
-                        .build())
-                .type(DialogType.multiAction(buttons).columns(2).build()));
-        player.showDialog(dialog);
+        // The launcher is the first screen, so it Closes rather than going Back.
+        Screens.showAndClose(player, "Mysterious SMP X",
+                Screens.body("Choose where to go."), buttons, 2, null);
     }
 
     private void openChestMenu(org.bukkit.entity.Player player) {

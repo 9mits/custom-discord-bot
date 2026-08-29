@@ -52,6 +52,7 @@ final class ClanDialogService {
     private final ProfileStatsService profiles;
     private final SettingsClientSupport clientSupport;
     private final BedrockForms forms;
+    private ClanDirectoryService directory;
 
     ClanDialogService(
             ClanStore clans,
@@ -71,6 +72,21 @@ final class ClanDialogService {
         this.profiles = profiles;
         this.clientSupport = clientSupport;
         this.forms = forms;
+    }
+
+    void useDirectory(ClanDirectoryService directory) {
+        this.directory = directory;
+    }
+
+    /** {@code /clans} lands here: the hub for a member, the directory for anyone else. */
+    void openClans(Player player) {
+        if (clans.clanOf(player.getUniqueId()).isPresent()) {
+            openHub(player);
+        } else if (directory != null) {
+            directory.open(player, 1);
+        } else {
+            PlayerMenuService.error(player, "You are not in a clan.");
+        }
     }
 
     // ---------------------------------------------------------------- hub
@@ -96,7 +112,13 @@ final class ClanDialogService {
                         clan.members().size() + "/" + clan.memberSlots() + " in the clan.",
                         p -> openMembers(p, clan.id(), 1, this::openHub)),
                 new Entry("item/ender_pearl", "Clan Warps", "Places your clan has set.",
-                        p -> menus.openWarpsPreferred(p))
+                        p -> menus.openWarpsPreferred(p)),
+                new Entry("item/spyglass", "Browse Clans", "Every clan, A to Z.",
+                        p -> {
+                            if (directory != null) {
+                                directory.open(p, 1);
+                            }
+                        })
         );
         if (!render(player, clan.name(), "Your clan.", entries, 2)) {
             menus.openHub(player);
@@ -180,12 +202,11 @@ final class ClanDialogService {
         }
         List<Entry> entries = List.of(
                 new Entry("item/gold_ingot", "Donate", "Add to the treasury.", this::openDonate),
-                new Entry("item/diamond", "Donors", "Who has given the most.", this::openDonors),
-                new Entry("item/book", "Back", "Return to the clan.", this::openHub)
+                new Entry("item/diamond", "Donors", "Who has given the most.", this::openDonors)
         );
         if (!render(player, "Treasury",
                 EconomyFormat.dollars(clan.balance()) + " held. Donated money cannot be withdrawn.",
-                entries, 2)) {
+                entries, 2, this::openHub)) {
             menus.openBalance(player);
         }
     }
@@ -234,12 +255,7 @@ final class ClanDialogService {
                 }
             }, CALLBACK_OPTIONS)), 400));
         }
-        show(player, "Donors", body, List.of(
-                ActionButton.builder(Component.text("Back", MenuText.LABEL))
-                        .width(150)
-                        .action(callback((response, audience) -> openHub(audience)))
-                        .build()
-        ), 1);
+        show(player, "Donors", body, List.of(), 1, this::openHub);
     }
 
     // ------------------------------------------------------------- members
@@ -308,11 +324,10 @@ final class ClanDialogService {
         if (current < pages) {
             buttons.add(button("Next", audience -> openMembers(audience, clanId, current + 1)));
         }
-        buttons.add(button("Back", back));
         show(player, clan.name() + " Members",
                 body.isEmpty() ? List.of(DialogBody.plainMessage(
                         MenuText.body("Nobody here."), 400)) : body,
-                buttons, 2);
+                buttons, 2, back);
     }
 
     /**
@@ -364,8 +379,6 @@ final class ClanDialogService {
                                 viewer -> openMember(viewer, clanId, memberId, page, back));
                     }));
         }
-        entries.add(new Entry("item/oak_door", "Back", "Return to the roster.",
-                audience -> openMembers(audience, clanId, page, back)));
 
         if (!clientSupport.supportsDialogs(player)) {
             List<BedrockForms.Button> buttons = new ArrayList<>();
@@ -418,7 +431,8 @@ final class ClanDialogService {
                     .action(callback((response, audience) -> entry.action().accept(audience)))
                     .build());
         }
-        show(player, name, body, buttons, 2);
+        show(player, name, body, buttons, 2,
+                audience -> openMembers(audience, clanId, page, back));
     }
 
     private void setStaff(
@@ -481,8 +495,8 @@ final class ClanDialogService {
         entries.add(new Entry("item/iron_chestplate", "Buy Member Slots",
                 clan.members().size() + "/" + clan.memberSlots() + " used.",
                 audience -> buy(audience, false)));
-        entries.add(new Entry("item/oak_door", "Back", "Return to the clan.", this::openHub));
-        if (!render(player, "Upgrades", String.join("  |  ", lines), entries, 2)) {
+        if (!render(player, "Upgrades", String.join("  |  ", lines), entries, 2,
+                this::openHub)) {
             menus.openUpgrade(player);
         }
     }
@@ -561,10 +575,7 @@ final class ClanDialogService {
         List<ActionButton> buttons = new ArrayList<>();
         buttons.add(button("Members", audience -> openMembers(audience, clanId, 1,
                 viewer -> openInfo(viewer, clanId, back))));
-        if (back != null) {
-            buttons.add(button("Back", back));
-        }
-        show(player, clan.name(), body, buttons, 2);
+        show(player, clan.name(), body, buttons, 2, back);
     }
 
     // -------------------------------------------------------------- shared
@@ -575,6 +586,13 @@ final class ClanDialogService {
     /** Draws a list of choices on whichever client the player is using. */
     private boolean render(
             Player player, String title, String body, List<Entry> entries, int columns
+    ) {
+        return render(player, title, body, entries, columns, null);
+    }
+
+    private boolean render(
+            Player player, String title, String body, List<Entry> entries, int columns,
+            Consumer<Player> back
     ) {
         if (!clientSupport.supportsDialogs(player)) {
             List<BedrockForms.Button> buttons = new ArrayList<>();
@@ -596,7 +614,7 @@ final class ClanDialogService {
                     .build());
         }
         show(player, title, List.of(DialogBody.plainMessage(MenuText.body(body), 400)),
-                buttons, columns);
+                buttons, columns, back);
         return true;
     }
 
@@ -625,17 +643,9 @@ final class ClanDialogService {
 
     private void show(
             Player player, String title, List<DialogBody> body,
-            List<ActionButton> buttons, int columns
+            List<ActionButton> buttons, int columns, Consumer<Player> back
     ) {
-        Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(MenuText.title(title))
-                        .body(body)
-                        .afterAction(DialogBase.DialogAfterAction.NONE)
-                        .pause(false)
-                        .canCloseWithEscape(true)
-                        .build())
-                .type(DialogType.multiAction(buttons).columns(columns).build()));
-        player.showDialog(dialog);
+        Screens.show(player, title, body, buttons, columns, back);
     }
 
     private ActionButton button(String label, Consumer<Player> run) {

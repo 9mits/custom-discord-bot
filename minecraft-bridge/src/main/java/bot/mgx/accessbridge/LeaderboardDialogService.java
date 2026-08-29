@@ -90,24 +90,7 @@ final class LeaderboardDialogService {
                     .action(callback((response, audience) -> openBoard(audience, board)))
                     .build());
         }
-        buttons.add(ActionButton.builder(Component.text("Close", MenuText.LABEL))
-                .width(150)
-                .action(callback((response, audience) -> audience.closeDialog()))
-                .build());
-        Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(MenuText.title("Leaderboards"))
-                        .body(List.of(DialogBody.plainMessage(
-                                MenuText.body("Pick a board."), 400
-                        )))
-                        .afterAction(DialogBase.DialogAfterAction.NONE)
-                        // Not a blocking prompt: the screen stays up so a toggle
-                        // repaints in place instead of slamming shut on every click.
-                        // NONE is only legal on a dialog that does not pause.
-                        .pause(false)
-                        .canCloseWithEscape(true)
-                        .build())
-                .type(DialogType.multiAction(buttons).columns(3).build()));
-        viewer.showDialog(dialog);
+        Screens.show(viewer, "Leaderboards", Screens.body("Pick a board."), buttons, 3, null);
     }
 
     private void openBoard(Player viewer, Board board) {
@@ -149,28 +132,12 @@ final class LeaderboardDialogService {
             }
             body.add(DialogBody.plainMessage(line, 400));
         }
-        List<ActionButton> buttons = List.of(
-                ActionButton.builder(Component.text("Back", MenuText.LABEL))
-                        .width(150)
-                        .action(callback((response, audience) -> openHub(audience)))
-                        .build()
-        );
+        List<ActionButton> buttons = List.of();
         String title = board == Board.CLAN_BATTLE
                 ? clanBattles.active(clans).map(active -> active.kind().displayName())
                         .orElse("Clan Battle")
                 : "Top " + board.label;
-        Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(MenuText.title(title))
-                        .body(List.copyOf(body))
-                        .afterAction(DialogBase.DialogAfterAction.NONE)
-                        // Not a blocking prompt: the screen stays up so a toggle
-                        // repaints in place instead of slamming shut on every click.
-                        // NONE is only legal on a dialog that does not pause.
-                        .pause(false)
-                        .canCloseWithEscape(true)
-                        .build())
-                .type(DialogType.multiAction(buttons).columns(1).build()));
-        viewer.showDialog(dialog);
+        Screens.show(viewer, title, List.copyOf(body), buttons, 1, this::openHub);
     }
 
     /** A clan row carries its tag and battle medals instead of a face. */

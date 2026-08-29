@@ -60,7 +60,6 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     private final PlayerSettingsStore settings;
     private final ClanMenuService menus;
     private final ClanBattleStore clanBattles;
-    private ClanChooserService chooser;
     private ClanDirectoryService directory;
     private ClanWarpDialogService clanWarps;
     private ClanDialogService clanDialogs;
@@ -81,11 +80,6 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         this.settings = settings;
         this.menus = menus;
         this.clanBattles = clanBattles;
-    }
-
-    /** Wired after construction; the chooser needs this service's menus. */
-    void useChooser(ClanChooserService chooser) {
-        this.chooser = chooser;
     }
 
     void useDirectory(ClanDirectoryService directory) {
@@ -142,8 +136,8 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 case "leave" -> leave(player);
                 case "chat" -> chat(player, remainder(args, 1));
                 case "menu" -> {
-                    if (chooser != null) {
-                        chooser.open(player);
+                    if (clanDialogs != null) {
+                        clanDialogs.openClans(player);
                     } else {
                         menus.openHubPreferred(player);
                     }

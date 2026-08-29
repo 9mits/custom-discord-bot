@@ -413,23 +413,7 @@ final class StatsDialogService implements CommandExecutor, org.bukkit.event.List
     private void show(
             Player player, String title, String body, List<ActionButton> buttons, int columns
     ) {
-        List<ActionButton> shown = new ArrayList<>(buttons);
-        shown.add(ActionButton.builder(Component.text("Close", MenuText.LABEL))
-                .width(150)
-                .action(callback((response, audience) -> audience.closeDialog()))
-                .build());
-        Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(MenuText.title(title))
-                        .body(List.of(DialogBody.plainMessage(MenuText.body(body), 400)))
-                        .afterAction(DialogBase.DialogAfterAction.NONE)
-                        // Not a blocking prompt: the screen stays up so a toggle
-                        // repaints in place instead of slamming shut on every click.
-                        // NONE is only legal on a dialog that does not pause.
-                        .pause(false)
-                        .canCloseWithEscape(true)
-                        .build())
-                .type(DialogType.multiAction(shown).columns(columns).build()));
-        player.showDialog(dialog);
+        Screens.show(player, title, Screens.body(body), buttons, columns, null);
     }
 
     private DialogAction callback(BiConsumer<DialogResponseView, Player> callback) {

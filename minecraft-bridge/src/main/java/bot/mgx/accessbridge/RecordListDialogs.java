@@ -331,15 +331,7 @@ final class RecordListDialogs {
             Player player, String title, List<DialogBody> body,
             List<ActionButton> buttons, int columns
     ) {
-        Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(MenuText.title(title))
-                        .body(body)
-                        .afterAction(DialogBase.DialogAfterAction.NONE)
-                        .pause(false)
-                        .canCloseWithEscape(true)
-                        .build())
-                .type(DialogType.multiAction(buttons).columns(columns).build()));
-        player.showDialog(dialog);
+        Screens.show(player, title, body, buttons, columns, null);
     }
 
     private DialogAction callback(BiConsumer<DialogResponseView, Player> callback) {

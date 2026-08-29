@@ -105,10 +105,6 @@ final class ClanWarpDialogService {
                     }))
                     .build());
         }
-        buttons.add(ActionButton.builder(Component.text("Close", MenuText.LABEL))
-                .width(150)
-                .action(callback((response, audience) -> audience.closeDialog()))
-                .build());
 
         int slots = ClanLevel.warpSlots(clan.level());
         Dialog dialog = Dialog.create(builder -> builder.empty()
@@ -498,15 +494,7 @@ final class ClanWarpDialogService {
     private void show(
             Player player, String title, String body, List<ActionButton> buttons, int columns
     ) {
-        Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(MenuText.title(title))
-                        .body(List.of(DialogBody.plainMessage(MenuText.body(body), 400)))
-                        .afterAction(DialogBase.DialogAfterAction.NONE)
-                        .pause(false)
-                        .canCloseWithEscape(true)
-                        .build())
-                .type(DialogType.multiAction(buttons).columns(columns).build()));
-        player.showDialog(dialog);
+        Screens.show(player, title, Screens.body(body), buttons, columns, this::open);
     }
 
     /** The warmup, permissions and world checks stay with the existing command path. */
