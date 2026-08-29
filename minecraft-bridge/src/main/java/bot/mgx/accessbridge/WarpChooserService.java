@@ -1,12 +1,8 @@
 package bot.mgx.accessbridge;
 
-import io.papermc.paper.dialog.Dialog;
 import io.papermc.paper.dialog.DialogResponseView;
 import io.papermc.paper.registry.data.dialog.ActionButton;
-import io.papermc.paper.registry.data.dialog.DialogBase;
 import io.papermc.paper.registry.data.dialog.action.DialogAction;
-import io.papermc.paper.registry.data.dialog.body.DialogBody;
-import io.papermc.paper.registry.data.dialog.type.DialogType;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickCallback;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -62,25 +58,30 @@ final class WarpChooserService {
      */
     void openServerWarps(Player player, int page) {
         List<String> names = warps.warpNamesOf();
-        if (!clientSupport.supportsDialogs(player)) {
-            List<BedrockForms.Button> buttons = new ArrayList<>();
-            for (String name : names) {
-                buttons.add(new BedrockForms.Button(name,
-                        () -> player.performCommand("essentials:warp " + name)));
-            }
-            if (clans.clanOf(player.getUniqueId()).isPresent()) {
-                buttons.add(new BedrockForms.Button("Clan Warps", () -> clanWarps.open(player)));
-            }
-            if (!forms.menu(player, "Warps",
-                    names.isEmpty() ? "No warps yet." : "Choose a warp.", buttons)) {
-                warps.openWarps(player, page);
-            }
-            return;
-        }
         int pages = Math.max(1, (names.size() + PER_PAGE - 1) / PER_PAGE);
         int current = Math.clamp(page, 1, pages);
         int first = (current - 1) * PER_PAGE;
         int last = Math.min(names.size(), first + PER_PAGE);
+        if (!clientSupport.supportsDialogs(player)) {
+            List<BedrockForms.Button> buttons = new ArrayList<>();
+            for (int index = first; index < last; index++) {
+                String name = names.get(index);
+                buttons.add(new BedrockForms.Button(name,
+                        () -> player.performCommand("essentials:warp " + name)));
+            }
+            addBedrockPager(buttons, player, current, pages);
+            if (clans.clanOf(player.getUniqueId()).isPresent()) {
+                buttons.add(new BedrockForms.Button("Clan Warps", () ->
+                        clanWarps.open(player, viewer -> openServerWarps(viewer, current))));
+            }
+            if (!forms.menu(player, "Warps",
+                    names.isEmpty() ? "No warps yet."
+                            : "Page " + current + " of " + pages + ".",
+                    buttons)) {
+                warps.openWarps(player, current);
+            }
+            return;
+        }
         List<ActionButton> buttons = new ArrayList<>();
         for (int index = first; index < last; index++) {
             String name = names.get(index);
@@ -89,8 +90,10 @@ final class WarpChooserService {
                             .append(Component.text(" " + name, NamedTextColor.WHITE)))
                     .tooltip(Component.text("Travel to this warp.", MenuText.LABEL))
                     .width(150)
-                    .action(callback((response, audience) ->
-                            audience.performCommand("essentials:warp " + name)))
+                    .action(callback((response, audience) -> {
+                        audience.closeDialog();
+                        audience.performCommand("essentials:warp " + name);
+                    }))
                     .build());
         }
         if (current > 1) {
@@ -101,27 +104,31 @@ final class WarpChooserService {
         }
         if (clans.clanOf(player.getUniqueId()).isPresent()) {
             buttons.add(Screens.button("item/ender_pearl", "Clan Warps",
-                    "Places your clan has set.", clanWarps::open));
+                    "Places your clan has set.", audience ->
+                            clanWarps.open(audience,
+                                    viewer -> openServerWarps(viewer, current))));
         }
-        Screens.showAndClose(player, "Warps",
-                Screens.body(names.isEmpty() ? "No warps yet." : "Choose a warp."),
+        Screens.show(player, "Warps",
+                Screens.body(names.isEmpty() ? "No warps yet."
+                        : "Page " + current + " of " + pages + "."),
                 buttons, 2, null);
+    }
+
+    private void addBedrockPager(
+            List<BedrockForms.Button> buttons, Player player, int page, int pages
+    ) {
+        if (page > 1) {
+            buttons.add(new BedrockForms.Button(
+                    "Previous Page", () -> openServerWarps(player, page - 1)));
+        }
+        if (page < pages) {
+            buttons.add(new BedrockForms.Button(
+                    "Next Page", () -> openServerWarps(player, page + 1)));
+        }
     }
 
     private ActionButton plain(String label, java.util.function.Consumer<Player> run) {
         return ActionButton.builder(Component.text(label, NamedTextColor.WHITE))
-                .width(150)
-                .action(callback((response, audience) -> run.accept(audience)))
-                .build();
-    }
-
-    private ActionButton button(
-            String sprite, String label, String tooltip, java.util.function.Consumer<Player> run
-    ) {
-        return ActionButton.builder(Component.empty()
-                        .append(MenuText.sprite(sprite))
-                        .append(Component.text(" " + label, NamedTextColor.WHITE)))
-                .tooltip(Component.text(tooltip, MenuText.LABEL))
                 .width(150)
                 .action(callback((response, audience) -> run.accept(audience)))
                 .build();

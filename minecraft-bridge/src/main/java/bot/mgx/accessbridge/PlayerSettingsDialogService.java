@@ -1,12 +1,9 @@
 package bot.mgx.accessbridge;
 
-import io.papermc.paper.dialog.Dialog;
 import io.papermc.paper.dialog.DialogResponseView;
 import io.papermc.paper.registry.data.dialog.ActionButton;
-import io.papermc.paper.registry.data.dialog.DialogBase;
 import io.papermc.paper.registry.data.dialog.action.DialogAction;
 import io.papermc.paper.registry.data.dialog.body.DialogBody;
-import io.papermc.paper.registry.data.dialog.type.DialogType;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickCallback;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -120,7 +117,7 @@ final class PlayerSettingsDialogService {
                     audience -> toggle(audience, category, setting)
             ));
         }
-        if (category == PlayerSettingsStore.Category.COSMETICS) {
+        if (category == PlayerSettingsStore.Category.AUDIO) {
             int volume = store.musicVolume(player.getUniqueId());
             buttons.add(ActionButton.builder(Component.text(
                             "Synced Music Volume: " + volume + "%",
@@ -205,7 +202,7 @@ final class PlayerSettingsDialogService {
                     + exception.getMessage());
             PlayerMenuService.error(player, "That volume could not be saved. Please try again.");
         }
-        openCategory(player, PlayerSettingsStore.Category.COSMETICS);
+        openCategory(player, PlayerSettingsStore.Category.AUDIO);
     }
 
     private DialogAction callback(BiConsumer<DialogResponseView, Player> callback) {

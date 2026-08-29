@@ -99,9 +99,11 @@ final class QuickMenuDatapack {
         dialog.add("body", body("Choose where to go."));
         dialog.addProperty("columns", COLUMNS);
         dialog.addProperty("can_close_with_escape", true);
-        // The menu is a launcher: every button opens something else, so it has to get
-        // out of the way rather than sit in front of the screen it just opened.
-        dialog.addProperty("after_action", "close");
+        dialog.addProperty("pause", false);
+        // Commands such as /settings replace this dialog synchronously. Closing after
+        // the action can then close that replacement as well, which makes some buttons
+        // look random or dead depending on whether they open a dialog or an inventory.
+        dialog.addProperty("after_action", "none");
         JsonArray actions = new JsonArray();
         for (MainMenu entry : MainMenu.entries()) {
             actions.add(button(entry));

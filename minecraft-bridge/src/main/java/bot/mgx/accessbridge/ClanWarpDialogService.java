@@ -1,12 +1,9 @@
 package bot.mgx.accessbridge;
 
-import io.papermc.paper.dialog.Dialog;
 import io.papermc.paper.dialog.DialogResponseView;
 import io.papermc.paper.registry.data.dialog.ActionButton;
-import io.papermc.paper.registry.data.dialog.DialogBase;
 import io.papermc.paper.registry.data.dialog.action.DialogAction;
 import io.papermc.paper.registry.data.dialog.body.DialogBody;
-import io.papermc.paper.registry.data.dialog.type.DialogType;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickCallback;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -16,6 +13,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 /**
  * A clan's own warps, in the same shape as the public ones.
@@ -60,13 +58,17 @@ final class ClanWarpDialogService {
     }
 
     void open(Player player) {
+        open(player, null);
+    }
+
+    void open(Player player, Consumer<Player> back) {
         ClanStore.ClanView clan = clans.clanOf(player.getUniqueId()).orElse(null);
         if (clan == null) {
             PlayerMenuService.error(player, "You are not in a clan.");
             return;
         }
         if (!clientSupport.supportsDialogs(player)) {
-            if (!bedrockWarps(player, clan)) {
+            if (!bedrockWarps(player, clan, back)) {
                 menus.openWarps(player);
             }
             return;
@@ -94,7 +96,7 @@ final class ClanWarpDialogService {
                     .width(150)
                     .action(callback((response, audience) -> {
                         if (manages) {
-                            openWarp(audience, name);
+                            openWarp(audience, name, back);
                         } else if (allowed) {
                             travel(audience, name);
                         } else {
@@ -107,17 +109,22 @@ final class ClanWarpDialogService {
         }
 
         int slots = ClanLevel.warpSlots(clan.level());
-        // Reached from the clan hub and from the warp list, so it Closes rather than
-        // guessing which of the two to send the player back to.
-        Screens.showAndClose(player, clan.name() + " Warps", Screens.body(
+        if (manages && names.size() < slots) {
+            buttons.add(action("Set New Warp", "Save where you are standing.",
+                    audience -> openNewWarp(audience, back)));
+        }
+        Screens.show(player, clan.name() + " Warps", Screens.body(
                 names.isEmpty()
-                        ? "No clan warps yet. Set one with /clans setwarp <name>."
+                        ? manages ? "No clan warps yet. Set one where you are standing."
+                                : "No clan warps yet."
                         : names.size() + " of " + slots + " used."
-        ), buttons, 2, null);
+        ), buttons, 2, back);
     }
 
     /** Bedrock gets the same list, the same gating and the same management actions. */
-    private boolean bedrockWarps(Player player, ClanStore.ClanView clan) {
+    private boolean bedrockWarps(
+            Player player, ClanStore.ClanView clan, Consumer<Player> back
+    ) {
         boolean manages = manages(clan, player);
         List<BedrockForms.Button> buttons = new ArrayList<>();
         for (String name : clan.warps().keySet().stream()
@@ -127,7 +134,7 @@ final class ClanWarpDialogService {
                     allowed || manages ? name : name + " (no access)",
                     () -> {
                         if (manages) {
-                            bedrockWarp(player, name);
+                            bedrockWarp(player, name, back);
                         } else if (allowed) {
                             travel(player, name);
                         } else {
@@ -138,60 +145,100 @@ final class ClanWarpDialogService {
                     }
             ));
         }
+        if (manages && buttons.size() < ClanLevel.warpSlots(clan.level())) {
+            buttons.add(new BedrockForms.Button(
+                    "Set New Warp", () -> bedrockNewWarp(player, back)));
+        }
         return forms.menu(player, clan.name() + " Warps",
-                buttons.isEmpty() ? "No clan warps yet." : "Choose a warp.", buttons);
+                buttons.isEmpty() ? "No clan warps yet." : "Choose a warp.", buttons, back);
     }
 
-    private void bedrockWarp(Player player, String warp) {
+    private void bedrockWarp(Player player, String warp, Consumer<Player> back) {
         ClanStore.ClanView clan = clans.clanOf(player.getUniqueId()).orElse(null);
         if (clan == null || !manages(clan, player)) {
             return;
         }
         forms.menu(player, warp, "What would you like to do?", List.of(
                 new BedrockForms.Button("Teleport", () -> travel(player, warp)),
-                new BedrockForms.Button("Change Icon", () -> bedrockIcons(player, warp)),
+                new BedrockForms.Button(
+                        "Change Icon", () -> bedrockIcons(player, warp, back)),
                 new BedrockForms.Button("Rename",
                         () -> forms.prompt(player, "Rename " + warp, "New name", warp,
-                                typed -> rename(player, warp, typed))),
+                                typed -> rename(player, warp, typed, back),
+                                () -> bedrockWarp(player, warp, back))),
                 new BedrockForms.Button("Permissions",
-                        () -> bedrockPermissions(player, warp)),
+                        () -> bedrockPermissions(player, warp, back)),
                 new BedrockForms.Button("Delete",
                         () -> forms.confirm(player, "Delete " + warp,
-                                "This cannot be undone.", "Delete", "Keep it",
-                                () -> deleteWarp(player, warp)))
-        ), this::open);
+                                "This cannot be undone.", "Delete",
+                                () -> deleteWarp(player, warp, back),
+                                () -> bedrockWarp(player, warp, back)))
+        ), audience -> open(audience, back));
+    }
+
+    private void bedrockNewWarp(Player player, Consumer<Player> back) {
+        forms.prompt(player, "Set New Warp", "Name", "", typed -> {
+            if (setWarp(player, typed)) {
+                open(player, back);
+            } else {
+                bedrockNewWarp(player, back);
+            }
+        }, () -> open(player, back));
     }
 
     /** One toggle per member, submitted together, which is how a Bedrock form works. */
-    private void bedrockPermissions(Player player, String warp) {
+    private void bedrockPermissions(Player player, String warp, Consumer<Player> back) {
         ClanStore.ClanView clan = clans.clanOf(player.getUniqueId()).orElse(null);
         if (clan == null || !manages(clan, player)) {
             return;
         }
         java.util.Set<java.util.UUID> allowed = meta.allowed(clan.id(), warp);
-        List<java.util.UUID> ids = new ArrayList<>(clan.members().keySet());
+        List<java.util.UUID> ids = clan.members().keySet().stream()
+                .filter(memberId -> clan.roleOf(memberId) == ClanStore.ClanRole.MEMBER)
+                .toList();
+        if (ids.isEmpty()) {
+            PlayerMenuService.error(player,
+                    "There are no ordinary members whose access can be changed.");
+            bedrockWarp(player, warp, back);
+            return;
+        }
         List<String> labels = new ArrayList<>();
         List<Boolean> initial = new ArrayList<>();
         for (java.util.UUID memberId : ids) {
             labels.add(clan.members().get(memberId));
             initial.add(allowed.isEmpty() || allowed.contains(memberId));
         }
-        boolean sent = forms.toggles(player, warp + " Permissions", labels, initial, index -> {
-            // An empty list means everyone, so the first change has to write the rest
-            // in as well or turning one member off would lock out the whole clan.
-            if (meta.allowed(clan.id(), warp).isEmpty()) {
-                for (java.util.UUID memberId : ids) {
-                    meta.toggleAllowed(clan.id(), warp, memberId);
+        boolean sent = forms.toggles(player, warp + " Permissions", labels, initial, selected -> {
+            java.util.Set<java.util.UUID> chosen = new java.util.LinkedHashSet<>();
+            for (int index = 0; index < ids.size(); index++) {
+                if (index < selected.size() && Boolean.TRUE.equals(selected.get(index))) {
+                    chosen.add(ids.get(index));
                 }
             }
-            meta.toggleAllowed(clan.id(), warp, ids.get(index));
-        });
+            if (chosen.isEmpty()) {
+                PlayerMenuService.error(player,
+                        "Choose at least one member, or use Allow Everyone.");
+                bedrockPermissions(player, warp, back);
+                return;
+            }
+            try {
+                if (chosen.size() == ids.size()) {
+                    meta.allowEveryone(clan.id(), warp);
+                } else {
+                    meta.allowOnly(clan.id(), warp, chosen);
+                }
+            } catch (java.io.UncheckedIOException failure) {
+                PlayerMenuService.error(player, "That could not be saved.");
+            }
+            bedrockWarp(player, warp, back);
+        },
+                () -> bedrockWarp(player, warp, back));
         if (!sent) {
             PlayerMenuService.error(player, "That screen could not be opened.");
         }
     }
 
-    private void bedrockIcons(Player player, String warp) {
+    private void bedrockIcons(Player player, String warp, Consumer<Player> back) {
         List<BedrockForms.Button> buttons = new ArrayList<>();
         ClanStore.ClanView clan = clans.clanOf(player.getUniqueId()).orElse(null);
         if (clan == null) {
@@ -205,15 +252,15 @@ final class ClanWarpDialogService {
                     PlayerMenuService.error(player, "That icon could not be saved.");
                     return;
                 }
-                bedrockWarp(player, warp);
+                bedrockWarp(player, warp, back);
             }));
         }
         forms.menu(player, "Choose Icon", "Pick an icon for " + warp + ".", buttons,
-                viewer -> bedrockWarp(viewer, warp));
+                viewer -> bedrockWarp(viewer, warp, back));
     }
 
     /** Shared by both delete paths so the store and the clan cannot drift apart. */
-    private void deleteWarp(Player player, String warp) {
+    private void deleteWarp(Player player, String warp, Consumer<Player> back) {
         ClanStore.ClanView clan = clans.clanOf(player.getUniqueId()).orElse(null);
         if (clan == null || !manages(clan, player)) {
             return;
@@ -225,11 +272,54 @@ final class ClanWarpDialogService {
             PlayerMenuService.error(player, "That warp could not be removed.");
             return;
         }
-        open(player);
+        open(player, back);
+    }
+
+    private void openNewWarp(Player player, Consumer<Player> back) {
+        Screens.confirm(player, "Set New Warp", Screens.body(
+                        "Save a clan warp where you are standing."),
+                List.of(io.papermc.paper.registry.data.dialog.input.DialogInput
+                        .text(NAME_INPUT, Component.text("Name", MenuText.LABEL))
+                        .maxLength(16)
+                        .build()),
+                "Set Warp", MenuText.VALUE,
+                (response, audience) -> {
+                    if (setWarp(audience, response.getText(NAME_INPUT))) {
+                        open(audience, back);
+                    }
+                },
+                audience -> open(audience, back));
+    }
+
+    private boolean setWarp(Player player, String rawName) {
+        String name = cleanName(rawName);
+        if (name == null) {
+            PlayerMenuService.error(player,
+                    "Use 1-16 letters, numbers, - and _ for a warp name.");
+            return false;
+        }
+        ClanStore.ClanView clan = clans.clanOf(player.getUniqueId()).orElse(null);
+        if (clan != null && clan.warps().containsKey(name)) {
+            PlayerMenuService.error(player,
+                    "That clan warp already exists. Open it to manage it.");
+            return false;
+        }
+        try {
+            menus.setWarp(player, name);
+            return true;
+        } catch (java.io.IOException | ClanStore.ClanException failure) {
+            PlayerMenuService.error(player, failure.getMessage() == null
+                    ? "That warp could not be set." : failure.getMessage());
+            return false;
+        }
     }
 
     /** The management card, which only a leader or staff member ever reaches. */
     void openWarp(Player player, String warp) {
+        openWarp(player, warp, null);
+    }
+
+    private void openWarp(Player player, String warp, Consumer<Player> back) {
         ClanStore.ClanView clan = clans.clanOf(player.getUniqueId()).orElse(null);
         if (clan == null || !manages(clan, player)) {
             return;
@@ -238,24 +328,24 @@ final class ClanWarpDialogService {
         List<ActionButton> buttons = List.of(
                 action("Teleport", "Go there now.", audience -> travel(audience, warp)),
                 action("Change Icon", "Pick the icon this warp shows.",
-                        audience -> openIconPicker(audience, warp, "", 1)),
+                        audience -> openIconPicker(audience, warp, "", 1, back)),
                 action("Rename", "Give it a different name.",
-                        audience -> openRename(audience, warp)),
+                        audience -> openRename(audience, warp, back)),
                 action("Permissions", allowed.isEmpty()
                                 ? "Everyone in the clan can use it."
                                 : allowed.size() + " member(s) can use it.",
-                        audience -> openPermissions(audience, warp)),
+                        audience -> openPermissions(audience, warp, back)),
                 action("Delete", "Remove this warp for good.",
-                        audience -> openDelete(audience, warp), NamedTextColor.RED)
+                        audience -> openDelete(audience, warp, back), NamedTextColor.RED)
         );
         show(player, warp, allowed.isEmpty()
                 ? "Everyone in the clan can travel here."
                 : "Only chosen members can travel here.", new ArrayList<>(buttons), 2,
-                this::open);
+                audience -> open(audience, back));
     }
 
     /** Who may travel here. An empty list is the everyone default, not a locked warp. */
-    private void openPermissions(Player player, String warp) {
+    private void openPermissions(Player player, String warp, Consumer<Player> back) {
         ClanStore.ClanView clan = clans.clanOf(player.getUniqueId()).orElse(null);
         if (clan == null || !manages(clan, player)) {
             return;
@@ -263,6 +353,9 @@ final class ClanWarpDialogService {
         java.util.Set<java.util.UUID> allowed = meta.allowed(clan.id(), warp);
         List<ActionButton> buttons = new ArrayList<>();
         clan.members().forEach((memberId, memberName) -> {
+            if (clan.roleOf(memberId) != ClanStore.ClanRole.MEMBER) {
+                return;
+            }
             boolean can = allowed.isEmpty() || allowed.contains(memberId);
             buttons.add(ActionButton.builder(Component.empty()
                             .append(MenuText.head(memberId))
@@ -278,71 +371,91 @@ final class ClanWarpDialogService {
                     .width(200)
                     .action(callback((response, audience) -> {
                         try {
-                            meta.toggleAllowed(clan.id(), warp, memberId);
+                            java.util.Set<java.util.UUID> changed =
+                                    new java.util.LinkedHashSet<>(allowed);
+                            if (allowed.isEmpty()) {
+                                changed.add(memberId);
+                            } else if (!changed.remove(memberId)) {
+                                changed.add(memberId);
+                            } else if (changed.isEmpty()) {
+                                PlayerMenuService.error(audience,
+                                        "Choose at least one member, or use Allow Everyone.");
+                                return;
+                            }
+                            meta.allowOnly(clan.id(), warp, changed);
                         } catch (java.io.UncheckedIOException failure) {
                             PlayerMenuService.error(audience, "That could not be saved.");
                             return;
                         }
-                        openPermissions(audience, warp);
+                        openPermissions(audience, warp, back);
                     }))
                     .build());
         });
         buttons.add(action("Allow Everyone", "Clear the list and open it to the clan.",
                 audience -> {
                     meta.allowEveryone(clan.id(), warp);
-                    openPermissions(audience, warp);
+                    openPermissions(audience, warp, back);
                 }));
         show(player, warp + " Permissions", allowed.isEmpty()
                 ? "Nobody has been chosen, so everyone can travel here."
                 : "Only the members marked YES can travel here.", buttons, 1,
-                audience -> openWarp(audience, warp));
+                audience -> openWarp(audience, warp, back));
     }
 
-    private void openRename(Player player, String warp) {
-        Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(MenuText.title("Rename " + warp))
-                        .body(List.of(DialogBody.plainMessage(
-                                MenuText.body("Give this warp a different name."), 400
-                        )))
-                        .inputs(List.of(io.papermc.paper.registry.data.dialog.input.DialogInput
-                                .text(NAME_INPUT, Component.text("New name", MenuText.LABEL))
-                                .maxLength(32)
-                                .build()))
-                        .afterAction(DialogBase.DialogAfterAction.CLOSE)
-                        .canCloseWithEscape(true)
-                        .build())
-                .type(DialogType.confirmation(
-                        ActionButton.builder(Component.text("Rename", MenuText.VALUE))
-                                .width(150)
-                                .action(callback((response, audience) ->
-                                        rename(audience, warp, response.getText(NAME_INPUT))))
-                                .build(),
-                        ActionButton.builder(Component.text("Cancel", MenuText.LABEL))
-                                .width(150)
-                                .action(callback((response, audience) ->
-                                        openWarp(audience, warp)))
-                                .build()
-                )));
-        player.showDialog(dialog);
+    private void openRename(Player player, String warp, Consumer<Player> back) {
+        Screens.confirm(player, "Rename " + warp,
+                Screens.body("Give this warp a different name."),
+                List.of(io.papermc.paper.registry.data.dialog.input.DialogInput
+                        .text(NAME_INPUT, Component.text("New name", MenuText.LABEL))
+                        .maxLength(16)
+                        .build()),
+                "Rename", MenuText.VALUE,
+                (response, audience) -> rename(
+                        audience, warp, response.getText(NAME_INPUT), back),
+                audience -> openWarp(audience, warp, back));
     }
 
     /**
      * Clans have no rename, so this sets the new one where the old one stood and
      * removes the original, carrying the icon and guest list across.
      */
-    private void rename(Player player, String warp, String rawName) {
+    private void rename(
+            Player player, String warp, String rawName, Consumer<Player> back
+    ) {
         ClanStore.ClanView clan = clans.clanOf(player.getUniqueId()).orElse(null);
         if (clan == null || !manages(clan, player)) {
             return;
         }
-        String name = rawName == null ? "" : rawName.strip();
-        if (!name.matches("[A-Za-z0-9_-]{1,32}")) {
-            PlayerMenuService.error(player, "Use letters, numbers, - and _ for a warp name.");
+        String name = cleanName(rawName);
+        if (name == null) {
+            PlayerMenuService.error(player,
+                    "Use 1-16 letters, numbers, - and _ for a warp name.");
+            if (!clientSupport.supportsDialogs(player)) {
+                bedrockWarp(player, warp, back);
+            }
+            return;
+        }
+        String currentName = warp.toLowerCase(java.util.Locale.ROOT);
+        if (name.equals(currentName)) {
+            PlayerMenuService.error(player, "That warp already has this name.");
+            if (!clientSupport.supportsDialogs(player)) {
+                bedrockWarp(player, warp, back);
+            }
+            return;
+        }
+        if (clan.warps().containsKey(name)) {
+            PlayerMenuService.error(player, "Your clan already has a warp called " + name + ".");
+            if (!clientSupport.supportsDialogs(player)) {
+                bedrockWarp(player, warp, back);
+            }
             return;
         }
         ClanStore.ClanWarp location = clan.warps().get(warp.toLowerCase(java.util.Locale.ROOT));
         if (location == null) {
             PlayerMenuService.error(player, "That warp is gone.");
+            if (!clientSupport.supportsDialogs(player)) {
+                open(player, back);
+            }
             return;
         }
         try {
@@ -352,52 +465,27 @@ final class ClanWarpDialogService {
         } catch (java.io.IOException | ClanStore.ClanException failure) {
             PlayerMenuService.error(player, failure.getMessage() == null
                     ? "That warp could not be renamed." : failure.getMessage());
+            if (!clientSupport.supportsDialogs(player)) {
+                bedrockWarp(player, warp, back);
+            }
             return;
         }
-        open(player);
+        open(player, back);
     }
 
-    private void openDelete(Player player, String warp) {
-        Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(MenuText.title("Delete " + warp))
-                        .body(List.of(DialogBody.plainMessage(
-                                Component.text("This cannot be undone.", NamedTextColor.RED), 400
-                        )))
-                        .afterAction(DialogBase.DialogAfterAction.CLOSE)
-                        .canCloseWithEscape(true)
-                        .build())
-                .type(DialogType.confirmation(
-                        ActionButton.builder(Component.text("Delete", NamedTextColor.RED))
-                                .width(150)
-                                .action(callback((response, audience) -> {
-                                    ClanStore.ClanView owned =
-                                            clans.clanOf(audience.getUniqueId()).orElse(null);
-                                    if (owned == null || !manages(owned, audience)) {
-                                        return;
-                                    }
-                                    try {
-                                        clans.removeWarp(audience.getUniqueId(), warp);
-                                        meta.forget(owned.id(), warp);
-                                    } catch (java.io.IOException | ClanStore.ClanException failure) {
-                                        PlayerMenuService.error(
-                                                audience, "That warp could not be removed."
-                                        );
-                                        return;
-                                    }
-                                    open(audience);
-                                }))
-                                .build(),
-                        ActionButton.builder(Component.text("Keep it", MenuText.LABEL))
-                                .width(150)
-                                .action(callback((response, audience) ->
-                                        openWarp(audience, warp)))
-                                .build()
-                )));
-        player.showDialog(dialog);
+    private void openDelete(Player player, String warp, Consumer<Player> back) {
+        Screens.confirm(player, "Delete " + warp,
+                List.of(DialogBody.plainMessage(
+                        Component.text("This cannot be undone.", NamedTextColor.RED), 400)),
+                "Delete", NamedTextColor.RED,
+                audience -> deleteWarp(audience, warp, back),
+                audience -> openWarp(audience, warp, back));
     }
 
     /** The same catalogue the homes screen uses, so both look and search alike. */
-    private void openIconPicker(Player player, String warp, String query, int page) {
+    private void openIconPicker(
+            Player player, String warp, String query, int page, Consumer<Player> back
+    ) {
         ClanStore.ClanView clan = clans.clanOf(player.getUniqueId()).orElse(null);
         if (clan == null || !manages(clan, player)) {
             return;
@@ -423,17 +511,17 @@ final class ClanWarpDialogService {
                             PlayerMenuService.error(audience, "That icon could not be saved.");
                             return;
                         }
-                        openWarp(audience, warp);
+                        openWarp(audience, warp, back);
                     }))
                     .build());
         }
         if (current > 1) {
             buttons.add(action("Previous", "Earlier icons.",
-                    audience -> openIconPicker(audience, warp, query, current - 1)));
+                    audience -> openIconPicker(audience, warp, query, current - 1, back)));
         }
         if (current < pages) {
             buttons.add(action("Next", "More icons.",
-                    audience -> openIconPicker(audience, warp, query, current + 1)));
+                    audience -> openIconPicker(audience, warp, query, current + 1, back)));
         }
         buttons.add(ActionButton.builder(Component.text("Search", MenuText.VALUE))
                 .width(150)
@@ -441,7 +529,8 @@ final class ClanWarpDialogService {
                         audience, warp,
                         response.getText(SEARCH_INPUT) == null
                                 ? "" : response.getText(SEARCH_INPUT),
-                        1
+                        1,
+                        back
                 )))
                 .build());
         Screens.show(player, "Choose Icon",
@@ -452,7 +541,7 @@ final class ClanWarpDialogService {
                         .text(SEARCH_INPUT, Component.text("Search", MenuText.LABEL))
                         .maxLength(32)
                         .build()),
-                buttons, 3, audience -> openWarp(audience, warp));
+                buttons, 3, audience -> openWarp(audience, warp, back));
     }
 
     private ActionButton action(
@@ -490,10 +579,19 @@ final class ClanWarpDialogService {
             return;
         }
         try {
+            player.closeDialog();
             menus.useWarp(player, warp);
         } catch (ClanStore.ClanException failure) {
             PlayerMenuService.error(player, failure.getMessage());
         }
+    }
+
+    private static String cleanName(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String name = raw.strip().toLowerCase(java.util.Locale.ROOT);
+        return name.matches("[a-z0-9_-]{1,16}") ? name : null;
     }
 
     private DialogAction callback(BiConsumer<DialogResponseView, Player> callback) {

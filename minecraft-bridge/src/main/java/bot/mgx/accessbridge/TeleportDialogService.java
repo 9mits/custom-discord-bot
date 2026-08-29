@@ -1,13 +1,9 @@
 package bot.mgx.accessbridge;
 
-import io.papermc.paper.dialog.Dialog;
 import io.papermc.paper.dialog.DialogResponseView;
 import io.papermc.paper.registry.data.dialog.ActionButton;
-import io.papermc.paper.registry.data.dialog.DialogBase;
 import io.papermc.paper.registry.data.dialog.action.DialogAction;
-import io.papermc.paper.registry.data.dialog.body.DialogBody;
 import io.papermc.paper.registry.data.dialog.input.DialogInput;
-import io.papermc.paper.registry.data.dialog.type.DialogType;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickCallback;
 import net.kyori.adventure.text.format.NamedTextColor;
@@ -66,10 +62,6 @@ final class TeleportDialogService implements CommandExecutor {
 
     void open(Player viewer) {
         List<Player> targets = targets(viewer);
-        if (!clientSupport.supportsDialogs(viewer) && targets.isEmpty()) {
-            PlayerMenuService.error(viewer, "Nobody else is online to teleport to.");
-            return;
-        }
         if (!clientSupport.supportsDialogs(viewer)) {
             List<BedrockForms.Button> buttons = new ArrayList<>();
             for (Player target : targets) {
@@ -77,15 +69,17 @@ final class TeleportDialogService implements CommandExecutor {
                 buttons.add(new BedrockForms.Button(name,
                         () -> viewer.performCommand("tpa " + name)));
             }
-            buttons.add(new BedrockForms.Button("Type A Name",
-                    () -> forms.prompt(viewer, "Teleport To", "Name", "", typed -> {
+            buttons.add(new BedrockForms.Button("Type a Name",
+                    () -> forms.prompt(viewer, "Teleport by Name", "Name", "", typed -> {
                         String name = typed.strip();
                         if (!name.matches("[A-Za-z0-9_]{1,16}")) {
                             PlayerMenuService.error(viewer, "That is not a Minecraft name.");
+                            open(viewer);
                             return;
                         }
+                        viewer.closeDialog();
                         viewer.performCommand("tpa " + name);
-                    })));
+                    }, () -> open(viewer))));
             if (!forms.menu(viewer, "Teleport", "Choose a player.", buttons)) {
                 openChest(viewer, targets);
             }
@@ -102,11 +96,20 @@ final class TeleportDialogService implements CommandExecutor {
                     .action(callback((response, audience) -> request(audience, id)))
                     .build());
         }
-        Screens.showAndClose(viewer, "Teleport", Screens.body(
+        buttons.add(ActionButton.builder(Component.text("Teleport by Name", MenuText.VALUE))
+                .tooltip(Component.text("Type an exact Minecraft name.", MenuText.LABEL))
+                .width(150)
+                .action(callback((response, audience) -> requestByName(
+                        audience, response.getText(NAME_INPUT))))
+                .build());
+        Screens.show(viewer, "Teleport", Screens.body(
                 targets.isEmpty()
                         ? "Nobody else is online. You can still type a name."
-                        : "Click a player to teleport"
-        ), buttons, 2, null);
+                        : "Choose a player, or type a name."
+        ), List.of(DialogInput.text(NAME_INPUT, Component.text("Player name", MenuText.LABEL))
+                        .maxLength(16)
+                        .build()),
+                buttons, 2, null);
     }
 
     private void openChest(Player viewer, List<Player> targets) {
@@ -147,7 +150,18 @@ final class TeleportDialogService implements CommandExecutor {
             PlayerMenuService.error(viewer, "They went offline.");
             return;
         }
+        viewer.closeDialog();
         viewer.performCommand("tpa " + target.getName());
+    }
+
+    private void requestByName(Player viewer, String rawName) {
+        String name = rawName == null ? "" : rawName.strip();
+        if (!name.matches("[A-Za-z0-9_]{1,16}")) {
+            PlayerMenuService.error(viewer, "That is not a Minecraft name.");
+            return;
+        }
+        viewer.closeDialog();
+        viewer.performCommand("tpa " + name);
     }
 
     private DialogAction callback(BiConsumer<DialogResponseView, Player> callback) {

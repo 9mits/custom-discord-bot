@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -47,6 +48,23 @@ final class ClanWarpMetaStoreTest {
     }
 
     @Test
+    void replacingTheGuestListAppliesTheSubmittedPermissionSheetAtOnce() throws Exception {
+        ClanWarpMetaStore store = new ClanWarpMetaStore(directory.resolve("permissions.json"));
+        UUID clan = UUID.randomUUID();
+        UUID first = UUID.randomUUID();
+        UUID second = UUID.randomUUID();
+
+        store.allowOnly(clan, "base", Set.of(first, second));
+        assertTrue(store.mayUse(clan, "base", first));
+        assertTrue(store.mayUse(clan, "base", second));
+        assertFalse(store.mayUse(clan, "base", UUID.randomUUID()));
+
+        store.allowOnly(clan, "base", Set.of(second));
+        assertFalse(store.mayUse(clan, "base", first));
+        assertTrue(store.mayUse(clan, "base", second));
+    }
+
+    @Test
     void renamingCarriesTheIconAndGuestListAndDeletingForgetsThem() throws Exception {
         Path file = directory.resolve("warps.json");
         ClanWarpMetaStore store = new ClanWarpMetaStore(file);
@@ -66,6 +84,22 @@ final class ClanWarpMetaStoreTest {
 
         reloaded.forget(clan, "home");
         assertTrue(reloaded.allowed(clan, "home").isEmpty());
+    }
+
+    @Test
+    void renamingOnlyTheCaseDoesNotLoseMetadata() throws Exception {
+        Path file = directory.resolve("warps-case.json");
+        UUID clan = UUID.randomUUID();
+        UUID chosen = UUID.randomUUID();
+        ClanWarpMetaStore store = new ClanWarpMetaStore(file);
+
+        store.setIcon(clan, "Base", "item/diamond");
+        store.toggleAllowed(clan, "Base", chosen);
+        store.rename(clan, "Base", "BASE");
+
+        assertEquals("item/diamond", store.iconOf(clan, "base"));
+        assertTrue(store.mayUse(clan, "base", chosen));
+        assertFalse(store.mayUse(clan, "base", UUID.randomUUID()));
     }
 
     @Test

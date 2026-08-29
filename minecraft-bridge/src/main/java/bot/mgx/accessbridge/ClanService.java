@@ -151,7 +151,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 }
                 case "balance", "vault", "bank" -> menus.openBalancePreferred(player);
                 case "donors", "contributors" -> menus.openDonorsPreferred(player);
-                case "upgrade", "levelup" -> menus.openUpgrade(player);
+                case "upgrade", "levelup" -> menus.openUpgradePreferred(player);
                 case "warp", "warps" -> warp(player, args);
                 case "disband" -> disband(player, args.length >= 2 ? args[1] : "");
                 default -> throw new ClanStore.ClanException("Unknown subcommand. Use /clans help.");
@@ -696,7 +696,6 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         menus.useWarp(player, args[1]);
     }
 
-    /** One way in, so the replaced screen is not reachable by another route. */
     /** /claninfo resolves the name, then hands off to whichever screen fits. */
     private void openInfo(Player player, String requestedName) {
         if (clanDialogs == null) {

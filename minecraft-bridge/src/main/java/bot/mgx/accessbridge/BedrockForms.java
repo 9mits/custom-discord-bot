@@ -11,7 +11,6 @@ import org.geysermc.floodgate.api.FloodgateApi;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
-import java.util.function.IntConsumer;
 
 /**
  * The Bedrock half of every screen.
@@ -87,33 +86,61 @@ final class BedrockForms {
     boolean prompt(
             Player player, String title, String label, String initial, Consumer<String> onSubmit
     ) {
-        CustomForm form = CustomForm.builder()
+        return prompt(player, title, label, initial, onSubmit, null);
+    }
+
+    boolean prompt(
+            Player player,
+            String title,
+            String label,
+            String initial,
+            Consumer<String> onSubmit,
+            Runnable onCancel
+    ) {
+        CustomForm.Builder builder = CustomForm.builder()
                 .title(title)
                 .input(label, "", initial == null ? "" : initial)
                 .validResultHandler(response -> onMain(() -> {
                     String typed = response.asInput(0);
                     onSubmit.accept(typed == null ? "" : typed);
-                }))
-                .build();
-        return send(player, form);
+                }));
+        if (onCancel != null) {
+            builder.closedResultHandler(() -> onMain(onCancel));
+        }
+        return send(player, builder.build());
     }
 
     /** A yes or no, for anything that cannot be undone. */
     boolean confirm(
-            Player player, String title, String body, String yes, String no, Runnable onYes
+            Player player, String title, String body, String yes, Runnable onYes
     ) {
-        ModalForm form = ModalForm.builder()
+        return confirm(player, title, body, yes, onYes, null);
+    }
+
+    boolean confirm(
+            Player player,
+            String title,
+            String body,
+            String yes,
+            Runnable onYes,
+            Runnable onNo
+    ) {
+        ModalForm.Builder builder = ModalForm.builder()
                 .title(title)
                 .content(body)
                 .button1(yes)
-                .button2(no)
+                .button2("Cancel")
                 .validResultHandler(response -> onMain(() -> {
                     if (response.clickedFirst()) {
                         onYes.run();
+                    } else if (onNo != null) {
+                        onNo.run();
                     }
-                }))
-                .build();
-        return send(player, form);
+                }));
+        if (onNo != null) {
+            builder.closedResultHandler(() -> onMain(onNo));
+        }
+        return send(player, builder.build());
     }
 
     /** A list of toggles submitted together, for a permission sheet. */
@@ -122,7 +149,8 @@ final class BedrockForms {
             String title,
             List<String> labels,
             List<Boolean> initial,
-            IntConsumer onChanged
+            Consumer<List<Boolean>> onSubmit,
+            Runnable onCancel
     ) {
         if (labels.isEmpty()) {
             return false;
@@ -132,16 +160,16 @@ final class BedrockForms {
             form.toggle(labels.get(index),
                     index < initial.size() && Boolean.TRUE.equals(initial.get(index)));
         }
-        List<Boolean> before = List.copyOf(initial);
         form.validResultHandler(response -> onMain(() -> {
+            List<Boolean> selected = new ArrayList<>();
             for (int index = 0; index < labels.size(); index++) {
-                boolean now = response.asToggle(index);
-                boolean was = index < before.size() && Boolean.TRUE.equals(before.get(index));
-                if (now != was) {
-                    onChanged.accept(index);
-                }
+                selected.add(response.asToggle(index));
             }
+            onSubmit.accept(List.copyOf(selected));
         }));
+        if (onCancel != null) {
+            form.closedResultHandler(() -> onMain(onCancel));
+        }
         return send(player, form.build());
     }
 

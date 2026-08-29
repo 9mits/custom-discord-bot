@@ -2,13 +2,10 @@ package bot.mgx.accessbridge;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-import io.papermc.paper.dialog.Dialog;
 import io.papermc.paper.dialog.DialogResponseView;
 import io.papermc.paper.registry.data.dialog.ActionButton;
-import io.papermc.paper.registry.data.dialog.DialogBase;
 import io.papermc.paper.registry.data.dialog.action.DialogAction;
 import io.papermc.paper.registry.data.dialog.body.DialogBody;
-import io.papermc.paper.registry.data.dialog.type.DialogType;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickCallback;
 import net.kyori.adventure.text.event.ClickEvent;
@@ -106,7 +103,9 @@ final class LeaderboardDialogService {
             int rank = row.has("rank") ? row.get("rank").getAsInt() : index + 1;
             String display = text(row, "display");
             if (board.scope.equals("clan")) {
-                body.add(DialogBody.plainMessage(clanRow(rank, row, display, board), 400));
+                body.add(DialogBody.plainMessage(clanRow(
+                        rank, row, display, board,
+                        audience -> openBoard(audience, board)), 400));
                 continue;
             }
             UUID id = uuid(row);
@@ -141,7 +140,13 @@ final class LeaderboardDialogService {
     }
 
     /** A clan row carries its tag and battle medals instead of a face. */
-    private Component clanRow(int rank, JsonObject row, String display, Board board) {
+    private Component clanRow(
+            int rank,
+            JsonObject row,
+            String display,
+            Board board,
+            java.util.function.Consumer<Player> back
+    ) {
         String name = text(row, "clan");
         int colour = row.has("colour") ? row.get("colour").getAsInt() : 0xFF9900;
         int level = row.has("level") ? row.get("level").getAsInt() : 0;
@@ -171,15 +176,17 @@ final class LeaderboardDialogService {
                         Component.text("View this clan", MenuText.LABEL)))
                 .clickEvent(ClickEvent.callback(audience -> {
                     if (audience instanceof Player clicker && clicker.isOnline()) {
-                        openClan(clicker, clanId);
+                        openClan(clicker, clanId, back);
                     }
                 }, CALLBACK_OPTIONS));
     }
 
     /** Opens the clan page {@code /claninfo} opens. */
-    private void openClan(Player viewer, UUID clanId) {
+    private void openClan(
+            Player viewer, UUID clanId, java.util.function.Consumer<Player> back
+    ) {
         if (clanDialogs != null) {
-            clanDialogs.openInfo(viewer, clanId, null);
+            clanDialogs.openInfo(viewer, clanId, back);
             return;
         }
         clans.findClanById(clanId).ifPresentOrElse(

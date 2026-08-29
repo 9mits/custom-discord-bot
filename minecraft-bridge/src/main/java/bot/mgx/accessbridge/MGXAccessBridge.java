@@ -564,6 +564,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 this, economyStore, bountyStore, clanStore, personalNotifications,
                 playerSettings
         );
+        recordDialogs.useBountyMenus(bountyService);
         bountyService.useRecordDialogs(recordDialogs);
         getCommand("bounty").setExecutor(bountyService);
         getCommand("bounty").setTabCompleter(bountyService);

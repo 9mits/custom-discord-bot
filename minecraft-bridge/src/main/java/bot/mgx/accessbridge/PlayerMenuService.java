@@ -67,6 +67,8 @@ final class PlayerMenuService implements Listener {
                     category.description()
             ));
         }
+        inventory.setItem(BACK_SLOT, button(
+                Material.ARROW, "Back", "Return to the main menu."));
         MenuItems.show(plugin, player, inventory);
     }
 
@@ -84,21 +86,22 @@ final class PlayerMenuService implements Listener {
                     setting, settings.isEnabled(player.getUniqueId(), setting)
             ));
         }
-        if (category == PlayerSettingsStore.Category.COSMETICS
+        if (category == PlayerSettingsStore.Category.AUDIO
                 && categorySettings.size() < SETTING_SLOTS.length) {
             int volume = settings.musicVolume(player.getUniqueId());
             inventory.setItem(SETTING_SLOTS[categorySettings.size()], button(
                     volume == 0 ? Material.GRAY_DYE : Material.NOTE_BLOCK,
-                    "Synced music volume: " + volume + "%",
+                    "Synced Music Volume: " + volume + "%",
                     "Controls music-synced cosmetic tracks.",
                     "Uses the master channel, so Minecraft Music may stay at 0%.",
                     "Click to cycle: 100 / 75 / 50 / 25 / 0."
             ));
         }
-        if (category == PlayerSettingsStore.Category.PRIVACY) {
-            inventory.setItem(SETTING_SLOTS[0], pane(
+        if (category == PlayerSettingsStore.Category.PRIVACY
+                && categorySettings.size() < SETTING_SLOTS.length) {
+            inventory.setItem(SETTING_SLOTS[categorySettings.size()], pane(
                     identities.isVisible(player.getUniqueId()),
-                    "Discord name",
+                    "Discord Name",
                     "Show your linked Discord name to other players."
             ));
         }
@@ -108,6 +111,11 @@ final class PlayerMenuService implements Listener {
 
     boolean discordNameVisible(java.util.UUID playerId) {
         return identities.isVisible(playerId);
+    }
+
+    java.util.Optional<String> visibleDiscordUsername(java.util.UUID playerId) {
+        return playerId == null ? java.util.Optional.empty()
+                : identities.visibleUsername(playerId);
     }
 
     void toggleDiscordName(java.util.UUID playerId) {
@@ -129,20 +137,19 @@ final class PlayerMenuService implements Listener {
             WhitelistDirectory.Entry entry = entries.get(index);
             List<String> lore = new ArrayList<>();
             lore.add(entry.edition().isBlank() ? "Java" : entry.edition());
-            if (entry.discordUsername() != null && !entry.discordUsername().isBlank()) {
-                lore.add("@" + entry.discordUsername());
-            }
+            visibleDiscordUsername(entry.minecraftUuid())
+                    .ifPresent(username -> lore.add("@" + username));
             Player online = Bukkit.getPlayerExact(entry.username());
             lore.add(online != null ? "Online now" : "Offline");
             inventory.setItem(index - first, head(
-                    online == null ? null : online.getUniqueId(), entry.username(), lore
+                    entry.minecraftUuid(), entry.username(), lore
             ));
         }
         if (entries.isEmpty()) {
             inventory.setItem(22, button(Material.BARRIER, "Nobody yet",
                     "The directory has not synced from Discord."));
         }
-        MenuItems.paginate(inventory, page, entries.size(), false);
+        MenuItems.paginate(inventory, page, entries.size(), true);
         MenuItems.show(plugin, player, inventory);
     }
 
@@ -188,9 +195,10 @@ final class PlayerMenuService implements Listener {
                     "Level " + milestones[index], lore
             ));
         }
-        inventory.setItem(22, button(Material.BOOK, "How to earn them",
+        inventory.setItem(4, button(Material.BOOK, "How to earn them",
                 "Chat in the Mysterious SMP X Discord.",
                 "Roles sync to Minecraft automatically."));
+        inventory.setItem(BACK_SLOT, button(Material.ARROW, "Back", "Return to the main menu."));
         MenuItems.show(plugin, player, inventory);
     }
 
@@ -218,14 +226,30 @@ final class PlayerMenuService implements Listener {
             return;
         }
         switch (menu.kind()) {
-            case SETTINGS -> openCategory(player, event.getSlot());
+            case SETTINGS -> {
+                if (event.getSlot() == BACK_SLOT) {
+                    player.closeInventory();
+                    Screens.home(player);
+                } else {
+                    openCategory(player, event.getSlot());
+                }
+            }
             case SETTINGS_CATEGORY -> flip(
                     player, categoryFromPage(menu.page()), event.getSlot());
             case WHITELIST -> {
-                if (event.getSlot() == PREVIOUS_SLOT) {
+                if (event.getSlot() == MenuItems.backSlot(event.getInventory().getSize())) {
+                    player.closeInventory();
+                    Screens.home(player);
+                } else if (event.getSlot() == PREVIOUS_SLOT) {
                     openWhitelist(player, menu.page() - 1);
                 } else if (event.getSlot() == NEXT_SLOT) {
                     openWhitelist(player, menu.page() + 1);
+                }
+            }
+            case PERKS -> {
+                if (event.getSlot() == BACK_SLOT) {
+                    player.closeInventory();
+                    Screens.home(player);
                 }
             }
             default -> { }
@@ -251,12 +275,13 @@ final class PlayerMenuService implements Listener {
             return;
         }
         try {
-            if (category == PlayerSettingsStore.Category.PRIVACY && slot == SETTING_SLOTS[0]) {
+            List<PlayerSettingsStore.Setting> categorySettings = category.settings();
+            int settingIndex = indexOf(SETTING_SLOTS, slot);
+            if (category == PlayerSettingsStore.Category.PRIVACY
+                    && settingIndex == categorySettings.size()) {
                 toggleDiscordName(player.getUniqueId());
             } else {
-                List<PlayerSettingsStore.Setting> categorySettings = category.settings();
-                int settingIndex = indexOf(SETTING_SLOTS, slot);
-                if (category == PlayerSettingsStore.Category.COSMETICS
+                if (category == PlayerSettingsStore.Category.AUDIO
                         && settingIndex == categorySettings.size()) {
                     settings.cycleMusicVolume(player.getUniqueId());
                     openSettingsCategory(player, category);
@@ -312,15 +337,25 @@ final class PlayerMenuService implements Listener {
         return switch (category) {
             case CHAT -> Material.WRITABLE_BOOK;
             case NOTIFICATIONS -> Material.BELL;
-            case PVP -> Material.IRON_SWORD;
             case VISUALS -> Material.ENDER_EYE;
             case COSMETICS -> Material.NETHER_STAR;
             case AUDIO -> Material.NOTE_BLOCK;
             case PRIVACY -> Material.SHIELD;
             case HUD -> Material.EXPERIENCE_BOTTLE;
-            case SCOREBOARD -> Material.MAP;
-            case GENERAL -> Material.COMPARATOR;
         };
+    }
+
+    static int categorySlotCapacity() {
+        return CATEGORY_SLOTS.length;
+    }
+
+    static int settingSlotCapacity() {
+        return SETTING_SLOTS.length;
+    }
+
+    static int extraControlCount(PlayerSettingsStore.Category category) {
+        return category == PlayerSettingsStore.Category.AUDIO
+                || category == PlayerSettingsStore.Category.PRIVACY ? 1 : 0;
     }
 
     private Inventory create(Menu.Kind kind, int page, int size, String title) {
