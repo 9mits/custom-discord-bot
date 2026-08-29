@@ -1,6 +1,9 @@
 package bot.mgx.accessbridge;
 
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextColor;
+import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Material;
 
 import java.time.Duration;
@@ -22,6 +25,11 @@ enum CrateKind {
             // Saturday after next at 3:00 PM JST, resolved when the event was requested.
             1_788_588_000_000L, CrateCatalog.amethyst()
     );
+
+    /** What a limited crate leads with while it is still open. */
+    static final String LIMITED_HEADLINE = "LIMITED TIME! LEAVING IN:";
+    /** The same banner once the deadline has passed. */
+    static final String LIMITED_HEADLINE_CLOSED = "LIMITED TIME EVENT";
 
     private final String key;
     private final String displayName;
@@ -94,6 +102,63 @@ enum CrateKind {
 
     long closesAt() {
         return closesAt;
+    }
+
+    /** Whether this crate closes at all. The permanent crate never does. */
+    boolean limited() {
+        return closesAt != Long.MAX_VALUE;
+    }
+
+    /**
+     * The live countdown, to the second.
+     *
+     * <p>Separate from {@link #remaining(long)}, which rounds to the two coarsest
+     * units a line rendered once can honestly show. A ticking display has to move
+     * every second or it reads as a frozen timestamp, so seconds are always present
+     * and the larger units drop away as they empty.
+     */
+    String countdown(long now) {
+        long millis = Math.max(0L, closesAt - now);
+        if (millis <= 0L) {
+            return "ENDED";
+        }
+        long totalSeconds = millis / 1_000L;
+        long days = totalSeconds / 86_400L;
+        long hours = (totalSeconds % 86_400L) / 3_600L;
+        long minutes = (totalSeconds % 3_600L) / 60L;
+        long seconds = totalSeconds % 60L;
+        StringBuilder text = new StringBuilder();
+        if (days > 0L) {
+            text.append(days).append("d ");
+        }
+        if (days > 0L || hours > 0L) {
+            text.append(hours).append("h ");
+        }
+        if (days > 0L || hours > 0L || minutes > 0L) {
+            text.append(minutes).append("m ");
+        }
+        return text.append(seconds).append('s').toString();
+    }
+
+    /**
+     * The two-line countdown banner every limited-crate surface shares.
+     *
+     * <p>One source for the wording and the colours, so the crate screens, the
+     * physical chest's hologram and anything added later cannot drift apart. Named
+     * colours only: hex never reaches a Bedrock client, and this is the line a
+     * Bedrock player most needs to be able to read.
+     */
+    List<Component> countdownLines(long now) {
+        if (!available(now)) {
+            return List.of(
+                    Component.text(LIMITED_HEADLINE_CLOSED, NamedTextColor.DARK_GRAY, TextDecoration.BOLD),
+                    Component.text("NOW CLOSED", NamedTextColor.GRAY, TextDecoration.BOLD)
+            );
+        }
+        return List.of(
+                Component.text(LIMITED_HEADLINE, NamedTextColor.RED, TextDecoration.BOLD),
+                Component.text(countdown(now), NamedTextColor.YELLOW, TextDecoration.BOLD)
+        );
     }
 
     String remaining(long now) {

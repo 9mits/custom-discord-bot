@@ -45,6 +45,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private static final long ONLINE_PULSE_TICKS = 20L * 60L;
     /** One second is often enough for a bar measured in minutes, and costs nothing. */
     private static final long KEY_BAR_TICKS = 20L;
+    private static final int HUB_KEYS_SLOT = 11;
     private static final int HUB_OPEN_SLOT = 13;
     private static final int HUB_ODDS_SLOT = 15;
     private static final int HUB_AUTO_SLOT = 22;
@@ -77,6 +78,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private static final int FAST_REEL_FRAMES = 15;
     private static final int SELECT_DEFAULT_SLOT = 11;
     private static final int SELECT_AMETHYST_SLOT = 15;
+    /** A countdown that only redraws when a screen opens is a timestamp, not a timer. */
+    private static final long COUNTDOWN_TICKS = 20L;
 
     private enum Screen {
         SELECT,
@@ -216,6 +219,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private final Map<UUID, BossBar> keyBars = new HashMap<>();
     private BukkitTask keyBarTask;
     private BukkitTask hourlyTask;
+    private BukkitTask countdownTask;
 
     CrateService(
             MGXAccessBridge plugin,
@@ -360,17 +364,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 keysPerHour(player) + " keys are earned per online hour."
         ));
         long now = System.currentTimeMillis();
-        inventory.setItem(SELECT_DEFAULT_SLOT, MenuItems.button(
-                CrateKind.DEFAULT.icon(), CrateKind.DEFAULT.menuName(),
-                "Permanent rewards.", oddsOnly ? "View exact odds." : "1 key required."
-        ));
-        inventory.setItem(SELECT_AMETHYST_SLOT, MenuItems.button(
-                CrateKind.AMETHYST.available(now) ? CrateKind.AMETHYST.icon() : Material.BARRIER,
-                CrateKind.AMETHYST.menuName(), CrateKind.AMETHYST.remaining(now),
-                CrateKind.AMETHYST.available(now)
-                        ? (oddsOnly ? "View exact odds." : "2 keys required.")
-                        : "No longer open."
-        ));
+        inventory.setItem(SELECT_DEFAULT_SLOT, selectButton(CrateKind.DEFAULT, oddsOnly, now));
+        inventory.setItem(SELECT_AMETHYST_SLOT, selectButton(CrateKind.AMETHYST, oddsOnly, now));
         MenuItems.show(plugin, player, inventory);
     }
 
@@ -387,10 +382,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         );
         holder.inventory = inventory;
         fillHub(inventory);
-        inventory.setItem(11, named(
-                items.key(1), "Your Keys", "In inventory: " + items.count(player),
-                kind == CrateKind.AMETHYST ? kind.remaining(System.currentTimeMillis()) : "Permanent crate"
-        ));
+        inventory.setItem(HUB_KEYS_SLOT, hubKeys(player, kind, System.currentTimeMillis()));
         inventory.setItem(HUB_OPEN_SLOT, MenuItems.button(
                 kind.icon(),
                 "Open " + kind.menuName(),
@@ -1342,6 +1334,9 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         keyBarTask = plugin.getServer().getScheduler().runTaskTimer(
                 plugin, this::refreshKeyBars, KEY_BAR_TICKS, KEY_BAR_TICKS
         );
+        countdownTask = plugin.getServer().getScheduler().runTaskTimer(
+                plugin, this::refreshCountdowns, COUNTDOWN_TICKS, COUNTDOWN_TICKS
+        );
     }
 
     void stop() {
@@ -1353,6 +1348,10 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         if (keyBarTask != null) {
             keyBarTask.cancel();
             keyBarTask = null;
+        }
+        if (countdownTask != null) {
+            countdownTask.cancel();
+            countdownTask = null;
         }
         for (UUID playerId : Set.copyOf(keyBars.keySet())) {
             hideKeyBar(playerId);
@@ -1593,6 +1592,73 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
 
 
 
+
+    /**
+     * One crate's tile on the chooser, with the countdown when the crate is limited.
+     *
+     * <p>Shared with {@link #refreshCountdowns()} so the tile a player is looking at
+     * and the tile the timer rewrites are drawn by the same code.
+     */
+    private static ItemStack selectButton(CrateKind kind, boolean oddsOnly, long now) {
+        String action = oddsOnly
+                ? "View exact odds."
+                : kind.keyCost() + (kind.keyCost() == 1 ? " key required." : " keys required.");
+        if (!kind.limited()) {
+            return MenuItems.button(kind.icon(), kind.menuName(), "Permanent rewards.", action);
+        }
+        boolean open = kind.available(now);
+        List<Component> lore = new ArrayList<>(kind.countdownLines(now));
+        lore.add(Component.text(open ? action : "No longer open.", NamedTextColor.GRAY));
+        return MenuItems.detailed(open ? kind.icon() : Material.BARRIER, kind.menuName(), lore);
+    }
+
+    /** The key tile on a crate's own screen, carrying that crate's countdown. */
+    private ItemStack hubKeys(Player player, CrateKind kind, long now) {
+        String held = "In inventory: " + items.count(player);
+        if (!kind.limited()) {
+            return named(items.key(1), "Your Keys", held, "Permanent crate");
+        }
+        List<Component> lore = new ArrayList<>();
+        lore.add(Component.text(held, NamedTextColor.GRAY));
+        lore.addAll(kind.countdownLines(now));
+        ItemStack item = items.key(1);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.displayName(Component.text("Your Keys", ORANGE, TextDecoration.BOLD)
+                    .decoration(TextDecoration.ITALIC, false));
+            meta.lore(lore.stream()
+                    .map(line -> line.decoration(TextDecoration.ITALIC, false))
+                    .toList());
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    /**
+     * Reruns the countdown on every crate screen that is currently open.
+     *
+     * <p>Only the one slot holding the countdown is rewritten, so a player part way
+     * through clicking something else on the same screen is never disturbed.
+     */
+    private void refreshCountdowns() {
+        long now = System.currentTimeMillis();
+        for (Player player : plugin.getServer().getOnlinePlayers()) {
+            if (!(player.getOpenInventory().getTopInventory().getHolder() instanceof CrateMenu menu)
+                    || menu.inventory == null) {
+                continue;
+            }
+            if (menu.screen == Screen.SELECT || menu.screen == Screen.ODDS_SELECT) {
+                menu.inventory.setItem(SELECT_AMETHYST_SLOT, selectButton(
+                        CrateKind.AMETHYST, menu.screen == Screen.ODDS_SELECT, now
+                ));
+            } else if (menu.screen == Screen.HUB && menu.kind != null && menu.kind.limited()) {
+                menu.inventory.setItem(HUB_KEYS_SLOT, hubKeys(player, menu.kind, now));
+            } else {
+                continue;
+            }
+            player.updateInventory();
+        }
+    }
 
     private static ItemStack named(ItemStack item, String name, String... lore) {
         ItemMeta meta = item.getItemMeta();

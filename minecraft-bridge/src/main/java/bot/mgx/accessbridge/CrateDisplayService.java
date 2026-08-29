@@ -20,6 +20,7 @@ import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.ArmorStand;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -44,6 +45,15 @@ import java.util.UUID;
 /** Persistent, reusable physical crate chests and Bedrock-visible floating labels. */
 final class CrateDisplayService implements CommandExecutor, TabCompleter, Listener {
     private static final String TAG = "mgx_crate_display";
+    /** The ticking line, retitled in place every second. */
+    private static final String COUNTDOWN_TAG = "mgx_crate_countdown";
+    /** The banner directly above it, which changes wording when the event closes. */
+    private static final String HEADLINE_TAG = "mgx_crate_countdown_headline";
+    private static final double LINE_HEIGHT = 0.28d;
+    /** Where the lowest label hangs; the stack grows upward from here. */
+    private static final double BOTTOM_LINE = 1.47d;
+    /** Particles tick every four; five of those is one second. */
+    private static final int COUNTDOWN_FRAMES = 5;
     private static final Particle.DustOptions AMETHYST_BRIGHT = new Particle.DustOptions(
             Color.fromRGB(196, 105, 255), 1.05f
     );
@@ -181,21 +191,74 @@ final class CrateDisplayService implements CommandExecutor, TabCompleter, Listen
 
     void refresh() {
         clearLabels();
+        long now = System.currentTimeMillis();
         for (Placement placement : List.copyOf(placements)) {
             World world = Bukkit.getWorld(placement.worldId());
             if (world == null) {
                 continue;
             }
-            Location base = new Location(world, placement.x() + 0.5d,
-                    placement.y() + 1.75d, placement.z() + 0.5d);
-            spawnLabel(base, Component.text(
-                    placement.kind().displayName(), placement.kind().colour(), TextDecoration.BOLD
-            ));
-            spawnLabel(base.clone().subtract(0d, 0.28d, 0d), Component.text(
-                    "1 Mysterious Crate Key", NamedTextColor.WHITE
-            ));
+            CrateKind kind = placement.kind();
+            List<Component> lines = new ArrayList<>();
+            lines.add(Component.text(kind.displayName(), kind.colour(), TextDecoration.BOLD));
+            lines.add(Component.text(keyLine(kind), NamedTextColor.WHITE));
+            lines.addAll(kind.countdownLines(now));
+            // The stack hangs from a fixed bottom line and grows upward, so the two
+            // extra lines a limited crate carries cannot push anything into the chest.
+            for (int index = 0; index < lines.size(); index++) {
+                double height = BOTTOM_LINE + LINE_HEIGHT * (lines.size() - 1 - index);
+                ArmorStand stand = spawnLabel(
+                        new Location(world, placement.x() + 0.5d,
+                                placement.y() + height, placement.z() + 0.5d),
+                        lines.get(index)
+                );
+                if (kind.limited() && index == lines.size() - 1) {
+                    stand.addScoreboardTag(COUNTDOWN_TAG);
+                } else if (kind.limited() && index == lines.size() - 2) {
+                    stand.addScoreboardTag(HEADLINE_TAG);
+                }
+            }
         }
         startParticles();
+    }
+
+    /** The key line, which is not the same sentence for a crate that costs two. */
+    private static String keyLine(CrateKind kind) {
+        return kind.keyCost() == 1
+                ? "1 Mysterious Crate Key"
+                : kind.keyCost() + " Mysterious Crate Keys";
+    }
+
+    /**
+     * Retitles the hanging countdown once a second.
+     *
+     * <p>The stands are found by tag at their known position rather than held as
+     * references: they are persistent, so a chunk unload and reload replaces the
+     * entity object and any reference kept here would leave the timer frozen.
+     */
+    private void refreshCountdownLabels() {
+        long now = System.currentTimeMillis();
+        for (Placement placement : List.copyOf(placements)) {
+            CrateKind kind = placement.kind();
+            World world = Bukkit.getWorld(placement.worldId());
+            if (!kind.limited() || world == null
+                    || !world.isChunkLoaded(placement.x() >> 4, placement.z() >> 4)) {
+                continue;
+            }
+            List<Component> lines = kind.countdownLines(now);
+            // One query spanning both limited lines, centred between them.
+            Location centre = new Location(world, placement.x() + 0.5d,
+                    placement.y() + BOTTOM_LINE + LINE_HEIGHT / 2d, placement.z() + 0.5d);
+            for (Entity entity : world.getNearbyEntities(centre, 0.4d, 0.4d, 0.4d)) {
+                if (!(entity instanceof ArmorStand stand)) {
+                    continue;
+                }
+                if (stand.getScoreboardTags().contains(COUNTDOWN_TAG)) {
+                    stand.customName(lines.get(1));
+                } else if (stand.getScoreboardTags().contains(HEADLINE_TAG)) {
+                    stand.customName(lines.get(0));
+                }
+            }
+        }
     }
 
     void stop() {
@@ -217,6 +280,9 @@ final class CrateDisplayService implements CommandExecutor, TabCompleter, Listen
 
     private void tickParticles() {
         int frame = particleFrame++;
+        if (frame % COUNTDOWN_FRAMES == 0) {
+            refreshCountdownLabels();
+        }
         double phase = frame * 0.3d;
         for (Placement placement : List.copyOf(placements)) {
             World world = Bukkit.getWorld(placement.worldId());
@@ -290,8 +356,8 @@ final class CrateDisplayService implements CommandExecutor, TabCompleter, Listen
         );
     }
 
-    private void spawnLabel(Location at, Component name) {
-        at.getWorld().spawn(at, ArmorStand.class, stand -> {
+    private ArmorStand spawnLabel(Location at, Component name) {
+        return at.getWorld().spawn(at, ArmorStand.class, stand -> {
             stand.setInvisible(true);
             stand.setMarker(true);
             stand.setGravity(false);
