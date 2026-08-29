@@ -145,7 +145,7 @@ final class StatsDialogService implements CommandExecutor {
         Dialog dialog = Dialog.create(builder -> builder.empty()
                 .base(DialogBase.builder(MenuText.title(profile.name()))
                         .body(body)
-                        .afterAction(DialogBase.DialogAfterAction.NONE)
+                        .afterAction(DialogBase.DialogAfterAction.CLOSE)
                         .canCloseWithEscape(true)
                         .build())
                 .type(DialogType.multiAction(buttons).columns(1).build()));
@@ -251,7 +251,7 @@ final class StatsDialogService implements CommandExecutor {
         Dialog dialog = Dialog.create(builder -> builder.empty()
                 .base(DialogBase.builder(MenuText.title(title))
                         .body(List.of(DialogBody.plainMessage(MenuText.body(body), 400)))
-                        .afterAction(DialogBase.DialogAfterAction.NONE)
+                        .afterAction(DialogBase.DialogAfterAction.CLOSE)
                         .canCloseWithEscape(true)
                         .build())
                 .type(DialogType.multiAction(shown).columns(columns).build()));
