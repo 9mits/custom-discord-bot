@@ -123,22 +123,13 @@ final class MainMenuService implements CommandExecutor, Listener {
             return;
         }
         Menu.Kind kind = menu.kind();
-        if (kind != Menu.Kind.MAIN_MENU && kind != Menu.Kind.PLAYER_PROFILE
-                && kind != Menu.Kind.TELEPORT_PLAYERS) {
+        // PLAYER_PROFILE is handled by StatsDialogService, which knows where its Back
+        // leads; routing it here as well would cancel the click twice.
+        if (kind != Menu.Kind.MAIN_MENU && kind != Menu.Kind.TELEPORT_PLAYERS) {
             return;
         }
         event.setCancelled(true);
         if (!(event.getWhoClicked() instanceof org.bukkit.entity.Player player)) {
-            return;
-        }
-        if (kind == Menu.Kind.PLAYER_PROFILE) {
-            // Read-only board: the click is already cancelled, and only the Close tile
-            // should shut it. Closing on any click made the whole screen feel broken.
-            if (event.getCurrentItem() != null
-                    && event.getCurrentItem().getType() == org.bukkit.Material.BARRIER) {
-                plugin.getServer().getScheduler()
-                        .runTask(plugin, (Runnable) player::closeInventory);
-            }
             return;
         }
         if (kind == Menu.Kind.TELEPORT_PLAYERS) {

@@ -480,6 +480,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 this, profileStats, crateItems, dialogSupport, bedrockForms
         );
         getCommand("stats").setExecutor(statsDialogs);
+        getServer().getPluginManager().registerEvents(statsDialogs, this);
         TeleportDialogService teleportDialogs =
                 new TeleportDialogService(this, dialogSupport, bedrockForms);
         getCommand("tpmenu").setExecutor(teleportDialogs);
