@@ -94,7 +94,7 @@ final class ClanDialogService {
                         p -> openInfo(p, clan.id(), this::openHub)),
                 new Entry("item/iron_chestplate", "Members",
                         clan.members().size() + "/" + clan.memberSlots() + " in the clan.",
-                        p -> openMembers(p, clan.id(), 1)),
+                        p -> openMembers(p, clan.id(), 1, this::openHub)),
                 new Entry("item/ender_pearl", "Clan Warps", "Places your clan has set.",
                         p -> menus.openWarpsPreferred(p))
         );
@@ -245,12 +245,15 @@ final class ClanDialogService {
     // ------------------------------------------------------------- members
 
     void openMembers(Player player, UUID clanId, int page) {
+        openMembers(player, clanId, page, viewer -> openInfo(viewer, clanId, null));
+    }
+
+    void openMembers(Player player, UUID clanId, int page, Consumer<Player> back) {
         ClanStore.ClanView clan = clans.findClanById(clanId).orElse(null);
         if (clan == null) {
             PlayerMenuService.error(player, "That clan no longer exists.");
             return;
         }
-        boolean own = clan.members().containsKey(player.getUniqueId());
         List<Map.Entry<UUID, String>> roster = new ArrayList<>(clan.members().entrySet());
         roster.sort((left, right) -> {
             int byRole = rank(clan, left.getKey()) - rank(clan, right.getKey());
@@ -268,10 +271,10 @@ final class ClanDialogService {
                 Map.Entry<UUID, String> member = roster.get(index);
                 buttons.add(new BedrockForms.Button(
                         member.getValue() + " - " + roleOf(clan, member.getKey()),
-                        () -> openMember(player, clanId, member.getKey(), current)
+                        () -> openMember(player, clanId, member.getKey(), current, back)
                 ));
             }
-            buttons.add(new BedrockForms.Button("Back", () -> openInfo(player, clanId, null)));
+            buttons.add(new BedrockForms.Button("Back", () -> back.accept(player)));
             if (!forms.menu(player, clan.name() + " Members",
                     roster.size() + "/" + clan.memberSlots() + " in the clan.", buttons)) {
                 menus.openMembers(player, clanId, current, null);
@@ -293,7 +296,7 @@ final class ClanDialogService {
             body.add(DialogBody.plainMessage(line.clickEvent(
                     net.kyori.adventure.text.event.ClickEvent.callback(audience -> {
                         if (audience instanceof Player clicker && clicker.isOnline()) {
-                            openMember(clicker, clanId, id, current);
+                            openMember(clicker, clanId, id, current, back);
                         }
                     }, CALLBACK_OPTIONS)
             ), 400));
@@ -305,8 +308,7 @@ final class ClanDialogService {
         if (current < pages) {
             buttons.add(button("Next", audience -> openMembers(audience, clanId, current + 1)));
         }
-        buttons.add(button("Back", audience -> openInfo(audience, clanId,
-                own ? this::openHub : null)));
+        buttons.add(button("Back", back));
         show(player, clan.name() + " Members",
                 body.isEmpty() ? List.of(DialogBody.plainMessage(
                         MenuText.body("Nobody here."), 400)) : body,
@@ -326,7 +328,9 @@ final class ClanDialogService {
      * clicks through a card that only repeated their role. The full profile board is
      * still one press away for the long tail of statistics.
      */
-    private void openMember(Player player, UUID clanId, UUID memberId, int page) {
+    private void openMember(
+            Player player, UUID clanId, UUID memberId, int page, Consumer<Player> back
+    ) {
         ClanStore.ClanView clan = clans.findClanById(clanId).orElse(null);
         if (clan == null) {
             return;
@@ -342,26 +346,26 @@ final class ClanDialogService {
         List<Entry> entries = new ArrayList<>();
         entries.add(new Entry("item/book", "View Full Profile", "Every number we keep.",
                 audience -> stats.openProfile(audience, memberId, name,
-                        viewer -> openMember(viewer, clanId, memberId, page))));
+                        viewer -> openMember(viewer, clanId, memberId, page, back))));
         if (manages && !self && !targetIsLeader) {
             entries.add(new Entry("item/gold_ingot", staff ? "Demote" : "Promote",
                     staff ? "Make them an ordinary member." : "Make them clan staff.",
-                    audience -> setStaff(audience, memberId, !staff, clanId, page)));
+                    audience -> setStaff(audience, memberId, !staff, clanId, page, back)));
             entries.add(new Entry("item/barrier", "Kick", "Remove them from the clan.",
                     audience -> {
                         if (!clientSupport.supportsDialogs(audience)) {
                             forms.confirm(audience, "Kick " + name,
                                     "Remove them from the clan?", "Kick", "Cancel",
-                                    () -> kick(audience, memberId, clanId, page));
+                                    () -> kick(audience, memberId, clanId, page, back));
                             return;
                         }
                         confirm(audience, "Kick " + name, "They will lose clan access.",
-                                () -> kick(audience, memberId, clanId, page),
-                                back -> openMember(back, clanId, memberId, page));
+                                () -> kick(audience, memberId, clanId, page, back),
+                                viewer -> openMember(viewer, clanId, memberId, page, back));
                     }));
         }
         entries.add(new Entry("item/oak_door", "Back", "Return to the roster.",
-                audience -> openMembers(audience, clanId, page)));
+                audience -> openMembers(audience, clanId, page, back)));
 
         if (!clientSupport.supportsDialogs(player)) {
             List<BedrockForms.Button> buttons = new ArrayList<>();
@@ -417,7 +421,10 @@ final class ClanDialogService {
         show(player, name, body, buttons, 2);
     }
 
-    private void setStaff(Player player, UUID memberId, boolean promote, UUID clanId, int page) {
+    private void setStaff(
+            Player player, UUID memberId, boolean promote, UUID clanId, int page,
+            Consumer<Player> back
+    ) {
         try {
             clans.setStaff(player.getUniqueId(), memberId, promote);
         } catch (IOException | ClanStore.ClanException failure) {
@@ -425,10 +432,12 @@ final class ClanDialogService {
                     ? "That could not be changed." : failure.getMessage());
             return;
         }
-        openMember(player, clanId, memberId, page);
+        openMember(player, clanId, memberId, page, back);
     }
 
-    private void kick(Player player, UUID memberId, UUID clanId, int page) {
+    private void kick(
+            Player player, UUID memberId, UUID clanId, int page, Consumer<Player> back
+    ) {
         try {
             clans.kick(player.getUniqueId(), memberId);
         } catch (IOException | ClanStore.ClanException failure) {
@@ -511,7 +520,8 @@ final class ClanDialogService {
         if (!clientSupport.supportsDialogs(player)) {
             List<BedrockForms.Button> buttons = new ArrayList<>();
             buttons.add(new BedrockForms.Button("Members",
-                    () -> openMembers(player, clanId, 1)));
+                    () -> openMembers(player, clanId, 1,
+                            viewer -> openInfo(viewer, clanId, back))));
             if (back != null) {
                 buttons.add(new BedrockForms.Button("Back", () -> back.accept(player)));
             }
@@ -547,7 +557,8 @@ final class ClanDialogService {
                 DialogBody.plainMessage(MenuText.stat("Allies", "item/iron_chestplate", allies), 400)
         );
         List<ActionButton> buttons = new ArrayList<>();
-        buttons.add(button("Members", audience -> openMembers(audience, clanId, 1)));
+        buttons.add(button("Members", audience -> openMembers(audience, clanId, 1,
+                viewer -> openInfo(viewer, clanId, back))));
         if (back != null) {
             buttons.add(button("Back", back));
         }
