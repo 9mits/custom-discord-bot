@@ -58,7 +58,8 @@ final class Menu implements InventoryHolder {
         AUCTION_CONFIRM,
         BOUNTY_BOARD,
         TELEPORT_WARPS,
-        TELEPORT_HOMES;
+        TELEPORT_HOMES,
+        MAIN_MENU;
 
         boolean acceptsItems() {
             return this == SELL;

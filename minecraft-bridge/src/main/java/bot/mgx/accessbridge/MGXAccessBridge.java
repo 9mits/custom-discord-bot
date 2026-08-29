@@ -306,6 +306,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 || getCommand("discord") == null
                 || getCommand("discordnames") == null
                 || getCommand("settings") == null
+                || getCommand("menu") == null
                 || getCommand("mgxadmin") == null
                 || getCommand("whitelisted") == null
                 || getCommand("leaderboard") == null
@@ -341,6 +342,20 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         PlayerSettingsService settingsService = new PlayerSettingsService(this, playerSettings, playerMenuService);
         getCommand("settings").setExecutor(settingsService);
         getCommand("settings").setTabCompleter(settingsService);
+        MainMenuService mainMenu = new MainMenuService(this);
+        getCommand("menu").setExecutor(mainMenu);
+        getServer().getPluginManager().registerEvents(mainMenu, this);
+        installQuickMenuDatapack();
+        PlayerPreferenceEffects preferenceEffects =
+                new PlayerPreferenceEffects(this, playerSettings);
+        getServer().getPluginManager().registerEvents(preferenceEffects, this);
+        preferenceEffects.start();
+        playerSettings.onChange(playerId -> {
+            Player player = getServer().getPlayer(playerId);
+            if (player != null) {
+                preferenceEffects.applyNightVision(player);
+            }
+        });
         CosmeticItems cosmeticItems = new CosmeticItems(this);
         WardrobeService wardrobeService = new WardrobeService(
                 this, cosmeticStore, cosmeticItems, settingsService, leaderboardService
@@ -452,7 +467,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         wardrobeService.useAuctionHouse(economyMenus);
         economyMenus.useWardrobe(wardrobeService);
         EconomyCommandService economyCommands = new EconomyCommandService(
-                economyStore, personalNotifications
+                economyStore, personalNotifications, playerSettings
         );
         getCommand("shop").setExecutor(economyMenus);
         getCommand("shop").setTabCompleter(economyMenus);
@@ -1825,4 +1840,33 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             verificationLobby.release(minecraftUuid, discordUsername);
         }
     }
+
+    /**
+     * Ships the quick-actions menu as a datapack in the main world.
+     *
+     * <p>Datapacks are only read when the server loads them, so a change asks for a
+     * restart rather than pretending to apply. The menu is cosmetic, so a failure here
+     * must never stop the plugin enabling.
+     */
+    private void installQuickMenuDatapack() {
+        try {
+            java.io.File worldFolder = getServer().getWorlds().isEmpty()
+                    ? null : getServer().getWorlds().getFirst().getWorldFolder();
+            if (worldFolder == null) {
+                getLogger().warning("No world is loaded, so the menu datapack was not written.");
+                return;
+            }
+            if (new QuickMenuDatapack().install(worldFolder.toPath())) {
+                getLogger().info(
+                        "Wrote the quick-actions menu datapack. Restart the server so the "
+                                + "menu key (G by default) picks it up."
+                );
+            }
+        } catch (java.io.IOException | RuntimeException exception) {
+            getLogger().warning(
+                    "Could not write the quick-actions menu datapack: " + exception.getMessage()
+            );
+        }
+    }
+
 }

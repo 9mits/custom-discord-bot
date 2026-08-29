@@ -1,0 +1,138 @@
+package bot.mgx.accessbridge;
+
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+
+/**
+ * Binds the main menu to the vanilla quick-actions key (G by default).
+ *
+ * <p>Paper can only put a dialog into {@code #minecraft:quick_actions} from a plugin
+ * bootstrapper, which needs a {@code paper-plugin.yml}; this is a legacy plugin, so
+ * the tag is shipped as a datapack instead. Nothing is lost — the menu is a grid of
+ * buttons that each run a command, with no live values to render — and it avoids
+ * migrating a hundred classes onto Paper's isolated classloading for one keybind.
+ *
+ * <p>A datapack is only read when the server loads it, so the files are written on
+ * enable and a restart is asked for when they actually changed.
+ */
+final class QuickMenuDatapack {
+    /** 1.21.11's data pack format. The range keeps a version bump from silently unloading it. */
+    private static final int PACK_FORMAT = 94;
+    private static final int MIN_PACK_FORMAT = 88;
+    private static final int MAX_PACK_FORMAT = 99;
+    private static final String NAMESPACE = "mgx";
+    private static final String DIALOG_NAME = "menu";
+    private static final String PACK_FOLDER = "mgx_menu";
+    private static final int COLUMNS = 2;
+    private static final int BUTTON_WIDTH = 150;
+
+    private final Gson gson = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
+
+    /**
+     * Writes the pack under the given world folder.
+     *
+     * @return true when something changed and the server needs a restart to pick it up
+     */
+    boolean install(Path worldFolder) throws IOException {
+        Path root = worldFolder.resolve("datapacks").resolve(PACK_FOLDER);
+        boolean changed = write(root.resolve("pack.mcmeta"), gson.toJson(packMeta()));
+        changed |= write(
+                root.resolve("data").resolve(NAMESPACE).resolve("dialog")
+                        .resolve(DIALOG_NAME + ".json"),
+                gson.toJson(menuDialog())
+        );
+        changed |= write(
+                root.resolve("data").resolve("minecraft").resolve("tags").resolve("dialog")
+                        .resolve("quick_actions.json"),
+                gson.toJson(quickActionsTag())
+        );
+        return changed;
+    }
+
+    private static boolean write(Path file, String content) throws IOException {
+        if (Files.isRegularFile(file)
+                && Files.readString(file, StandardCharsets.UTF_8).equals(content)) {
+            return false;
+        }
+        Files.createDirectories(file.getParent());
+        Files.writeString(file, content, StandardCharsets.UTF_8);
+        return true;
+    }
+
+    private JsonObject packMeta() {
+        JsonObject pack = new JsonObject();
+        pack.addProperty("description", "Mysterious SMP X quick-actions menu");
+        pack.addProperty("pack_format", PACK_FORMAT);
+        JsonArray supported = new JsonArray();
+        supported.add(MIN_PACK_FORMAT);
+        supported.add(MAX_PACK_FORMAT);
+        pack.add("supported_formats", supported);
+        JsonObject meta = new JsonObject();
+        meta.add("pack", pack);
+        return meta;
+    }
+
+    JsonObject menuDialog() {
+        JsonObject dialog = new JsonObject();
+        dialog.addProperty("type", "minecraft:multi_action");
+        dialog.add("title", text("Mysterious SMP X"));
+        dialog.add("body", body("Choose where to go."));
+        dialog.addProperty("columns", COLUMNS);
+        dialog.addProperty("can_close_with_escape", true);
+        // The menu is a launcher: every button opens something else, so it has to get
+        // out of the way rather than sit in front of the screen it just opened.
+        dialog.addProperty("after_action", "close");
+        JsonArray actions = new JsonArray();
+        for (MainMenu entry : MainMenu.entries()) {
+            actions.add(button(entry));
+        }
+        dialog.add("actions", actions);
+        return dialog;
+    }
+
+    private JsonObject button(MainMenu entry) {
+        JsonObject action = new JsonObject();
+        action.addProperty("type", "minecraft:run_command");
+        action.addProperty("command", entry.command());
+
+        JsonObject button = new JsonObject();
+        button.add("label", text(entry.label()));
+        button.add("tooltip", text(entry.tooltip()));
+        button.addProperty("width", BUTTON_WIDTH);
+        button.add("action", action);
+        return button;
+    }
+
+    private static JsonObject quickActionsTag() {
+        JsonObject tag = new JsonObject();
+        JsonArray values = new JsonArray();
+        values.add(NAMESPACE + ":" + DIALOG_NAME);
+        tag.add("values", values);
+        return tag;
+    }
+
+    private static JsonObject body(String message) {
+        JsonObject contents = new JsonObject();
+        contents.addProperty("type", "minecraft:plain_message");
+        contents.add("contents", text(message));
+        return contents;
+    }
+
+    private static JsonObject text(String value) {
+        JsonObject component = new JsonObject();
+        component.addProperty("text", value);
+        return component;
+    }
+
+    static List<String> commands() {
+        return MainMenu.entries().stream().map(MainMenu::command).toList();
+    }
+}
