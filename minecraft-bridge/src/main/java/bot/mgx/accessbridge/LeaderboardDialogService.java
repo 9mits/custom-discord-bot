@@ -60,17 +60,20 @@ final class LeaderboardDialogService {
     private final StatsDialogService stats;
     private final ClanBattleStore clanBattles;
     private final ClanStore clans;
+    private final ClanMenuService clanMenus;
 
     LeaderboardDialogService(
             LeaderboardService boards,
             StatsDialogService stats,
             ClanBattleStore clanBattles,
-            ClanStore clans
+            ClanStore clans,
+            ClanMenuService clanMenus
     ) {
         this.boards = boards;
         this.stats = stats;
         this.clanBattles = clanBattles;
         this.clans = clans;
+        this.clanMenus = clanMenus;
     }
 
     void openHub(Player viewer) {
@@ -119,7 +122,7 @@ final class LeaderboardDialogService {
             int rank = row.has("rank") ? row.get("rank").getAsInt() : index + 1;
             String display = text(row, "display");
             if (board.scope.equals("clan")) {
-                body.add(DialogBody.plainMessage(clanRow(rank, row, display), 400));
+                body.add(DialogBody.plainMessage(clanRow(rank, row, display, board), 400));
                 continue;
             }
             UUID id = uuid(row);
@@ -136,7 +139,8 @@ final class LeaderboardDialogService {
                         .clickEvent(ClickEvent.callback(
                                 audience -> {
                                     if (audience instanceof Player clicker && clicker.isOnline()) {
-                                        stats.openCard(clicker, id, name);
+                                        stats.openCard(clicker, id, name,
+                                                viewer2 -> openBoard(viewer2, board));
                                     }
                                 },
                                 CALLBACK_OPTIONS
@@ -169,7 +173,7 @@ final class LeaderboardDialogService {
     }
 
     /** A clan row carries its tag and battle medals instead of a face. */
-    private Component clanRow(int rank, JsonObject row, String display) {
+    private Component clanRow(int rank, JsonObject row, String display, Board board) {
         String name = text(row, "clan");
         int colour = row.has("colour") ? row.get("colour").getAsInt() : 0xFF9900;
         int level = row.has("level") ? row.get("level").getAsInt() : 0;
@@ -178,12 +182,43 @@ final class LeaderboardDialogService {
                 net.kyori.adventure.text.format.TextColor.color(colour)
         );
         String badges = text(row, "badges");
-        return Component.text("#" + rank + " ", MenuText.placeColour(rank))
+        Component line = Component.text("#" + rank + " ", MenuText.placeColour(rank))
                 .append(tag)
                 .append(Component.text(badges.isBlank() ? " " : "  " + badges + " ",
                         NamedTextColor.WHITE))
                 .append(Component.text("— ", NamedTextColor.DARK_GRAY))
                 .append(Component.text(display, MenuText.VALUE));
+        UUID clanId = parseUuid(text(row, "clan_id"));
+        if (clanId == null || clans == null) {
+            return line;
+        }
+        // The name is the link, exactly as a player's name is on the boards above.
+        return line
+                .hoverEvent(HoverEvent.showText(
+                        Component.text("View this clan", MenuText.LABEL)))
+                .clickEvent(ClickEvent.callback(audience -> {
+                    if (audience instanceof Player clicker && clicker.isOnline()) {
+                        openClan(clicker, clanId, viewer -> openBoard(viewer, board));
+                    }
+                }, CALLBACK_OPTIONS));
+    }
+
+    /** Opens a clan's page, remembering the board it was reached from. */
+    private void openClan(
+            Player viewer, UUID clanId, java.util.function.Consumer<Player> back
+    ) {
+        clans.findClanById(clanId).ifPresentOrElse(
+                clan -> clanMenus.openInfo(viewer, clan, null),
+                () -> PlayerMenuService.error(viewer, "That clan no longer exists.")
+        );
+    }
+
+    private static UUID parseUuid(String raw) {
+        try {
+            return raw == null || raw.isBlank() ? null : UUID.fromString(raw);
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
     }
 
     private JsonArray rows(Board board) {

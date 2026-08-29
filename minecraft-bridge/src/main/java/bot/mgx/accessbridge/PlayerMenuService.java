@@ -83,7 +83,7 @@ final class PlayerMenuService implements Listener {
                     setting, settings.isEnabled(player.getUniqueId(), setting)
             ));
         }
-        if (category == PlayerSettingsStore.Category.AUDIO
+        if (category == PlayerSettingsStore.Category.COSMETICS
                 && categorySettings.size() < SETTING_SLOTS.length) {
             int volume = settings.musicVolume(player.getUniqueId());
             inventory.setItem(SETTING_SLOTS[categorySettings.size()], button(
@@ -235,7 +235,7 @@ final class PlayerMenuService implements Listener {
             } else {
                 List<PlayerSettingsStore.Setting> categorySettings = category.settings();
                 int settingIndex = indexOf(SETTING_SLOTS, slot);
-                if (category == PlayerSettingsStore.Category.AUDIO
+                if (category == PlayerSettingsStore.Category.COSMETICS
                         && settingIndex == categorySettings.size()) {
                     settings.cycleMusicVolume(player.getUniqueId());
                     openSettingsCategory(player, category);
@@ -292,8 +292,8 @@ final class PlayerMenuService implements Listener {
             case CHAT -> Material.WRITABLE_BOOK;
             case NOTIFICATIONS -> Material.BELL;
             case PVP -> Material.IRON_SWORD;
-            case VISUALS -> Material.AMETHYST_SHARD;
-            case PARTICLES -> Material.FIREWORK_ROCKET;
+            case VISUALS -> Material.ENDER_EYE;
+            case COSMETICS -> Material.NETHER_STAR;
             case AUDIO -> Material.NOTE_BLOCK;
             case PRIVACY -> Material.SHIELD;
             case HUD -> Material.EXPERIENCE_BOTTLE;

@@ -68,4 +68,15 @@ final class DialogScreenTest {
             return false;
         }
     }
+
+    @Test
+    void everySettingsCategoryCarriesAnIconTheAtlasCanFind() {
+        for (PlayerSettingsStore.Category category : PlayerSettingsStore.Category.values()) {
+            String path = category.sprite();
+            boolean block = path.startsWith("block/");
+            assertTrue(block || path.startsWith("item/"), category + " -> " + path);
+            assertTrue(MenuText.atlasFor(path).value().equals(block ? "blocks" : "items"),
+                    category + " -> " + path);
+        }
+    }
 }
