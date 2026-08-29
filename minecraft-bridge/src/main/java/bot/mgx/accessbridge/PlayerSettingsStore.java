@@ -112,6 +112,15 @@ final class PlayerSettingsStore {
                 "Show your money on the scoreboard.", true, Category.SCOREBOARD),
         KEY_TIMER_BAR("key_timer_bar", "Key timer",
                 "Show a bar counting down to your next crate key.", true, Category.GENERAL),
+        NIGHT_VISION("night_vision", "Night vision",
+                "See in the dark without a torch or a potion.", false, Category.VISUALS),
+        TELEPORT_REQUESTS("teleport_requests", "Teleport requests",
+                "Let other players send you a teleport request.", true, Category.PRIVACY),
+        ALLOW_PAYMENTS("allow_payments", "Allow payments",
+                "Let other players send you money with /pay.", true, Category.PRIVACY),
+        PRIVATE_TRANSACTIONS("private_transactions", "Private transactions",
+                "Hide the amount when someone pays you, so onlookers cannot read it.",
+                false, Category.PRIVACY),
         // Lives on the sell screen, not in /settings: it is a shop behaviour, and the
         // panel is for what you can see.
         AUTO_SELL("auto_sell_on", "Auto sell",
@@ -217,6 +226,8 @@ final class PlayerSettingsStore {
         }
     }
 
+    private java.util.function.Consumer<UUID> changeObserver = ignored -> { };
+
     synchronized boolean isEnabled(UUID playerId, Setting setting) {
         boolean moved = overrides.getOrDefault(playerId, EnumSet.noneOf(Setting.class))
                 .contains(setting);
@@ -278,6 +289,14 @@ final class PlayerSettingsStore {
         return enabled;
     }
 
+    /**
+     * Told after any change, so a setting that alters the world rather than the screen
+     * can take effect on the click instead of at the next sweep.
+     */
+    synchronized void onChange(java.util.function.Consumer<UUID> observer) {
+        this.changeObserver = observer == null ? ignored -> { } : observer;
+    }
+
     /** Applies one dialog submission in memory and on disk as a single update. */
     synchronized void setEnabled(UUID playerId, Map<Setting, Boolean> requested) {
         EnumSet<Setting> before = overrides.containsKey(playerId)
@@ -309,6 +328,7 @@ final class PlayerSettingsStore {
             }
             throw exception;
         }
+        changeObserver.accept(playerId);
     }
 
     /** Forgets every player's toggles, so everyone starts back on the defaults. */

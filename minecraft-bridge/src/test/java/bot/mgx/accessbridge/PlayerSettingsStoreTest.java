@@ -91,8 +91,25 @@ class PlayerSettingsStoreTest {
                 assertEquals(category, setting.category());
             }
         }
-        assertTrue(PlayerSettingsStore.Category.PRIVACY.settings().isEmpty());
+        assertEquals(
+                List.of(
+                        PlayerSettingsStore.Setting.TELEPORT_REQUESTS,
+                        PlayerSettingsStore.Setting.ALLOW_PAYMENTS,
+                        PlayerSettingsStore.Setting.PRIVATE_TRANSACTIONS
+                ),
+                PlayerSettingsStore.Category.PRIVACY.settings()
+        );
     }
+
+    /**
+     * Opt-in behaviours, which are allowed to start off. Everything else in the panel
+     * shows or hides something, and hiding it by default would look like a bug rather
+     * than a preference, so listing the exceptions keeps that guard on the rest.
+     */
+    private static final java.util.Set<PlayerSettingsStore.Setting> OPT_IN = java.util.Set.of(
+            PlayerSettingsStore.Setting.NIGHT_VISION,
+            PlayerSettingsStore.Setting.PRIVATE_TRANSACTIONS
+    );
 
     @Test
     void newPresentationSettingsHaveSafeVisibleDefaults(@TempDir Path directory) throws IOException {
@@ -100,7 +117,12 @@ class PlayerSettingsStoreTest {
         UUID player = UUID.randomUUID();
 
         for (PlayerSettingsStore.Setting setting : PlayerSettingsStore.Setting.values()) {
-            if (setting.inSettingsPanel()) {
+            if (!setting.inSettingsPanel()) {
+                continue;
+            }
+            if (OPT_IN.contains(setting)) {
+                assertFalse(store.isEnabled(player, setting), setting.key());
+            } else {
                 assertTrue(store.isEnabled(player, setting), setting.key());
             }
         }

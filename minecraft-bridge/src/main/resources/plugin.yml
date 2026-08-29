@@ -33,6 +33,10 @@ commands:
     description: Show or hide your linked Discord username in Minecraft.
     usage: /discordnames
     aliases: [discordname]
+  menu:
+    description: Open the Mysterious SMP X main menu.
+    usage: /menu
+    aliases: [quickmenu, hub]
   settings:
     description: Configure chat, notifications, cosmetics, privacy and scoreboard display.
     usage: /settings [setting] [value]

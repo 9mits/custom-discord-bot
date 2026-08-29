@@ -21,10 +21,16 @@ import static bot.mgx.accessbridge.MenuItems.ORANGE;
 final class EconomyCommandService implements CommandExecutor, TabCompleter {
     private final EconomyStore money;
     private final PersonalNotificationService notifications;
+    private final PlayerSettingsStore settings;
 
-    EconomyCommandService(EconomyStore money, PersonalNotificationService notifications) {
+    EconomyCommandService(
+            EconomyStore money,
+            PersonalNotificationService notifications,
+            PlayerSettingsStore settings
+    ) {
         this.money = money;
         this.notifications = notifications;
+        this.settings = settings;
     }
 
     @Override
@@ -83,6 +89,13 @@ final class EconomyCommandService implements CommandExecutor, TabCompleter {
         if (target == null) {
             throw new IllegalArgumentException("No player named " + args[0] + " is online.");
         }
+        if (!settings.isEnabled(
+                target.getUniqueId(), PlayerSettingsStore.Setting.ALLOW_PAYMENTS
+        )) {
+            throw new IllegalArgumentException(
+                    target.getName() + " is not accepting payments."
+            );
+        }
         long amount = EconomyFormat.parseAmount(args[1]);
         if (!money.transfer(player.getUniqueId(), target.getUniqueId(), amount)) {
             throw new IllegalArgumentException(
@@ -90,12 +103,22 @@ final class EconomyCommandService implements CommandExecutor, TabCompleter {
             );
         }
         info(player, "Paid " + target.getName() + " " + EconomyFormat.dollars(amount) + ".");
-        String received = player.getName() + " paid you " + EconomyFormat.dollars(amount) + ".";
+        // The payer always sees the figure; only the receiver's own screen is hidden,
+        // since that is the one somebody could be reading over their shoulder.
+        boolean quiet = settings.isEnabled(
+                target.getUniqueId(), PlayerSettingsStore.Setting.PRIVATE_TRANSACTIONS
+        );
+        String received = quiet
+                ? player.getName() + " paid you."
+                : player.getName() + " paid you " + EconomyFormat.dollars(amount) + ".";
         notifications.notify(
                 target,
                 prefix().append(Component.text(received, NamedTextColor.GREEN)),
-                Component.text("+" + EconomyFormat.dollars(amount) + " from " + player.getName(),
-                        NamedTextColor.GREEN)
+                quiet
+                        ? Component.text("Payment from " + player.getName(), NamedTextColor.GREEN)
+                        : Component.text(
+                                "+" + EconomyFormat.dollars(amount) + " from " + player.getName(),
+                                NamedTextColor.GREEN)
         );
     }
 
