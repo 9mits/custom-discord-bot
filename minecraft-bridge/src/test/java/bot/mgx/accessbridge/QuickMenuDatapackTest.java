@@ -73,4 +73,22 @@ final class QuickMenuDatapackTest {
                 MainMenu.entries().stream().map(MainMenu::command).distinct().count()
         );
     }
+
+    @Test
+    void packMetadataDeclaresTheFormatRangeTheServerDemands() {
+        JsonObject pack = new QuickMenuDatapack().packMeta().getAsJsonObject("pack");
+
+        // Above format 81 the server refuses metadata that lacks these two, and
+        // pack_format no longer stands in for them. Getting this wrong logs one line
+        // and silently leaves the menu key doing nothing.
+        assertTrue(pack.has("min_format"), pack.toString());
+        assertTrue(pack.has("max_format"), pack.toString());
+        assertEquals(2, pack.getAsJsonArray("min_format").size(), "expected [major, minor]");
+        assertEquals(2, pack.getAsJsonArray("max_format").size(), "expected [major, minor]");
+        assertEquals(
+                pack.getAsJsonArray("min_format").get(0).getAsInt(),
+                pack.getAsJsonArray("max_format").get(0).getAsInt(),
+                "a new major can change the dialog schema, so it is not accepted blind"
+        );
+    }
 }
