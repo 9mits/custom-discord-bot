@@ -54,7 +54,7 @@ commands:
     permission: mgx.echest
   cratehologram:
     description: Place or remove persistent physical crate chests.
-    usage: /cratehologram <set default|set amethyst|remove>
+    usage: /cratehologram <set default|set amethyst|set shard|remove>
     permission: mgxaccessbridge.admin
   whitelisted:
     description: List everyone with whitelist access and their Discord name.

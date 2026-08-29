@@ -97,7 +97,7 @@ final class CrateDisplayService implements CommandExecutor, TabCompleter, Listen
         try {
             if (args.length == 2 && args[0].equalsIgnoreCase("set")) {
                 CrateKind kind = CrateKind.from(args[1]).orElseThrow(
-                        () -> new IllegalArgumentException("Use default or amethyst.")
+                        () -> new IllegalArgumentException("Use default, amethyst, or shard.")
                 );
                 place(player, kind);
                 player.sendMessage(PlayerMenuService.prefix().append(Component.text(
@@ -110,7 +110,8 @@ final class CrateDisplayService implements CommandExecutor, TabCompleter, Listen
                 )));
             } else {
                 throw new IllegalArgumentException(
-                        "Use /cratehologram set <default|amethyst> while looking at a chest, or remove."
+                        "Use /cratehologram set <default|amethyst|shard> while looking at a chest, "
+                                + "or remove."
                 );
             }
         } catch (IllegalArgumentException | IOException exception) {
@@ -125,7 +126,7 @@ final class CrateDisplayService implements CommandExecutor, TabCompleter, Listen
             return prefix(args[0], List.of("set", "remove"));
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("set")) {
-            return prefix(args[1], List.of("default", "amethyst"));
+            return prefix(args[1], List.of("default", "amethyst", "shard"));
         }
         return List.of();
     }
@@ -223,9 +224,7 @@ final class CrateDisplayService implements CommandExecutor, TabCompleter, Listen
 
     /** The key line, which is not the same sentence for a crate that costs two. */
     private static String keyLine(CrateKind kind) {
-        return kind.keyCost() == 1
-                ? "1 Mysterious Crate Key"
-                : kind.keyCost() + " Mysterious Crate Keys";
+        return kind.keyCost() + " " + kind.currency().fullName(kind.keyCost());
     }
 
     /**

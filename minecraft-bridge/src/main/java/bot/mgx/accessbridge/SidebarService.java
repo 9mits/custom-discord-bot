@@ -58,6 +58,7 @@ final class SidebarService {
     private final DiscordIdentityService identities;
     private final PlayerSettingsStore settings;
     private final EconomyStore money;
+    private final ClanBattleStore clanBattles;
     private final String footer;
     private final int updateTicks;
     private final Map<UUID, PlayerBoard> boards = new HashMap<>();
@@ -83,6 +84,7 @@ final class SidebarService {
             DiscordIdentityService identities,
             PlayerSettingsStore settings,
             EconomyStore money,
+            ClanBattleStore clanBattles,
             String footer,
             int updateTicks
     ) {
@@ -92,6 +94,7 @@ final class SidebarService {
         this.identities = identities;
         this.settings = settings;
         this.money = money;
+        this.clanBattles = clanBattles;
         this.footer = footer;
         this.updateTicks = updateTicks;
     }
@@ -423,10 +426,9 @@ final class SidebarService {
                 ? SidebarText.textWidth("[" + profile.rankLabel() + "] ", true) : 0;
         Optional<ClanStore.ClanView> clan = clans.clanOf(player.getUniqueId());
         if (clan.isPresent()) {
-            width += SidebarText.textWidth("[" + clan.get().name() + "] ", true);
-            if (clan.get().level() > 0) {
-                width += SidebarText.textWidth(ClanLevel.badge(clan.get().level()) + " ", true);
-            }
+            width += SidebarText.textWidth(
+                    ClanTag.plain(clan.get(), clanBattles.badges(clan.get().id())), true
+            );
         }
         return width + SidebarText.textWidth(
                 discordTag(player) + player.getName() + afkLabel(player), false
@@ -606,7 +608,7 @@ final class SidebarService {
             );
             Component prefix = rankTag(profile)
                     .append(showClan
-                            ? clan.map(SidebarService::clanTag).orElse(Component.empty())
+                            ? clan.map(this::clanTag).orElse(Component.empty())
                             : Component.empty());
             expected.put(teamName, prefix);
             entries.computeIfAbsent(teamName, ignored -> new LinkedHashSet<>()).add(online.getName());
@@ -764,16 +766,8 @@ final class SidebarService {
         return TextColor.color(clan.themeColor());
     }
 
-    private static Component clanTag(ClanStore.ClanView clan) {
-        Component tag = Component.text("[" + clan.name() + "] ", clanColor(clan), TextDecoration.BOLD);
-        if (clan.level() <= 0) {
-            return tag;
-        }
-        return tag.append(Component.text(
-                        ClanLevel.badge(clan.level()),
-                        TextColor.color(ClanLevel.badgeColor(clan.level())),
-                        TextDecoration.BOLD))
-                .append(Component.text(" "));
+    private Component clanTag(ClanStore.ClanView clan) {
+        return ClanTag.of(clan, clanBattles.badges(clan.id()));
     }
 
     private static Component divider() {

@@ -144,6 +144,36 @@ final class HologramService {
         }
     }
 
+    /**
+     * Retitles just the clan battle countdown line. A full {@link #refresh()} respawns
+     * every stand, which at one second apart would flicker the whole board; the boards
+     * themselves only change on a leaderboard publish, so only this line needs the tick.
+     */
+    void tickCountdown() {
+        for (Placement placement : List.copyOf(placements)) {
+            if (placement.board() != Board.CLAN_BATTLE) {
+                continue;
+            }
+            World world = Bukkit.getWorld(placement.worldId());
+            if (world == null) {
+                continue;
+            }
+            Location at = new Location(
+                    world, placement.x(), placement.y() - LINE_GAP, placement.z()
+            );
+            if (!world.isChunkLoaded(at.getBlockX() >> 4, at.getBlockZ() >> 4)) {
+                continue;
+            }
+            Component line = subtitle(Board.CLAN_BATTLE);
+            for (ArmorStand stand
+                    : world.getNearbyEntitiesByType(ArmorStand.class, at, 0.12d)) {
+                if (stand.getScoreboardTags().contains(TAG)) {
+                    stand.customName(line);
+                }
+            }
+        }
+    }
+
     private void spawn(World world, Placement placement, Map<String, Integer> colours) {
         List<Component> lines = lines(placement.board(), colours);
         for (int index = 0; index < lines.size(); index++) {
@@ -202,7 +232,16 @@ final class HologramService {
         JsonObject snapshot = boards.latest();
         if (snapshot != null && snapshot.has("clan_battle")
                 && snapshot.get("clan_battle").isJsonObject()) {
-            String objective = text(snapshot.getAsJsonObject("clan_battle"), "objective");
+            JsonObject event = snapshot.getAsJsonObject("clan_battle");
+            String objective = text(event, "objective");
+            long endsAt = event.has("ends_at") ? event.get("ends_at").getAsLong() : 0L;
+            if (endsAt > 0L) {
+                return Component.text(
+                        objective + "  —  ENDS IN "
+                                + ClanBattleCountdown.clock(endsAt - System.currentTimeMillis()),
+                        NamedTextColor.YELLOW
+                );
+            }
             if (!objective.isBlank()) {
                 return Component.text(objective, NamedTextColor.YELLOW);
             }

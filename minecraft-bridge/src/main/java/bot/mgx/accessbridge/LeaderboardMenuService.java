@@ -112,10 +112,14 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
                 "They update automatically and can never be traded."));
         inventory.setItem(HUB_AMETHYST_AIRDROPS, button(Material.CHEST,
                 "Most Amethyst Airdrops Opened", "First player to open each Airdrop scores."));
-        String battleName = clanBattles.active(clans)
-                .map(active -> active.kind().displayName()).orElse("Current Clan Battle");
+        ClanBattleStore.ActiveView battle = clanBattles.active(clans).orElse(null);
         inventory.setItem(HUB_CLAN_BATTLE, button(Material.NETHER_STAR,
-                battleName, "Open the most crates!", "Clan scores reset per member when they leave."));
+                battle == null ? "Current Clan Battle" : battle.kind().displayName(),
+                battle == null ? "No Clan Battle is running." : "Open the most crates!",
+                battle == null ? "Check back when one starts."
+                        : "Ends in " + ClanBattleCountdown.clock(
+                                battle.endsAt() - System.currentTimeMillis()) + ".",
+                "Clan scores reset per member when they leave."));
         MenuItems.show(plugin, player, inventory);
     }
 
@@ -205,8 +209,8 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
 
     void openClanBattle(Player player, int page) {
         List<JsonObject> ranked = rows("clan", "clan_battle");
-        String title = clanBattles.active(clans)
-                .map(active -> active.kind().displayName()).orElse("Clan Battle");
+        ClanBattleStore.ActiveView battle = clanBattles.active(clans).orElse(null);
+        String title = battle == null ? "Clan Battle" : battle.kind().displayName();
         Inventory inventory = create(
                 Menu.Kind.LEADERBOARD_CLAN_BATTLE, null, page, BOARD_SIZE,
                 MenuItems.pagedTitle(title, page, ranked.size()),
@@ -236,9 +240,9 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
         }
         if (ranked.isEmpty()) {
             inventory.setItem(22, button(Material.BARRIER, "No standings yet",
-                    clanBattles.active(clans).isPresent()
-                            ? "Open a crate while you are in a clan."
-                            : "No Clan Battle is running."));
+                    battle == null
+                            ? "No Clan Battle is running."
+                            : "Open a crate while you are in a clan."));
         }
         MenuItems.paginate(inventory, page, ranked.size(), true);
         MenuItems.show(plugin, player, inventory);

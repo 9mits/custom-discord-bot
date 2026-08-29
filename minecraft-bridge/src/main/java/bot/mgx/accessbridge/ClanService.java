@@ -59,6 +59,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     private final PlayerPerkService perks;
     private final PlayerSettingsStore settings;
     private final ClanMenuService menus;
+    private final ClanBattleStore clanBattles;
 
     ClanService(
             MGXAccessBridge plugin,
@@ -66,7 +67,8 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
             DiscordIdentityService identities,
             PlayerPerkService perks,
             PlayerSettingsStore settings,
-            ClanMenuService menus
+            ClanMenuService menus,
+            ClanBattleStore clanBattles
     ) {
         this.plugin = plugin;
         this.store = store;
@@ -74,6 +76,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         this.perks = perks;
         this.settings = settings;
         this.menus = menus;
+        this.clanBattles = clanBattles;
     }
 
     @Override
@@ -763,21 +766,8 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         return TextColor.color(clan.themeColor());
     }
 
-    private static Component clanTag(ClanStore.ClanView clan) {
-        Component tag = Component.text("[" + clan.name() + "] ", clanColor(clan), TextDecoration.BOLD);
-        if (clan.level() <= 0) {
-            return tag;
-        }
-        return tag.append(badge(clan)).append(Component.text(" "));
-    }
-
-    /** The stars that stand in for writing the clan's level beside every name. */
-    private static Component badge(ClanStore.ClanView clan) {
-        return Component.text(
-                ClanLevel.badge(clan.level()),
-                TextColor.color(ClanLevel.badgeColor(clan.level())),
-                TextDecoration.BOLD
-        );
+    private Component clanTag(ClanStore.ClanView clan) {
+        return ClanTag.of(clan, clanBattles.badges(clan.id()));
     }
 
     private static String resolveThemeColor(String requestedColor) {
