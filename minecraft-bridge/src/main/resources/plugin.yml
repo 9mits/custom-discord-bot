@@ -37,6 +37,14 @@ commands:
     description: Open the Mysterious SMP X main menu.
     usage: /menu
     aliases: [quickmenu, hub]
+  stats:
+    description: Show a player's stats.
+    usage: /stats [player]
+    aliases: [profile, playerstats]
+  tpmenu:
+    description: Pick a player to ask for a teleport.
+    usage: /tpmenu
+    aliases: [teleportmenu]
   settings:
     description: Configure chat, notifications, cosmetics, privacy and scoreboard display.
     usage: /settings [setting] [value]

@@ -102,6 +102,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private AmethystProgressStore amethystProgress;
     private ClanBattleStore clanBattleStore;
     private ClanBattleService clanBattles;
+    private TeleportMenuService teleportMenus;
     private AirdropService airdrops;
     private AutoPayService autoPayService;
     private ServerEventService serverEventService;
@@ -270,7 +271,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(chatRelayService, this);
         getServer().getPluginManager().registerEvents(leaderboardService, this);
         getServer().getPluginManager().registerEvents(teleportWarmups, this);
-        getServer().getPluginManager().registerEvents(new TeleportMenuService(this), this);
+        teleportMenus = new TeleportMenuService(this);
+        getServer().getPluginManager().registerEvents(teleportMenus, this);
         RandomTeleportService randomTeleports = new RandomTeleportService(this, teleportWarmups);
         getCommand("rtp").setExecutor(randomTeleports);
         broadcastDisplayService = new BroadcastDisplayService(this);
@@ -307,6 +309,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 || getCommand("discordnames") == null
                 || getCommand("settings") == null
                 || getCommand("menu") == null
+                || getCommand("stats") == null
+                || getCommand("tpmenu") == null
                 || getCommand("mgxadmin") == null
                 || getCommand("whitelisted") == null
                 || getCommand("leaderboard") == null
@@ -342,7 +346,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         PlayerSettingsService settingsService = new PlayerSettingsService(this, playerSettings, playerMenuService);
         getCommand("settings").setExecutor(settingsService);
         getCommand("settings").setTabCompleter(settingsService);
-        MainMenuService mainMenu = new MainMenuService(this);
+        SettingsClientSupport clientSupport = new SettingsClientSupport();
+        MainMenuService mainMenu = new MainMenuService(this, clientSupport);
         getCommand("menu").setExecutor(mainMenu);
         getServer().getPluginManager().registerEvents(mainMenu, this);
         installQuickMenuDatapack();
@@ -450,6 +455,24 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("leaderboard").setExecutor(leaderboardMenus);
         getCommand("leaderboard").setTabCompleter(leaderboardMenus);
         getServer().getPluginManager().registerEvents(leaderboardMenus, this);
+
+        SettingsClientSupport dialogSupport = new SettingsClientSupport();
+        StatsDialogService statsDialogs = new StatsDialogService(
+                this, economyStore, crateItems, dialogSupport
+        );
+        getCommand("stats").setExecutor(statsDialogs);
+        TeleportDialogService teleportDialogs =
+                new TeleportDialogService(this, dialogSupport);
+        getCommand("tpmenu").setExecutor(teleportDialogs);
+        HomesDialogService homesDialogs =
+                new HomesDialogService(teleportMenus, dialogSupport);
+        LeaderboardDialogService leaderboardDialogs = new LeaderboardDialogService(
+                leaderboardService, statsDialogs, clanBattleStore, clanStore
+        );
+        // The chest screens stay as the Bedrock and pre-1.21.6 path, so each command
+        // asks the client what it can render rather than picking one for everyone.
+        leaderboardMenus.useDialogs(leaderboardDialogs, dialogSupport);
+        teleportMenus.useHomesDialog(homesDialogs);
         AuctionStore auctionStore;
         try {
             auctionStore = new AuctionStore(getDataFolder().toPath().resolve("auctions.json"));

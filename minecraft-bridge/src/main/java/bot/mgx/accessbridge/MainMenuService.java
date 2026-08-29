@@ -116,12 +116,29 @@ final class MainMenuService implements CommandExecutor, Listener {
 
     @EventHandler
     public void onClick(InventoryClickEvent event) {
-        if (!(event.getInventory().getHolder() instanceof Menu menu)
-                || menu.kind() != Menu.Kind.MAIN_MENU) {
+        if (!(event.getInventory().getHolder() instanceof Menu menu)) {
+            return;
+        }
+        Menu.Kind kind = menu.kind();
+        if (kind != Menu.Kind.MAIN_MENU && kind != Menu.Kind.PLAYER_PROFILE
+                && kind != Menu.Kind.TELEPORT_PLAYERS) {
             return;
         }
         event.setCancelled(true);
         if (!(event.getWhoClicked() instanceof org.bukkit.entity.Player player)) {
+            return;
+        }
+        if (kind == Menu.Kind.PLAYER_PROFILE) {
+            // A profile board is read-only; the only click that does anything closes it.
+            plugin.getServer().getScheduler().runTask(plugin, (Runnable) player::closeInventory);
+            return;
+        }
+        if (kind == Menu.Kind.TELEPORT_PLAYERS) {
+            menu.option(event.getSlot()).ifPresentOrElse(
+                    name -> runLater(player, "tpa " + name),
+                    () -> plugin.getServer().getScheduler()
+                            .runTask(plugin, (Runnable) player::closeInventory)
+            );
             return;
         }
         List<MainMenu> entries = MainMenu.entries();
@@ -130,8 +147,14 @@ final class MainMenuService implements CommandExecutor, Listener {
             return;
         }
         String command = entries.get(slot).command();
-        // Bedrock drops a screen opened from inside a click, so the command that opens
-        // the next menu has to run on the following tick.
+        runLater(player, command);
+    }
+
+    /**
+     * Bedrock drops a screen opened from inside a click, so anything that opens the
+     * next menu has to run on the following tick.
+     */
+    private void runLater(org.bukkit.entity.Player player, String command) {
         plugin.getServer().getScheduler().runTask(plugin, () -> {
             if (player.isOnline()) {
                 player.closeInventory();
