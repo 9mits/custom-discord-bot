@@ -285,6 +285,19 @@ class ThemeTests(unittest.TestCase):
         self.assertNotIn("overflow: hidden", theme.STYLESHEET.split("community band")[1]
                          .split("/* =====")[0])
 
+    def test_the_mascot_hangs_past_the_bottom_of_the_card(self):
+        """Popping out of the frame means crossing both edges, not resting on one.
+
+        Her render stops mid-torso and there is no section boundary below the card
+        to hide that against, so the crop is faded rather than left as a hard
+        horizontal edge in open space.
+        """
+        css = theme.STYLESHEET
+        self.assertIn("bottom: -3.5rem", css)
+        self.assertIn("mask-image: linear-gradient(to bottom", css)
+        # Safari needed the prefix until 15.4 and the site still supports it.
+        self.assertIn("-webkit-mask-image: linear-gradient(to bottom", css)
+
     def test_the_mascot_asset_is_trimmed_to_the_figure(self):
         """Transparent padding in the file reads as bad spacing on the page.
 
