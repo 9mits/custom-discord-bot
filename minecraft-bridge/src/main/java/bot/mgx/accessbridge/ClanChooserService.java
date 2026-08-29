@@ -10,7 +10,6 @@ import io.papermc.paper.registry.data.dialog.type.DialogType;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickCallback;
 import net.kyori.adventure.text.format.NamedTextColor;
-import org.bukkit.Material;
 import org.bukkit.entity.Player;
 
 import java.time.Duration;
@@ -33,6 +32,7 @@ final class ClanChooserService {
 
     private final ClanMenuService menus;
     private ClanDirectoryService directory;
+    private ClanWarpDialogService clanWarps;
     private final ClanStore clans;
     private final ClanBattleStore clanBattles;
     private final SettingsClientSupport clientSupport;
@@ -54,6 +54,10 @@ final class ClanChooserService {
         this.directory = directory;
     }
 
+    void useClanWarps(ClanWarpDialogService clanWarps) {
+        this.clanWarps = clanWarps;
+    }
+
     void open(Player player) {
         ClanStore.ClanView own = clans.clanOf(player.getUniqueId()).orElse(null);
         if (!clientSupport.supportsDialogs(player)) {
@@ -68,15 +72,26 @@ final class ClanChooserService {
         }
         List<ActionButton> buttons = new ArrayList<>();
         if (own == null) {
-            buttons.add(button(Material.BARRIER, "No Clan Yet",
+            buttons.add(button("item/barrier", "No Clan Yet",
                     "Found one with /clans create <name>.", audience -> audience.closeDialog()));
         } else {
             String medals = ClanTag.plainMedals(clanBattles.badges(own.id())).strip();
-            buttons.add(button(Material.SHIELD, "My Clan",
+            buttons.add(button("item/iron_chestplate", "My Clan",
                     "[" + own.name() + "]" + (medals.isBlank() ? "" : "  " + medals),
                     menus::openHub));
         }
-        buttons.add(button(Material.SPYGLASS, "Browse Clans",
+        if (own != null) {
+            buttons.add(button("item/ender_pearl", "Clan Warps",
+                    "Places your clan has set.",
+                    audience -> {
+                        if (clanWarps != null) {
+                            clanWarps.open(audience);
+                        } else {
+                            menus.openWarps(audience);
+                        }
+                    }));
+        }
+        buttons.add(button("item/spyglass", "Browse Clans",
                 "Every clan, A to Z.", this::browse));
         buttons.add(ActionButton.builder(Component.text("Close", MenuText.LABEL))
                 .width(150)
@@ -106,10 +121,10 @@ final class ClanChooserService {
     }
 
     private ActionButton button(
-            Material icon, String label, String tooltip, java.util.function.Consumer<Player> run
+            String icon, String label, String tooltip, java.util.function.Consumer<Player> run
     ) {
         return ActionButton.builder(Component.empty()
-                        .append(MenuText.icon(icon))
+                        .append(MenuText.sprite(icon))
                         .append(Component.text(" " + label, NamedTextColor.WHITE)))
                 .tooltip(Component.text(tooltip, MenuText.LABEL))
                 .width(150)

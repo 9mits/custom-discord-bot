@@ -11,7 +11,6 @@ import io.papermc.paper.registry.data.dialog.type.DialogType;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickCallback;
 import net.kyori.adventure.text.format.NamedTextColor;
-import org.bukkit.Material;
 import org.bukkit.entity.Player;
 
 import java.time.Duration;
@@ -33,12 +32,22 @@ final class HomesDialogService {
             .build();
     private static final String NAME_INPUT = "home_name";
 
+    private static final String SEARCH_INPUT = "icon_search";
+    /** Fits the dialog without scrolling; the rest is a page away. */
+    private static final int ICONS_PER_PAGE = 24;
+
     private final TeleportMenuService teleports;
     private final SettingsClientSupport clientSupport;
+    private final HomeIconStore homeIcons;
 
-    HomesDialogService(TeleportMenuService teleports, SettingsClientSupport clientSupport) {
+    HomesDialogService(
+            TeleportMenuService teleports,
+            SettingsClientSupport clientSupport,
+            HomeIconStore homeIcons
+    ) {
         this.teleports = teleports;
         this.clientSupport = clientSupport;
+        this.homeIcons = homeIcons;
     }
 
     void open(Player player) {
@@ -50,7 +59,7 @@ final class HomesDialogService {
         List<ActionButton> buttons = new ArrayList<>();
         for (String home : homes) {
             buttons.add(ActionButton.builder(Component.empty()
-                            .append(MenuText.icon(Material.WHITE_BED))
+                            .append(MenuText.sprite(homeIcons.iconOf(player.getUniqueId(), home)))
                             .append(Component.text(" " + home, NamedTextColor.WHITE)))
                     .tooltip(Component.text("Open this home", MenuText.LABEL))
                     .width(150)
@@ -79,6 +88,8 @@ final class HomesDialogService {
                 }),
                 action("Rename", "Give it a different name.",
                         audience -> openRename(audience, home)),
+                action("Change Icon", "Pick the icon this home shows.",
+                        audience -> openIconPicker(audience, home, "", 1)),
                 action("Delete", "Remove this home for good.",
                         audience -> openDelete(audience, home), NamedTextColor.RED),
                 action("Back", "Return to your homes.", this::open)
@@ -146,6 +157,7 @@ final class HomesDialogService {
                                     audience.performCommand(
                                             "renamehome " + home + " " + name
                                     );
+                                    homeIcons.rename(audience.getUniqueId(), home, name);
                                 }))
                                 .build(),
                         ActionButton.builder(Component.text("Cancel", MenuText.LABEL))
@@ -167,14 +179,96 @@ final class HomesDialogService {
                 .type(DialogType.confirmation(
                         ActionButton.builder(Component.text("Delete", NamedTextColor.RED))
                                 .width(150)
-                                .action(callback((response, audience) ->
-                                        audience.performCommand("delhome " + home)))
+                                .action(callback((response, audience) -> {
+                                    audience.performCommand("delhome " + home);
+                                    homeIcons.forget(audience.getUniqueId(), home);
+                                }))
                                 .build(),
                         ActionButton.builder(Component.text("Keep it", MenuText.LABEL))
                                 .width(150)
                                 .action(callback((response, audience) -> openHome(audience, home)))
                                 .build()
                 )));
+        player.showDialog(dialog);
+    }
+
+    /**
+     * Browse every icon, with a search box.
+     *
+     * <p>Searching matches the readable label rather than the texture path, because
+     * "Grass Block" is what the button says and {@code block/grass_block_side} is not
+     * something a player should have to know.
+     */
+    private void openIconPicker(Player player, String home, String query, int page) {
+        List<String> matches = HomeIcons.search(query);
+        int pages = Math.max(1, (matches.size() + ICONS_PER_PAGE - 1) / ICONS_PER_PAGE);
+        int current = Math.clamp(page, 1, pages);
+        int first = (current - 1) * ICONS_PER_PAGE;
+        int last = Math.min(matches.size(), first + ICONS_PER_PAGE);
+
+        List<ActionButton> buttons = new ArrayList<>();
+        for (int index = first; index < last; index++) {
+            String sprite = matches.get(index);
+            buttons.add(ActionButton.builder(Component.empty()
+                            .append(MenuText.sprite(sprite))
+                            .append(Component.text(" " + HomeIcons.label(sprite),
+                                    NamedTextColor.WHITE)))
+                    .width(150)
+                    .action(callback((response, audience) -> {
+                        try {
+                            homeIcons.setIcon(audience.getUniqueId(), home, sprite);
+                        } catch (IllegalArgumentException | java.io.UncheckedIOException failure) {
+                            PlayerMenuService.error(audience, "That icon could not be saved.");
+                            return;
+                        }
+                        openHome(audience, home);
+                    }))
+                    .build());
+        }
+        if (current > 1) {
+            buttons.add(action("Previous", "Earlier icons.",
+                    audience -> openIconPicker(audience, home, query, current - 1)));
+        }
+        if (current < pages) {
+            buttons.add(action("Next", "More icons.",
+                    audience -> openIconPicker(audience, home, query, current + 1)));
+        }
+        if (!query.isBlank()) {
+            buttons.add(action("Clear search", "Show every icon.",
+                    audience -> openIconPicker(audience, home, "", 1)));
+        }
+        buttons.add(action("Back", "Return to " + home + ".",
+                audience -> openHome(audience, home)));
+
+        Dialog dialog = Dialog.create(builder -> builder.empty()
+                .base(DialogBase.builder(MenuText.title("Choose Icon"))
+                        .body(List.of(DialogBody.plainMessage(MenuText.body(
+                                matches.isEmpty()
+                                        ? "Nothing matches \"" + query + "\"."
+                                        : "Page " + current + " of " + pages
+                                                + ". Search, then click an icon."
+                        ), 400)))
+                        .inputs(List.of(DialogInput.text(SEARCH_INPUT,
+                                        Component.text("Search", MenuText.LABEL))
+                                .maxLength(32)
+                                .build()))
+                        .afterAction(DialogBase.DialogAfterAction.NONE)
+                        .pause(false)
+                        .canCloseWithEscape(true)
+                        .build())
+                .type(DialogType.multiAction(buttons)
+                        .columns(3)
+                        .exitAction(ActionButton.builder(
+                                        Component.text("Search", MenuText.VALUE))
+                                .width(150)
+                                .action(callback((response, audience) -> openIconPicker(
+                                        audience, home,
+                                        response.getText(SEARCH_INPUT) == null
+                                                ? "" : response.getText(SEARCH_INPUT),
+                                        1
+                                )))
+                                .build())
+                        .build()));
         player.showDialog(dialog);
     }
 
