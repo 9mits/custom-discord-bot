@@ -76,10 +76,6 @@ final class HomesDialogService {
                 .width(150)
                 .action(callback((response, audience) -> openNewHome(audience)))
                 .build());
-        buttons.add(ActionButton.builder(Component.text("Close", MenuText.LABEL))
-                .width(150)
-                .action(callback((response, audience) -> audience.closeDialog()))
-                .build());
         show(player, "Homes", homes.isEmpty()
                 ? "You have not set a home yet."
                 : "Click a home to open it.", buttons, 2);
@@ -373,15 +369,7 @@ final class HomesDialogService {
     private void show(
             Player player, String title, String body, List<ActionButton> buttons, int columns
     ) {
-        Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(MenuText.title(title))
-                        .body(List.of(DialogBody.plainMessage(MenuText.body(body), 400)))
-                        .afterAction(DialogBase.DialogAfterAction.NONE)
-                        .pause(false)
-                        .canCloseWithEscape(true)
-                        .build())
-                .type(DialogType.multiAction(buttons).columns(columns).build()));
-        player.showDialog(dialog);
+        Screens.show(player, title, Screens.body(body), buttons, columns, this::open);
     }
 
     /** Essentials home names are a command argument, so anything odd is refused here. */

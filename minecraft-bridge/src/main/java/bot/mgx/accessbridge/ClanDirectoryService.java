@@ -132,23 +132,11 @@ final class ClanDirectoryService {
     }
 
     private void show(Player viewer, List<DialogBody> body, List<ActionButton> buttons) {
-        List<ActionButton> shown = new ArrayList<>(buttons);
-        shown.add(ActionButton.builder(Component.text("Close", MenuText.LABEL))
-                .width(150)
-                .action(callback((response, audience) -> audience.closeDialog()))
-                .build());
-        Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(MenuText.title("Clans"))
-                        .body(body.isEmpty()
-                                ? List.of(DialogBody.plainMessage(
-                                        MenuText.body("Click a clan to open it."), 400))
-                                : body)
-                        .afterAction(DialogBase.DialogAfterAction.NONE)
-                        .pause(false)
-                        .canCloseWithEscape(true)
-                        .build())
-                .type(DialogType.multiAction(shown).columns(2).build()));
-        viewer.showDialog(dialog);
+        Screens.show(viewer, "Clans",
+                body.isEmpty()
+                        ? Screens.body("Click a clan to open it.")
+                        : body,
+                buttons, 2, null);
     }
 
     private DialogAction callback(BiConsumer<DialogResponseView, Player> callback) {

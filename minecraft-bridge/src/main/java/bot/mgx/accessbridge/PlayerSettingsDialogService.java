@@ -99,29 +99,9 @@ final class PlayerSettingsDialogService {
                     .action(callback((response, audience) -> openCategory(audience, category)))
                     .build());
         }
-        Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(Component.text("Settings", ORANGE, TextDecoration.BOLD))
-                        .body(List.of(DialogBody.plainMessage(Component.text(
-                                "Choose a category to change your Mysterious SMP X settings.",
-                                NamedTextColor.GRAY
-                        ), 400)))
-                        .afterAction(DialogBase.DialogAfterAction.NONE)
-                        // Not a blocking prompt: the screen stays up so a toggle
-                        // repaints in place instead of slamming shut on every click.
-                        // NONE is only legal on a dialog that does not pause.
-                        .pause(false)
-                        .canCloseWithEscape(true)
-                        .build())
-                .type(DialogType.multiAction(categories)
-                        .columns(2)
-                        .exitAction(ActionButton.create(
-                                Component.text("Close", NamedTextColor.GRAY),
-                                null,
-                                200,
-                                callback((response, audience) -> audience.closeDialog())
-                        ))
-                        .build()));
-        player.showDialog(dialog);
+        Screens.show(player, "Settings",
+                Screens.body("Choose a category to change your Mysterious SMP X settings."),
+                categories, 2, null);
     }
 
     /**
@@ -163,29 +143,9 @@ final class PlayerSettingsDialogService {
                     audience -> toggleDiscordName(audience)
             ));
         }
-        buttons.add(ActionButton.create(
-                Component.text("Back", NamedTextColor.GRAY),
-                Component.text("Return to all settings.", NamedTextColor.GRAY),
-                310,
-                callback((response, audience) -> open(audience))
-        ));
 
-        Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(Component.text("Settings - " + category.label(), ORANGE, TextDecoration.BOLD))
-                        .body(List.of(DialogBody.plainMessage(
-                                Component.text(category.description(), NamedTextColor.GRAY), 400
-                        )))
-                        .afterAction(DialogBase.DialogAfterAction.NONE)
-                        // Not a blocking prompt: the screen stays up so a toggle
-                        // repaints in place instead of slamming shut on every click.
-                        // NONE is only legal on a dialog that does not pause.
-                        .pause(false)
-                        .canCloseWithEscape(true)
-                        .build())
-                .type(DialogType.multiAction(buttons)
-                        .columns(1)
-                        .build()));
-        player.showDialog(dialog);
+        Screens.show(player, "Settings - " + category.label(),
+                Screens.body(category.description()), buttons, 1, this::open);
     }
 
     /** A button reading "Label: ON" in green or "Label: OFF" in red, as the value stands. */
