@@ -612,11 +612,11 @@ a { color: inherit; }
 @media (min-width: 1024px) {
   /* Clearance overhead for the part of her that leaves the card. */
   .community { padding-top: 7rem; }
-  .community-card { text-align: left; padding-right: 20rem; }
+  .community-card { text-align: left; padding: 3.5rem 22rem 3.5rem 4rem; }
   .community-card .community-links { justify-content: flex-start; }
   .community-mascot {
-    position: absolute; right: .25rem; bottom: 0; margin: 0;
-    width: min(19rem, 26vw);
+    position: absolute; right: 3rem; bottom: 0; margin: 0;
+    width: min(21rem, 28vw);
   }
 }
 .community-card h2 { margin: 0 0 .5rem; font-size: 2rem; font-weight: 700; color: var(--ink); }
@@ -1126,7 +1126,7 @@ def _community(prefix: str) -> str:
     return (
         '<section class="community"><div class="community-card">'
         '<img class="community-mascot" src="%sassets/urabe.png" alt="" aria-hidden="true"'
-        ' width="760" height="1015" decoding="async">'
+        ' width="760" height="821" decoding="async">'
         "<h2>Join our community!</h2>"
         "<p>Get the latest updates and more.</p>"
         '<div class="community-links">%s</div>'
