@@ -69,7 +69,7 @@ final class PlayerSettingsDialogService {
     }
 
     void openCosmeticSettings(Player player) {
-        openCategory(player, PlayerSettingsStore.Category.VISUALS);
+        openCategory(player, PlayerSettingsStore.Category.PARTICLES);
     }
 
     private void openCategory(Player player, PlayerSettingsStore.Category category) {
@@ -138,7 +138,7 @@ final class PlayerSettingsDialogService {
                     audience -> toggle(audience, category, setting)
             ));
         }
-        if (category == PlayerSettingsStore.Category.VISUALS) {
+        if (category == PlayerSettingsStore.Category.AUDIO) {
             int volume = store.musicVolume(player.getUniqueId());
             buttons.add(ActionButton.builder(Component.text(
                             "Synced Music Volume: " + volume + "%",
@@ -243,7 +243,7 @@ final class PlayerSettingsDialogService {
                     + exception.getMessage());
             PlayerMenuService.error(player, "That volume could not be saved. Please try again.");
         }
-        openCategory(player, PlayerSettingsStore.Category.VISUALS);
+        openCategory(player, PlayerSettingsStore.Category.AUDIO);
     }
 
     private DialogAction callback(BiConsumer<DialogResponseView, Player> callback) {

@@ -77,6 +77,8 @@ class PlayerSettingsStoreTest {
                 PlayerSettingsStore.Category.NOTIFICATIONS,
                 PlayerSettingsStore.Category.PVP,
                 PlayerSettingsStore.Category.VISUALS,
+                PlayerSettingsStore.Category.PARTICLES,
+                PlayerSettingsStore.Category.AUDIO,
                 PlayerSettingsStore.Category.PRIVACY,
                 PlayerSettingsStore.Category.HUD,
                 PlayerSettingsStore.Category.SCOREBOARD,
