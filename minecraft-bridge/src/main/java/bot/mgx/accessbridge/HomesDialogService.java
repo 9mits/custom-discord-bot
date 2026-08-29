@@ -237,6 +237,19 @@ final class HomesDialogService {
             buttons.add(action("Clear search", "Show every icon.",
                     audience -> openIconPicker(audience, home, "", 1)));
         }
+        // Search is an ordinary button. It used to be the dialog's exitAction, which is
+        // what escape triggers — so escape ran a search instead of closing, and the
+        // search itself only fired when the player was trying to leave.
+        buttons.add(ActionButton.builder(Component.text("Search", MenuText.VALUE))
+                .tooltip(Component.text("Filter by what the button says.", MenuText.LABEL))
+                .width(150)
+                .action(callback((response, audience) -> openIconPicker(
+                        audience, home,
+                        response.getText(SEARCH_INPUT) == null
+                                ? "" : response.getText(SEARCH_INPUT),
+                        1
+                )))
+                .build());
         buttons.add(action("Back", "Return to " + home + ".",
                 audience -> openHome(audience, home)));
 
@@ -259,14 +272,9 @@ final class HomesDialogService {
                 .type(DialogType.multiAction(buttons)
                         .columns(3)
                         .exitAction(ActionButton.builder(
-                                        Component.text("Search", MenuText.VALUE))
+                                        Component.text("Close", MenuText.LABEL))
                                 .width(150)
-                                .action(callback((response, audience) -> openIconPicker(
-                                        audience, home,
-                                        response.getText(SEARCH_INPUT) == null
-                                                ? "" : response.getText(SEARCH_INPUT),
-                                        1
-                                )))
+                                .action(callback((response, audience) -> audience.closeDialog()))
                                 .build())
                         .build()));
         player.showDialog(dialog);
