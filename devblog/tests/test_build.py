@@ -285,6 +285,19 @@ class ThemeTests(unittest.TestCase):
         self.assertNotIn("overflow: hidden", theme.STYLESHEET.split("community band")[1]
                          .split("/* =====")[0])
 
+    def test_the_mascot_asset_is_trimmed_to_the_figure(self):
+        """Transparent padding in the file reads as bad spacing on the page.
+
+        She is positioned by her bottom edge, so a band of invisible pixels under
+        her feet lifts her off the card and there is no CSS fix for it.
+        """
+        from struct import unpack
+
+        png = (Path(__file__).resolve().parents[1] / "static" / "urabe.png").read_bytes()
+        width, height = unpack(">II", png[16:24])
+        markup = theme._community("")
+        self.assertIn('width="%d" height="%d"' % (width, height), markup)
+
     def test_the_mascot_is_addressed_relative_to_the_page_that_shows_her(self):
         self.assertIn('src="../assets/urabe.png"', theme._community("../"))
 
