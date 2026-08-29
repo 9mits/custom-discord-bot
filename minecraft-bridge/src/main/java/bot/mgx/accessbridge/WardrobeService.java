@@ -489,6 +489,8 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
             case PLAYTIME -> "Playtime";
             case BLOCKS_MINED -> "Blocks mined";
             case BLOCKS_WALKED -> "Blocks walked";
+            case AMETHYST_CRATES -> "Amethyst crates opened";
+            case AMETHYST_AIRDROPS -> "Amethyst airdrops opened";
         };
     }
 

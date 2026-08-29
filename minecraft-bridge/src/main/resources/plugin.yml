@@ -2,7 +2,7 @@ name: MGXAccessBridge
 version: ${version}
 main: bot.mgx.accessbridge.MGXAccessBridge
 api-version: "1.21.11"
-description: Signed access, economy, crates, cosmetics, scoreboard, and clans.
+description: Signed access, economy, airdrops, crates, cosmetics, scoreboard, and clans.
 authors: [9mits]
 depend: [floodgate]
 softdepend: [LuckPerms, ViaVersion, Essentials]
@@ -61,7 +61,7 @@ commands:
     usage: /whitelisted [page]
     aliases: [whitelistlist]
   leaderboard:
-    description: Open the richest and most-kills boards.
+    description: Open player, clan, and Amethyst Event leaderboards.
     usage: /leaderboard
     aliases: [lb, boards]
     permission: mgx.leaderboard

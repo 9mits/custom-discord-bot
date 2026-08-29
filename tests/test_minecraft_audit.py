@@ -428,6 +428,10 @@ class ServerEventClassificationTests(unittest.TestCase):
         self.assertEqual(server_event_title("shop_buy"), "Minecraft Shop Purchase")
         self.assertEqual(server_event_title("shop_sell"), "Minecraft Items Sold")
         self.assertEqual(server_event_title("crate_key_grant"), "Minecraft Crate Keys Issued")
+        self.assertEqual(
+            server_event_title("airdrop_open"),
+            "Minecraft Amethyst Airdrop Opened",
+        )
         self.assertEqual(server_event_title("lootbox_key_grant"), "Minecraft Crate Keys Issued")
         self.assertEqual(
             server_event_title("crate_rare_win"),

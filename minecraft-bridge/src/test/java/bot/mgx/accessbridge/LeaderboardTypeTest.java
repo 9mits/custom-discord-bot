@@ -36,21 +36,29 @@ class LeaderboardTypeTest {
         assertTrue(LeaderboardType.WEALTH.clanEligible());
         assertTrue(LeaderboardType.KILLS.clanEligible());
         assertTrue(LeaderboardType.PLAYTIME.clanEligible());
+        assertFalse(LeaderboardType.AMETHYST_CRATES.clanEligible());
+        assertFalse(LeaderboardType.AMETHYST_AIRDROPS.clanEligible());
         assertTrue(LeaderboardType.WEALTH.published());
         assertTrue(LeaderboardType.KILLS.published());
+        assertTrue(LeaderboardType.AMETHYST_CRATES.published());
+        assertTrue(LeaderboardType.AMETHYST_AIRDROPS.published());
         assertFalse(LeaderboardType.PLAYTIME.published());
         assertFalse(LeaderboardType.BLOCKS_MINED.published());
     }
 
     @Test
     void statsReportTheValueForEachType() {
-        PlayerStats stats = new PlayerStats(UUID.randomUUID(), "mits", 7, 2, 72_000, 500, 12_345, 999);
+        PlayerStats stats = new PlayerStats(
+                UUID.randomUUID(), "mits", 7, 2, 72_000, 500, 12_345, 999, 14, 3
+        );
 
         assertEquals(7, stats.value(LeaderboardType.KILLS));
         assertEquals(999, stats.value(LeaderboardType.WEALTH));
         assertEquals(72_000, stats.value(LeaderboardType.PLAYTIME));
         assertEquals(500, stats.value(LeaderboardType.BLOCKS_MINED));
         assertEquals(12_345, stats.value(LeaderboardType.BLOCKS_WALKED));
+        assertEquals(14, stats.value(LeaderboardType.AMETHYST_CRATES));
+        assertEquals(3, stats.value(LeaderboardType.AMETHYST_AIRDROPS));
     }
 
     @Test

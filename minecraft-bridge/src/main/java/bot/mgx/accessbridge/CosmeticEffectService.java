@@ -1093,6 +1093,7 @@ final class CosmeticEffectService implements Listener {
             case "celestial_crown" -> drawCelestialCrown(owner, centre, phase, step);
             case "amethyst_ascension" -> drawAmethystAscension(owner, centre, phase, step);
             case "geode_cathedral" -> drawGeodeCathedral(owner, centre, phase, step);
+            case "airdrop_apotheosis" -> drawAirdropApotheosis(owner, centre, phase, step);
             default -> { }
         }
     }
@@ -1372,6 +1373,62 @@ final class CosmeticEffectService implements Listener {
                     PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
             sound(owner, centre, Sound.BLOCK_AMETHYST_BLOCK_CHIME, 0.45f,
                     0.8f + (step / 20) * 0.18f, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+    }
+
+    /** A suspended drop-crystal locks into a broken halo and projects its own beacon. */
+    private void drawAirdropApotheosis(
+            Player owner, Location centre, double phase, int step
+    ) {
+        Color royal = Color.fromRGB(126, 36, 215);
+        Color amethyst = Color.fromRGB(208, 132, 255);
+        Color beacon = Color.fromRGB(224, 235, 255);
+        double arrive = CosmeticAnimation.easeOutBack(
+                CosmeticAnimation.phaseProgress(step, 0, 22)
+        );
+        Location crystal = centre.clone().add(0d, 0.42d + arrive * 0.35d, 0d);
+        drawVerticalGem(owner, crystal, horizontalSide(owner), 0.48d * arrive,
+                -phase * 0.42d, royal, amethyst);
+
+        for (int halo = 0; halo < 2; halo++) {
+            double radius = (0.7d + halo * 0.38d) * arrive;
+            for (int point = 0; point < 16; point++) {
+                if ((point + halo * 3) % 7 == 0) {
+                    continue;
+                }
+                double angle = phase * (halo == 0 ? 0.7d : -0.48d)
+                        + point * Math.PI / 8d;
+                Location at = crystal.clone().add(
+                        Math.cos(angle) * radius,
+                        (halo == 0 ? -0.22d : 0.28d) + Math.sin(angle * 2d) * 0.08d,
+                        Math.sin(angle) * radius
+                );
+                dust(owner, at, point % 3 == 0 ? beacon : amethyst,
+                        point % 3 == 0 ? 0.9f : 0.72f,
+                        PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            }
+        }
+
+        double beam = CosmeticAnimation.smooth(
+                CosmeticAnimation.phaseProgress(step, 18, 44)
+        );
+        Location beamBottom = centre.clone().add(0d, -0.95d, 0d);
+        Location beamTop = crystal.clone().add(0d, 1.35d * beam, 0d);
+        drawLine(owner, beamBottom, beamTop, 9, beacon, 0.72f,
+                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        if (step >= 48) {
+            double pulse = CosmeticAnimation.smooth(
+                    CosmeticAnimation.phaseProgress(step, 48, 79)
+            );
+            drawRing(owner, beamBottom, 0.25d + pulse * 1.55d, 18,
+                    phase, royal, 0.82f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+        if (step == 22 || step == 48) {
+            sound(owner, centre, step == 22
+                            ? Sound.BLOCK_BEACON_ACTIVATE : Sound.BLOCK_AMETHYST_BLOCK_RESONATE,
+                    0.55f, step == 22 ? 1.5f : 0.92f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
         }
     }
 
@@ -1688,6 +1745,7 @@ final class CosmeticEffectService implements Listener {
             case "prismatic_trail" -> drawPrismaticTrail(owner, history);
             case "shardstorm_wake" -> drawShardstormWake(owner, history);
             case "geode_bloom" -> drawGeodeBloom(owner, history);
+            case "crystalfall_wake" -> drawCrystalfallWake(owner, history);
             default -> { }
         }
     }
@@ -1733,6 +1791,38 @@ final class CosmeticEffectService implements Listener {
                         .add(0d, Math.sin(angle) * open * 0.32d + open * 0.2d, 0d);
                 drawLine(owner, centre, point, 3, tip, 0.7f,
                         PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+            }
+        }
+    }
+
+    /** Falling amethyst comets strike the travelled path and split into tiny shards. */
+    private void drawCrystalfallWake(Player owner, List<Location> history) {
+        Vector side = trailSide(history);
+        Color deep = Color.fromRGB(118, 38, 205);
+        Color bright = Color.fromRGB(228, 180, 255);
+        for (int comet = 0; comet < 3; comet++) {
+            int index = CosmeticAnimation.trailIndex(frame / 2L, history.size(), comet * 5);
+            double fall = (frame * 0.13d + comet * 0.37d) % 1d;
+            Location impact = trailPoint(history, index, 0.12d)
+                    .add(side.clone().multiply((comet - 1d) * 0.32d));
+            Location head = impact.clone().add(0d, 1.45d * (1d - fall), 0d);
+            Location tail = head.clone().add(side.clone().multiply(0.22d * (comet - 1d)))
+                    .add(0d, 0.55d, 0d);
+            drawLine(owner, head, tail, 5, comet == 1 ? bright : deep, 0.82f,
+                    PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+            spawnMoving(owner, head, Particle.END_ROD, new Vector(0d, -0.07d, 0d), null,
+                    PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+            if (fall > 0.82d) {
+                for (int shard = 0; shard < 5; shard++) {
+                    double angle = shard * Math.PI * 2d / 5d + frame * 0.16d;
+                    Location at = impact.clone().add(
+                            Math.cos(angle) * (fall - 0.8d) * 2.6d,
+                            (fall - 0.8d) * (shard % 2 == 0 ? 1.1d : 0.55d),
+                            Math.sin(angle) * (fall - 0.8d) * 2.6d
+                    );
+                    dust(owner, at, shard % 2 == 0 ? bright : deep, 0.7f,
+                            PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE);
+                }
             }
         }
     }
@@ -1953,6 +2043,7 @@ final class CosmeticEffectService implements Listener {
             case "soul_requiem" -> animateSoulKill(owner, centre);
             case "crystal_guillotine" -> animateCrystalGuillotine(owner, centre);
             case "violet_detonation" -> animateVioletDetonation(owner, centre);
+            case "resonant_shatter" -> animateResonantShatter(owner, centre);
             default -> { }
         }
     }
@@ -2061,6 +2152,7 @@ final class CosmeticEffectService implements Listener {
             case "soul_requiem" -> new KillAccent(Color.fromRGB(30, 210, 225), 20, 29);
             case "crystal_guillotine" -> new KillAccent(Color.fromRGB(205, 135, 255), 18, 34);
             case "violet_detonation" -> new KillAccent(Color.fromRGB(160, 45, 255), 16, 36);
+            case "resonant_shatter" -> new KillAccent(Color.fromRGB(196, 112, 255), 17, 38);
             case "reapers_verdict" -> new KillAccent(Color.fromRGB(185, 235, 245), 18, 35);
             case "divine_rupture" -> new KillAccent(Color.fromRGB(255, 215, 70), 20, 38);
             case "crystalline_extinction" ->
@@ -2134,6 +2226,61 @@ final class CosmeticEffectService implements Listener {
                         PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
                 sound(owner, centre, Sound.ENTITY_GENERIC_EXPLODE, 1.2f,
                         0.55f + (step - 16) * 0.035f,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            }
+        });
+    }
+
+    /** A faceted meteor falls, resonates on impact, and erupts into two shard waves. */
+    private void animateResonantShatter(Player owner, Location centre) {
+        Color violet = Color.fromRGB(136, 40, 224);
+        Color crystal = Color.fromRGB(232, 196, 255);
+        Color resonance = Color.fromRGB(132, 226, 255);
+        animate(owner, centre, 38, 2L, step -> {
+            if (step <= 17) {
+                double fall = CosmeticAnimation.smooth(step / 17d);
+                Location meteor = centre.clone().add(
+                        Math.sin(step * 0.35d) * (1d - fall) * 0.65d,
+                        4.6d - fall * 4.45d,
+                        Math.cos(step * 0.31d) * (1d - fall) * 0.65d
+                );
+                Location tail = meteor.clone().add(0d, 1.05d, 0d);
+                drawLine(owner, meteor, tail, 7, step % 2 == 0 ? crystal : violet, 1.08f,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                spawnMoving(owner, meteor, Particle.END_ROD, new Vector(0d, -0.11d, 0d), null,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                if (step == 17) {
+                    spawn(owner, centre, Particle.SONIC_BOOM, 1,
+                            0d, 0d, 0d, 0d, null,
+                            PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                    sound(owner, centre, Sound.BLOCK_AMETHYST_CLUSTER_BREAK, 1.5f, 0.58f,
+                            PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+                }
+                return;
+            }
+            double blast = CosmeticAnimation.easeOutBack((step - 17d) / 20d);
+            drawRing(owner, centre.clone().add(0d, -0.42d, 0d),
+                    0.25d + blast * 3.7d, 26, step * 0.32d,
+                    step % 3 == 0 ? resonance : violet, 1.05f,
+                    PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            drawRing(owner, centre.clone().add(0d, 0.34d, 0d),
+                    0.18d + blast * 2.45d, 18, -step * 0.44d,
+                    crystal, 0.82f,
+                    PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            for (int shard = 0; shard < 10; shard++) {
+                double angle = shard * Math.PI / 5d + step * 0.08d;
+                Location from = centre.clone().add(0d, 0.1d, 0d);
+                Location to = from.clone().add(
+                        Math.cos(angle) * blast * 2.9d,
+                        ((shard % 3) - 0.4d) * blast * 0.65d,
+                        Math.sin(angle) * blast * 2.9d
+                );
+                drawLine(owner, from, to, 4,
+                        shard % 2 == 0 ? crystal : violet, 0.76f,
+                        PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
+            }
+            if (step == 27) {
+                sound(owner, centre, Sound.BLOCK_AMETHYST_BLOCK_RESONATE, 1.1f, 1.45f,
                         PlayerSettingsStore.Setting.OWN_KILL_EFFECTS_VISIBLE);
             }
         });

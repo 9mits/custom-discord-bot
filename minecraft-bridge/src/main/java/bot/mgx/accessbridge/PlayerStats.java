@@ -5,8 +5,8 @@ import java.util.UUID;
 /**
  * One player's leaderboard figures.
  *
- * <p>Everything except {@link #wealth} comes from the vanilla statistics file the
- * server already writes. Wealth is the player's wallet, not what they are carrying.
+ * <p>Combat and movement come from vanilla statistics, wealth is the player's
+ * wallet, and the two Amethyst Event figures come from the plugin's progress store.
  */
 record PlayerStats(
         UUID minecraftUuid,
@@ -16,10 +16,28 @@ record PlayerStats(
         long playTimeTicks,
         long blocksMined,
         long walkedCm,
-        long wealth
+        long wealth,
+        long amethystCratesOpened,
+        long amethystAirdropsOpened
 ) {
+    PlayerStats(
+            UUID minecraftUuid,
+            String username,
+            long kills,
+            long deaths,
+            long playTimeTicks,
+            long blocksMined,
+            long walkedCm,
+            long wealth
+    ) {
+        this(
+                minecraftUuid, username, kills, deaths, playTimeTicks,
+                blocksMined, walkedCm, wealth, 0L, 0L
+        );
+    }
+
     static PlayerStats empty(UUID minecraftUuid, String username) {
-        return new PlayerStats(minecraftUuid, username, 0, 0, 0, 0, 0, 0);
+        return new PlayerStats(minecraftUuid, username, 0, 0, 0, 0, 0, 0, 0, 0);
     }
 
     PlayerStats withWealth(long updatedWealth) {
@@ -31,7 +49,9 @@ record PlayerStats(
                 playTimeTicks,
                 blocksMined,
                 walkedCm,
-                Math.max(0, updatedWealth)
+                Math.max(0, updatedWealth),
+                amethystCratesOpened,
+                amethystAirdropsOpened
         );
     }
 
@@ -44,7 +64,24 @@ record PlayerStats(
                 playTimeTicks,
                 blocksMined,
                 walkedCm,
-                wealth
+                wealth,
+                amethystCratesOpened,
+                amethystAirdropsOpened
+        );
+    }
+
+    PlayerStats withAmethystProgress(AmethystProgressStore.Counts progress) {
+        return new PlayerStats(
+                minecraftUuid,
+                username,
+                kills,
+                deaths,
+                playTimeTicks,
+                blocksMined,
+                walkedCm,
+                wealth,
+                progress.cratesOpened(),
+                progress.airdropsOpened()
         );
     }
 
@@ -55,6 +92,8 @@ record PlayerStats(
             case PLAYTIME -> playTimeTicks;
             case BLOCKS_MINED -> blocksMined;
             case BLOCKS_WALKED -> walkedCm;
+            case AMETHYST_CRATES -> amethystCratesOpened;
+            case AMETHYST_AIRDROPS -> amethystAirdropsOpened;
         };
     }
 }

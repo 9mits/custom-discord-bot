@@ -200,6 +200,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private final PlayerPerkService perks;
     private final SpecialItemService specialItems;
     private final CrateFilterStore filters;
+    private final AmethystProgressStore amethystProgress;
     private final Map<UUID, RollSession> sessions = new HashMap<>();
     /** Players part way through an auto run, and how many crates are still owed. */
     private final Map<UUID, Integer> autoRuns = new HashMap<>();
@@ -231,7 +232,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             PlayerSettingsStore settings,
             PlayerPerkService perks,
             SpecialItemService specialItems,
-            CrateFilterStore filters
+            CrateFilterStore filters,
+            AmethystProgressStore amethystProgress
     ) {
         this.plugin = plugin;
         this.store = store;
@@ -243,6 +245,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         this.perks = perks;
         this.specialItems = specialItems;
         this.filters = filters;
+        this.amethystProgress = amethystProgress;
     }
 
     @Override
@@ -1051,6 +1054,14 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private void recordWin(
             Player player, CrateStore.Pending pending, CrateCatalog.Reward reward
     ) {
+        if (CrateCatalog.isAmethyst(reward)) {
+            try {
+                amethystProgress.recordCratesOpened(player.getUniqueId(), 1);
+            } catch (UncheckedIOException exception) {
+                plugin.getLogger().warning("Could not record Amethyst Crate opening for "
+                        + player.getUniqueId() + ": " + exception.getMessage());
+            }
+        }
         auditWin(player, pending, reward);
         if (reward.revealTier() != CrateCatalog.RevealTier.NONE) {
             announceTieredWin(player, reward);

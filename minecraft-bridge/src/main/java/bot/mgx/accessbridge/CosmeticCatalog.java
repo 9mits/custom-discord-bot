@@ -181,6 +181,7 @@ final class CosmeticCatalog {
          */
         boolean nameplateWorthy() {
             return category == Category.AURA
+                    && !CosmeticCatalog.isAmethystAirdrop(id)
                     && (hiddenAmethystJackpot() || secret || rarityDisplay().equals("Mythic"));
         }
 
@@ -224,6 +225,9 @@ final class CosmeticCatalog {
             Map.entry("crystalline_extinction", OddsFamily.AMETHYST),
             Map.entry("resonant_apotheosis", OddsFamily.AMETHYST),
             Map.entry("shattered_continuum", OddsFamily.AMETHYST),
+            Map.entry("resonant_shatter", OddsFamily.AMETHYST),
+            Map.entry("crystalfall_wake", OddsFamily.AMETHYST),
+            Map.entry("airdrop_apotheosis", OddsFamily.AMETHYST),
             Map.entry(HIDDEN_AMETHYST_COSMETIC_ID, OddsFamily.GENUINE)
     );
 
@@ -400,10 +404,34 @@ final class CosmeticCatalog {
             )
     );
 
+    /** Amethyst Airdrop cosmetics. Their actual drop chance is intentionally private. */
+    private static final List<Definition> AMETHYST_AIRDROP_REWARDS = List.of(
+            cosmetic(
+                    "resonant_shatter", "Resonant Shatter", Category.KILL_EFFECT, 25,
+                    "AMETHYST_CLUSTER",
+                    "A crystal meteor splits the final blow into a violent resonant shockwave."
+            ),
+            cosmetic(
+                    "crystalfall_wake", "Crystalfall Wake", Category.TRAIL, 25,
+                    "AMETHYST_SHARD",
+                    "Falling amethyst comets fracture into bright shards behind every step."
+            ),
+            cosmetic(
+                    "airdrop_apotheosis", "Airdrop Apotheosis", Category.AURA, 25,
+                    "BUDDING_AMETHYST",
+                    "A beacon crown suspends a royal drop-crystal inside broken violet halos."
+            )
+    );
+
     static boolean isLimitedAmethyst(String cosmeticId) {
         return cosmeticId != null && java.util.stream.Stream.concat(
                         AMETHYST_REWARDS.stream(), HIDDEN_AMETHYST_REWARDS.stream()
                 )
+                .anyMatch(definition -> definition.id().equalsIgnoreCase(cosmeticId));
+    }
+
+    static boolean isAmethystAirdrop(String cosmeticId) {
+        return cosmeticId != null && AMETHYST_AIRDROP_REWARDS.stream()
                 .anyMatch(definition -> definition.id().equalsIgnoreCase(cosmeticId));
     }
     private static final List<Definition> LEADERBOARD_REWARDS = List.of(
@@ -491,11 +519,16 @@ final class CosmeticCatalog {
         return HIDDEN_AMETHYST_REWARDS;
     }
 
+    static List<Definition> amethystAirdropRewards() {
+        return AMETHYST_AIRDROP_REWARDS;
+    }
+
     /** Crate and leaderboard entries whose item models must ship in the resource pack. */
     static List<Definition> visualEntries() {
         return java.util.stream.Stream.of(
                         DEFINITIONS.stream(), AMETHYST_REWARDS.stream(),
-                        HIDDEN_AMETHYST_REWARDS.stream(), LEADERBOARD_REWARDS.stream()
+                        HIDDEN_AMETHYST_REWARDS.stream(), AMETHYST_AIRDROP_REWARDS.stream(),
+                        LEADERBOARD_REWARDS.stream()
                 )
                 .flatMap(stream -> stream)
                 .toList();

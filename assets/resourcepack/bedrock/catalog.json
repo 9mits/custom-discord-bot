@@ -53,6 +53,9 @@
     {"java_item": "minecraft:crying_obsidian", "model": "mgx:cosmetic/crystalline_extinction", "bedrock_identifier": "mgx:cosmetic_crystalline_extinction", "display_name": "Crystalline Extinction"},
     {"java_item": "minecraft:amethyst_cluster", "model": "mgx:cosmetic/resonant_apotheosis", "bedrock_identifier": "mgx:cosmetic_resonant_apotheosis", "display_name": "Resonant Apotheosis"},
     {"java_item": "minecraft:echo_shard", "model": "mgx:cosmetic/shattered_continuum", "bedrock_identifier": "mgx:cosmetic_shattered_continuum", "display_name": "Shattered Continuum"},
-    {"java_item": "minecraft:amethyst_cluster", "model": "mgx:cosmetic/iridescent_imperium", "bedrock_identifier": "mgx:cosmetic_iridescent_imperium", "display_name": "Iridescent Imperium"}
+    {"java_item": "minecraft:amethyst_cluster", "model": "mgx:cosmetic/iridescent_imperium", "bedrock_identifier": "mgx:cosmetic_iridescent_imperium", "display_name": "Iridescent Imperium"},
+    {"java_item": "minecraft:amethyst_cluster", "model": "mgx:cosmetic/resonant_shatter", "bedrock_identifier": "mgx:cosmetic_resonant_shatter", "display_name": "Resonant Shatter"},
+    {"java_item": "minecraft:amethyst_shard", "model": "mgx:cosmetic/crystalfall_wake", "bedrock_identifier": "mgx:cosmetic_crystalfall_wake", "display_name": "Crystalfall Wake"},
+    {"java_item": "minecraft:budding_amethyst", "model": "mgx:cosmetic/airdrop_apotheosis", "bedrock_identifier": "mgx:cosmetic_airdrop_apotheosis", "display_name": "Airdrop Apotheosis"}
   ]
 }

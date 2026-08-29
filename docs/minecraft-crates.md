@@ -102,6 +102,38 @@ eligible block drops from ores, Ancient Debris, crops, leaves, and the other blo
 affected by vanilla Fortune. Excavation I is pickaxe-only and breaks the matching
 3x3 mining face. The extended vanilla books are applied through an anvil.
 
+## Amethyst Airdrops
+
+While the Amethyst Event is active, one Airdrop is scheduled after a fresh random
+delay between 30 and 90 minutes. It chooses either the Overworld or Nether, stays
+inside that world's configured border, loads a safe natural site, and constructs a
+temporary amethyst altar around a chest. The spawn announcement and 20-second boss
+bar both show the exact rarity, world, and block coordinates.
+
+Common, Rare, Legendary, and Mythic Airdrops use progressively stronger private
+loot tables. Every chest includes roughly one to four stacks of Mysterious Crate
+Keys plus randomized rare materials scattered through random chest slots. The
+rarity weights and individual loot chances are intentionally never sent to players,
+shown in an inventory, or included in player-facing announcements.
+
+The altar has rotating purple rings and a tall beacon-like particle column. It is
+protected from block edits, fluids, pistons, explosions, and hopper extraction.
+The first player to open the chest receives one **Amethyst Airdrop Opened** credit.
+When the chest is emptied—or 30 minutes passes—the chest, altar, effects, chunk
+tickets, and announcement state are removed and the original terrain is restored.
+
+Rare Airdrops have a small opportunity to contain an event cosmetic; Legendary and
+Mythic Airdrops are the primary source. The three equally selected possibilities are
+the **Resonant Shatter** Kill Cosmetic, **Crystalfall Wake** Trail Cosmetic, and
+**Airdrop Apotheosis** Aura Cosmetic. Claiming one stores it directly in `/wardrobe`,
+where its source reads `Part of the limited-time Amethyst Airdrop`; no odds line or
+floating odds tag is exposed.
+
+`/leaderboard` has separate player boards for **Most Amethyst Crates Opened** and
+**Most Amethyst Airdrops Opened**. Crate credit is recorded only after a reward is
+successfully delivered or deliberately Auto Trashed, so reconnect recovery cannot
+double-count an opening.
+
 ## Wardrobe and physical ownership
 
 `/wardrobe` separates Kill Effects, Auras, and Trails. A won secret appears inside
