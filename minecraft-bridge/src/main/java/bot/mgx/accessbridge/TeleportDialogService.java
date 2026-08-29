@@ -122,7 +122,10 @@ final class TeleportDialogService implements CommandExecutor {
             ));
             menu.option(index, target.getName());
         }
-        inventory.setItem(MENU_SIZE - 1, MenuItems.button(Material.BARRIER, "Close"));
+        // The chest fallback is reached from the chest main menu, so it goes Back
+        // there for the same reason the dialog does.
+        inventory.setItem(MENU_SIZE - 1, MenuItems.button(
+                Material.BARRIER, "Back", "Return to the main menu."));
         MenuItems.show(plugin, viewer, inventory);
     }
 

@@ -357,6 +357,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("settings").setTabCompleter(settingsService);
         SettingsClientSupport clientSupport = new SettingsClientSupport();
         MainMenuService mainMenu = new MainMenuService(this, clientSupport);
+        // Home for every Back that has no closer origin, which is what keeps Close off
+        // every screen but this one.
+        Screens.installHome(mainMenu::open);
         getCommand("menu").setExecutor(mainMenu);
         getServer().getPluginManager().registerEvents(mainMenu, this);
         installQuickMenuDatapack();

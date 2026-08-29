@@ -89,9 +89,10 @@ final class MainMenuService implements CommandExecutor, Listener {
                     ))
                     .build());
         }
-        // The launcher is the first screen, so it Closes rather than going Back.
-        Screens.showAndClose(player, "Mysterious SMP X",
-                Screens.body("Choose where to go."), buttons, 2, null);
+        // The launcher is the only screen with nothing behind it, so it is the only
+        // one that Closes; every screen it opens goes Back to here.
+        Screens.showHome(player, "Mysterious SMP X",
+                Screens.body("Choose where to go."), buttons, 2);
     }
 
     private void openChestMenu(org.bukkit.entity.Player player) {
@@ -126,10 +127,15 @@ final class MainMenuService implements CommandExecutor, Listener {
             return;
         }
         if (kind == Menu.Kind.TELEPORT_PLAYERS) {
+            // Anything that is not a head is the Back tile, and Back here is home.
             menu.option(event.getSlot()).ifPresentOrElse(
                     name -> runLater(player, "tpa " + name),
-                    () -> plugin.getServer().getScheduler()
-                            .runTask(plugin, (Runnable) player::closeInventory)
+                    () -> plugin.getServer().getScheduler().runTask(plugin, () -> {
+                        if (player.isOnline()) {
+                            player.closeInventory();
+                            open(player);
+                        }
+                    })
             );
             return;
         }

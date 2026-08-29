@@ -76,9 +76,11 @@ final class HomesDialogService {
                 .width(150)
                 .action(callback((response, audience) -> openNewHome(audience)))
                 .build());
+        // The list itself is entered from the menu or from /homes, so its Back is home
+        // rather than a button that reopens the screen the player is looking at.
         show(player, "Homes", homes.isEmpty()
                 ? "You have not set a home yet."
-                : "Click a home to open it.", buttons, 2);
+                : "Click a home to open it.", buttons, 2, null);
     }
 
     /** Bedrock reaches the same actions; only the frame around them differs. */
@@ -124,9 +126,8 @@ final class HomesDialogService {
                                 "This cannot be undone.", "Delete", "Keep it", () -> {
                                     player.performCommand("delhome " + home);
                                     homeIcons.forget(player.getUniqueId(), home);
-                                })),
-                new BedrockForms.Button("Back", () -> open(player))
-        ));
+                                }))
+        ), this::open);
     }
 
     /**
@@ -146,7 +147,8 @@ final class HomesDialogService {
                 bedrockHome(player, home);
             }));
         }
-        forms.menu(player, "Choose Icon", "Pick an icon for " + home + ".", buttons);
+        forms.menu(player, "Choose Icon", "Pick an icon for " + home + ".", buttons,
+                viewer -> bedrockHome(viewer, home));
     }
 
     private void openHome(Player player, String home) {
@@ -160,10 +162,9 @@ final class HomesDialogService {
                 action("Change Icon", "Pick the icon this home shows.",
                         audience -> openIconPicker(audience, home, "", 1)),
                 action("Delete", "Remove this home for good.",
-                        audience -> openDelete(audience, home), NamedTextColor.RED),
-                action("Back", "Return to your homes.", this::open)
+                        audience -> openDelete(audience, home), NamedTextColor.RED)
         );
-        show(player, home, "What would you like to do?", new ArrayList<>(buttons), 2);
+        show(player, home, "What would you like to do?", new ArrayList<>(buttons), 2, this::open);
     }
 
     private void openNewHome(Player player) {
@@ -319,34 +320,16 @@ final class HomesDialogService {
                         1
                 )))
                 .build());
-        buttons.add(action("Back", "Return to " + home + ".",
-                audience -> openHome(audience, home)));
-
-        Dialog dialog = Dialog.create(builder -> builder.empty()
-                .base(DialogBase.builder(MenuText.title("Choose Icon"))
-                        .body(List.of(DialogBody.plainMessage(MenuText.body(
-                                matches.isEmpty()
-                                        ? "Nothing matches \"" + query + "\"."
-                                        : "Page " + current + " of " + pages
-                                                + ". Search, then click an icon."
-                        ), 400)))
-                        .inputs(List.of(DialogInput.text(SEARCH_INPUT,
-                                        Component.text("Search", MenuText.LABEL))
-                                .maxLength(32)
-                                .build()))
-                        .afterAction(DialogBase.DialogAfterAction.NONE)
-                        .pause(false)
-                        .canCloseWithEscape(true)
-                        .build())
-                .type(DialogType.multiAction(buttons)
-                        .columns(3)
-                        .exitAction(ActionButton.builder(
-                                        Component.text("Close", MenuText.LABEL))
-                                .width(150)
-                                .action(callback((response, audience) -> audience.closeDialog()))
-                                .build())
-                        .build()));
-        player.showDialog(dialog);
+        Screens.show(player, "Choose Icon",
+                Screens.body(matches.isEmpty()
+                        ? "Nothing matches \"" + query + "\"."
+                        : "Page " + current + " of " + pages
+                                + ". Search, then click an icon."),
+                List.of(DialogInput.text(SEARCH_INPUT,
+                                Component.text("Search", MenuText.LABEL))
+                        .maxLength(32)
+                        .build()),
+                buttons, 3, audience -> openHome(audience, home));
     }
 
     private ActionButton action(String label, String tooltip, java.util.function.Consumer<Player> run) {
@@ -367,9 +350,10 @@ final class HomesDialogService {
     }
 
     private void show(
-            Player player, String title, String body, List<ActionButton> buttons, int columns
+            Player player, String title, String body, List<ActionButton> buttons, int columns,
+            java.util.function.Consumer<Player> back
     ) {
-        Screens.show(player, title, Screens.body(body), buttons, columns, this::open);
+        Screens.show(player, title, Screens.body(body), buttons, columns, back);
     }
 
     /** Essentials home names are a command argument, so anything odd is refused here. */
