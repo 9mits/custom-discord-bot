@@ -36,6 +36,7 @@ final class ClanBattleService implements Listener {
     private final CrateItems items;
     private final CosmeticStore cosmetics;
     private final LeaderboardService leaderboards;
+    private final PlayerSettingsStore settings;
     /** Warnings already broadcast for the running battle, cleared when one starts. */
     private final java.util.Set<Long> warned = new java.util.HashSet<>();
 
@@ -45,7 +46,8 @@ final class ClanBattleService implements Listener {
             ClanStore clans,
             CrateItems items,
             CosmeticStore cosmetics,
-            LeaderboardService leaderboards
+            LeaderboardService leaderboards,
+            PlayerSettingsStore settings
     ) {
         this.plugin = plugin;
         this.store = store;
@@ -53,6 +55,7 @@ final class ClanBattleService implements Listener {
         this.items = items;
         this.cosmetics = cosmetics;
         this.leaderboards = leaderboards;
+        this.settings = settings;
     }
 
     ClanBattleStore.ActiveView startBattle(ClanBattleStore.Kind kind, long endsAt) {
@@ -60,11 +63,13 @@ final class ClanBattleService implements Listener {
         ClanBattleStore.ActiveView active = store.start(kind, now, endsAt, clans);
         warned.clear();
         leaderboards.publishNow();
-        Bukkit.broadcast(prefix()
+        PlayerBroadcast.broadcast(settings,
+                PlayerSettingsStore.Setting.CLAN_BATTLE_ANNOUNCEMENTS, prefix()
                 .append(Component.text(active.kind().displayName(), GOLD, TextDecoration.BOLD))
                 .append(Component.text(" has begun! ", NamedTextColor.WHITE))
                 .append(Component.text(active.kind().objective(), NamedTextColor.YELLOW)));
-        Bukkit.broadcast(prefix().append(Component.text(
+        PlayerBroadcast.broadcast(settings,
+                PlayerSettingsStore.Setting.CLAN_BATTLE_ANNOUNCEMENTS, prefix().append(Component.text(
                 "Ends in " + ClanBattleCountdown.remaining(active.endsAt() - now) + ".",
                 NamedTextColor.YELLOW
         )));
@@ -92,7 +97,8 @@ final class ClanBattleService implements Listener {
         store.cancel();
         warned.clear();
         leaderboards.publishNow();
-        Bukkit.broadcast(prefix().append(Component.text(
+        PlayerBroadcast.broadcast(settings,
+                PlayerSettingsStore.Setting.CLAN_BATTLE_ANNOUNCEMENTS, prefix().append(Component.text(
                 name + " was cancelled. No rewards were awarded.", NamedTextColor.GRAY
         )));
     }
@@ -153,7 +159,8 @@ final class ClanBattleService implements Listener {
         long left = active.endsAt() - now;
         for (long milestone : WARNING_MILLIS) {
             if (left <= milestone && warned.add(milestone)) {
-                Bukkit.broadcast(prefix()
+                PlayerBroadcast.broadcast(settings,
+                PlayerSettingsStore.Setting.CLAN_BATTLE_ANNOUNCEMENTS, prefix()
                         .append(Component.text(active.kind().displayName(), GOLD,
                                 TextDecoration.BOLD))
                         .append(Component.text(" ends in ", NamedTextColor.WHITE))
@@ -259,12 +266,14 @@ final class ClanBattleService implements Listener {
         return false;
     }
 
-    private static void announceResults(ClanBattleStore.CompletedView completed) {
-        Bukkit.broadcast(prefix().append(Component.text(
+    private void announceResults(ClanBattleStore.CompletedView completed) {
+        PlayerBroadcast.broadcast(settings,
+                PlayerSettingsStore.Setting.CLAN_BATTLE_ANNOUNCEMENTS, prefix().append(Component.text(
                 completed.kind().displayName() + " has ended!", GOLD, TextDecoration.BOLD
         )));
         if (completed.winners().isEmpty()) {
-            Bukkit.broadcast(prefix().append(Component.text(
+            PlayerBroadcast.broadcast(settings,
+                PlayerSettingsStore.Setting.CLAN_BATTLE_ANNOUNCEMENTS, prefix().append(Component.text(
                     "No clan recorded an opening, so no rewards were awarded.", NamedTextColor.GRAY
             )));
             return;
@@ -281,7 +290,8 @@ final class ClanBattleService implements Listener {
                 default -> BRONZE;
             };
             String extra = winner.rank() == 1 ? " + Galactic Conquest aura" : "";
-            Bukkit.broadcast(prefix()
+            PlayerBroadcast.broadcast(settings,
+                PlayerSettingsStore.Setting.CLAN_BATTLE_ANNOUNCEMENTS, prefix()
                     .append(Component.text("#" + winner.rank() + " [" + winner.clanName() + "]",
                             colour, TextDecoration.BOLD))
                     .append(Component.text(" — " + winner.score() + " openings — "

@@ -294,6 +294,7 @@ final class PlayerMenuService implements Listener {
             case PVP -> Material.IRON_SWORD;
             case VISUALS -> Material.AMETHYST_SHARD;
             case PRIVACY -> Material.SHIELD;
+            case HUD -> Material.EXPERIENCE_BOTTLE;
             case SCOREBOARD -> Material.MAP;
             case GENERAL -> Material.COMPARATOR;
         };

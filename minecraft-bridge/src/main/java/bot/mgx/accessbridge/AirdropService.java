@@ -169,6 +169,7 @@ final class AirdropService implements Listener {
     private final CosmeticStore cosmeticStore;
     private final CosmeticItems cosmeticItems;
     private final AmethystProgressStore progress;
+    private final PlayerSettingsStore settings;
     private final NamespacedKey cosmeticMarker;
     private final RandomGenerator random;
     private final long minimumDelayMillis;
@@ -191,9 +192,10 @@ final class AirdropService implements Listener {
             CrateItems crateItems,
             CosmeticStore cosmeticStore,
             CosmeticItems cosmeticItems,
-            AmethystProgressStore progress
+            AmethystProgressStore progress,
+            PlayerSettingsStore settings
     ) {
-        this(plugin, crateItems, cosmeticStore, cosmeticItems, progress,
+        this(plugin, crateItems, cosmeticStore, cosmeticItems, progress, settings,
                 ThreadLocalRandom.current());
     }
 
@@ -203,6 +205,7 @@ final class AirdropService implements Listener {
             CosmeticStore cosmeticStore,
             CosmeticItems cosmeticItems,
             AmethystProgressStore progress,
+            PlayerSettingsStore settings,
             RandomGenerator random
     ) {
         this.plugin = plugin;
@@ -210,6 +213,7 @@ final class AirdropService implements Listener {
         this.cosmeticStore = cosmeticStore;
         this.cosmeticItems = cosmeticItems;
         this.progress = progress;
+        this.settings = settings;
         this.random = random;
         cosmeticMarker = new NamespacedKey(plugin, "airdrop_cosmetic");
         enabled = plugin.getConfig().getBoolean("airdrop.enabled", true);
@@ -688,7 +692,11 @@ final class AirdropService implements Listener {
                 BossBar.Overlay.PROGRESS
         );
         for (Player player : plugin.getServer().getOnlinePlayers()) {
-            player.showBossBar(announcementBar);
+            if (PlayerBroadcast.wants(
+                    settings, PlayerSettingsStore.Setting.AIRDROP_BAR, player
+            )) {
+                player.showBossBar(announcementBar);
+            }
             playSpawnCue(player);
         }
         refreshCountdown();
@@ -724,7 +732,9 @@ final class AirdropService implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
-        if (active != null && announcementBar != null) {
+        if (active != null && announcementBar != null && PlayerBroadcast.wants(
+                settings, PlayerSettingsStore.Setting.AIRDROP_BAR, event.getPlayer()
+        )) {
             event.getPlayer().showBossBar(announcementBar);
         }
     }
@@ -1140,10 +1150,9 @@ final class AirdropService implements Listener {
     }
 
     private void broadcast(Component message) {
-        for (Player player : plugin.getServer().getOnlinePlayers()) {
-            player.sendMessage(message);
-        }
-        plugin.getServer().getConsoleSender().sendMessage(message);
+        PlayerBroadcast.broadcast(
+                settings, PlayerSettingsStore.Setting.AIRDROP_ANNOUNCEMENTS, message
+        );
     }
 
     private static boolean replaceable(Block block) {

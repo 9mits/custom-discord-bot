@@ -3810,7 +3810,11 @@ final class CosmeticEffectService implements Listener {
             } else {
                 allowed = settings.isEnabled(
                         viewer.getUniqueId(), PlayerSettingsStore.Setting.COSMETICS_VISIBLE
-                );
+                ) && (ownSetting != PlayerSettingsStore.Setting.OWN_TRAIL_VISIBLE
+                        || settings.isEnabled(
+                                viewer.getUniqueId(),
+                                PlayerSettingsStore.Setting.OTHER_TRAILS_VISIBLE
+                        ));
             }
             if (allowed) {
                 viewers.add(viewer);

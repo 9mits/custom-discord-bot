@@ -1082,7 +1082,11 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         auditWin(player, pending, reward);
         if (reward.revealTier() != CrateCatalog.RevealTier.NONE) {
             announceTieredWin(player, reward, kind);
-            effects.playCrateReveal(player, reward);
+            if (settings.isEnabled(
+                    player.getUniqueId(), PlayerSettingsStore.Setting.CRATE_REVEAL_EFFECTS
+            )) {
+                effects.playCrateReveal(player, reward);
+            }
         }
     }
 
@@ -1094,7 +1098,11 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         announceTieredWin(player, reward, selectedKinds.getOrDefault(
                 player.getUniqueId(), CrateKind.DEFAULT
         ));
-        effects.playCrateReveal(player, reward);
+        if (settings.isEnabled(
+                player.getUniqueId(), PlayerSettingsStore.Setting.CRATE_REVEAL_EFFECTS
+        )) {
+            effects.playCrateReveal(player, reward);
+        }
     }
 
     private void announceTieredWin(
@@ -1134,7 +1142,12 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             ));
         }
         for (Player viewer : plugin.getServer().getOnlinePlayers()) {
-            viewer.sendMessage(announcement);
+            // The winner always hears about their own pull.
+            if (viewer.equals(player) || settings.isEnabled(
+                    viewer.getUniqueId(), PlayerSettingsStore.Setting.CRATE_ANNOUNCEMENTS
+            )) {
+                viewer.sendMessage(announcement);
+            }
         }
         plugin.getServer().getConsoleSender().sendMessage(announcement);
     }
@@ -1536,7 +1549,11 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 continue;
             }
             int delivered = deliverBankedKeys(player, entry.getValue().earned() > 0);
-            if (entry.getValue().earned() > 0 && delivered == 0) {
+            // The "banked, make space" line is the one notice worth keeping even when
+            // key notices are off: it is the only sign the keys are waiting.
+            if (entry.getValue().earned() > 0 && delivered == 0 && settings.isEnabled(
+                    player.getUniqueId(), PlayerSettingsStore.Setting.CHAT_NOTIFICATIONS
+            )) {
                 player.sendMessage(PlayerMenuService.prefix().append(Component.text(
                         "Your " + entry.getValue().earned() + " hourly crate "
                                 + (entry.getValue().earned() == 1 ? "key is" : "keys are")

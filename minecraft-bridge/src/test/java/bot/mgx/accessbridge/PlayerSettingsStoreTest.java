@@ -78,6 +78,7 @@ class PlayerSettingsStoreTest {
                 PlayerSettingsStore.Category.PVP,
                 PlayerSettingsStore.Category.VISUALS,
                 PlayerSettingsStore.Category.PRIVACY,
+                PlayerSettingsStore.Category.HUD,
                 PlayerSettingsStore.Category.SCOREBOARD,
                 PlayerSettingsStore.Category.GENERAL
         ), List.of(PlayerSettingsStore.Category.values()));

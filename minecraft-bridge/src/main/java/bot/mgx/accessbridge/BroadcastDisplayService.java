@@ -38,12 +38,14 @@ final class BroadcastDisplayService implements Listener {
     private static final String RULE = " ".repeat(44);
 
     private final MGXAccessBridge plugin;
+    private final PlayerSettingsStore settings;
     // One entry per live broadcast. Broadcasts deliberately stack rather than
     // replacing each other, so a second announcement adds a second bar.
     private final Map<BossBar, BukkitTask> active = new ConcurrentHashMap<>();
 
-    BroadcastDisplayService(MGXAccessBridge plugin) {
+    BroadcastDisplayService(MGXAccessBridge plugin, PlayerSettingsStore settings) {
         this.plugin = plugin;
+        this.settings = settings;
     }
 
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
@@ -106,7 +108,11 @@ final class BroadcastDisplayService implements Listener {
                 BossBar.Overlay.PROGRESS
         );
         for (Player player : audience) {
-            player.showBossBar(bar);
+            if (PlayerBroadcast.wants(
+                    settings, PlayerSettingsStore.Setting.BROADCAST_BAR, player
+            )) {
+                player.showBossBar(bar);
+            }
         }
         announceBanner(audience, "BROADCAST", Component.text(
                 "  " + parsed.message(), NamedTextColor.WHITE, TextDecoration.BOLD

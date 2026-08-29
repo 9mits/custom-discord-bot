@@ -24,16 +24,19 @@ final class UpdateNoticeService implements Listener {
     private final UpdateNoticeStore store;
     private final BroadcastDisplayService broadcasts;
     private final PersonalNotificationService notifications;
+    private final PlayerSettingsStore settings;
 
     UpdateNoticeService(
             MGXAccessBridge plugin,
             UpdateNoticeStore store,
             BroadcastDisplayService broadcasts,
-            PersonalNotificationService notifications
+            PersonalNotificationService notifications,
+            PlayerSettingsStore settings
     ) {
         this.plugin = plugin;
         this.store = store;
         this.broadcasts = broadcasts;
+        this.settings = settings;
         this.notifications = notifications;
     }
 
@@ -78,7 +81,11 @@ final class UpdateNoticeService implements Listener {
 
     private void show(Collection<? extends Player> audience) {
         broadcasts.announceBanner(audience, HEADING, body());
-        audience.forEach(player -> notifications.actionBar(player, Component.text(
+        audience.stream()
+                .filter(player -> settings.isEnabled(
+                        player.getUniqueId(), PlayerSettingsStore.Setting.UPDATE_NOTICES
+                ))
+                .forEach(player -> notifications.actionBar(player, Component.text(
                 "NEW UPDATE  •  Read it at mysterioussmpx.blog",
                 NamedTextColor.GOLD, TextDecoration.BOLD
         )));

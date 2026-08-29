@@ -417,7 +417,11 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 .append(Component.text(message, NamedTextColor.WHITE));
         for (UUID memberId : clan.members().keySet()) {
             Player online = Bukkit.getPlayer(memberId);
-            if (online != null) {
+            // The sender always sees their own line; muting it would look like the
+            // message never sent.
+            if (online != null && (online.equals(player) || settings.isEnabled(
+                    memberId, PlayerSettingsStore.Setting.CLAN_CHAT_VISIBLE
+            ))) {
                 online.sendMessage(chat);
             }
         }

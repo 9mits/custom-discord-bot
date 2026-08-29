@@ -200,7 +200,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             luckPermsService.grantEveryoneDefaults();
         }
         identityService = new DiscordIdentityService(this, identityStore);
-        personalNotifications = new PersonalNotificationService(this);
+        personalNotifications = new PersonalNotificationService(this, playerSettings);
         getServer().getPluginManager().registerEvents(personalNotifications, this);
         teleportWarmups = new TeleportWarmupService(this, personalNotifications);
         clanMenuService = new ClanMenuService(
@@ -275,7 +275,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(teleportMenus, this);
         RandomTeleportService randomTeleports = new RandomTeleportService(this, teleportWarmups);
         getCommand("rtp").setExecutor(randomTeleports);
-        broadcastDisplayService = new BroadcastDisplayService(this);
+        broadcastDisplayService = new BroadcastDisplayService(this, playerSettings);
         getServer().getPluginManager().registerEvents(broadcastDisplayService, this);
         serverEventService = new ServerEventService(
                 this, serverEventStore, personalNotifications
@@ -288,7 +288,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             throw new IllegalStateException("Could not open update-notices.json", exception);
         }
         updateNotices = new UpdateNoticeService(
-                this, updateNoticeStore, broadcastDisplayService, personalNotifications
+                this, updateNoticeStore, broadcastDisplayService, personalNotifications,
+                playerSettings
         );
         getServer().getPluginManager().registerEvents(updateNotices, this);
         PhantomService phantomService = new PhantomService(this);
@@ -354,6 +355,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         PlayerPreferenceEffects preferenceEffects =
                 new PlayerPreferenceEffects(this, playerSettings);
         getServer().getPluginManager().registerEvents(preferenceEffects, this);
+        getServer().getPluginManager().registerEvents(
+                new ChatVisibilityService(playerSettings), this
+        );
         preferenceEffects.start();
         playerSettings.onChange(playerId -> {
             Player player = getServer().getPlayer(playerId);
@@ -374,7 +378,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         CrateItems crateItems = new CrateItems(this, cosmeticStore, specialItems);
         clanBattles = new ClanBattleService(
                 this, clanBattleStore, clanStore, crateItems, cosmeticStore,
-                leaderboardService
+                leaderboardService, playerSettings
         );
         crates = new CrateService(
                 this,
@@ -391,7 +395,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 clanBattles
         );
         airdrops = new AirdropService(
-                this, crateItems, cosmeticStore, cosmeticItems, amethystProgress
+                this, crateItems, cosmeticStore, cosmeticItems, amethystProgress, playerSettings
         );
         getCommand("wardrobe").setExecutor(wardrobeService);
         getCommand("wardrobe").setTabCompleter(wardrobeService);
@@ -520,7 +524,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getCommand("pay").setExecutor(economyCommands);
         getCommand("pay").setTabCompleter(economyCommands);
         BountyService bountyService = new BountyService(
-                this, economyStore, bountyStore, clanStore, personalNotifications
+                this, economyStore, bountyStore, clanStore, personalNotifications,
+                playerSettings
         );
         getCommand("bounty").setExecutor(bountyService);
         getCommand("bounty").setTabCompleter(bountyService);
