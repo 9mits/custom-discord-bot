@@ -477,14 +477,20 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         HomesDialogService homesDialogs =
                 new HomesDialogService(teleportMenus, dialogSupport);
         LeaderboardDialogService leaderboardDialogs = new LeaderboardDialogService(
-                leaderboardService, statsDialogs, clanBattleStore, clanStore
+                leaderboardService, statsDialogs, clanBattleStore, clanStore, clanMenuService
         );
         // The chest screens stay as the Bedrock and pre-1.21.6 path, so each command
         // asks the client what it can render rather than picking one for everyone.
         leaderboardMenus.useDialogs(leaderboardDialogs, dialogSupport);
-        clanService.useChooser(new ClanChooserService(
+        ClanChooserService clanChooser = new ClanChooserService(
                 clanMenuService, clanStore, clanBattleStore, dialogSupport
-        ));
+        );
+        ClanDirectoryService clanDirectory = new ClanDirectoryService(
+                clanStore, clanMenuService, clanBattleStore, dialogSupport
+        );
+        clanChooser.useDirectory(clanDirectory);
+        clanService.useChooser(clanChooser);
+        clanService.useDirectory(clanDirectory);
         teleportMenus.useHomesDialog(homesDialogs);
         AuctionStore auctionStore;
         try {

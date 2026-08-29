@@ -32,6 +32,7 @@ final class ClanChooserService {
             .build();
 
     private final ClanMenuService menus;
+    private ClanDirectoryService directory;
     private final ClanStore clans;
     private final ClanBattleStore clanBattles;
     private final SettingsClientSupport clientSupport;
@@ -48,13 +49,18 @@ final class ClanChooserService {
         this.clientSupport = clientSupport;
     }
 
+    /** Wired after construction; the directory and the chooser reference each other. */
+    void useDirectory(ClanDirectoryService directory) {
+        this.directory = directory;
+    }
+
     void open(Player player) {
         ClanStore.ClanView own = clans.clanOf(player.getUniqueId()).orElse(null);
         if (!clientSupport.supportsDialogs(player)) {
             // Without dialogs the directory is still the safe landing: it works whether
             // or not the player has a clan.
             if (own == null) {
-                menus.openList(player, 1);
+                browse(player);
             } else {
                 menus.openHub(player);
             }
@@ -71,7 +77,7 @@ final class ClanChooserService {
                     menus::openHub));
         }
         buttons.add(button(Material.SPYGLASS, "Browse Clans",
-                "Every clan, richest first.", audience -> menus.openList(audience, 1)));
+                "Every clan, A to Z.", this::browse));
         buttons.add(ActionButton.builder(Component.text("Close", MenuText.LABEL))
                 .width(150)
                 .action(callback((response, audience) -> audience.closeDialog()))
@@ -89,6 +95,14 @@ final class ClanChooserService {
                         .build())
                 .type(DialogType.multiAction(buttons).columns(2).build()));
         player.showDialog(dialog);
+    }
+
+    private void browse(Player player) {
+        if (directory != null) {
+            directory.open(player, 1);
+        } else {
+            menus.openList(player, 1);
+        }
     }
 
     private ActionButton button(

@@ -105,17 +105,30 @@ final class StatsDialogService implements CommandExecutor {
                             ? Component.text("You", MenuText.LABEL)
                             : Component.text("View their stats", MenuText.LABEL))
                     .width(150)
-                    .action(callback((response, audience) -> openCard(audience, id, name)))
+                    .action(callback((response, audience) ->
+                            openCard(audience, id, name, this::openPicker)))
                     .build());
         }
         show(viewer, "Player Stats", "Click a player to view their stats", buttons, 2);
     }
 
-    /** The four headline numbers, with the full board one click away. */
     void openCard(Player viewer, UUID id, String fallbackName) {
+        openCard(viewer, id, fallbackName, this::openPicker);
+    }
+
+    /**
+     * The four headline numbers, with the full board one click away.
+     *
+     * <p>{@code back} is where the player came from. A card opened from a leaderboard
+     * has to return to that board; sending it to the stats picker instead is how Back
+     * ends up somewhere the player was never standing.
+     */
+    void openCard(
+            Player viewer, UUID id, String fallbackName, java.util.function.Consumer<Player> back
+    ) {
         ProfileStatsService.Profile profile = profiles.of(id, fallbackName);
         if (!clientSupport.supportsDialogs(viewer)) {
-            openProfile(viewer, id, fallbackName);
+            openProfile(viewer, id, fallbackName, back);
             return;
         }
         List<DialogBody> body = List.of(
@@ -135,11 +148,11 @@ final class StatsDialogService implements CommandExecutor {
                         .tooltip(Component.text("Every number we keep.", MenuText.LABEL))
                         .width(310)
                         .action(callback((response, audience) ->
-                                openProfile(audience, id, profile.name())))
+                                openProfile(audience, id, profile.name(), back)))
                         .build(),
                 ActionButton.builder(Component.text("Back", MenuText.LABEL))
                         .width(310)
-                        .action(callback((response, audience) -> openPicker(audience)))
+                        .action(callback((response, audience) -> back.accept(audience)))
                         .build()
         );
         Dialog dialog = Dialog.create(builder -> builder.empty()
@@ -162,6 +175,12 @@ final class StatsDialogService implements CommandExecutor {
      * comfortably.
      */
     void openProfile(Player viewer, UUID id, String fallbackName) {
+        openProfile(viewer, id, fallbackName, this::openPicker);
+    }
+
+    void openProfile(
+            Player viewer, UUID id, String fallbackName, java.util.function.Consumer<Player> back
+    ) {
         ProfileStatsService.Profile profile = profiles.of(id, fallbackName);
         Menu menu = new Menu(Menu.Kind.PLAYER_PROFILE, id, 1, null);
         Inventory inventory = Bukkit.createInventory(

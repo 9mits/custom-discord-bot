@@ -61,6 +61,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     private final ClanMenuService menus;
     private final ClanBattleStore clanBattles;
     private ClanChooserService chooser;
+    private ClanDirectoryService directory;
 
     ClanService(
             MGXAccessBridge plugin,
@@ -83,6 +84,10 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     /** Wired after construction; the chooser needs this service's menus. */
     void useChooser(ClanChooserService chooser) {
         this.chooser = chooser;
+    }
+
+    void useDirectory(ClanDirectoryService directory) {
+        this.directory = directory;
     }
 
     @Override
@@ -109,7 +114,13 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 case "members", "roster" -> menus.openMembers(
                         player, ownClan(player).id(), page(args, 1),
                         Menu.Destination.of(Menu.Kind.CLAN_HUB));
-                case "list" -> menus.openList(player, page(args, 1));
+                case "list" -> {
+                    if (directory != null) {
+                        directory.open(player, page(args, 1));
+                    } else {
+                        menus.openList(player, page(args, 1));
+                    }
+                }
                 case "rename", "name" -> rename(player, remainder(args, 1));
                 case "color", "colour", "theme" -> color(player, remainder(args, 1));
                 case "promote" -> setStaff(player, remainder(args, 1), true);

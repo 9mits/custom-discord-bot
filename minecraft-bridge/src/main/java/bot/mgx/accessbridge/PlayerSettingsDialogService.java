@@ -69,7 +69,7 @@ final class PlayerSettingsDialogService {
     }
 
     void openCosmeticSettings(Player player) {
-        openCategory(player, PlayerSettingsStore.Category.PARTICLES);
+        openCategory(player, PlayerSettingsStore.Category.COSMETICS);
     }
 
     private void openCategory(Player player, PlayerSettingsStore.Category category) {
@@ -91,7 +91,9 @@ final class PlayerSettingsDialogService {
     private void showRootDialog(Player player) {
         List<ActionButton> categories = new ArrayList<>();
         for (PlayerSettingsStore.Category category : PlayerSettingsStore.Category.values()) {
-            categories.add(ActionButton.builder(Component.text(category.label(), NamedTextColor.WHITE))
+            categories.add(ActionButton.builder(Component.empty()
+                            .append(MenuText.sprite(category.sprite()))
+                            .append(Component.text(" " + category.label(), NamedTextColor.WHITE)))
                     .tooltip(Component.text("Open " + category.label() + " settings", NamedTextColor.GRAY))
                     .width(200)
                     .action(callback((response, audience) -> openCategory(audience, category)))
@@ -138,7 +140,7 @@ final class PlayerSettingsDialogService {
                     audience -> toggle(audience, category, setting)
             ));
         }
-        if (category == PlayerSettingsStore.Category.AUDIO) {
+        if (category == PlayerSettingsStore.Category.COSMETICS) {
             int volume = store.musicVolume(player.getUniqueId());
             buttons.add(ActionButton.builder(Component.text(
                             "Synced Music Volume: " + volume + "%",
@@ -243,7 +245,7 @@ final class PlayerSettingsDialogService {
                     + exception.getMessage());
             PlayerMenuService.error(player, "That volume could not be saved. Please try again.");
         }
-        openCategory(player, PlayerSettingsStore.Category.AUDIO);
+        openCategory(player, PlayerSettingsStore.Category.COSMETICS);
     }
 
     private DialogAction callback(BiConsumer<DialogResponseView, Player> callback) {

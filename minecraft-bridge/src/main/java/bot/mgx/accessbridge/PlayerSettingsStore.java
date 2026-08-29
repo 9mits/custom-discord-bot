@@ -31,23 +31,37 @@ final class PlayerSettingsStore {
     static final int DEFAULT_MUSIC_VOLUME = 100;
     private static final String MUSIC_VOLUMES_JSON_KEY = "_music_volumes";
     enum Category {
-        CHAT("Chat", "Choose which conversations and chat highlights reach you."),
-        NOTIFICATIONS("Notifications", "Choose which server notices appear in chat."),
-        PVP("PvP", "Control combat-related messages and effects."),
-        VISUALS("Visuals", "Nameplates, tags and how the world looks to you."),
-        PARTICLES("Particles", "Which cosmetic effects are drawn, yours and other players'."),
-        AUDIO("Audio", "Which sounds the server plays for you."),
-        PRIVACY("Privacy", "Control which linked account details other players can see."),
-        HUD("HUD & Bars", "Bars and overlays drawn on top of the game."),
-        SCOREBOARD("Scoreboard", "Choose whether the sidebar appears and which sections it shows."),
-        GENERAL("General", "Other presentation settings that apply across the server.");
+        CHAT("Chat", "Choose which conversations and chat highlights reach you.",
+                "item/writable_book"),
+        NOTIFICATIONS("Notifications", "Choose which server notices appear in chat.",
+                "item/bell"),
+        PVP("PvP", "Control combat-related messages and effects.", "item/iron_sword"),
+        VISUALS("Visuals", "Effects and how the world looks to you.", "item/ender_eye"),
+        COSMETICS("Cosmetics", "Your auras, trails, kill effects and their sounds.",
+                "item/nether_star"),
+        AUDIO("Audio", "Which sounds the server plays for you.", "block/note_block"),
+        PRIVACY("Privacy", "Control which linked account details other players can see.",
+                "item/shield"),
+        HUD("HUD & Bars", "Bars and overlays drawn on top of the game.",
+                "item/experience_bottle"),
+        SCOREBOARD("Scoreboard", "Choose whether the sidebar appears and which sections it shows.",
+                "item/map"),
+        GENERAL("General", "Other presentation settings that apply across the server.",
+                "item/comparator");
 
         private final String label;
         private final String description;
+        private final String sprite;
 
-        Category(String label, String description) {
+        Category(String label, String description, String sprite) {
             this.label = label;
             this.description = description;
+            this.sprite = sprite;
+        }
+
+        /** Texture path for the category's icon; see {@link MenuText#sprite(String)}. */
+        String sprite() {
+            return sprite;
         }
 
         String label() {
@@ -113,17 +127,17 @@ final class PlayerSettingsStore {
         TROPHY_MESSAGES("trophy_messages", "Trophy messages",
                 "Show messages when a player earns a trophy head.", true, Category.PVP),
         COSMETICS_VISIBLE("cosmetics_visible", "Other players' cosmetics",
-                "Render cosmetics equipped by other players.", true, Category.PARTICLES),
+                "Render cosmetics equipped by other players.", true, Category.COSMETICS),
         OWN_AURA_VISIBLE("own_aura_visible", "Your aura",
-                "Render your equipped aura for you.", true, Category.PARTICLES),
+                "Render your equipped aura for you.", true, Category.COSMETICS),
         OWN_TRAIL_VISIBLE("own_trail_visible", "Your trail",
-                "Render your equipped trail for you.", true, Category.PARTICLES),
+                "Render your equipped trail for you.", true, Category.COSMETICS),
         OWN_KILL_EFFECTS_VISIBLE("own_kill_effects_visible", "Your kill effects",
-                "Render your equipped kill effects for you.", true, Category.PARTICLES),
+                "Render your equipped kill effects for you.", true, Category.COSMETICS),
         RARITY_TAG_VISIBLE("rarity_tag_visible", "Your odds tag",
                 "Show the odds behind your rarest equipped cosmetic under your name. "
                         + "Mythic and rarer only.",
-                true, Category.VISUALS),
+                true, Category.COSMETICS),
         CRATE_SOUNDS("crate_sounds", "Crate sounds",
                 "Play the reel, click and reveal sounds while opening a crate.", true,
                 Category.AUDIO),
@@ -134,9 +148,9 @@ final class PlayerSettingsStore {
                 Category.AUDIO),
         AIRDROP_PARTICLES("airdrop_particles", "Airdrop beam",
                 "Draw the beam and sparks marking a falling Airdrop.", true,
-                Category.PARTICLES),
+                Category.VISUALS),
         COSMETIC_SOUNDS("cosmetic_sounds", "Cosmetic sounds",
-                "Play sounds from cosmetic reveals and kill effects.", true, Category.AUDIO),
+                "Play sounds from cosmetic reveals and kill effects.", true, Category.COSMETICS),
         SCOREBOARD_ENABLED("scoreboard_enabled", "Scoreboard",
                 "Show the Mysterious SMP X sidebar.", true, Category.SCOREBOARD),
         SCOREBOARD_PROFILE("scoreboard_profile", "Profile section",
@@ -157,9 +171,9 @@ final class PlayerSettingsStore {
                 "See in the dark without a torch or a potion.", false, Category.VISUALS),
         CRATE_REVEAL_EFFECTS("crate_reveal_effects", "Crate reveal effects",
                 "Play the fireworks and sound when a rare reward is revealed.", true,
-                Category.PARTICLES),
+                Category.VISUALS),
         OTHER_TRAILS_VISIBLE("other_trails_visible", "Other players' trails",
-                "Render trails left by other players.", true, Category.PARTICLES),
+                "Render trails left by other players.", true, Category.COSMETICS),
         TELEPORT_REQUESTS("teleport_requests", "Teleport requests",
                 "Let other players send you a teleport request.", true, Category.PRIVACY),
         ALLOW_PAYMENTS("allow_payments", "Allow payments",
