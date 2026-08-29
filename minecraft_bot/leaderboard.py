@@ -26,8 +26,8 @@ PODIUM = 3
 DISPLAY_ROWS = 10
 #: Head emojis are a reward, so they outlive a single bad week on the board.
 EMOJI_RETENTION_DAYS = 14
-#: Four individual boards and two clan boards, three places each, plus room for
-#: the turnover that retention deliberately holds on to.
+#: Four individual boards, three places each, plus room for the turnover that
+#: retention deliberately holds on to. Clan boards do not mint player heads.
 EMOJI_BUDGET = 32
 EMOJI_PREFIX = "mgx_head_"
 #: Deleting emojis is rate-limited, so a backlog is cleared over several refreshes.
@@ -41,9 +41,11 @@ TYPE_LABELS: dict[str, str] = {
     "kills": "Most Kills",
     "amethyst_crates": "Most Amethyst Crates Opened",
     "amethyst_airdrops": "Most Amethyst Airdrops Opened",
+    "clan_battle": "Current Clan Battle",
 }
 #: Mirrors LeaderboardType.published on the Paper side.
-CLAN_TYPES = ("wealth", "kills")
+INDIVIDUAL_TYPES = ("wealth", "kills", "amethyst_crates", "amethyst_airdrops")
+CLAN_TYPES = ("wealth", "kills", "clan_battle")
 
 CONFIG_CHANNEL = "leaderboard_channel_id"
 CONFIG_MESSAGE = "leaderboard_message_id"
@@ -192,7 +194,7 @@ class HeadEmojiStore:
         keeps it well under that.
         """
         players: dict[str, str] = {}
-        for board in TYPE_LABELS:
+        for board in INDIVIDUAL_TYPES:
             for row in _rows(snapshot, "individual", board)[:PODIUM]:
                 uuid = str(row.get("minecraft_uuid") or "")
                 if uuid:
@@ -321,7 +323,8 @@ def _render_row(
     """One ranked entry. Every place uses the same layout; only heads stay podium-only."""
     podium = index < PODIUM
     value = str(row.get("display", row.get("value", 0)))
-    place = f"**{_placement(index)}**"
+    rank = int(row.get("rank", index + 1) or index + 1)
+    place = f"**#{rank}**"
     if scope == "clan":
         clan_name = str(row.get("clan") or "?")
         name = clans.tag(clan_name, int(row.get("level", 0) or 0))
@@ -329,6 +332,9 @@ def _render_row(
         detail = f"`{value}`"
         if members:
             detail += f"  ·  {members} members"
+        badges = str(row.get("badges") or "")
+        if badges:
+            detail += f"  ·  {badges}"
         return f"{place}  **{name}**\n{detail}"
 
     uuid = str(row.get("minecraft_uuid") or "")
@@ -378,7 +384,12 @@ def build_embed(
     """Renders one board. Scope is ``individual`` or ``clan``."""
     heads = heads or {}
     linked = linked or {}
-    label = TYPE_LABELS.get(board, board.replace("_", " ").title())
+    event = snapshot.get("clan_battle") or {}
+    label = (
+        str(event.get("name") or TYPE_LABELS[board])
+        if board == "clan_battle"
+        else TYPE_LABELS.get(board, board.replace("_", " ").title())
+    )
     scope_label = "Clans" if scope == "clan" else "Players"
 
     embed = discord.Embed(
@@ -392,6 +403,9 @@ def build_embed(
         if scope == "clan" and board == "wealth"
         else ""
     )
+    if scope == "clan" and board == "clan_battle":
+        objective = str(event.get("objective") or "")
+        note = f"**{objective}**\n\n" if objective else ""
     rows = _rows(snapshot, scope, board)
     if not rows:
         embed.description = note + "No standings yet. Play a little and this fills in."
@@ -411,7 +425,7 @@ def build_embed(
 
 
 def boards_for(scope: str) -> Iterable[str]:
-    return CLAN_TYPES if scope == "clan" else tuple(TYPE_LABELS)
+    return CLAN_TYPES if scope == "clan" else INDIVIDUAL_TYPES
 
 
 class BoardSelect(discord.ui.DynamicItem[discord.ui.Select], template=r"mgx_board:(?P<scope>\w+)"):

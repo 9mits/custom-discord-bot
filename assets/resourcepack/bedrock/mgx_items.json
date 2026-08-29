@@ -183,6 +183,15 @@
         "bedrock_options": {
           "icon": "mgx:cosmetic_crystalfall_wake"
         }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:shard",
+        "bedrock_identifier": "mgx:shard",
+        "display_name": "Shard",
+        "bedrock_options": {
+          "icon": "mgx:shard"
+        }
       }
     ],
     "minecraft:nether_star": [
@@ -193,6 +202,15 @@
         "display_name": "Celestial Crown",
         "bedrock_options": {
           "icon": "mgx:cosmetic_celestial_crown"
+        }
+      },
+      {
+        "type": "definition",
+        "model": "mgx:cosmetic/galactic_conquest",
+        "bedrock_identifier": "mgx:cosmetic_galactic_conquest",
+        "display_name": "Galactic Conquest",
+        "bedrock_options": {
+          "icon": "mgx:cosmetic_galactic_conquest"
         }
       }
     ],

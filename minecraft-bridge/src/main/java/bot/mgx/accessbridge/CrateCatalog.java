@@ -94,6 +94,11 @@ final class CrateCatalog {
             return cosmeticId != null;
         }
 
+        /** The original reward ID when the Shard Crate reweights an existing prize. */
+        String sourceId() {
+            return id.startsWith("shard_") ? id.substring("shard_".length()) : id;
+        }
+
         boolean secret() {
             return category == Category.SECRET;
         }
@@ -169,6 +174,7 @@ final class CrateCatalog {
 
     private static final List<Reward> REWARDS = buildRewards();
     private static final List<Reward> AMETHYST_REWARDS = buildAmethystRewards();
+    private static final List<Reward> SHARD_REWARDS = buildShardRewards();
     private static final List<Reward> HIDDEN_AMETHYST_REWARDS =
             CosmeticCatalog.hiddenAmethystRewards().stream().map(CrateCatalog::cosmetic).toList();
     private static final Set<String> AMETHYST_EXCLUSIVE_IDS = Set.of(
@@ -195,6 +201,10 @@ final class CrateCatalog {
         return AMETHYST_REWARDS;
     }
 
+    static List<Reward> shard() {
+        return SHARD_REWARDS;
+    }
+
     static List<Reward> hiddenAmethyst() {
         return HIDDEN_AMETHYST_REWARDS;
     }
@@ -209,7 +219,7 @@ final class CrateCatalog {
     static List<Reward> everyReward() {
         return java.util.stream.Stream.of(
                         REWARDS.stream(), AMETHYST_REWARDS.stream(),
-                        HIDDEN_AMETHYST_REWARDS.stream()
+                        HIDDEN_AMETHYST_REWARDS.stream(), SHARD_REWARDS.stream()
                 )
                 .flatMap(stream -> stream)
                 .toList();
@@ -236,6 +246,10 @@ final class CrateCatalog {
     static boolean isAmethyst(Reward reward) {
         return reward != null
                 && (AMETHYST_REWARDS.contains(reward) || HIDDEN_AMETHYST_REWARDS.contains(reward));
+    }
+
+    static boolean isShard(Reward reward) {
+        return reward != null && SHARD_REWARDS.contains(reward);
     }
 
     /** A separate fixed jackpot roll keeps the reward absent from every published table. */
@@ -671,6 +685,91 @@ final class CrateCatalog {
         return List.copyOf(rewards);
     }
 
+    /**
+     * Permanent premium pool bought with Shards rather than ordinary crate keys.
+     * Every entry is one of the strongest rewards already proven by another crate;
+     * only its weight in this pool changes. Exotic cosmetics remain a combined
+     * 0.24%, and Iridescent Imperium gets its separate unchanged 1-in-500,000 roll.
+     */
+    private static List<Reward> buildShardRewards() {
+        List<Reward> rewards = new ArrayList<>();
+        rewards.add(shardCopy("enchant_excavation_i", 2_500));
+        rewards.add(shardCopy("enchant_unbreaking_v", 6_000));
+        rewards.add(shardCopy("enchant_protection_v", 6_000));
+        rewards.add(shardCopy("enchant_fortune_v", 6_000));
+        rewards.add(shardCopy("fortune_potion_v", 4_500));
+        rewards.add(shardCopy("crate_luck_v", 4_500));
+        rewards.add(shardCopy("mace", 7_000));
+        rewards.add(shardCopy("heavy_core", 7_000));
+        rewards.add(shardCopy("enchanted_golden_apple", 7_500));
+        rewards.add(shardCopy(
+                "netherite_ingot", "2 Netherite Ingots", 9_000, 2,
+                "Two complete netherite ingots."
+        ));
+        rewards.add(shardCopy("amethyst_pickaxe", 7_000));
+        rewards.add(shardCopy("amethyst_shovel", 7_000));
+        rewards.add(shardCopy("amethyst_axe", 7_000));
+        rewards.add(shardCopy("amethyst_shield", 6_500));
+        rewards.add(shardCopy("amethyst_totem", 5_060));
+
+        for (String cosmeticId : List.of(
+                "soul_requiem", "celestial_crown", "prismatic_trail",
+                "amethyst_ascension", "geode_cathedral", "crystal_guillotine",
+                "violet_detonation", "shardstorm_wake", "geode_bloom"
+        )) {
+            rewards.add(shardCosmetic(cosmeticId, 800));
+        }
+        for (String cosmeticId : List.of(
+                "event_horizon", "reapers_verdict", "divine_rupture",
+                "astral_sovereign", "infernal_dominion", "abyssal_seraph",
+                "galaxy_wake", "phantom_chains", "reality_fracture",
+                "crystalline_extinction", "resonant_apotheosis", "shattered_continuum"
+        )) {
+            rewards.add(shardCosmetic(cosmeticId, 20));
+        }
+        int total = rewards.stream().mapToInt(Reward::weight).sum();
+        if (total != TOTAL_WEIGHT) {
+            throw new IllegalStateException("Shard crate weights total " + total);
+        }
+        return List.copyOf(rewards);
+    }
+
+    private static Reward shardCopy(String sourceId, int weight) {
+        Reward source = originalReward(sourceId);
+        return shardCopy(
+                sourceId, source.displayName(), weight, source.amount(), source.description()
+        );
+    }
+
+    private static Reward shardCopy(
+            String sourceId, String displayName, int weight, int amount, String description
+    ) {
+        Reward source = originalReward(sourceId);
+        return new Reward(
+                "shard_" + source.id(), displayName, source.category(), weight,
+                source.materialName(), amount, source.modelKey(), source.cosmeticId(), description
+        );
+    }
+
+    private static Reward shardCosmetic(String cosmeticId, int weight) {
+        CosmeticCatalog.Definition cosmetic = CosmeticCatalog.find(cosmeticId).orElseThrow(
+                () -> new IllegalStateException("Unknown Shard Crate cosmetic " + cosmeticId)
+        );
+        return new Reward(
+                "shard_cosmetic_" + cosmetic.id(), cosmetic.displayName(),
+                cosmetic.secret() ? Category.SECRET : Category.COSMETIC,
+                weight, cosmetic.materialName(), 1, cosmetic.modelKey(), cosmetic.id(),
+                cosmetic.description()
+        );
+    }
+
+    private static Reward originalReward(String id) {
+        return java.util.stream.Stream.concat(REWARDS.stream(), AMETHYST_REWARDS.stream())
+                .filter(reward -> reward.id().equals(id))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("Unknown Shard Crate reward " + id));
+    }
+
     private static Reward item(
             String id,
             String displayName,
@@ -735,7 +834,7 @@ final class CrateCatalog {
         Map<String, Reward> indexed = new LinkedHashMap<>();
         for (Reward reward : java.util.stream.Stream.of(
                         REWARDS.stream(), AMETHYST_REWARDS.stream(),
-                        HIDDEN_AMETHYST_REWARDS.stream()
+                        HIDDEN_AMETHYST_REWARDS.stream(), SHARD_REWARDS.stream()
                 ).flatMap(stream -> stream).toList()) {
             if (indexed.putIfAbsent(reward.id(), reward) != null) {
                 throw new IllegalStateException("Duplicate crate reward ID " + reward.id());

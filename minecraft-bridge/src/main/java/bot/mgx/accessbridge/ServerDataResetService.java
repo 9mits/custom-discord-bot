@@ -51,6 +51,7 @@ final class ServerDataResetService {
     private final CrateStore crates;
     private final CrateFilterStore crateFilters;
     private final AmethystProgressStore amethystProgress;
+    private final ClanBattleStore clanBattles;
     private final CosmeticStore cosmetics;
     private final CosmeticItems cosmeticItems;
     private final TrophyHeadStore trophyHeads;
@@ -74,6 +75,7 @@ final class ServerDataResetService {
             CrateStore crates,
             CrateFilterStore crateFilters,
             AmethystProgressStore amethystProgress,
+            ClanBattleStore clanBattles,
             CosmeticStore cosmetics,
             CosmeticItems cosmeticItems,
             TrophyHeadStore trophyHeads,
@@ -95,6 +97,7 @@ final class ServerDataResetService {
         this.crates = crates;
         this.crateFilters = crateFilters;
         this.amethystProgress = amethystProgress;
+        this.clanBattles = clanBattles;
         this.cosmetics = cosmetics;
         this.cosmeticItems = cosmeticItems;
         this.trophyHeads = trophyHeads;
@@ -184,7 +187,8 @@ final class ServerDataResetService {
         if (scopes.contains(ResetScope.CRATES)) {
             clear(
                     ResetScope.CRATES,
-                    () -> crates.clearAll() + crateFilters.clearAll() + amethystProgress.clearAll(),
+                    () -> crates.clearAll() + crateFilters.clearAll()
+                            + amethystProgress.clearAll() + clanBattles.clearAll(),
                     cleared,
                     problems
             );

@@ -38,7 +38,7 @@ enum ResetScope {
     /** Per-player display toggles, so everyone returns to the defaults. */
     SETTINGS("settings", "per-player chat, nametag and Discord-name toggles"),
     /** Opening history, hourly-key progress, event boards and unclaimed rewards. */
-    CRATES("crates", "crate limits, hourly keys, Amethyst event boards, Auto Trash choices and pending rewards"),
+    CRATES("crates", "crate limits, hourly keys, event boards, Clan Battles, Auto Trash choices and pending rewards"),
     /** Vaulted and equipped cosmetics; physical tokens are invalidated by generation. */
     COSMETICS("cosmetics", "wardrobes, equipped cosmetics and token validity"),
     /** Anti-farming cooldowns for PvP trophy heads. */

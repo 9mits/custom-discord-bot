@@ -1094,6 +1094,7 @@ final class CosmeticEffectService implements Listener {
             case "amethyst_ascension" -> drawAmethystAscension(owner, centre, phase, step);
             case "geode_cathedral" -> drawGeodeCathedral(owner, centre, phase, step);
             case "airdrop_apotheosis" -> drawAirdropApotheosis(owner, centre, phase, step);
+            case "galactic_conquest" -> drawGalacticConquest(owner, centre, phase, step, moving);
             default -> { }
         }
     }
@@ -1429,6 +1430,80 @@ final class CosmeticEffectService implements Listener {
                             ? Sound.BLOCK_BEACON_ACTIVATE : Sound.BLOCK_AMETHYST_BLOCK_RESONATE,
                     0.55f, step == 22 ? 1.5f : 0.92f,
                     PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+    }
+
+    /** The first-place Crates Clan Battle aura: a spiral galaxy wearing a royal crown. */
+    private void drawGalacticConquest(
+            Player owner, Location centre, double phase, int step, boolean moving
+    ) {
+        // Frames already thin centrally while moving; the galaxy also pulls in so a
+        // sprinting champion wears it instead of smearing it down the path behind them.
+        double spread = moving ? 0.55d : 1d;
+        Color midnight = Color.fromRGB(30, 18, 92);
+        Color violet = Color.fromRGB(143, 72, 255);
+        Color blue = Color.fromRGB(52, 112, 255);
+        Color cyan = Color.fromRGB(105, 236, 255);
+        Color starlight = Color.fromRGB(242, 250, 255);
+        Color gold = Color.fromRGB(255, 201, 72);
+        Color[] cosmic = {midnight, violet, blue, cyan, starlight};
+
+        // Three broad arms turn at different heights so it reads as a galaxy from
+        // beside the player rather than only from above.
+        for (int arm = 0; arm < 3; arm++) {
+            for (int point = 0; point < 8; point++) {
+                double radius = (0.18d + point * 0.16d) * spread;
+                double angle = phase * (arm % 2 == 0 ? 1.15d : -0.9d)
+                        + arm * Math.PI * 2d / 3d + point * 0.52d;
+                Location star = centre.clone().add(
+                        Math.cos(angle) * radius,
+                        -0.35d + point * 0.09d + Math.sin(angle * 2d) * 0.12d * spread,
+                        Math.sin(angle) * radius
+                );
+                dust(owner, star, cosmic[(point + arm + step / 6) % cosmic.length],
+                        point % 3 == 0 ? 1.05f : 0.76f,
+                        PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            }
+        }
+        Location core = centre.clone().add(0d, 0.25d, 0d);
+        dust(owner, core, starlight, 1.35f, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        drawRing(owner, centre.clone().add(0d, -0.82d, 0d),
+                (1.15d + Math.sin(phase * 2d) * 0.12d) * spread, 24, -phase * 0.8d,
+                step % 12 < 6 ? violet : blue, 0.86f,
+                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+
+        // A broken seven-point crown is the battle trophy rather than another comet.
+        Location crown = centre.clone().add(0d, 1.55d, 0d);
+        for (int point = 0; point < 7; point++) {
+            double angle = phase * 0.42d + point * Math.PI * 2d / 7d;
+            Location root = crown.clone().add(
+                    Math.cos(angle) * 0.48d, 0d, Math.sin(angle) * 0.48d
+            );
+            double height = point % 2 == 0 ? 0.52d : 0.3d;
+            Location tip = root.clone().add(0d, height, 0d);
+            drawLine(owner, root, tip, point % 2 == 0 ? 4 : 3,
+                    point == (step / 5) % 7 ? starlight : gold,
+                    point % 2 == 0 ? 1.0f : 0.78f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+        }
+        drawRing(owner, crown, 0.5d, 20, phase * 0.42d, gold, 0.72f,
+                PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+
+        for (int satellite = 0; satellite < 3; satellite++) {
+            double angle = -phase * (0.9d + satellite * 0.18d)
+                    + satellite * Math.PI * 2d / 3d;
+            double orbit = (0.82d + satellite * 0.13d) * spread;
+            Location star = centre.clone().add(
+                    Math.cos(angle) * orbit,
+                    0.3d + satellite * 0.48d,
+                    Math.sin(angle) * orbit
+            );
+            dust(owner, star, satellite == 0 ? starlight : cyan, 1.2f,
+                    PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            if ((step + satellite * 7) % 24 == 0) {
+                spawn(owner, star, Particle.END_ROD, 1, 0d, 0d, 0d, 0d,
+                        null, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE);
+            }
         }
     }
 

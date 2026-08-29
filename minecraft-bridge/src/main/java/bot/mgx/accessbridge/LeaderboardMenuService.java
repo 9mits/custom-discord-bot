@@ -49,6 +49,7 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
     private static final int HUB_AMETHYST_CRATES = 20;
     private static final int HUB_REWARDS = 22;
     private static final int HUB_AMETHYST_AIRDROPS = 24;
+    private static final int HUB_CLAN_BATTLE = 4;
     private static final DateTimeFormatter JOINED =
             DateTimeFormatter.ofPattern("d MMM yyyy", Locale.UK).withZone(ZoneId.systemDefault());
 
@@ -57,19 +58,22 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
     private final LeaderboardService boards;
     private final DiscordIdentityService identities;
     private final CosmeticItems cosmeticItems;
+    private final ClanBattleStore clanBattles;
 
     LeaderboardMenuService(
             MGXAccessBridge plugin,
             ClanStore clans,
             LeaderboardService boards,
             DiscordIdentityService identities,
-            CosmeticItems cosmeticItems
+            CosmeticItems cosmeticItems,
+            ClanBattleStore clanBattles
     ) {
         this.plugin = plugin;
         this.clans = clans;
         this.boards = boards;
         this.identities = identities;
         this.cosmeticItems = cosmeticItems;
+        this.clanBattles = clanBattles;
     }
 
     @Override
@@ -108,6 +112,10 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
                 "They update automatically and can never be traded."));
         inventory.setItem(HUB_AMETHYST_AIRDROPS, button(Material.CHEST,
                 "Most Amethyst Airdrops Opened", "First player to open each Airdrop scores."));
+        String battleName = clanBattles.active(clans)
+                .map(active -> active.kind().displayName()).orElse("Current Clan Battle");
+        inventory.setItem(HUB_CLAN_BATTLE, button(Material.NETHER_STAR,
+                battleName, "Open the most crates!", "Clan scores reset per member when they leave."));
         MenuItems.show(plugin, player, inventory);
     }
 
@@ -195,6 +203,47 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
         MenuItems.show(plugin, player, inventory);
     }
 
+    void openClanBattle(Player player, int page) {
+        List<JsonObject> ranked = rows("clan", "clan_battle");
+        String title = clanBattles.active(clans)
+                .map(active -> active.kind().displayName()).orElse("Clan Battle");
+        Inventory inventory = create(
+                Menu.Kind.LEADERBOARD_CLAN_BATTLE, null, page, BOARD_SIZE,
+                MenuItems.pagedTitle(title, page, ranked.size()),
+                Menu.Destination.of(Menu.Kind.LEADERBOARD_HUB)
+        );
+        int first = MenuPaging.firstIndex(page, ranked.size(), PER_PAGE);
+        int last = MenuPaging.lastIndex(page, ranked.size(), PER_PAGE);
+        for (int index = first; index < last; index++) {
+            JsonObject row = ranked.get(index);
+            UUID clanId = parseUuid(text(row, "clan_id", ""));
+            ClanStore.ClanView clan = clanId == null ? null : clans.findClanById(clanId).orElse(null);
+            int rank = row.has("rank") ? row.get("rank").getAsInt() : index + 1;
+            String name = text(row, "clan", "?");
+            String badges = text(row, "badges", "");
+            List<String> lore = new ArrayList<>();
+            lore.add(text(row, "display", "0 openings"));
+            lore.add("Open the most crates!");
+            if (!badges.isBlank()) {
+                lore.add("Battle badges: " + badges);
+            }
+            inventory.setItem(index - first, head(
+                    clan == null ? null : clan.leader(),
+                    "#" + rank + "  " + name
+                            + (clan == null ? "" : "  " + ClanLevel.badge(clan.level())),
+                    lore
+            ));
+        }
+        if (ranked.isEmpty()) {
+            inventory.setItem(22, button(Material.BARRIER, "No standings yet",
+                    clanBattles.active(clans).isPresent()
+                            ? "Open a crate while you are in a clan."
+                            : "No Clan Battle is running."));
+        }
+        MenuItems.paginate(inventory, page, ranked.size(), true);
+        MenuItems.show(plugin, player, inventory);
+    }
+
     void openMembers(Player player, UUID clanId, int page, Menu.Kind backKind) {
         Optional<ClanStore.ClanView> found = clans.findClanById(clanId);
         if (found.isEmpty()) {
@@ -258,6 +307,7 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
                     case HUB_PLAYERS_KILLS -> openPlayers(player, "kills", 1);
                     case HUB_AMETHYST_CRATES -> openPlayers(player, "amethyst_crates", 1);
                     case HUB_AMETHYST_AIRDROPS -> openPlayers(player, "amethyst_airdrops", 1);
+                    case HUB_CLAN_BATTLE -> openClanBattle(player, 1);
                     case HUB_REWARDS -> openRewards(player);
                     default -> { }
                 }
@@ -272,6 +322,7 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
             );
             case LEADERBOARD_CLANS -> pageClans(player, "wealth", menu, slot);
             case LEADERBOARD_CLANS_KILLS -> pageClans(player, "kills", menu, slot);
+            case LEADERBOARD_CLAN_BATTLE -> pageClanBattle(player, menu, slot);
             case LEADERBOARD_MEMBERS -> {
                 Menu.Kind back = menu.back() == null ? Menu.Kind.LEADERBOARD_CLANS : menu.back().kind();
                 switch (slot) {
@@ -308,6 +359,26 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
         }
     }
 
+    private void pageClanBattle(Player player, Menu menu, int slot) {
+        switch (slot) {
+            case PREVIOUS_SLOT -> openClanBattle(player, menu.page() - 1);
+            case NEXT_SLOT -> openClanBattle(player, menu.page() + 1);
+            default -> openClanBattleAt(player, menu.page(), slot);
+        }
+    }
+
+    private void openClanBattleAt(Player player, int page, int slot) {
+        List<JsonObject> ranked = rows("clan", "clan_battle");
+        int index = MenuPaging.firstIndex(page, ranked.size(), PER_PAGE) + slot;
+        if (index < 0 || index >= ranked.size()) {
+            return;
+        }
+        UUID clanId = parseUuid(text(ranked.get(index), "clan_id", ""));
+        if (clanId != null) {
+            openMembers(player, clanId, 1, Menu.Kind.LEADERBOARD_CLAN_BATTLE);
+        }
+    }
+
     private void openClanAt(Player player, String board, int page, int slot) {
         List<ClanStore.ClanView> ranked = rankedClans(board);
         int index = MenuPaging.firstIndex(page, ranked.size(), PER_PAGE) + slot;
@@ -337,6 +408,7 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
         switch (back.kind()) {
             case LEADERBOARD_CLANS -> openClans(player, "wealth", Math.max(1, back.page()));
             case LEADERBOARD_CLANS_KILLS -> openClans(player, "kills", Math.max(1, back.page()));
+            case LEADERBOARD_CLAN_BATTLE -> openClanBattle(player, Math.max(1, back.page()));
             case LEADERBOARD_PLAYERS_WEALTH -> openPlayers(player, "wealth", 1);
             case LEADERBOARD_PLAYERS_KILLS -> openPlayers(player, "kills", 1);
             case LEADERBOARD_PLAYERS_AMETHYST_CRATES -> openPlayers(player, "amethyst_crates", 1);
@@ -381,6 +453,7 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
                 || kind == Menu.Kind.LEADERBOARD_PLAYERS_AMETHYST_AIRDROPS
                 || kind == Menu.Kind.LEADERBOARD_CLANS
                 || kind == Menu.Kind.LEADERBOARD_CLANS_KILLS
+                || kind == Menu.Kind.LEADERBOARD_CLAN_BATTLE
                 || kind == Menu.Kind.LEADERBOARD_MEMBERS
                 || kind == Menu.Kind.LEADERBOARD_REWARDS;
     }

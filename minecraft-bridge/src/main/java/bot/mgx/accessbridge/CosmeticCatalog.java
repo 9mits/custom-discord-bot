@@ -134,6 +134,9 @@ final class CosmeticCatalog {
         }
 
         String rarityDisplay() {
+            if (clanBattleOnly()) {
+                return "Clan Battle Champion";
+            }
             if (leaderboardOnly()) {
                 return "Leaderboard #" + leaderboardRank;
             }
@@ -159,6 +162,10 @@ final class CosmeticCatalog {
             return leaderboardRank > 0;
         }
 
+        boolean clanBattleOnly() {
+            return CosmeticCatalog.isClanBattleReward(id);
+        }
+
         boolean hiddenAmethystJackpot() {
             return id.equals(HIDDEN_AMETHYST_COSMETIC_ID);
         }
@@ -182,6 +189,7 @@ final class CosmeticCatalog {
         boolean nameplateWorthy() {
             return category == Category.AURA
                     && !CosmeticCatalog.isAmethystAirdrop(id)
+                    && !clanBattleOnly()
                     && (hiddenAmethystJackpot() || secret || rarityDisplay().equals("Mythic"));
         }
 
@@ -423,6 +431,19 @@ final class CosmeticCatalog {
             )
     );
 
+    /** Permanent ownership awarded to every member of a first-place clan battle roster. */
+    private static final List<Definition> CLAN_BATTLE_REWARDS = List.of(
+            cosmetic(
+                    ClanBattleStore.GALACTIC_CONQUEST_ID,
+                    "Galactic Conquest",
+                    Category.AURA,
+                    1,
+                    "NETHER_STAR",
+                    "Only obtainable from the Crates Clan Battle. A living galaxy and royal "
+                            + "stellar crown orbit the champion."
+            )
+    );
+
     static boolean isLimitedAmethyst(String cosmeticId) {
         return cosmeticId != null && java.util.stream.Stream.concat(
                         AMETHYST_REWARDS.stream(), HIDDEN_AMETHYST_REWARDS.stream()
@@ -432,6 +453,11 @@ final class CosmeticCatalog {
 
     static boolean isAmethystAirdrop(String cosmeticId) {
         return cosmeticId != null && AMETHYST_AIRDROP_REWARDS.stream()
+                .anyMatch(definition -> definition.id().equalsIgnoreCase(cosmeticId));
+    }
+
+    static boolean isClanBattleReward(String cosmeticId) {
+        return cosmeticId != null && CLAN_BATTLE_REWARDS.stream()
                 .anyMatch(definition -> definition.id().equalsIgnoreCase(cosmeticId));
     }
     private static final List<Definition> LEADERBOARD_REWARDS = List.of(
@@ -528,7 +554,7 @@ final class CosmeticCatalog {
         return java.util.stream.Stream.of(
                         DEFINITIONS.stream(), AMETHYST_REWARDS.stream(),
                         HIDDEN_AMETHYST_REWARDS.stream(), AMETHYST_AIRDROP_REWARDS.stream(),
-                        LEADERBOARD_REWARDS.stream()
+                        CLAN_BATTLE_REWARDS.stream(), LEADERBOARD_REWARDS.stream()
                 )
                 .flatMap(stream -> stream)
                 .toList();

@@ -100,6 +100,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private AutoPayStore autoPayStore;
     private CrateFilterStore crateFilterStore;
     private AmethystProgressStore amethystProgress;
+    private ClanBattleStore clanBattleStore;
+    private ClanBattleService clanBattles;
     private AirdropService airdrops;
     private AutoPayService autoPayService;
     private ServerEventService serverEventService;
@@ -179,6 +181,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             amethystProgress = new AmethystProgressStore(
                     getDataFolder().toPath().resolve("amethyst-event-progress.json")
             );
+            clanBattleStore = new ClanBattleStore(
+                    getDataFolder().toPath().resolve("clan-battles.json")
+            );
             identityStore = new DiscordIdentityStore(
                     getDataFolder().toPath().resolve("discord-identities.json")
             );
@@ -198,7 +203,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(personalNotifications, this);
         teleportWarmups = new TeleportWarmupService(this, personalNotifications);
         clanMenuService = new ClanMenuService(
-                this, clanStore, identityService, economyStore, teleportWarmups
+                this, clanStore, identityService, economyStore, teleportWarmups,
+                clanBattleStore
         );
         playerMenuService = new PlayerMenuService(
                 this, playerSettings, identityService, whitelistDirectory
@@ -241,11 +247,13 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 bridgeClient,
                 statsService,
                 clanStore,
+                clanBattleStore,
                 personalNotifications,
                 bridgeConfig.leaderboardRefreshTicks()
         );
         economyStore.onChange(leaderboardService::refreshSoon);
         amethystProgress.onChange(leaderboardService::refreshSoon);
+        clanBattleStore.onChange(leaderboardService::refreshSoon);
         sidebarService.useLeaderboardService(leaderboardService);
         getServer().getPluginManager().registerEvents(verificationLobby, this);
         getServer().getPluginManager().registerEvents(this, this);
@@ -342,6 +350,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         amethystItems = new AmethystItemService(this);
         SpecialItemService specialItems = new SpecialItemService(this, amethystItems);
         CrateItems crateItems = new CrateItems(this, cosmeticStore, specialItems);
+        clanBattles = new ClanBattleService(
+                this, clanBattleStore, clanStore, crateItems, cosmeticStore,
+                leaderboardService
+        );
         crates = new CrateService(
                 this,
                 crateStore,
@@ -353,7 +365,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 perkService,
                 specialItems,
                 crateFilterStore,
-                amethystProgress
+                amethystProgress,
+                clanBattles
         );
         airdrops = new AirdropService(
                 this, crateItems, cosmeticStore, cosmeticItems, amethystProgress
@@ -367,6 +380,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(wardrobeService, this);
         getServer().getPluginManager().registerEvents(cosmeticEffects, this);
         getServer().getPluginManager().registerEvents(crates, this);
+        getServer().getPluginManager().registerEvents(clanBattles, this);
         getServer().getPluginManager().registerEvents(airdrops, this);
         getServer().getPluginManager().registerEvents(specialItems, this);
         getServer().getPluginManager().registerEvents(amethystItems, this);
@@ -408,8 +422,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
+        leaderboardService.onPublished(holograms::refresh);
         LeaderboardMenuService leaderboardMenus = new LeaderboardMenuService(
-                this, clanStore, leaderboardService, identityService, cosmeticItems
+                this, clanStore, leaderboardService, identityService, cosmeticItems,
+                clanBattleStore
         );
         getCommand("leaderboard").setExecutor(leaderboardMenus);
         getCommand("leaderboard").setTabCompleter(leaderboardMenus);
@@ -511,6 +527,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                         crateStore,
                         crateFilterStore,
                         amethystProgress,
+                        clanBattleStore,
                         cosmeticStore,
                         cosmeticItems,
                         trophyHeadStore,
@@ -528,7 +545,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 updateNotices,
                 crates,
                 airdrops,
-                amethystProgress
+                amethystProgress,
+                clanBattles
         );
         getCommand("mgxadmin").setExecutor(adminService);
         getCommand("mgxadmin").setTabCompleter(adminService);
@@ -538,6 +556,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(activityLog, this);
         activityLog.start();
         crates.start();
+        clanBattles.start();
         airdrops.start();
         amethystItems.start();
         crateDisplays.refresh();

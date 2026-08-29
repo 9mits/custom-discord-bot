@@ -43,8 +43,11 @@ final class HologramService {
     enum Board {
         PLAYERS_WEALTH("individual", "wealth", "TOP WEALTH"),
         PLAYERS_KILLS("individual", "kills", "TOP KILLS"),
+        AMETHYST_CRATES("individual", "amethyst_crates", "MOST AMETHYST CRATES OPENED"),
+        AMETHYST_AIRDROPS("individual", "amethyst_airdrops", "MOST AMETHYST AIRDROPS OPENED"),
         CLANS_WEALTH("clan", "wealth", "TOP CLAN WEALTH"),
-        CLANS_KILLS("clan", "kills", "TOP CLAN KILLS");
+        CLANS_KILLS("clan", "kills", "TOP CLAN KILLS"),
+        CLAN_BATTLE("clan", "clan_battle", "CLAN BATTLE");
 
         private final String scope;
         private final String key;
@@ -64,14 +67,18 @@ final class HologramService {
             return switch (token) {
                 case "wealth", "players-wealth", "richest" -> PLAYERS_WEALTH;
                 case "kills", "players-kills" -> PLAYERS_KILLS;
+                case "amethyst-crates", "event-crates", "crates-opened" -> AMETHYST_CRATES;
+                case "amethyst-airdrops", "event-airdrops", "airdrops-opened" -> AMETHYST_AIRDROPS;
                 case "clans-wealth", "clan-wealth", "clans" -> CLANS_WEALTH;
                 case "clans-kills", "clan-kills" -> CLANS_KILLS;
+                case "clan-battle", "clanbattle", "battle" -> CLAN_BATTLE;
                 default -> throw new IllegalArgumentException(usage());
             };
         }
 
         static String usage() {
-            return "Usage: /mgxadmin hologram <wealth|kills|clans-wealth|clans-kills|remove>";
+            return "Usage: /mgxadmin hologram <wealth|kills|amethyst-crates|"
+                    + "amethyst-airdrops|clans-wealth|clans-kills|clan-battle|remove>";
         }
     }
 
@@ -163,8 +170,8 @@ final class HologramService {
 
     private List<Component> lines(Board board, Map<String, Integer> colours) {
         List<Component> lines = new ArrayList<>();
-        lines.add(Component.text(board.title, ORANGE, TextDecoration.BOLD));
-        lines.add(Component.empty());
+        lines.add(Component.text(title(board), ORANGE, TextDecoration.BOLD));
+        lines.add(subtitle(board));
         JsonArray rows = rows(board);
         for (int index = 0; index < ROWS; index++) {
             if (index < rows.size()) {
@@ -176,13 +183,47 @@ final class HologramService {
         return lines;
     }
 
+    private String title(Board board) {
+        if (board != Board.CLAN_BATTLE) {
+            return board.title;
+        }
+        JsonObject snapshot = boards.latest();
+        if (snapshot != null && snapshot.has("clan_battle")
+                && snapshot.get("clan_battle").isJsonObject()) {
+            return text(snapshot.getAsJsonObject("clan_battle"), "name").toUpperCase(Locale.ROOT);
+        }
+        return board.title;
+    }
+
+    private Component subtitle(Board board) {
+        if (board != Board.CLAN_BATTLE) {
+            return Component.empty();
+        }
+        JsonObject snapshot = boards.latest();
+        if (snapshot != null && snapshot.has("clan_battle")
+                && snapshot.get("clan_battle").isJsonObject()) {
+            String objective = text(snapshot.getAsJsonObject("clan_battle"), "objective");
+            if (!objective.isBlank()) {
+                return Component.text(objective, NamedTextColor.YELLOW);
+            }
+        }
+        return Component.text("No event running", NamedTextColor.DARK_GRAY);
+    }
+
     private Component rowLine(Board board, int place, JsonObject row, Map<String, Integer> colours) {
+        if (row.has("rank")) {
+            place = row.get("rank").getAsInt();
+        }
         Component prefix = Component.text("#" + place + " | ", NamedTextColor.WHITE);
         if (board.scope.equals("clan")) {
             String name = text(row, "clan");
             int colour = row.has("colour") ? row.get("colour").getAsInt() : 0xFF9900;
             int level = row.has("level") ? row.get("level").getAsInt() : 0;
             String tag = level > 0 ? "[" + name + "] Lv" + level : "[" + name + "]";
+            String badges = text(row, "badges");
+            if (!badges.isBlank()) {
+                tag += " " + badges;
+            }
             String display = text(row, "display");
             return prefix
                     .append(Component.text(tag, TextColor.color(colour), TextDecoration.BOLD))

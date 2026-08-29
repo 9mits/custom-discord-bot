@@ -77,6 +77,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
      */
     private static final int FAST_REEL_FRAMES = 15;
     private static final int SELECT_DEFAULT_SLOT = 11;
+    private static final int SELECT_SHARD_SLOT = 13;
     private static final int SELECT_AMETHYST_SLOT = 15;
     /** A countdown that only redraws when a screen opens is a timestamp, not a timer. */
     private static final long COUNTDOWN_TICKS = 20L;
@@ -201,6 +202,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private final SpecialItemService specialItems;
     private final CrateFilterStore filters;
     private final AmethystProgressStore amethystProgress;
+    private final ClanBattleService clanBattles;
     private final Map<UUID, RollSession> sessions = new HashMap<>();
     /** Players part way through an auto run, and how many crates are still owed. */
     private final Map<UUID, Integer> autoRuns = new HashMap<>();
@@ -233,7 +235,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             PlayerPerkService perks,
             SpecialItemService specialItems,
             CrateFilterStore filters,
-            AmethystProgressStore amethystProgress
+            AmethystProgressStore amethystProgress,
+            ClanBattleService clanBattles
     ) {
         this.plugin = plugin;
         this.store = store;
@@ -246,6 +249,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         this.specialItems = specialItems;
         this.filters = filters;
         this.amethystProgress = amethystProgress;
+        this.clanBattles = clanBattles;
     }
 
     @Override
@@ -265,7 +269,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                         ? CrateKind.from(args[1]).orElse(null)
                         : selectedKinds.getOrDefault(player.getUniqueId(), CrateKind.DEFAULT);
                 if (kind == null) {
-                    PlayerMenuService.error(player, "Use default or amethyst.");
+                    PlayerMenuService.error(player, "Use default, amethyst, or shard.");
                     return true;
                 }
                 start(player, kind);
@@ -277,7 +281,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 }
                 CrateKind kind = CrateKind.from(args[1]).orElse(null);
                 if (kind == null) {
-                    PlayerMenuService.error(player, "Use default or amethyst.");
+                    PlayerMenuService.error(player, "Use default, amethyst, or shard.");
                     break;
                 }
                 openOdds(player, kind, parsePage(args), true);
@@ -317,7 +321,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         if (args.length == 2 && (args[0].equalsIgnoreCase("open")
                 || args[0].equalsIgnoreCase("odds"))) {
             String prefix = args[1].toLowerCase(Locale.ROOT);
-            return Stream.of("default", "amethyst")
+            return Stream.of("default", "amethyst", "shard")
                     .filter(value -> value.startsWith(prefix))
                     .toList();
         }
@@ -368,6 +372,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         ));
         long now = System.currentTimeMillis();
         inventory.setItem(SELECT_DEFAULT_SLOT, selectButton(CrateKind.DEFAULT, oddsOnly, now));
+        inventory.setItem(SELECT_SHARD_SLOT, selectButton(CrateKind.SHARD, oddsOnly, now));
         inventory.setItem(SELECT_AMETHYST_SLOT, selectButton(CrateKind.AMETHYST, oddsOnly, now));
         MenuItems.show(plugin, player, inventory);
     }
@@ -389,7 +394,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         inventory.setItem(HUB_OPEN_SLOT, MenuItems.button(
                 kind.icon(),
                 "Open " + kind.menuName(),
-                "Spends " + kind.keyCost() + (kind.keyCost() == 1 ? " key." : " keys.")
+                "Spends " + kind.keyCost() + " " + kind.currency().shortName(kind.keyCost()) + "."
         ));
         inventory.setItem(HUB_ODDS_SLOT, MenuItems.button(
                 Material.BOOK,
@@ -409,7 +414,9 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 pull == 1
                         ? "Every opening spins one reel."
                         : "Every opening spins three reels at once.",
-                "Costs " + (kind.keyCost() * TRIPLE_PULL_SIZE) + " keys per opening when on.",
+                "Costs " + (kind.keyCost() * TRIPLE_PULL_SIZE) + " "
+                        + kind.currency().shortName(kind.keyCost() * TRIPLE_PULL_SIZE)
+                        + " per opening when on.",
                 "Auto Open uses it too."
         ));
         int trashed = filters.count(player.getUniqueId());
@@ -597,9 +604,9 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         selectedKinds.put(playerId, kind);
         int pull = pullSize(player);
         int cost = kind.keyCost() * pull;
-        if (items.count(player) < cost) {
+        if (currencyCount(player, kind) < cost) {
             PlayerMenuService.error(player, "You need " + cost
-                    + (cost == 1 ? " Mysterious Crate Key" : " Mysterious Crate Keys")
+                    + " " + kind.currency().fullName(cost)
                     + " to open this crate.");
             return;
         }
@@ -638,18 +645,22 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
      * for does not exist yet.
      */
     private boolean reserveLane(Player player, CrateKind kind, Lane lane, long now) {
-        int consumed = items.remove(player, kind.keyCost());
+        int consumed = removeCurrency(player, kind, kind.keyCost());
         if (consumed != kind.keyCost()) {
-            returnKeys(player, consumed);
-            PlayerMenuService.error(player, "Your keys moved before they could be consumed.");
+            returnCurrency(player, kind, consumed);
+            PlayerMenuService.error(player, "Your " + kind.currency().shortName(2)
+                    + " moved before they could be consumed.");
             return false;
         }
         try {
             lane.pending = store.reserve(
-                    player.getUniqueId(), UUID.randomUUID(), lane.reward.id(), now
+                    player.getUniqueId(), UUID.randomUUID(), lane.reward.id(), kind, now
             );
+            // The opening belongs to the battle active at the instant its currency is
+            // committed, not whichever battle happens to be live after the reel ends.
+            clanBattles.recordCrateOpening(player);
         } catch (IllegalStateException | UncheckedIOException exception) {
-            returnKeys(player, kind.keyCost());
+            returnCurrency(player, kind, kind.keyCost());
             plugin.getLogger().warning("Could not reserve a crate reward: " + exception.getMessage());
             PlayerMenuService.error(player, "That opening could not be saved. Your key was returned.");
             return false;
@@ -779,7 +790,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                     ? trashedPreview(payout.reward())
                     : items.revealedPreview(payout.reward(), cosmeticItems));
         }
-        int keys = items.count(player);
+        int keys = currencyCount(player, kind);
         int pull = pullSize(player);
         int cost = kind.keyCost() * pull;
         boolean canOpen = keys >= cost;
@@ -787,16 +798,19 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 canOpen ? Material.CHEST : Material.BARRIER,
                 canOpen ? (pull == 1 ? "Open Again" : "Open " + pull + " Again")
                         : "Not Enough Keys",
-                canOpen ? "Spends " + cost + " of your " + keys + " keys."
-                        : "This needs " + cost + (cost == 1 ? " key." : " keys.")
+                canOpen ? "Spends " + cost + " of your " + keys + " "
+                        + kind.currency().shortName(keys) + "."
+                        : "This needs " + cost + " " + kind.currency().shortName(cost) + "."
         ));
         int possible = keys / cost;
         inventory.setItem(RESULT_AUTO_SLOT, MenuItems.button(
                 possible > 0 ? Material.HOPPER : Material.BARRIER,
                 "Auto Open",
                 possible > 0 ? "Opens " + (possible * pull) + " crates using "
-                        + (possible * cost) + " keys." : "You cannot afford this crate.",
-                possible > 0 ? "You confirm before anything is spent." : "Earn keys by playing."
+                        + (possible * cost) + " " + kind.currency().shortName(possible * cost) + "."
+                        : "You cannot afford this crate.",
+                possible > 0 ? "You confirm before anything is spent."
+                        : "You need more " + kind.currency().shortName(2) + "."
         ));
         inventory.setItem(RESULT_BACK_SLOT, MenuItems.button(Material.BARRIER, "Close"));
         MenuItems.show(plugin, player, inventory);
@@ -827,13 +841,13 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             PlayerMenuService.error(player, "Your crate is already opening.");
             return;
         }
-        int keys = items.count(player);
+        int keys = currencyCount(player, kind);
         int pull = pullSize(player);
         int cost = kind.keyCost() * pull;
         int opens = keys / cost;
         if (opens <= 0) {
-            PlayerMenuService.error(player, "You need " + cost
-                    + " Mysterious Crate Keys to open this crate.");
+            PlayerMenuService.error(player, "You need " + cost + " "
+                    + kind.currency().fullName(cost) + " to open this crate.");
             return;
         }
         CrateMenu holder = new CrateMenu(Screen.CONFIRM, 1, kind);
@@ -847,19 +861,21 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         }
         inventory.setItem(CONFIRM_YES_SLOT, MenuItems.button(
                 Material.LIME_CONCRETE,
-                "Confirm: spend " + (opens * cost) + " keys",
+                "Confirm: spend " + (opens * cost) + " "
+                        + kind.currency().shortName(opens * cost),
                 pull == 1
                         ? "Opens " + opens + " crates one after another."
                         : "Runs " + opens + " pulls of " + pull + " reels each.",
-                kind.keyCost() == 1 ? "One key is spent per crate." : "Two keys are spent per crate.",
+                kind.keyCost() + " " + kind.currency().shortName(kind.keyCost())
+                        + (kind.keyCost() == 1 ? " is" : " are") + " spent per crate.",
                 "Close the menu part way to keep the rest."
         ));
         inventory.setItem(CONFIRM_NO_SLOT, MenuItems.button(
                 Material.RED_CONCRETE,
                 "Cancel",
-                "Spends nothing. Keeps all " + keys + " keys."
+                "Spends nothing. Keeps all " + keys + " " + kind.currency().shortName(keys) + "."
         ));
-        inventory.setItem(4, items.key(1));
+        inventory.setItem(4, currencyItem(kind, 1));
         MenuItems.show(plugin, player, inventory);
     }
 
@@ -869,12 +885,12 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
      * ends the run with the unspent keys still in the player's inventory.
      */
     private void beginAutoOpen(Player player, CrateKind kind) {
-        int keys = items.count(player);
+        int keys = currencyCount(player, kind);
         int cost = kind.keyCost() * pullSize(player);
         int opens = keys / cost;
         if (opens <= 0) {
-            PlayerMenuService.error(player, "You need " + cost
-                    + " Mysterious Crate Keys to open this crate.");
+            PlayerMenuService.error(player, "You need " + cost + " "
+                    + kind.currency().fullName(cost) + " to open this crate.");
             return;
         }
         autoRuns.put(player.getUniqueId(), opens);
@@ -919,7 +935,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             return;
         }
         int left = remaining - 1;
-        if (left <= 0 || items.count(player) < kind.keyCost() * pullSize(player)) {
+        if (left <= 0 || currencyCount(player, kind) < kind.keyCost() * pullSize(player)) {
             autoRuns.remove(player.getUniqueId());
             Integer counted = autoTrashed.remove(player.getUniqueId());
             int trashed = counted == null ? 0 : counted;
@@ -1054,7 +1070,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private void recordWin(
             Player player, CrateStore.Pending pending, CrateCatalog.Reward reward
     ) {
-        if (CrateCatalog.isAmethyst(reward)) {
+        CrateKind kind = pending.crateKind();
+        if (kind == CrateKind.AMETHYST) {
             try {
                 amethystProgress.recordCratesOpened(player.getUniqueId(), 1);
             } catch (UncheckedIOException exception) {
@@ -1064,7 +1081,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         }
         auditWin(player, pending, reward);
         if (reward.revealTier() != CrateCatalog.RevealTier.NONE) {
-            announceTieredWin(player, reward);
+            announceTieredWin(player, reward, kind);
             effects.playCrateReveal(player, reward);
         }
     }
@@ -1074,15 +1091,17 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         CrateCatalog.Reward reward = CrateCatalog.revealExample(tier).orElseThrow(
                 () -> new IllegalArgumentException("That crate reveal tier is not available.")
         );
-        announceTieredWin(player, reward);
+        announceTieredWin(player, reward, selectedKinds.getOrDefault(
+                player.getUniqueId(), CrateKind.DEFAULT
+        ));
         effects.playCrateReveal(player, reward);
     }
 
-    private void announceTieredWin(Player player, CrateCatalog.Reward reward) {
+    private void announceTieredWin(
+            Player player, CrateCatalog.Reward reward, CrateKind kind
+    ) {
         CrateCatalog.RevealTier tier = reward.revealTier();
-        String crateName = CrateCatalog.isAmethyst(reward)
-                ? CrateKind.AMETHYST.displayName()
-                : CrateKind.DEFAULT.displayName();
+        String crateName = kind.displayName();
         Component announcement = PlayerMenuService.prefix();
         if (tier == CrateCatalog.RevealTier.MYTHIC) {
             announcement = announcement.append(Component.text("WOW! ", NamedTextColor.GOLD,
@@ -1142,7 +1161,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                         + (pull == 1 ? "the " : pull + "x the ") + kind.displayName())
                 .detail("crate", kind.displayName())
                 .detail("openings", pull)
-                .detail("keys_spent", cost);
+                .detail(kind.currency() == CrateKind.Currency.SHARD
+                        ? "shards_spent" : "keys_spent", cost);
         if (luck != CrateCatalog.NO_LUCK_PERCENT) {
             builder.detail("crate_luck", luck + "%");
         }
@@ -1160,7 +1180,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private void auditWin(
             Player player, CrateStore.Pending pending, CrateCatalog.Reward reward
     ) {
-        CrateKind kind = selectedKinds.getOrDefault(player.getUniqueId(), CrateKind.DEFAULT);
+        CrateKind kind = pending.crateKind();
         ServerEvent.of(
                 "crate_reward",
                 ServerEvent.CATEGORY_CRATE,
@@ -1217,6 +1237,12 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                     openOdds(player, CrateKind.DEFAULT, 1, true);
                 } else {
                     openKindHub(player, CrateKind.DEFAULT);
+                }
+            } else if (event.getSlot() == SELECT_SHARD_SLOT) {
+                if (oddsOnly) {
+                    openOdds(player, CrateKind.SHARD, 1, true);
+                } else {
+                    openKindHub(player, CrateKind.SHARD);
                 }
             } else if (event.getSlot() == SELECT_AMETHYST_SLOT) {
                 if (CrateKind.AMETHYST.available(System.currentTimeMillis())) {
@@ -1328,8 +1354,12 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             Integer left = autoRuns.remove(player.getUniqueId());
             Integer trashed = autoTrashed.remove(player.getUniqueId());
             if (left != null && left > 0) {
+                CrateKind kind = selectedKinds.getOrDefault(
+                        player.getUniqueId(), CrateKind.DEFAULT
+                );
                 player.sendMessage(PlayerMenuService.prefix().append(Component.text(
-                        "Auto open stopped. " + items.count(player) + " keys left."
+                        "Auto open stopped. " + currencyCount(player, kind) + " "
+                                + kind.currency().shortName(currencyCount(player, kind)) + " left."
                                 + (trashed == null ? "" : " Auto Trash removed " + trashed + "."),
                         NamedTextColor.GRAY
                 )));
@@ -1589,11 +1619,26 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         return delivered;
     }
 
-    private void returnKeys(Player player, int count) {
+    private int currencyCount(Player player, CrateKind kind) {
+        return kind.currency() == CrateKind.Currency.SHARD
+                ? items.countShards(player) : items.count(player);
+    }
+
+    private int removeCurrency(Player player, CrateKind kind, int count) {
+        return kind.currency() == CrateKind.Currency.SHARD
+                ? items.removeShards(player, count) : items.remove(player, count);
+    }
+
+    private ItemStack currencyItem(CrateKind kind, int count) {
+        return kind.currency() == CrateKind.Currency.SHARD
+                ? items.shard(count) : items.key(count);
+    }
+
+    private void returnCurrency(Player player, CrateKind kind, int count) {
         if (count <= 0) {
             return;
         }
-        player.getInventory().addItem(items.key(count)).values().forEach(overflow ->
+        player.getInventory().addItem(currencyItem(kind, count)).values().forEach(overflow ->
                 player.getWorld().dropItemNaturally(player.getLocation(), overflow));
     }
 
@@ -1658,7 +1703,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private static ItemStack selectButton(CrateKind kind, boolean oddsOnly, long now) {
         String action = oddsOnly
                 ? "View exact odds."
-                : kind.keyCost() + (kind.keyCost() == 1 ? " key required." : " keys required.");
+                : kind.keyCost() + " " + kind.currency().shortName(kind.keyCost()) + " required.";
         if (!kind.limited()) {
             return MenuItems.button(kind.icon(), kind.menuName(), "Permanent rewards.", action);
         }
@@ -1670,14 +1715,19 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
 
     /** The key tile on a crate's own screen, carrying that crate's countdown. */
     private ItemStack hubKeys(Player player, CrateKind kind, long now) {
-        String held = "In inventory: " + items.count(player);
+        String held = "In inventory: " + currencyCount(player, kind);
         if (!kind.limited()) {
-            return named(items.key(1), "Your Keys", held, "Permanent crate");
+            return named(
+                    currencyItem(kind, 1),
+                    kind.currency() == CrateKind.Currency.SHARD ? "Your Shards" : "Your Keys",
+                    held,
+                    "Permanent crate"
+            );
         }
         List<Component> lore = new ArrayList<>();
         lore.add(Component.text(held, NamedTextColor.GRAY));
         lore.addAll(kind.countdownLines(now));
-        ItemStack item = items.key(1);
+        ItemStack item = currencyItem(kind, 1);
         ItemMeta meta = item.getItemMeta();
         if (meta != null) {
             meta.displayName(Component.text("Your Keys", ORANGE, TextDecoration.BOLD)

@@ -39,6 +39,7 @@ final class LeaderboardService implements Listener {
     private final BridgeClient bridge;
     private final PlayerStatsService stats;
     private final ClanStore clans;
+    private final ClanBattleStore clanBattles;
     private final PersonalNotificationService notifications;
     private final long refreshTicks;
     private final AtomicBoolean publishing = new AtomicBoolean();
@@ -49,12 +50,14 @@ final class LeaderboardService implements Listener {
     private volatile Map<LeaderboardStandings.BoardPlayer, LeaderboardStandings.Standing>
             individualStandings = Map.of();
     private volatile boolean standingsInitialized;
+    private volatile Runnable publishObserver = () -> { };
 
     LeaderboardService(
             MGXAccessBridge plugin,
             BridgeClient bridge,
             PlayerStatsService stats,
             ClanStore clans,
+            ClanBattleStore clanBattles,
             PersonalNotificationService notifications,
             long refreshTicks
     ) {
@@ -62,6 +65,7 @@ final class LeaderboardService implements Listener {
         this.bridge = bridge;
         this.stats = stats;
         this.clans = clans;
+        this.clanBattles = clanBattles;
         this.notifications = notifications;
         this.refreshTicks = refreshTicks;
     }
@@ -73,6 +77,11 @@ final class LeaderboardService implements Listener {
                 FIRST_PUBLISH_TICKS,
                 refreshTicks
         );
+    }
+
+    /** Runs on the main thread after each fresh snapshot, for in-world displays. */
+    void onPublished(Runnable observer) {
+        publishObserver = observer == null ? () -> { } : observer;
     }
 
     /** Bukkit's player directory is captured on the main thread before disk work begins. */
@@ -196,10 +205,21 @@ final class LeaderboardService implements Listener {
                         : rankClans(everyone, type));
             }
         }
+        clan.add("clan_battle", rankClanBattle());
+        clanBattles.active(clans).ifPresent(active -> {
+            JsonObject event = new JsonObject();
+            event.addProperty("id", active.id().toString());
+            event.addProperty("kind", active.kind().id());
+            event.addProperty("name", active.kind().displayName());
+            event.addProperty("objective", active.kind().objective());
+            event.addProperty("started_at", active.startedAt());
+            snapshot.add("clan_battle", event);
+        });
         snapshot.add("individual", individual);
         snapshot.add("clan", clan);
         latest = snapshot;
         bridge.sendLeaderboardSnapshot(snapshot);
+        plugin.getServer().getScheduler().runTask(plugin, publishObserver);
     }
 
     JsonObject latest() {
@@ -372,6 +392,31 @@ final class LeaderboardService implements Listener {
             row.addProperty("level", levels.getOrDefault(entry.getKey(), 0));
             row.addProperty("value", entry.getValue());
             row.addProperty("display", type.describe(entry.getValue()));
+            rows.add(row);
+        }
+        return rows;
+    }
+
+    private JsonArray rankClanBattle() {
+        JsonArray rows = new JsonArray();
+        ClanBattleStore.ActiveView active = clanBattles.active(clans).orElse(null);
+        if (active == null) {
+            return rows;
+        }
+        for (ClanBattleStore.Standing standing : active.standings()) {
+            if (rows.size() >= ROWS) {
+                break;
+            }
+            JsonObject row = new JsonObject();
+            row.addProperty("rank", standing.rank());
+            row.addProperty("clan_id", standing.clanId().toString());
+            row.addProperty("clan", standing.clanName());
+            row.addProperty("members", standing.members().size());
+            row.addProperty("colour", standing.colour());
+            row.addProperty("level", standing.level());
+            row.addProperty("value", standing.score());
+            row.addProperty("display", String.format("%,d openings", standing.score()));
+            row.addProperty("badges", clanBattles.badges(standing.clanId()).compact());
             rows.add(row);
         }
         return rows;

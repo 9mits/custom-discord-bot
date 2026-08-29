@@ -4,6 +4,10 @@ MGX cosmetic textures are derived from artwork generated with ChatGPT's built-in
 image-generation tool. The pack must not use a script to draw new icon geometry
 pixel by pixel. Exact supplied source assets are the exceptions documented below.
 
+The Shard currency starts from the exact transparent crystal-cluster source supplied
+for the feature, then passes through the normal 16x16 logical-grid importer so Java
+and Bedrock receive the same crisp inventory sprite.
+
 ## Production rules
 
 - Design on a deliberate **16x16 logical pixel grid**, exported at 32x32 as exact
@@ -110,6 +114,7 @@ Avoid: flat symbol design, mobile-game gloss, smooth illustration, excessive det
 | `frost_trail` | Pale-blue frozen feather with an angular snowflake at its tail. |
 | `frozen_shatter` | Pale-blue ice crystal cracking into sharp cold-white and deep-blue shards. |
 | `galaxy_wake` | Blue-white stellar comet with a broad midnight-violet, star-filled tail. |
+| `galactic_conquest` | Miniature spiral galaxy held inside a broken royal orbital crown, with a cyan-white stellar core, violet arms, and restrained gold points. |
 | `golden_finality` | Single royal-gold execution sword with a sun-shaped royal fitting. |
 | `infernal_dominion` | Blackened nether-metal crown with lava cracks and a yellow-hot ember gem. |
 | `iridescent_imperium` | Dominant royal-amethyst resonance heart in a broken couture-gold crown ring, set with restrained ruby, sapphire, emerald, and champagne facets. |
@@ -129,6 +134,7 @@ Avoid: flat symbol design, mobile-game gloss, smooth illustration, excessive det
 | `solar_orbit` | Faceted miniature sun with one diagonal gold orbit and a tiny solar flare. |
 | `soul_requiem` | Dark iron reliquary lantern containing a cyan spirit flame and soul wisp. |
 | `void_collapse` | Dense black-violet imploding sphere with a broken amethyst rim. |
+| `shard` | Three sharply faceted violet and cyan crystal shards rising from one compact dark-purple base, matching the supplied reference silhouette. |
 
 ## Potion reskin edit prompt
 
