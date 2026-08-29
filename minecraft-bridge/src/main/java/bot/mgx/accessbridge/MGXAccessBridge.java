@@ -457,8 +457,14 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(leaderboardMenus, this);
 
         SettingsClientSupport dialogSupport = new SettingsClientSupport();
+        ProfileStatsService profileStats = new ProfileStatsService(
+                this,
+                getServer().getWorlds().get(0).getWorldFolder().toPath().resolve("stats"),
+                economyStore,
+                crateItems
+        );
         StatsDialogService statsDialogs = new StatsDialogService(
-                this, economyStore, crateItems, dialogSupport
+                this, profileStats, crateItems, dialogSupport
         );
         getCommand("stats").setExecutor(statsDialogs);
         TeleportDialogService teleportDialogs =
@@ -472,6 +478,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         // The chest screens stay as the Bedrock and pre-1.21.6 path, so each command
         // asks the client what it can render rather than picking one for everyone.
         leaderboardMenus.useDialogs(leaderboardDialogs, dialogSupport);
+        clanService.useChooser(new ClanChooserService(
+                clanMenuService, clanStore, clanBattleStore, dialogSupport
+        ));
         teleportMenus.useHomesDialog(homesDialogs);
         AuctionStore auctionStore;
         try {

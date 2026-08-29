@@ -11,8 +11,9 @@ import io.papermc.paper.registry.data.dialog.body.DialogBody;
 import io.papermc.paper.registry.data.dialog.type.DialogType;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.event.ClickCallback;
+import net.kyori.adventure.text.event.ClickEvent;
+import net.kyori.adventure.text.event.HoverEvent;
 import net.kyori.adventure.text.format.NamedTextColor;
-import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
 import java.time.Duration;
@@ -41,6 +42,7 @@ final class LeaderboardDialogService {
         AMETHYST_CRATES("Amethyst Crates", "individual", "amethyst_crates"),
         AMETHYST_AIRDROPS("Amethyst Airdrops", "individual", "amethyst_airdrops"),
         CLAN_WEALTH("Clan Treasury", "clan", "wealth"),
+        CLAN_KILLS("Clan Kills", "clan", "kills"),
         CLAN_BATTLE("Clan Battle", "clan", "clan_battle");
 
         private final String label;
@@ -93,7 +95,8 @@ final class LeaderboardDialogService {
                         .body(List.of(DialogBody.plainMessage(
                                 MenuText.body("Pick a board."), 400
                         )))
-                        .afterAction(DialogBase.DialogAfterAction.WAIT_FOR_RESPONSE)
+                        .afterAction(DialogBase.DialogAfterAction.NONE)
+                        .canCloseWithEscape(true)
                         .build())
                 .type(DialogType.multiAction(buttons).columns(3).build()));
         viewer.showDialog(dialog);
@@ -102,7 +105,6 @@ final class LeaderboardDialogService {
     private void openBoard(Player viewer, Board board) {
         JsonArray rows = rows(board);
         List<DialogBody> body = new ArrayList<>();
-        List<ActionButton> buttons = new ArrayList<>();
         if (rows.isEmpty()) {
             body.add(DialogBody.plainMessage(
                     MenuText.body("No standings yet. Play a little and this fills in."), 400
@@ -118,30 +120,32 @@ final class LeaderboardDialogService {
             }
             UUID id = uuid(row);
             String name = text(row, "player");
-            body.add(DialogBody.plainMessage(MenuText.rankedRow(
+            Component line = MenuText.rankedRow(
                     rank, id, name, Component.text(display, MenuText.VALUE)
-            ), 400));
-            if (id != null && Bukkit.getPlayer(id) != null) {
-                buttons.add(ActionButton.builder(Component.empty()
-                                .append(MenuText.head(id))
-                                .append(Component.text(" " + name, MenuText.placeColour(rank))))
-                        .tooltip(Component.text("View profile", MenuText.LABEL))
-                        .width(150)
-                        .action(callback((response, audience) -> {
-                            Player target = Bukkit.getPlayer(id);
-                            if (target == null) {
-                                PlayerMenuService.error(audience, "They went offline.");
-                                return;
-                            }
-                            stats.openCard(audience, target);
-                        }))
-                        .build());
+            );
+            if (id != null) {
+                // The row itself is the link. A separate button per player is a second
+                // list of the same names, and it is not how anyone reads a board.
+                line = line
+                        .hoverEvent(HoverEvent.showText(
+                                Component.text("View profile", MenuText.LABEL)))
+                        .clickEvent(ClickEvent.callback(
+                                audience -> {
+                                    if (audience instanceof Player clicker && clicker.isOnline()) {
+                                        stats.openCard(clicker, id, name);
+                                    }
+                                },
+                                CALLBACK_OPTIONS
+                        ));
             }
+            body.add(DialogBody.plainMessage(line, 400));
         }
-        buttons.add(ActionButton.builder(Component.text("Back", MenuText.LABEL))
-                .width(150)
-                .action(callback((response, audience) -> openHub(audience)))
-                .build());
+        List<ActionButton> buttons = List.of(
+                ActionButton.builder(Component.text("Back", MenuText.LABEL))
+                        .width(150)
+                        .action(callback((response, audience) -> openHub(audience)))
+                        .build()
+        );
         String title = board == Board.CLAN_BATTLE
                 ? clanBattles.active(clans).map(active -> active.kind().displayName())
                         .orElse("Clan Battle")
@@ -149,9 +153,10 @@ final class LeaderboardDialogService {
         Dialog dialog = Dialog.create(builder -> builder.empty()
                 .base(DialogBase.builder(MenuText.title(title))
                         .body(List.copyOf(body))
-                        .afterAction(DialogBase.DialogAfterAction.WAIT_FOR_RESPONSE)
+                        .afterAction(DialogBase.DialogAfterAction.NONE)
+                        .canCloseWithEscape(true)
                         .build())
-                .type(DialogType.multiAction(buttons).columns(2).build()));
+                .type(DialogType.multiAction(buttons).columns(1).build()));
         viewer.showDialog(dialog);
     }
 

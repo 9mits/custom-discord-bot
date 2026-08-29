@@ -52,10 +52,13 @@ final class MenuText {
      * a missing-texture square, so this is only used for materials chosen in code.
      */
     static Component icon(Material material) {
-        String folder = material.isBlock() ? "block/" : "item/";
-        return Component.object(ObjectContents.sprite(
-                BLOCK_ATLAS, Key.key("minecraft", folder + material.name().toLowerCase(Locale.ROOT))
-        ));
+        return sprite((material.isBlock() ? "block/" : "item/")
+                + material.name().toLowerCase(Locale.ROOT));
+    }
+
+    /** An icon named by its exact texture path, for the ones the split gets wrong. */
+    static Component sprite(String path) {
+        return Component.object(ObjectContents.sprite(BLOCK_ATLAS, Key.key("minecraft", path)));
     }
 
     /** {@code Label: value} with the value carrying the colour. */

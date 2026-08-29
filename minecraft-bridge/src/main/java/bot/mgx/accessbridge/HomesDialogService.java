@@ -205,7 +205,8 @@ final class HomesDialogService {
         Dialog dialog = Dialog.create(builder -> builder.empty()
                 .base(DialogBase.builder(MenuText.title(title))
                         .body(List.of(DialogBody.plainMessage(MenuText.body(body), 400)))
-                        .afterAction(DialogBase.DialogAfterAction.WAIT_FOR_RESPONSE)
+                        .afterAction(DialogBase.DialogAfterAction.NONE)
+                        .canCloseWithEscape(true)
                         .build())
                 .type(DialogType.multiAction(buttons).columns(columns).build()));
         player.showDialog(dialog);

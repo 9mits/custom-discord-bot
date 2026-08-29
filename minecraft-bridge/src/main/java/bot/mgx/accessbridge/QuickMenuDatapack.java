@@ -116,11 +116,28 @@ final class QuickMenuDatapack {
         action.addProperty("command", entry.command());
 
         JsonObject button = new JsonObject();
-        button.add("label", text(entry.label()));
+        button.add("label", labelWithIcon(entry));
         button.add("tooltip", text(entry.tooltip()));
         button.addProperty("width", BUTTON_WIDTH);
         button.add("action", action);
         return button;
+    }
+
+    /**
+     * The label is the item's sprite followed by the name. 1.21.9's object component
+     * is what lets an icon sit inside text, and it is the difference between a grid of
+     * words and a menu you can read at a glance.
+     */
+    private static JsonArray labelWithIcon(MainMenu entry) {
+        JsonObject sprite = new JsonObject();
+        sprite.addProperty("type", "object");
+        sprite.addProperty("object", "atlas");
+        sprite.addProperty("atlas", "minecraft:blocks");
+        sprite.addProperty("sprite", entry.sprite());
+        JsonArray label = new JsonArray();
+        label.add(sprite);
+        label.add(text(" " + entry.label()));
+        return label;
     }
 
     private static JsonObject quickActionsTag() {
