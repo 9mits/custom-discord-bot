@@ -20,6 +20,7 @@ from typing import Any, Iterable, Mapping, Optional, Sequence
 import discord
 from discord import InteractionType, app_commands
 
+from . import logroutes
 from .presentation import branded_send, head_url, info_embed
 
 
@@ -73,6 +74,8 @@ COMMAND_RISK: Mapping[str, str] = {
     "minecraft clan leave": RISK_MODERATE,
     "mcadmin setup": RISK_CONFIGURATION,
     "mcadmin log-channel": RISK_CONFIGURATION,
+    "mcadmin logs": RISK_CONFIGURATION,
+    "mcadmin log-route": RISK_CONFIGURATION,
     "mcadmin chat-channel": RISK_CONFIGURATION,
     "mcadmin leaderboard": RISK_CONFIGURATION,
     "mcadmin wipe": RISK_DESTRUCTIVE,
@@ -128,6 +131,18 @@ SERVER_EVENT_TITLES: Mapping[str, str] = {
     "crate_rare_win": "Rare Crate Reward Won",
     "lootbox_key_grant": "Crate Keys Issued",
     "lootbox_rare_win": "Rare Crate Reward Won",
+    "crate_open": "Crate Opened",
+    "crate_reward": "Crate Reward Won",
+    "player_kill": "Player Killed",
+    "player_death": "Player Died",
+    "boss_kill": "Boss Defeated",
+    "mobs_killed": "Mobs Killed",
+    "rare_ore": "Rare Ore Found",
+    "ores_mined": "Ores Mined",
+    "advancement": "Advancement Earned",
+    "level_milestone": "Experience Milestone",
+    "cosmetic_equip": "Cosmetic Equipped",
+    "cosmetic_steal": "Cosmetic Stolen",
 }
 
 
@@ -493,9 +508,11 @@ async def deliver_server_event(
     settings = getattr(client, "settings", None)
     if settings is None:
         return
-    activity_channel = int(getattr(settings, "command_log_channel_id", 0) or 0)
-    important_channel = int(getattr(settings, "critical_log_channel_id", 0) or 0)
-    channel_id = (important_channel or activity_channel) if record.important else activity_channel
+    # The server says which category the action belongs to; the routing table says
+    # which channel that category is read in.
+    channel_id = logroutes.resolve(
+        settings, record.correlation_id or "server", important=record.important
+    )
     if not channel_id:
         return
 
@@ -582,13 +599,7 @@ async def deliver(client: Any, record: CommandAuditRecord) -> None:
     if settings is None:
         return
 
-    command_channel = int(getattr(settings, "command_log_channel_id", 0) or 0)
-    important_channel = int(getattr(settings, "critical_log_channel_id", 0) or 0)
-
-    if record.important:
-        targets = [important_channel or command_channel]
-    else:
-        targets = [command_channel]
+    targets = [logroutes.resolve(settings, "command", important=record.important)]
 
     embed = build_action_embed(record)
     await _set_player_thumbnail(client, embed, record.target_id or record.user_id)

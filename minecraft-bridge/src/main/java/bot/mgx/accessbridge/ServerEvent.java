@@ -31,6 +31,18 @@ record ServerEvent(
     static final String CATEGORY_STAFF = "staff";
     static final String CATEGORY_ADMIN = "admin";
     static final String CATEGORY_ECONOMY = "economy";
+    /**
+     * The categories the world itself reports.
+     *
+     * <p>The bot routes on this value, so a category is not a label — it is the name
+     * of a channel somebody chose. Adding one here without teaching the bot about it
+     * is safe: an unknown category falls back rather than being dropped.
+     */
+    static final String CATEGORY_COMBAT = "combat";
+    static final String CATEGORY_MINING = "mining";
+    static final String CATEGORY_CRATE = "crate";
+    static final String CATEGORY_PROGRESSION = "progression";
+    static final String CATEGORY_COSMETIC = "cosmetic";
 
     private static final int SUMMARY_LIMIT = 300;
     private static final int DETAIL_LIMIT = 200;

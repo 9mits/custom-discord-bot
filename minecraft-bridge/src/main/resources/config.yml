@@ -82,4 +82,30 @@ world:
   max-simulation-distance: 4
   border-radius: 100000
 
+# What the server reports to the Discord activity log.
+#
+# Everything reports unless it is switched off here, so a topic added to a later
+# build starts reporting on a server that already has this file - an allow list
+# would leave it silent and nobody would notice. Discord decides which channel
+# each topic is written to and can mute one outright; this decides whether the
+# server bothers saying it at all.
+#
+# High-rate topics are counted per player rather than sent one at a time: ore
+# blocks and ordinary mob kills arrive as a single tally every flush-minutes,
+# while player kills, deaths, boss kills and diamond-tier finds are sent the
+# moment they happen. Lowering flush-minutes makes the log chattier, not more
+# detailed. A player who logs out is flushed straight away.
+activity-log:
+  flush-minutes: 5
+  topics:
+    combat: true
+    mining: true
+    crate: true
+    progression: true
+    cosmetic: true
+    clan: true
+    economy: true
+    staff: true
+    admin: true
+
 debug: false
