@@ -984,7 +984,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                         "Use /mgxadmin clanbattle start crates."
                 ));
                 ClanBattleStore.ActiveView active = clanBattles.startBattle(
-                        kind, CrateKind.AMETHYST.closesAt()
+                        kind, clanBattleDeadline(args.length >= 4 ? args[3] : null)
                 );
                 success(sender, "Started " + active.kind().displayName() + ", ending in "
                         + ClanBattleCountdown.remaining(
@@ -1015,9 +1015,29 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 report(sender, "clan_battle_cancel", "Cancelled the active clan battle").record();
             }
             default -> throw new IllegalArgumentException(
-                    "Use /mgxadmin clanbattle <start crates|status|end|cancel confirm>."
+                    "Use /mgxadmin clanbattle <start crates [7d]|status|end|cancel confirm>."
             );
         }
+    }
+
+    /**
+     * With no length given a battle runs to the Limited Amethyst Crate close, so the
+     * two events finish together. Once that date is behind us the crate can no longer
+     * time anything, and a later battle has to say how long it runs.
+     */
+    private static long clanBattleDeadline(String requested) {
+        long now = System.currentTimeMillis();
+        if (requested != null) {
+            return Math.addExact(now, ClanBattleCountdown.parse(requested));
+        }
+        long crateCloses = CrateKind.AMETHYST.closesAt();
+        if (crateCloses > now) {
+            return crateCloses;
+        }
+        throw new IllegalArgumentException(
+                "The Amethyst Crate has already closed, so give a length: "
+                        + "/mgxadmin clanbattle start crates 7d"
+        );
     }
 
     private void sendResetHelp(CommandSender sender) {
@@ -1072,7 +1092,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         sender.sendMessage(Component.text("  /mgxadmin hologram <board|remove>", ORANGE)
                 .append(Component.text("  place or remove a spawn leaderboard", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text(
-                        "  /mgxadmin clanbattle <start crates|status|end|cancel confirm>", ORANGE
+                        "  /mgxadmin clanbattle <start crates [7d]|status|end|cancel confirm>",
+                        ORANGE
                 ).append(Component.text(
                         "  control the current clan event and its rewards", NamedTextColor.GRAY
                 )));
@@ -1308,6 +1329,9 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             }
             if (args.length == 3 && args[1].equalsIgnoreCase("cancel")) {
                 return partial(args[2], List.of("confirm"));
+            }
+            if (args.length == 4 && args[1].equalsIgnoreCase("start")) {
+                return partial(args[3], List.of("7d", "3d", "24h", "12h"));
             }
             return List.of();
         }
