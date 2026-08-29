@@ -114,7 +114,12 @@ final class ClanBattleStore {
     ) {
     }
 
-    record ActiveView(UUID id, Kind kind, long startedAt, List<Standing> standings) {
+    record ActiveView(
+            UUID id, Kind kind, long startedAt, long endsAt, List<Standing> standings
+    ) {
+        boolean expired(long now) {
+            return now >= endsAt;
+        }
     }
 
     record CompletedView(UUID id, Kind kind, long startedAt, long endedAt, List<Standing> winners) {
@@ -135,6 +140,7 @@ final class ClanBattleStore {
         String id;
         String kind;
         long startedAt;
+        long endsAt;
         Map<String, SavedContribution> contributions = new LinkedHashMap<>();
     }
 
@@ -189,9 +195,12 @@ final class ClanBattleStore {
         this.observer = observer == null ? () -> { } : observer;
     }
 
-    synchronized ActiveView start(Kind kind, long now, ClanStore clans) {
+    synchronized ActiveView start(Kind kind, long now, long endsAt, ClanStore clans) {
         if (kind == null) {
             throw new IllegalArgumentException("Choose a clan battle type.");
+        }
+        if (endsAt <= now) {
+            throw new IllegalArgumentException("That clan battle deadline has already passed.");
         }
         if (state.active != null) {
             throw new IllegalArgumentException(activeView(clans).kind().displayName()
@@ -202,6 +211,7 @@ final class ClanBattleStore {
         active.id = UUID.randomUUID().toString();
         active.kind = kind.id();
         active.startedAt = now;
+        active.endsAt = endsAt;
         state.active = active;
         persistOrRestore(before);
         return activeView(clans);
@@ -211,8 +221,13 @@ final class ClanBattleStore {
         return state.active == null ? Optional.empty() : Optional.of(activeView(clans));
     }
 
-    synchronized long recordCrate(UUID playerId, ClanStore clans) {
+    synchronized long recordCrate(UUID playerId, long now, ClanStore clans) {
         if (state.active == null || kindOf(state.active) != Kind.CRATES) {
+            return 0L;
+        }
+        // The sweep that ends an expired battle runs on a tick; without this an
+        // opening in that gap would score after the deadline players were shown.
+        if (now >= state.active.endsAt) {
             return 0L;
         }
         ClanStore.ClanView clan = clans.clanOf(playerId).orElse(null);
@@ -327,7 +342,7 @@ final class ClanBattleStore {
     private ActiveView activeView(ClanStore clans) {
         return new ActiveView(
                 UUID.fromString(state.active.id), kindOf(state.active), state.active.startedAt,
-                standings(state.active, clans)
+                state.active.endsAt, standings(state.active, clans)
         );
     }
 

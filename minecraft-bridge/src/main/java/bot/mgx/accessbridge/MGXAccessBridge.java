@@ -210,7 +210,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 this, playerSettings, identityService, whitelistDirectory
         );
         ClanService clanService = new ClanService(
-                this, clanStore, identityService, perkService, playerSettings, clanMenuService
+                this, clanStore, identityService, perkService, playerSettings, clanMenuService,
+                clanBattleStore
         );
         GuideService guideService = new GuideService(playerMenuService);
         sidebarService = new SidebarService(
@@ -220,6 +221,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 identityService,
                 playerSettings,
                 economyStore,
+                clanBattleStore,
                 bridgeConfig.scoreboardFooter(),
                 bridgeConfig.scoreboardUpdateTicks()
         );
@@ -423,6 +425,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             return;
         }
         leaderboardService.onPublished(holograms::refresh);
+        getServer().getScheduler().scheduleSyncRepeatingTask(
+                this, holograms::tickCountdown, 120L, 20L
+        );
         LeaderboardMenuService leaderboardMenus = new LeaderboardMenuService(
                 this, clanStore, leaderboardService, identityService, cosmeticItems,
                 clanBattleStore

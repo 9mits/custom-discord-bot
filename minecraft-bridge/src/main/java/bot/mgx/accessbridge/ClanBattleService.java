@@ -22,6 +22,10 @@ import java.util.UUID;
 
 /** Runtime control, announcements, and idempotent player rewards for clan battles. */
 final class ClanBattleService implements Listener {
+    /** Announced once each as the deadline passes them, newest clan battle only. */
+    private static final long[] WARNING_MILLIS = {
+            86_400_000L, 3_600_000L, 600_000L, 60_000L
+    };
     private static final TextColor GOLD = TextColor.color(0xFFD35A);
     private static final TextColor SILVER = TextColor.color(0xC0D4E8);
     private static final TextColor BRONZE = TextColor.color(0xCD7F32);
@@ -32,6 +36,8 @@ final class ClanBattleService implements Listener {
     private final CrateItems items;
     private final CosmeticStore cosmetics;
     private final LeaderboardService leaderboards;
+    /** Warnings already broadcast for the running battle, cleared when one starts. */
+    private final java.util.Set<Long> warned = new java.util.HashSet<>();
 
     ClanBattleService(
             MGXAccessBridge plugin,
@@ -49,13 +55,19 @@ final class ClanBattleService implements Listener {
         this.leaderboards = leaderboards;
     }
 
-    ClanBattleStore.ActiveView startBattle(ClanBattleStore.Kind kind) {
-        ClanBattleStore.ActiveView active = store.start(kind, System.currentTimeMillis(), clans);
+    ClanBattleStore.ActiveView startBattle(ClanBattleStore.Kind kind, long endsAt) {
+        long now = System.currentTimeMillis();
+        ClanBattleStore.ActiveView active = store.start(kind, now, endsAt, clans);
+        warned.clear();
         leaderboards.publishNow();
         Bukkit.broadcast(prefix()
                 .append(Component.text(active.kind().displayName(), GOLD, TextDecoration.BOLD))
                 .append(Component.text(" has begun! ", NamedTextColor.WHITE))
                 .append(Component.text(active.kind().objective(), NamedTextColor.YELLOW)));
+        Bukkit.broadcast(prefix().append(Component.text(
+                "Ends in " + ClanBattleCountdown.remaining(active.endsAt() - now) + ".",
+                NamedTextColor.YELLOW
+        )));
         for (Player player : Bukkit.getOnlinePlayers()) {
             player.playSound(player.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f, 0.9f);
         }
@@ -64,6 +76,7 @@ final class ClanBattleService implements Listener {
 
     ClanBattleStore.CompletedView endBattle() {
         ClanBattleStore.CompletedView completed = store.end(clans, System.currentTimeMillis());
+        warned.clear();
         reconcileGalaxyRewards();
         for (Player player : Bukkit.getOnlinePlayers()) {
             deliverShardGrants(player, true);
@@ -77,6 +90,7 @@ final class ClanBattleService implements Listener {
         String name = store.active(clans).map(view -> view.kind().displayName())
                 .orElse("Clan Battle");
         store.cancel();
+        warned.clear();
         leaderboards.publishNow();
         Bukkit.broadcast(prefix().append(Component.text(
                 name + " was cancelled. No rewards were awarded.", NamedTextColor.GRAY
@@ -92,12 +106,16 @@ final class ClanBattleService implements Listener {
                 ? "No clan has scored yet."
                 : "Leader: " + active.standings().getFirst().clanName() + " with "
                         + active.standings().getFirst().score() + " openings.";
-        return active.kind().displayName() + " is live. " + active.kind().objective() + " " + leader;
+        String left = ClanBattleCountdown.remaining(
+                active.endsAt() - System.currentTimeMillis()
+        );
+        return active.kind().displayName() + " is live, ending in " + left + ". "
+                + active.kind().objective() + " " + leader;
     }
 
     void recordCrateOpening(Player player) {
         try {
-            store.recordCrate(player.getUniqueId(), clans);
+            store.recordCrate(player.getUniqueId(), System.currentTimeMillis(), clans);
         } catch (ArithmeticException | UncheckedIOException exception) {
             plugin.getLogger().warning("Could not record a Clan Battle crate opening for "
                     + player.getUniqueId() + ": " + exception.getMessage());
@@ -108,6 +126,42 @@ final class ClanBattleService implements Listener {
         reconcileGalaxyRewards();
         for (Player player : Bukkit.getOnlinePlayers()) {
             deliverShardGrants(player, false);
+        }
+        // A battle ends on its own deadline, so a restart or an empty server cannot
+        // leave one running past the countdown players were shown.
+        plugin.getServer().getScheduler().scheduleSyncRepeatingTask(
+                plugin, this::tick, 100L, 20L
+        );
+    }
+
+    private void tick() {
+        ClanBattleStore.ActiveView active = store.active(clans).orElse(null);
+        if (active == null) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (active.expired(now)) {
+            try {
+                endBattle();
+            } catch (IllegalArgumentException | UncheckedIOException exception) {
+                plugin.getLogger().warning(
+                        "Could not close the expired clan battle: " + exception.getMessage()
+                );
+            }
+            return;
+        }
+        long left = active.endsAt() - now;
+        for (long milestone : WARNING_MILLIS) {
+            if (left <= milestone && warned.add(milestone)) {
+                Bukkit.broadcast(prefix()
+                        .append(Component.text(active.kind().displayName(), GOLD,
+                                TextDecoration.BOLD))
+                        .append(Component.text(" ends in ", NamedTextColor.WHITE))
+                        .append(Component.text(ClanBattleCountdown.remaining(milestone),
+                                NamedTextColor.YELLOW, TextDecoration.BOLD))
+                        .append(Component.text("!", NamedTextColor.WHITE)));
+                break;
+            }
         }
     }
 

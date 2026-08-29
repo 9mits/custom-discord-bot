@@ -1492,6 +1492,36 @@ class MinecraftLeaderboardRenderTests(unittest.TestCase):
         self.assertIn("**#2**", embed.description)
         self.assertIn("G x2 B", embed.description)
 
+    def test_clan_battle_shows_a_live_discord_countdown(self):
+        snapshot = {
+            "clan_battle": {
+                "name": "Crates Clan Battle",
+                "objective": "Open the most crates!",
+                "ends_at": 1_788_588_000_000,
+            },
+            "clan": {"clan_battle": [{"rank": 1, "clan": "Wolves", "display": "9 openings"}]},
+        }
+
+        embed = self.leaderboard.build_embed(
+            snapshot, scope="clan", board="clan_battle"
+        )
+
+        # A relative stamp keeps ticking between refreshes; a rendered string would
+        # be stale the moment the message is posted.
+        self.assertIn("<t:1788588000:R>", embed.description)
+
+    def test_clan_battle_without_a_deadline_omits_the_countdown(self):
+        snapshot = {
+            "clan_battle": {"name": "Crates Clan Battle", "objective": "Open!"},
+            "clan": {"clan_battle": [{"rank": 1, "clan": "Wolves", "display": "9 openings"}]},
+        }
+
+        embed = self.leaderboard.build_embed(
+            snapshot, scope="clan", board="clan_battle"
+        )
+
+        self.assertNotIn("<t:", embed.description)
+
     def test_emoji_names_are_discord_safe(self):
         self.assertEqual(self.leaderboard._emoji_name("Not.A-Name!"), "mgx_head_NotAName")
         self.assertTrue(self.leaderboard._emoji_name("").endswith("player"))

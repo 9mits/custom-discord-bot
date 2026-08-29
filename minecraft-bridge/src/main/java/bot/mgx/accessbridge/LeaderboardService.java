@@ -213,6 +213,7 @@ final class LeaderboardService implements Listener {
             event.addProperty("name", active.kind().displayName());
             event.addProperty("objective", active.kind().objective());
             event.addProperty("started_at", active.startedAt());
+            event.addProperty("ends_at", active.endsAt());
             snapshot.add("clan_battle", event);
         });
         snapshot.add("individual", individual);

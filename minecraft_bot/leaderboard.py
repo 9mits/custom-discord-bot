@@ -373,6 +373,17 @@ def _thumbnail(rows: list[dict[str, Any]]) -> str:
     return head_url(uuid, str(leader.get("username") or ""))
 
 
+def _countdown(event: dict) -> str:
+    """Discord's own relative stamp, so the deadline keeps ticking without a refresh."""
+    try:
+        ends_at = int(event.get("ends_at") or 0)
+    except (TypeError, ValueError):
+        return "\n"
+    if ends_at <= 0:
+        return "\n"
+    return f"Ends <t:{ends_at // 1000}:R>  ·  <t:{ends_at // 1000}:f>\n\n"
+
+
 def build_embed(
     snapshot: dict[str, Any],
     *,
@@ -405,7 +416,8 @@ def build_embed(
     )
     if scope == "clan" and board == "clan_battle":
         objective = str(event.get("objective") or "")
-        note = f"**{objective}**\n\n" if objective else ""
+        note = f"**{objective}**\n" if objective else ""
+        note += _countdown(event)
     rows = _rows(snapshot, scope, board)
     if not rows:
         embed.description = note + "No standings yet. Play a little and this fills in."

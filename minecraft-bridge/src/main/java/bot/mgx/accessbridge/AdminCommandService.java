@@ -983,11 +983,16 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 ).orElseThrow(() -> new IllegalArgumentException(
                         "Use /mgxadmin clanbattle start crates."
                 ));
-                ClanBattleStore.ActiveView active = clanBattles.startBattle(kind);
-                success(sender, "Started " + active.kind().displayName() + ".");
+                ClanBattleStore.ActiveView active = clanBattles.startBattle(
+                        kind, CrateKind.AMETHYST.closesAt()
+                );
+                success(sender, "Started " + active.kind().displayName() + ", ending in "
+                        + ClanBattleCountdown.remaining(
+                                active.endsAt() - System.currentTimeMillis()) + ".");
                 report(sender, "clan_battle_start", "Started " + active.kind().displayName())
                         .detail("battle_id", active.id().toString())
                         .detail("kind", active.kind().id())
+                        .detail("ends_at", active.endsAt())
                         .record();
             }
             case "end" -> {
