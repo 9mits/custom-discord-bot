@@ -33,23 +33,38 @@ final class WarpChooserService {
     private final ClanWarpDialogService clanWarps;
     private final ClanStore clans;
     private final SettingsClientSupport clientSupport;
+    private final BedrockForms forms;
 
     WarpChooserService(
             TeleportMenuService warps,
             ClanWarpDialogService clanWarps,
             ClanStore clans,
-            SettingsClientSupport clientSupport
+            SettingsClientSupport clientSupport,
+            BedrockForms forms
     ) {
         this.warps = warps;
         this.clanWarps = clanWarps;
         this.clans = clans;
         this.clientSupport = clientSupport;
+        this.forms = forms;
     }
 
     void open(Player player) {
         boolean hasClan = clans.clanOf(player.getUniqueId()).isPresent();
-        if (!hasClan || !clientSupport.supportsDialogs(player)) {
+        if (!hasClan) {
             warps.openWarps(player, 1);
+            return;
+        }
+        if (!clientSupport.supportsDialogs(player)) {
+            // Without this a Bedrock player could not reach their clan warps from the
+            // Warps button at all, which is the whole reason the chooser exists.
+            boolean shown = forms.menu(player, "Warps", "Where are you going?", List.of(
+                    new BedrockForms.Button("Server Warps", () -> warps.openWarps(player, 1)),
+                    new BedrockForms.Button("Clan Warps", () -> clanWarps.open(player))
+            ));
+            if (!shown) {
+                warps.openWarps(player, 1);
+            }
             return;
         }
         List<ActionButton> buttons = new ArrayList<>();

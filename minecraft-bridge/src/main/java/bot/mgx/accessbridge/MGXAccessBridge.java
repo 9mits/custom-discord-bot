@@ -475,15 +475,16 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 economyStore,
                 crateItems
         );
+        BedrockForms bedrockForms = new BedrockForms(this);
         StatsDialogService statsDialogs = new StatsDialogService(
-                this, profileStats, crateItems, dialogSupport
+                this, profileStats, crateItems, dialogSupport, bedrockForms
         );
         getCommand("stats").setExecutor(statsDialogs);
         TeleportDialogService teleportDialogs =
-                new TeleportDialogService(this, dialogSupport);
+                new TeleportDialogService(this, dialogSupport, bedrockForms);
         getCommand("tpmenu").setExecutor(teleportDialogs);
         HomesDialogService homesDialogs =
-                new HomesDialogService(teleportMenus, dialogSupport, homeIconStore);
+                new HomesDialogService(teleportMenus, dialogSupport, homeIconStore, bedrockForms);
         LeaderboardDialogService leaderboardDialogs = new LeaderboardDialogService(
                 leaderboardService, statsDialogs, clanBattleStore, clanStore, clanMenuService
         );
@@ -491,16 +492,16 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         // asks the client what it can render rather than picking one for everyone.
         leaderboardMenus.useDialogs(leaderboardDialogs, dialogSupport);
         ClanChooserService clanChooser = new ClanChooserService(
-                clanMenuService, clanStore, clanBattleStore, dialogSupport
+                clanMenuService, clanStore, clanBattleStore, dialogSupport, bedrockForms
         );
         ClanDirectoryService clanDirectory = new ClanDirectoryService(
                 clanStore, clanMenuService, clanBattleStore, dialogSupport
         );
         ClanWarpDialogService clanWarps = new ClanWarpDialogService(
-                clanStore, clanMenuService, clanWarpMetaStore, dialogSupport
+                clanStore, clanMenuService, clanWarpMetaStore, dialogSupport, bedrockForms
         );
         WarpChooserService warpChooser = new WarpChooserService(
-                teleportMenus, clanWarps, clanStore, dialogSupport
+                teleportMenus, clanWarps, clanStore, dialogSupport, bedrockForms
         );
         teleportMenus.useWarpChooser(warpChooser);
         clanChooser.useClanWarps(clanWarps);

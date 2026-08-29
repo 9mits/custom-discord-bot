@@ -38,17 +38,20 @@ final class ClanWarpDialogService {
     private final ClanMenuService menus;
     private final ClanWarpMetaStore meta;
     private final SettingsClientSupport clientSupport;
+    private final BedrockForms forms;
 
     ClanWarpDialogService(
             ClanStore clans,
             ClanMenuService menus,
             ClanWarpMetaStore meta,
-            SettingsClientSupport clientSupport
+            SettingsClientSupport clientSupport,
+            BedrockForms forms
     ) {
         this.clans = clans;
         this.menus = menus;
         this.meta = meta;
         this.clientSupport = clientSupport;
+        this.forms = forms;
     }
 
     /** Leaders and staff manage warps; everyone else travels with them. */
@@ -63,7 +66,9 @@ final class ClanWarpDialogService {
             return;
         }
         if (!clientSupport.supportsDialogs(player)) {
-            menus.openWarps(player);
+            if (!bedrockWarps(player, clan)) {
+                menus.openWarps(player);
+            }
             return;
         }
         boolean manages = manages(clan, player);
@@ -118,6 +123,118 @@ final class ClanWarpDialogService {
                         .build())
                 .type(DialogType.multiAction(buttons).columns(2).build()));
         player.showDialog(dialog);
+    }
+
+    /** Bedrock gets the same list, the same gating and the same management actions. */
+    private boolean bedrockWarps(Player player, ClanStore.ClanView clan) {
+        boolean manages = manages(clan, player);
+        List<BedrockForms.Button> buttons = new ArrayList<>();
+        for (String name : clan.warps().keySet().stream()
+                .sorted(String.CASE_INSENSITIVE_ORDER).toList()) {
+            boolean allowed = meta.mayUse(clan.id(), name, player.getUniqueId());
+            buttons.add(new BedrockForms.Button(
+                    allowed || manages ? name : name + " (no access)",
+                    () -> {
+                        if (manages) {
+                            bedrockWarp(player, name);
+                        } else if (allowed) {
+                            travel(player, name);
+                        } else {
+                            PlayerMenuService.error(
+                                    player, "You do not have access to " + name + "."
+                            );
+                        }
+                    }
+            ));
+        }
+        return forms.menu(player, clan.name() + " Warps",
+                buttons.isEmpty() ? "No clan warps yet." : "Choose a warp.", buttons);
+    }
+
+    private void bedrockWarp(Player player, String warp) {
+        ClanStore.ClanView clan = clans.clanOf(player.getUniqueId()).orElse(null);
+        if (clan == null || !manages(clan, player)) {
+            return;
+        }
+        forms.menu(player, warp, "What would you like to do?", List.of(
+                new BedrockForms.Button("Teleport", () -> travel(player, warp)),
+                new BedrockForms.Button("Change Icon", () -> bedrockIcons(player, warp)),
+                new BedrockForms.Button("Rename",
+                        () -> forms.prompt(player, "Rename " + warp, "New name", warp,
+                                typed -> rename(player, warp, typed))),
+                new BedrockForms.Button("Permissions",
+                        () -> bedrockPermissions(player, warp)),
+                new BedrockForms.Button("Delete",
+                        () -> forms.confirm(player, "Delete " + warp,
+                                "This cannot be undone.", "Delete", "Keep it",
+                                () -> deleteWarp(player, warp))),
+                new BedrockForms.Button("Back", () -> open(player))
+        ));
+    }
+
+    /** One toggle per member, submitted together, which is how a Bedrock form works. */
+    private void bedrockPermissions(Player player, String warp) {
+        ClanStore.ClanView clan = clans.clanOf(player.getUniqueId()).orElse(null);
+        if (clan == null || !manages(clan, player)) {
+            return;
+        }
+        java.util.Set<java.util.UUID> allowed = meta.allowed(clan.id(), warp);
+        List<java.util.UUID> ids = new ArrayList<>(clan.members().keySet());
+        List<String> labels = new ArrayList<>();
+        List<Boolean> initial = new ArrayList<>();
+        for (java.util.UUID memberId : ids) {
+            labels.add(clan.members().get(memberId));
+            initial.add(allowed.isEmpty() || allowed.contains(memberId));
+        }
+        boolean sent = forms.toggles(player, warp + " Permissions", labels, initial, index -> {
+            // An empty list means everyone, so the first change has to write the rest
+            // in as well or turning one member off would lock out the whole clan.
+            if (meta.allowed(clan.id(), warp).isEmpty()) {
+                for (java.util.UUID memberId : ids) {
+                    meta.toggleAllowed(clan.id(), warp, memberId);
+                }
+            }
+            meta.toggleAllowed(clan.id(), warp, ids.get(index));
+        });
+        if (!sent) {
+            PlayerMenuService.error(player, "That screen could not be opened.");
+        }
+    }
+
+    private void bedrockIcons(Player player, String warp) {
+        List<BedrockForms.Button> buttons = new ArrayList<>();
+        ClanStore.ClanView clan = clans.clanOf(player.getUniqueId()).orElse(null);
+        if (clan == null) {
+            return;
+        }
+        for (String sprite : HomeIcons.all()) {
+            buttons.add(new BedrockForms.Button(HomeIcons.label(sprite), () -> {
+                try {
+                    meta.setIcon(clan.id(), warp, sprite);
+                } catch (IllegalArgumentException | java.io.UncheckedIOException failure) {
+                    PlayerMenuService.error(player, "That icon could not be saved.");
+                    return;
+                }
+                bedrockWarp(player, warp);
+            }));
+        }
+        forms.menu(player, "Choose Icon", "Pick an icon for " + warp + ".", buttons);
+    }
+
+    /** Shared by both delete paths so the store and the clan cannot drift apart. */
+    private void deleteWarp(Player player, String warp) {
+        ClanStore.ClanView clan = clans.clanOf(player.getUniqueId()).orElse(null);
+        if (clan == null || !manages(clan, player)) {
+            return;
+        }
+        try {
+            clans.removeWarp(player.getUniqueId(), warp);
+            meta.forget(clan.id(), warp);
+        } catch (java.io.IOException | ClanStore.ClanException failure) {
+            PlayerMenuService.error(player, "That warp could not be removed.");
+            return;
+        }
+        open(player);
     }
 
     /** The management card, which only a leader or staff member ever reaches. */

@@ -39,20 +39,25 @@ final class HomesDialogService {
     private final TeleportMenuService teleports;
     private final SettingsClientSupport clientSupport;
     private final HomeIconStore homeIcons;
+    private final BedrockForms forms;
 
     HomesDialogService(
             TeleportMenuService teleports,
             SettingsClientSupport clientSupport,
-            HomeIconStore homeIcons
+            HomeIconStore homeIcons,
+            BedrockForms forms
     ) {
         this.teleports = teleports;
         this.clientSupport = clientSupport;
         this.homeIcons = homeIcons;
+        this.forms = forms;
     }
 
     void open(Player player) {
         if (!clientSupport.supportsDialogs(player)) {
-            teleports.openHomes(player, 1);
+            if (!bedrockHomes(player)) {
+                teleports.openHomes(player, 1);
+            }
             return;
         }
         List<String> homes = teleports.homeNamesOf(player);
@@ -78,6 +83,74 @@ final class HomesDialogService {
         show(player, "Homes", homes.isEmpty()
                 ? "You have not set a home yet."
                 : "Click a home to open it.", buttons, 2);
+    }
+
+    /** Bedrock reaches the same actions; only the frame around them differs. */
+    private boolean bedrockHomes(Player player) {
+        List<String> homes = teleports.homeNamesOf(player);
+        List<BedrockForms.Button> buttons = new ArrayList<>();
+        for (String home : homes) {
+            buttons.add(new BedrockForms.Button(home, () -> bedrockHome(player, home)));
+        }
+        buttons.add(new BedrockForms.Button("New Home",
+                () -> forms.prompt(player, "New Home", "Name", "", typed -> {
+                    String name = clean(typed);
+                    if (name == null) {
+                        PlayerMenuService.error(player,
+                                "Use letters, numbers, - and _ for a home name.");
+                        return;
+                    }
+                    player.performCommand("sethome " + name);
+                })));
+        return forms.menu(player, "Homes", homes.isEmpty()
+                ? "You have not set a home yet." : "Choose a home.", buttons);
+    }
+
+    private void bedrockHome(Player player, String home) {
+        forms.menu(player, home, "What would you like to do?", List.of(
+                new BedrockForms.Button("Teleport",
+                        () -> player.performCommand("home " + home)),
+                new BedrockForms.Button("Change Icon",
+                        () -> bedrockIcons(player, home)),
+                new BedrockForms.Button("Rename",
+                        () -> forms.prompt(player, "Rename " + home, "New name", home, typed -> {
+                            String name = clean(typed);
+                            if (name == null) {
+                                PlayerMenuService.error(player,
+                                        "Use letters, numbers, - and _ for a home name.");
+                                return;
+                            }
+                            player.performCommand("renamehome " + home + " " + name);
+                            homeIcons.rename(player.getUniqueId(), home, name);
+                        })),
+                new BedrockForms.Button("Delete",
+                        () -> forms.confirm(player, "Delete " + home,
+                                "This cannot be undone.", "Delete", "Keep it", () -> {
+                                    player.performCommand("delhome " + home);
+                                    homeIcons.forget(player.getUniqueId(), home);
+                                })),
+                new BedrockForms.Button("Back", () -> open(player))
+        ));
+    }
+
+    /**
+     * A Bedrock form has no search box that reruns itself, so the icons are offered as
+     * a straight list. It is the same catalogue and the same result.
+     */
+    private void bedrockIcons(Player player, String home) {
+        List<BedrockForms.Button> buttons = new ArrayList<>();
+        for (String sprite : HomeIcons.all()) {
+            buttons.add(new BedrockForms.Button(HomeIcons.label(sprite), () -> {
+                try {
+                    homeIcons.setIcon(player.getUniqueId(), home, sprite);
+                } catch (IllegalArgumentException | java.io.UncheckedIOException failure) {
+                    PlayerMenuService.error(player, "That icon could not be saved.");
+                    return;
+                }
+                bedrockHome(player, home);
+            }));
+        }
+        forms.menu(player, "Choose Icon", "Pick an icon for " + home + ".", buttons);
     }
 
     private void openHome(Player player, String home) {

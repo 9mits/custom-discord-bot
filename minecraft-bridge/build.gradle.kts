@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "bot.mgx"
-version = "6.30.0"
+version = "6.31.0"
 
 repositories {
     mavenCentral()
@@ -15,6 +15,9 @@ repositories {
 dependencies {
     compileOnly("io.papermc.paper:paper-api:1.21.11-R0.1-SNAPSHOT")
     compileOnly("org.geysermc.floodgate:api:2.2.5-SNAPSHOT")
+    // Bedrock's native forms. Geyser ships Cumulus and Floodgate sends it, so nothing
+    // new reaches the server; this is only the types to build a form against.
+    compileOnly("org.geysermc.cumulus:cumulus:1.1.2-SNAPSHOT")
     compileOnly("net.luckperms:api:5.4")
     implementation("com.google.code.gson:gson:2.11.0")
 
