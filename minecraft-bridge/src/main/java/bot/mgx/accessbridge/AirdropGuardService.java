@@ -103,9 +103,23 @@ final class AirdropGuardService {
         unattendedTicks = 0;
 
         Garrison garrison = garrisonFor(rarity);
-        spawnAll(EntityType.HUSK, garrison.zombies());
-        spawnAll(EntityType.STRAY, garrison.skeletons());
-        spawnAll(EntityType.IRON_GOLEM, garrison.golems());
+        int zombies = spawnAll(EntityType.HUSK, garrison.zombies());
+        int skeletons = spawnAll(EntityType.STRAY, garrison.skeletons());
+        int golems = spawnAll(EntityType.IRON_GOLEM, garrison.golems());
+        // Reported every time, because a garrison that quietly lands short is invisible
+        // in game — it just looks like the mobs were never written.
+        String placed = zombies + "/" + garrison.zombies() + " zombies, "
+                + skeletons + "/" + garrison.skeletons() + " skeletons, "
+                + golems + "/" + garrison.golems() + " golems";
+        if (zombies + skeletons + golems < garrison.total()) {
+            plugin.getLogger().warning(
+                    "Amethyst garrison landed short at " + describe(post) + ": " + placed
+            );
+        } else {
+            plugin.getLogger().info(
+                    "Amethyst garrison standing at " + describe(post) + ": " + placed
+            );
+        }
 
         task = plugin.getServer().getScheduler().runTaskTimer(
                 plugin, this::patrol, PERIOD_TICKS, PERIOD_TICKS
@@ -136,8 +150,9 @@ final class AirdropGuardService {
         return guards.size();
     }
 
-    private void spawnAll(EntityType type, int count) {
+    private int spawnAll(EntityType type, int count) {
         int clearance = type == EntityType.IRON_GOLEM ? GOLEM_CLEARANCE : 2;
+        int placed = 0;
         for (int index = 0; index < count; index++) {
             Location where = ring(clearance);
             if (where == null) {
@@ -146,6 +161,9 @@ final class AirdropGuardService {
                 where = post.clone().add(0d, 1d, 0d);
             }
             LivingEntity guard = mobs.deploy(where, type);
+            if (guard == null) {
+                continue;
+            }
             // Guards must not wander off or despawn while the drop is still standing.
             guard.setPersistent(true);
             guard.setRemoveWhenFarAway(false);
@@ -155,7 +173,14 @@ final class AirdropGuardService {
                 mob.setAware(true);
             }
             guards.add(guard.getUniqueId());
+            placed++;
         }
+        return placed;
+    }
+
+    private static String describe(Location where) {
+        return "X " + where.getBlockX() + " Y " + where.getBlockY()
+                + " Z " + where.getBlockZ();
     }
 
     /** A standing spot on solid ground somewhere in the ring around the chest. */

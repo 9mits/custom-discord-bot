@@ -207,6 +207,24 @@ final class AmethystMobAssetsTest {
                 "the spawn cancel, the movement block and the sweep must all exempt them");
     }
 
+    /**
+     * The marker has to exist before CreatureSpawnEvent fires. It is set in the pre-spawn
+     * consumer of World#spawn for that reason: a marker written on the line after
+     * spawnEntity arrives too late for any listener, and the spawn building's zombie
+     * barrier cancels at HIGHEST — which ate every Amethyst Zombie a garrison placed near
+     * spawn even after the barrier itself was taught to exempt them.
+     */
+    @Test
+    void theMarkerIsSetBeforeTheSpawnEventFires() throws Exception {
+        String source = source();
+
+        assertTrue(source.contains("where.getWorld().spawn(where, type, mob ->"),
+                "amethyst mobs must be marked in the pre-spawn consumer");
+        int marks = source.split("PersistentDataType.BYTE, \\(byte\\) 1", -1).length - 1;
+        assertEquals(1, marks,
+                "the marker must only ever be written pre-spawn, never after spawnEntity");
+    }
+
     private static String source() throws Exception {
         return Files.readString(Path.of(
                 "src/main/java/bot/mgx/accessbridge/AmethystMobService.java"

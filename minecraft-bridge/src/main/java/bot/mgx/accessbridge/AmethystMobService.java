@@ -14,11 +14,14 @@ import org.bukkit.World;
 import org.bukkit.entity.Arrow;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
+import org.bukkit.entity.Husk;
 import org.bukkit.entity.IronGolem;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Mob;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Projectile;
+import org.bukkit.entity.Skeleton;
+import org.bukkit.entity.Stray;
 import org.bukkit.entity.Zombie;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -276,11 +279,10 @@ final class AmethystMobService implements Listener {
         if (variant == null || !source.isValid()) {
             return;
         }
-        LivingEntity variantMob = replace(source, variant);
+        LivingEntity variantMob = replace(source, variant, true);
         if (variantMob == null) {
             return;
         }
-        variantMob.getPersistentDataContainer().set(marker, PersistentDataType.BYTE, (byte) 1);
         dress(variantMob);
     }
 
@@ -289,7 +291,7 @@ final class AmethystMobService implements Listener {
         if (plain == null || !huskOrStray.isValid() || isAmethyst(huskOrStray)) {
             return;
         }
-        replace(huskOrStray, plain);
+        replace(huskOrStray, plain, false);
     }
 
     /**
@@ -298,7 +300,7 @@ final class AmethystMobService implements Listener {
      * finalised first — a skeleton has no bow until then, and a bowless stray cannot
      * fight.
      */
-    private LivingEntity replace(LivingEntity source, EntityType type) {
+    private LivingEntity replace(LivingEntity source, EntityType type, boolean marked) {
         Location where = source.getLocation();
         EntityEquipment from = source.getEquipment();
         boolean baby = source instanceof Zombie zombie && zombie.isBaby();
@@ -306,9 +308,10 @@ final class AmethystMobService implements Listener {
 
         LivingEntity spawned;
         try {
-            spawned = (LivingEntity) source.getWorld().spawnEntity(
-                    where, type, CreatureSpawnEvent.SpawnReason.CUSTOM
-            );
+            spawned = marked
+                    ? spawnMarked(where, type)
+                    : (LivingEntity) source.getWorld().spawnEntity(
+                            where, type, CreatureSpawnEvent.SpawnReason.CUSTOM);
         } catch (IllegalArgumentException | ClassCastException error) {
             return null;
         }
@@ -379,6 +382,33 @@ final class AmethystMobService implements Listener {
                 .replacement(Component.text(displayName(living.getType()), AMETHYST))));
     }
 
+    /**
+     * Spawns an amethyst mob already carrying its marker.
+     *
+     * <p>This has to use the pre-spawn consumer rather than {@code spawnEntity} followed
+     * by a write to the container. {@code CreatureSpawnEvent} fires synchronously inside
+     * the spawn call, so a marker set on the next line arrives too late for anything
+     * listening — and the spawn building's zombie barrier cancels at {@code HIGHEST},
+     * which silently ate every Amethyst Zombie a garrison placed near spawn even after
+     * the barrier was taught to exempt them. The consumer runs before the entity joins
+     * the world, so the marker is there when the event fires.
+     */
+    private LivingEntity spawnMarked(Location where, EntityType type) {
+        return switch (type) {
+            case HUSK -> marked(where, Husk.class);
+            case STRAY -> marked(where, Stray.class);
+            case IRON_GOLEM -> marked(where, IronGolem.class);
+            case ZOMBIE -> marked(where, Zombie.class);
+            case SKELETON -> marked(where, Skeleton.class);
+            default -> throw new IllegalArgumentException("Not an amethyst mob type: " + type);
+        };
+    }
+
+    private <T extends LivingEntity> T marked(Location where, Class<T> type) {
+        return where.getWorld().spawn(where, type, mob ->
+                mob.getPersistentDataContainer().set(marker, PersistentDataType.BYTE, (byte) 1));
+    }
+
     private LivingEntity lastAmethystAttacker(Player player) {
         return player.getLastDamageCause() instanceof EntityDamageByEntityEvent cause
                 && cause.getDamager() instanceof LivingEntity living && isAmethyst(living)
@@ -432,10 +462,11 @@ final class AmethystMobService implements Listener {
                 && type != EntityType.IRON_GOLEM) {
             throw new IllegalArgumentException("Not an amethyst mob type: " + type);
         }
-        LivingEntity mob = (LivingEntity) where.getWorld().spawnEntity(
-                where, type, CreatureSpawnEvent.SpawnReason.CUSTOM
-        );
-        mob.getPersistentDataContainer().set(marker, PersistentDataType.BYTE, (byte) 1);
+        LivingEntity mob = spawnMarked(where, type);
+        if (mob == null) {
+            // World.spawn returns null when a listener cancels the spawn.
+            return null;
+        }
         EntityEquipment equipment = mob.getEquipment();
         if (type == EntityType.STRAY && equipment != null) {
             // A CUSTOM spawn skips vanilla's finalisation, and a bowless stray cannot fight.
