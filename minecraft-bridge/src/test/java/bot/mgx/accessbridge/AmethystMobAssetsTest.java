@@ -203,8 +203,15 @@ final class AmethystMobAssetsTest {
                 "src/main/java/bot/mgx/accessbridge/SpawnMobBarrierService.java"
         ));
 
-        assertEquals(3, barrier.split("isAmethystMob", -1).length - 1,
-                "the spawn cancel, the movement block and the sweep must all exempt them");
+        // All three arms — the spawn cancel, the movement block and the sweep — route
+        // through one hostile() helper, so the exemption lives in exactly one place.
+        assertTrue(barrier.contains("!amethystMobs.isAmethystMob(entity)"),
+                "the hostile test must exempt amethyst mobs");
+        for (String arm : new String[] {
+                "hostile(event.getEntity())", "!hostile(event.getEntity())", "hostile(monster)"
+        }) {
+            assertTrue(barrier.contains(arm), "arm not routed through hostile(): " + arm);
+        }
     }
 
     /**
