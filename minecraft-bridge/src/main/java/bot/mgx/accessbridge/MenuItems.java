@@ -153,7 +153,6 @@ final class MenuItems {
 
     private static Component title(String name) {
         return Component.text(name, ORANGE, TextDecoration.BOLD)
-                .font(MenuText.COMPACT_FONT)
                 .decoration(TextDecoration.ITALIC, true);
     }
 
@@ -162,7 +161,6 @@ final class MenuItems {
         for (String line : lore) {
             boolean action = isActionHint(line);
             lines.add(Component.text(line, NamedTextColor.GRAY)
-                    .font(MenuText.COMPACT_FONT)
                     .decoration(TextDecoration.ITALIC, action));
         }
         return lines;
