@@ -4,51 +4,62 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.TextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Color;
-import org.bukkit.Material;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
+import org.bukkit.Location;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
-import org.bukkit.entity.ItemDisplay;
 import org.bukkit.entity.LivingEntity;
+import org.bukkit.entity.Mob;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Zombie;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
+import org.bukkit.event.entity.EntityPotionEffectEvent;
+import org.bukkit.event.entity.EntityTransformEvent;
 import org.bukkit.inventory.EntityEquipment;
+import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
-import org.bukkit.inventory.meta.ItemMeta;
-import org.bukkit.inventory.meta.LeatherArmorMeta;
 import org.bukkit.persistence.PersistentDataType;
-import org.bukkit.scheduler.BukkitTask;
-import org.bukkit.util.Transformation;
-import org.joml.Quaternionf;
-import org.joml.Vector3f;
+import org.bukkit.potion.PotionEffectType;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.random.RandomGenerator;
 
-/** Converts ordinary zombie and skeleton spawns into visible Amethyst variants. */
+/**
+ * Turns a share of ordinary zombie and skeleton spawns into Amethyst variants.
+ *
+ * <p>The variants are real husks and strays. Those are the only zombie and skeleton
+ * subtypes whose vanilla texture files match the mod art's layout exactly — husk.png is
+ * 64x64 like the amethyst zombie skin, stray.png is 64x32 like the amethyst skeleton
+ * skin — so the resource pack simply replaces those two files and the vanilla mob
+ * renderer does the rest. Walking, arm swing, head tracking, hurt and death all animate
+ * because nothing here is a display prop; the mob is the mob. An earlier attempt rode an
+ * ItemDisplay on an invisible zombie, which could never animate and tipped over whenever
+ * the mob looked up.
+ *
+ * <p>Because the pack retextures every husk and stray, this service also has to own them:
+ * natural husk and stray spawns are turned back into the plain mob they stand in for, so
+ * the amethyst skin never appears on something that is not an amethyst mob.
+ */
 final class AmethystMobService implements Listener {
-    private static final String DISPLAY_TAG = "mgx_amethyst_mob_visual";
     private static final TextColor AMETHYST = TextColor.color(0xB56CFF);
+    private static final String DISPLAY_TAG = "mgx_amethyst_mob_visual";
 
     private final MGXAccessBridge plugin;
     private final CrateItems crateItems;
     private final RandomGenerator random;
     private final NamespacedKey marker;
     private final int oneIn;
-    private final Map<UUID, ItemDisplay> visuals = new HashMap<>();
-    private BukkitTask followTask;
 
     AmethystMobService(MGXAccessBridge plugin, CrateItems crateItems) {
         this(plugin, crateItems, ThreadLocalRandom.current());
@@ -65,44 +76,67 @@ final class AmethystMobService implements Listener {
     }
 
     void start() {
-        stop();
-        clearStaleVisuals();
+        clearLegacyVisuals();
         for (World world : plugin.getServer().getWorlds()) {
-            for (LivingEntity entity : world.getLivingEntities()) {
-                if (isAmethyst(entity)) {
-                    createVisual(entity);
+            for (LivingEntity entity : List.copyOf(world.getLivingEntities())) {
+                if (isAmethyst(entity) && variantOf(entity.getType()) != null) {
+                    convert(entity);
+                } else if (isAmethyst(entity)) {
+                    dress(entity);
                 }
             }
         }
-        followTask = plugin.getServer().getScheduler().runTaskTimer(
-                plugin, this::follow, 1L, 1L
-        );
     }
 
     void stop() {
-        if (followTask != null) {
-            followTask.cancel();
-            followTask = null;
-        }
-        for (World world : plugin.getServer().getWorlds()) {
-            for (LivingEntity entity : world.getLivingEntities()) {
-                if (isAmethyst(entity)) {
-                    entity.setInvisible(false);
-                }
-            }
-        }
-        visuals.values().forEach(Entity::remove);
-        visuals.clear();
+        clearLegacyVisuals();
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onSpawn(CreatureSpawnEvent event) {
         LivingEntity entity = event.getEntity();
+        if (reclaimed(entity.getType()) != null) {
+            // The pack owns the husk and stray skins, so nothing but an amethyst mob may
+            // wear them. Anything that spawns on its own goes back to the plain mob.
+            if (!isAmethyst(entity) && natural(event.getSpawnReason())) {
+                plugin.getServer().getScheduler().runTask(plugin, () -> reclaim(entity));
+            }
+            return;
+        }
         if (!eligible(entity.getType(), event.getSpawnReason()) || random.nextInt(oneIn) != 0) {
             return;
         }
-        mark(entity);
-        plugin.getServer().getScheduler().runTask(plugin, () -> createVisual(entity));
+        plugin.getServer().getScheduler().runTask(plugin, () -> convert(entity));
+    }
+
+    /** Keeps an amethyst husk from drowning into an ordinary drowned and losing its skin. */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onTransform(EntityTransformEvent event) {
+        if (event.getEntity() instanceof LivingEntity living && isAmethyst(living)) {
+            event.setCancelled(true);
+        }
+    }
+
+    /**
+     * Strips the husk's Hunger and the stray's Slowness. These variants stand in for a
+     * plain zombie and skeleton, so they must not hand players a debuff those mobs never
+     * had — the subtype is a texture slot here, not a gameplay change.
+     */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onPotionEffect(EntityPotionEffectEvent event) {
+        if (event.getAction() != EntityPotionEffectEvent.Action.ADDED
+                || event.getNewEffect() == null) {
+            return;
+        }
+        PotionEffectType type = event.getNewEffect().getType();
+        if (type.equals(PotionEffectType.HUNGER)
+                && event.getCause() == EntityPotionEffectEvent.Cause.ATTACK) {
+            event.setCancelled(true);
+        }
+        if (type.equals(PotionEffectType.SLOWNESS)
+                && event.getCause() == EntityPotionEffectEvent.Cause.ARROW) {
+            event.setCancelled(true);
+        }
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)
@@ -111,13 +145,9 @@ final class AmethystMobService implements Listener {
         if (!isAmethyst(entity)) {
             return;
         }
-        ItemDisplay visual = visuals.remove(entity.getUniqueId());
-        if (visual != null) {
-            visual.remove();
-        }
         int keys = random.nextInt(1, 6);
         event.getDrops().add(crateItems.key(keys));
-        event.getEntity().getWorld().spawnParticle(
+        entity.getWorld().spawnParticle(
                 Particle.DUST, entity.getLocation().add(0d, 1d, 0d), 45,
                 0.7d, 1d, 0.7d, 0d,
                 new Particle.DustOptions(Color.fromRGB(181, 108, 255), 1.45f)
@@ -139,6 +169,10 @@ final class AmethystMobService implements Listener {
         if (type != EntityType.ZOMBIE && type != EntityType.SKELETON) {
             return false;
         }
+        return natural(reason);
+    }
+
+    private static boolean natural(CreatureSpawnEvent.SpawnReason reason) {
         return reason != CreatureSpawnEvent.SpawnReason.CUSTOM
                 && reason != CreatureSpawnEvent.SpawnReason.COMMAND
                 && reason != CreatureSpawnEvent.SpawnReason.SPAWNER_EGG
@@ -147,115 +181,122 @@ final class AmethystMobService implements Listener {
                 && reason != CreatureSpawnEvent.SpawnReason.BUILD_WITHER;
     }
 
-    private void mark(LivingEntity entity) {
-        entity.getPersistentDataContainer().set(marker, PersistentDataType.BYTE, (byte) 1);
-        prepareAppearance(entity);
+    /** The retextured subtype an ordinary spawn becomes. */
+    static EntityType variantOf(EntityType type) {
+        if (type == EntityType.ZOMBIE) {
+            return EntityType.HUSK;
+        }
+        return type == EntityType.SKELETON ? EntityType.STRAY : null;
     }
 
-    /** Removes the old discoverability aids without touching naturally generated equipment. */
-    private void prepareAppearance(LivingEntity entity) {
-        Component legacyName = Component.text(displayName(entity.getType()), AMETHYST,
-                TextDecoration.BOLD);
-        if (legacyName.equals(entity.customName())) {
-            entity.customName(null);
+    /** The plain mob a stray amethyst-skinned spawn has to be turned back into. */
+    static EntityType reclaimed(EntityType type) {
+        if (type == EntityType.HUSK) {
+            return EntityType.ZOMBIE;
         }
+        return type == EntityType.STRAY ? EntityType.SKELETON : null;
+    }
+
+    private void convert(LivingEntity source) {
+        EntityType variant = variantOf(source.getType());
+        if (variant == null || !source.isValid()) {
+            return;
+        }
+        LivingEntity variantMob = replace(source, variant);
+        if (variantMob == null) {
+            return;
+        }
+        variantMob.getPersistentDataContainer().set(marker, PersistentDataType.BYTE, (byte) 1);
+        dress(variantMob);
+    }
+
+    private void reclaim(LivingEntity huskOrStray) {
+        EntityType plain = reclaimed(huskOrStray.getType());
+        if (plain == null || !huskOrStray.isValid() || isAmethyst(huskOrStray)) {
+            return;
+        }
+        replace(huskOrStray, plain);
+    }
+
+    /**
+     * Spawns {@code type} in the source mob's place carrying everything vanilla had
+     * already rolled for it. The swap runs a tick after the spawn so the source is fully
+     * finalised first — a skeleton has no bow until then, and a bowless stray cannot
+     * fight.
+     */
+    private LivingEntity replace(LivingEntity source, EntityType type) {
+        Location where = source.getLocation();
+        EntityEquipment from = source.getEquipment();
+        boolean baby = source instanceof Zombie zombie && zombie.isBaby();
+        double health = source.getHealth();
+
+        LivingEntity spawned;
+        try {
+            spawned = (LivingEntity) source.getWorld().spawnEntity(
+                    where, type, CreatureSpawnEvent.SpawnReason.CUSTOM
+            );
+        } catch (IllegalArgumentException | ClassCastException error) {
+            return null;
+        }
+        if (from != null) {
+            EntityEquipment to = spawned.getEquipment();
+            if (to != null) {
+                for (EquipmentSlot slot : EquipmentSlot.values()) {
+                    ItemStack item = from.getItem(slot);
+                    to.setItem(slot, item);
+                    to.setDropChance(slot, from.getDropChance(slot));
+                }
+            }
+        }
+        if (spawned instanceof Zombie zombie) {
+            zombie.setBaby(baby);
+            // A husk ignores daylight. These stand in for zombies, so they burn like one.
+            zombie.setShouldBurnInDay(true);
+        }
+        if (spawned instanceof Mob mob && source instanceof Mob sourceMob) {
+            mob.setTarget(sourceMob.getTarget());
+            mob.setCanPickupItems(sourceMob.getCanPickupItems());
+        }
+        AttributeInstance maximum = spawned.getAttribute(Attribute.MAX_HEALTH);
+        spawned.setHealth(maximum == null ? health : Math.min(health, maximum.getValue()));
+        source.remove();
+        return spawned;
+    }
+
+    /** Names the variant so death messages read right; the tag itself stays hidden. */
+    private void dress(LivingEntity entity) {
+        entity.customName(Component.text(displayName(entity.getType()), AMETHYST,
+                TextDecoration.BOLD));
         entity.setCustomNameVisible(false);
         entity.setGlowing(false);
-        removeLegacyFallback(entity);
-    }
-
-    private void removeLegacyFallback(LivingEntity entity) {
-        EntityEquipment equipment = entity.getEquipment();
-        if (equipment == null) {
-            return;
-        }
-        if (isLegacyFallback(equipment.getChestplate(), Material.LEATHER_CHESTPLATE)) {
-            equipment.setChestplate(null);
-        }
-        if (isLegacyFallback(equipment.getLeggings(), Material.LEATHER_LEGGINGS)) {
-            equipment.setLeggings(null);
-        }
-        if (isLegacyFallback(equipment.getBoots(), Material.LEATHER_BOOTS)) {
-            equipment.setBoots(null);
+        entity.setInvisible(false);
+        entity.setPersistent(true);
+        if (entity instanceof Zombie zombie) {
+            zombie.setShouldBurnInDay(true);
         }
     }
 
-    private static boolean isLegacyFallback(ItemStack item, Material material) {
-        if (item.getType() != material || !(item.getItemMeta() instanceof LeatherArmorMeta meta)) {
-            return false;
-        }
-        return Color.fromRGB(139, 66, 201).equals(meta.getColor())
-                && Boolean.TRUE.equals(meta.getEnchantmentGlintOverride());
-    }
-
-    private void createVisual(LivingEntity entity) {
-        if (!entity.isValid() || !isAmethyst(entity)) {
-            return;
-        }
-        prepareAppearance(entity);
-        entity.setInvisible(true);
-        if (visuals.containsKey(entity.getUniqueId())) {
-            return;
-        }
-        String model = entity.getType() == EntityType.ZOMBIE
-                ? "mgx:amethyst_zombie" : "mgx:amethyst_skeleton";
-        ItemStack item = new ItemStack(Material.PAPER);
-        ItemMeta meta = item.getItemMeta();
-        meta.setItemModel(NamespacedKey.fromString(model));
-        item.setItemMeta(meta);
-        ItemDisplay display = entity.getWorld().spawn(entity.getLocation(), ItemDisplay.class, visual -> {
-            visual.setItemStack(item);
-            visual.setItemDisplayTransform(ItemDisplay.ItemDisplayTransform.FIXED);
-            visual.setInterpolationDuration(1);
-            visual.setTeleportDuration(1);
-            visual.setViewRange(1.5f);
-            visual.setTransformation(new Transformation(
-                    new Vector3f(0f, 0f, 0f), new Quaternionf(),
-                    new Vector3f(1f, 1f, 1f), new Quaternionf()
-            ));
-            visual.setPersistent(false);
-            visual.addScoreboardTag(DISPLAY_TAG);
-        });
-        visuals.put(entity.getUniqueId(), display);
-    }
-
-    private void follow() {
-        List<LivingEntity> missingVisuals = new ArrayList<>();
-        visuals.entrySet().removeIf(entry -> {
-            LivingEntity mob = living(entry.getKey());
-            ItemDisplay visual = entry.getValue();
-            if (mob == null || !mob.isValid()) {
-                visual.remove();
-                return true;
+    /** Removes the item displays the previous, non-animating implementation left behind. */
+    private void clearLegacyVisuals() {
+        for (World world : plugin.getServer().getWorlds()) {
+            List<Entity> stale = new ArrayList<>();
+            for (Entity entity : world.getEntities()) {
+                if (entity.getScoreboardTags().contains(DISPLAY_TAG)) {
+                    stale.add(entity);
+                }
             }
-            if (!visual.isValid()) {
-                missingVisuals.add(mob);
-                return true;
-            }
-            visual.teleport(mob.getLocation());
-            return false;
-        });
-        missingVisuals.forEach(this::createVisual);
-    }
-
-    private LivingEntity living(UUID id) {
-        Entity entity = plugin.getServer().getEntity(id);
-        return entity instanceof LivingEntity living ? living : null;
+            stale.forEach(Entity::remove);
+        }
     }
 
     private boolean isAmethyst(LivingEntity entity) {
         return entity.getPersistentDataContainer().has(marker, PersistentDataType.BYTE);
     }
 
-    private void clearStaleVisuals() {
-        for (World world : plugin.getServer().getWorlds()) {
-            world.getEntities().stream()
-                    .filter(entity -> entity.getScoreboardTags().contains(DISPLAY_TAG))
-                    .forEach(Entity::remove);
-        }
-    }
-
     private static String displayName(EntityType type) {
-        return type == EntityType.ZOMBIE ? "Amethyst Zombie" : "Amethyst Skeleton";
+        if (type == EntityType.HUSK || type == EntityType.ZOMBIE) {
+            return "Amethyst Zombie";
+        }
+        return "Amethyst Skeleton";
     }
 }
