@@ -67,6 +67,10 @@ GEYSER_API = "https://download.geysermc.org/v2/projects/{p}/versions/latest/buil
 GEYSER_BUILD_API = (
     "https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest"
 )
+# First official Spigot build containing GeyserMC/Geyser b2dab3c, "Support 26.45".
+# Refuse an unexpectedly stale mirror response instead of reinstalling the exact
+# outdated proxy that prompted this guard.
+MINIMUM_GEYSER_BUILD = 1227
 LUCKPERMS_META = "https://metadata.luckperms.net/data/all"
 VIAVERSION_API = (
     "https://api.modrinth.com/v2/project/viaversion/version"
@@ -479,6 +483,11 @@ def refresh_geyser() -> dict:
     The official build metadata supplies the digest used before replacement.
     """
     metadata = read_json(GEYSER_BUILD_API)
+    if int(metadata.get("build", 0)) < MINIMUM_GEYSER_BUILD:
+        raise RuntimeError(
+            "Geyser metadata is older than Bedrock 26.45 support "
+            f"(need build {MINIMUM_GEYSER_BUILD}+, got {metadata.get('build', 'unknown')})"
+        )
     download = metadata["downloads"]["spigot"]
     destination = PLUGINS / "geyser.jar"
     before = file_sha256(destination) if destination.is_file() else None

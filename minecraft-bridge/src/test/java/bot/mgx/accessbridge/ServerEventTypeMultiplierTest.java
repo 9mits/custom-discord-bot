@@ -3,6 +3,7 @@ package bot.mgx.accessbridge;
 import org.junit.jupiter.api.Test;
 
 import java.util.Locale;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -55,5 +56,17 @@ final class ServerEventTypeMultiplierTest {
         long total = java.util.Arrays.stream(ServerEventType.values())
                 .mapToLong(type -> 1L + type.aliases().size()).sum();
         assertEquals(total, ids, "an id or alias is claimed by two events");
+    }
+
+    @Test
+    void stackedEventsUseOneCompactBossBarLine() {
+        assertEquals(
+                "4x Keys - 2x Airdrops - 2x Money",
+                ServerEventService.stackedTitle(List.of(
+                        ServerEventType.MEGA_KEY,
+                        ServerEventType.AIRDROP,
+                        ServerEventType.MONEY
+                ))
+        );
     }
 }

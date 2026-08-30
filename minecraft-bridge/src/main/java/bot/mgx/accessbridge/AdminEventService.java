@@ -147,29 +147,30 @@ final class AdminEventService {
         return plugin.getConfig().getDouble("abuse-radius", ChaosTargeting.DEFAULT_RADIUS);
     }
 
-    /** The one-line reminder, and the full menu behind {@code abuse list}. */
+    /** The one-line reminder, and the full menu behind {@code event admin list}. */
     private static String usage() {
-        return "Usage: /mgxadmin abuse <effect> [seconds] [radius] - try /mgxadmin abuse list";
+        return "Usage: /mgxadmin event admin <effect> [seconds] [radius]"
+                + " - try /mgxadmin event admin list";
     }
 
     /** Everything an operator can tune, in one place. */
     private static String controls() {
         return "Payout events take a key total:"
-                + "\n  /mgxadmin abuse keyrain <keys> [radius]"
-                + "\n  /mgxadmin abuse airdrop <keys> [radius]"
-                + "\n  /mgxadmin abuse jackpot <keys> [radius]"
-                + "\n  /mgxadmin abuse pinata <seconds> <keys> [radius]"
+                + "\n  /mgxadmin event admin keyrain <keys> [radius]"
+                + "\n  /mgxadmin event admin airdrop <keys> [radius]"
+                + "\n  /mgxadmin event admin jackpot <keys> [radius]"
+                + "\n  /mgxadmin event admin pinata <seconds> <keys> [radius]"
                 + "\nAlfredo, on spawn:"
-                + "\n  /mgxadmin abuse alfredo <health> <keys> <diamonds>"
-                + "\n  /mgxadmin abuse alfredo test   - he dies on his own in about a minute"
+                + "\n  /mgxadmin event admin alfredo <health> <keys> <diamonds>"
+                + "\n  /mgxadmin event admin alfredo test   - he dies on his own in about a minute"
                 + "\nAlfredo, mid-fight:"
-                + "\n  /mgxadmin abuse alfredo hp <n>          retune his health"
-                + "\n  /mgxadmin abuse alfredo keys <n>        set what he still owes"
-                + "\n  /mgxadmin abuse alfredo diamonds <n>    set what he still owes"
-                + "\n  /mgxadmin abuse alfredo add <keys> <diamonds>   top up the finale"
-                + "\n  /mgxadmin abuse alfredo burst           make him pay out now"
-                + "\n  /mgxadmin abuse alfredo kill            end it with the full finale"
-                + "\n  /mgxadmin abuse alfredo status          what is left";
+                + "\n  /mgxadmin event admin alfredo hp <n>          retune his health"
+                + "\n  /mgxadmin event admin alfredo keys <n>        set what he still owes"
+                + "\n  /mgxadmin event admin alfredo diamonds <n>    set what he still owes"
+                + "\n  /mgxadmin event admin alfredo add <keys> <diamonds>   top up the finale"
+                + "\n  /mgxadmin event admin alfredo burst           make him pay out now"
+                + "\n  /mgxadmin event admin alfredo kill            end it with the full finale"
+                + "\n  /mgxadmin event admin alfredo status          what is left";
     }
 
     private static String menu() {

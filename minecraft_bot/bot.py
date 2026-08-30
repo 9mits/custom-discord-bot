@@ -112,7 +112,7 @@ class RateLimiter:
 class WipeConfirmationModal(discord.ui.Modal, title="Wipe All Minecraft Data"):
     confirmation = discord.ui.TextInput(
         label="Type WIPE to confirm",
-        placeholder="This deletes every application and whitelist record.",
+        placeholder="This deletes every access and whitelist record.",
         min_length=1,
         max_length=10,
     )
@@ -147,7 +147,7 @@ class WipeConfirmationModal(discord.ui.Modal, title="Wipe All Minecraft Data"):
         await interaction.response.defer(ephemeral=True, thinking=True)
         counts = await bot.execute_data_wipe(interaction.user)
         summary = (
-            f"> **{counts.get('minecraft_applications', 0)}** application(s), "
+            f"> **{counts.get('minecraft_applications', 0)}** access record(s), "
             f"**{counts.get('minecraft_accounts', 0)}** linked account(s), and every queue, "
             "audit, and log record were deleted. Settings were kept.\n\n"
             f"**Approved-member roles removed:** {counts.get('member_roles_removed', 0)}\n"
@@ -346,7 +346,7 @@ class MinecraftAccessBot(commands.Bot):
             **branded_send(
                 info_embed(
                     "Access Required",
-                    "> You do not have permission to manage Minecraft applications or access.",
+                    "> You do not have permission to manage Minecraft verification or access.",
                     error=True,
                 )
             ),
@@ -1365,7 +1365,7 @@ class MinecraftAccessBot(commands.Bot):
         """
         channel = await self._configured_channel(self.settings.application_channel_id)
         if channel is None or not hasattr(channel, "send"):
-            raise RuntimeError("The configured Minecraft application channel is unavailable")
+            raise RuntimeError("The configured Minecraft join channel is unavailable")
 
         async def fetch_saved_message(config_key: str) -> Optional[discord.Message]:
             message_id = await self.data.get_config(config_key)
@@ -2225,7 +2225,7 @@ class MinecraftAccessBot(commands.Bot):
         total = sum(applications.values())
         embed = info_embed(
             "Minecraft Control",
-            "> Live access, application, and bridge status. Use the menu below for read-only tools; "
+            "> Live access, verification, and bridge status. Use the menu below for read-only tools; "
             "use `/mgxstaff lookup` or the focused access commands for member-specific actions.",
         )
         embed.add_field(
@@ -2299,13 +2299,13 @@ class MinecraftAccessBot(commands.Bot):
             f"`#{item.id}` · {item.edition.value.title()} · "
             f"{item.status.value.replace('_', ' ').title()} · <t:{item.created_at}:d>"
             for item in history
-        ] or ["No applications."]
+        ] or ["No access history."]
         return info_embed(
             f"Minecraft Lookup: {user}",
             f"> {user.mention} · `{user.id}`\n\n"
             "**Linked Accounts**\n"
             + "\n".join(account_lines)
-            + "\n\n**Application History**\n"
+            + "\n\n**Access History**\n"
             + "\n".join(history_lines),
         )
 
@@ -2318,7 +2318,7 @@ class MinecraftAccessBot(commands.Bot):
         if not accounts and not applications:
             return info_embed(
                 "No Username Match",
-                f"> No linked account or Minecraft application matches `{query}`.",
+                f"> No linked account or access record matches `{query}`.",
             )
         account_lines = [
             f"<@{row['discord_user_id']}> · `{row['current_username']}` · "
@@ -2329,13 +2329,13 @@ class MinecraftAccessBot(commands.Bot):
             f"`#{record.id}` · <@{record.discord_user_id}> · `{record.claimed_username}` · "
             f"{record.edition.value.title()} · {record.status.value.replace('_', ' ').title()}"
             for record in applications
-        ] or ["No application history."]
+        ] or ["No access history."]
         return info_embed(
             "Minecraft Username Lookup",
             f"> Results matching `{query}`.\n\n"
             "**Linked Accounts**\n"
             + "\n".join(account_lines)
-            + "\n\n**Application History**\n"
+            + "\n\n**Access History**\n"
             + "\n".join(application_lines),
         )
 
@@ -2353,8 +2353,8 @@ class MinecraftAccessBot(commands.Bot):
             for item in records
         ]
         return info_embed(
-            "Minecraft Applications",
-            "\n".join(lines) if lines else "> No matching applications were found.",
+            "Minecraft Access Records",
+            "\n".join(lines) if lines else "> No matching access records were found.",
         )
 
     async def build_command_log_embed(
@@ -2422,7 +2422,7 @@ class MinecraftAccessBot(commands.Bot):
             default_permissions=discord.Permissions(administrator=True),
         )
 
-        @admin_group.command(name="setup", description="Open the Minecraft application setup dashboard.")
+        @admin_group.command(name="setup", description="Open the Minecraft access setup dashboard.")
         async def setup(interaction: discord.Interaction) -> None:
             if not await self.require_administrator(interaction):
                 return
@@ -2917,7 +2917,7 @@ class MinecraftAccessBot(commands.Bot):
 
         @admin_group.command(
             name="wipe",
-            description="Owner only: delete every application and whitelist record, keeping settings.",
+            description="Owner only: delete every access and whitelist record, keeping settings.",
         )
         async def wipe(interaction: discord.Interaction) -> None:
             if not self.is_owner_member(interaction.user):
@@ -3087,13 +3087,13 @@ class MinecraftAccessBot(commands.Bot):
                 name=f"minecraft-unlink:{user.id}",
             )
 
-        @staff_group.command(name="retry", description="Retry failed bridge actions for an application.")
-        @app_commands.describe(application="Application ID")
-        async def retry(interaction: discord.Interaction, application: app_commands.Range[int, 1]) -> None:
+        @staff_group.command(name="retry", description="Retry failed bridge actions for an access record.")
+        @app_commands.describe(access="Access record ID")
+        async def retry(interaction: discord.Interaction, access: app_commands.Range[int, 1]) -> None:
             if not await self.require_moderator(interaction):
                 return
             await interaction.response.defer(ephemeral=True)
-            count = await self.data.retry_access(application)
+            count = await self.data.retry_access(access)
             await interaction.edit_original_response(
                 **branded_edit(
                     info_embed(
@@ -3107,7 +3107,7 @@ class MinecraftAccessBot(commands.Bot):
             if count:
                 self.spawn_background_task(
                     self.dispatch_outbox_if_connected(),
-                    name=f"minecraft-retry:{application}",
+                    name=f"minecraft-retry:{access}",
                 )
 
         @admin_group.command(
@@ -3213,7 +3213,7 @@ class MinecraftAccessBot(commands.Bot):
                     "command_log_channel_id": channel_id,
                 }
                 explanation = (
-                    "Routine applications, verifications, player activity, and command usage share this channel."
+                    "Access changes, verifications, player activity, and command usage share this channel."
                 )
             else:
                 updates = {"critical_log_channel_id": channel_id}
@@ -3283,8 +3283,8 @@ class MinecraftAccessBot(commands.Bot):
                 view=self.control_view(interaction),
             )
 
-        @staff_group.command(name="applications", description="List recent Minecraft applications by status.")
-        @app_commands.describe(status="Optional application state", limit="Number of records to show")
+        @staff_group.command(name="access", description="List recent Minecraft access records by status.")
+        @app_commands.describe(status="Optional access state", limit="Number of records to show")
         @app_commands.choices(
             status=[
                 app_commands.Choice(
@@ -3310,29 +3310,29 @@ class MinecraftAccessBot(commands.Bot):
                 view=self.control_view(interaction),
             )
 
-        @staff_group.command(name="audit", description="Show the recorded lifecycle for an application.")
-        @app_commands.describe(application="Application ID")
+        @staff_group.command(name="audit", description="Show the recorded lifecycle for an access record.")
+        @app_commands.describe(access="Access record ID")
         async def audit(
             interaction: discord.Interaction,
-            application: app_commands.Range[int, 1],
+            access: app_commands.Range[int, 1],
         ) -> None:
             if not await self.require_moderator(interaction):
                 return
             await interaction.response.defer(ephemeral=True)
-            record = await self.data.get_access(application)
+            record = await self.data.get_access(access)
             if record is None:
                 await interaction.edit_original_response(
                     **branded_edit(
                         info_embed(
-                            "Application Not Found",
-                            f"> Application `#{application}` does not exist.",
+                            "Access Record Not Found",
+                            f"> Access record `#{access}` does not exist.",
                             error=True,
                         )
                     ),
                     view=self.control_view(interaction),
                 )
                 return
-            rows = await self.data.audit_rows(application)
+            rows = await self.data.audit_rows(access)
             lines = [
                 f"<t:{int(row['created_at'])}:F> · **{str(row['action']).replace('_', ' ').title()}**"
                 for row in rows[-20:]
@@ -3340,7 +3340,7 @@ class MinecraftAccessBot(commands.Bot):
             await interaction.edit_original_response(
                 **branded_edit(
                     info_embed(
-                        f"Application Audit #{application}",
+                        f"Access Audit #{access}",
                         f"> <@{record.discord_user_id}> · `{record.claimed_username}` · "
                         f"**{record.status.value.replace('_', ' ').title()}**\n\n"
                         + ("\n".join(lines) if lines else "No audit events were recorded."),
@@ -3375,21 +3375,21 @@ class MinecraftAccessBot(commands.Bot):
                 )
             )
 
-        @staff_group.command(name="cancel", description="Cancel a staff-managed application.")
-        @app_commands.describe(application="Application ID to cancel")
+        @staff_group.command(name="cancel", description="Cancel a staff-managed verification.")
+        @app_commands.describe(access="Access record ID to cancel")
         async def staff_cancel(
             interaction: discord.Interaction,
-            application: app_commands.Range[int, 1],
+            access: app_commands.Range[int, 1],
         ) -> None:
             if not await self.require_moderator(interaction):
                 return
             await interaction.response.defer(ephemeral=True, thinking=True)
             try:
-                updated = await self.data.cancel_verification(application, interaction.user.id)
+                updated = await self.data.cancel_verification(access, interaction.user.id)
             except InvalidTransition as exc:
                 await interaction.edit_original_response(
                     **branded_edit(
-                        info_embed("Application Not Cancelled", f"> {exc}", error=True)
+                        info_embed("Verification Not Cancelled", f"> {exc}", error=True)
                     ),
                     view=self.control_view(interaction),
                 )
@@ -3397,8 +3397,8 @@ class MinecraftAccessBot(commands.Bot):
             await interaction.edit_original_response(
                 **branded_edit(
                     info_embed(
-                        "Application Cancelled",
-                        f"> Application `#{updated.id}` was cancelled and its Minecraft access actions were updated.",
+                        "Verification Cancelled",
+                        f"> Access record `#{updated.id}` was cancelled and its Minecraft access actions were updated.",
                         success=True,
                     )
                 ),
@@ -3433,7 +3433,7 @@ class MinecraftAccessBot(commands.Bot):
                     value=(
                         "`/mgxstaff panel` — interactive moderator controls\n"
                         "`/mgxstaff lookup` — search by member or Minecraft username\n"
-                        "`/mgxstaff applications` — recent applications by status\n"
+                        "`/mgxstaff access` — recent access records by status\n"
                         "`/mgxstaff tools` — the in-game tools your permissions allow"
                     ),
                     inline=False,
@@ -3453,7 +3453,7 @@ class MinecraftAccessBot(commands.Bot):
                     value=(
                         "`/mgxstaff revoke` — remove a member's access\n"
                         "`/mgxstaff unlink` — unlink one account\n"
-                        "`/mgxstaff cancel` — cancel a staff-managed application"
+                        "`/mgxstaff cancel` — cancel a staff-managed verification"
                     ),
                     inline=False,
                 )
@@ -3462,7 +3462,7 @@ class MinecraftAccessBot(commands.Bot):
                     value=(
                         "`/mgxstaff status` — bridge and queue health\n"
                         "`/mgxstaff retry` — retry failed bridge actions\n"
-                        "`/mgxstaff audit` — one application's lifecycle\n"
+                        "`/mgxstaff audit` — one access record's lifecycle\n"
                         "`/mgxstaff commandlog` — who ran which command\n"
                         "`/mgxstaff stats` — access totals, peaks and busiest play times"
                     ),
@@ -3481,7 +3481,7 @@ class MinecraftAccessBot(commands.Bot):
                         "`/mgxadmin maintenance` — hold the server closed before "
                         "launch, or open it again\n"
                         "`/mgxadmin cleanheads` — remove leaderboard head emoji\n"
-                        "`/mgxadmin wipe` — owner only; delete all application and whitelist data"
+                        "`/mgxadmin wipe` — owner only; delete all access and whitelist data"
                     ),
                     inline=False,
                 )

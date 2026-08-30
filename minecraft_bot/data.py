@@ -959,7 +959,7 @@ class MinecraftDataManager:
                 raise
         application = await self.get_access(access_id)
         if application is None:
-            raise RuntimeError("Application insert did not persist")
+            raise RuntimeError("Access record insert did not persist")
         return application
 
     async def get_access(self, access_id: int) -> Optional[MinecraftAccess]:
@@ -1160,7 +1160,7 @@ class MinecraftDataManager:
                     (int(access_id),),
                 )
                 if not rows:
-                    raise InvalidTransition("Application does not exist")
+                    raise InvalidTransition("Access record does not exist")
                 application = self._access(rows[0])
                 event_cursor = await db.execute(
                     "INSERT OR IGNORE INTO minecraft_bridge_events"
@@ -1171,7 +1171,7 @@ class MinecraftDataManager:
                     await db.rollback()
                     return application, False
                 if application.status is not AccessStatus.PENDING_VERIFICATION:
-                    raise InvalidTransition("Application is not awaiting verification")
+                    raise InvalidTransition("Access record is not awaiting verification")
                 if application.verification_expires_at <= current:
                     await db.execute(
                         "UPDATE minecraft_access SET status=?, updated_at=? WHERE id=?",
@@ -1181,9 +1181,9 @@ class MinecraftDataManager:
                     updated = await self.get_access(access_id)
                     return updated or application, False
                 if not application.auto_detect_edition and application.edition is not edition:
-                    raise InvalidTransition("Verified edition does not match the application")
+                    raise InvalidTransition("Verified edition does not match the access record")
                 if _fold_username(application.claimed_username) != _fold_username(cleaned_actual):
-                    raise InvalidTransition("Verified username does not match the application")
+                    raise InvalidTransition("Verified username does not match the access record")
                 if edition is Edition.BEDROCK and not xuid:
                     raise InvalidTransition("Bedrock verification did not include a Floodgate XUID")
 
@@ -1481,7 +1481,7 @@ class MinecraftDataManager:
                     (int(access_id),),
                 )
                 if not rows:
-                    raise InvalidTransition("Application does not exist")
+                    raise InvalidTransition("Access record does not exist")
                 application = self._access(rows[0])
                 cursor = await db.execute(
                     f"UPDATE minecraft_access SET status=?, revoked_by=?, revoked_at=?, updated_at=? "
@@ -1496,7 +1496,7 @@ class MinecraftDataManager:
                     ),
                 )
                 if cursor.rowcount != 1:
-                    raise InvalidTransition("Application is no longer active")
+                    raise InvalidTransition("Access record is no longer active")
                 await db.execute(
                     "UPDATE minecraft_bridge_outbox SET status='CANCELLED', processed_at=? "
                     "WHERE access_id=? AND status IN ('PENDING', 'SENT', 'FAILED')",
@@ -1539,7 +1539,7 @@ class MinecraftDataManager:
                 raise
         updated = await self.get_access(access_id)
         if updated is None:
-            raise RuntimeError("Cancelled application disappeared")
+            raise RuntimeError("Cancelled access record disappeared")
         return updated
 
     async def cancel_pending_verification_for_user(
@@ -1608,7 +1608,7 @@ class MinecraftDataManager:
                 raise
         updated = await self.get_access(access_id)
         if updated is None:
-            raise RuntimeError("Cancelled application disappeared")
+            raise RuntimeError("Cancelled access record disappeared")
         return updated
 
     async def queue_revocations(self, discord_user_id: int, moderator_id: int, reason: str) -> list[MinecraftAccess]:

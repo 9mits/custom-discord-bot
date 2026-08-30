@@ -65,8 +65,8 @@ TOPICS: tuple[Topic, ...] = (
     ),
     Topic(
         "application",
-        "Applications",
-        "Application submissions and access changes.",
+        "Access",
+        "Verification starts, access grants, revocations, and account changes.",
         "application_log_channel_id",
     ),
     Topic(

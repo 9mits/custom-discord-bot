@@ -191,7 +191,7 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         for name in ("account", "server", "help", "cancel", "clan"):
             self.assertIn(name, member_commands)
         for name in (
-            "panel", "status", "lookup", "revoke", "unlink", "retry", "applications",
+            "panel", "status", "lookup", "revoke", "unlink", "retry", "access",
             "audit", "cancel", "stats", "commandlog", "tools",
             "kick", "mute", "ban", "tempban", "unban", "heal", "broadcast", "update",
         ):
@@ -397,8 +397,11 @@ class MinecraftBotPolicyTests(unittest.TestCase):
         self.assertEqual(view.children[0].custom_id, "minecraft:control:tools")
         self.assertEqual(
             {option.value for option in view.children[0].options},
-            {"overview", "diagnostics", "applications", "commandlog", "username"},
+            {"overview", "diagnostics", "access", "commandlog", "username"},
         )
+        labels = {option.label for option in view.children[0].options}
+        self.assertIn("Access Records", labels)
+        self.assertNotIn("Applications", labels)
 
     def test_administrator_control_panel_includes_setup(self):
         bot = SimpleNamespace(
@@ -3952,7 +3955,7 @@ class MinecraftSetupDashboardOutcomeTests(unittest.IsolatedAsyncioTestCase):
 
         bot = self._bot()
         button = setup_module.MinecraftSetupAction(
-            "post", "Post Application Panel", discord.ButtonStyle.success
+            "post", "Post Join Panel", discord.ButtonStyle.success
         )
         button._view = setup_module.MinecraftSetupView(bot, 123, None)
         interaction = self._interaction(bot)
@@ -3965,7 +3968,7 @@ class MinecraftSetupDashboardOutcomeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(edit["view"], setup_module.MinecraftSetupView)
         self.assertNotIn("embed", edit)
         confirmation = interaction.followup.send.await_args.kwargs
-        self.assertEqual(confirmation["embed"].title, "Application Panel Ready")
+        self.assertEqual(confirmation["embed"].title, "Join Panel Ready")
         self.assertTrue(confirmation["ephemeral"])
 
     async def test_a_panel_that_could_not_be_posted_leaves_the_dashboard_alone(self):
@@ -3976,7 +3979,7 @@ class MinecraftSetupDashboardOutcomeTests(unittest.IsolatedAsyncioTestCase):
             side_effect=RuntimeError("The application channel is not set.")
         )
         button = setup_module.MinecraftSetupAction(
-            "post", "Post Application Panel", discord.ButtonStyle.success
+            "post", "Post Join Panel", discord.ButtonStyle.success
         )
         button._view = setup_module.MinecraftSetupView(bot, 123, None)
         interaction = self._interaction(bot)

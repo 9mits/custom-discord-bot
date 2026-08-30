@@ -3,6 +3,7 @@ package bot.mgx.accessbridge;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -119,5 +120,15 @@ final class AmethystDailyStockTest {
         assertEquals(2, loaded.stock());
         assertEquals(5L, loaded.rolledAt());
         assertEquals(500L, loaded.nextRollAt());
+    }
+
+    @Test
+    void everyNewListingIsAnnouncedWithItsStockAndShopRoute() throws Exception {
+        String source = Files.readString(Path.of(
+                "src/main/java/bot/mgx/accessbridge/AmethystShopService.java"));
+        assertTrue(source.contains("announce(rolled);"));
+        assertTrue(source.contains("AMETHYST SHOP »"));
+        assertTrue(source.contains("stock.stock() + \"x \""));
+        assertTrue(source.contains("- /shop, Amethyst."));
     }
 }

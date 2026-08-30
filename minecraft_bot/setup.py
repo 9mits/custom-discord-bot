@@ -47,8 +47,8 @@ def configuration_findings(bot, guild: Optional[discord.Guild]) -> list[SetupFin
         return [SetupFinding("Server", "The configured Discord server is unavailable.")]
 
     channels = (
-        ("Application channel", settings.application_channel_id, False, True),
-        ("Review channel", settings.review_channel_id, True, True),
+        ("Join channel", settings.application_channel_id, False, True),
+        ("Verification channel", settings.review_channel_id, True, True),
         ("Activity log", settings.command_log_channel_id, True, False),
         ("Important log", settings.critical_log_channel_id, True, False),
         ("Minecraft chat", settings.chat_channel_id, True, False),
@@ -97,7 +97,7 @@ def configuration_findings(bot, guild: Optional[discord.Guild]) -> list[SetupFin
         settings.application_channel_id
         and settings.application_channel_id == settings.review_channel_id
     ):
-        findings.append(SetupFinding("Channels", "Application and review channels must be different."))
+        findings.append(SetupFinding("Channels", "Join and verification channels must be different."))
 
     roles = (
         ("Moderator role", settings.mod_role_id),
@@ -380,7 +380,7 @@ class MinecraftSetupAction(discord.ui.Button):
                 **branded_send(
                     info_embed(
                         "Setup Needs Attention",
-                        "> Resolve the findings below before posting the application panel.\n\n"
+                        "> Resolve the findings below before posting the join panel.\n\n"
                         + details,
                         error=True,
                     )
@@ -407,9 +407,9 @@ class MinecraftSetupAction(discord.ui.Button):
         await interaction.followup.send(
             **branded_send(
                 info_embed(
-                    "Application Panel Ready",
-                    f"> The latest application panel is available in {message.channel.mention}.\n\n"
-                    "Applicants can begin the Discord and Minecraft verification flow immediately.",
+                    "Join Panel Ready",
+                    f"> The latest join panel is available in {message.channel.mention}.\n\n"
+                    "Players can begin the Discord and Minecraft verification flow immediately.",
                     success=True,
                 )
             ),
@@ -428,10 +428,10 @@ class MinecraftSetupView(discord.ui.LayoutView):
         bridge_state = "Connected" if bot.bridge.connected else "Offline"
 
         container = discord.ui.Container(accent_colour=THEME_COLOUR)
-        container.add_item(discord.ui.TextDisplay("## Minecraft Application Setup"))
+        container.add_item(discord.ui.TextDisplay("## Minecraft Access Setup"))
         container.add_item(
             discord.ui.TextDisplay(
-                "Configure the Discord-facing application system here. Changes save immediately "
+                "Configure Discord access and verification here. Changes save immediately "
                 "to the dedicated Minecraft database."
             )
         )
@@ -440,8 +440,8 @@ class MinecraftSetupView(discord.ui.LayoutView):
             discord.ui.TextDisplay(
                 f"**Status:** {state}\n"
                 f"**Bridge:** {bridge_state}\n"
-                f"**Application channel:** {_channel_value(guild, settings.application_channel_id)}\n"
-                f"**Review channel:** {_channel_value(guild, settings.review_channel_id)}\n"
+                f"**Join channel:** {_channel_value(guild, settings.application_channel_id)}\n"
+                f"**Verification channel:** {_channel_value(guild, settings.review_channel_id)}\n"
                 f"**Activity log:** {_channel_value(guild, settings.command_log_channel_id)}\n"
                 f"**Important log:** {_channel_value(guild, settings.critical_log_channel_id)}\n"
                 f"**Minecraft chat:** {_channel_value(guild, settings.chat_channel_id)}\n"
@@ -451,7 +451,7 @@ class MinecraftSetupView(discord.ui.LayoutView):
         )
         container.add_item(
             discord.ui.TextDisplay(
-                "**Activity log** keeps routine applications, verifications, player activity, and commands together.\n"
+                "**Activity log** keeps access changes, verifications, player activity, and commands together.\n"
                 "**Important log** is the quieter escalation channel for denied or failed actions and access removal."
                 "\n**Minecraft chat** mirrors messages between this Discord channel and the game."
             )
@@ -466,8 +466,8 @@ class MinecraftSetupView(discord.ui.LayoutView):
         container.add_item(discord.ui.Separator())
 
         for item in (
-            MinecraftChannelSelect("application_channel_id", "Application channel"),
-            MinecraftChannelSelect("review_channel_id", "Review channel"),
+            MinecraftChannelSelect("application_channel_id", "Join channel"),
+            MinecraftChannelSelect("review_channel_id", "Verification channel"),
             MinecraftChannelSelect("activity_log_channel_id", "Activity log"),
             MinecraftChannelSelect("critical_log_channel_id", "Important log"),
             MinecraftChannelSelect("chat_channel_id", "Minecraft chat"),
@@ -500,7 +500,7 @@ class MinecraftSetupView(discord.ui.LayoutView):
         actions.add_item(
             MinecraftSetupAction(
                 "post",
-                "Post Application Panel",
+                "Post Join Panel",
                 discord.ButtonStyle.success,
                 disabled=bool(findings),
             )

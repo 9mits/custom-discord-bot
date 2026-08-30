@@ -19,9 +19,9 @@ import org.bukkit.scheduler.BukkitTask;
 
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.List;
-import java.util.Map;
+import java.util.Set;
 
 /**
  * Makes the multiplier events visible: a boss bar while they run, a banner on
@@ -37,7 +37,9 @@ final class ServerEventService implements Listener {
     private final MGXAccessBridge plugin;
     private final ServerEventStore store;
     private final PersonalNotificationService notifications;
-    private final Map<ServerEventType, BossBar> bars = new EnumMap<>(ServerEventType.class);
+    /** Every multiplier shares one line so stacked events never bury the screen in bars. */
+    private final Set<ServerEventType> visible = EnumSet.noneOf(ServerEventType.class);
+    private BossBar bar;
     private BukkitTask task;
 
     ServerEventService(
@@ -61,9 +63,11 @@ final class ServerEventService implements Listener {
             task.cancel();
             task = null;
         }
-        bars.values().forEach(bar -> plugin.getServer().getOnlinePlayers()
-                .forEach(player -> player.hideBossBar(bar)));
-        bars.clear();
+        if (bar != null) {
+            plugin.getServer().getOnlinePlayers().forEach(player -> player.hideBossBar(bar));
+            bar = null;
+        }
+        visible.clear();
     }
 
     /** What a payout should be multiplied by right now. */
@@ -92,6 +96,9 @@ final class ServerEventService implements Listener {
                 : ServerEventStore.NO_DEADLINE;
         if (!store.set(type, enabled, deadline, now)) {
             return false;
+        }
+        if (!enabled) {
+            visible.remove(type);
         }
         announce(type, enabled, seconds);
         refresh();
@@ -150,9 +157,10 @@ final class ServerEventService implements Listener {
             if (running.isEmpty()) {
                 return;
             }
-            for (ServerEventType type : running) {
-                player.showBossBar(barFor(type));
-            }
+            BossBar current = barFor();
+            current.name(Component.text(stackedTitle(running), NamedTextColor.WHITE,
+                    TextDecoration.BOLD));
+            player.showBossBar(current);
             plugin.broadcasts().announceBanner(List.of(player), "EVENT LIVE", bannerBody(running));
             notifications.actionBar(player, eventActionBar(running));
         }, JOIN_DELAY_TICKS);
@@ -200,43 +208,53 @@ final class ServerEventService implements Listener {
         return Component.text(names + "  •  Live now", NamedTextColor.GOLD, TextDecoration.BOLD);
     }
 
-    /** Drops finished events, then shows a bar for each one still running. */
+    /** Drops finished events, then renders every live multiplier on one boss bar. */
     private void refresh() {
         long now = System.currentTimeMillis();
-        List<ServerEventType> stopped = new ArrayList<>();
-        for (ServerEventType type : ServerEventType.values()) {
-            if (bars.containsKey(type) && !store.active(type, now)) {
-                stopped.add(type);
+        List<ServerEventType> running = live();
+        for (ServerEventType type : Set.copyOf(visible)) {
+            if (!running.contains(type)) {
+                visible.remove(type);
+                // Manual stops already announced from set(); only an event that was
+                // still visible here reached its own deadline.
+                announce(type, false, 0L);
             }
         }
-        for (ServerEventType type : stopped) {
-            BossBar bar = bars.remove(type);
-            plugin.getServer().getOnlinePlayers().forEach(player -> player.hideBossBar(bar));
-            announce(type, false, 0L);
-        }
         store.prune(now);
-        for (ServerEventType type : store.snapshot(now).keySet()) {
-            BossBar bar = barFor(type);
-            long remaining = store.remainingMillis(type, now);
-            bar.name(Component.text(
-                    remaining > 0
-                            ? type.displayName() + "  -  " + humanDuration(remaining) + " left"
-                            : type.displayName(),
-                    NamedTextColor.WHITE, TextDecoration.BOLD
-            ));
-            plugin.getServer().getOnlinePlayers().forEach(player -> player.showBossBar(bar));
+        if (running.isEmpty()) {
+            if (bar != null) {
+                BossBar empty = bar;
+                plugin.getServer().getOnlinePlayers().forEach(player -> player.hideBossBar(empty));
+                bar = null;
+            }
+            visible.clear();
+            return;
         }
+        visible.addAll(running);
+        BossBar current = barFor();
+        current.name(Component.text(stackedTitle(running), NamedTextColor.WHITE,
+                TextDecoration.BOLD));
+        plugin.getServer().getOnlinePlayers().forEach(player -> player.showBossBar(current));
     }
 
-    private BossBar barFor(ServerEventType type) {
-        return bars.computeIfAbsent(type, key -> BossBar.bossBar(
-                Component.text(key.displayName(), NamedTextColor.WHITE, TextDecoration.BOLD),
-                // Full and steady. A draining bar is meaningless for an event
-                // that may run for days; the time remaining is in the title.
-                1f,
-                barColourOf(key),
-                BossBar.Overlay.PROGRESS
-        ));
+    static String stackedTitle(List<ServerEventType> running) {
+        return running.stream().map(ServerEventType::displayName)
+                .reduce((left, right) -> left + " - " + right)
+                .orElse("EVENT LIVE");
+    }
+
+    private BossBar barFor() {
+        if (bar == null) {
+            bar = BossBar.bossBar(
+                    Component.text("EVENT LIVE", NamedTextColor.WHITE, TextDecoration.BOLD),
+                    // Full and steady. Event lengths can differ, so one draining bar
+                    // would lie about at least one of the stacked events.
+                    1f,
+                    BossBar.Color.YELLOW,
+                    BossBar.Overlay.PROGRESS
+            );
+        }
+        return bar;
     }
 
     static String humanDuration(long millis) {
@@ -265,14 +283,4 @@ final class ServerEventService implements Listener {
         };
     }
 
-    private static BossBar.Color barColourOf(ServerEventType type) {
-        return switch (type) {
-            case CRATE_LUCK -> BossBar.Color.YELLOW;
-            case FORTUNE -> BossBar.Color.GREEN;
-            case KEY -> BossBar.Color.BLUE;
-            case MONEY -> BossBar.Color.PINK;
-            case AIRDROP, AMETHYST_BLOCK -> BossBar.Color.PURPLE;
-            case MEGA_KEY -> BossBar.Color.BLUE;
-        };
-    }
 }

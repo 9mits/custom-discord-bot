@@ -65,12 +65,11 @@ import java.util.random.RandomGenerator;
 
 /** Random Amethyst Airdrops, their temporary structure, loot, effects, and cleanup. */
 final class AirdropService implements Listener {
-    static final long DEFAULT_MINIMUM_DELAY_MILLIS = Duration.ofMinutes(30).toMillis();
-    static final long DEFAULT_MAXIMUM_DELAY_MILLIS = Duration.ofMinutes(90).toMillis();
+    static final long DEFAULT_MINIMUM_DELAY_MILLIS = Duration.ofMinutes(15).toMillis();
+    static final long DEFAULT_MAXIMUM_DELAY_MILLIS = Duration.ofMinutes(30).toMillis();
     static final long DEFAULT_LIFETIME_MILLIS = Duration.ofMinutes(30).toMillis();
     private static final long EFFECT_PERIOD_TICKS = 5L;
     private static final long COUNTDOWN_PERIOD_TICKS = 20L;
-    private static final int DEFAULT_MINIMUM_RADIUS = 500;
     private static final int DEFAULT_ATTEMPTS = 24;
     private static final int BORDER_MARGIN = 24;
     private static final String LABEL_TAG = "mgx_airdrop_label";
@@ -112,6 +111,13 @@ final class AirdropService implements Listener {
     }
 
     private record Candidate(World world, int x, int z) {
+    }
+
+    /** Integer offset inside one rarity's configured spawn ring. */
+    record Offset(int x, int z) {
+        long distanceSquared() {
+            return (long) x * x + (long) z * z;
+        }
     }
 
     private static final class ActiveAirdrop {
@@ -345,7 +351,7 @@ final class AirdropService implements Listener {
         if (atCapacity()) {
             throw new IllegalArgumentException(
                     "There are already " + active.size() + " Airdrops standing, which is the"
-                            + " maximum. Wait for one to be claimed or raise"
+                            + " maximum. End one or raise"
                             + " airdrop.maximum-active."
             );
         }
@@ -422,7 +428,7 @@ final class AirdropService implements Listener {
             failScheduledSpawn();
             return;
         }
-        Candidate candidate = randomCandidate();
+        Candidate candidate = randomCandidate(rarity);
         if (candidate == null) {
             failScheduledSpawn();
             return;
@@ -473,7 +479,7 @@ final class AirdropService implements Listener {
         }
     }
 
-    private Candidate randomCandidate() {
+    private Candidate randomCandidate(AirdropCatalog.Rarity rarity) {
         List<World> worlds = plugin.getServer().getWorlds().stream()
                 .filter(world -> world.getEnvironment() == World.Environment.NORMAL
                         || world.getEnvironment() == World.Environment.NETHER)
@@ -485,21 +491,50 @@ final class AirdropService implements Listener {
         }
         World world = worlds.get(random.nextInt(worlds.size()));
         WorldBorder border = world.getWorldBorder();
-        Location centre = border.getCenter();
-        int limit = Math.max(1, (int) Math.floor(border.getSize() / 2d) - BORDER_MARGIN);
-        int minimumRadius = variables.integer("airdrop.minimum-radius");
-        int localMinimum = world.getEnvironment() == World.Environment.NETHER
-                ? Math.max(64, minimumRadius / 8)
-                : minimumRadius;
-        for (int index = 0; index < 24; index++) {
-            int x = centre.getBlockX() + random.nextInt(-limit, limit + 1);
-            int z = centre.getBlockZ() + random.nextInt(-limit, limit + 1);
-            if ((long) x * x + (long) z * z < (long) localMinimum * localMinimum) {
-                continue;
-            }
-            return new Candidate(world, x, z);
+        // Every published distance is measured from the server origin. Keeping the
+        // same block bands in every world makes an announced 1,000-2,000 range mean
+        // exactly that rather than silently converting Nether coordinates.
+        int originX = 0;
+        int originZ = 0;
+        Location borderCentre = border.getCenter();
+        int borderRadius = Math.max(1, (int) Math.floor(border.getSize() / 2d) - BORDER_MARGIN);
+        int spawnOffset = Math.max(
+                Math.abs(originX - borderCentre.getBlockX()),
+                Math.abs(originZ - borderCentre.getBlockZ())
+        );
+        int localMinimum = radius(rarity, "minimum");
+        int localMaximum = Math.min(radius(rarity, "maximum"), borderRadius - spawnOffset);
+        if (localMaximum < localMinimum || localMaximum < 1) {
+            plugin.getLogger().warning("The " + rarity.displayName()
+                    + " Airdrop distance ring does not fit inside " + worldName(world) + ".");
+            return null;
         }
-        return null;
+        Offset offset = randomOffset(random, localMinimum, localMaximum);
+        return new Candidate(
+                world, originX + offset.x(), originZ + offset.z()
+        );
+    }
+
+    private int radius(AirdropCatalog.Rarity rarity, String bound) {
+        return variables.integer("airdrop.rarity-radius."
+                + rarity.name().toLowerCase(Locale.ROOT) + "." + bound);
+    }
+
+    /** Picks a point uniformly from the square, rejecting everything outside the ring. */
+    static Offset randomOffset(RandomGenerator random, int minimum, int maximum) {
+        if (random == null || minimum < 0 || maximum < Math.max(1, minimum)) {
+            throw new IllegalArgumentException("Airdrop radius bounds are invalid");
+        }
+        long minimumSquared = (long) minimum * minimum;
+        long maximumSquared = (long) maximum * maximum;
+        while (true) {
+            int x = random.nextInt(-maximum, maximum + 1);
+            int z = random.nextInt(-maximum, maximum + 1);
+            long distanceSquared = (long) x * x + (long) z * z;
+            if (distanceSquared >= minimumSquared && distanceSquared <= maximumSquared) {
+                return new Offset(x, z);
+            }
+        }
     }
 
     private Location findAnchor(Candidate candidate) {
@@ -651,10 +686,7 @@ final class AirdropService implements Listener {
                             + " Amethyst Airdrop expired unclaimed."),
                     Math.max(1L, lifetimeMillis / 50L)
             );
-            guards.deploy(drop.id, chestLocation, rarity, () -> remove(
-                    drop, true, "The guards claimed the " + rarity.displayName()
-                            + " Amethyst Airdrop. Nobody stayed to fight for it."
-            ));
+            guards.deploy(drop.id, chestLocation, rarity);
             announceSpawn(drop);
             plugin.getLogger().info("Spawned " + rarity.displayName() + " Amethyst Airdrop at "
                     + coordinates(chestLocation) + " in " + worldName(anchor.getWorld())
@@ -1201,8 +1233,8 @@ final class AirdropService implements Listener {
     /**
      * Takes one drop down, leaving every other standing one alone.
      *
-     * <p>Removal is idempotent: the expiry timer, the guards' claim and a looted chest
-     * can all reach for the same drop, and only the first of them may restore its
+     * <p>Removal is idempotent: the expiry timer and a looted chest can both reach for
+     * the same drop, and only the first of them may restore its
      * blocks. Restoring twice would write the drop's own structure back over whatever
      * a player has built there since.
      */

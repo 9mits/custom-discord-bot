@@ -88,21 +88,22 @@ final class GameVariableStore {
                 "One winning hidden-jackpot ticket in this many crate openings.",
                 CrateCatalog.HIDDEN_AMETHYST_ONE_IN, 1, 100_000_000, "one in", true);
 
-        integer("amethyst-events.minimum-delay-minutes", "Minimum event delay", "Airdrops",
+        integer("amethyst-events.minimum-delay-minutes", "Minimum event delay", "Amethyst Events",
                 "Shortest cooldown after an Amethyst world event ends.",
-                config.getLong("amethyst-events.minimum-delay-minutes", 30), 1, 1_440, "minutes", false);
-        integer("amethyst-events.maximum-delay-minutes", "Maximum event delay", "Airdrops",
+                config.getLong("amethyst-events.minimum-delay-minutes", 15), 1, 1_440, "minutes", false);
+        integer("amethyst-events.maximum-delay-minutes", "Maximum event delay", "Amethyst Events",
                 "Longest cooldown after an Amethyst world event ends.",
-                config.getLong("amethyst-events.maximum-delay-minutes", 90), 1, 1_440, "minutes", false);
+                config.getLong("amethyst-events.maximum-delay-minutes", 30), 1, 1_440, "minutes", false);
         bool("airdrop.enabled", "Airdrops enabled", "Airdrops",
                 "Whether the shared scheduler may choose an Airdrop.",
                 config.getBoolean("airdrop.enabled", true));
         integer("airdrop.lifetime-minutes", "Airdrop lifetime", "Airdrops",
                 "Time before an unclaimed Airdrop is removed.",
                 config.getLong("airdrop.lifetime-minutes", 30), 1, 1_440, "minutes", false);
-        integer("airdrop.minimum-radius", "Airdrop minimum radius", "Airdrops",
-                "Minimum Overworld distance from spawn for scheduled Airdrops.",
-                config.getLong("airdrop.minimum-radius", 500), 0, 100_000, "blocks", false);
+        defineAirdropRadius(config, "common", "Common", 1_000, 2_000);
+        defineAirdropRadius(config, "rare", "Rare", 1_000, 2_000);
+        defineAirdropRadius(config, "legendary", "Legendary", 5_000, 10_000);
+        defineAirdropRadius(config, "mythic", "Mythic", 10_000, 25_000);
         integer("airdrop.maximum-active", "Airdrops at once", "Airdrops",
                 "How many Airdrops may stand at the same time. The scheduler still calls"
                         + " one at a time; this is the ceiling on staff-called drops.",
@@ -118,6 +119,18 @@ final class GameVariableStore {
         integer("airdrop.bonus-loot-rolls", "Maximum bonus loot rolls", "Airdrops",
                 "Random extra material rolls added above the rarity's base rolls.",
                 2, 0, 54, "rolls", false);
+    }
+
+    private void defineAirdropRadius(
+            FileConfiguration config, String id, String label, int minimum, int maximum
+    ) {
+        String base = "airdrop.rarity-radius." + id + ".";
+        integer(base + "minimum", label + " minimum distance", "Airdrop Distance",
+                "Nearest scheduled " + label + " Airdrop distance from 0,0.",
+                config.getLong(base + "minimum", minimum), 0, 100_000, "blocks", false);
+        integer(base + "maximum", label + " maximum distance", "Airdrop Distance",
+                "Farthest scheduled " + label + " Airdrop distance from 0,0.",
+                config.getLong(base + "maximum", maximum), 1, 100_000, "blocks", false);
     }
 
     private void defineOnlineRewards() {
@@ -628,6 +641,10 @@ final class GameVariableStore {
     private void validatePair(String key, Object value) {
         Map<String, String> pairs = Map.ofEntries(
                 Map.entry("amethyst-events.minimum-delay-minutes", "amethyst-events.maximum-delay-minutes"),
+                Map.entry("airdrop.rarity-radius.common.minimum", "airdrop.rarity-radius.common.maximum"),
+                Map.entry("airdrop.rarity-radius.rare.minimum", "airdrop.rarity-radius.rare.maximum"),
+                Map.entry("airdrop.rarity-radius.legendary.minimum", "airdrop.rarity-radius.legendary.maximum"),
+                Map.entry("airdrop.rarity-radius.mythic.minimum", "airdrop.rarity-radius.mythic.maximum"),
                 Map.entry("airdrop.rarity.common.minimum-keys", "airdrop.rarity.common.maximum-keys"),
                 Map.entry("airdrop.rarity.rare.minimum-keys", "airdrop.rarity.rare.maximum-keys"),
                 Map.entry("airdrop.rarity.legendary.minimum-keys", "airdrop.rarity.legendary.maximum-keys"),

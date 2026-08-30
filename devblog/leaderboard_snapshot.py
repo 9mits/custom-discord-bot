@@ -40,9 +40,9 @@ TIMEOUT_SECONDS = 20
 #: field added to the API cannot reach a public page by simply existing.
 GROUPS = ("individual", "clan")
 ROW_FIELDS = (
-    "username", "name", "value", "score", "rank", "minecraft_uuid",
+    "username", "name", "clan", "display", "value", "score", "rank", "minecraft_uuid",
     "head_url", "skin_url", "discord_username", "clan_id", "colour",
-    "members", "level", "medals", "icon",
+    "members", "level", "medals", "badges", "icon", "clan_icon",
 )
 
 
