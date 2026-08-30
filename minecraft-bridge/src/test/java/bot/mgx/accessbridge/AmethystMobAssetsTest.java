@@ -96,11 +96,27 @@ final class AmethystMobAssetsTest {
     void noAmethystMobEverShowsANameTag() throws Exception {
         String source = source();
 
-        assertTrue(source.contains("setCustomNameVisible(false)"));
+        // Vanilla renders a named entity's name whenever the crosshair is on it, whatever
+        // CustomNameVisible says, so an amethyst mob carries no name at all. The name
+        // lives in the death message instead.
+        assertTrue(source.contains("entity.customName(null)"));
         assertFalse(source.contains("setCustomNameVisible(true)"));
+        assertTrue(source.contains("public void onPlayerDeath(PlayerDeathEvent event)"));
         // Appearance applied only at spawn leaves mobs saved by an older build wearing
         // whatever it gave them, which is how the tag survived being turned off.
         assertTrue(source.contains("public void onEntitiesLoad(EntitiesLoadEvent event)"));
+    }
+
+    /**
+     * A Mythic drop was lost 41 seconds after landing because the claim window was short
+     * and the presence ring tight. Losing the drop has to mean genuinely abandoning it.
+     */
+    @Test
+    void theGuardsOnlyClaimAGenuinelyAbandonedDrop() {
+        assertTrue(AirdropGuardService.CLAIM_SECONDS >= 120,
+                "the claim window must not punish a player who is still getting ready");
+        assertTrue(AirdropGuardService.ENGAGE_RADIUS >= 64d,
+                "stepping back from the fight is not abandoning the drop");
     }
 
     /**
