@@ -95,15 +95,18 @@ rtp:
   maximum-radius: 25000
   attempts: 24
 
-# Exact bounds of the protected spawn building. Zombies that spawn here are
-# refused and zombies walking in from outside are stopped at the edge.
+# The protected spawn region: 100x100 centred on the locked spawn at 0,0.
+# Inside it no hostile mob spawns, hostile mobs walking in are stopped at the
+# edge, blocks cannot be broken or placed by non-operators, and PvP is refused.
+# Amethyst mobs are exempt from the mob rules so an airdrop garrison can still
+# stand its ground here. Bounds are inclusive, so -50..49 is exactly 100 wide.
 spawn:
-  zombie-barrier:
+  protection:
     enabled: true
-    min-x: -30
-    max-x: 30
-    min-z: -32
-    max-z: 30
+    min-x: -50
+    max-x: 49
+    min-z: -50
+    max-z: 49
 
 # Reduces active world chunk load. 0 on a distance leaves the panel value unchanged.
 # border-radius is blocks from spawn (nether is 1/8). Set -1 to leave the panel border.
