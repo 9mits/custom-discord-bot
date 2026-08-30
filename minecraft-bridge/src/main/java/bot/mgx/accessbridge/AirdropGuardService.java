@@ -1,6 +1,8 @@
 package bot.mgx.accessbridge;
 
 import org.bukkit.Location;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.Material;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
@@ -36,9 +38,13 @@ final class AirdropGuardService {
     private static final double INNER_RING = 6d;
     private static final double OUTER_RING = 14d;
     static final double ENGAGE_RADIUS = 28d;
+    /** Guards hunt further out than the ring they defend, so nobody picks them off safely. */
+    private static final double HUNT_RADIUS = 40d;
+    private static final double FOLLOW_RANGE = 48d;
+    private static final double SPEED_MULTIPLIER = 1.2d;
     /** How long the guards need alone with the drop before they take it. */
     static final int CLAIM_SECONDS = 20;
-    private static final long PERIOD_TICKS = 10L;
+    private static final long PERIOD_TICKS = 5L;
     private static final int VERTICAL_SEARCH = 6;
 
     /** How many of each mob stand over a drop of a given rarity. */
@@ -129,7 +135,14 @@ final class AirdropGuardService {
                 continue;
             }
             LivingEntity guard = mobs.deploy(where, type);
-            guard.setPersistent(false);
+            // Guards must not wander off or despawn while the drop is still standing.
+            guard.setPersistent(true);
+            guard.setRemoveWhenFarAway(false);
+            scale(guard, Attribute.FOLLOW_RANGE, FOLLOW_RANGE);
+            multiply(guard, Attribute.MOVEMENT_SPEED, SPEED_MULTIPLIER);
+            if (guard instanceof Mob mob) {
+                mob.setAware(true);
+            }
             guards.add(guard.getUniqueId());
         }
     }
@@ -184,16 +197,22 @@ final class AirdropGuardService {
             return;
         }
 
-        Player nearest = nearestPlayer();
-        if (nearest != null) {
-            engaged = true;
-            unattendedTicks = 0;
+        Player hunted = nearestPlayer(HUNT_RADIUS);
+        if (hunted != null) {
             for (UUID id : guards) {
-                if (plugin.getServer().getEntity(id) instanceof Mob guard
-                        && guard.getTarget() == null) {
-                    guard.setTarget(nearest);
+                if (!(plugin.getServer().getEntity(id) instanceof Mob guard)) {
+                    continue;
+                }
+                // Anything that is not a live player is a distraction from the drop, and
+                // a guard that has lost its target must pick the player straight back up.
+                if (!(guard.getTarget() instanceof Player player) || player.isDead()) {
+                    guard.setTarget(hunted);
                 }
             }
+        }
+        if (nearestPlayer(ENGAGE_RADIUS) != null) {
+            engaged = true;
+            unattendedTicks = 0;
             return;
         }
         if (!engaged) {
@@ -209,9 +228,9 @@ final class AirdropGuardService {
         }
     }
 
-    private Player nearestPlayer() {
+    private Player nearestPlayer(double radius) {
         Player nearest = null;
-        double best = ENGAGE_RADIUS * ENGAGE_RADIUS;
+        double best = radius * radius;
         for (Player player : post.getWorld().getPlayers()) {
             if (player.isDead() || !player.getGameMode().name().equals("SURVIVAL")) {
                 continue;
@@ -223,6 +242,21 @@ final class AirdropGuardService {
             }
         }
         return nearest;
+    }
+
+    /** Guards spot and chase from much further out than an ordinary mob. */
+    private static void scale(LivingEntity mob, Attribute attribute, double value) {
+        AttributeInstance instance = mob.getAttribute(attribute);
+        if (instance != null) {
+            instance.setBaseValue(Math.max(instance.getBaseValue(), value));
+        }
+    }
+
+    private static void multiply(LivingEntity mob, Attribute attribute, double factor) {
+        AttributeInstance instance = mob.getAttribute(attribute);
+        if (instance != null) {
+            instance.setBaseValue(instance.getBaseValue() * factor);
+        }
     }
 
     private void burst(Location where) {

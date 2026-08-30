@@ -88,15 +88,39 @@ final class AmethystMobAssetsTest {
         assertEquals(5, mythic.golems());
     }
 
-    /** The tag above an amethyst mob is what tells it apart from a plain iron golem. */
+    /**
+     * No amethyst mob ever wears a floating name tag. The name is still set, because
+     * death messages and the activity log read from it, but it is never shown.
+     */
     @Test
-    void theVariantsCarryAVisibleNameTag() throws Exception {
-        String source = Files.readString(Path.of(
-                "src/main/java/bot/mgx/accessbridge/AmethystMobService.java"
-        ));
+    void noAmethystMobEverShowsANameTag() throws Exception {
+        String source = source();
 
-        assertTrue(source.contains("setCustomNameVisible(true)"));
-        assertFalse(source.contains("setCustomNameVisible(false)"));
+        assertTrue(source.contains("setCustomNameVisible(false)"));
+        assertFalse(source.contains("setCustomNameVisible(true)"));
+    }
+
+    /**
+     * The garrison has to fight the player, not itself. An Amethyst Golem is still an
+     * iron golem and hunts monsters by nature, and one stray arrow starts a brawl.
+     */
+    @Test
+    void amethystMobsNeverTurnOnEachOther() throws Exception {
+        String source = source();
+
+        assertTrue(source.contains("public void onTarget(EntityTargetEvent event)"));
+        assertTrue(source.contains("public void onDamage(EntityDamageByEntityEvent event)"));
+        assertTrue(source.contains("projectile.getShooter()"));
+    }
+
+    /** They are meant to be met, not waited out until sunrise burns them away. */
+    @Test
+    void amethystMobsDoNotBurnInDaylight() throws Exception {
+        String source = source();
+
+        assertTrue(source.contains("public void onCombust(EntityCombustEvent event)"));
+        assertTrue(source.contains("setShouldBurnInDay(false)"));
+        assertFalse(source.contains("setShouldBurnInDay(true)"));
     }
 
     @Test
@@ -129,15 +153,18 @@ final class AmethystMobAssetsTest {
      */
     @Test
     void theVariantsAreRealMobsRatherThanDisplayProps() throws Exception {
-        String source = Files.readString(Path.of(
-                "src/main/java/bot/mgx/accessbridge/AmethystMobService.java"
-        ));
+        String source = source();
 
         assertFalse(source.contains("import org.bukkit.entity.ItemDisplay;"));
         assertFalse(source.contains("setItemModel"));
         assertFalse(source.contains("setInvisible(true)"));
         assertFalse(source.contains("runTaskTimer"));
-        assertTrue(source.contains("setShouldBurnInDay(true)"));
+    }
+
+    private static String source() throws Exception {
+        return Files.readString(Path.of(
+                "src/main/java/bot/mgx/accessbridge/AmethystMobService.java"
+        ));
     }
 
     private static String sha256(Path path) throws Exception {

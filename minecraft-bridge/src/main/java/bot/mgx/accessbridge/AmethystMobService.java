@@ -18,13 +18,17 @@ import org.bukkit.entity.IronGolem;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Mob;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Projectile;
 import org.bukkit.entity.Zombie;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.CreatureSpawnEvent;
+import org.bukkit.event.entity.EntityCombustEvent;
+import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.EntityPotionEffectEvent;
+import org.bukkit.event.entity.EntityTargetEvent;
 import org.bukkit.event.entity.EntityTransformEvent;
 import org.bukkit.inventory.EntityEquipment;
 import org.bukkit.inventory.EquipmentSlot;
@@ -141,6 +145,44 @@ final class AmethystMobService implements Listener {
         }
     }
 
+    /** Amethyst mobs do not burn away at sunrise; they are meant to be met, not waited out. */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onCombust(EntityCombustEvent event) {
+        if (event.getEntity() instanceof LivingEntity living && isAmethyst(living)) {
+            event.setCancelled(true);
+        }
+    }
+
+    /**
+     * Amethyst mobs never turn on each other. An Amethyst Golem is still an iron golem
+     * and hunts monsters by nature, and a stray's stray arrow is enough to start a brawl,
+     * either of which leaves the garrison fighting itself instead of the player.
+     */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onTarget(EntityTargetEvent event) {
+        if (event.getTarget() instanceof LivingEntity target && isAmethyst(target)
+                && event.getEntity() instanceof LivingEntity hunter && isAmethyst(hunter)) {
+            event.setTarget(null);
+            event.setCancelled(true);
+        }
+    }
+
+    /** Friendly fire between amethyst mobs, arrows included, simply does not land. */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onDamage(EntityDamageByEntityEvent event) {
+        if (!(event.getEntity() instanceof LivingEntity victim) || !isAmethyst(victim)) {
+            return;
+        }
+        Entity source = event.getDamager();
+        if (source instanceof Projectile projectile
+                && projectile.getShooter() instanceof Entity shooter) {
+            source = shooter;
+        }
+        if (source instanceof LivingEntity attacker && isAmethyst(attacker)) {
+            event.setCancelled(true);
+        }
+    }
+
     @EventHandler(priority = EventPriority.HIGHEST)
     public void onDeath(EntityDeathEvent event) {
         LivingEntity entity = event.getEntity();
@@ -252,8 +294,7 @@ final class AmethystMobService implements Listener {
         }
         if (spawned instanceof Zombie zombie) {
             zombie.setBaby(baby);
-            // A husk ignores daylight. These stand in for zombies, so they burn like one.
-            zombie.setShouldBurnInDay(true);
+            zombie.setShouldBurnInDay(false);
         }
         if (spawned instanceof Mob mob && source instanceof Mob sourceMob) {
             mob.setTarget(sourceMob.getTarget());
@@ -265,16 +306,19 @@ final class AmethystMobService implements Listener {
         return spawned;
     }
 
-    /** Names the variant and shows the tag, so an amethyst mob is obvious at a glance. */
+    /**
+     * Names the variant for death messages and the activity log, but never shows the tag.
+     * A floating label over a mob is not wanted on any amethyst mob.
+     */
     private void dress(LivingEntity entity) {
         entity.customName(Component.text(displayName(entity.getType()), AMETHYST,
                 TextDecoration.BOLD));
-        entity.setCustomNameVisible(true);
+        entity.setCustomNameVisible(false);
         entity.setGlowing(false);
         entity.setInvisible(false);
         entity.setPersistent(true);
         if (entity instanceof Zombie zombie) {
-            zombie.setShouldBurnInDay(true);
+            zombie.setShouldBurnInDay(false);
         }
     }
 
