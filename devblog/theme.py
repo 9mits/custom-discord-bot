@@ -916,11 +916,13 @@ a { color: inherit; }
 .live-deadline { margin-top: 1.25rem; color: var(--orange-deep); font-size: .8rem; font-weight: 800; }
 .live-battle-board { display: grid; align-content: start; gap: .55rem; }
 .live-battle-row {
-  display: grid; grid-template-columns: 3rem 2.75rem minmax(0, 1fr) auto; align-items: center; gap: .8rem;
+  display: grid; grid-template-columns: 3rem 2.65rem minmax(0, 1fr) auto; align-items: center; gap: .55rem;
   padding: .8rem 1rem; border: 1px solid var(--line);
   border-radius: .75rem; background: var(--surface);
 }
-.live-battle-row span:first-child { color: var(--brand-orange); font-size: 1.1rem; font-weight: 900; }
+.live-battle-row .live-clan-crest,
+.live-battle-row .live-clan-crest .live-minecraft-icon { width: 2.65rem; height: 2.65rem; }
+.live-battle-row span:first-child { justify-self: end; color: var(--brand-orange); font-size: 1.1rem; font-weight: 900; }
 .live-battle-row span:last-child { color: var(--grey); font-size: .78rem; }
 .live-battle-row:nth-child(1) {
   border-color: color-mix(in srgb, #f2bd3d 68%, var(--line)); background: color-mix(in srgb, #f2bd3d 10%, var(--surface));
@@ -1012,7 +1014,7 @@ a { color: inherit; }
   .live-podium-card.rank-bronze { order: 3; }
   .live-rank-row { grid-template-columns: 2.5rem 2.75rem minmax(0, 1fr); }
   .live-row-value { grid-column: 3; text-align: left; }
-  .live-battle-row { grid-template-columns: 2.5rem 2.75rem minmax(0, 1fr); }
+  .live-battle-row { grid-template-columns: 2.5rem 2.65rem minmax(0, 1fr); }
   .live-battle-row span:last-child { grid-column: 3; }
   .live-event-heading { align-items: flex-start; }
   .live-settings-grid { grid-template-columns: 1fr; }
