@@ -63,6 +63,15 @@ final class RandomTeleportService implements CommandExecutor {
             error(player, "RTP is available in the overworld only.");
             return true;
         }
+        // A teleport out of a fight is a fight nobody can finish. CombatLog's blanket
+        // teleport block used to cover this by accident; it does not list /rtp, and it
+        // is being relaxed so ender pearls work, so the refusal belongs here where it
+        // is a deliberate rule rather than a side effect of somebody else's config.
+        AfkService afk = plugin.afkService();
+        if (afk != null && afk.inCombat(player)) {
+            error(player, "You cannot random teleport while in combat.");
+            return true;
+        }
         if (!searching.add(player.getUniqueId())) {
             info(player, "Already looking for a safe location.");
             return true;
