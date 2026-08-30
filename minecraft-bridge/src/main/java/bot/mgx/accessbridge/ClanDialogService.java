@@ -94,7 +94,7 @@ final class ClanDialogService {
             PlayerMenuService.error(player, "You are not in a clan.");
             return;
         }
-        List<Entry> entries = List.of(
+        List<Entry> entries = new ArrayList<>(List.of(
                 new Entry("item/gold_ingot", "Donate", "Give money to the clan.",
                         this::openDonate),
                 new Entry("block/gold_block", "Treasury",
@@ -116,7 +116,15 @@ final class ClanDialogService {
                                 directory.open(p, 1, this::openHub);
                             }
                         })
-        );
+        ));
+        ClanStore.ClanRole role = clan.roleOf(player.getUniqueId());
+        if ((role == ClanStore.ClanRole.LEADER || role == ClanStore.ClanRole.CO_OWNER)
+                && clan.members().keySet().stream()
+                .anyMatch(id -> clan.roleOf(id) == ClanStore.ClanRole.MEMBER)) {
+            entries.add(new Entry("item/gold_ingot", "Promote Member",
+                    "Choose a member to make clan staff.",
+                    p -> openPromoteMembers(p, clan.id(), 1, this::openHub)));
+        }
         if (!render(player, clan.name(), "Your clan.", entries, 2)) {
             menus.openHub(player);
         }
@@ -248,6 +256,90 @@ final class ClanDialogService {
     }
 
     // ------------------------------------------------------------- members
+
+    /** A visible staff-management route instead of hiding Promote inside a profile row. */
+    private void openPromoteMembers(
+            Player player, UUID clanId, int page, Consumer<Player> back
+    ) {
+        ClanStore.ClanView clan = clans.findClanById(clanId).orElse(null);
+        if (clan == null) {
+            PlayerMenuService.error(player, "That clan no longer exists.");
+            return;
+        }
+        ClanStore.ClanRole role = clan.roleOf(player.getUniqueId());
+        if (role != ClanStore.ClanRole.LEADER && role != ClanStore.ClanRole.CO_OWNER) {
+            PlayerMenuService.error(player, "Only the clan owner or co-owner can promote members.");
+            openHub(player);
+            return;
+        }
+        List<Map.Entry<UUID, String>> candidates = clan.members().entrySet().stream()
+                .filter(entry -> clan.roleOf(entry.getKey()) == ClanStore.ClanRole.MEMBER)
+                .sorted(Map.Entry.comparingByValue(String.CASE_INSENSITIVE_ORDER))
+                .toList();
+        int pages = Math.max(1, (candidates.size() + PER_PAGE - 1) / PER_PAGE);
+        int current = Math.clamp(page, 1, pages);
+        int first = (current - 1) * PER_PAGE;
+        int last = Math.min(candidates.size(), first + PER_PAGE);
+        List<Entry> choices = new ArrayList<>();
+        for (int index = first; index < last; index++) {
+            Map.Entry<UUID, String> candidate = candidates.get(index);
+            choices.add(new Entry("item/gold_ingot", candidate.getValue(),
+                    "Promote this member to clan staff.",
+                    audience -> confirmPromotion(
+                            audience, clanId, candidate.getKey(), candidate.getValue(), current, back
+                    )));
+        }
+        if (current > 1) {
+            choices.add(new Entry("item/arrow", "Previous", "Previous page.",
+                    audience -> openPromoteMembers(audience, clanId, current - 1, back)));
+        }
+        if (current < pages) {
+            choices.add(new Entry("item/arrow", "Next", "Next page.",
+                    audience -> openPromoteMembers(audience, clanId, current + 1, back)));
+        }
+        String body = candidates.isEmpty()
+                ? "Every eligible member is already staff."
+                : "Choose who should become clan staff. Staff can invite, manage warps,"
+                        + " alliances, upgrades, and ordinary members.";
+        if (!render(player, "Promote Member", body, choices, 2, back)) {
+            openMembers(player, clanId, 1, back);
+        }
+    }
+
+    private void confirmPromotion(
+            Player player, UUID clanId, UUID memberId, String name, int page,
+            Consumer<Player> back
+    ) {
+        Runnable promote = () -> promoteMember(player, clanId, memberId, name, page, back);
+        if (!clientSupport.supportsDialogs(player)) {
+            forms.confirm(player, "Promote " + name,
+                    "Make this member clan staff?", "Promote", promote,
+                    () -> openPromoteMembers(player, clanId, page, back));
+            return;
+        }
+        confirm(player, "Promote " + name,
+                "They will be able to manage invites, warps, alliances, upgrades, and members.",
+                "Promote", promote,
+                audience -> openPromoteMembers(audience, clanId, page, back));
+    }
+
+    private void promoteMember(
+            Player player, UUID clanId, UUID memberId, String name, int page,
+            Consumer<Player> back
+    ) {
+        try {
+            clans.setStaff(player.getUniqueId(), memberId, true);
+        } catch (IOException | ClanStore.ClanException failure) {
+            PlayerMenuService.error(player, failure.getMessage() == null
+                    ? "That member could not be promoted." : failure.getMessage());
+            openPromoteMembers(player, clanId, page, back);
+            return;
+        }
+        player.sendMessage(PlayerMenuService.prefix().append(
+                Component.text(name + " is now clan staff.", MenuText.VALUE)
+        ));
+        openPromoteMembers(player, clanId, page, back);
+    }
 
     void openMembers(Player player, UUID clanId, int page, Consumer<Player> back) {
         ClanStore.ClanView clan = clans.findClanById(clanId).orElse(null);
