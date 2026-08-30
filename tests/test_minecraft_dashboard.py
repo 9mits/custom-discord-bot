@@ -32,7 +32,19 @@ class MinecraftDashboardSecurityTests(unittest.IsolatedAsyncioTestCase):
         dashboard = self._dashboard()
         token = dashboard._sign({"user_id": 1, "csrf": "safe", "exp": int(time.time()) + 60})
         self.assertEqual(dashboard._unsign(token)["csrf"], "safe")
-        self.assertIsNone(dashboard._unsign(token[:-1] + ("a" if token[-1] != "a" else "b")))
+        payload, signature = token.split(".", 1)
+        # Not the last character of the signature. A SHA-256 digest is 32 bytes, which
+        # base64 encodes in 43 characters carrying 258 bits, so the final character has
+        # two bits that decode to nothing: four of the 64 values it could hold produce
+        # the same 32 bytes and the tamper goes undetected. Editing it made this test
+        # fail on about one run in sixteen, depending only on the timestamp inside the
+        # payload. Every earlier character is fully significant.
+        self.assertIsNone(dashboard._unsign(
+            payload + "." + ("a" if signature[0] != "a" else "b") + signature[1:]
+        ))
+        self.assertIsNone(dashboard._unsign(
+            ("a" if payload[0] != "a" else "b") + payload[1:] + "." + signature
+        ))
         expired = dashboard._sign({"user_id": 1, "exp": int(time.time()) - 1})
         self.assertIsNone(dashboard._unsign(expired))
 
