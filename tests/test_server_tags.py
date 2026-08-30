@@ -9,6 +9,7 @@ import cogs.server_tags as server_tags
 from core import context
 from core.actions import AcknowledgementPolicy, get_action_spec
 from cogs.server_tags import (
+    _summary,
     accepted_guild_ids,
     parse_guild_ids,
     tag_matches,
@@ -160,7 +161,7 @@ class DeferredResponseTests(unittest.IsolatedAsyncioTestCase):
 
     def setUp(self):
         self.cog = server_tags.ServerTagCog(Mock())
-        self.cog.sync_guild = AsyncMock(return_value=0)
+        self.cog.sync_guild = AsyncMock(return_value=(0, 0))
         self.cog._assignable = Mock(return_value=True)
         self.cog._accepted = Mock(return_value={HOME})
         self.cog._role = Mock(return_value=None)
@@ -209,3 +210,71 @@ class DeferredResponseTests(unittest.IsolatedAsyncioTestCase):
         with stub_runtime():
             await self.cog.unlink.callback(self.cog, self.interaction, str(LINKED))
         self.interaction.followup.send.assert_awaited_once()
+
+
+class SummaryTests(unittest.TestCase):
+    def test_reads_as_a_sentence_in_every_combination(self):
+        self.assertEqual("Everyone already had the right role.", _summary(0, 0))
+        self.assertEqual("**3** gained the role.", _summary(3, 0))
+        self.assertEqual("**2** lost it.", _summary(0, 2))
+        self.assertEqual("**3** gained the role and **2** lost it.", _summary(3, 2))
+
+
+class LoggingTests(unittest.IsolatedAsyncioTestCase):
+    """One line per real change, and only from the event paths.
+
+    A bulk pass deliberately does not announce per member: a first-time setup on a large
+    server would otherwise post hundreds of lines into the log channel.
+    """
+
+    def setUp(self):
+        self.cog = server_tags.ServerTagCog(Mock())
+        self.role = Mock()
+        self.role.mention = "@Tag"
+        self.cog._role = Mock(return_value=self.role)
+        self.cog._assignable = Mock(return_value=True)
+        self.cog._accepted = Mock(return_value={HOME})
+        self.cog._log_change = AsyncMock()
+
+    def _member(self, primary_guild_id, held):
+        target = member(primary_guild_id)
+        target.guild = SimpleNamespace(id=HOME)
+        target.roles = [self.role] if held else []
+        target.add_roles = AsyncMock()
+        target.remove_roles = AsyncMock()
+        return target
+
+    async def test_an_equip_is_logged_when_announced(self):
+        await self.cog.sync_member(self._member(HOME, held=False), announce=True)
+        self.cog._log_change.assert_awaited_once()
+        self.assertTrue(self.cog._log_change.await_args.args[2], "should log an equip")
+
+    async def test_an_unequip_is_logged_when_announced(self):
+        await self.cog.sync_member(self._member(OTHER, held=True), announce=True)
+        self.cog._log_change.assert_awaited_once()
+        self.assertFalse(self.cog._log_change.await_args.args[2], "should log a removal")
+
+    async def test_a_no_op_logs_nothing(self):
+        await self.cog.sync_member(self._member(HOME, held=True), announce=True)
+        self.cog._log_change.assert_not_awaited()
+
+    async def test_bulk_passes_stay_quiet(self):
+        self.cog._log_sweep = AsyncMock()
+        guild = SimpleNamespace(
+            id=HOME,
+            members=[self._member(HOME, held=False), self._member(OTHER, held=True)],
+        )
+        granted, removed = await self.cog.sync_guild(guild)
+        self.assertEqual((1, 1), (granted, removed))
+        self.cog._log_change.assert_not_awaited()
+
+    async def test_sync_reports_and_logs_a_single_summary(self):
+        self.cog.sync_guild = AsyncMock(return_value=(4, 1))
+        self.cog._log_sweep = AsyncMock()
+        interaction = Mock()
+        interaction.guild = SimpleNamespace(id=HOME, members=[])
+        interaction.followup.send = AsyncMock()
+        with stub_runtime():
+            await self.cog.sync.callback(self.cog, interaction)
+        self.cog._log_sweep.assert_awaited_once()
+        interaction.followup.send.assert_awaited_once()
