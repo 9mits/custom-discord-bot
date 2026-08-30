@@ -175,6 +175,21 @@ class ShopCatalogTest {
                 "cluster " + cluster + " <= 4 shards");
     }
 
+    /**
+     * The daily listing is drawn inside the rows the category screen reads as offer
+     * indices, so it is only unreachable-by-accident while the shelf is smaller than
+     * its slot. Grow the shelf past that and the last items become unbuyable: the
+     * listing's click check runs first and swallows the slot.
+     */
+    @Test
+    void theAmethystShelfNeverGrowsIntoTheDailyListingSlot() {
+        assertTrue(
+                ShopCatalog.offers(ShopCatalog.Category.AMETHYST).size()
+                        <= EconomySlots.AMETHYST_DAILY,
+                "the amethyst shelf now reaches the daily listing's slot"
+        );
+    }
+
     @Test
     void everyShelfFitsOnTheHub() {
         // The hub draws one icon per category into a fixed grid; a shelf past the end

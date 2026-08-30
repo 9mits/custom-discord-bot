@@ -76,11 +76,8 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     private static final int CONFIRM_NO = 15;
     private static final int CONFIRM_SIZE = 27;
     private static final int MAIL_COLLECT_SLOT = EconomySlots.MAIL_COLLECT;
-    /**
-     * Where the Amethyst shelf's daily listing sits: the middle of the fourth row,
-     * clear of the seven stocked items and of the navigation row underneath.
-     */
-    private static final int DAILY_STOCK_SLOT = 31;
+    /** Where the Amethyst shelf's daily listing sits; the reasoning is in EconomySlots. */
+    private static final int DAILY_STOCK_SLOT = EconomySlots.AMETHYST_DAILY;
     /** Sits between Sell all and the deposit chest on the sell screen. */
     private static final int AUTO_SELL_SLOT = 47;
     private static final int BUY_SIZE = 54;
@@ -561,9 +558,9 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     /**
      * Today's rare listing, sat well clear of the shelf itself.
      *
-     * <p>The amethyst shelf holds seven items, so the row it uses is empty on every
-     * page and the slot cannot collide with stock. {@code clickShopCategory} checks it
-     * before the grid arithmetic for the same reason.
+     * <p>Its slot is inside the rows a paged screen reads as offer indices, so it is
+     * only free while the shelf stays smaller than the slot number - which a test
+     * enforces. {@code clickShopCategory} checks it before the grid arithmetic.
      */
     private void drawDailyStock(Inventory inventory) {
         if (amethystStock == null) {

@@ -27,6 +27,16 @@ final class EconomySlots {
     static final int AUTO_START = 31;
     /** Puts the amount back to one. */
     static final int BUY_RESET = 34;
+    /**
+     * The Amethyst shelf's once-a-day listing, in the middle of an otherwise empty
+     * board.
+     *
+     * <p>This one is inside the content rows a paged screen reads as offer indices,
+     * which is only safe while the shelf holds fewer items than the slot's own number.
+     * It holds seven and there are only seven vanilla amethyst items, so the shelf has
+     * nowhere to grow - and {@code ShopCatalogTest} fails if it ever does.
+     */
+    static final int AMETHYST_DAILY = 31;
     /** Commits the purchase. */
     static final int BUY_CONFIRM = 40;
 
@@ -50,6 +60,7 @@ final class EconomySlots {
                 AUTO_INTERVAL,
                 AUTO_DROP,
                 AUTO_START,
+                AMETHYST_DAILY,
                 BUY_CONFIRM,
         };
     }
