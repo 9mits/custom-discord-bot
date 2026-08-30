@@ -35,6 +35,24 @@ final class GameVariableStoreTest {
         assertEquals(2, reopened.keyCost(CrateKind.AMETHYST));
     }
 
+    /**
+     * The ceiling on Airdrops standing at once. Each one holds chunk tickets and a live
+     * garrison, so this is a server-load figure staff can turn down, not a gameplay one -
+     * and it must never reach zero, which would make the staff command permanently
+     * refuse.
+     */
+    @Test
+    void airdropCapacityIsAdjustableAndNeverZero() throws Exception {
+        GameVariableStore variables = store();
+        assertEquals(5, variables.integer("airdrop.maximum-active"));
+        variables.set("airdrop.maximum-active", "12");
+        assertEquals(12, variables.integer("airdrop.maximum-active"));
+        assertThrows(IllegalArgumentException.class,
+                () -> variables.set("airdrop.maximum-active", "0"));
+        assertThrows(IllegalArgumentException.class,
+                () -> variables.set("airdrop.maximum-active", "21"));
+    }
+
     @Test
     void invalidRangesCannotReachTheLiveTable() throws Exception {
         GameVariableStore variables = store();

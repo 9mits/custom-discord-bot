@@ -16,7 +16,9 @@ import org.bukkit.entity.Player;
 import org.bukkit.scheduler.BukkitTask;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.function.Predicate;
 import java.util.concurrent.ThreadLocalRandom;
@@ -66,12 +68,27 @@ final class AirdropGuardService {
     private final AmethystMobService mobs;
     private final RandomGenerator random;
 
-    private final List<UUID> guards = new ArrayList<>();
-    private Location post;
+    /**
+     * One drop's garrison. Several drops can stand at once, so everything a patrol
+     * reads about "the" drop - where it is, who is guarding it, how long it has been
+     * alone - belongs to that drop rather than to the service.
+     */
+    private static final class Post {
+        private final Location post;
+        private final List<UUID> guards = new ArrayList<>();
+        private Runnable claimedCallback;
+        private boolean engaged;
+        private int unattendedTicks;
+
+        private Post(Location post, Runnable claimedCallback) {
+            this.post = post;
+            this.claimedCallback = claimedCallback;
+        }
+    }
+
+    private final Map<UUID, Post> posts = new LinkedHashMap<>();
+    /** One patrol for every post: the work is per-post, the schedule is not. */
     private BukkitTask task;
-    private Runnable claimedCallback;
-    private boolean engaged;
-    private int unattendedTicks;
 
     AirdropGuardService(MGXAccessBridge plugin, AmethystMobService mobs) {
         this(plugin, mobs, ThreadLocalRandom.current());
@@ -95,17 +112,15 @@ final class AirdropGuardService {
     }
 
     /** Stands the garrison up around a freshly landed drop. */
-    void deploy(Location chest, AirdropCatalog.Rarity rarity, Runnable onClaimed) {
-        dismiss();
-        post = chest.clone();
-        claimedCallback = onClaimed;
-        engaged = false;
-        unattendedTicks = 0;
+    void deploy(UUID dropId, Location chest, AirdropCatalog.Rarity rarity, Runnable onClaimed) {
+        dismiss(dropId);
+        Post standing = new Post(chest.clone(), onClaimed);
+        posts.put(dropId, standing);
 
         Garrison garrison = garrisonFor(rarity);
-        int zombies = spawnAll(EntityType.HUSK, garrison.zombies());
-        int skeletons = spawnAll(EntityType.STRAY, garrison.skeletons());
-        int golems = spawnAll(EntityType.IRON_GOLEM, garrison.golems());
+        int zombies = spawnAll(standing, EntityType.HUSK, garrison.zombies());
+        int skeletons = spawnAll(standing, EntityType.STRAY, garrison.skeletons());
+        int golems = spawnAll(standing, EntityType.IRON_GOLEM, garrison.golems());
         // Reported every time, because a garrison that quietly lands short is invisible
         // in game — it just looks like the mobs were never written.
         String placed = zombies + "/" + garrison.zombies() + " zombies, "
@@ -113,52 +128,65 @@ final class AirdropGuardService {
                 + golems + "/" + garrison.golems() + " golems";
         if (zombies + skeletons + golems < garrison.total()) {
             plugin.getLogger().warning(
-                    "Amethyst garrison landed short at " + describe(post) + ": " + placed
+                    "Amethyst garrison landed short at " + describe(standing.post) + ": " + placed
             );
         } else {
             plugin.getLogger().info(
-                    "Amethyst garrison standing at " + describe(post) + ": " + placed
+                    "Amethyst garrison standing at " + describe(standing.post) + ": " + placed
             );
         }
 
-        task = plugin.getServer().getScheduler().runTaskTimer(
-                plugin, this::patrol, PERIOD_TICKS, PERIOD_TICKS
-        );
+        if (task == null) {
+            task = plugin.getServer().getScheduler().runTaskTimer(
+                    plugin, this::patrol, PERIOD_TICKS, PERIOD_TICKS
+            );
+        }
     }
 
-    /** Sends the garrison away in a puff of amethyst, however the drop ended. */
-    void dismiss() {
-        if (task != null) {
+    /** Sends one drop's garrison away in a puff of amethyst, however that drop ended. */
+    void dismiss(UUID dropId) {
+        Post standing = posts.remove(dropId);
+        if (standing != null) {
+            clear(standing);
+        }
+        if (posts.isEmpty() && task != null) {
             task.cancel();
             task = null;
         }
-        for (UUID id : List.copyOf(guards)) {
+    }
+
+    /** Clears every garrison, for a shutdown or a full reset. */
+    void dismissAll() {
+        for (UUID dropId : List.copyOf(posts.keySet())) {
+            dismiss(dropId);
+        }
+    }
+
+    private void clear(Post standing) {
+        for (UUID id : List.copyOf(standing.guards)) {
             Entity entity = plugin.getServer().getEntity(id);
             if (entity != null) {
                 burst(entity.getLocation());
                 entity.remove();
             }
         }
-        guards.clear();
-        post = null;
-        claimedCallback = null;
-        engaged = false;
-        unattendedTicks = 0;
+        standing.guards.clear();
+        standing.claimedCallback = null;
     }
 
     int standing() {
-        return guards.size();
+        return posts.values().stream().mapToInt(post -> post.guards.size()).sum();
     }
 
-    private int spawnAll(EntityType type, int count) {
+    private int spawnAll(Post standing, EntityType type, int count) {
         int clearance = type == EntityType.IRON_GOLEM ? GOLEM_CLEARANCE : 2;
         int placed = 0;
         for (int index = 0; index < count; index++) {
-            Location where = ring(clearance);
+            Location where = ring(standing.post, clearance);
             if (where == null) {
                 // Better a guard standing on the drop than a garrison quietly short of
                 // the count the rarity promised.
-                where = post.clone().add(0d, 1d, 0d);
+                where = standing.post.clone().add(0d, 1d, 0d);
             }
             LivingEntity guard = mobs.deploy(where, type);
             if (guard == null) {
@@ -172,7 +200,7 @@ final class AirdropGuardService {
             if (guard instanceof Mob mob) {
                 mob.setAware(true);
             }
-            guards.add(guard.getUniqueId());
+            standing.guards.add(guard.getUniqueId());
             placed++;
         }
         return placed;
@@ -184,7 +212,7 @@ final class AirdropGuardService {
     }
 
     /** A standing spot on solid ground somewhere in the ring around the chest. */
-    private Location ring(int clearance) {
+    private Location ring(Location post, int clearance) {
         World world = post.getWorld();
         for (int attempt = 0; attempt < 64; attempt++) {
             double angle = random.nextDouble() * Math.PI * 2d;
@@ -234,20 +262,29 @@ final class AirdropGuardService {
     }
 
     private void patrol() {
-        if (post == null) {
-            return;
+        // Over a copy of the keys, not the entries: a post's claim callback removes the
+        // drop, which dismisses that post mid-loop.
+        for (UUID dropId : List.copyOf(posts.keySet())) {
+            Post standing = posts.get(dropId);
+            if (standing != null) {
+                patrolPost(standing);
+            }
         }
-        guards.removeIf(id -> {
+    }
+
+    private void patrolPost(Post standing) {
+        standing.guards.removeIf(id -> {
             Entity entity = plugin.getServer().getEntity(id);
             return entity == null || !entity.isValid();
         });
-        if (guards.isEmpty()) {
+        if (standing.guards.isEmpty()) {
             return;
         }
+        Location post = standing.post;
 
-        Player hunted = nearestTarget(HUNT_RADIUS);
+        Player hunted = nearestTarget(post, HUNT_RADIUS);
         if (hunted != null) {
-            for (UUID id : guards) {
+            for (UUID id : standing.guards) {
                 if (!(plugin.getServer().getEntity(id) instanceof Mob guard)) {
                     continue;
                 }
@@ -258,27 +295,28 @@ final class AirdropGuardService {
                 }
             }
         }
-        if (nearestWatcher(ENGAGE_RADIUS) != null) {
-            engaged = true;
-            unattendedTicks = 0;
+        if (nearestWatcher(post, ENGAGE_RADIUS) != null) {
+            standing.engaged = true;
+            standing.unattendedTicks = 0;
             return;
         }
-        if (!engaged) {
+        if (!standing.engaged) {
             return;
         }
-        unattendedTicks += (int) PERIOD_TICKS;
-        if (unattendedTicks >= CLAIM_SECONDS * 20) {
-            Runnable claimed = claimedCallback;
-            claimedCallback = null;
+        standing.unattendedTicks += (int) PERIOD_TICKS;
+        if (standing.unattendedTicks >= CLAIM_SECONDS * 20) {
+            Runnable claimed = standing.claimedCallback;
+            standing.claimedCallback = null;
             if (claimed != null) {
+                // The callback removes the drop, which dismisses this post in turn.
                 claimed.run();
             }
         }
     }
 
     /** Who the guards will chase: mobs do not hunt creative or spectating players. */
-    private Player nearestTarget(double radius) {
-        return nearest(radius, player -> !player.isDead()
+    private Player nearestTarget(Location post, double radius) {
+        return nearest(post, radius, player -> !player.isDead()
                 && (player.getGameMode() == GameMode.SURVIVAL
                         || player.getGameMode() == GameMode.ADVENTURE));
     }
@@ -288,11 +326,11 @@ final class AirdropGuardService {
      * watching in creative is still somebody standing over the drop, and the claim must
      * not fire out from under them.
      */
-    private Player nearestWatcher(double radius) {
-        return nearest(radius, player -> player.getGameMode() != GameMode.SPECTATOR);
+    private Player nearestWatcher(Location post, double radius) {
+        return nearest(post, radius, player -> player.getGameMode() != GameMode.SPECTATOR);
     }
 
-    private Player nearest(double radius, Predicate<Player> eligible) {
+    private Player nearest(Location post, double radius, Predicate<Player> eligible) {
         Player nearest = null;
         double best = radius * radius;
         for (Player player : post.getWorld().getPlayers()) {
