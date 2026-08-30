@@ -89,7 +89,21 @@ final class AmethystEventCoordinator {
         long delay = AirdropService.randomDelayMillis(
                 random, minimumDelayMillis, maximumDelayMillis
         );
-        schedule(delay, this::tryStart);
+        schedule(hastened(delay), this::tryStart);
+    }
+
+    /**
+     * A 2x Airdrop or 2x Amethyst Block event halves the wait rather than doubling the
+     * loot: these are world events, so "twice as much" can only mean twice as often. One
+     * cooldown feeds both, so the strongest event running wins instead of the two
+     * compounding into a quarter of the wait.
+     */
+    long hastened(long delay) {
+        int factor = Math.max(
+                plugin.serverEventMultiplier(ServerEventType.AIRDROP),
+                plugin.serverEventMultiplier(ServerEventType.AMETHYST_BLOCK)
+        );
+        return factor <= 1 ? delay : Math.max(1L, delay / factor);
     }
 
     private void schedule(long millis, Runnable action) {

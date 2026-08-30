@@ -66,7 +66,7 @@ final class ServerEventStore {
 
     /** What to multiply by right now: the event's factor, or 1 when it is off. */
     synchronized int multiplier(ServerEventType type, long now) {
-        return active(type, now) ? ServerEventType.MULTIPLIER : 1;
+        return active(type, now) ? type.multiplier() : 1;
     }
 
     /** Milliseconds left, or 0 when this event is off or runs until turned off. */

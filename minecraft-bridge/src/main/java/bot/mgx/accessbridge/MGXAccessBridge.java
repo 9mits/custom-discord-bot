@@ -804,6 +804,17 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     }
 
     /** 1 when the event is off, so every call site can multiply unconditionally. */
+    /**
+     * The key factor in play. 2x Keys and 4x Keys must not compound into 8x behind a boss
+     * bar that promises 4x, so the larger of the two wins outright.
+     */
+    int keyEventMultiplier() {
+        return ServerEventType.keyMultiplier(
+                serverEventMultiplier(ServerEventType.KEY),
+                serverEventMultiplier(ServerEventType.MEGA_KEY)
+        );
+    }
+
     int serverEventMultiplier(ServerEventType type) {
         return serverEventService == null ? 1 : serverEventService.multiplier(type);
     }

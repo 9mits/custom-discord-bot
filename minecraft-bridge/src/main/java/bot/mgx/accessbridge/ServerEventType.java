@@ -10,18 +10,25 @@ import java.util.Set;
  * The server-wide multiplier events.
  *
  * <p>Free of Bukkit so the names, aliases and duration rail can be unit tested.
- * The multiplier is deliberately a constant rather than a per-activation number:
- * every one of these is advertised to players as "2x", on the boss bar and in
- * the server list, and an event called 2x that quietly paid 3x would be worse
- * than one that did not exist.
+ * The multiplier is fixed per event rather than chosen per activation: every one of
+ * these is advertised to players by its factor, on the boss bar and in the server list,
+ * and an event called 2x that quietly paid 3x would be worse than one that did not
+ * exist. A test holds the name and the factor together.
  */
 enum ServerEventType {
-    CRATE_LUCK("crateluck", "2x Crate Luck", "2X CRATE LUCK EVENT!", "luck", "crate"),
-    FORTUNE("fortune", "2x Fortune", "2X FORTUNE EVENT!", "ore", "mining"),
-    KEY("key", "2x Keys", "2X KEY EVENT!", "keys"),
-    MONEY("money", "2x Money", "2X MONEY EVENT!", "cash", "coins");
+    CRATE_LUCK("crateluck", 2, "2x Crate Luck", "2X CRATE LUCK EVENT!", "luck", "crate"),
+    FORTUNE("fortune", 2, "2x Fortune", "2X FORTUNE EVENT!", "ore", "mining"),
+    KEY("key", 2, "2x Keys", "2X KEY EVENT!", "keys"),
+    MONEY("money", 2, "2x Money", "2X MONEY EVENT!", "cash", "coins"),
+    /** Halves the wait between Amethyst Airdrops rather than doubling their loot. */
+    AIRDROP("airdrop", 2, "2x Airdrops", "2X AIRDROP EVENT!", "drops", "drop"),
+    /** Halves the wait between Huge Amethyst Blocks. */
+    AMETHYST_BLOCK("amethystblock", 2, "2x Amethyst Blocks", "2X AMETHYST BLOCK EVENT!",
+            "block", "amethyst"),
+    /** The big one. Stacks with nothing: the largest key factor in play wins. */
+    MEGA_KEY("megakey", 4, "4x Keys", "4X KEY EVENT!", "megakeys", "bigkey");
 
-    /** What every one of these multiplies by. See the class note. */
+    /** The factor an event carries when no per-type figure applies. */
     static final int MULTIPLIER = 2;
 
     /** An hour is the shortest worth announcing; a fortnight is the longest worth forgetting. */
@@ -29,12 +36,16 @@ enum ServerEventType {
     static final long MAXIMUM_SECONDS = 1_209_600L;
 
     private final String id;
+    private final int multiplier;
     private final String displayName;
     private final String motdLabel;
     private final Set<String> aliases;
 
-    ServerEventType(String id, String displayName, String motdLabel, String... aliases) {
+    ServerEventType(
+            String id, int multiplier, String displayName, String motdLabel, String... aliases
+    ) {
         this.id = id;
+        this.multiplier = multiplier;
         this.displayName = displayName;
         this.motdLabel = motdLabel;
         this.aliases = Set.copyOf(new LinkedHashSet<>(Arrays.asList(aliases)));
@@ -42,6 +53,19 @@ enum ServerEventType {
 
     String id() {
         return id;
+    }
+
+    /** What this event multiplies by while it is running. */
+    int multiplier() {
+        return multiplier;
+    }
+
+    /**
+     * The key factor in play: the largest of the key events that is running, since 2x and
+     * 4x keys must not compound into 8x behind a boss bar that promises 4x.
+     */
+    static int keyMultiplier(int keyFactor, int megaKeyFactor) {
+        return Math.max(keyFactor, megaKeyFactor);
     }
 
     /** For chat, the boss bar and the join banner. */
