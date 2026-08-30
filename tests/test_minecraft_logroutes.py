@@ -2,7 +2,7 @@
 
 The point of routing is that an upgrade changes nothing until somebody changes
 something, so most of what is pinned here is the inheritance: a server that has
-never opened `/mcadmin logs` must keep writing exactly where it wrote before.
+never opened `/mgxadmin logs` must keep writing exactly where it wrote before.
 """
 
 import asyncio

@@ -1,7 +1,7 @@
 """Where each kind of Minecraft log is written.
 
 The bot had two destinations — an activity channel and an important one — and five
-settings that all pointed at the activity channel because `/mcadmin log-channel`
+settings that all pointed at the activity channel because `/mgxadmin log-channel`
 wrote them together. That is fine while the server reports almost nothing. It stops
 being fine the moment it reports what it actually does: kills, ore finds and crate
 rewards landing in the same channel as verification results means nobody reads any
@@ -48,7 +48,7 @@ class Topic:
 #: Every stream that can be pointed at a channel.
 #:
 #: The first five are the streams the bot already had; the rest are what the server
-#: itself now reports. Order is the order the panel and `/mcadmin logs show` list
+#: itself now reports. Order is the order the panel and `/mgxadmin logs show` list
 #: them in, so it runs from "what the bot did" to "what happened in the world".
 TOPICS: tuple[Topic, ...] = (
     Topic(
@@ -60,7 +60,7 @@ TOPICS: tuple[Topic, ...] = (
     Topic(
         "command",
         "Commands",
-        "Every /minecraft, /mcstaff and /mcadmin invocation.",
+        "Every /minecraft, /mgxstaff and /mgxadmin invocation.",
         "command_log_channel_id",
     ),
     Topic(

@@ -6,7 +6,7 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
 
 /** Short, edition-neutral copy for rewards earned by staying connected. */
-final class AfkRewardDisplay {
+final class OnlineRewardDisplay {
     record Status(
             int tier,
             int keys,
@@ -16,7 +16,7 @@ final class AfkRewardDisplay {
             long rewardRemainingMillis
     ) { }
 
-    private AfkRewardDisplay() {
+    private OnlineRewardDisplay() {
     }
 
     static Component bossBar(Status status, long nowMillis) {

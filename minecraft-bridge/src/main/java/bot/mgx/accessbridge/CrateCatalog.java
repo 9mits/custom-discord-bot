@@ -361,7 +361,7 @@ final class CrateCatalog {
         ));
         rewards.add(item(
                 "raw_gold", "6 Raw Gold", Category.RESOURCE, 8_973,
-                "RAW_GOLD", 6, "A restrained bundle of raw gold."
+                "RAW_GOLD", 6, "Smelt it into ingots for crafting or bartering."
         ));
         rewards.add(item(
                 "emeralds", "4 Emeralds", Category.RESOURCE, 8_445,
@@ -369,7 +369,7 @@ final class CrateCatalog {
         ));
         rewards.add(item(
                 "diamonds", "2 Diamonds", Category.RESOURCE, 6_651,
-                "DIAMOND", 2, "Two diamonds, kept well below equipment quantities."
+                "DIAMOND", 2, "Two diamonds for tools, armour, or trading."
         ));
         rewards.add(item(
                 "wind_charges", "16 Wind Charges", Category.TRIAL, 6_967,
@@ -425,7 +425,7 @@ final class CrateCatalog {
         ));
         rewards.add(item(
                 "mace", "Mace", Category.TRIAL, 28,
-                "MACE", 1, "A complete mace at the table's lowest visible item chance."
+                "MACE", 1, "A complete heavy weapon built for smash attacks."
         ));
         rewards.add(item(
                 "potion_healing_ii", "Potion of Healing II", Category.POTION, 1_000,
@@ -662,22 +662,22 @@ final class CrateCatalog {
         rewards.add(amethystItem(
                 "amethyst_pickaxe", "Amethyst Pickaxe", Category.TREASURE, 20,
                 "DIAMOND_PICKAXE", "mgx:amethyst_pickaxe",
-                "A 24-hour 3x3 pickaxe with automatic smelting."
+                "Activates for 24 hours on first use: 3x3 mining and automatic smelting."
         ));
         rewards.add(amethystItem(
                 "amethyst_shovel", "Amethyst Shovel", Category.TREASURE, 25,
                 "DIAMOND_SHOVEL", "mgx:amethyst_shovel",
-                "A 24-hour shovel that clears a 3x3 plane."
+                "Activates for 24 hours on first use and clears a 3x3 digging plane."
         ));
         rewards.add(amethystItem(
                 "amethyst_axe", "Amethyst Axe", Category.TREASURE, 30,
                 "DIAMOND_AXE", "mgx:amethyst_axe",
-                "A 24-hour axe that brings down an entire tree."
+                "Activates for 24 hours on first use and fells an entire tree."
         ));
         rewards.add(amethystItem(
                 "amethyst_shield", "Amethyst Shield", Category.TREASURE, 5,
                 "SHIELD", "mgx:amethyst_shield",
-                "A 24-hour reactive shield with crystal combat abilities."
+                "Activates for 24 hours on its first block with crystal combat abilities."
         ));
         rewards.add(amethystItem(
                 "amethyst_totem", "Amethyst Totem", Category.TREASURE, 10,

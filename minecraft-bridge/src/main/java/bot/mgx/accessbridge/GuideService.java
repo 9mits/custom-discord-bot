@@ -150,7 +150,7 @@ final class GuideService implements CommandExecutor, TabCompleter {
                 NamedTextColor.AQUA
         ));
         player.sendMessage(Component.empty());
-        player.sendMessage(guideLink("/clan help", "View the commands available to you", GOLD));
+        player.sendMessage(guideLink("/clans help", "View the commands available to you", GOLD));
         footer(player);
     }
 
@@ -170,7 +170,7 @@ final class GuideService implements CommandExecutor, TabCompleter {
         player.sendMessage(guideLink("/rtp", "Find a safe random overworld location", NamedTextColor.GREEN));
         player.sendMessage(guideLink("/tpa <player>", "Request a teleport; the traveller waits after acceptance", NamedTextColor.YELLOW));
         player.sendMessage(guideLink("/leaderboard", "Richest players and clans", ORANGE));
-        player.sendMessage(guideLink("/clan", "Open your available clan commands", GOLD));
+        player.sendMessage(guideLink("/clans", "Open your available clan commands", GOLD));
         player.sendMessage(guideLink("/claninfo [name]", "Open a clan information card", NamedTextColor.AQUA));
         player.sendMessage(guideLink("/whitelisted", "Everyone with access and their Discord name", NamedTextColor.YELLOW));
         player.sendMessage(guideLink("/perks", "View Discord level rewards", NamedTextColor.LIGHT_PURPLE));
@@ -205,7 +205,7 @@ final class GuideService implements CommandExecutor, TabCompleter {
         ));
         player.sendMessage(Component.text(
                 "Kick, mute, ban, tempban, unban, heal and broadcast also work from "
-                        + "Discord with the /mcstaff commands.",
+                        + "Discord with the /mgxstaff commands.",
                 NamedTextColor.DARK_GRAY
         ));
         footer(player);

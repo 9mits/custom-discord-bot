@@ -25,6 +25,9 @@ import java.util.function.Consumer;
 
 /** Persistent, typed game values that take effect without reloading Paper. */
 final class GameVariableStore {
+    private static final String ONLINE_REWARD_PREFIX = "online-rewards.";
+    private static final String LEGACY_REWARD_PREFIX = "afk-rewards.";
+
     enum Type { INTEGER, BOOLEAN }
 
     record Definition(
@@ -40,7 +43,7 @@ final class GameVariableStore {
             boolean sensitive
     ) { }
 
-    record AfkRewardTier(
+    record OnlineRewardTier(
             int number,
             int minimumHours,
             int bonusKeys,
@@ -63,7 +66,7 @@ final class GameVariableStore {
         this.file = file;
         Files.createDirectories(file.getParent());
         defineCore(config);
-        defineAfkRewards();
+        defineOnlineRewards();
         defineEventRewards(config);
         defineCrateRewards();
         defineAirdropRewards();
@@ -117,43 +120,43 @@ final class GameVariableStore {
                 2, 0, 54, "rolls", false);
     }
 
-    private void defineAfkRewards() {
-        bool("afk-rewards.enabled", "Online stay rewards", "Online Rewards",
+    private void defineOnlineRewards() {
+        bool("online-rewards.enabled", "Online stay rewards", "Online Rewards",
                 "Whether connected players receive the escalating stay-online reward ladder.", true);
-        integer("afk-rewards.interval-minutes", "Online reward interval", "Online Rewards",
+        integer("online-rewards.interval-minutes", "Online reward interval", "Online Rewards",
                 "Continuous connected minutes required for each reward. Disconnecting resets the interval.",
                 60, 5, 1_440, "minutes", false);
-        integer("afk-rewards.online.minimum-players", "Population boost starts at", "Online Rewards",
+        integer("online-rewards.population.minimum-players", "Population boost starts at", "Online Rewards",
                 "Eligible online players required before stay rewards gain bonus keys.",
                 5, 1, 1_000, "players", false);
-        integer("afk-rewards.online.players-per-step", "Players per population step", "Online Rewards",
+        integer("online-rewards.population.players-per-step", "Players per population step", "Online Rewards",
                 "Additional online players required for each further bonus-key step.",
                 5, 1, 1_000, "players", false);
-        integer("afk-rewards.online.keys-per-step", "Keys per population step", "Online Rewards",
+        integer("online-rewards.population.keys-per-step", "Keys per population step", "Online Rewards",
                 "Bonus keys added to every stay reward for each reached player-count step.",
                 1, 0, 256, "keys", false);
-        integer("afk-rewards.online.maximum-bonus-keys", "Maximum population bonus", "Online Rewards",
+        integer("online-rewards.population.maximum-bonus-keys", "Maximum population bonus", "Online Rewards",
                 "Ceiling on bonus keys supplied by the current online player count.",
                 4, 0, 1_024, "keys", false);
-        bool("afk-rewards.key-events-multiply-bonus", "Key events multiply stay rewards", "Online Rewards",
+        bool("online-rewards.key-events-multiply-bonus", "Key events multiply stay rewards", "Online Rewards",
                 "Whether 2x/4x key events also multiply stay-ladder and population bonus keys.", false);
 
-        defineAfkTier(1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1);
-        defineAfkTier(2, 3, 2, 1, 2, 0, 1, 0, 1, 0, 1);
-        defineAfkTier(3, 6, 3, 1, 1, 1, 4, 0, 1, 0, 1);
-        defineAfkTier(4, 12, 4, 2, 1, 1, 2, 0, 1, 0, 1);
-        defineAfkTier(5, 24, 6, 3, 1, 1, 1, 1, 24, 0, 1);
+        defineOnlineRewardTier(1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1);
+        defineOnlineRewardTier(2, 3, 2, 1, 2, 0, 1, 0, 1, 0, 1);
+        defineOnlineRewardTier(3, 6, 3, 1, 1, 1, 4, 0, 1, 0, 1);
+        defineOnlineRewardTier(4, 12, 4, 2, 1, 1, 2, 0, 1, 0, 1);
+        defineOnlineRewardTier(5, 24, 6, 3, 1, 1, 1, 1, 24, 0, 1);
         // Passive Shards must remain far rarer than active event rewards. They start
         // only after 72 lifetime online hours, then average one per 5,000 hourly rolls.
-        defineAfkTier(6, 72, 10, 4, 1, 2, 1, 1, 24, 1, 5_000);
+        defineOnlineRewardTier(6, 72, 10, 4, 1, 2, 1, 1, 24, 1, 5_000);
     }
 
-    private void defineAfkTier(
+    private void defineOnlineRewardTier(
             int tier, int minimumHours, int bonusKeys,
             int emeralds, int emeraldOneIn, int diamonds, int diamondOneIn,
             int netherite, int netheriteOneIn, int shards, int shardOneIn
     ) {
-        String base = "afk-rewards.tier." + tier + ".";
+        String base = "online-rewards.tier." + tier + ".";
         String category = "Online Tier " + tier;
         integer(base + "minimum-hours", "Minimum lifetime playtime", category,
                 "Lifetime online hours required before this tier becomes the stay reward.",
@@ -349,19 +352,21 @@ final class GameVariableStore {
     }
 
     synchronized int integer(String key) {
-        Object value = overrides.getOrDefault(key, definition(key).defaultValue());
+        Definition definition = definition(key);
+        Object value = overrides.getOrDefault(definition.key(), definition.defaultValue());
         return Math.toIntExact(((Number) value).longValue());
     }
 
     synchronized boolean bool(String key) {
-        return (Boolean) overrides.getOrDefault(key, definition(key).defaultValue());
+        Definition definition = definition(key);
+        return (Boolean) overrides.getOrDefault(definition.key(), definition.defaultValue());
     }
 
     synchronized String set(String key, String raw) {
         Definition definition = definition(key);
         Object value = parse(definition, raw);
-        validatePair(key, value);
-        overrides.put(key, value);
+        validatePair(definition.key(), value);
+        overrides.put(definition.key(), value);
         save();
         changeObservers.forEach(observer -> observer.accept(definition.key()));
         return describe(definition, value);
@@ -369,14 +374,14 @@ final class GameVariableStore {
 
     synchronized String reset(String key) {
         Definition definition = definition(key);
-        overrides.remove(key);
+        overrides.remove(definition.key());
         save();
         changeObservers.forEach(observer -> observer.accept(definition.key()));
         return describe(definition, definition.defaultValue());
     }
 
     synchronized Optional<Definition> find(String key) {
-        return Optional.ofNullable(definitions.get(normalize(key)));
+        return Optional.ofNullable(definitions.get(canonicalKey(key)));
     }
 
     synchronized JsonObject snapshot() {
@@ -425,11 +430,11 @@ final class GameVariableStore {
         return integer(booster ? "crate.booster-keys-per-hour" : "crate.keys-per-hour");
     }
 
-    AfkRewardTier afkRewardTier(long lifetimeAfkSeconds) {
-        AfkRewardTier selected = afkTier(1);
-        long safeSeconds = Math.max(0L, lifetimeAfkSeconds);
+    OnlineRewardTier onlineRewardTier(long lifetimeOnlineSeconds) {
+        OnlineRewardTier selected = onlineTier(1);
+        long safeSeconds = Math.max(0L, lifetimeOnlineSeconds);
         for (int tier = 2; tier <= 6; tier++) {
-            AfkRewardTier candidate = afkTier(tier);
+            OnlineRewardTier candidate = onlineTier(tier);
             if (safeSeconds < candidate.minimumHours() * 3_600L) {
                 break;
             }
@@ -438,14 +443,14 @@ final class GameVariableStore {
         return selected;
     }
 
-    Optional<AfkRewardTier> nextAfkRewardTier(long lifetimeAfkSeconds) {
-        int next = afkRewardTier(lifetimeAfkSeconds).number() + 1;
-        return next > 6 ? Optional.empty() : Optional.of(afkTier(next));
+    Optional<OnlineRewardTier> nextOnlineRewardTier(long lifetimeOnlineSeconds) {
+        int next = onlineRewardTier(lifetimeOnlineSeconds).number() + 1;
+        return next > 6 ? Optional.empty() : Optional.of(onlineTier(next));
     }
 
-    private AfkRewardTier afkTier(int tier) {
-        String base = "afk-rewards.tier." + tier + ".";
-        return new AfkRewardTier(
+    private OnlineRewardTier onlineTier(int tier) {
+        String base = "online-rewards.tier." + tier + ".";
+        return new OnlineRewardTier(
                 tier,
                 integer(base + "minimum-hours"),
                 integer(base + "bonus-keys"),
@@ -460,16 +465,16 @@ final class GameVariableStore {
         );
     }
 
-    int afkOnlineBonusKeys(int onlinePlayers) {
-        int minimum = integer("afk-rewards.online.minimum-players");
+    int onlinePopulationBonusKeys(int onlinePlayers) {
+        int minimum = integer("online-rewards.population.minimum-players");
         int safeOnline = Math.max(0, onlinePlayers);
         if (safeOnline < minimum) {
             return 0;
         }
-        int stepSize = integer("afk-rewards.online.players-per-step");
+        int stepSize = integer("online-rewards.population.players-per-step");
         int steps = 1 + (safeOnline - minimum) / stepSize;
-        long bonus = (long) steps * integer("afk-rewards.online.keys-per-step");
-        return (int) Math.min(integer("afk-rewards.online.maximum-bonus-keys"), bonus);
+        long bonus = (long) steps * integer("online-rewards.population.keys-per-step");
+        return (int) Math.min(integer("online-rewards.population.maximum-bonus-keys"), bonus);
     }
 
     int rewardWeight(CrateKind kind, CrateCatalog.Reward reward) {
@@ -581,13 +586,21 @@ final class GameVariableStore {
     }
 
     private Definition definition(String key) {
-        Definition definition = definitions.get(normalize(key));
+        Definition definition = definitions.get(canonicalKey(key));
         if (definition == null) throw new IllegalArgumentException("Unknown variable '" + key + "'.");
         return definition;
     }
 
-    private static String normalize(String key) {
-        return String.valueOf(key).strip().toLowerCase(Locale.ROOT);
+    private static String canonicalKey(String key) {
+        String normalized = String.valueOf(key).strip().toLowerCase(Locale.ROOT);
+        if (!normalized.startsWith(LEGACY_REWARD_PREFIX)) {
+            return normalized;
+        }
+        String suffix = normalized.substring(LEGACY_REWARD_PREFIX.length());
+        if (suffix.startsWith("online.")) {
+            suffix = "population." + suffix.substring("online.".length());
+        }
+        return ONLINE_REWARD_PREFIX + suffix;
     }
 
     private static Object parse(Definition definition, String raw) {
@@ -649,16 +662,16 @@ final class GameVariableStore {
                 throw new IllegalArgumentException(key + " cannot be below " + other + ".");
             }
         }
-        if (key.startsWith("afk-rewards.tier.") && key.endsWith(".minimum-hours")) {
+        if (key.startsWith("online-rewards.tier.") && key.endsWith(".minimum-hours")) {
             int tier = Integer.parseInt(key.split("\\.")[2]);
             long hours = ((Number) value).longValue();
             if (tier > 1 && hours <= integer(
-                    "afk-rewards.tier." + (tier - 1) + ".minimum-hours"
+                    "online-rewards.tier." + (tier - 1) + ".minimum-hours"
             )) {
                 throw new IllegalArgumentException(key + " must exceed the previous online tier.");
             }
             if (tier < 6 && hours >= integer(
-                    "afk-rewards.tier." + (tier + 1) + ".minimum-hours"
+                    "online-rewards.tier." + (tier + 1) + ".minimum-hours"
             )) {
                 throw new IllegalArgumentException(key + " must stay below the next online tier.");
             }
@@ -703,14 +716,22 @@ final class GameVariableStore {
         if (!Files.isRegularFile(file) || Files.size(file) == 0) return;
         try {
             JsonObject root = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
+            boolean migrated = false;
             for (Map.Entry<String, JsonElement> entry : root.entrySet()) {
-                Definition definition = definitions.get(entry.getKey());
+                String canonical = canonicalKey(entry.getKey());
+                Definition definition = definitions.get(canonical);
                 if (definition == null) continue;
                 Object value = definition.type() == Type.BOOLEAN
                         ? entry.getValue().getAsBoolean() : entry.getValue().getAsLong();
                 parse(definition, String.valueOf(value));
-                overrides.put(entry.getKey(), value);
+                if (canonical.equals(entry.getKey())) {
+                    overrides.put(canonical, value);
+                } else {
+                    overrides.putIfAbsent(canonical, value);
+                    migrated = true;
+                }
             }
+            if (migrated) save();
         } catch (RuntimeException malformed) {
             throw new IOException("game-variables.json is unreadable", malformed);
         }

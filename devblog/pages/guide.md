@@ -81,7 +81,7 @@ Talking to players in game, whether or not they are online.
 `/mail send <player> <message>` — message an offline player
 `/mail read` — read your mail
 `/me <action>` — emote in chat
-`/afk [reason]` — mark yourself away
+`/afk` — toggle your away status; idling also marks you automatically
 
 #### Needing help
 

@@ -307,7 +307,7 @@ loaded here with a graceful Paper restart before it can be considered for
 production. This is the automatic deployment target and needs no separate user
 approval. GravelHost is updated only after the user approves this exact test build.
 
-`/mcadmin test-verification` is the administrator-only helper for publishing a
+`/mgxadmin test-verification` is the administrator-only Discord helper for publishing a
 working verification panel in a chosen test channel. It changes the Discord
 panel destination only; it never deploys or changes either Paper server.
 For an explicitly requested verification run, start or restart local Paper with
@@ -475,7 +475,7 @@ Read the relevant file when you touch an area; these are the non-obvious points.
   it alone. Never collapse the last two — clearing on any empty value drops
   every player's name the first time a Discord lookup fails. `link_known`
   controls which is sent, mirroring `rank_known` for LuckPerms groups.
-- **Maintenance mode** (`/mcadmin maintenance`) closes the server to everybody
+- **Maintenance mode** (Discord `/mgxadmin maintenance`) closes the server to everybody
   except operators and staff holding `mgxaccessbridge.admin` — already-whitelisted
   regular players are turned away on both editions. The exemption deliberately
   reuses `mgxaccessbridge.admin`, the same permission that already gates
@@ -538,7 +538,7 @@ Read the relevant file when you touch an area; these are the non-obvious points.
 - **Player activity statistics are event-backed.** Paper includes the exact online
   count and original event timestamp with every `PLAYER_JOIN` / `PLAYER_LEAVE`;
   the Discord bot stores those samples in `minecraft_player_activity`, and
-  `/mcstaff stats` reports peaks and busiest JST windows for the selected period.
+  `/mgxstaff stats` reports peaks and busiest JST windows for the selected period.
   Floodgate identity is cached at join so a Bedrock quit cannot be misreported as
   Java after Floodgate has already removed its live player object.
 - **AFK and screen placement are deliberately separate.** `/afk` and the automatic
@@ -587,7 +587,7 @@ Read the relevant file when you touch an area; these are the non-obvious points.
   reconnect inside that window through. Keep that filename — renaming it orphans
   live verification state on the server.
 - **Resetting data is two commands, one per side.** `/mgxadmin reset all
-  confirm` (in game) clears what Paper keeps; `/mcadmin wipe` (Discord, owner
+  confirm` (in game) clears what Paper keeps; `/mgxadmin wipe` (Discord, owner
   only) clears the bot's SQLite. Neither can reach the other's data, so a full
   reset needs both. The reset never opens the world, and deliberately keeps
   `ops.json`, bans, and rank holds — clearing ops would lock the operator out of

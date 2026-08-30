@@ -44,6 +44,22 @@ class ResourcePackIconTests(unittest.TestCase):
     def icon_paths(self):
         return sorted(ITEM_TEXTURES.glob("*.png")) + sorted((ITEM_TEXTURES / "cosmetic").glob("*.png"))
 
+    def test_java_and_bedrock_packs_share_the_current_description(self):
+        expected = "Mysterious SMP X — custom items, cosmetics, sounds, and UI"
+        java_source = json.loads(
+            (RESOURCE_PACK / "src" / "pack.mcmeta").read_text(encoding="utf-8")
+        )
+        self.assertEqual(expected, java_source["pack"]["description"])
+
+        with zipfile.ZipFile(RESOURCE_PACK / "MysteriousSMPX.zip") as java_pack:
+            java_built = json.loads(java_pack.read("pack.mcmeta"))
+        with zipfile.ZipFile(
+            RESOURCE_PACK / "bedrock" / "MysteriousSMPX-Bedrock.mcpack"
+        ) as bedrock_pack:
+            bedrock_built = json.loads(bedrock_pack.read("manifest.json"))
+        self.assertEqual(expected, java_built["pack"]["description"])
+        self.assertEqual(expected, bedrock_built["header"]["description"])
+
     def test_custom_icons_are_valid_distinct_minecraft_sprites(self):
         icons = self.icon_paths()
         self.assertEqual(64, len(icons))
