@@ -24,13 +24,11 @@
     amethyst_airdrops: "Claim the most Amethyst Airdrops before the event closes.",
     amethyst_crates: "Open the most Amethyst Crates and take the event crown."
   };
-  var iconPaths = {
-    wealth: '<circle cx="12" cy="12" r="8"></circle><path d="M15 9.5c0-1.1-1.3-2-3-2s-3 .9-3 2 1.3 2 3 2 3 .9 3 2-1.3 2-3 2-3-.9-3-2M12 5v14"></path>',
-    kills: '<path d="m14.5 5.5 4-3 1 1-3 4M9.5 14.5l-5 5M5.5 14.5l4 4M9.5 5.5l-4-3-1 1 3 4M14.5 14.5l5 5M18.5 14.5l-4 4"></path>',
-    amethyst_airdrops: '<path d="M4 9a8 8 0 0 1 16 0H4Z"></path><path d="m4 9 8 6 8-6M12 9v6M9 18h6v3H9z"></path>',
-    amethyst_crates: '<path d="M5 9h14v11H5zM4 5h16v4H4zM12 5v15M9 5c-2-3 3-4 3 0M15 5c2-3-3-4-3 0"></path>',
-    clan_battle: '<path d="m4 7 4 4 4-7 4 7 4-4-2 11H6L4 7Z"></path><path d="M7 21h10"></path>'
-  };
+  var clanIcons = new Set([
+    "amethyst_shard", "diamond", "emerald", "gold_ingot", "netherite_ingot", "nether_star",
+    "ender_pearl", "heart_of_the_sea", "blaze_powder", "echo_shard", "totem_of_undying", "golden_apple"
+  ]);
+  var eventIcons = {amethyst_airdrops: "amethyst_shard", amethyst_crates: "crate_key"};
 
   function byId(id) { return document.getElementById(id); }
   function escapeHtml(value) {
@@ -62,15 +60,15 @@
     if (Math.abs(seconds) >= 60) return formatter.format(Math.round(seconds / 60), "minute");
     return formatter.format(seconds, "second");
   }
-  function iconSvg(key) {
-    return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
-      (iconPaths[key] || iconPaths.clan_battle) + "</svg>";
+  function itemIcon(item, className, label) {
+    return '<img class="live-minecraft-icon ' + escapeHtml(className || "") + '" src="/assets/minecraft-items/' +
+      escapeHtml(item) + '.png" alt="' + escapeHtml(label || "") + '" loading="lazy">';
   }
   function tabs(target, keys, active, onSelect) {
     if (!target) return;
     target.innerHTML = keys.map(function (key) {
       return '<button type="button" role="tab" data-key="' + escapeHtml(key) + '" aria-selected="' +
-        (key === active ? "true" : "false") + '"><span class="live-tab-icon">' + iconSvg(key) + "</span>" +
+        (key === active ? "true" : "false") + '">' +
         escapeHtml(labels[key] || key.replaceAll("_", " ")) + "</button>";
     }).join("");
     target.querySelectorAll("button").forEach(function (button) {
@@ -91,15 +89,19 @@
       '<span class="live-avatar-fallback" aria-hidden="true">' + initial + "</span></div>";
   }
   function clanArt(row) {
-    var initial = escapeHtml(String(row.clan || "?").charAt(0).toUpperCase());
-    return '<div class="live-clan-crest" aria-hidden="true">' + iconSvg("clan_battle") + "<b>" + initial + "</b></div>";
+    var icon = clanIcons.has(row.icon) ? row.icon : "amethyst_shard";
+    return '<div class="live-clan-crest">' + itemIcon(icon, "", (row.clan || "Clan") + " clan icon") + "</div>";
+  }
+  function memberCount(row) {
+    var count = Number(row.members || 0);
+    return escapeHtml(count) + " " + (count === 1 ? "member" : "members");
   }
   function podiumCard(row, index, clan) {
     var rank = Number(row.rank || index + 1);
     var accolade = rank === 1 ? "Champion" : (rank === 2 ? "Runner-up" : "Third place");
     var name = clan ? row.clan : row.username;
     var detail = clan
-      ? escapeHtml(row.members || 0) + " members · Level " + escapeHtml(row.level || 0)
+      ? memberCount(row) + " · Level " + escapeHtml(row.level || 0)
       : (row.discord_username ? "@" + escapeHtml(row.discord_username) : "Discord not linked");
     return '<article class="live-podium-card ' + tierFor(rank) + " " + (clan ? "clan-card" : "player-card") + '">' +
       '<header><span class="live-medal">#' + rank + '</span><span class="live-accolade">' + accolade + "</span></header>" +
@@ -113,7 +115,7 @@
     var rank = Number(row.rank || index + 1);
     var name = clan ? row.clan : row.username;
     var detail = clan
-      ? escapeHtml(row.members || 0) + " members · Level " + escapeHtml(row.level || 0)
+      ? memberCount(row) + " · Level " + escapeHtml(row.level || 0)
       : (row.discord_username ? "@" + escapeHtml(row.discord_username) : "Discord not linked");
     return '<li class="live-rank-row"><span class="live-row-place">#' + rank + "</span>" +
       (clan ? clanArt(row) : playerArt(row, false)) +
@@ -123,6 +125,11 @@
   function wireImageFallbacks(target) {
     target.querySelectorAll(".live-player-art img").forEach(function (image) {
       image.addEventListener("error", function () { image.parentElement.classList.add("image-missing"); });
+    });
+    target.querySelectorAll(".live-clan-crest img").forEach(function (image) {
+      image.addEventListener("error", function () {
+        if (!image.src.endsWith("/amethyst_shard.png")) image.src = "/assets/minecraft-items/amethyst_shard.png";
+      });
     });
   }
   function renderBoard(scope, board, targetId) {
@@ -144,24 +151,24 @@
   function renderBattle() {
     var event = (state.snapshot && state.snapshot.clan_battle) || {};
     var rows = ((state.snapshot && state.snapshot.clan && state.snapshot.clan.clan_battle) || []).slice(0, 10);
-    document.querySelectorAll("[data-static-icon]").forEach(function (node) {
-      node.innerHTML = iconSvg(node.dataset.staticIcon);
-    });
     byId("battle-title").textContent = event.name || "No active battle";
     byId("battle-objective").textContent = event.objective || "When the next clan battle starts, its objective and live standings will appear here.";
     byId("battle-deadline").textContent = event.ends_at ? "Ends " + new Date(event.ends_at).toLocaleString() : "";
     byId("battle-board").innerHTML = rows.length
       ? rows.map(function (row, index) {
-          return '<div class="live-battle-row"><span>#' + escapeHtml(row.rank || index + 1) + "</span><strong>" +
+          return '<div class="live-battle-row"><span>#' + escapeHtml(row.rank || index + 1) + "</span>" + clanArt(row) + "<strong>" +
             escapeHtml(row.clan) + "</strong><span>" + escapeHtml(row.display || row.value) + "</span></div>";
         }).join("")
       : '<p class="live-empty">No active clan battle standings.</p>';
+    wireImageFallbacks(byId("battle-board"));
   }
   function renderLeaderboards() {
     renderBoard("individual", state.playerBoard);
     renderBoard("clan", state.clanBoard);
     renderBoard("individual", state.eventBoard, "event-board");
-    if (byId("event-icon")) byId("event-icon").innerHTML = iconSvg(state.eventBoard);
+    if (byId("event-icon")) byId("event-icon").innerHTML = itemIcon(
+      eventIcons[state.eventBoard] || "amethyst_shard", "", labels[state.eventBoard] || "Event icon"
+    );
     if (byId("event-description")) byId("event-description").textContent = descriptions[state.eventBoard] || "Limited-time event standings.";
     document.querySelectorAll("#player-tabs button").forEach(function (button) {
       button.setAttribute("aria-selected", button.dataset.key === state.playerBoard ? "true" : "false");

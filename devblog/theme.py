@@ -821,12 +821,7 @@ a { color: inherit; }
 .live-tabs button[aria-selected="true"], .live-category-rail button[aria-pressed="true"] {
   border-color: var(--brand-orange); background: var(--brand-ramp); color: #fff;
 }
-.live-tabs button { display: inline-flex; align-items: center; gap: .38rem; }
-.live-tab-icon { display: inline-grid; width: .9rem; height: .9rem; }
-.live-tab-icon svg, .live-board-icon svg, .live-clan-crest svg {
-  width: 100%; height: 100%; fill: none; stroke: currentColor; stroke-width: 1.8;
-  stroke-linecap: round; stroke-linejoin: round;
-}
+.live-tabs button { display: inline-flex; align-items: center; }
 .live-board { min-width: 0; }
 .live-podium {
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -853,10 +848,10 @@ a { color: inherit; }
 .live-medal {
   display: grid; place-items: center; width: 2.65rem; height: 2.65rem; flex: 0 0 auto;
   border: 1px solid color-mix(in srgb, var(--rank) 65%, #fff); border-radius: 50%;
-  background: color-mix(in srgb, var(--rank) 26%, var(--surface)); color: var(--rank-deep);
+  background: color-mix(in srgb, var(--rank) 28%, var(--surface)); color: var(--ink);
   font-size: 1.15rem; font-weight: 900;
 }
-.live-accolade { color: var(--rank-deep); font-size: .62rem; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
+.live-accolade { color: var(--ink); font-size: .62rem; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
 .live-player-art { position: relative; display: grid; place-items: center; flex: 0 0 auto; }
 .live-player-art.full { height: 9.75rem; margin: .45rem 0 .2rem; }
 .live-player-art.head { width: 2.75rem; height: 2.75rem; }
@@ -879,16 +874,15 @@ a { color: inherit; }
   background: linear-gradient(90deg, color-mix(in srgb, var(--rank) 78%, #fff), var(--rank));
 }
 .live-clan-crest {
-  position: relative; display: grid; place-items: center; width: 3rem; height: 3rem; flex: 0 0 auto;
-  border: 1px solid color-mix(in srgb, var(--rank, var(--orange)) 48%, var(--line));
-  border-radius: .8rem; background: color-mix(in srgb, var(--rank, var(--orange)) 12%, var(--surface));
-  color: var(--rank-deep, var(--orange-deep));
+  display: grid; place-items: center; width: 3rem; height: 3rem; flex: 0 0 auto;
 }
-.live-clan-crest svg { position: absolute; width: 2rem; height: 2rem; opacity: .24; }
-.live-clan-crest b { position: relative; font-size: 1.1rem; }
-.live-podium-card .live-clan-crest { width: 6.5rem; height: 6.5rem; margin: 2.1rem auto 1.6rem; border-radius: 1.35rem; }
-.live-podium-card .live-clan-crest svg { width: 4.75rem; height: 4.75rem; }
-.live-podium-card .live-clan-crest b { font-size: 2rem; }
+.live-minecraft-icon {
+  display: block; width: 100%; height: 100%; margin: 0; object-fit: contain;
+  image-rendering: pixelated; filter: drop-shadow(0 .35rem .35rem rgb(var(--shadow-rgb) / .28));
+}
+.live-clan-crest .live-minecraft-icon { width: 2.65rem; height: 2.65rem; }
+.live-podium-card .live-clan-crest { width: 6.5rem; height: 6.5rem; margin: 2.1rem auto 1.6rem; }
+.live-podium-card .live-clan-crest .live-minecraft-icon { width: 5.5rem; height: 5.5rem; }
 .live-rank-list { display: grid; gap: .45rem; margin: 0; padding: 0; list-style: none; }
 .live-rank-list:empty { display: none; }
 .live-rank-row {
@@ -903,11 +897,9 @@ a { color: inherit; }
 .live-row-value { color: var(--ink); font-size: .85rem; text-align: right; }
 .live-event-heading { display: flex; align-items: center; gap: 1rem; }
 .live-board-icon {
-  display: grid; place-items: center; width: 3.25rem; height: 3.25rem; flex: 0 0 auto;
-  border: 1px solid color-mix(in srgb, var(--brand-orange) 40%, var(--line));
-  border-radius: 1rem; color: var(--brand-orange); background: color-mix(in srgb, var(--brand-orange) 10%, var(--surface-raised));
+  display: grid; place-items: center; width: 4rem; height: 4rem; flex: 0 0 auto;
 }
-.live-board-icon svg { width: 1.7rem; height: 1.7rem; }
+.live-board-icon .live-minecraft-icon { width: 3.4rem; height: 3.4rem; }
 .live-panel-description { margin-top: .35rem !important; color: var(--grey); font-size: .82rem; }
 .live-event-panel { background: linear-gradient(155deg, var(--surface), var(--surface-raised)); }
 .live-battle {
@@ -924,7 +916,7 @@ a { color: inherit; }
 .live-deadline { margin-top: 1.25rem; color: var(--orange-deep); font-size: .8rem; font-weight: 800; }
 .live-battle-board { display: grid; align-content: start; gap: .55rem; }
 .live-battle-row {
-  display: grid; grid-template-columns: 3rem 1fr auto; align-items: center; gap: .8rem;
+  display: grid; grid-template-columns: 3rem 2.75rem minmax(0, 1fr) auto; align-items: center; gap: .8rem;
   padding: .8rem 1rem; border: 1px solid var(--line);
   border-radius: .75rem; background: var(--surface);
 }
@@ -939,9 +931,7 @@ a { color: inherit; }
 .live-battle-row:nth-child(3) {
   border-color: color-mix(in srgb, #c98250 62%, var(--line)); background: color-mix(in srgb, #c98250 8%, var(--surface));
 }
-.live-battle-row:nth-child(1) span:first-child { color: #9b6500; }
-.live-battle-row:nth-child(2) span:first-child { color: #687483; }
-.live-battle-row:nth-child(3) span:first-child { color: #82401f; }
+.live-battle-row:nth-child(-n+3) span:first-child { color: var(--ink); }
 .live-owner-account { display: flex; justify-content: flex-end; min-height: 2.75rem; }
 .btn-discord { background: #5865f2; color: #fff !important; height: 2.75rem; padding: 0 1rem; }
 .live-lock-card {
@@ -1022,6 +1012,8 @@ a { color: inherit; }
   .live-podium-card.rank-bronze { order: 3; }
   .live-rank-row { grid-template-columns: 2.5rem 2.75rem minmax(0, 1fr); }
   .live-row-value { grid-column: 3; text-align: left; }
+  .live-battle-row { grid-template-columns: 2.5rem 2.75rem minmax(0, 1fr); }
+  .live-battle-row span:last-child { grid-column: 3; }
   .live-event-heading { align-items: flex-start; }
   .live-settings-grid { grid-template-columns: 1fr; }
   .live-control-actions { width: 100%; }

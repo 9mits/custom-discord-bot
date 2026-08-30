@@ -53,7 +53,7 @@ tagline: Every published player and clan leaderboard, directly from the same Pap
   <div class="live-view-panel" data-view-panel="clan-battle" hidden>
     <section class="live-battle" id="clan-battle">
       <div class="live-battle-copy">
-        <span class="live-board-icon live-battle-icon" data-static-icon="crown" aria-hidden="true"></span>
+        <span class="live-board-icon live-battle-icon"><img class="live-minecraft-icon" src="/assets/minecraft-items/crate_key.png" alt="Crate Key"></span>
         <p class="live-eyebrow">CURRENT CLAN BATTLE</p>
         <h2 id="battle-title">No active battle</h2>
         <p id="battle-objective">When the next clan battle starts, its objective and live standings will appear here.</p>

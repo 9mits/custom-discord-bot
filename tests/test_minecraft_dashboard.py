@@ -124,6 +124,9 @@ class MinecraftDashboardAssetTests(unittest.TestCase):
         self.assertIn("slice(0, 10)", script)
         self.assertIn("live-podium", script)
         self.assertIn("skin_url", script)
+        self.assertIn("row.icon", script)
+        self.assertNotIn("live-tab-icon", script)
+        self.assertNotIn("iconSvg", script)
         self.assertNotIn("The individual race", html)
         self.assertNotIn("Teams moving the server", html)
         self.assertNotIn("hidden-amethyst-one-in", html + script)
@@ -135,6 +138,19 @@ class MinecraftDashboardAssetTests(unittest.TestCase):
         for tier in ("rank-gold", "rank-silver", "rank-bronze"):
             self.assertIn(tier, script)
             self.assertIn(tier, theme)
+
+    def test_every_clan_icon_has_a_real_minecraft_texture(self):
+        root = Path(__file__).parents[1]
+        assets = root / "devblog" / "static" / "minecraft-items"
+        catalog = root / "minecraft-bridge" / "src" / "main" / "java" / "bot" / "mgx" / "accessbridge" / "ClanIcon.java"
+        source = catalog.read_text()
+        for icon in (
+            "amethyst_shard", "diamond", "emerald", "gold_ingot", "netherite_ingot", "nether_star",
+            "ender_pearl", "heart_of_the_sea", "blaze_powder", "echo_shard", "totem_of_undying", "golden_apple",
+        ):
+            self.assertIn('"' + icon + '"', source)
+            self.assertGreater((assets / (icon + ".png")).stat().st_size, 0)
+        self.assertGreater((assets / "crate_key.png").stat().st_size, 0)
 
     def test_control_page_is_secret_but_still_has_a_direct_route(self):
         control = (Path(__file__).parents[1] / "devblog" / "pages" / "control.md").read_text()
