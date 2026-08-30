@@ -874,10 +874,13 @@ a { color: inherit; }
   background: linear-gradient(90deg, color-mix(in srgb, var(--rank) 78%, #fff), var(--rank));
 }
 .live-clan-crest {
-  display: grid; place-items: center; width: 3rem; height: 3rem; flex: 0 0 auto;
+  display: grid; place-items: center; width: 2.75rem; height: 2.75rem; flex: 0 0 auto;
 }
-.live-minecraft-icon {
-  display: block; width: 100%; height: 100%; margin: 0; object-fit: contain;
+/* Type selector on purpose: `.doc-body img` below the article styles is more
+   specific than a lone class, and its 1.25rem margin drops every dashboard icon
+   out of the box that centres it. */
+img.live-minecraft-icon {
+  display: block; width: 100%; height: 100%; margin: 0; border-radius: 0; object-fit: contain;
   image-rendering: pixelated; filter: drop-shadow(0 .35rem .35rem rgb(var(--shadow-rgb) / .28));
 }
 .live-clan-crest .live-minecraft-icon { width: 2.65rem; height: 2.65rem; }
@@ -911,17 +914,15 @@ a { color: inherit; }
   border: 1px solid var(--line); box-shadow: var(--lift-2);
 }
 .live-body .live-battle h2 { color: var(--ink); }
-.live-battle-icon { margin-bottom: 1.1rem; }
+.live-battle-icon { width: 3.4rem; height: 3.4rem; margin-bottom: 1.25rem; }
 .live-battle-copy > p:not(.live-eyebrow) { color: var(--text-muted); margin-top: .75rem; }
 .live-deadline { margin-top: 1.25rem; color: var(--orange-deep); font-size: .8rem; font-weight: 800; }
 .live-battle-board { display: grid; align-content: start; gap: .55rem; }
 .live-battle-row {
-  display: grid; grid-template-columns: 3rem 2.65rem minmax(0, 1fr) auto; align-items: center; gap: .55rem;
+  display: grid; grid-template-columns: 3rem 2.75rem minmax(0, 1fr) auto; align-items: center; gap: .8rem;
   padding: .8rem 1rem; border: 1px solid var(--line);
   border-radius: .75rem; background: var(--surface);
 }
-.live-battle-row .live-clan-crest,
-.live-battle-row .live-clan-crest .live-minecraft-icon { width: 2.65rem; height: 2.65rem; }
 .live-battle-row span:first-child { justify-self: end; color: var(--brand-orange); font-size: 1.1rem; font-weight: 900; }
 .live-battle-row span:last-child { color: var(--grey); font-size: .78rem; }
 .live-battle-row:nth-child(1) {
@@ -1014,7 +1015,7 @@ a { color: inherit; }
   .live-podium-card.rank-bronze { order: 3; }
   .live-rank-row { grid-template-columns: 2.5rem 2.75rem minmax(0, 1fr); }
   .live-row-value { grid-column: 3; text-align: left; }
-  .live-battle-row { grid-template-columns: 2.5rem 2.65rem minmax(0, 1fr); }
+  .live-battle-row { grid-template-columns: 2.5rem 2.75rem minmax(0, 1fr); }
   .live-battle-row span:last-child { grid-column: 3; }
   .live-event-heading { align-items: flex-start; }
   .live-settings-grid { grid-template-columns: 1fr; }
