@@ -438,6 +438,11 @@ final class GameVariableStore {
         return selected;
     }
 
+    Optional<AfkRewardTier> nextAfkRewardTier(long lifetimeAfkSeconds) {
+        int next = afkRewardTier(lifetimeAfkSeconds).number() + 1;
+        return next > 6 ? Optional.empty() : Optional.of(afkTier(next));
+    }
+
     private AfkRewardTier afkTier(int tier) {
         String base = "afk-rewards.tier." + tier + ".";
         return new AfkRewardTier(

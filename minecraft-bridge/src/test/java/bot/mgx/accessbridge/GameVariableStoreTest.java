@@ -109,6 +109,9 @@ final class GameVariableStoreTest {
 
         assertEquals(1, variables.afkRewardTier(0).number());
         assertEquals(2, variables.afkRewardTier(Duration.ofHours(3).toSeconds()).number());
+        assertEquals(3, variables.nextAfkRewardTier(
+                Duration.ofHours(3).toSeconds()
+        ).orElseThrow().number());
         assertEquals(5, variables.afkRewardTier(Duration.ofHours(71).toSeconds()).number());
         GameVariableStore.AfkRewardTier rare = variables.afkRewardTier(
                 Duration.ofHours(72).toSeconds()
@@ -117,6 +120,7 @@ final class GameVariableStoreTest {
         assertEquals(10, rare.bonusKeys());
         assertEquals(1, rare.shards());
         assertEquals(5_000, rare.shardOneIn());
+        assertTrue(variables.nextAfkRewardTier(Duration.ofHours(72).toSeconds()).isEmpty());
 
         assertEquals(0, variables.afkOnlineBonusKeys(4));
         assertEquals(1, variables.afkOnlineBonusKeys(5));
