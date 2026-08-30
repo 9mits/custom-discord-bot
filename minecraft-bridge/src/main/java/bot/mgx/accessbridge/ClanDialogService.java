@@ -134,7 +134,22 @@ final class ClanDialogService {
 
     // --------------------------------------------------------------- icon
 
+    /** Fits the dialog without scrolling; the rest is a page away. Matches homes. */
+    private static final int ICONS_PER_PAGE = 24;
+
     void openIcons(Player player) {
+        openIcons(player, "", 0);
+    }
+
+    /**
+     * The icon picker, searchable and paged.
+     *
+     * <p>It listed every icon in one screen, which was fine while there were twelve. At
+     * ninety-seven that is a wall, so it borrows what the home picker already does:
+     * search on the label a player reads rather than the id underneath it, and a page at
+     * a time.
+     */
+    void openIcons(Player player, String query, int page) {
         ClanStore.ClanView clan = clans.clanOf(player.getUniqueId()).orElse(null);
         if (clan == null) {
             PlayerMenuService.error(player, "You are not in a clan.");
@@ -147,17 +162,40 @@ final class ClanDialogService {
             return;
         }
         ClanIcon selected = ClanIcon.resolve(clan.icon());
-        List<Entry> entries = ClanIcon.choices().stream()
+        List<ClanIcon> matches = ClanIcon.search(query);
+        int pages = Math.max(1, (matches.size() + ICONS_PER_PAGE - 1) / ICONS_PER_PAGE);
+        int current = Math.max(0, Math.min(page, pages - 1));
+        List<ClanIcon> shown = matches.subList(
+                current * ICONS_PER_PAGE,
+                Math.min(matches.size(), (current + 1) * ICONS_PER_PAGE)
+        );
+
+        List<Entry> entries = new ArrayList<>(shown.stream()
                 .map(icon -> new Entry(
                         icon.sprite(),
                         icon.label() + (icon == selected ? "  (Selected)" : ""),
                         icon == selected ? "This is your current clan icon." : "Use this clan icon.",
                         audience -> menus.chooseIcon(audience, icon.id())
                 ))
-                .toList();
-        if (!render(player, "Clan Icon",
-                "Pick the Minecraft item shown beside your clan everywhere.",
-                entries, 3, this::openHub)) {
+                .toList());
+        if (current > 0) {
+            int previous = current - 1;
+            entries.add(new Entry("item/arrow", "Previous page",
+                    "Page " + current + " of " + pages,
+                    audience -> openIcons(audience, query, previous)));
+        }
+        if (current < pages - 1) {
+            int next = current + 1;
+            entries.add(new Entry("item/arrow", "Next page",
+                    "Page " + (current + 2) + " of " + pages,
+                    audience -> openIcons(audience, query, next)));
+        }
+
+        String heading = matches.isEmpty()
+                ? "Nothing matches \"" + query + "\". Clear the search to see them all."
+                : "Pick the Minecraft item shown beside your clan everywhere."
+                  + (pages > 1 ? "  Page " + (current + 1) + " of " + pages + "." : "");
+        if (!render(player, "Clan Icon", heading, entries, 3, this::openHub)) {
             menus.openIcons(player);
         }
     }

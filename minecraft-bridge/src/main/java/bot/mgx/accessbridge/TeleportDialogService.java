@@ -56,6 +56,14 @@ final class TeleportDialogService implements CommandExecutor {
             sender.sendMessage("The teleport menu is available to players only.");
             return true;
         }
+        // Same reason as /rtp: the menu asks another player for a teleport, and a fight
+        // that can be left is a fight that never resolves. CombatLog blocks /tpa by
+        // name and has never known about this one.
+        AfkService afk = plugin.afkService();
+        if (afk != null && afk.inCombat(player)) {
+            PlayerMenuService.error(player, "You cannot teleport while in combat.");
+            return true;
+        }
         open(player);
         return true;
     }
