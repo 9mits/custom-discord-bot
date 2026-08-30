@@ -118,7 +118,7 @@ Founding, joining and running a clan.
 
 #### Everyday
 
-`/clans create <name>` — found a clan and lead it
+`/clans create <name>` — found a clan and own it
 `/clans accept` · `/clans decline` — answer an invite
 `/clans invite <player>` — invite an online player
 `/clans chat` — speak to your clan only
@@ -127,13 +127,14 @@ Founding, joining and running a clan.
 `/clans members` — the roster, with everyone's Discord name
 `/clans leave` — depart your clan
 
-#### If you lead one
+#### If you manage one
 
 `/clans promote` · `/clans demote` — manage clan staff
 `/clans rename` · `/clans color` — change name or colour
-`/clans transfer <player>` — hand over leadership
 `/clans kick <player>` — remove a member
 `/clans upgrade` — spend the balance on levels or slots
+`/clans coowner <player>` — owner assigns the one co-owner slot
+`/clans transfer <player>` — owner hands over ownership
 `/clans disband` — dissolve the clan
 
 #### Inspecting
@@ -190,7 +191,8 @@ Join by invite, or start your own with `/clans create`
 
 **Member** — clan chat, the roster, and donate
 **Staff** — the above, plus invite, kick, and upgrades
-**Leader** — the above, plus rename, colour, promote, transfer and disband
+**Co-Owner** — one slot; the above, plus rename, colour, promote, and staff management
+**Owner** — the above, plus assign co-owner, transfer ownership, and disband
 
 ### Clans — Levels
 
@@ -204,7 +206,7 @@ A clan climbs on what its members donate, through **5 levels**. Every perk appli
 `/clans members` — every member, their role and Discord name
 `/clans balance` — the clan treasury
 `/clans donors` — who has given what, largest first
-`/clans upgrade` — leader or clan staff; spends the treasury
+`/clans upgrade` — owner, co-owner, or clan staff; spends the treasury
 
 **Donations are one way.** Nobody can take money back out, and disbanding the clan destroys the balance with it.
 
@@ -222,7 +224,7 @@ A star beside a clan tag shows its level by colour, so you can read it at a glan
 
 A new clan holds **3 members**. Room for more is bought from the clan balance, the same way levels are.
 
-`/clans upgrade` — leader or clan staff; the roster track sits beside the level track
+`/clans upgrade` — owner, co-owner, or clan staff; the roster track sits beside the level track
 **One member at a time**, so the next slot is always in reach
 Every slot up to **25** has to be earned
 Invites are refused once the roster is full
@@ -231,7 +233,7 @@ Each slot costs more than the last. The menu quotes the next one when you open i
 
 ### Clans — Roles
 
-Three ranks, each able to do everything the one below it can.
+Four ranks, each able to do everything the one below it can.
 
 #### Member
 
@@ -245,19 +247,26 @@ Everything a member can, plus:
 `/clans invite <player>` — bring someone in
 `/clans kick <player>` — remove a **member**
 
-#### Leader
+#### Co-Owner
 
 Everything staff can, plus:
 `/clans rename` · `/clans color` — change name or colour
 `/clans promote` · `/clans demote` — manage clan staff
+Spend the treasury and remove clan staff
+
+#### Owner
+
+Everything the co-owner can, plus:
+`/clans coowner <player>` · `/clans uncoowner <player>` — manage the one slot
 `/clans transfer <player>` — hand over the clan
 `/clans disband` — close the clan for everyone
 
 #### Who can remove whom
 
 Staff can kick members
-**Only the leader can remove** another staff member
-The **leader cannot be kicked** by anyone
+Co-owner and owner can remove staff
+**Only the owner can remove** the co-owner
+The **owner cannot be kicked** by anyone
 
 *Promoting somebody puts them beyond everyone's reach but yours.*
 
@@ -267,7 +276,7 @@ Clans are invitation only. You cannot join one by asking the server.
 
 #### Getting invited
 
-A leader or staff runs `/clans invite <player>`
+An owner, co-owner, or staff member runs `/clans invite <player>`
 You must be **online** to receive it
 It expires after **5 minutes**
 
@@ -275,7 +284,7 @@ Answer with `/clans accept` or `/clans decline`
 
 #### Starting your own
 
-`/clans create <name>` — founds it and makes you leader
+`/clans create <name>` — founds it and makes you owner
 The name must not already be taken
 `/clans list` — see what already exists
 
@@ -289,13 +298,13 @@ A clan can only hold as many members as it has bought room for, starting at **3*
 
 How to depart a clan, hand it over, or close it entirely.
 
-#### Members and staff
+#### Members, staff, and co-owners
 
 `/clans leave` — immediate, no confirmation asked
 
 *You keep everything you own. Only the tag and the damage immunity go with it.*
 
-#### The leader cannot simply leave
+#### The owner cannot simply leave
 
 **Transfer or disband first** — there is no other way out
 
@@ -303,14 +312,14 @@ How to depart a clan, hand it over, or close it entirely.
 
 #### Handing it over
 
-`/clans transfer <player>` — they become leader
-You stay in the clan as **staff**, not removed
+`/clans transfer <player>` — they become owner
+If they were co-owner, you take that slot; otherwise you become staff
 
 *You keep invite and kick; renaming, promoting and disbanding pass to them.*
 
 #### Disbanding
 
-`/clans disband` — leader only, cannot be undone
+`/clans disband` — owner only, cannot be undone
 
 *It closes the clan for everyone at once, not just for you.*
 
