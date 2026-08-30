@@ -35,6 +35,7 @@ from pathlib import Path
 DATA_DIR = Path(__file__).resolve().parent / "data"
 OUTPUT = DATA_DIR / "leaderboards.json"
 TIMEOUT_SECONDS = 20
+RELAY_PREFIX = "https://r.jina.ai/http://"
 
 #: Keys copied out of the response. An allowlist rather than a filter, so a future
 #: field added to the API cannot reach a public page by simply existing.
@@ -81,6 +82,30 @@ def fetch(base_url: str) -> dict:
         return json.loads(response.read().decode("utf-8"))
 
 
+def relay_url(base_url: str) -> str:
+    """Route the public HTTP endpoint through standard HTTPS for hosted CI.
+
+    Some hosting networks reject GitHub runner traffic on the dashboard's custom
+    port. The relay sees only the same unauthenticated standings endpoint that is
+    already public; the sanitizer below still decides what reaches the site.
+    """
+    if not base_url.casefold().startswith("http://"):
+        raise ValueError("The HTTPS relay is only for a public HTTP dashboard")
+    return RELAY_PREFIX + base_url[7:].rstrip("/") + "/api/leaderboards"
+
+
+def fetch_via_relay(base_url: str) -> dict:
+    request = urllib.request.Request(
+        relay_url(base_url), headers={"User-Agent": "mgx-devblog-build"}
+    )
+    with urllib.request.urlopen(request, timeout=TIMEOUT_SECONDS) as response:
+        body = response.read().decode("utf-8")
+    marker = "Markdown Content:\n"
+    if marker not in body:
+        raise ValueError("The leaderboard relay returned an unexpected document")
+    return json.loads(body.split(marker, 1)[1])
+
+
 def main() -> int:
     base = os.environ.get("MGX_PANEL_URL", "").strip()
     if not base:
@@ -88,12 +113,17 @@ def main() -> int:
         print("MGX_PANEL_URL is not set; no leaderboard snapshot written.")
         return 0
     try:
-        snapshot = clean(fetch(base))
-    except (urllib.error.URLError, OSError, ValueError, TimeoutError) as exc:
-        # Never fail the build over standings. The site is worth more than the board.
-        print(f"Could not reach the dashboard ({type(exc).__name__}); "
-              "no leaderboard snapshot written.", file=sys.stderr)
-        return 0
+        raw = fetch(base)
+    except (urllib.error.URLError, OSError, ValueError, TimeoutError):
+        try:
+            raw = fetch_via_relay(base)
+            print("Fetched standings through the HTTPS relay.")
+        except (urllib.error.URLError, OSError, ValueError, TimeoutError) as exc:
+            # Never fail the build over standings. The site is worth more than the board.
+            print(f"Could not reach the dashboard ({type(exc).__name__}); "
+                  "no leaderboard snapshot written.", file=sys.stderr)
+            return 0
+    snapshot = clean(raw)
     if not snapshot:
         print("The dashboard returned no standings; no snapshot written.")
         return 0
