@@ -354,6 +354,34 @@ a { color: inherit; }
 .hero-copy .lede { margin: 1rem 0 0; font-size: 1.25rem; color: var(--text-muted); }
 @media (min-width: 1024px) { .hero-copy .lede { font-size: 1.4rem; } }
 
+.hero-address {
+  width: min(100%, 31rem); margin: 1.5rem auto 0; padding: .8rem 1rem;
+  display: flex; align-items: center; gap: .9rem; text-align: left;
+  color: var(--ink); background: color-mix(in srgb, var(--surface) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--brand-orange) 48%, var(--line));
+  border-radius: 18px; box-shadow: var(--lift-2); cursor: pointer;
+  transition: transform var(--dur) var(--ease), border-color var(--dur) var(--ease),
+              box-shadow var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+@media (min-width: 1024px) { .hero-address { margin-left: 0; margin-right: 0; } }
+.hero-address:hover {
+  transform: translateY(-2px); border-color: var(--brand-orange);
+  background: var(--surface); box-shadow: var(--lift-3);
+}
+.hero-address:active { transform: translateY(0) scale(.99); }
+.hero-address-copy { min-width: 0; flex: 1; }
+.hero-address .eyebrow {
+  display: block; margin: 0 0 .2rem; color: var(--brand-orange);
+  font-size: .72rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase;
+}
+.hero-address .label {
+  display: block; overflow-wrap: anywhere; color: var(--ink);
+  font-size: clamp(1.05rem, 3.8vw, 1.35rem); font-weight: 800; letter-spacing: -.015em;
+}
+.hero-address svg { flex: 0 0 auto; width: 1.45rem; height: 1.45rem; color: var(--brand-orange); }
+.hero-address.copied { border-color: var(--green); }
+.hero-address.copied .eyebrow, .hero-address.copied svg { color: var(--green); }
+
 .hero-cta { display: flex; flex-direction: column; align-items: center; gap: .75rem; margin-top: 2rem; }
 @media (min-width: 640px) { .hero-cta { flex-direction: row; justify-content: center; } }
 @media (min-width: 1024px) { .hero-cta { justify-content: flex-start; } }
@@ -1337,25 +1365,26 @@ STATS_SCRIPT = """
 COPY_SCRIPT = """
 <script>
 (function () {
-  var btn = document.querySelector('[data-copy]');
-  if (!btn) return;
-  var label = btn.querySelector('.label');
-  var original = label.textContent;
-  btn.addEventListener('click', function () {
-    var value = btn.dataset.copy;
-    var done = function () {
-      btn.classList.add('copied');
-      label.textContent = 'Copied!';
-      setTimeout(function () { btn.classList.remove('copied'); label.textContent = original; }, 1600);
-    };
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(value).then(done, function () {});
-    } else {
-      var f = document.createElement('textarea');
-      f.value = value; document.body.appendChild(f); f.select();
-      try { document.execCommand('copy'); done(); } catch (e) {}
-      document.body.removeChild(f);
-    }
+  document.querySelectorAll('[data-copy]').forEach(function (btn) {
+    var label = btn.querySelector('.label');
+    if (!label) return;
+    var original = label.textContent;
+    btn.addEventListener('click', function () {
+      var value = btn.dataset.copy;
+      var done = function () {
+        btn.classList.add('copied');
+        label.textContent = 'Copied!';
+        setTimeout(function () { btn.classList.remove('copied'); label.textContent = original; }, 1600);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(value).then(done, function () {});
+      } else {
+        var f = document.createElement('textarea');
+        f.value = value; document.body.appendChild(f); f.select();
+        try { document.execCommand('copy'); done(); } catch (e) {}
+        document.body.removeChild(f);
+      }
+    });
   });
 })();
 </script>
@@ -1851,6 +1880,20 @@ def render_index(featured: Optional[Dict[str, object]], cards: Sequence[Dict[str
         if DISCORD_URL
         else ""
     )
+    server_address = (
+        '<button type="button" class="hero-address" data-copy="%s"'
+        ' aria-label="Copy Java server address %s">'
+        '<span class="hero-address-copy"><span class="eyebrow">Java server · Click to copy</span>'
+        '<span class="label">%s</span></span>%s</button>'
+        % (
+            _esc(SERVER_ADDRESS),
+            _esc(SERVER_ADDRESS),
+            _esc(SERVER_ADDRESS),
+            _icon("copy"),
+        )
+        if SERVER_ADDRESS
+        else ""
+    )
 
     hero = (
         '<section class="hero-band">'
@@ -1859,9 +1902,13 @@ def render_index(featured: Optional[Dict[str, object]], cards: Sequence[Dict[str
         '<img class="wordmark" src="%sassets/logo.png" alt="%s">'
         "<h1>The latest SMP news!</h1>"
         '<p class="lede">%s</p>'
+        "%s"
         '<div class="hero-cta">%s%s</div>'
         "</div>%s</div></section>"
-        % (prefix, _esc(SITE_NAME), _esc(SITE_TAGLINE), read_latest, second_cta, hero_feature)
+        % (
+            prefix, _esc(SITE_NAME), _esc(SITE_TAGLINE), server_address,
+            read_latest, second_cta, hero_feature,
+        )
     )
 
     featured_strip = _featured_strip(featured) if featured else ""
