@@ -193,13 +193,13 @@ class ServerTagCog(commands.Cog):
         bot.data_manager.config[ROLE_KEY] = role.id if role else 0
         bot.data_manager.mark_config_dirty()
         if role is None:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=make_embed("Server Tag", "Server tag roles are now off.", kind="info"),
                 ephemeral=True,
             )
             return
         if interaction.guild and not self._assignable(interaction.guild, role):
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=make_embed(
                     "Server Tag",
                     f"Saved, but I cannot grant {role.mention} — it sits above my own top "
@@ -209,7 +209,6 @@ class ServerTagCog(commands.Cog):
                 ephemeral=True,
             )
             return
-        await interaction.response.defer(ephemeral=True)
         changed = await self.sync_guild(interaction.guild) if interaction.guild else 0
         await interaction.followup.send(
             embed=make_embed(
@@ -226,7 +225,7 @@ class ServerTagCog(commands.Cog):
         try:
             target = int(guild_id.strip())
         except ValueError:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=make_embed("Server Tag", "That is not a server ID.", kind="danger"),
                 ephemeral=True,
             )
@@ -235,7 +234,6 @@ class ServerTagCog(commands.Cog):
         current.add(target)
         bot.data_manager.config[GUILDS_KEY] = sorted(current)
         bot.data_manager.mark_config_dirty()
-        await interaction.response.defer(ephemeral=True)
         changed = await self.sync_guild(interaction.guild)
         await interaction.followup.send(
             embed=make_embed(
@@ -252,7 +250,7 @@ class ServerTagCog(commands.Cog):
         try:
             target = int(guild_id.strip())
         except ValueError:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 embed=make_embed("Server Tag", "That is not a server ID.", kind="danger"),
                 ephemeral=True,
             )
@@ -263,7 +261,6 @@ class ServerTagCog(commands.Cog):
             current = {interaction.guild.id}
         bot.data_manager.config[GUILDS_KEY] = sorted(current)
         bot.data_manager.mark_config_dirty()
-        await interaction.response.defer(ephemeral=True)
         changed = await self.sync_guild(interaction.guild)
         await interaction.followup.send(
             embed=make_embed(
