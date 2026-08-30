@@ -6,6 +6,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+from .settings import DEFAULT_BEDROCK_ADDRESS, DEFAULT_JAVA_ADDRESS
 from urllib.parse import urlsplit
 
 
@@ -117,11 +119,11 @@ class MinecraftConfig:
             bridge_secret=decode_bridge_secret(_required("MINECRAFT_BRIDGE_SECRET")),
             server_id=server_id,
             java_address=os.environ.get(
-                "MINECRAFT_JAVA_ADDRESS", "104.254.131.178:50548"
-            ).strip() or "104.254.131.178:50548",
+                "MINECRAFT_JAVA_ADDRESS", DEFAULT_JAVA_ADDRESS
+            ).strip() or DEFAULT_JAVA_ADDRESS,
             bedrock_address=os.environ.get(
-                "MINECRAFT_BEDROCK_ADDRESS", "104.254.131.178"
-            ).strip() or "104.254.131.178",
+                "MINECRAFT_BEDROCK_ADDRESS", DEFAULT_BEDROCK_ADDRESS
+            ).strip() or DEFAULT_BEDROCK_ADDRESS,
             bedrock_port=bedrock_port,
             bridge_path=bridge_path,
             bridge_host=os.environ.get("MINECRAFT_BRIDGE_HOST", "0.0.0.0").strip(),

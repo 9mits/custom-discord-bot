@@ -98,13 +98,10 @@ backend. So CI queries it just before each build and bakes the numbers in, and a
 figures were checked rather than pretending they are live.
 
 `server_status.py` speaks the Server List Ping protocol over a plain socket —
-stdlib only, and no third-party service is told the address either.
-
-**The address is private and must stay that way.** It reaches the script through
-`MC_SERVER_HOST` / `MC_SERVER_PORT`, supplied by encrypted repository secrets,
-and is never written to the output: `data/stats.json` holds counts, a version and
-a timestamp, nothing else. `devblog/data/` is git-ignored, and tests assert the
-band can never render an address even if one appeared in the file.
+stdlib only, and no third-party status service is involved. CI receives the
+query endpoint through `MC_SERVER_HOST` / `MC_SERVER_PORT`; the public connect
+address itself is `play.mysterioussmpx.blog`. `data/stats.json` still contains
+only counts, a version and a timestamp, and `devblog/data/` remains git-ignored.
 
 If the query fails, **no stats are written and the panel simply disappears**. A
 failure is ambiguous — the server may be down, or the runner may just not be able
@@ -165,10 +162,9 @@ information copy changes**, then commit the regenerated pages.
 It resolves Discord role mentions to names via `ROLE_LABELS`; an unknown role id
 fails the sync rather than shipping a raw `<@&123>` to the page.
 
-`WEB_REWRITES` handles copy that is right in Discord but wrong on a public page —
-the bot's "ask staff for the address" fallback becomes "given to you when your
-application is accepted", because the connect address is private and applying is
-how a player gets it. A test fails if a rewrite stops matching.
+`WEB_REWRITES` handles any copy that is right in Discord but wrong on a public
+page. Connection details need no rewrite: the generated guide uses the same
+public defaults as the bot.
 
 `pages/apply.md` is hand-written and `sync_from_bot.py` does not touch it.
 
@@ -281,7 +277,7 @@ link or an empty box — so the site is honest before you have filled it in.
 
 | Setting | Drives |
 |---|---|
-| `SERVER_ADDRESS` | **Leave empty.** The connect address is private — players get it from the bot when their application is accepted. Setting this puts a Copy IP button in the community band and the address in every page footer. A test enforces the blank. |
+| `SERVER_ADDRESS` | Public Java connect address. It powers the Copy IP button in the community band and appears in every page footer. |
 | `DISCORD_URL` | Top-bar button, sidebar button, footer link. |
 | `APPLY_URL`, `REDDIT_URL`, `TWITTER_URL`, `YOUTUBE_URL` | A brand-coloured button each in the sidebar grid, plus a footer link. Set order is fixed; unset ones vanish and the grid re-flows. |
 | `DEFAULT_CATEGORY` | The pill on posts that do not set `category`. |

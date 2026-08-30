@@ -9,9 +9,12 @@ from typing import Any, Mapping
 from . import logroutes
 
 
-DEFAULT_JAVA_ADDRESS = "104.254.131.178:50548"
-DEFAULT_BEDROCK_ADDRESS = "104.254.131.178"
+DEFAULT_JAVA_ADDRESS = "play.mysterioussmpx.blog"
+DEFAULT_BEDROCK_ADDRESS = "play.mysterioussmpx.blog"
 DEFAULT_BEDROCK_PORT = 50549
+
+LEGACY_JAVA_ADDRESSES = frozenset({"104.254.131.178:50548"})
+LEGACY_BEDROCK_ADDRESSES = frozenset({"104.254.131.178"})
 
 SETTING_KEYS = (
     "application_channel_id",
@@ -75,7 +78,7 @@ def normalize_java_address(value: Any) -> str:
     else:
         host, separator, port_text = normalized.rpartition(":")
         if not separator:
-            raise ValueError("Java address must include a port, for example server.example:25565")
+            return _normalize_host(normalized, label="Java host")
         remainder = f":{port_text}"
     if not normalized.startswith("["):
         _normalize_host(host, label="Java host")
@@ -137,12 +140,18 @@ class MinecraftSettings:
         java_fallback = getattr(bootstrap_config, "java_address", DEFAULT_JAVA_ADDRESS)
         bedrock_fallback = getattr(bootstrap_config, "bedrock_address", DEFAULT_BEDROCK_ADDRESS)
         port_fallback = getattr(bootstrap_config, "bedrock_port", DEFAULT_BEDROCK_PORT)
+        raw_java_address = stored_or("java_address", java_fallback)
+        if str(raw_java_address).strip() in LEGACY_JAVA_ADDRESSES:
+            raw_java_address = DEFAULT_JAVA_ADDRESS
+        raw_bedrock_address = stored_or("bedrock_address", bedrock_fallback)
+        if str(raw_bedrock_address).strip() in LEGACY_BEDROCK_ADDRESSES:
+            raw_bedrock_address = DEFAULT_BEDROCK_ADDRESS
         try:
-            java_address = normalize_java_address(stored_or("java_address", java_fallback))
+            java_address = normalize_java_address(raw_java_address)
         except ValueError:
             java_address = DEFAULT_JAVA_ADDRESS
         try:
-            bedrock_address = normalize_bedrock_address(stored_or("bedrock_address", bedrock_fallback))
+            bedrock_address = normalize_bedrock_address(raw_bedrock_address)
         except ValueError:
             bedrock_address = DEFAULT_BEDROCK_ADDRESS
         try:

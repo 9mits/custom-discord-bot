@@ -51,6 +51,14 @@ and your access is active from that moment. Java players add the server under
 **Multiplayer → Add Server**; Bedrock players add an external server using the
 address *and* the port the bot shows.
 
+**Java address**
+`play.mysterioussmpx.blog`
+
+**Bedrock address**
+`play.mysterioussmpx.blog`
+**Bedrock port**
+`50549`
+
 ### 4. Play
 
 There is no written form and no staff review. Verifying *is* being accepted.

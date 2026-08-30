@@ -55,13 +55,9 @@ def load_bot():
 
 GUIDE_PAGES = ("commands", "clans", "levels", "boosting", "mods", "versions")
 
-#: Web-specific rewording. The bot falls back to "ask staff for the address"
-#: when it has no settings, which is the right answer inside Discord but not on
-#: a public page — there the answer is that applying is how you get it. The
-#: address itself is private and is never published here.
-WEB_REWRITES = (
-    ("ask staff for the address", "given to you when your application is accepted"),
-)
+#: Web-specific rewrites applied while converting Discord copy. Connection
+#: details now come from the same public defaults used by the bot.
+WEB_REWRITES = ()
 
 
 def discord_to_markdown(text: str, role_labels: dict) -> str:

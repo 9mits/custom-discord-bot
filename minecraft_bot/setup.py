@@ -232,7 +232,7 @@ class MinecraftAddressModal(discord.ui.Modal):
         settings = view.bot.settings
         self.java_address = discord.ui.TextInput(
             label="Java address",
-            placeholder="server.example:25565",
+            placeholder="play.mysterioussmpx.blog",
             default=settings.java_address,
             max_length=260,
         )
