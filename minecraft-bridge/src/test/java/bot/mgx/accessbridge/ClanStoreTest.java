@@ -30,6 +30,7 @@ class ClanStoreTest {
         store.setStaff(leader, member, true);
         store.rename(leader, "ORANGE");
         store.setThemeColor(leader, "12ABEF");
+        store.setIcon(leader, "diamond");
 
         ClanStore reloaded = new ClanStore(path);
         ClanStore.ClanView clan = reloaded.clanOf(member).orElseThrow();
@@ -39,6 +40,7 @@ class ClanStoreTest {
         assertEquals(2, clan.members().size());
         assertTrue(clan.staff().contains(member));
         assertEquals(0x12ABEF, clan.themeColor());
+        assertEquals("diamond", clan.icon());
     }
 
     @Test
@@ -125,6 +127,27 @@ class ClanStoreTest {
         ClanStore.ClanView updated = store.setThemeColor(leader, "#55FFFF");
 
         assertEquals(0x55FFFF, updated.themeColor());
+    }
+
+    @Test
+    void ownerAndCoOwnerCanChooseAPersistentCatalogIcon() throws Exception {
+        Path path = temporaryDirectory.resolve("clans.json");
+        ClanStore store = new ClanStore(path);
+        UUID owner = UUID.randomUUID();
+        UUID coOwner = UUID.randomUUID();
+        UUID member = UUID.randomUUID();
+        store.create(owner, "Owner", "ICON");
+        for (UUID player : java.util.List.of(coOwner, member)) {
+            store.invite(owner, player, "Member", 1_000);
+            store.accept(player, "Member", 1_001);
+        }
+        store.setCoOwner(owner, coOwner, true);
+
+        assertThrows(ClanStore.ClanException.class, () -> store.setIcon(member, "diamond"));
+        assertThrows(ClanStore.ClanException.class, () -> store.setIcon(owner, "dirt"));
+        assertEquals("diamond", store.setIcon(owner, "diamond").icon());
+        assertEquals("nether_star", store.setIcon(coOwner, "nether_star").icon());
+        assertEquals("nether_star", new ClanStore(path).clanOf(owner).orElseThrow().icon());
     }
 
     @Test
@@ -273,6 +296,7 @@ class ClanStoreTest {
         ClanStore.ClanView migrated = store.clanOf(leader).orElseThrow();
         assertEquals("LUCKY", migrated.name());
         assertEquals(ClanStore.DEFAULT_THEME_COLOR, migrated.themeColor());
+        assertEquals(ClanIcon.DEFAULT.id(), migrated.icon());
         assertFalse(Files.readString(path).contains("\"tag\""));
     }
 

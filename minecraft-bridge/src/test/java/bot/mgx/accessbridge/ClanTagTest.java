@@ -22,10 +22,10 @@ final class ClanTagTest {
         ClanStore.ClanView clan = clans.create(leader, "Leader", "STARS");
 
         String none = plain(ClanTag.of(clan, new ClanBattleStore.Badges(0, 0, 0)));
-        assertEquals("[STARS] ", none);
+        assertEquals("[item/amethyst_shard@items] [STARS] ", none);
 
         String stacked = plain(ClanTag.of(clan, new ClanBattleStore.Badges(2, 1, 0)));
-        assertTrue(stacked.startsWith("[STARS] "), stacked);
+        assertTrue(stacked.startsWith("[item/amethyst_shard@items] [STARS] "), stacked);
         assertTrue(stacked.contains("x2"), stacked);
         assertEquals(2, stacked.chars().filter(point -> point == '◆').count(), stacked);
     }
@@ -38,7 +38,8 @@ final class ClanTagTest {
 
         // The player-list column pads to a measured width, so a medal missing from
         // the measurement would push every following column out of line.
-        assertEquals(plain(ClanTag.of(clan, badges)), ClanTag.plain(clan, badges));
+        assertTrue(plain(ClanTag.of(clan, badges)).endsWith(ClanTag.plain(clan, badges)));
+        assertEquals(12, ClanTag.iconWidth());
     }
 
     private static String plain(Component component) {

@@ -95,8 +95,11 @@ final class DialogScreenTest {
         // clan row has to emit the id beside it.
         int clanRows = countOf(source, "row.addProperty(\"clan\"");
         int clanIds = countOf(source, "row.addProperty(\"clan_id\"");
+        int clanIcons = countOf(source, "row.addProperty(\"icon\"");
         assertTrue(clanIds >= clanRows,
                 "clan rows: " + clanRows + ", rows carrying an id: " + clanIds);
+        assertTrue(clanIcons >= clanRows,
+                "clan rows: " + clanRows + ", rows carrying an icon: " + clanIcons);
     }
 
     private static int countOf(String haystack, String needle) {
