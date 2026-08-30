@@ -8,6 +8,7 @@ import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.Sound;
+import org.bukkit.Statistic;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
@@ -84,7 +85,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     /** A countdown that only redraws when a screen opens is a timestamp, not a timer. */
     private static final long COUNTDOWN_TICKS = 20L;
 
-    private record AfkRewardState(long sessionStartedAt, long rewardedIntervals) { }
+    private record OnlineRewardState(long sessionStartedAt, long rewardedIntervals) { }
 
     private enum Screen {
         SELECT,
@@ -225,9 +226,11 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private final Set<UUID> watchingReveal = new java.util.HashSet<>();
     private final Map<UUID, CrateKind> selectedKinds = new HashMap<>();
     private final Map<UUID, Long> onlineCreditStarted = new HashMap<>();
-    private final Map<UUID, AfkRewardState> afkRewardStates = new HashMap<>();
-    /** The last tier rendered for each live AFK stretch, used to announce real upgrades once. */
-    private final Map<UUID, Integer> displayedAfkTiers = new HashMap<>();
+    /** A stay-reward interval resets only when the player leaves, never when they move. */
+    private final Map<UUID, Long> onlineRewardStarted = new HashMap<>();
+    private final Map<UUID, OnlineRewardState> onlineRewardStates = new HashMap<>();
+    /** The last tier rendered during this connected session, used to announce upgrades once. */
+    private final Map<UUID, Integer> displayedOnlineTiers = new HashMap<>();
     private final Map<UUID, BossBar> keyBars = new HashMap<>();
     private BukkitTask keyBarTask;
     private BukkitTask hourlyTask;
@@ -1434,12 +1437,14 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         if (previous != null && now > previous) {
             creditOnline(Map.of(player.getUniqueId(), now - previous));
         }
+        creditOnlineRewardOnQuit(player, now);
         autoRuns.remove(player.getUniqueId());
         autoTrashed.remove(player.getUniqueId());
         lastRewardTrashed.remove(player.getUniqueId());
         watchingReveal.remove(player.getUniqueId());
-        afkRewardStates.remove(player.getUniqueId());
-        displayedAfkTiers.remove(player.getUniqueId());
+        onlineRewardStarted.remove(player.getUniqueId());
+        onlineRewardStates.remove(player.getUniqueId());
+        displayedOnlineTiers.remove(player.getUniqueId());
         hideKeyBar(player.getUniqueId());
         RollSession session = sessions.remove(player.getUniqueId());
         if (session != null && session.task != null) {
@@ -1454,7 +1459,9 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             return;
         }
         items.upgradeLegacyKeys(event.getPlayer());
-        onlineCreditStarted.put(event.getPlayer().getUniqueId(), System.currentTimeMillis());
+        long now = System.currentTimeMillis();
+        onlineCreditStarted.put(event.getPlayer().getUniqueId(), now);
+        onlineRewardStarted.put(event.getPlayer().getUniqueId(), now);
         plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
             if (event.getPlayer().isOnline()) {
                 deliverPending(event.getPlayer(), true);
@@ -1474,6 +1481,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             }
             items.upgradeLegacyKeys(player);
             onlineCreditStarted.put(player.getUniqueId(), now);
+            onlineRewardStarted.put(player.getUniqueId(), now);
         }
         hourlyTask = plugin.getServer().getScheduler().runTaskTimer(
                 plugin, this::creditOnlinePlayers, ONLINE_PULSE_TICKS, ONLINE_PULSE_TICKS
@@ -1504,8 +1512,9 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             hideKeyBar(playerId);
         }
         onlineCreditStarted.clear();
-        afkRewardStates.clear();
-        displayedAfkTiers.clear();
+        onlineRewardStarted.clear();
+        onlineRewardStates.clear();
+        displayedOnlineTiers.clear();
         for (RollSession session : sessions.values()) {
             if (session.task != null) {
                 session.task.cancel();
@@ -1521,32 +1530,38 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
      */
     private void refreshKeyBars() {
         long now = System.currentTimeMillis();
-        AfkService afk = plugin.afkService();
-        boolean afkRewardsEnabled = afk != null && variables.bool("afk-rewards.enabled");
+        boolean onlineRewardsEnabled = variables.bool("afk-rewards.enabled");
         int onlinePlayers = (int) plugin.getServer().getOnlinePlayers().stream()
                 .filter(player -> !VerificationLobbyService.isLobbyWorld(player.getWorld()))
                 .count();
         for (Player player : plugin.getServer().getOnlinePlayers()) {
             UUID playerId = player.getUniqueId();
-            long afkStartedAt = afkRewardsEnabled ? afk.sessionStartedAt(playerId) : 0L;
-            boolean showingAfkRewards = afkStartedAt > 0L && afkStartedAt <= now;
-            if (VerificationLobbyService.isLobbyWorld(player.getWorld()) || (!showingAfkRewards
-                    && !settings.isEnabled(playerId, PlayerSettingsStore.Setting.KEY_TIMER_BAR))) {
-                displayedAfkTiers.remove(playerId);
+            if (VerificationLobbyService.isLobbyWorld(player.getWorld())) {
+                onlineRewardStarted.remove(playerId);
+                onlineRewardStates.remove(playerId);
+                displayedOnlineTiers.remove(playerId);
+                hideKeyBar(playerId);
+                continue;
+            }
+            if (!settings.isEnabled(playerId, PlayerSettingsStore.Setting.KEY_TIMER_BAR)) {
                 hideKeyBar(playerId);
                 continue;
             }
             Component title;
             float progress;
             BossBar.Color colour;
-            if (showingAfkRewards) {
-                AfkRewardDisplay.Status status = afkRewardStatus(
-                        playerId, afk, afkStartedAt, now, onlinePlayers
+            if (onlineRewardsEnabled) {
+                long startedAt = onlineRewardStarted.computeIfAbsent(playerId, ignored -> now);
+                AfkRewardDisplay.Status status = onlineRewardStatus(
+                        player, startedAt, now, onlinePlayers
                 );
-                title = AfkRewardDisplay.bossBar(status);
-                progress = status.tierProgress();
-                colour = BossBar.Color.PURPLE;
-                Integer previousTier = displayedAfkTiers.put(playerId, status.tier());
+                title = AfkRewardDisplay.bossBar(status, now);
+                progress = KeyTimer.progress(
+                        status.rewardRemainingMillis(),
+                        Duration.ofMinutes(status.intervalMinutes()).toMillis()
+                );
+                colour = AfkRewardDisplay.barColor(status.onlineBonusKeys());
+                Integer previousTier = displayedOnlineTiers.put(playerId, status.tier());
                 if (previousTier != null && status.tier() > previousTier) {
                     player.sendMessage(PlayerMenuService.prefix().append(
                             AfkRewardDisplay.tierUp(status)
@@ -1555,7 +1570,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                             0.9f, 1.25f);
                 }
             } else {
-                displayedAfkTiers.remove(playerId);
+                displayedOnlineTiers.remove(playerId);
                 Long since = onlineCreditStarted.get(playerId);
                 long uncredited = since == null ? 0L : now - since;
                 long remaining = KeyTimer.remaining(store.millisUntilNextKey(playerId), uncredited);
@@ -1584,39 +1599,35 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         }
     }
 
-    private AfkRewardDisplay.Status afkRewardStatus(
-            UUID playerId,
-            AfkService afk,
+    private AfkRewardDisplay.Status onlineRewardStatus(
+            Player player,
             long startedAt,
             long now,
             int onlinePlayers
     ) {
+        UUID playerId = player.getUniqueId();
         int intervalMinutes = variables.integer("afk-rewards.interval-minutes");
         long intervalMillis = Duration.ofMinutes(intervalMinutes).toMillis();
-        AfkRewardState state = afkRewardStates.get(playerId);
+        OnlineRewardState state = onlineRewardStates.get(playerId);
         long rewarded = state != null && state.sessionStartedAt() == startedAt
                 ? state.rewardedIntervals() : 0L;
         long nextRewardAt = startedAt + (rewarded + 1L) * intervalMillis;
         long remaining = Math.max(0L, nextRewardAt - now);
-        long lifetimeSeconds = afk.afkSeconds(playerId);
+        long lifetimeSeconds = lifetimeOnlineSeconds(player);
         GameVariableStore.AfkRewardTier tier = variables.afkRewardTier(lifetimeSeconds);
-        GameVariableStore.AfkRewardTier next = variables.nextAfkRewardTier(lifetimeSeconds)
-                .orElse(null);
         int onlineBonus = variables.afkOnlineBonusKeys(onlinePlayers);
         int eventMultiplier = variables.bool("afk-rewards.key-events-multiply-bonus")
                 ? plugin.keyEventMultiplier() : 1;
         int keys = Math.multiplyExact(
                 Math.addExact(tier.bonusKeys(), onlineBonus), eventMultiplier
         );
-        int displayedOnlineBonus = Math.multiplyExact(onlineBonus, eventMultiplier);
-        int currentMinimum = tier.number() == 1 ? 0 : tier.minimumHours();
-        float tierProgress = next == null ? 1f : AfkRewardDisplay.tierProgress(
-                lifetimeSeconds, currentMinimum, next.minimumHours()
-        );
         return new AfkRewardDisplay.Status(
-                tier.number(), keys, onlinePlayers, displayedOnlineBonus, intervalMinutes,
-                remaining, next == null ? 0 : next.number(), tierProgress
+                tier.number(), keys, onlinePlayers, onlineBonus, intervalMinutes, remaining
         );
+    }
+
+    private static long lifetimeOnlineSeconds(Player player) {
+        return Math.max(0L, (long) player.getStatistic(Statistic.PLAY_ONE_MINUTE)) / 20L;
     }
 
     private static Component keyBarTitle(long remaining) {
@@ -1645,11 +1656,14 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         for (Player player : plugin.getServer().getOnlinePlayers()) {
             if (VerificationLobbyService.isLobbyWorld(player.getWorld())) {
                 onlineCreditStarted.remove(player.getUniqueId());
+                onlineRewardStarted.remove(player.getUniqueId());
+                onlineRewardStates.remove(player.getUniqueId());
                 continue;
             }
             Long previous = onlineCreditStarted.get(player.getUniqueId());
             if (previous == null) {
                 onlineCreditStarted.put(player.getUniqueId(), now);
+                onlineRewardStarted.putIfAbsent(player.getUniqueId(), now);
             } else if (now > previous) {
                 elapsed.put(player.getUniqueId(), now - previous);
             }
@@ -1679,82 +1693,94 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 )));
             }
         }
-        creditAfkRewards(now);
+        creditOnlineRewards(now);
     }
 
     /**
-     * Adds a second, AFK-only hourly ladder above the ordinary online key rate.
+     * Adds a second stay-online ladder above the ordinary hourly key rate.
      *
-     * <p>The interval count belongs to the current uninterrupted AFK stretch. Moving,
-     * chatting or interacting starts it over, while the tier itself uses lifetime AFK
-     * so a restart or a normal return to play never erases long-term progression.
+     * <p>The interval belongs to this connected session. Movement and chat do nothing to
+     * it; only leaving the server starts the countdown over. The tier comes from vanilla
+     * lifetime playtime, so existing players keep every hour they already earned.
      */
-    private void creditAfkRewards(long now) {
-        AfkService afk = plugin.afkService();
-        if (afk == null) {
-            return;
-        }
+    private void creditOnlineRewards(long now) {
         long intervalMillis = Duration.ofMinutes(
                 variables.integer("afk-rewards.interval-minutes")
         ).toMillis();
         List<? extends Player> eligible = plugin.getServer().getOnlinePlayers().stream()
                 .filter(player -> !VerificationLobbyService.isLobbyWorld(player.getWorld()))
                 .toList();
-        if (!variables.bool("afk-rewards.enabled")) {
-            Set<UUID> currentlyAfk = new java.util.HashSet<>();
-            for (Player player : eligible) {
-                long startedAt = afk.sessionStartedAt(player.getUniqueId());
-                if (startedAt > 0L && startedAt <= now) {
-                    currentlyAfk.add(player.getUniqueId());
-                    afkRewardStates.put(player.getUniqueId(), new AfkRewardState(
-                            startedAt, (now - startedAt) / intervalMillis
-                    ));
-                }
-            }
-            afkRewardStates.keySet().retainAll(currentlyAfk);
-            return;
-        }
         int onlinePlayers = eligible.size();
-        Set<UUID> currentlyAfk = new java.util.HashSet<>();
+        boolean enabled = variables.bool("afk-rewards.enabled");
+        Set<UUID> currentlyOnline = new java.util.HashSet<>();
         for (Player player : eligible) {
             UUID playerId = player.getUniqueId();
-            long startedAt = afk.sessionStartedAt(playerId);
-            if (startedAt <= 0L || startedAt > now) {
-                continue;
-            }
-            currentlyAfk.add(playerId);
-            long completed = (now - startedAt) / intervalMillis;
-            AfkRewardState state = afkRewardStates.get(playerId);
-            long rewarded = state != null && state.sessionStartedAt() == startedAt
-                    ? state.rewardedIntervals() : 0L;
-            while (rewarded < completed) {
-                long interval = rewarded + 1L;
-                // Resolve the tier at the moment this interval completed rather than
-                // letting a delayed pulse award every catch-up interval at the newest tier.
-                long lifetimeAtReward = Math.max(
-                        0L,
-                        afk.afkSeconds(playerId) - (completed - interval)
-                                * (intervalMillis / 1_000L)
-                );
-                try {
-                    deliverAfkReward(player, lifetimeAtReward, onlinePlayers);
-                } catch (ArithmeticException | UncheckedIOException exception) {
-                    plugin.getLogger().warning("Could not deliver an AFK reward to "
-                            + player.getName() + ": " + exception.getMessage());
-                    break;
-                }
-                rewarded = interval;
-                afkRewardStates.put(playerId, new AfkRewardState(startedAt, rewarded));
-            }
-            afkRewardStates.putIfAbsent(playerId, new AfkRewardState(startedAt, rewarded));
+            currentlyOnline.add(playerId);
+            long startedAt = onlineRewardStarted.computeIfAbsent(playerId, ignored -> now);
+            creditOnlineReward(player, startedAt, now, intervalMillis, onlinePlayers, enabled);
         }
-        afkRewardStates.keySet().retainAll(currentlyAfk);
+        onlineRewardStates.keySet().retainAll(currentlyOnline);
+        displayedOnlineTiers.keySet().retainAll(currentlyOnline);
     }
 
-    private void deliverAfkReward(
-            Player player, long lifetimeAfkSeconds, int onlinePlayers
+    private void creditOnlineReward(
+            Player player,
+            long startedAt,
+            long now,
+            long intervalMillis,
+            int onlinePlayers,
+            boolean enabled
     ) {
-        GameVariableStore.AfkRewardTier tier = variables.afkRewardTier(lifetimeAfkSeconds);
+        UUID playerId = player.getUniqueId();
+        long completed = Math.max(0L, now - startedAt) / intervalMillis;
+        OnlineRewardState state = onlineRewardStates.get(playerId);
+        long rewarded = state != null && state.sessionStartedAt() == startedAt
+                ? state.rewardedIntervals() : 0L;
+        if (!enabled) {
+            onlineRewardStates.put(playerId, new OnlineRewardState(startedAt, completed));
+            return;
+        }
+        while (rewarded < completed) {
+            long interval = rewarded + 1L;
+            long lifetimeAtReward = Math.max(
+                    0L,
+                    lifetimeOnlineSeconds(player) - (completed - interval)
+                            * (intervalMillis / 1_000L)
+            );
+            try {
+                deliverOnlineReward(player, lifetimeAtReward, onlinePlayers);
+            } catch (ArithmeticException | UncheckedIOException exception) {
+                plugin.getLogger().warning("Could not deliver an online stay reward to "
+                        + player.getName() + ": " + exception.getMessage());
+                break;
+            }
+            rewarded = interval;
+            onlineRewardStates.put(playerId, new OnlineRewardState(startedAt, rewarded));
+        }
+        onlineRewardStates.putIfAbsent(playerId, new OnlineRewardState(startedAt, rewarded));
+    }
+
+    private void creditOnlineRewardOnQuit(Player player, long now) {
+        Long startedAt = onlineRewardStarted.get(player.getUniqueId());
+        if (startedAt == null || startedAt > now) {
+            return;
+        }
+        long intervalMillis = Duration.ofMinutes(
+                variables.integer("afk-rewards.interval-minutes")
+        ).toMillis();
+        int onlinePlayers = (int) plugin.getServer().getOnlinePlayers().stream()
+                .filter(online -> !VerificationLobbyService.isLobbyWorld(online.getWorld()))
+                .count();
+        creditOnlineReward(
+                player, startedAt, now, intervalMillis, Math.max(1, onlinePlayers),
+                variables.bool("afk-rewards.enabled")
+        );
+    }
+
+    private void deliverOnlineReward(
+            Player player, long lifetimeOnlineSeconds, int onlinePlayers
+    ) {
+        GameVariableStore.AfkRewardTier tier = variables.afkRewardTier(lifetimeOnlineSeconds);
         int onlineBonus = variables.afkOnlineBonusKeys(onlinePlayers);
         int keys = Math.addExact(tier.bonusKeys(), onlineBonus);
         int displayedOnlineBonus = onlineBonus;
@@ -1784,20 +1810,18 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             ServerEvent.of(
                     "afk_shard_reward", ServerEvent.CATEGORY_CRATE,
                     player.getUniqueId(), player.getName(), plugin::recordServerEvent
-            ).summary(player.getName() + " earned an exceptionally rare AFK Shard")
-                    .detail("AFK tier", tier.number())
-                    .detail("Lifetime AFK hours", lifetimeAfkSeconds / 3_600L)
+            ).summary(player.getName() + " earned an exceptionally rare online Shard")
+                    .detail("Online tier", tier.number())
+                    .detail("Lifetime online hours", lifetimeOnlineSeconds / 3_600L)
                     .detail("Online players", onlinePlayers)
                     .record();
         }
         if (delivered.isEmpty()) {
             delivered.add("progress toward the next tier");
         }
-        // One persistent line per completed AFK interval is the receipt for the whole
-        // ladder. Unlike ordinary hourly-key notices, hiding it made the new tiers and
-        // online-player boost look as if they did not exist at all.
+        // One persistent line per connected interval is the receipt for the whole ladder.
         player.sendMessage(PlayerMenuService.prefix()
-                .append(Component.text("AFK Tier " + tier.number() + " reward: ",
+                .append(Component.text("Online Tier " + tier.number() + " reward: ",
                         NamedTextColor.LIGHT_PURPLE, TextDecoration.BOLD))
                 .append(Component.text(String.join(", ", delivered) + ". ",
                         NamedTextColor.WHITE))
