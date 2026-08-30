@@ -13,6 +13,7 @@ import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
 import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Item;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
@@ -82,6 +83,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private static final int SELECT_AMETHYST_SLOT = 15;
     /** A countdown that only redraws when a screen opens is a timestamp, not a timer. */
     private static final long COUNTDOWN_TICKS = 20L;
+
+    private record AfkRewardState(long sessionStartedAt, long rewardedIntervals) { }
 
     private enum Screen {
         SELECT,
@@ -222,6 +225,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private final Set<UUID> watchingReveal = new java.util.HashSet<>();
     private final Map<UUID, CrateKind> selectedKinds = new HashMap<>();
     private final Map<UUID, Long> onlineCreditStarted = new HashMap<>();
+    private final Map<UUID, AfkRewardState> afkRewardStates = new HashMap<>();
     private final Map<UUID, BossBar> keyBars = new HashMap<>();
     private BukkitTask keyBarTask;
     private BukkitTask hourlyTask;
@@ -1432,6 +1436,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         autoTrashed.remove(player.getUniqueId());
         lastRewardTrashed.remove(player.getUniqueId());
         watchingReveal.remove(player.getUniqueId());
+        afkRewardStates.remove(player.getUniqueId());
         hideKeyBar(player.getUniqueId());
         RollSession session = sessions.remove(player.getUniqueId());
         if (session != null && session.task != null) {
@@ -1496,6 +1501,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             hideKeyBar(playerId);
         }
         onlineCreditStarted.clear();
+        afkRewardStates.clear();
         for (RollSession session : sessions.values()) {
             if (session.task != null) {
                 session.task.cancel();
@@ -1603,6 +1609,158 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 )));
             }
         }
+        creditAfkRewards(now);
+    }
+
+    /**
+     * Adds a second, AFK-only hourly ladder above the ordinary online key rate.
+     *
+     * <p>The interval count belongs to the current uninterrupted AFK stretch. Moving,
+     * chatting or interacting starts it over, while the tier itself uses lifetime AFK
+     * so a restart or a normal return to play never erases long-term progression.
+     */
+    private void creditAfkRewards(long now) {
+        AfkService afk = plugin.afkService();
+        if (afk == null) {
+            return;
+        }
+        long intervalMillis = Duration.ofMinutes(
+                variables.integer("afk-rewards.interval-minutes")
+        ).toMillis();
+        List<? extends Player> eligible = plugin.getServer().getOnlinePlayers().stream()
+                .filter(player -> !VerificationLobbyService.isLobbyWorld(player.getWorld()))
+                .toList();
+        if (!variables.bool("afk-rewards.enabled")) {
+            Set<UUID> currentlyAfk = new java.util.HashSet<>();
+            for (Player player : eligible) {
+                long startedAt = afk.sessionStartedAt(player.getUniqueId());
+                if (startedAt > 0L && startedAt <= now) {
+                    currentlyAfk.add(player.getUniqueId());
+                    afkRewardStates.put(player.getUniqueId(), new AfkRewardState(
+                            startedAt, (now - startedAt) / intervalMillis
+                    ));
+                }
+            }
+            afkRewardStates.keySet().retainAll(currentlyAfk);
+            return;
+        }
+        int onlinePlayers = eligible.size();
+        Set<UUID> currentlyAfk = new java.util.HashSet<>();
+        for (Player player : eligible) {
+            UUID playerId = player.getUniqueId();
+            long startedAt = afk.sessionStartedAt(playerId);
+            if (startedAt <= 0L || startedAt > now) {
+                continue;
+            }
+            currentlyAfk.add(playerId);
+            long completed = (now - startedAt) / intervalMillis;
+            AfkRewardState state = afkRewardStates.get(playerId);
+            long rewarded = state != null && state.sessionStartedAt() == startedAt
+                    ? state.rewardedIntervals() : 0L;
+            while (rewarded < completed) {
+                long interval = rewarded + 1L;
+                // Resolve the tier at the moment this interval completed rather than
+                // letting a delayed pulse award every catch-up interval at the newest tier.
+                long lifetimeAtReward = Math.max(
+                        0L,
+                        afk.afkSeconds(playerId) - (completed - interval)
+                                * (intervalMillis / 1_000L)
+                );
+                try {
+                    deliverAfkReward(player, lifetimeAtReward, onlinePlayers);
+                } catch (ArithmeticException | UncheckedIOException exception) {
+                    plugin.getLogger().warning("Could not deliver an AFK reward to "
+                            + player.getName() + ": " + exception.getMessage());
+                    break;
+                }
+                rewarded = interval;
+                afkRewardStates.put(playerId, new AfkRewardState(startedAt, rewarded));
+            }
+            afkRewardStates.putIfAbsent(playerId, new AfkRewardState(startedAt, rewarded));
+        }
+        afkRewardStates.keySet().retainAll(currentlyAfk);
+    }
+
+    private void deliverAfkReward(
+            Player player, long lifetimeAfkSeconds, int onlinePlayers
+    ) {
+        GameVariableStore.AfkRewardTier tier = variables.afkRewardTier(lifetimeAfkSeconds);
+        int onlineBonus = variables.afkOnlineBonusKeys(onlinePlayers);
+        int keys = Math.addExact(tier.bonusKeys(), onlineBonus);
+        if (variables.bool("afk-rewards.key-events-multiply-bonus")) {
+            keys = Math.multiplyExact(keys, plugin.keyEventMultiplier());
+        }
+
+        List<String> delivered = new ArrayList<>();
+        if (keys > 0) {
+            store.bankKeys(player.getUniqueId(), keys);
+            int accepted = deliverBankedKeys(player, false);
+            delivered.add(keys + " bonus " + (keys == 1 ? "key" : "keys")
+                    + (accepted < keys ? " (banked if inventory is full)" : ""));
+        }
+        int emeralds = rollAmount(tier.emeralds(), tier.emeraldOneIn());
+        int diamonds = rollAmount(tier.diamonds(), tier.diamondOneIn());
+        int netherite = rollAmount(tier.netheriteIngots(), tier.netheriteOneIn());
+        int shards = rollAmount(tier.shards(), tier.shardOneIn());
+        giveAfkItem(player, Material.EMERALD, emeralds, delivered, "emerald");
+        giveAfkItem(player, Material.DIAMOND, diamonds, delivered, "diamond");
+        giveAfkItem(player, Material.NETHERITE_INGOT, netherite, delivered, "netherite ingot");
+        if (shards > 0) {
+            giveAfkStack(player, items.shard(shards));
+            delivered.add(shards + " " + (shards == 1 ? "Shard" : "Shards"));
+            ServerEvent.of(
+                    "afk_shard_reward", ServerEvent.CATEGORY_CRATE,
+                    player.getUniqueId(), player.getName(), plugin::recordServerEvent
+            ).summary(player.getName() + " earned an exceptionally rare AFK Shard")
+                    .detail("AFK tier", tier.number())
+                    .detail("Lifetime AFK hours", lifetimeAfkSeconds / 3_600L)
+                    .detail("Online players", onlinePlayers)
+                    .record();
+        }
+        if (delivered.isEmpty()) {
+            delivered.add("progress toward the next tier");
+        }
+        if (settings.isEnabled(
+                player.getUniqueId(), PlayerSettingsStore.Setting.CHAT_NOTIFICATIONS
+        ) || shards > 0 || netherite > 0) {
+            player.sendMessage(PlayerMenuService.prefix()
+                    .append(Component.text("AFK Tier " + tier.number() + " reward: ",
+                            NamedTextColor.LIGHT_PURPLE, TextDecoration.BOLD))
+                    .append(Component.text(String.join(", ", delivered) + ". ",
+                            NamedTextColor.WHITE))
+                    .append(Component.text(onlinePlayers + " online added " + onlineBonus
+                            + " bonus " + (onlineBonus == 1 ? "key" : "keys") + ".",
+                            NamedTextColor.GRAY)));
+        }
+        player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP,
+                0.8f, shards > 0 ? 1.7f : 1.25f);
+    }
+
+    private static int rollAmount(int amount, int oneIn) {
+        if (amount <= 0) {
+            return 0;
+        }
+        return ThreadLocalRandom.current().nextInt(Math.max(1, oneIn)) == 0 ? amount : 0;
+    }
+
+    private void giveAfkItem(
+            Player player, Material material, int amount, List<String> delivered, String name
+    ) {
+        if (amount <= 0) {
+            return;
+        }
+        for (int portion : StackSplit.portions(amount, material.getMaxStackSize())) {
+            giveAfkStack(player, new ItemStack(material, portion));
+        }
+        delivered.add(amount + " " + name + (amount == 1 ? "" : "s"));
+    }
+
+    private static void giveAfkStack(Player player, ItemStack stack) {
+        player.getInventory().addItem(stack).values().forEach(overflow -> {
+            Item drop = player.getWorld().dropItemNaturally(player.getLocation(), overflow);
+            drop.setOwner(player.getUniqueId());
+            drop.setPickupDelay(0);
+        });
     }
 
     /** What an hour online is worth to this player, before any live event. */

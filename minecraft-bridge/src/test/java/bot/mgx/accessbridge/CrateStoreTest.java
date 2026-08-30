@@ -137,6 +137,20 @@ class CrateStoreTest {
     }
 
     @Test
+    void afkBonusKeysBankAtomicallyAlongsideOnlineKeys(@TempDir Path directory)
+            throws Exception {
+        Path file = directory.resolve("crates.json");
+        UUID player = UUID.randomUUID();
+        CrateStore store = new CrateStore(file);
+        store.creditOnline(Map.of(player, CrateStore.HOURLY_KEY_MILLIS));
+
+        assertEquals(8, store.bankKeys(player, 7));
+        assertEquals(8, new CrateStore(file).bankedKeys(player));
+        assertEquals(8, store.bankKeys(player, 0));
+        assertEquals(8, new CrateStore(file).bankedKeys(player));
+    }
+
+    @Test
     void clearingRemovesPendingRewardsAcrossReload(@TempDir Path directory)
             throws Exception {
         Path file = directory.resolve("crates.json");

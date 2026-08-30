@@ -37,6 +37,10 @@ final class AmethystBlockRewards {
         );
     }
 
+    static Bundle rollMilestone(RandomGenerator random, GameVariableStore variables) {
+        return rollBundle(random, variables, "milestone");
+    }
+
     static Bundle completionBundle(RandomGenerator random) {
         return new Bundle(
                 random.nextInt(8, 13),
@@ -47,13 +51,45 @@ final class AmethystBlockRewards {
         );
     }
 
+    static Bundle completionBundle(RandomGenerator random, GameVariableStore variables) {
+        return rollBundle(random, variables, "completion");
+    }
+
+    private static Bundle rollBundle(
+            RandomGenerator random, GameVariableStore variables, String kind
+    ) {
+        String base = "huge-amethyst." + kind + ".";
+        return new Bundle(
+                between(random, variables.integer(base + "minimum-keys"),
+                        variables.integer(base + "maximum-keys")),
+                between(random, variables.integer(base + "minimum-diamonds"),
+                        variables.integer(base + "maximum-diamonds")),
+                between(random, variables.integer(base + "minimum-emeralds"),
+                        variables.integer(base + "maximum-emeralds")),
+                between(random, variables.integer(base + "minimum-gold"),
+                        variables.integer(base + "maximum-gold")),
+                random.nextInt(variables.integer("huge-amethyst.shard-one-in")) == 0
+                        ? variables.integer("huge-amethyst.shard-amount") : 0
+        );
+    }
+
+    private static int between(RandomGenerator random, int minimum, int maximum) {
+        return minimum == maximum ? minimum : random.nextInt(minimum, maximum + 1);
+    }
+
     /** Everyone gets the common bundles; mining adds this key bonus on top. */
     static int contributionKeys(UUID player, Map<UUID, Double> damage) {
+        return contributionKeys(player, damage, 5, 45);
+    }
+
+    static int contributionKeys(
+            UUID player, Map<UUID, Double> damage, int baseKeys, int poolKeys
+    ) {
         double total = damage.values().stream().mapToDouble(Double::doubleValue).sum();
         double dealt = damage.getOrDefault(player, 0d);
         if (total <= 0d || dealt <= 0d) {
             return 0;
         }
-        return 5 + (int) Math.floor(45d * dealt / total);
+        return Math.max(0, baseKeys) + (int) Math.floor(Math.max(0, poolKeys) * dealt / total);
     }
 }

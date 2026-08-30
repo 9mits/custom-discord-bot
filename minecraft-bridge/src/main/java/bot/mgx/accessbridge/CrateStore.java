@@ -187,6 +187,27 @@ final class CrateStore {
         return bankedKeys.getOrDefault(playerId, 0);
     }
 
+    /** Adds keys selected by a non-hourly source while preserving crash-safe delivery. */
+    synchronized int bankKeys(UUID playerId, int amount) {
+        if (playerId == null || amount <= 0) {
+            return bankedKeys(playerId);
+        }
+        int before = bankedKeys.getOrDefault(playerId, 0);
+        int after = Math.addExact(before, amount);
+        bankedKeys.put(playerId, after);
+        try {
+            save();
+        } catch (RuntimeException exception) {
+            if (before == 0) {
+                bankedKeys.remove(playerId);
+            } else {
+                bankedKeys.put(playerId, before);
+            }
+            throw exception;
+        }
+        return after;
+    }
+
     synchronized long millisUntilNextKey(UUID playerId) {
         return HOURLY_KEY_MILLIS - onlineProgress.getOrDefault(playerId, 0L);
     }

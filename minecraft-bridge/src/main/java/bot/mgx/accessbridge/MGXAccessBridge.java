@@ -434,7 +434,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 this, crateItems, cosmeticStore, cosmeticItems, amethystProgress, playerSettings,
                 new AirdropGuardService(this, amethystMobs), gameVariables
         );
-        amethystBlockEvent = new AmethystBlockEventService(this, crateItems, playerSettings);
+        amethystBlockEvent = new AmethystBlockEventService(
+                this, crateItems, playerSettings, gameVariables
+        );
         amethystEvents = new AmethystEventCoordinator(
                 this, airdrops, amethystBlockEvent, gameVariables
         );
@@ -631,7 +633,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         devBlogService = new DevBlogService(
                 this, devBlogStore, sidebarService, cosmeticStore
         );
-        chaosService = new ChaosService(this, crateItems);
+        chaosService = new ChaosService(this, crateItems, gameVariables);
         getServer().getPluginManager().registerEvents(chaosService, this);
         spawnMobBarrier = new SpawnMobBarrierService(this, amethystMobs);
         getServer().getPluginManager().registerEvents(spawnMobBarrier, this);
@@ -749,6 +751,11 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         if (serverEventService != null) {
             serverEventService.stop();
         }
+        // Settle both ordinary online keys and completed AFK intervals while the
+        // AFK service still knows which uninterrupted sessions are live.
+        if (crates != null) {
+            crates.stop();
+        }
         if (afkService != null) {
             afkService.stop();
         }
@@ -760,9 +767,6 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         if (personalNotifications != null) {
             personalNotifications.stop();
-        }
-        if (crates != null) {
-            crates.stop();
         }
         if (amethystEvents != null) {
             amethystEvents.stop();

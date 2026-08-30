@@ -103,6 +103,7 @@ final class ChaosService implements Listener {
 
     private final MGXAccessBridge plugin;
     private final CrateItems crateItems;
+    private final GameVariableStore variables;
     private final EventShow show;
     private final NamespacedKey scaleKey;
     private final NamespacedKey headKey;
@@ -112,9 +113,10 @@ final class ChaosService implements Listener {
     /** Live Alfredos, by entity id. */
     private final Map<UUID, Alfredo> alfredos = new HashMap<>();
 
-    ChaosService(MGXAccessBridge plugin, CrateItems crateItems) {
+    ChaosService(MGXAccessBridge plugin, CrateItems crateItems, GameVariableStore variables) {
         this.plugin = plugin;
         this.crateItems = crateItems;
+        this.variables = variables;
         this.show = new EventShow(plugin);
         this.scaleKey = new NamespacedKey(plugin, "chaos_scale");
         this.headKey = new NamespacedKey(plugin, "chaos_head");
@@ -336,11 +338,11 @@ final class ChaosService implements Listener {
             case CONFETTI -> confetti(session);
             case HEADS -> heads(session, ticks);
             case AIRDROP -> airdrop(session, 200L,
-                    keys > 0 ? keys : DEFAULT_AIRDROP_KEYS);
+                    keys > 0 ? keys : variables.integer("chaos.supply-drop.keys"));
             case PINATA -> pinata(session, ticks, keys);
             case JACKPOT -> jackpot(session, keys);
             case ALFREDO -> alfredo(session, ticks,
-                    ALFREDO_DEFAULT_HEALTH, ALFREDO_DEFAULT_KEYS, ALFREDO_DEFAULT_DIAMONDS);
+                    defaultAlfredoHealth(), defaultAlfredoKeys(), defaultAlfredoDiamonds());
             default -> throw new IllegalArgumentException(effect.id() + " is not handled here.");
         }
     }
@@ -1079,9 +1081,14 @@ final class ChaosService implements Listener {
         announce(session, Component.text("PINATA", NamedTextColor.LIGHT_PURPLE, TextDecoration.BOLD)
                 .append(Component.text(" Hit it. Keep hitting it.", NamedTextColor.WHITE)));
 
-        int hits = Math.max(20, targets(session).size() * 15);
+        int hits = Math.max(
+                variables.integer("chaos.pinata.minimum-hits"),
+                targets(session).size() * variables.integer("chaos.pinata.hits-per-player")
+        );
         // 0 keeps the old behaviour of scaling with the crowd.
-        int payout = keys > 0 ? keys : 30 + targets(session).size() * 5;
+        int payout = keys > 0 ? keys
+                : variables.integer("chaos.pinata.base-keys")
+                + targets(session).size() * variables.integer("chaos.pinata.keys-per-player");
         BossBar bar = show.bar("PINATA", BossBar.Color.PINK);
         Slime body = world.spawn(at, Slime.class, slime -> {
             slime.setSize(8);
@@ -1145,7 +1152,10 @@ final class ChaosService implements Listener {
         }
         session.tasks.add(plugin.getServer().getScheduler().runTaskLater(plugin, () -> {
             // 0 means "surprise me", which is what a jackpot should do by default.
-            int payout = keys > 0 ? keys : 5 + ThreadLocalRandom.current().nextInt(16);
+            int minimum = variables.integer("chaos.jackpot.minimum-keys");
+            int maximum = variables.integer("chaos.jackpot.maximum-keys");
+            int payout = keys > 0 ? keys : minimum == maximum
+                    ? minimum : ThreadLocalRandom.current().nextInt(minimum, maximum + 1);
             for (Player player : targets(session)) {
                 player.showTitle(net.kyori.adventure.title.Title.title(
                         Component.text("JACKPOT!", NamedTextColor.GOLD, TextDecoration.BOLD),
@@ -1231,6 +1241,26 @@ final class ChaosService implements Listener {
     static final int ALFREDO_DEFAULT_DIAMONDS = 128;
     private static final int ALFREDO_BURSTS = 10;
     static final int DEFAULT_AIRDROP_KEYS = 40;
+
+    int defaultSupplyDropKeys() {
+        return variables.integer("chaos.supply-drop.keys");
+    }
+
+    int defaultKeyRainKeys() {
+        return variables.integer("chaos.key-rain.keys");
+    }
+
+    int defaultAlfredoHealth() {
+        return variables.integer("chaos.alfredo.health");
+    }
+
+    int defaultAlfredoKeys() {
+        return variables.integer("chaos.alfredo.keys");
+    }
+
+    int defaultAlfredoDiamonds() {
+        return variables.integer("chaos.alfredo.diamonds");
+    }
     /**
      * Minecraft caps generic.scale at 16, so this is as large as an entity can
      * legally be. A vanilla zombie is 1.95 blocks, which puts him near 31.
@@ -1312,7 +1342,8 @@ final class ChaosService implements Listener {
 
         BossBar bar = show.bar("ALFREDO", BossBar.Color.RED);
         alfredos.put(boss.getUniqueId(), new Alfredo(
-                bar, session, Math.max(0, keys), Math.max(0, diamonds), ALFREDO_BURSTS, health
+                bar, session, Math.max(0, keys), Math.max(0, diamonds),
+                variables.integer("chaos.alfredo.bursts"), health
         ));
         announce(session, Component.text("ALFREDO", NamedTextColor.RED, TextDecoration.BOLD)
                 .append(Component.text(" has arrived. Hit him until he gives it up.",
