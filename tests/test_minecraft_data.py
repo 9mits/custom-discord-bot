@@ -262,6 +262,76 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(rows[0]["count"], 1)
 
+    async def test_afk_metrics_split_by_edition_and_count_only_finished_stretches(self):
+        now = int(time.time())
+        # Two players go AFK; only the completed stretches carry a duration.
+        events = (
+            ("afk-a-start", "a", "JAVA", True, 0, 1, now),
+            ("afk-a-end", "a", "JAVA", False, 1800, 0, now + 1800),
+            ("afk-b-start", "b", "BEDROCK", True, 0, 1, now),
+            ("afk-b-end", "b", "BEDROCK", False, 3600, 0, now + 3600),
+        )
+        for key, player, edition, afk, seconds, afk_count, at in events:
+            await self.data.record_player_afk(
+                event_idempotency_key=key,
+                minecraft_uuid=f"00000000-0000-0000-0000-{ord(player):012d}",
+                current_username=key[:4],
+                edition=edition,
+                afk=afk,
+                online_count=2,
+                afk_count=afk_count,
+                session_seconds=seconds,
+                occurred_at=at,
+            )
+
+        metrics = await self.data.afk_metrics(days=90)
+
+        self.assertEqual(metrics["total_seconds"], 5400)
+        self.assertEqual(metrics["by_edition"]["JAVA"], 1800)
+        self.assertEqual(metrics["by_edition"]["BEDROCK"], 3600)
+        self.assertEqual(metrics["peak_afk"], 1)
+        self.assertEqual(len(metrics["players"]), 2)
+        # Sorted by time spent, so the leaderboard is the query rather than the caller.
+        self.assertEqual(metrics["players"][0]["afk_seconds"], 3600)
+
+    async def test_afk_events_are_idempotent(self):
+        values = dict(
+            event_idempotency_key="same-afk-event",
+            minecraft_uuid="123e4567-e89b-12d3-a456-426614174000",
+            current_username="TestPlayer",
+            edition="JAVA",
+            afk=True,
+            online_count=1,
+            afk_count=1,
+            session_seconds=0,
+            occurred_at=int(time.time()),
+        )
+        await self.data.record_player_afk(**values)
+        await self.data.record_player_afk(**values)
+
+        rows = await self.data._connection().execute_fetchall(
+            "SELECT COUNT(*) AS count FROM minecraft_player_afk"
+        )
+        self.assertEqual(rows[0]["count"], 1)
+
+    async def test_stat_snapshots_build_a_series_per_metric(self):
+        now = int(time.time())
+        await self.data.record_stat_snapshot({"players.online": 3, "afk.peak_concurrent": 1}, at=now)
+        await self.data.record_stat_snapshot({"players.online": 5}, at=now + 900)
+
+        series = await self.data.stat_series("players.online", days=30)
+        self.assertEqual([point["value"] for point in series], [3.0, 5.0])
+        self.assertEqual([point["at"] for point in series], [now, now + 900])
+
+        self.assertEqual(
+            sorted(await self.data.stat_metrics()),
+            ["afk.peak_concurrent", "players.online"],
+        )
+
+    async def test_an_empty_snapshot_writes_nothing(self):
+        await self.data.record_stat_snapshot({})
+        self.assertEqual(await self.data.stat_metrics(), [])
+
     async def test_java_verification_transitions_and_is_idempotent(self):
         application = await self.create_pending()
         verified, changed = await self.data.record_verification(
