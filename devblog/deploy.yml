@@ -43,8 +43,8 @@ jobs:
         run: python3 devblog/tests/test_build.py
 
       - name: Fetch live server stats
-        # The address is private and never leaves this step: server_status.py
-        # writes counts and a timestamp only, and devblog/data/ is git-ignored.
+        # server_status.py writes counts and a timestamp only; the public
+        # connect address is configured separately in devblog/config.py.
         # A failure here is not fatal — the stats panel simply does not render.
         env:
           MC_SERVER_HOST: ${{ secrets.MC_SERVER_HOST }}

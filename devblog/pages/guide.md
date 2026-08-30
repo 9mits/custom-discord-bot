@@ -440,7 +440,7 @@ No launcher changes needed; play on whatever you already use
 
 Add the server under **Multiplayer → Add Server**
 ```text
-given to you when your application is accepted
+play.mysterioussmpx.blog
 ```
 
 ### Bedrock Edition
@@ -450,9 +450,9 @@ Add it as an external server with both values below
 
 **Address**
 ```text
-given to you when your application is accepted
+play.mysterioussmpx.blog
 ```
 **Port**
 ```text
-19132
+50549
 ```

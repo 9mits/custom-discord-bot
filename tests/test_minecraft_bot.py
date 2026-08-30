@@ -1250,6 +1250,32 @@ class MinecraftConfigurationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(settings.application_log_channel_id, 0)
         self.assertEqual(settings.java_address, "saved.example:25570")
 
+    def test_legacy_numeric_addresses_migrate_to_public_hostname(self):
+        bootstrap = SimpleNamespace(
+            application_channel_id=10,
+            review_channel_id=20,
+            mod_role_id=30,
+            member_role_id=40,
+            java_address="104.254.131.178:50548",
+            bedrock_address="104.254.131.178",
+            bedrock_port=50549,
+        )
+
+        settings = MinecraftSettings.from_sources(
+            bootstrap,
+            {
+                "java_address": "104.254.131.178:50548",
+                "bedrock_address": "104.254.131.178",
+            },
+        )
+
+        self.assertEqual(settings.java_address, "play.mysterioussmpx.blog")
+        self.assertEqual(settings.bedrock_address, "play.mysterioussmpx.blog")
+        self.assertEqual(
+            settings.persistent_values()["java_address"],
+            "play.mysterioussmpx.blog",
+        )
+
     def test_log_channels_are_persistent_and_can_be_disabled(self):
         settings = MinecraftSettings().with_updates(
             application_log_channel_id=101,
@@ -1269,8 +1295,12 @@ class MinecraftConfigurationTests(unittest.IsolatedAsyncioTestCase):
             settings.with_updates(review_channel_id=10)
         with self.assertRaisesRegex(ValueError, "roles must be different"):
             settings.with_updates(member_role_id=20)
-        with self.assertRaisesRegex(ValueError, "include a port"):
-            settings.with_updates(java_address="server.example")
+        self.assertEqual(
+            settings.with_updates(java_address="server.example").java_address,
+            "server.example",
+        )
+        with self.assertRaisesRegex(ValueError, "between 1 and 65535"):
+            settings.with_updates(java_address="server.example:70000")
 
     async def test_runtime_settings_publish_only_after_database_commit(self):
         bot = object.__new__(MinecraftAccessBot)

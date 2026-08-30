@@ -5,10 +5,9 @@ encrypted repository secrets:
 
     MC_SERVER_HOST=... MC_SERVER_PORT=... python devblog/server_status.py
 
-**The address is private.** It reaches this script through the environment and
-is never written to the output, so nothing downstream can leak it onto a public
-page — `stats.json` holds counts and a timestamp and nothing else. A test
-asserts that.
+The query endpoint reaches this script through the environment. `stats.json`
+holds counts and a timestamp only; the public player-facing address is owned by
+`config.SERVER_ADDRESS` instead of being copied out of CI configuration.
 
 Speaks the Server List Ping protocol directly over a socket, so there is no
 dependency beyond the standard library and no third-party service sees the

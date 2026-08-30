@@ -36,6 +36,7 @@ from .presentation import (
     rules_embed,
     rules_image_file,
 )
+from .settings import DEFAULT_BEDROCK_ADDRESS, DEFAULT_BEDROCK_PORT, DEFAULT_JAVA_ADDRESS
 
 THEME_COLOUR = discord.Color.from_rgb(255, 153, 0)
 
@@ -117,10 +118,10 @@ def _page(title: str, intro: str, sections: list[tuple[str, str]]) -> discord.Em
 
 
 def _addresses(settings) -> tuple[str, str, str]:
-    """Java address, Bedrock address and Bedrock port, with honest fallbacks."""
-    java = getattr(settings, "java_address", None) or "ask staff for the address"
-    bedrock = getattr(settings, "bedrock_address", None) or "ask staff for the address"
-    port = getattr(settings, "bedrock_port", None) or "19132"
+    """Java address, Bedrock address and Bedrock port, with public defaults."""
+    java = getattr(settings, "java_address", None) or DEFAULT_JAVA_ADDRESS
+    bedrock = getattr(settings, "bedrock_address", None) or DEFAULT_BEDROCK_ADDRESS
+    port = getattr(settings, "bedrock_port", None) or DEFAULT_BEDROCK_PORT
     return java, bedrock, str(port)
 
 

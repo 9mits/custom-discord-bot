@@ -17,12 +17,9 @@ DEFAULT_SITE_URL = "https://mysterioussmpx.blog"
 DEFAULT_CATEGORY = "Mysterious SMP X"
 
 # --- the server ---------------------------------------------------------
-# DELIBERATELY EMPTY. The connect address is private: players receive it from
-# the bot during the application flow, and publishing it here would hand it to
-# anyone who never applied. Setting this turns on a Copy IP button in the
-# community band and prints the address in the footer of every page, so leave
-# it blank unless the server is opened to the public.
-SERVER_ADDRESS = ""
+# The public Java address. This powers the Copy IP button on the home page and
+# is repeated in every page footer. Bedrock uses the same host with port 50549.
+SERVER_ADDRESS = "play.mysterioussmpx.blog"
 
 # --- links ------------------------------------------------------------------
 DISCORD_URL = "https://discord.gg/mgx"
