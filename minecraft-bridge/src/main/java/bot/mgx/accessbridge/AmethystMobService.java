@@ -12,6 +12,7 @@ import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
+import org.bukkit.entity.Arrow;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.IronGolem;
@@ -25,8 +26,10 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.event.entity.EntityCombustEvent;
+import org.bukkit.event.world.EntitiesLoadEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
+import org.bukkit.event.entity.EntityShootBowEvent;
 import org.bukkit.event.entity.EntityPotionEffectEvent;
 import org.bukkit.event.entity.EntityTargetEvent;
 import org.bukkit.event.entity.EntityTransformEvent;
@@ -124,9 +127,10 @@ final class AmethystMobService implements Listener {
     }
 
     /**
-     * Strips the husk's Hunger and the stray's Slowness. These variants stand in for a
-     * plain zombie and skeleton, so they must not hand players a debuff those mobs never
-     * had — the subtype is a texture slot here, not a gameplay change.
+     * Strips the husk's Hunger. These variants stand in for a plain zombie, so they must
+     * not hand players a debuff a zombie never had — the subtype is a texture slot here,
+     * not a gameplay change. Every husk on the server is an amethyst mob, since natural
+     * ones are reclaimed, so Hunger from an attack can only have come from one.
      */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPotionEffect(EntityPotionEffectEvent event) {
@@ -134,14 +138,26 @@ final class AmethystMobService implements Listener {
                 || event.getNewEffect() == null) {
             return;
         }
-        PotionEffectType type = event.getNewEffect().getType();
-        if (type.equals(PotionEffectType.HUNGER)
+        if (event.getNewEffect().getType().equals(PotionEffectType.HUNGER)
                 && event.getCause() == EntityPotionEffectEvent.Cause.ATTACK) {
             event.setCancelled(true);
         }
-        if (type.equals(PotionEffectType.SLOWNESS)
-                && event.getCause() == EntityPotionEffectEvent.Cause.ARROW) {
-            event.setCancelled(true);
+    }
+
+    /**
+     * Re-dresses amethyst mobs as their chunk comes back.
+     *
+     * <p>Without this, appearance is only ever applied at spawn and at server start over
+     * already-loaded entities. A mob saved by an older build keeps whatever it was given
+     * then — which is exactly how name tags survived being turned off: the flag sat in
+     * the entity's NBT out in an unloaded chunk and nothing ever revisited it.
+     */
+    @EventHandler(priority = EventPriority.MONITOR)
+    public void onEntitiesLoad(EntitiesLoadEvent event) {
+        for (Entity entity : event.getEntities()) {
+            if (entity instanceof LivingEntity living && isAmethyst(living)) {
+                dress(living);
+            }
         }
     }
 
@@ -181,6 +197,20 @@ final class AmethystMobService implements Listener {
         if (source instanceof LivingEntity attacker && isAmethyst(attacker)) {
             event.setCancelled(true);
         }
+    }
+
+    /**
+     * Takes the Slowness off an amethyst stray's arrows at the bow. Cancelling the effect
+     * where it lands would also have eaten a player's own tipped arrows, which share the
+     * ARROW cause.
+     */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
+    public void onShootBow(EntityShootBowEvent event) {
+        if (!isAmethyst(event.getEntity()) || !(event.getProjectile() instanceof Arrow arrow)) {
+            return;
+        }
+        arrow.clearCustomEffects();
+        arrow.setBasePotionType(null);
     }
 
     @EventHandler(priority = EventPriority.HIGHEST)

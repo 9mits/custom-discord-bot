@@ -98,6 +98,21 @@ final class AmethystMobAssetsTest {
 
         assertTrue(source.contains("setCustomNameVisible(false)"));
         assertFalse(source.contains("setCustomNameVisible(true)"));
+        // Appearance applied only at spawn leaves mobs saved by an older build wearing
+        // whatever it gave them, which is how the tag survived being turned off.
+        assertTrue(source.contains("public void onEntitiesLoad(EntitiesLoadEvent event)"));
+    }
+
+    /**
+     * A player's own tipped arrows share the ARROW cause with a stray's, so the stray's
+     * Slowness has to come off at the bow rather than off whoever it lands on.
+     */
+    @Test
+    void strippingTheStraysSlownessDoesNotEatPlayerTippedArrows() throws Exception {
+        String source = source();
+
+        assertTrue(source.contains("public void onShootBow(EntityShootBowEvent event)"));
+        assertFalse(source.contains("EntityPotionEffectEvent.Cause.ARROW"));
     }
 
     /**
