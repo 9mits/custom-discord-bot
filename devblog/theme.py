@@ -958,6 +958,104 @@ img.live-minecraft-icon {
 .live-secondary { height: 2.75rem; padding: 0 1rem; background: var(--surface-raised); color: var(--ink); border: 1px solid var(--line); }
 .live-category-rail { margin-bottom: 1.1rem; }
 .live-settings-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .7rem; }
+
+/* ---- Server Statistics ------------------------------------------------- */
+.stat-select, .stat-range-label { font-size: .82rem; color: var(--grey); }
+.stat-select {
+  padding: .4rem .6rem; border: 1px solid var(--line); border-radius: .6rem;
+  background: var(--surface); color: var(--ink);
+}
+.stat-tile-grid {
+  display: grid; gap: .7rem; margin-top: .25rem;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+}
+.stat-tile {
+  display: flex; flex-direction: column; gap: .15rem; padding: .9rem 1rem;
+  border: 1px solid var(--line); border-radius: .9rem; background: var(--surface-raised);
+}
+.stat-tile-name {
+  font-size: .68rem; text-transform: uppercase; letter-spacing: .09em; color: var(--grey);
+}
+.stat-tile-value {
+  font-size: 1.65rem; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums;
+}
+.stat-tile-note { font-size: .72rem; color: var(--grey); }
+
+.stat-note { margin: 0 0 1rem !important; font-size: .78rem; color: var(--grey); }
+.stat-toggle-rail { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: 1.1rem; }
+.stat-toggle {
+  padding: .35rem .7rem; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--surface); color: var(--grey); font-size: .78rem; cursor: pointer;
+}
+.stat-toggle.on {
+  background: var(--brand-orange); border-color: var(--brand-orange); color: #fff;
+}
+.stat-chart-grid {
+  display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+}
+.stat-chart-card {
+  margin: 0; padding: 1rem; border: 1px solid var(--line);
+  border-radius: .9rem; background: var(--surface-raised);
+}
+.stat-chart-head {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 1rem; margin-bottom: .6rem;
+}
+.stat-chart-name { font-size: .8rem; color: var(--grey); }
+.stat-chart-value {
+  font-size: 1.15rem; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums;
+}
+.stat-delta { font-size: .75rem; font-weight: 600; }
+.stat-delta.up { color: var(--green); }
+.stat-delta.down { color: var(--brand-red); }
+.stat-delta.flat { color: var(--grey); }
+.stat-chart { width: 100%; height: auto; display: block; overflow: visible; }
+.stat-grid { stroke: var(--line); stroke-width: 1; }
+.stat-axis { fill: var(--grey); font-size: 9px; }
+.stat-line { fill: none; stroke: var(--brand-orange); stroke-width: 2; stroke-linejoin: round; }
+.stat-area { fill: color-mix(in srgb, var(--brand-orange) 14%, transparent); stroke: none; }
+.stat-endpoint { fill: var(--brand-orange); }
+.stat-empty { color: var(--grey); font-size: .82rem; margin: .5rem 0 !important; }
+
+.stat-heatmap-wrap, .stat-table-wrap { overflow-x: auto; }
+.stat-heatmap { border-collapse: collapse; width: 100%; }
+.stat-heatmap th {
+  font-size: .65rem; color: var(--grey); font-weight: 500; padding: .15rem .2rem;
+  text-align: center;
+}
+.stat-heatmap td {
+  height: 1.15rem; border-radius: .2rem; border: 1px solid var(--canvas);
+  background: color-mix(in srgb, var(--brand-orange) calc(var(--heat) * 100%), var(--surface-raised));
+}
+.stat-table { border-collapse: collapse; width: 100%; font-size: .84rem; }
+.stat-table th, .stat-table td {
+  padding: .45rem .6rem; border-bottom: 1px solid var(--line); text-align: left;
+}
+.stat-table th { font-size: .68rem; text-transform: uppercase; letter-spacing: .07em; color: var(--grey); }
+.stat-table .num, .stat-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.stat-player { display: flex; align-items: center; gap: .45rem; }
+.stat-player img, .stat-board img { border-radius: .2rem; image-rendering: pixelated; }
+.stat-board-grid {
+  display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+}
+.stat-board {
+  padding: .9rem 1rem; border: 1px solid var(--line);
+  border-radius: .9rem; background: var(--surface-raised);
+}
+.stat-board h3 {
+  margin: 0 0 .6rem !important; font-size: .72rem; text-transform: uppercase;
+  letter-spacing: .08em; color: var(--grey);
+}
+.stat-board ol { margin: 0 !important; padding-left: 1.1rem; }
+.stat-board li {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: .6rem; font-size: .84rem; padding: .12rem 0;
+}
+.stat-board li span { display: flex; align-items: center; gap: .4rem; }
+.stat-board li b { font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) {
+  .stat-chart-grid { grid-template-columns: 1fr; }
+}
 .live-setting-card {
   display: flex; flex-direction: column; min-height: 13rem; padding: 1rem;
   border: 1px solid var(--line); border-radius: .9rem; background: var(--surface-raised);
@@ -1793,7 +1891,9 @@ def render_page(page, body_html: str, prefix: str, site_url: str,
                 nav: Sequence[Dict[str, str]] = ()) -> str:
     """A guide, rules or how-to page: left-aligned prose, no dateline."""
     tagline = '<p class="page-tagline">%s</p>' % _esc(page.tagline) if page.tagline else ""
-    dashboard = getattr(page, "layout", "document") == "dashboard"
+    # The statistics page is a dashboard that also loads its own charting script.
+    statistics = getattr(page, "layout", "document") == "statistics"
+    dashboard = getattr(page, "layout", "document") == "dashboard" or statistics
     doc_class = "doc live-doc" if dashboard else "doc"
     body_class = "doc-body live-body" if dashboard else "doc-body"
     body = (
@@ -1806,6 +1906,10 @@ def render_page(page, body_html: str, prefix: str, site_url: str,
         '<script src="%sassets/server-dashboard.js" defer></script>' % prefix
         if dashboard else ""
     )
+    if statistics:
+        scripts += (
+            '<script src="%sassets/server-statistics.js" defer></script>' % prefix
+        )
     return _page(
         "%s | %s" % (page.title, SITE_NAME),
         page.tagline or "%s — %s" % (SITE_NAME, page.title),

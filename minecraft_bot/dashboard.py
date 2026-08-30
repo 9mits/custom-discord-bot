@@ -53,6 +53,8 @@ class DashboardServer:
         self._app.router.add_get("/api/settings", self.settings)
         self._app.router.add_patch("/api/settings/{key:.+}", self.change_setting)
         self._app.router.add_get("/api/logs", self.logs)
+        self._app.router.add_get("/api/stats", self.stats_overview)
+        self._app.router.add_get("/api/stats/series", self.stats_series)
         # The dashboard is part of the existing dev-blog, not a second site.
         # API/auth routes are registered first so this static fallback cannot
         # shadow them.
@@ -252,6 +254,68 @@ class DashboardServer:
                 row["discord_user_id"] = discord_id
                 row["discord_username"] = member.name if member is not None else None
         return web.json_response(snapshot, headers={"Cache-Control": "no-store"})
+
+    async def stats_overview(self, request: web.Request) -> web.Response:
+        """
+        Every headline figure in one call.
+
+        Owner-gated in full. The public leaderboards endpoint already publishes standings;
+        this adds activity, AFK and the sampled history, which are operational numbers.
+        """
+        await self._require_owner(request)
+        try:
+            days = max(1, min(365, int(request.query.get("days", "30"))))
+        except (TypeError, ValueError):
+            days = 30
+
+        activity = await self.bot.data.player_activity_metrics(days=days)
+        access = await self.bot.data.access_status_counts()
+
+        afk: dict[str, Any] = {}
+        reader = getattr(self.bot.data, "afk_metrics", None)
+        if reader is not None:
+            afk = await reader(days=days)
+            uuids = {str(p["minecraft_uuid"]) for p in afk.get("players", [])}
+            links = await self.bot.data.owners_for_uuids(uuids)
+            for player in afk.get("players", []):
+                uuid = str(player["minecraft_uuid"])
+                player["head_url"] = head_url(uuid, player.get("username", ""))
+                player["discord_user_id"] = links.get(uuid)
+
+        metrics: list[str] = []
+        names = getattr(self.bot.data, "stat_metrics", None)
+        if names is not None:
+            metrics = await names()
+
+        return web.json_response(
+            {
+                "days": days,
+                "activity": activity,
+                "access": {str(k): int(v) for k, v in access.items()},
+                "afk": afk,
+                "metrics": metrics,
+                "leaderboards": json.loads(json.dumps(self.bot.bridge.latest_leaderboard or {})),
+                "sampled_every_seconds": 900,
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    async def stats_series(self, request: web.Request) -> web.Response:
+        """One or more sampled metrics as time series, for the charts."""
+        await self._require_owner(request)
+        try:
+            days = max(1, min(365, int(request.query.get("days", "30"))))
+        except (TypeError, ValueError):
+            days = 30
+        wanted = [m for m in request.query.get("metric", "").split(",") if m.strip()]
+        reader = getattr(self.bot.data, "stat_series", None)
+        if reader is None:
+            return web.json_response({"series": {}}, headers={"Cache-Control": "no-store"})
+        # Capped so a wide selection cannot turn one request into hundreds of queries.
+        series = {name: await reader(name, days=days) for name in wanted[:24]}
+        return web.json_response(
+            {"days": days, "series": series}, headers={"Cache-Control": "no-store"}
+        )
 
     async def settings(self, request: web.Request) -> web.Response:
         await self._require_owner(request)

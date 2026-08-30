@@ -178,3 +178,125 @@ class MinecraftDashboardAssetTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MinecraftStatisticsTests(unittest.IsolatedAsyncioTestCase):
+    """The statistics surface: owner-gated API, and a page that cannot fake a chart."""
+
+    def _dashboard(self, *, afk=None, series=None, metrics=None):
+        config = SimpleNamespace(
+            bridge_secret=b"x" * 32,
+            dashboard_enabled=True,
+            dashboard_host="127.0.0.1",
+            dashboard_port=8090,
+            dashboard_public_url="http://127.0.0.1:8090",
+            dashboard_client_secret="secret",
+            guild_id=10,
+        )
+        data = SimpleNamespace(
+            player_activity_metrics=AsyncMock(return_value={"current": 2, "peak": 5}),
+            access_status_counts=AsyncMock(return_value={"VERIFIED": 7}),
+            afk_metrics=AsyncMock(return_value=afk if afk is not None else {"players": []}),
+            owners_for_uuids=AsyncMock(return_value={}),
+            stat_metrics=AsyncMock(return_value=metrics or []),
+            stat_series=AsyncMock(return_value=series or []),
+        )
+        bot = SimpleNamespace(
+            config=config,
+            data=data,
+            bridge=SimpleNamespace(latest_leaderboard={}),
+            get_guild=lambda _id: None,
+        )
+        return DashboardServer(bot)
+
+    async def _client(self, dashboard):
+        client = TestClient(TestServer(dashboard._app))
+        await client.start_server()
+        self.addAsyncCleanup(client.close)
+        return client
+
+    async def test_statistics_require_the_owner_role(self):
+        client = await self._client(self._dashboard())
+        for path in ("/api/stats", "/api/stats/series?metric=players.online"):
+            response = await client.get(path)
+            self.assertEqual(response.status, 401, path)
+
+    async def test_the_overview_carries_activity_access_and_afk(self):
+        dashboard = self._dashboard(
+            afk={
+                "players": [{
+                    "minecraft_uuid": "u", "username": "Someone",
+                    "edition": "JAVA", "afk_seconds": 3600, "sessions": 2,
+                }],
+                "total_seconds": 3600,
+                "by_edition": {"JAVA": 3600, "BEDROCK": 0},
+                "peak_afk": 1,
+            },
+            metrics=["players.online"],
+        )
+        with patch.object(dashboard, "_require_owner", AsyncMock(return_value=({}, None))):
+            client = await self._client(dashboard)
+            body = await (await client.get("/api/stats?days=7")).json()
+
+        self.assertEqual(body["days"], 7)
+        self.assertEqual(body["activity"]["peak"], 5)
+        self.assertEqual(body["access"]["VERIFIED"], 7)
+        self.assertEqual(body["afk"]["by_edition"]["JAVA"], 3600)
+        self.assertEqual(body["metrics"], ["players.online"])
+        # A head URL is added so the table can draw a face without a second round trip.
+        self.assertIn("head_url", body["afk"]["players"][0])
+
+    async def test_the_series_endpoint_is_capped_so_one_request_is_not_hundreds(self):
+        dashboard = self._dashboard(series=[{"at": 1, "value": 2.0}])
+        with patch.object(dashboard, "_require_owner", AsyncMock(return_value=({}, None))):
+            client = await self._client(dashboard)
+            wanted = ",".join("metric%d" % i for i in range(60))
+            body = await (await client.get("/api/stats/series?metric=" + wanted)).json()
+        self.assertEqual(len(body["series"]), 24)
+
+    async def test_an_out_of_range_window_falls_back_rather_than_erroring(self):
+        dashboard = self._dashboard()
+        with patch.object(dashboard, "_require_owner", AsyncMock(return_value=({}, None))):
+            client = await self._client(dashboard)
+            for query in ("days=abc", "days=-5", "days=99999"):
+                response = await client.get("/api/stats?" + query)
+                self.assertEqual(response.status, 200, query)
+                self.assertTrue(1 <= (await response.json())["days"] <= 365)
+
+
+class MinecraftStatisticsAssetTests(unittest.TestCase):
+    def _files(self):
+        root = Path(__file__).parents[1] / "devblog"
+        return (
+            (root / "pages" / "statistics.md").read_text(),
+            (root / "static" / "server-statistics.js").read_text(),
+        )
+
+    def test_the_page_declares_its_own_layout_and_stays_out_of_public_nav(self):
+        page, _ = self._files()
+        self.assertIn("layout: statistics", page)
+        self.assertIn("nav_hidden: true", page)
+        self.assertIn("Owner access only", page)
+
+    def test_charts_are_hand_built_rather_than_a_blocked_cdn(self):
+        _, script = self._files()
+        self.assertIn("http://www.w3.org/2000/svg", script)
+        for banned in ("cdn.", "chart.js", "d3.", "unpkg", "jsdelivr", "<script"):
+            self.assertNotIn(banned, script.lower())
+
+    def test_a_metric_with_no_history_says_so_rather_than_drawing_a_flat_line(self):
+        _, script = self._files()
+        # "No data yet" and "the value was zero" are different facts.
+        self.assertIn("No samples in this window yet", script)
+        self.assertIn("A line needs two", script)
+        self.assertIn("points.length < 2", script)
+
+    def test_every_chart_is_labelled_with_a_scale(self):
+        _, script = self._files()
+        self.assertIn("stat-grid", script)
+        self.assertIn("stat-axis", script)
+        self.assertIn("toLocaleDateString", script)
+
+    def test_owner_only_values_are_never_rendered_by_this_page(self):
+        page, script = self._files()
+        self.assertNotIn("hidden-amethyst-one-in", page + script)
