@@ -224,16 +224,24 @@ final class AmethystBlockEventService implements Listener {
                     "Amethyst Block tests are available only on the local test server."
             );
         }
+        return spawnNear(player);
+    }
+
+    /** Calls a Huge Amethyst Block in near an administrator on any server. */
+    Snapshot spawnNear(Player player) {
+        if (stopped) {
+            throw new IllegalArgumentException("Huge Amethyst Blocks are not running.");
+        }
         if (active != null || spawnedCallback != null || otherEventActive.getAsBoolean()) {
             throw new IllegalArgumentException("An Amethyst world event is already active or spawning.");
         }
         if (player.getWorld().getEnvironment() != World.Environment.NORMAL
                 || VerificationLobbyService.isLobbyWorld(player.getWorld())) {
-            throw new IllegalArgumentException("Run this test in the Overworld outside the verification lobby.");
+            throw new IllegalArgumentException("Run this in the Overworld outside the verification lobby.");
         }
         Location anchor = findTestAnchor(player);
         if (anchor == null) {
-            throw new IllegalArgumentException("No flat, empty test site was found nearby.");
+            throw new IllegalArgumentException("No flat, empty site was found nearby.");
         }
         create(anchor);
         return snapshot();

@@ -179,6 +179,19 @@ class GeyserRefreshTests(unittest.TestCase):
         self.assertEqual(installed["bytes"], len(payload))
         self.assertEqual(installed["sha256"], digest)
 
+    def test_refresh_refuses_a_build_without_bedrock_26_45_support(self):
+        metadata = {
+            "version": "2.11.1",
+            "build": testserver.MINIMUM_GEYSER_BUILD - 1,
+            "downloads": {"spigot": {"sha256": "0" * 64}},
+        }
+        with mock.patch.object(testserver, "read_json", return_value=metadata), mock.patch.object(
+            testserver, "fetch_verified"
+        ) as fetch:
+            with self.assertRaisesRegex(RuntimeError, "Bedrock 26.45"):
+                testserver.refresh_geyser()
+        fetch.assert_not_called()
+
 
 class TestServerRestartTests(unittest.TestCase):
     def test_restart_deploys_stops_running_paper_and_starts(self):

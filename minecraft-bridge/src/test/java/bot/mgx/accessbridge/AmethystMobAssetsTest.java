@@ -107,16 +107,17 @@ final class AmethystMobAssetsTest {
         assertTrue(source.contains("public void onEntitiesLoad(EntitiesLoadEvent event)"));
     }
 
-    /**
-     * A Mythic drop was lost 41 seconds after landing because the claim window was short
-     * and the presence ring tight. Losing the drop has to mean genuinely abandoning it.
-     */
     @Test
-    void theGuardsOnlyClaimAGenuinelyAbandonedDrop() {
-        assertTrue(AirdropGuardService.CLAIM_SECONDS >= 120,
-                "the claim window must not punish a player who is still getting ready");
-        assertTrue(AirdropGuardService.ENGAGE_RADIUS >= 64d,
-                "stepping back from the fight is not abandoning the drop");
+    void theVisibleAirdropCountdownIsTheOnlyExpiryClock() throws Exception {
+        String guardSource = Files.readString(Path.of(
+                "src/main/java/bot/mgx/accessbridge/AirdropGuardService.java"
+        ));
+        String dropSource = Files.readString(Path.of(
+                "src/main/java/bot/mgx/accessbridge/AirdropService.java"
+        ));
+        assertFalse(guardSource.contains("CLAIM_SECONDS"));
+        assertFalse(guardSource.contains("claimedCallback"));
+        assertFalse(dropSource.contains("The guards claimed"));
     }
 
     /**

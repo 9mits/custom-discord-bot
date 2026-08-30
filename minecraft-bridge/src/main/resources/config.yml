@@ -36,7 +36,7 @@ afk-invincible: true
 # be waited out from inside an AFK shield.
 afk-combat-tag-seconds: 15
 
-# How far /mgxadmin abuse reaches when the operator does not name a radius.
+# How far /mgxadmin event admin reaches when the operator does not name a radius.
 # Events run at spawn, so this deliberately does not cover the whole server:
 # somebody at a farm or an AFK chamber should never learn one happened. AFK
 # players inside the radius are skipped too, and so is anybody in a vehicle
@@ -69,16 +69,32 @@ leaderboard:
 # randomized cooldown starts only after an event ends, so events never overlap or
 # spawn immediately after one another. Actual reward chances live only in the plugin.
 amethyst-events:
-  minimum-delay-minutes: 30
-  maximum-delay-minutes: 90
+  # Live-editable through /mgxadmin event schedule set <minimum> <maximum>.
+  # Each new event starts 15-30 minutes after the previous event ends.
+  minimum-delay-minutes: 15
+  maximum-delay-minutes: 30
 
 airdrop:
   enabled: true
   lifetime-minutes: 30
-  minimum-radius: 500
   location-attempts: 24
+  # Scheduled drops use rarity-specific rings centred on 0,0 in their world, not
+  # random points across the whole world border. Every bound is a live variable.
+  rarity-radius:
+    common:
+      minimum: 1000
+      maximum: 2000
+    rare:
+      minimum: 1000
+      maximum: 2000
+    legendary:
+      minimum: 5000
+      maximum: 10000
+    mythic:
+      minimum: 10000
+      maximum: 25000
   # The shared scheduler still calls one Airdrop at a time. This is the ceiling on
-  # how many may stand at once, which only /mgxadmin airdrop can reach: each drop
+  # how many may stand at once, which only manual admin spawning can reach: each drop
   # holds chunk tickets and a live garrison, so the number is a server-load figure
   # rather than a gameplay one.
   maximum-active: 5

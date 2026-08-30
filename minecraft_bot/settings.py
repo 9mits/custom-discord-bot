@@ -223,7 +223,7 @@ class MinecraftSettings:
             candidate.application_channel_id
             and candidate.application_channel_id == candidate.review_channel_id
         ):
-            raise ValueError("Application and review channels must be different")
+            raise ValueError("Join and verification channels must be different")
         if candidate.mod_role_id and candidate.mod_role_id == candidate.member_role_id:
             raise ValueError("Moderator and approved-member roles must be different")
         return candidate

@@ -57,6 +57,20 @@ final class GameVariableStoreTest {
     }
 
     @Test
+    void airdropDistanceBandsAreLiveAndCannotInvert() throws Exception {
+        GameVariableStore variables = store();
+        assertEquals(1_000, variables.integer("airdrop.rarity-radius.common.minimum"));
+        assertEquals(2_000, variables.integer("airdrop.rarity-radius.common.maximum"));
+        assertEquals(10_000, variables.integer("airdrop.rarity-radius.mythic.minimum"));
+        assertEquals(25_000, variables.integer("airdrop.rarity-radius.mythic.maximum"));
+
+        variables.set("airdrop.rarity-radius.common.minimum", "1,500");
+        assertEquals(1_500, variables.integer("airdrop.rarity-radius.common.minimum"));
+        assertThrows(IllegalArgumentException.class,
+                () -> variables.set("airdrop.rarity-radius.common.maximum", "1499"));
+    }
+
+    @Test
     void invalidRangesCannotReachTheLiveTable() throws Exception {
         GameVariableStore variables = store();
         assertThrows(IllegalArgumentException.class,

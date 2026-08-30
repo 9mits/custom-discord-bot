@@ -51,6 +51,14 @@ jobs:
           MC_SERVER_PORT: ${{ secrets.MC_SERVER_PORT }}
         run: python3 devblog/server_status.py
 
+      - name: Fetch live leaderboard standings
+        if: github.event_name != 'pull_request'
+        # The public site cannot call the HTTP dashboard from an HTTPS browser.
+        # CI copies only the allowlisted public rows into a same-origin asset.
+        env:
+          MGX_PANEL_URL: ${{ secrets.MGX_PANEL_URL }}
+        run: python3 devblog/leaderboard_snapshot.py
+
       - name: Build site
         env:
           # Set the repo variable DEVBLOG_SITE_URL once a custom domain is live.

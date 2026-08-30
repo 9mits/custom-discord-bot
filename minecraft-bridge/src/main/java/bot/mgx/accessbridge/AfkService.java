@@ -69,6 +69,10 @@ final class AfkService implements Listener, CommandExecutor {
         // A shutdown must not swallow the stretch a player is in the middle of, or a
         // server that restarts nightly records almost no AFK at all.
         for (UUID playerId : Set.copyOf(afk)) {
+            Player player = plugin.getServer().getPlayer(playerId);
+            if (player != null) {
+                player.setCollidable(true);
+            }
             closeSession(playerId, null);
         }
         afk.clear();
@@ -147,12 +151,14 @@ final class AfkService implements Listener, CommandExecutor {
 
     @EventHandler
     public void onJoin(PlayerJoinEvent event) {
+        event.getPlayer().setCollidable(true);
         lastActivity.put(event.getPlayer().getUniqueId(), System.currentTimeMillis());
     }
 
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         UUID id = event.getPlayer().getUniqueId();
+        event.getPlayer().setCollidable(true);
         // Closed before the player is forgotten, so their stretch still reaches Discord.
         closeSession(id, event.getPlayer());
         lastActivity.remove(id);
@@ -299,6 +305,7 @@ final class AfkService implements Listener, CommandExecutor {
         lastActivity.put(player.getUniqueId(), System.currentTimeMillis());
         if (afk.add(player.getUniqueId())) {
             afkSince.put(player.getUniqueId(), System.currentTimeMillis());
+            player.setCollidable(false);
             player.sendActionBar(Component.text("You are now AFK.", NamedTextColor.GRAY));
             report(player, true, 0L);
             refreshTab();
@@ -308,6 +315,7 @@ final class AfkService implements Listener, CommandExecutor {
     private void markActive(Player player) {
         lastActivity.put(player.getUniqueId(), System.currentTimeMillis());
         if (afk.remove(player.getUniqueId())) {
+            player.setCollidable(true);
             closeSession(player.getUniqueId(), player);
             player.sendActionBar(Component.text("Welcome back.", NamedTextColor.GREEN));
             refreshTab();

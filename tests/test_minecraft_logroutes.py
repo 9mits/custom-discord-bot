@@ -40,6 +40,11 @@ class TopicRegistryTests(unittest.TestCase):
         for topic in logroutes.TOPICS:
             self.assertLessEqual(len(topic.description), 100, topic.key)
 
+    def test_legacy_application_route_is_presented_as_access(self):
+        topic = logroutes.BY_KEY["application"]
+        self.assertEqual(topic.label, "Access")
+        self.assertNotIn("application", topic.description.casefold())
+
     def test_the_streams_the_bot_already_had_still_name_their_old_setting(self):
         for key, fallback in (
             ("important", "critical_log_channel_id"),

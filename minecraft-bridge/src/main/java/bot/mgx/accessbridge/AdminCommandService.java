@@ -42,9 +42,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     static final String PERMISSION = "mgxaccessbridge.admin";
     private static final List<String> SUBCOMMANDS = List.of(
             "startserver", "teststart", "pvp", "give", "ranks", "eco", "bounty", "hologram",
-            "airdrop",
             "reset", "testverify", "testcrate", "testairdrop", "testamethystblock", "devblog", "update", "serials",
-            "cosmetics", "clanbattle", "abuse", "event", "variables", "help"
+            "cosmetics", "clanbattle", "event", "variables", "help"
     );
     private static final List<String> CRATE_REVEAL_TIERS = List.of(
             "legendary", "mythic", "exotic", "secret"
@@ -190,7 +189,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                     success(sender, summary + ".");
                     report(sender, "admin_event", summary).record();
                 }
-                case "event", "multiplier" -> serverEvent(sender, args);
+                case "event", "events" -> event(sender, args);
+                case "multiplier" -> serverEvent(sender, args);
                 default -> sendHelp(sender);
             }
         } catch (IllegalArgumentException exception) {
@@ -284,7 +284,248 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     // Screenshot mode, for photographing an update
     // ------------------------------------------------------------------
 
-    /** {@code /mgxadmin event <type> <on|off> [seconds]} */
+    /** One organized home for multiplier, Airdrop, Huge Block and admin events. */
+    private void event(CommandSender sender, String[] args) {
+        if (args.length < 2 || args[1].equalsIgnoreCase("list")
+                || args[1].equalsIgnoreCase("help")) {
+            sendEventHelp(sender);
+            return;
+        }
+        String category = args[1].toLowerCase(Locale.ROOT);
+        switch (category) {
+            case "multiplier", "boost" -> serverEvent(sender, shifted(args, "event", 2));
+            case "airdrop", "drop" -> eventAirdrop(sender, args);
+            case "amethyst-block", "amethystblock", "block", "huge-block" ->
+                    eventAmethystBlock(sender, args);
+            case "schedule", "frequency" -> eventSchedule(sender, args);
+            case "admin", "chaos" -> {
+                String summary = adminEvents.run(sender, shifted(args, "abuse", 2));
+                success(sender, summary + ".");
+                report(sender, "admin_event", summary).record();
+            }
+            default -> {
+                // Backward compatible: /mgxadmin event key on 3600 still works.
+                if (ServerEventType.resolve(args[1]).isPresent()) {
+                    serverEvent(sender, args);
+                } else {
+                    throw new IllegalArgumentException(
+                            "Use /mgxadmin event list for every event control."
+                    );
+                }
+            }
+        }
+    }
+
+    private void eventAirdrop(CommandSender sender, String[] args) {
+        String operation = args.length < 3 ? "status" : args[2].toLowerCase(Locale.ROOT);
+        switch (operation) {
+            case "start", "spawn" -> {
+                if (!(sender instanceof Player player)) {
+                    throw new IllegalArgumentException("Run the Airdrop start command in game.");
+                }
+                AirdropCatalog.Rarity rarity = args.length > 3 ? airdropRarity(args[3]) : null;
+                AirdropService.Snapshot drop = airdrops.spawnNear(player, rarity, List.of());
+                success(sender, "Started " + drop.describe() + ".");
+                report(sender, "airdrop_spawn", "Started an Amethyst Airdrop")
+                        .detail("rarity", drop.rarity().name().toLowerCase(Locale.ROOT))
+                        .detail("location", drop.world() + " " + drop.x() + " " + drop.y()
+                                + " " + drop.z()).record();
+            }
+            case "status" -> {
+                List<AirdropService.Snapshot> standing = airdrops.snapshots();
+                heading(sender, "Amethyst Airdrops — " + standing.size() + "/"
+                        + airdrops.maximumActive() + " active");
+                if (standing.isEmpty()) {
+                    info(sender, "No Airdrops are active.");
+                } else {
+                    standing.forEach(drop -> info(sender, drop.describe()));
+                }
+                showAirdropDistances(sender);
+            }
+            case "end", "stop", "remove" -> {
+                int removed = airdrops.removeTest();
+                success(sender, "Ended " + removed + " active Airdrop(s) without rewards.");
+            }
+            case "expire" -> {
+                int expired = airdrops.expireTest();
+                success(sender, "Expired " + expired + " active Airdrop(s).");
+            }
+            case "distance", "range" -> {
+                if (args.length < 6) {
+                    showAirdropDistances(sender);
+                    info(sender, "Usage: /mgxadmin event airdrop distance <rarity> <minimum> <maximum>");
+                    return;
+                }
+                AirdropCatalog.Rarity rarity = airdropRarity(args[3]);
+                int minimum = positiveWhole(args[4], "minimum distance");
+                int maximum = positiveWhole(args[5], "maximum distance");
+                if (minimum > maximum) {
+                    throw new IllegalArgumentException("Minimum distance cannot exceed maximum distance.");
+                }
+                setAirdropDistance(rarity, minimum, maximum);
+                success(sender, rarity.displayName() + " Airdrops now land " + minimum + "-"
+                        + maximum + " blocks from spawn. No restart is required.");
+            }
+            default -> throw new IllegalArgumentException(
+                    "Use /mgxadmin event airdrop <start|status|end|expire|distance>."
+            );
+        }
+    }
+
+    private void eventAmethystBlock(CommandSender sender, String[] args) {
+        String operation = args.length < 3 ? "status" : args[2].toLowerCase(Locale.ROOT);
+        switch (operation) {
+            case "start", "spawn" -> {
+                if (!(sender instanceof Player player)) {
+                    throw new IllegalArgumentException("Run the Huge Amethyst Block start command in game.");
+                }
+                AmethystBlockEventService.Snapshot block = amethystBlocks.spawnNear(player);
+                success(sender, "Started " + block.describe() + ".");
+            }
+            case "status" -> {
+                AmethystBlockEventService.Snapshot block = amethystBlocks.snapshot();
+                info(sender, block == null ? "No Huge Amethyst Block is active." : block.describe());
+            }
+            case "damage" -> {
+                double damage;
+                try {
+                    damage = args.length > 3 ? Double.parseDouble(args[3]) : 1_000d;
+                } catch (NumberFormatException exception) {
+                    throw new IllegalArgumentException("Damage must be a positive number.");
+                }
+                if (!Double.isFinite(damage) || damage <= 0d) {
+                    throw new IllegalArgumentException("Damage must be a positive number.");
+                }
+                if (!amethystBlocks.damageTest(damage)) {
+                    throw new IllegalArgumentException("There is no active block to damage.");
+                }
+                success(sender, "Dealt " + Math.round(damage) + " damage to the active block.");
+            }
+            case "finish" -> {
+                if (!amethystBlocks.damageTest(AmethystBlockRewards.MAX_HEALTH)) {
+                    throw new IllegalArgumentException("There is no active block to finish.");
+                }
+                success(sender, "Finished the active block and delivered its rewards.");
+            }
+            case "end", "stop", "remove" -> {
+                if (!amethystBlocks.removeTest()) {
+                    throw new IllegalArgumentException("There is no active block to end.");
+                }
+                success(sender, "Ended the active block without rewards.");
+            }
+            case "expire" -> {
+                if (!amethystBlocks.expireTest()) {
+                    throw new IllegalArgumentException("There is no active block to expire.");
+                }
+                success(sender, "Expired the active block.");
+            }
+            default -> throw new IllegalArgumentException(
+                    "Use /mgxadmin event amethyst-block <start|status|damage|finish|end|expire>."
+            );
+        }
+    }
+
+    private void eventSchedule(CommandSender sender, String[] args) {
+        String operation = args.length < 3 ? "status" : args[2].toLowerCase(Locale.ROOT);
+        if (operation.equals("status")) {
+            info(sender, "Amethyst events wait "
+                    + variables.integer("amethyst-events.minimum-delay-minutes") + "-"
+                    + variables.integer("amethyst-events.maximum-delay-minutes")
+                    + " minutes after an event ends. Airdrops and Huge Blocks alternate.");
+            return;
+        }
+        if (operation.equals("reset")) {
+            setPair("amethyst-events.minimum-delay-minutes",
+                    "amethyst-events.maximum-delay-minutes", "15", "30");
+            success(sender, "Reset the event cooldown to 15-30 minutes. No restart is required.");
+            return;
+        }
+        if (!operation.equals("set") || args.length < 5) {
+            throw new IllegalArgumentException(
+                    "Use /mgxadmin event schedule <status|set <minimum> <maximum>|reset>."
+            );
+        }
+        int minimum = positiveWhole(args[3], "minimum delay");
+        int maximum = positiveWhole(args[4], "maximum delay");
+        if (minimum > maximum || maximum > 1_440) {
+            throw new IllegalArgumentException("Use a 1-1,440 minute range with minimum <= maximum.");
+        }
+        setPair("amethyst-events.minimum-delay-minutes",
+                "amethyst-events.maximum-delay-minutes", String.valueOf(minimum),
+                String.valueOf(maximum));
+        success(sender, "Amethyst events now wait " + minimum + "-" + maximum
+                + " minutes. No restart is required.");
+    }
+
+    private void showAirdropDistances(CommandSender sender) {
+        for (AirdropCatalog.Rarity rarity : AirdropCatalog.Rarity.values()) {
+            String base = "airdrop.rarity-radius."
+                    + rarity.name().toLowerCase(Locale.ROOT) + ".";
+            info(sender, rarity.displayName() + ": " + variables.integer(base + "minimum")
+                    + "-" + variables.integer(base + "maximum") + " blocks from spawn");
+        }
+    }
+
+    private void setAirdropDistance(AirdropCatalog.Rarity rarity, int minimum, int maximum) {
+        String base = "airdrop.rarity-radius."
+                + rarity.name().toLowerCase(Locale.ROOT) + ".";
+        setPair(base + "minimum", base + "maximum",
+                String.valueOf(minimum), String.valueOf(maximum));
+    }
+
+    /** Changes a validated minimum/maximum pair without a transient inverted range. */
+    private void setPair(String minimumKey, String maximumKey, String minimum, String maximum) {
+        long newMinimum = Long.parseLong(minimum);
+        if (newMinimum > variables.integer(maximumKey)) {
+            variables.set(maximumKey, maximum);
+            variables.set(minimumKey, minimum);
+        } else {
+            variables.set(minimumKey, minimum);
+            variables.set(maximumKey, maximum);
+        }
+    }
+
+    private static int positiveWhole(String raw, String label) {
+        try {
+            int parsed = Integer.parseInt(raw.replace(",", ""));
+            if (parsed < 1) throw new NumberFormatException();
+            return parsed;
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException(label + " must be a positive whole number.");
+        }
+    }
+
+    private static String[] shifted(String[] args, String root, int from) {
+        String[] shifted = new String[Math.max(1, args.length - from + 1)];
+        shifted[0] = root;
+        if (args.length > from) {
+            System.arraycopy(args, from, shifted, 1, args.length - from);
+        }
+        return shifted;
+    }
+
+    private void sendEventHelp(CommandSender sender) {
+        heading(sender, "Event controls");
+        info(sender, "Scheduled Amethyst events: "
+                + variables.integer("amethyst-events.minimum-delay-minutes") + "-"
+                + variables.integer("amethyst-events.maximum-delay-minutes")
+                + " minutes after the previous event ends");
+        info(sender, "Active Airdrops: " + airdrops.snapshots().size() + "/"
+                + airdrops.maximumActive());
+        AmethystBlockEventService.Snapshot block = amethystBlocks.snapshot();
+        info(sender, block == null ? "Huge Amethyst Block: inactive"
+                : "Huge Amethyst Block: " + block.describe());
+        info(sender, "/mgxadmin event multiplier <type> <on|off> [seconds]");
+        info(sender, "/mgxadmin event airdrop <start [rarity]|status|end|expire>");
+        info(sender, "/mgxadmin event airdrop distance <rarity> <minimum> <maximum>");
+        info(sender, "/mgxadmin event amethyst-block <start|status|damage [hp]|finish|end|expire>");
+        info(sender, "/mgxadmin event schedule <status|set <minimum> <maximum>|reset>");
+        info(sender, "/mgxadmin event admin <effect|list|controls|stop> [options]");
+        ServerEventService events = plugin.serverEvents();
+        if (events != null) listServerEvents(sender, events);
+    }
+
+    /** {@code /mgxadmin event multiplier <type> <on|off> [seconds]} */
     private void serverEvent(CommandSender sender, String[] args) {
         ServerEventService events = plugin.serverEvents();
         if (events == null) {
@@ -333,7 +574,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                             live ? NamedTextColor.GREEN : NamedTextColor.GRAY)));
         }
         sender.sendMessage(Component.text(
-                "  /mgxadmin event <type> <on|off> [seconds]", NamedTextColor.GRAY));
+                "  /mgxadmin event multiplier <type> <on|off> [seconds]", NamedTextColor.GRAY));
     }
 
     private void publishUpdate(CommandSender sender) {
@@ -1275,9 +1516,9 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 .append(Component.text("  bounty everyone who joins, once each", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin hologram <board|remove>", ORANGE)
                 .append(Component.text("  place or remove a spawn leaderboard", NamedTextColor.GRAY)));
-        sender.sendMessage(Component.text("  /mgxadmin airdrop [rarity]", ORANGE)
+        sender.sendMessage(Component.text("  /mgxadmin event list", ORANGE)
                 .append(Component.text(
-                        "  call an Airdrop near you, several at a time",
+                        "  every multiplier, Airdrop, Huge Block and admin-event control",
                         NamedTextColor.GRAY
                 )));
         sender.sendMessage(Component.text(
@@ -1319,10 +1560,6 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         sender.sendMessage(Component.text("  /mgxadmin devblog", ORANGE)
                 .append(Component.text("  screenshot mode: stash your gear, clear the screen",
                         NamedTextColor.GRAY)));
-        sender.sendMessage(Component.text("  /mgxadmin event <type> <on|off> [seconds]", ORANGE)
-                .append(Component.text("  run a timed server-wide multiplier", NamedTextColor.GRAY)));
-        sender.sendMessage(Component.text("  /mgxadmin event list", ORANGE)
-                .append(Component.text("  which multipliers are live", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text(
                         "  /mgxadmin variables get|set|reset <key> [value]", ORANGE
                 ).append(Component.text(
@@ -1330,14 +1567,6 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 )));
         sender.sendMessage(Component.text("  /mgxadmin variables list [filter]", ORANGE)
                 .append(Component.text("  browse every controllable live value", NamedTextColor.GRAY)));
-        sender.sendMessage(Component.text("  /mgxadmin abuse <effect> [seconds]", ORANGE)
-                .append(Component.text("  run a live admin event", NamedTextColor.GRAY)));
-        sender.sendMessage(Component.text("  /mgxadmin abuse list", ORANGE)
-                .append(Component.text("  every effect and how long it may run",
-                        NamedTextColor.GRAY)));
-        sender.sendMessage(Component.text("  /mgxadmin abuse stop", ORANGE)
-                .append(Component.text("  end everything and restore it all",
-                        NamedTextColor.GRAY)));
     }
 
     @Override
@@ -1348,7 +1577,10 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             return List.of();
         }
         if (args.length == 1) {
-            return partial(args[0], SUBCOMMANDS);
+            List<String> available = plugin.isLocalTestServer()
+                    ? SUBCOMMANDS
+                    : SUBCOMMANDS.stream().filter(value -> !value.startsWith("test")).toList();
+            return partial(args[0], available);
         }
         String action = args[0].toLowerCase(Locale.ROOT);
         if (action.equals("pvp")) {
@@ -1436,6 +1668,56 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             return List.of();
         }
         if (action.equals("event") || action.equals("multiplier")) {
+            if (action.equals("event")) {
+                if (args.length == 2) {
+                    return partial(args[1], List.of(
+                            "list", "multiplier", "airdrop", "amethyst-block", "schedule", "admin"
+                    ));
+                }
+                String category = args[1].toLowerCase(Locale.ROOT);
+                if (category.equals("multiplier")) {
+                    if (args.length == 3) {
+                        return partial(args[2], Arrays.stream(ServerEventType.values())
+                                .map(ServerEventType::id).toList());
+                    }
+                    return args.length == 4
+                            ? partial(args[3], List.of("on", "off")) : List.of();
+                }
+                if (category.equals("airdrop")) {
+                    if (args.length == 3) {
+                        return partial(args[2], List.of(
+                                "start", "status", "end", "expire", "distance"
+                        ));
+                    }
+                    if (args.length == 4 && (args[2].equalsIgnoreCase("start")
+                            || args[2].equalsIgnoreCase("distance"))) {
+                        return partial(args[3], AIRDROP_RARITIES);
+                    }
+                    return List.of();
+                }
+                if (category.equals("amethyst-block") || category.equals("block")) {
+                    return args.length == 3 ? partial(args[2], List.of(
+                            "start", "status", "damage", "finish", "end", "expire"
+                    )) : List.of();
+                }
+                if (category.equals("schedule")) {
+                    return args.length == 3
+                            ? partial(args[2], List.of("status", "set", "reset")) : List.of();
+                }
+                if (category.equals("admin")) {
+                    if (args.length == 3) {
+                        List<String> options = new ArrayList<>(
+                                ChaosCatalog.menu().stream().map(ChaosCatalog::id).toList());
+                        options.add("controls");
+                        return partial(args[2], options);
+                    }
+                    if (args.length == 4 && args[2].equalsIgnoreCase("alfredo")) {
+                        return partial(args[3], List.of(
+                                "test", "hp", "keys", "diamonds", "add", "burst", "kill", "status"));
+                    }
+                    return List.of();
+                }
+            }
             if (args.length == 2) {
                 List<String> options = new ArrayList<>(
                         Arrays.stream(ServerEventType.values()).map(ServerEventType::id).toList()

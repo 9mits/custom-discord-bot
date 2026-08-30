@@ -31,27 +31,17 @@ import java.util.random.RandomGenerator;
  * mobs are the ordinary Amethyst variants, so they drop crate keys like any other; the
  * Amethyst Golem exists only here, which is what keeps it off the natural spawn table.
  *
- * <p>The garrison also gives the drop a way to be lost. Once a player has arrived and
- * the fight is live, walking away hands the drop to the mobs: after
- * {@link #CLAIM_SECONDS} with nobody inside the ring, the guards claim it and the whole
- * airdrop goes up in particles. Leaving the timer dormant until someone first shows up
- * is what stops a drop that nobody has had time to reach from being lost on its own.
+ * <p>Guards defend the drop for its full visible lifetime. They never run a hidden
+ * abandonment timer: the Airdrop countdown is the only clock that can expire it.
  */
 final class AirdropGuardService {
     /** How far out the guards stand, and how far in a player counts as engaged. */
     private static final double INNER_RING = 6d;
     private static final double OUTER_RING = 14d;
-    static final double ENGAGE_RADIUS = 64d;
     /** Guards hunt further out than the ring they defend, so nobody picks them off safely. */
     private static final double HUNT_RADIUS = 40d;
     private static final double FOLLOW_RANGE = 48d;
     private static final double SPEED_MULTIPLIER = 1.2d;
-    /**
-     * How long the guards need genuinely alone with the drop before they take it. A short
-     * window plus a tight ring lost a Mythic drop 41 seconds after it landed, while the
-     * player who called it in was still getting ready.
-     */
-    static final int CLAIM_SECONDS = 120;
     private static final long PERIOD_TICKS = 5L;
     private static final int VERTICAL_SEARCH = 10;
     /** An Amethyst Golem is nearly three blocks tall. */
@@ -76,13 +66,8 @@ final class AirdropGuardService {
     private static final class Post {
         private final Location post;
         private final List<UUID> guards = new ArrayList<>();
-        private Runnable claimedCallback;
-        private boolean engaged;
-        private int unattendedTicks;
-
-        private Post(Location post, Runnable claimedCallback) {
+        private Post(Location post) {
             this.post = post;
-            this.claimedCallback = claimedCallback;
         }
     }
 
@@ -112,9 +97,9 @@ final class AirdropGuardService {
     }
 
     /** Stands the garrison up around a freshly landed drop. */
-    void deploy(UUID dropId, Location chest, AirdropCatalog.Rarity rarity, Runnable onClaimed) {
+    void deploy(UUID dropId, Location chest, AirdropCatalog.Rarity rarity) {
         dismiss(dropId);
-        Post standing = new Post(chest.clone(), onClaimed);
+        Post standing = new Post(chest.clone());
         posts.put(dropId, standing);
 
         Garrison garrison = garrisonFor(rarity);
@@ -171,7 +156,6 @@ final class AirdropGuardService {
             }
         }
         standing.guards.clear();
-        standing.claimedCallback = null;
     }
 
     int standing() {
@@ -295,23 +279,6 @@ final class AirdropGuardService {
                 }
             }
         }
-        if (nearestWatcher(post, ENGAGE_RADIUS) != null) {
-            standing.engaged = true;
-            standing.unattendedTicks = 0;
-            return;
-        }
-        if (!standing.engaged) {
-            return;
-        }
-        standing.unattendedTicks += (int) PERIOD_TICKS;
-        if (standing.unattendedTicks >= CLAIM_SECONDS * 20) {
-            Runnable claimed = standing.claimedCallback;
-            standing.claimedCallback = null;
-            if (claimed != null) {
-                // The callback removes the drop, which dismisses this post in turn.
-                claimed.run();
-            }
-        }
     }
 
     /** Who the guards will chase: mobs do not hunt creative or spectating players. */
@@ -319,15 +286,6 @@ final class AirdropGuardService {
         return nearest(post, radius, player -> !player.isDead()
                 && (player.getGameMode() == GameMode.SURVIVAL
                         || player.getGameMode() == GameMode.ADVENTURE));
-    }
-
-    /**
-     * Who counts as present. Deliberately wider than {@link #nearestTarget}: an operator
-     * watching in creative is still somebody standing over the drop, and the claim must
-     * not fire out from under them.
-     */
-    private Player nearestWatcher(Location post, double radius) {
-        return nearest(post, radius, player -> player.getGameMode() != GameMode.SPECTATOR);
     }
 
     private Player nearest(Location post, double radius, Predicate<Player> eligible) {

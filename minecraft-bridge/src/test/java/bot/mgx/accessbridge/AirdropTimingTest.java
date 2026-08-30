@@ -14,7 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class AirdropTimingTest {
     @Test
-    void defaultsUseFreshRandomDelaysAndThirtyMinuteExpiry() {
+    void defaultsUseMoreFrequentRandomDelaysAndThirtyMinuteExpiry() {
         long minimum = AirdropService.DEFAULT_MINIMUM_DELAY_MILLIS;
         long maximum = AirdropService.DEFAULT_MAXIMUM_DELAY_MILLIS;
         Set<Long> observed = new HashSet<>();
@@ -26,10 +26,32 @@ final class AirdropTimingTest {
             observed.add(delay);
         }
 
-        assertEquals(Duration.ofMinutes(30).toMillis(), minimum);
-        assertEquals(Duration.ofMinutes(90).toMillis(), maximum);
+        assertEquals(Duration.ofMinutes(15).toMillis(), minimum);
+        assertEquals(Duration.ofMinutes(30).toMillis(), maximum);
         assertEquals(Duration.ofMinutes(30).toMillis(), AirdropService.DEFAULT_LIFETIME_MILLIS);
         assertTrue(observed.size() > 190, "each interval should be independently randomized");
+    }
+
+    @Test
+    void everyRarityOffsetStaysInsideItsSpawnRing() {
+        int[][] rings = {
+                {1_000, 2_000},
+                {1_000, 2_000},
+                {5_000, 10_000},
+                {10_000, 25_000}
+        };
+        Random random = new Random(2645L);
+        for (int[] ring : rings) {
+            long minimumSquared = (long) ring[0] * ring[0];
+            long maximumSquared = (long) ring[1] * ring[1];
+            for (int attempt = 0; attempt < 200; attempt++) {
+                AirdropService.Offset offset = AirdropService.randomOffset(
+                        random, ring[0], ring[1]
+                );
+                assertTrue(offset.distanceSquared() >= minimumSquared);
+                assertTrue(offset.distanceSquared() <= maximumSquared);
+            }
+        }
     }
 
     @Test

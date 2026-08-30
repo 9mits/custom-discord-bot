@@ -808,6 +808,20 @@ class PageTests(unittest.TestCase):
         # Row fields are an allowlist, so a new field cannot ride along.
         self.assertEqual(sorted(cleaned["individual"]["wealth"][0]), ["username", "value"])
 
+    def test_the_snapshot_keeps_every_field_the_public_board_renders(self):
+        import leaderboard_snapshot
+
+        cleaned = leaderboard_snapshot.clean({
+            "clan": {"wealth": [{
+                "clan": "Quartz", "display": "$1.2m", "value": 1_200_000,
+                "rank": 1, "members": 4, "level": 3, "icon": "diamond",
+            }]},
+        })
+        row = cleaned["clan"]["wealth"][0]
+        self.assertEqual(row["clan"], "Quartz")
+        self.assertEqual(row["display"], "$1.2m")
+        self.assertEqual(row["icon"], "diamond")
+
     def test_a_snapshot_is_published_beside_the_page(self):
         self.page(
             "leaderboards.md",

@@ -692,7 +692,7 @@ class MinecraftControlSelect(discord.ui.Select):
         options = [
             discord.SelectOption(label="Overview", value="overview", description="Service and queue health"),
             discord.SelectOption(label="Diagnostics", value="diagnostics", description="Explain anything that needs attention"),
-            discord.SelectOption(label="Applications", value="applications", description="Recent application activity"),
+            discord.SelectOption(label="Access Records", value="access", description="Recent verification and access activity"),
             discord.SelectOption(label="Command Log", value="commandlog", description="Recent moderator actions"),
             discord.SelectOption(label="Username Lookup", value="username", description="Search Minecraft account names"),
         ]
@@ -743,7 +743,7 @@ class MinecraftControlSelect(discord.ui.Select):
         builders = {
             "overview": lambda: view.bot.build_control_overview(interaction.guild),
             "diagnostics": lambda: view.bot.build_diagnostics_embed(interaction.guild),
-            "applications": view.bot.build_applications_embed,
+            "access": view.bot.build_applications_embed,
             "commandlog": view.bot.build_command_log_embed,
         }
         embed = await builders[action]()
