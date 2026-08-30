@@ -704,6 +704,23 @@ class PageTests(unittest.TestCase):
         with self.assertRaises(build.PostError):
             build.load_pages()
 
+    def test_dashboard_layout_uses_the_wide_site_shell_and_live_asset(self):
+        self.page(
+            "leaderboards.md",
+            "---\ntitle: Leaderboards\nlayout: dashboard\n---\n\n<div id=\"leaderboard-root\"></div>",
+        )
+        (build.STATIC_DIR / "server-dashboard.js").write_text("// live")
+        build.build("https://example.com")
+        page = (build.DIST_DIR / "leaderboards" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('class="doc live-doc"', page)
+        self.assertIn('src="../assets/server-dashboard.js"', page)
+        self.assertTrue((build.DIST_DIR / "assets" / "server-dashboard.js").is_file())
+
+    def test_unknown_page_layout_is_an_error(self):
+        self.page("guide.md", "---\ntitle: G\nlayout: mystery\n---\n\nx")
+        with self.assertRaises(build.PostError):
+            build.load_pages()
+
     def test_nav_appears_on_every_rendered_page(self):
         self.page("guide.md", "---\ntitle: G\nnav: Guide\n---\n\nx")
         self.post("2026-01-01-p1.md")
@@ -711,6 +728,19 @@ class PageTests(unittest.TestCase):
         for rel in ("index.html", "404.html", "p1/index.html", "guide/index.html"):
             page = (build.DIST_DIR / rel).read_text(encoding="utf-8")
             self.assertIn(">Guide</a>", page, rel)
+
+    def test_a_nav_hidden_page_is_built_but_never_advertised(self):
+        self.page(
+            "control.md",
+            "---\ntitle: Owner Control\nnav: Control\nnav_hidden: true\n---\n\nsecret",
+        )
+        self.page("guide.md", "---\ntitle: G\nnav: Guide\n---\n\nx")
+        build.build("https://example.com")
+        control = build.DIST_DIR / "control" / "index.html"
+        self.assertTrue(control.is_file())
+        for rel in ("index.html", "404.html", "guide/index.html", "control/index.html"):
+            page = (build.DIST_DIR / rel).read_text(encoding="utf-8")
+            self.assertNotIn(">Control</a>", page, rel)
 
     def test_the_current_page_is_marked(self):
         self.page("guide.md", "---\ntitle: G\nnav: Guide\n---\n\nx")

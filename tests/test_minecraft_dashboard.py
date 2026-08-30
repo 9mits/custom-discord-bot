@@ -1,8 +1,10 @@
 import time
 import unittest
+from tempfile import TemporaryDirectory
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from unittest.mock import patch
 
 from aiohttp.test_utils import TestClient, TestServer
 
@@ -85,6 +87,7 @@ class MinecraftDashboardSecurityTests(unittest.IsolatedAsyncioTestCase):
             row = payload["individual"]["wealth"][0]
             self.assertEqual(row["discord_username"], "nine")
             self.assertIn("mc-heads.net", row["head_url"])
+            self.assertIn("mc-heads.net/body", row["skin_url"])
             self.assertNotIn("variables", payload)
             self.assertEqual(response.headers["X-Frame-Options"], "DENY")
 
@@ -93,21 +96,81 @@ class MinecraftDashboardSecurityTests(unittest.IsolatedAsyncioTestCase):
         finally:
             await client.close()
 
+    async def test_existing_devblog_is_the_site_served_by_the_backend(self):
+        dashboard = self._dashboard()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "leaderboards").mkdir()
+            (root / "assets").mkdir()
+            (root / "index.html").write_text("existing blog home")
+            (root / "leaderboards" / "index.html").write_text("integrated standings")
+            (root / "assets" / "style.css").write_text("body{}")
+            with patch("minecraft_bot.dashboard.SITE_ROOT", root):
+                client = TestClient(TestServer(dashboard._app))
+                await client.start_server()
+                try:
+                    home = await client.get("/")
+                    standings = await client.get("/leaderboards/")
+                    asset = await client.get("/assets/style.css")
+                    self.assertEqual(await home.text(), "existing blog home")
+                    self.assertEqual(await standings.text(), "integrated standings")
+                    self.assertEqual(asset.status, 200)
+                finally:
+                    await client.close()
+
 
 class MinecraftDashboardAssetTests(unittest.TestCase):
     def test_public_page_has_every_surface_and_no_private_odds(self):
-        root = Path(__file__).parents[1] / "minecraft_bot" / "dashboard_static"
-        html = (root / "index.html").read_text()
-        script = (root / "dashboard.js").read_text()
-        self.assertIn("PLAYER LEADERBOARDS", html)
-        self.assertIn("CLAN LEADERBOARDS", html)
+        root = Path(__file__).parents[1] / "devblog"
+        html = (root / "pages" / "leaderboards.md").read_text()
+        html += (root / "pages" / "control.md").read_text()
+        script = (root / "static" / "server-dashboard.js").read_text()
+        self.assertIn("Player Leaderboards", html)
+        self.assertIn("Clan Leaderboards", html)
+        self.assertIn("Event Leaderboards", html)
         self.assertIn("CURRENT CLAN BATTLE", html)
-        self.assertIn("Continue with Discord", html)
+        self.assertIn("Authorize with Discord", html)
         self.assertIn("discord_username", script)
+        self.assertIn('defaultBoards = ["wealth", "kills"]', script)
+        self.assertIn('eventBoards = ["amethyst_airdrops", "amethyst_crates"]', script)
+        self.assertIn("slice(0, 10)", script)
+        self.assertIn("live-podium", script)
+        self.assertIn("skin_url", script)
+        self.assertIn("row.icon", script)
+        self.assertNotIn("live-tab-icon", script)
+        self.assertNotIn("iconSvg", script)
+        self.assertNotIn("The individual race", html)
+        self.assertNotIn("Teams moving the server", html)
         self.assertNotIn("hidden-amethyst-one-in", html + script)
 
+    def test_top_three_have_distinct_podium_treatments(self):
+        root = Path(__file__).parents[1] / "devblog"
+        script = (root / "static" / "server-dashboard.js").read_text()
+        theme = (root / "theme.py").read_text()
+        for tier in ("rank-gold", "rank-silver", "rank-bronze"):
+            self.assertIn(tier, script)
+            self.assertIn(tier, theme)
+
+    def test_every_clan_icon_has_a_real_minecraft_texture(self):
+        root = Path(__file__).parents[1]
+        assets = root / "devblog" / "static" / "minecraft-items"
+        catalog = root / "minecraft-bridge" / "src" / "main" / "java" / "bot" / "mgx" / "accessbridge" / "ClanIcon.java"
+        source = catalog.read_text()
+        for icon in (
+            "amethyst_shard", "diamond", "emerald", "gold_ingot", "netherite_ingot", "nether_star",
+            "ender_pearl", "heart_of_the_sea", "blaze_powder", "echo_shard", "totem_of_undying", "golden_apple",
+        ):
+            self.assertIn('"' + icon + '"', source)
+            self.assertGreater((assets / (icon + ".png")).stat().st_size, 0)
+        self.assertGreater((assets / "crate_key.png").stat().st_size, 0)
+
+    def test_control_page_is_secret_but_still_has_a_direct_route(self):
+        control = (Path(__file__).parents[1] / "devblog" / "pages" / "control.md").read_text()
+        self.assertIn("nav_hidden: true", control)
+        self.assertIn('id="control-root"', control)
+
     def test_dashboard_script_is_static_data_not_an_embedded_secret(self):
-        script = (Path(__file__).parents[1] / "minecraft_bot" / "dashboard_static" / "dashboard.js").read_text()
+        script = (Path(__file__).parents[1] / "devblog" / "static" / "server-dashboard.js").read_text()
         self.assertNotIn("client_secret", script)
         self.assertNotIn("MINECRAFT_BRIDGE_SECRET", script)
         self.assertIn("X-MGX-CSRF", script)
