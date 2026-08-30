@@ -76,11 +76,11 @@ final class AmethystShopService {
     }
 
     /**
-     * Takes one off the shelf.
+     * Takes one off the shelf, or refuses because the last one has gone.
      *
-     * <p>The caller pays first and calls {@link #restock()} if handing the item over
-     * fails, because a player charged for an item they never received is the worse of
-     * the two ways this can go wrong.
+     * <p>The caller takes the money first and puts it back if this refuses. The other
+     * order would let two buyers on the same tick both be handed the last item and only
+     * one of them be charged for it.
      */
     boolean sell() {
         Optional<AmethystDailyStock> current = today();
@@ -89,11 +89,6 @@ final class AmethystShopService {
         }
         store.put(current.get().sold());
         return true;
-    }
-
-    /** Puts an unsold item back, for a sale that could not be completed. */
-    void restock() {
-        store.current().ifPresent(stock -> store.put(stock.returned()));
     }
 
     private void check() {

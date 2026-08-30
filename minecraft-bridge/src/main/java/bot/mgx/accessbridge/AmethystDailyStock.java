@@ -75,10 +75,6 @@ record AmethystDailyStock(String rewardId, int stock, long rolledAt, long nextRo
         return new AmethystDailyStock(rewardId, stock - 1, rolledAt, nextRollAt);
     }
 
-    /** Puts a sale back when the payment behind it failed. */
-    AmethystDailyStock returned() {
-        return new AmethystDailyStock(rewardId, stock + 1, rolledAt, nextRollAt);
-    }
 
     Optional<CrateCatalog.Reward> reward() {
         return CrateCatalog.find(rewardId);

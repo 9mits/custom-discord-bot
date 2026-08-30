@@ -86,11 +86,10 @@ final class AmethystDailyStockTest {
     }
 
     @Test
-    void sellingCountsDownAndAFailedSaleGoesBackOnTheShelf() {
+    void sellingCountsDownToSoldOut() {
         AmethystDailyStock stock = new AmethystDailyStock("amethyst_totem", 2, 10L, 20L);
         assertEquals(1, stock.sold().stock());
         assertTrue(stock.sold().sold().soldOut());
-        assertEquals(2, stock.sold().returned().stock());
         assertFalse(stock.soldOut());
         assertEquals("Amethyst Totem", stock.displayName());
     }
