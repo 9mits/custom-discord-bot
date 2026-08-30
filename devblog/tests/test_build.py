@@ -180,17 +180,18 @@ class BuildTests(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, True)
 
-        self._saved = (build.POSTS_DIR, build.MEDIA_DIR, build.STATIC_DIR, build.DIST_DIR)
+        self._saved = (build.POSTS_DIR, build.MEDIA_DIR, build.STATIC_DIR, build.DIST_DIR, build.DATA_DIR)
         build.POSTS_DIR = self.tmp / "posts"
         build.MEDIA_DIR = self.tmp / "media"
         build.STATIC_DIR = self.tmp / "static"
         build.DIST_DIR = self.tmp / "dist"
-        for folder in (build.POSTS_DIR, build.MEDIA_DIR, build.STATIC_DIR):
+        build.DATA_DIR = self.tmp / "data"
+        for folder in (build.POSTS_DIR, build.MEDIA_DIR, build.STATIC_DIR, build.DATA_DIR):
             folder.mkdir(parents=True)
         self.addCleanup(self._restore)
 
     def _restore(self):
-        build.POSTS_DIR, build.MEDIA_DIR, build.STATIC_DIR, build.DIST_DIR = self._saved
+        build.POSTS_DIR, build.MEDIA_DIR, build.STATIC_DIR, build.DIST_DIR, build.DATA_DIR = self._saved
 
     def write(self, name: str, text: str):
         (build.POSTS_DIR / name).write_text(text, encoding="utf-8")
@@ -457,17 +458,18 @@ class RelatedTests(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, True)
-        self._saved = (build.POSTS_DIR, build.MEDIA_DIR, build.STATIC_DIR, build.DIST_DIR)
+        self._saved = (build.POSTS_DIR, build.MEDIA_DIR, build.STATIC_DIR, build.DIST_DIR, build.DATA_DIR)
         build.POSTS_DIR = self.tmp / "posts"
         build.MEDIA_DIR = self.tmp / "media"
         build.STATIC_DIR = self.tmp / "static"
         build.DIST_DIR = self.tmp / "dist"
-        for folder in (build.POSTS_DIR, build.MEDIA_DIR, build.STATIC_DIR):
+        build.DATA_DIR = self.tmp / "data"
+        for folder in (build.POSTS_DIR, build.MEDIA_DIR, build.STATIC_DIR, build.DATA_DIR):
             folder.mkdir(parents=True)
         self.addCleanup(self._restore)
 
     def _restore(self):
-        build.POSTS_DIR, build.MEDIA_DIR, build.STATIC_DIR, build.DIST_DIR = self._saved
+        build.POSTS_DIR, build.MEDIA_DIR, build.STATIC_DIR, build.DIST_DIR, build.DATA_DIR = self._saved
 
     def write(self, name: str, title: str):
         (build.POSTS_DIR / name).write_text(
@@ -579,17 +581,18 @@ class SlugSafetyTests(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, True)
-        self._saved = (build.POSTS_DIR, build.MEDIA_DIR, build.STATIC_DIR, build.DIST_DIR)
+        self._saved = (build.POSTS_DIR, build.MEDIA_DIR, build.STATIC_DIR, build.DIST_DIR, build.DATA_DIR)
         build.POSTS_DIR = self.tmp / "posts"
         build.MEDIA_DIR = self.tmp / "media"
         build.STATIC_DIR = self.tmp / "static"
         build.DIST_DIR = self.tmp / "dist"
-        for folder in (build.POSTS_DIR, build.MEDIA_DIR, build.STATIC_DIR):
+        build.DATA_DIR = self.tmp / "data"
+        for folder in (build.POSTS_DIR, build.MEDIA_DIR, build.STATIC_DIR, build.DATA_DIR):
             folder.mkdir(parents=True)
         self.addCleanup(self._restore)
 
     def _restore(self):
-        build.POSTS_DIR, build.MEDIA_DIR, build.STATIC_DIR, build.DIST_DIR = self._saved
+        build.POSTS_DIR, build.MEDIA_DIR, build.STATIC_DIR, build.DIST_DIR, build.DATA_DIR = self._saved
 
     def write(self, name: str, body: str):
         (build.POSTS_DIR / name).write_text(body, encoding="utf-8")
@@ -666,19 +669,20 @@ class PageTests(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, True)
         self._saved = (build.POSTS_DIR, build.PAGES_DIR, build.MEDIA_DIR,
-                       build.STATIC_DIR, build.DIST_DIR)
+                       build.STATIC_DIR, build.DIST_DIR, build.DATA_DIR)
         build.POSTS_DIR = self.tmp / "posts"
         build.PAGES_DIR = self.tmp / "pages"
         build.MEDIA_DIR = self.tmp / "media"
         build.STATIC_DIR = self.tmp / "static"
         build.DIST_DIR = self.tmp / "dist"
-        for folder in (build.POSTS_DIR, build.PAGES_DIR, build.MEDIA_DIR, build.STATIC_DIR):
+        build.DATA_DIR = self.tmp / "data"
+        for folder in (build.POSTS_DIR, build.PAGES_DIR, build.MEDIA_DIR, build.STATIC_DIR, build.DATA_DIR):
             folder.mkdir(parents=True)
         self.addCleanup(self._restore)
 
     def _restore(self):
         (build.POSTS_DIR, build.PAGES_DIR, build.MEDIA_DIR,
-         build.STATIC_DIR, build.DIST_DIR) = self._saved
+         build.STATIC_DIR, build.DIST_DIR, build.DATA_DIR) = self._saved
 
     def page(self, name, body="---\ntitle: T\n---\n\nbody"):
         (build.PAGES_DIR / name).write_text(body, encoding="utf-8")
@@ -1191,19 +1195,20 @@ class BlogArchiveTests(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, True)
         self._saved = (build.POSTS_DIR, build.PAGES_DIR, build.MEDIA_DIR,
-                       build.STATIC_DIR, build.DIST_DIR)
+                       build.STATIC_DIR, build.DIST_DIR, build.DATA_DIR)
         build.POSTS_DIR = self.tmp / "posts"
         build.PAGES_DIR = self.tmp / "pages"
         build.MEDIA_DIR = self.tmp / "media"
         build.STATIC_DIR = self.tmp / "static"
         build.DIST_DIR = self.tmp / "dist"
-        for folder in (build.POSTS_DIR, build.PAGES_DIR, build.MEDIA_DIR, build.STATIC_DIR):
+        build.DATA_DIR = self.tmp / "data"
+        for folder in (build.POSTS_DIR, build.PAGES_DIR, build.MEDIA_DIR, build.STATIC_DIR, build.DATA_DIR):
             folder.mkdir(parents=True)
         self.addCleanup(self._restore)
 
     def _restore(self):
         (build.POSTS_DIR, build.PAGES_DIR, build.MEDIA_DIR,
-         build.STATIC_DIR, build.DIST_DIR) = self._saved
+         build.STATIC_DIR, build.DIST_DIR, build.DATA_DIR) = self._saved
 
     def post(self, month, slug, category="Announcement"):
         (build.POSTS_DIR / ("2026-%02d-01-%s.md" % (month, slug))).write_text(
