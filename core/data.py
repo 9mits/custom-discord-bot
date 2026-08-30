@@ -808,6 +808,8 @@ class DataManager:
             "role_anchor": DEFAULT_ANCHOR_ROLE_ID,
             "category_archive": DEFAULT_ARCHIVE_CAT_ID,
             "role_mention_spam_target": DEFAULT_SPAM_ROLE_ID,
+            "server_tag_role_id": 0,
+            "server_tag_guild_ids": [],
         }
         for k, v in defaults.items():
             if k not in self.config:
