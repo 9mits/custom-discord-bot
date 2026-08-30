@@ -1,11 +1,12 @@
 import unittest
 from types import SimpleNamespace
+from contextlib import contextmanager
 from unittest.mock import AsyncMock, Mock, patch
 
 import discord
 
 import cogs.server_tags as server_tags
-import cogs.shared as shared
+from core import context
 from core.actions import AcknowledgementPolicy, get_action_spec
 from cogs.server_tags import (
     accepted_guild_ids,
@@ -130,13 +131,20 @@ if __name__ == "__main__":
     unittest.main()
 
 
+@contextmanager
 def stub_runtime():
+    """Stands in for the live bot for every module at once.
+
+    ``core.context.bot`` is a proxy that forwards to one module global, and both the cog
+    and ``cogs.shared`` (which ``make_embed`` uses for the theme colour) hold the same
+    proxy object. Patching each module's own name is fragile; replacing what the proxy
+    resolves to covers all of them.
+    """
     runtime = SimpleNamespace(
         data_manager=SimpleNamespace(config={}, mark_config_dirty=lambda: None)
     )
-    return patch.multiple(
-        "cogs.server_tags", bot=runtime
-    ), patch.object(shared, "bot", runtime)
+    with patch.object(context, "_active_bot", runtime):
+        yield runtime
 
 
 class DeferredResponseTests(unittest.IsolatedAsyncioTestCase):
@@ -178,31 +186,26 @@ class DeferredResponseTests(unittest.IsolatedAsyncioTestCase):
         role = Mock()
         role.id = 555
         role.mention = "@Tag"
-        outer, inner = stub_runtime()
-        with outer, inner:
+        with stub_runtime():
             await self.cog.set_role.callback(self.cog, self.interaction, role)
         self.interaction.followup.send.assert_awaited_once()
 
     async def test_clearing_the_role_replies_through_the_followup(self):
-        outer, inner = stub_runtime()
-        with outer, inner:
+        with stub_runtime():
             await self.cog.set_role.callback(self.cog, self.interaction, None)
         self.interaction.followup.send.assert_awaited_once()
 
     async def test_linking_replies_through_the_followup(self):
-        outer, inner = stub_runtime()
-        with outer, inner:
+        with stub_runtime():
             await self.cog.link.callback(self.cog, self.interaction, str(LINKED))
         self.interaction.followup.send.assert_awaited_once()
 
     async def test_a_bad_server_id_still_replies_through_the_followup(self):
-        outer, inner = stub_runtime()
-        with outer, inner:
+        with stub_runtime():
             await self.cog.link.callback(self.cog, self.interaction, "not-an-id")
         self.interaction.followup.send.assert_awaited_once()
 
     async def test_unlinking_replies_through_the_followup(self):
-        outer, inner = stub_runtime()
-        with outer, inner:
+        with stub_runtime():
             await self.cog.unlink.callback(self.cog, self.interaction, str(LINKED))
         self.interaction.followup.send.assert_awaited_once()
