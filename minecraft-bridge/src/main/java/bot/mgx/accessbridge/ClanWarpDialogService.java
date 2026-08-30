@@ -52,7 +52,7 @@ final class ClanWarpDialogService {
         this.forms = forms;
     }
 
-    /** Leaders and staff manage warps; everyone else travels with them. */
+    /** Owners, co-owners, and staff manage warps; members travel with them. */
     private static boolean manages(ClanStore.ClanView clan, Player player) {
         return clan.roleOf(player.getUniqueId()) != ClanStore.ClanRole.MEMBER;
     }
@@ -314,7 +314,7 @@ final class ClanWarpDialogService {
         }
     }
 
-    /** The management card, which only a leader or staff member ever reaches. */
+    /** The management card, which only an owner, co-owner, or staff member reaches. */
     void openWarp(Player player, String warp) {
         openWarp(player, warp, null);
     }
@@ -523,7 +523,7 @@ final class ClanWarpDialogService {
             buttons.add(action("Next", "More icons.",
                     audience -> openIconPicker(audience, warp, query, current + 1, back)));
         }
-        buttons.add(ActionButton.builder(Component.text("Search", MenuText.VALUE))
+        buttons.add(ActionButton.builder(MenuText.buttonLabel("Search", MenuText.VALUE))
                 .width(150)
                 .action(callback((response, audience) -> openIconPicker(
                         audience, warp,
@@ -556,7 +556,7 @@ final class ClanWarpDialogService {
             java.util.function.Consumer<Player> run,
             net.kyori.adventure.text.format.TextColor colour
     ) {
-        return ActionButton.builder(Component.text(label, colour))
+        return ActionButton.builder(MenuText.buttonLabel(label, colour))
                 .tooltip(Component.text(tooltip, MenuText.LABEL))
                 .width(150)
                 .action(callback((response, audience) -> run.accept(audience)))

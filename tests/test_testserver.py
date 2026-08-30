@@ -1,5 +1,7 @@
 import unittest
 import uuid
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest import mock
 
@@ -142,6 +144,40 @@ Punishments:
         for check in testserver.GRIM_PRINTER_CHECKS:
             self.assertIn(f'- "{check}"', patched)
         self.assertEqual(patched, testserver.grim_printer_punishments(patched))
+
+
+class GeyserRefreshTests(unittest.TestCase):
+    def test_refresh_uses_official_digest_and_records_installed_build(self):
+        payload = b"current official Geyser build"
+        digest = testserver.hashlib.sha256(payload).hexdigest()
+        metadata = {
+            "version": "2.11.2",
+            "build": 1233,
+            "downloads": {"spigot": {"sha256": digest}},
+        }
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            plugins = root / "plugins"
+            plugins.mkdir()
+
+            def install(url, destination, expected):
+                self.assertEqual(url, testserver.GEYSER_API.format(p="geyser"))
+                self.assertEqual(expected, digest)
+                destination.write_bytes(payload)
+
+            with mock.patch.object(testserver, "REPO", root), mock.patch.object(
+                testserver, "PLUGINS", plugins
+            ), mock.patch.object(testserver, "read_json", return_value=metadata), mock.patch.object(
+                testserver, "fetch_verified", side_effect=install
+            ):
+                installed = testserver.refresh_geyser()
+
+        self.assertEqual(installed["version"], "2.11.2")
+        self.assertEqual(installed["build"], 1233)
+        self.assertEqual(installed["path"], "plugins/geyser.jar")
+        self.assertEqual(installed["bytes"], len(payload))
+        self.assertEqual(installed["sha256"], digest)
 
 
 class TestServerRestartTests(unittest.TestCase):

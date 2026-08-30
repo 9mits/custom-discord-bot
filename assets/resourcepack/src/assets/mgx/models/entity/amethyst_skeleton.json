@@ -1,0 +1,20 @@
+{
+  "textures": {"skin": "mgx:entity/amethyst_skeleton", "particle": "mgx:entity/amethyst_skeleton"},
+  "gui_light": "front",
+  "display": {
+    "fixed": {"rotation": [0, 180, 0], "translation": [0, -16, 0], "scale": [1, 1, 1]},
+    "head": {"rotation": [0, 180, 0], "translation": [0, 12, 0], "scale": [0.65, 0.65, 0.65]}
+  },
+  "elements": [
+    {"from": [4,24,4], "to": [12,32,12], "faces": {
+      "north": {"uv": [2,4,4,8], "texture": "#skin"}, "south": {"uv": [6,4,8,8], "texture": "#skin"},
+      "east": {"uv": [0,4,2,8], "texture": "#skin"}, "west": {"uv": [4,4,6,8], "texture": "#skin"},
+      "up": {"uv": [2,0,4,4], "texture": "#skin"}, "down": {"uv": [4,0,6,4], "texture": "#skin"}
+    }},
+    {"from": [5,12,7], "to": [11,24,9], "faces": {"north": {"uv": [5,10,7,16], "texture": "#skin"}, "south": {"uv": [8,10,10,16], "texture": "#skin"}, "east": {"uv": [4,10,5,16], "texture": "#skin"}, "west": {"uv": [7,10,8,16], "texture": "#skin"}}},
+    {"from": [1,12,7], "to": [3,24,9], "faces": {"north": {"uv": [11,10,12,16], "texture": "#skin"}, "south": {"uv": [13,10,14,16], "texture": "#skin"}, "east": {"uv": [10,10,11,16], "texture": "#skin"}, "west": {"uv": [12,10,13,16], "texture": "#skin"}}},
+    {"from": [13,12,7], "to": [15,24,9], "faces": {"north": {"uv": [11,10,12,16], "texture": "#skin"}, "south": {"uv": [13,10,14,16], "texture": "#skin"}, "east": {"uv": [10,10,11,16], "texture": "#skin"}, "west": {"uv": [12,10,13,16], "texture": "#skin"}}},
+    {"from": [5,0,7], "to": [7,12,9], "faces": {"north": {"uv": [1,10,2,16], "texture": "#skin"}, "south": {"uv": [3,10,4,16], "texture": "#skin"}, "east": {"uv": [0,10,1,16], "texture": "#skin"}, "west": {"uv": [2,10,3,16], "texture": "#skin"}}},
+    {"from": [9,0,7], "to": [11,12,9], "faces": {"north": {"uv": [1,10,2,16], "texture": "#skin"}, "south": {"uv": [3,10,4,16], "texture": "#skin"}, "east": {"uv": [0,10,1,16], "texture": "#skin"}, "west": {"uv": [2,10,3,16], "texture": "#skin"}}}
+  ]
+}

@@ -96,7 +96,7 @@ final class TeleportDialogService implements CommandExecutor {
                     .action(callback((response, audience) -> request(audience, id)))
                     .build());
         }
-        buttons.add(ActionButton.builder(Component.text("Teleport by Name", MenuText.VALUE))
+        buttons.add(ActionButton.builder(MenuText.buttonLabel("Teleport by Name", MenuText.VALUE))
                 .tooltip(Component.text("Type an exact Minecraft name.", MenuText.LABEL))
                 .width(150)
                 .action(callback((response, audience) -> requestByName(

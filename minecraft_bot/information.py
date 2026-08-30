@@ -292,7 +292,7 @@ def commands_clans_embed(settings=None) -> discord.Embed:
         [
             (
                 "Everyday",
-                "> `/clans create <name>` — found a clan and lead it\n"
+                "> `/clans create <name>` — found a clan and own it\n"
                 "> `/clans accept` · `/clans decline` — answer an invite\n"
                 "> `/clans invite <player>` — invite an online player\n"
                 "> `/clans chat` — speak to your clan only\n"
@@ -302,12 +302,13 @@ def commands_clans_embed(settings=None) -> discord.Embed:
                 "> `/clans leave` — depart your clan",
             ),
             (
-                "If you lead one",
+                "If you manage one",
                 "> `/clans promote` · `/clans demote` — manage clan staff\n"
                 "> `/clans rename` · `/clans color` — change name or colour\n"
-                "> `/clans transfer <player>` — hand over leadership\n"
                 "> `/clans kick <player>` — remove a member\n"
                 "> `/clans upgrade` — spend the balance on levels or slots\n"
+                "> `/clans coowner <player>` — owner assigns the one co-owner slot\n"
+                "> `/clans transfer <player>` — owner hands over ownership\n"
                 "> `/clans disband` — dissolve the clan",
             ),
             (
@@ -377,8 +378,8 @@ def clans_embed() -> discord.Embed:
                 "Roles inside a clan",
                 "> **Member** — clan chat, the roster, and donate\n"
                 "> **Staff** — the above, plus invite, kick, and upgrades\n"
-                "> **Leader** — the above, plus rename, colour, promote, transfer "
-                "and disband",
+                "> **Co-Owner** — one slot; the above, plus rename, colour, promote, and staff management\n"
+                "> **Owner** — the above, plus assign co-owner, transfer ownership, and disband",
             ),
         ],
     )
@@ -407,7 +408,7 @@ def clans_levels_embed(settings=None) -> discord.Embed:
                 "> `/clans members` — every member, their role and Discord name\n"
                 "> `/clans balance` — the clan treasury\n"
                 "> `/clans donors` — who has given what, largest first\n"
-                "> `/clans upgrade` — leader or clan staff; spends the treasury\n"
+                "> `/clans upgrade` — owner, co-owner, or clan staff; spends the treasury\n"
                 "> \n"
                 "> **Donations are one way.** Nobody can take money back out, and "
                 "disbanding the clan destroys the balance with it.",
@@ -442,7 +443,7 @@ def clans_members_embed(settings=None) -> discord.Embed:
         "Clans — Roster",
         f"A new clan holds **{clans.STARTING_MEMBER_SLOTS} members**. Room for more "
         "is bought from the clan balance, the same way levels are.\n\n"
-        "> `/clans upgrade` — leader or clan staff; the roster track sits beside the level "
+        "> `/clans upgrade` — owner, co-owner, or clan staff; the roster track sits beside the level "
         "track\n"
         "> **One member at a time**, so the next slot is always in reach\n"
         f"> Every slot up to **{clans.MAX_MEMBER_SLOTS}** has to be earned\n"
@@ -457,7 +458,7 @@ def clans_members_embed(settings=None) -> discord.Embed:
 def clans_roles_embed(settings=None) -> discord.Embed:
     return _page(
         "Clans — Roles",
-        "Three ranks, each able to do everything the one below it can.",
+        "Four ranks, each able to do everything the one below it can.",
         [
             (
                 "Member",
@@ -472,18 +473,25 @@ def clans_roles_embed(settings=None) -> discord.Embed:
                 "> `/clans kick <player>` — remove a **member**",
             ),
             (
-                "Leader",
+                "Co-Owner",
                 "> Everything staff can, plus:\n"
                 "> `/clans rename` · `/clans color` — change name or colour\n"
                 "> `/clans promote` · `/clans demote` — manage clan staff\n"
+                "> Spend the treasury and remove clan staff",
+            ),
+            (
+                "Owner",
+                "> Everything the co-owner can, plus:\n"
+                "> `/clans coowner <player>` · `/clans uncoowner <player>` — manage the one slot\n"
                 "> `/clans transfer <player>` — hand over the clan\n"
                 "> `/clans disband` — close the clan for everyone",
             ),
             (
                 "Who can remove whom",
                 "> Staff can kick members\n"
-                "> **Only the leader can remove** another staff member\n"
-                "> The **leader cannot be kicked** by anyone\n"
+                "> Co-owner and owner can remove staff\n"
+                "> **Only the owner can remove** the co-owner\n"
+                "> The **owner cannot be kicked** by anyone\n"
                 "> \n"
                 "> *Promoting somebody puts them beyond everyone's reach but "
                 "yours.*",
@@ -499,7 +507,7 @@ def clans_joining_embed(settings=None) -> discord.Embed:
         [
             (
                 "Getting invited",
-                "> A leader or staff runs `/clans invite <player>`\n"
+                "> An owner, co-owner, or staff member runs `/clans invite <player>`\n"
                 "> You must be **online** to receive it\n"
                 f"> It expires after **{CLAN_INVITE_EXPIRY_MINUTES} minutes**\n"
                 "> \n"
@@ -507,7 +515,7 @@ def clans_joining_embed(settings=None) -> discord.Embed:
             ),
             (
                 "Starting your own",
-                "> `/clans create <name>` — founds it and makes you leader\n"
+                "> `/clans create <name>` — founds it and makes you owner\n"
                 "> The name must not already be taken\n"
                 "> `/clans list` — see what already exists\n"
                 "> \n"
@@ -530,14 +538,14 @@ def clans_leaving_embed(settings=None) -> discord.Embed:
         "How to depart a clan, hand it over, or close it entirely.",
         [
             (
-                "Members and staff",
+                "Members, staff, and co-owners",
                 "> `/clans leave` — immediate, no confirmation asked\n"
                 "> \n"
                 "> *You keep everything you own. Only the tag and the damage "
                 "immunity go with it.*",
             ),
             (
-                "The leader cannot simply leave",
+                "The owner cannot simply leave",
                 "> **Transfer or disband first** — there is no other way out\n"
                 "> \n"
                 "> *This stops a clan being stranded with a full roster and "
@@ -545,15 +553,15 @@ def clans_leaving_embed(settings=None) -> discord.Embed:
             ),
             (
                 "Handing it over",
-                "> `/clans transfer <player>` — they become leader\n"
-                "> You stay in the clan as **staff**, not removed\n"
+                "> `/clans transfer <player>` — they become owner\n"
+                "> If they were co-owner, you take that slot; otherwise you become staff\n"
                 "> \n"
                 "> *You keep invite and kick; renaming, promoting and disbanding "
                 "pass to them.*",
             ),
             (
                 "Disbanding",
-                "> `/clans disband` — leader only, cannot be undone\n"
+                "> `/clans disband` — owner only, cannot be undone\n"
                 "> \n"
                 "> *It closes the clan for everyone at once, not just for you.*",
             ),

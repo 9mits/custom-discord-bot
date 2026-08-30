@@ -64,6 +64,9 @@ PAPER_BUILD = 132
 PAPER_API = "https://fill.papermc.io/v3/projects/paper/versions/{v}/builds/{b}"
 
 GEYSER_API = "https://download.geysermc.org/v2/projects/{p}/versions/latest/builds/latest/downloads/spigot"
+GEYSER_BUILD_API = (
+    "https://download.geysermc.org/v2/projects/geyser/versions/latest/builds/latest"
+)
 LUCKPERMS_META = "https://metadata.luckperms.net/data/all"
 VIAVERSION_API = (
     "https://api.modrinth.com/v2/project/viaversion/version"
@@ -468,6 +471,31 @@ def read_json(url: str) -> dict:
         return json.loads(response.read())
 
 
+def refresh_geyser() -> dict:
+    """Install and record the current official Geyser build.
+
+    Transfer support moves with Bedrock releases, so keeping the first downloaded
+    jar forever eventually produces Geyser's misleading "outdated proxy" kick.
+    The official build metadata supplies the digest used before replacement.
+    """
+    metadata = read_json(GEYSER_BUILD_API)
+    download = metadata["downloads"]["spigot"]
+    destination = PLUGINS / "geyser.jar"
+    before = file_sha256(destination) if destination.is_file() else None
+    fetch_verified(GEYSER_API.format(p="geyser"), destination, download["sha256"])
+    if before != download["sha256"]:
+        log(f"installed current Geyser {metadata['version']} build {metadata['build']}")
+    else:
+        log(f"Geyser {metadata['version']} build {metadata['build']} is current")
+    return {
+        "version": metadata["version"],
+        "build": metadata["build"],
+        "path": str(destination.relative_to(REPO)),
+        "bytes": destination.stat().st_size,
+        "sha256": file_sha256(destination),
+    }
+
+
 def _home_of(root: Path) -> Path:
     """The directory holding bin/java.
 
@@ -592,6 +620,8 @@ def setup(_: argparse.Namespace) -> int:
         if not jar.exists():
             fetch(GEYSER_API.format(p=project), jar)
 
+    refresh_geyser()
+
     luckperms = PLUGINS / "LuckPerms.jar"
     if not luckperms.exists():
         fetch(read_json(LUCKPERMS_META)["downloads"]["bukkit"], luckperms)
@@ -644,6 +674,7 @@ def deploy(_: argparse.Namespace) -> int:
         log("run 'setup' first")
         return 1
     env = dict(os.environ, JAVA_HOME=str(java_home()))
+    geyser_build = refresh_geyser()
     log("building the plugin")
     result = subprocess.run(
         ["./gradlew", "clean", "shadowJar", "-q"], cwd=BRIDGE, env=env
@@ -715,6 +746,7 @@ def deploy(_: argparse.Namespace) -> int:
             "bytes": installed_mappings.stat().st_size,
             "sha256": file_sha256(installed_mappings),
         },
+        "geyser": geyser_build,
     }
     TEST_BUILD_MANIFEST.write_text(json.dumps(manifest, indent=2) + "\n")
     log(f"installed MGXAccessBridge {version} into {PLUGINS}")
@@ -729,6 +761,8 @@ def deploy(_: argparse.Namespace) -> int:
     log(f"  sha256 {file_sha256(installed_pack)}")
     log(f"installed {installed_mappings.name} custom-item mappings")
     log(f"  sha256 {file_sha256(installed_mappings)}")
+    log(f"Geyser {geyser_build['version']} build {geyser_build['build']}")
+    log(f"  sha256 {geyser_build['sha256']}")
     log(f"  manifest {TEST_BUILD_MANIFEST}")
     return 0
 

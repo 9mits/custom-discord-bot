@@ -67,7 +67,7 @@ final class HomesDialogService {
                     .action(callback((response, audience) -> openHome(audience, home)))
                     .build());
         }
-        buttons.add(ActionButton.builder(Component.text("New Home", MenuText.VALUE))
+        buttons.add(ActionButton.builder(MenuText.buttonLabel("New Home", MenuText.VALUE))
                 .tooltip(Component.text("Set a home where you are standing.", MenuText.LABEL))
                 .width(150)
                 .action(callback((response, audience) -> openNewHome(audience)))
@@ -292,7 +292,7 @@ final class HomesDialogService {
         // Search is an ordinary button. It used to be the dialog's exitAction, which is
         // what escape triggers — so escape ran a search instead of closing, and the
         // search itself only fired when the player was trying to leave.
-        buttons.add(ActionButton.builder(Component.text("Search", MenuText.VALUE))
+        buttons.add(ActionButton.builder(MenuText.buttonLabel("Search", MenuText.VALUE))
                 .tooltip(Component.text("Filter by what the button says.", MenuText.LABEL))
                 .width(150)
                 .action(callback((response, audience) -> openIconPicker(
@@ -324,7 +324,7 @@ final class HomesDialogService {
             java.util.function.Consumer<Player> run,
             net.kyori.adventure.text.format.TextColor colour
     ) {
-        return ActionButton.builder(Component.text(label, colour))
+        return ActionButton.builder(MenuText.buttonLabel(label, colour))
                 .tooltip(Component.text(tooltip, MenuText.LABEL))
                 .width(150)
                 .action(callback((response, audience) -> run.accept(audience)))

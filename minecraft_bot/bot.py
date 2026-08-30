@@ -1742,7 +1742,10 @@ class MinecraftAccessBot(commands.Bot):
                 "> Please try again shortly.",
                 error=True,
             )
-        needs_argument = action in {"kick", "promote", "demote", "transfer", "rename", "color", "invite"}
+        needs_argument = action in {
+            "kick", "promote", "demote", "coowner", "uncoowner", "transfer",
+            "rename", "color", "invite",
+        }
         if needs_argument and not argument:
             return info_embed(
                 "Missing Detail",
@@ -2488,6 +2491,16 @@ class MinecraftAccessBot(commands.Bot):
         @app_commands.describe(player="The clan staff member to demote.")
         async def clan_demote(interaction: discord.Interaction, player: str) -> None:
             await self._respond_with_clan_action(interaction, "demote", player)
+
+        @clan_group.command(name="coowner", description="Assign the clan's one co-owner slot.")
+        @app_commands.describe(player="The clan member to make co-owner.")
+        async def clan_coowner(interaction: discord.Interaction, player: str) -> None:
+            await self._respond_with_clan_action(interaction, "coowner", player)
+
+        @clan_group.command(name="uncoowner", description="Remove the clan co-owner.")
+        @app_commands.describe(player="The current clan co-owner.")
+        async def clan_uncoowner(interaction: discord.Interaction, player: str) -> None:
+            await self._respond_with_clan_action(interaction, "uncoowner", player)
 
         @clan_group.command(name="transfer", description="Transfer clan leadership.")
         @app_commands.describe(player="The clan member who should lead.")

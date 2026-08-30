@@ -37,12 +37,13 @@ final class ClanStore {
     static final int MAX_ALLIES = 3;
     /** Long enough for the other clan's leader to be fetched, short enough to expire. */
     static final long ALLY_OFFER_TTL_MILLIS = 10 * 60 * 1000L;
-    private static final int FORMAT_VERSION = 3;
+    private static final int FORMAT_VERSION = 4;
     private static final Pattern VALID_NAME = Pattern.compile("[A-Z0-9]{2,6}");
     private static final Pattern VALID_WARP_NAME = Pattern.compile("[a-z0-9_-]{1,16}");
 
     enum ClanRole {
         LEADER,
+        CO_OWNER,
         STAFF,
         MEMBER
     }
@@ -52,6 +53,7 @@ final class ClanStore {
             String name,
             int themeColor,
             UUID leader,
+            Optional<UUID> coOwner,
             Map<UUID, String> members,
             Set<UUID> staff,
             int level,
@@ -66,6 +68,9 @@ final class ClanStore {
         ClanRole roleOf(UUID playerId) {
             if (leader.equals(playerId)) {
                 return ClanRole.LEADER;
+            }
+            if (coOwner.filter(playerId::equals).isPresent()) {
+                return ClanRole.CO_OWNER;
             }
             return staff.contains(playerId) ? ClanRole.STAFF : ClanRole.MEMBER;
         }
@@ -142,6 +147,8 @@ final class ClanStore {
         String tag; // Read once when migrating data written by plugin 2.1.0.
         Integer themeColor;
         String leader;
+        /** One optional co-owner. Absent before format 4, which reads as no co-owner. */
+        String coOwner;
         Map<String, String> members = new LinkedHashMap<>();
         Set<String> staff = new LinkedHashSet<>();
         /** Absent on clans saved before 2.28.0, which read back as an unupgraded clan. */
@@ -426,7 +433,7 @@ final class ClanStore {
     }
 
     synchronized ClanView rename(UUID actor, String requestedName) throws IOException {
-        SavedClan clan = requireLeader(actor);
+        SavedClan clan = requireManager(actor);
         String name = normalizeName(requestedName);
         if (clan.name.equals(name)) {
             throw new ClanException("Your clan already uses that name.");
@@ -438,7 +445,7 @@ final class ClanStore {
     }
 
     synchronized ClanView setThemeColor(UUID actor, String requestedColor) throws IOException {
-        SavedClan clan = requireLeader(actor);
+        SavedClan clan = requireManager(actor);
         int themeColor = parseThemeColor(requestedColor);
         if (clan.themeColor == themeColor) {
             throw new ClanException("Your clan already uses that theme color.");
@@ -561,7 +568,7 @@ final class ClanStore {
         if (amount <= 0L) {
             throw new ClanException("Spend a whole dollar amount.");
         }
-        SavedClan clan = requireLeader(actor);
+        SavedClan clan = requireManager(actor);
         long held = treasuryOf(clan);
         if (held < amount) {
             throw new ClanException(
@@ -575,7 +582,7 @@ final class ClanStore {
 
     /** Reverses a failed cross-store bounty payment without changing donor history. */
     synchronized void restoreTreasurySpend(UUID actor, long amount) throws IOException {
-        SavedClan clan = requireLeader(actor);
+        SavedClan clan = requireManager(actor);
         try {
             clan.treasury = Math.addExact(treasuryOf(clan), amount);
         } catch (ArithmeticException exception) {
@@ -606,10 +613,13 @@ final class ClanStore {
     }
 
     synchronized ClanView setStaff(UUID actor, UUID target, boolean promoted) throws IOException {
-        SavedClan clan = requireLeader(actor);
+        SavedClan clan = requireManager(actor);
         requireMember(clan, target);
         if (actor.equals(target)) {
-            throw new ClanException("The clan leader already has every management permission.");
+            throw new ClanException("You already have every staff management permission.");
+        }
+        if (target.toString().equals(clan.coOwner)) {
+            throw new ClanException("The clan co-owner already has every staff permission.");
         }
         boolean changed = promoted
                 ? clan.staff.add(target.toString())
@@ -623,14 +633,48 @@ final class ClanStore {
         return view(clan);
     }
 
+    /** Assigns or clears the clan's single co-owner slot. Only the actual owner controls it. */
+    synchronized ClanView setCoOwner(UUID actor, UUID target, boolean promoted) throws IOException {
+        SavedClan clan = requireLeader(actor);
+        requireMember(clan, target);
+        if (actor.equals(target)) {
+            throw new ClanException("The clan owner cannot also occupy the co-owner slot.");
+        }
+        String targetId = target.toString();
+        if (promoted) {
+            if (targetId.equals(clan.coOwner)) {
+                throw new ClanException("That player is already the clan co-owner.");
+            }
+            if (clan.coOwner != null && !clan.coOwner.isBlank()) {
+                throw new ClanException("This clan already has its one co-owner.");
+            }
+            clan.staff.remove(targetId);
+            clan.coOwner = targetId;
+        } else {
+            if (!targetId.equals(clan.coOwner)) {
+                throw new ClanException("That player is not the clan co-owner.");
+            }
+            clan.coOwner = null;
+        }
+        persist();
+        return view(clan);
+    }
+
     synchronized ClanView transfer(UUID actor, UUID target) throws IOException {
         SavedClan clan = requireLeader(actor);
         requireMember(clan, target);
         if (actor.equals(target)) {
-            throw new ClanException("You are already the clan leader.");
+            throw new ClanException("You are already the clan owner.");
         }
-        clan.staff.remove(target.toString());
-        clan.staff.add(actor.toString());
+        String oldLeader = actor.toString();
+        String targetId = target.toString();
+        clan.staff.remove(targetId);
+        if (targetId.equals(clan.coOwner)) {
+            // A co-owner promoted to owner leaves the one co-owner slot to the old owner.
+            clan.coOwner = oldLeader;
+        } else {
+            clan.staff.add(oldLeader);
+        }
         clan.leader = target.toString();
         persist();
         return view(clan);
@@ -641,18 +685,26 @@ final class ClanStore {
         requireMember(clan, target);
         if (actor.equals(target)) {
             if (clan.leader.equals(actor.toString())) {
-                throw new ClanException("Transfer leadership or disband the clan before leaving.");
+                throw new ClanException("Transfer ownership or disband the clan before leaving.");
             }
             throw new ClanException("Use /clans leave to leave your clan.");
         }
         if (clan.leader.equals(target.toString())) {
-            throw new ClanException("The clan leader cannot be kicked.");
+            throw new ClanException("The clan owner cannot be kicked.");
         }
-        if (!clan.leader.equals(actor.toString()) && clan.staff.contains(target.toString())) {
-            throw new ClanException("Only the clan leader can remove clan staff.");
+        boolean actorOwns = clan.leader.equals(actor.toString());
+        boolean actorCoOwns = actor.toString().equals(clan.coOwner);
+        if (target.toString().equals(clan.coOwner) && !actorOwns) {
+            throw new ClanException("Only the clan owner can remove the co-owner.");
+        }
+        if (clan.staff.contains(target.toString()) && !actorOwns && !actorCoOwns) {
+            throw new ClanException("Only the clan owner or co-owner can remove clan staff.");
         }
         String name = clan.members.remove(target.toString());
         clan.staff.remove(target.toString());
+        if (target.toString().equals(clan.coOwner)) {
+            clan.coOwner = null;
+        }
         memberIndex.remove(target);
         persist();
         return name;
@@ -661,11 +713,14 @@ final class ClanStore {
     synchronized String leave(UUID player) throws IOException {
         SavedClan clan = requireClanForMember(player);
         if (clan.leader.equals(player.toString())) {
-            throw new ClanException("Transfer leadership or disband the clan before leaving.");
+            throw new ClanException("Transfer ownership or disband the clan before leaving.");
         }
         String name = clan.name;
         clan.members.remove(player.toString());
         clan.staff.remove(player.toString());
+        if (player.toString().equals(clan.coOwner)) {
+            clan.coOwner = null;
+        }
         memberIndex.remove(player);
         persist();
         return name;
@@ -844,6 +899,17 @@ final class ClanStore {
                 if (clan.staff == null) {
                     clan.staff = new LinkedHashSet<>();
                 }
+                if (clan.coOwner != null && clan.coOwner.isBlank()) {
+                    clan.coOwner = null;
+                    migrated = true;
+                }
+                if (clan.coOwner != null) {
+                    UUID coOwner = UUID.fromString(clan.coOwner);
+                    if (coOwner.equals(leader) || !clan.members.containsKey(clan.coOwner)) {
+                        throw new IOException("A clan co-owner must be a non-owner clan member");
+                    }
+                    migrated |= clan.staff.remove(clan.coOwner);
+                }
                 clan.staff.remove(leader.toString());
                 clan.staff.removeIf(member -> !clan.members.containsKey(member));
                 for (Map.Entry<String, String> member : clan.members.entrySet()) {
@@ -915,8 +981,19 @@ final class ClanStore {
 
     private SavedClan requireStaff(UUID actor) {
         SavedClan clan = requireClanForMember(actor);
-        if (!clan.leader.equals(actor.toString()) && !clan.staff.contains(actor.toString())) {
+        if (!clan.leader.equals(actor.toString())
+                && !actor.toString().equals(clan.coOwner)
+                && !clan.staff.contains(actor.toString())) {
             throw new ClanException("Only clan staff can do that.");
+        }
+        return clan;
+    }
+
+    /** Owner-equivalent day-to-day management; destructive ownership changes stay owner-only. */
+    private SavedClan requireManager(UUID actor) {
+        SavedClan clan = requireClanForMember(actor);
+        if (!clan.leader.equals(actor.toString()) && !actor.toString().equals(clan.coOwner)) {
+            throw new ClanException("Only the clan owner or co-owner can do that.");
         }
         return clan;
     }
@@ -924,7 +1001,7 @@ final class ClanStore {
     private SavedClan requireLeader(UUID actor) {
         SavedClan clan = requireClanForMember(actor);
         if (!clan.leader.equals(actor.toString())) {
-            throw new ClanException("Only the clan leader can do that.");
+            throw new ClanException("Only the clan owner can do that.");
         }
         return clan;
     }
@@ -1074,6 +1151,7 @@ final class ClanStore {
                 clan.name,
                 clan.themeColor,
                 UUID.fromString(clan.leader),
+                Optional.ofNullable(clan.coOwner).map(UUID::fromString),
                 Map.copyOf(members),
                 Set.copyOf(staff),
                 levelOf(clan),

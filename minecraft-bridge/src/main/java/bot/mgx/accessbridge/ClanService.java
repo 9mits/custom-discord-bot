@@ -47,9 +47,14 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
             "help", "invite", "info", "list", "members", "kick", "chat", "leave",
             "menu", "donate", "balance", "donors", "upgrade", "ally", "unally", "allies", "warp"
     );
-    private static final List<String> LEADER_SUBCOMMANDS = List.of(
+    private static final List<String> CO_OWNER_SUBCOMMANDS = List.of(
             "help", "invite", "info", "list", "rename", "color", "promote", "demote",
-            "transfer", "kick", "chat", "disband", "menu", "donate", "balance", "donors", "upgrade",
+            "kick", "chat", "leave", "menu", "donate", "balance", "donors", "upgrade",
+            "members", "ally", "unally", "allies", "warp"
+    );
+    private static final List<String> LEADER_SUBCOMMANDS = List.of(
+            "help", "invite", "info", "list", "rename", "color", "promote", "demote", "coowner",
+            "uncoowner", "transfer", "kick", "chat", "disband", "menu", "donate", "balance", "donors", "upgrade",
             "members", "ally", "unally", "allies", "warp"
     );
 
@@ -128,6 +133,8 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 case "color", "colour", "theme" -> color(player, remainder(args, 1));
                 case "promote" -> setStaff(player, remainder(args, 1), true);
                 case "demote" -> setStaff(player, remainder(args, 1), false);
+                case "coowner" -> setCoOwner(player, remainder(args, 1), true);
+                case "uncoowner" -> setCoOwner(player, remainder(args, 1), false);
                 case "transfer", "leader" -> transfer(player, remainder(args, 1));
                 case "kick", "remove" -> kick(player, remainder(args, 1));
                 case "ally", "alliance" -> ally(player, remainder(args, 1));
@@ -177,7 +184,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         report(player, "clan_create", "Founded the clan " + clan.name())
                 .detail("clan", clan.name())
                 .record();
-        success(player, "Created [" + clan.name() + "]. You are its leader.");
+        success(player, "Created [" + clan.name() + "]. You are its owner.");
     }
 
     private void invite(Player player, String targetName) throws IOException {
@@ -317,7 +324,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void rename(Player player, String name) throws IOException {
-        String previousName = leaderClan(player).name();
+        String previousName = managerClan(player).name();
         if (name.isBlank()) {
             throw new ClanStore.ClanException("Usage: /clans rename <new name>");
         }
@@ -331,7 +338,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void color(Player player, String requestedColor) throws IOException {
-        leaderClan(player);
+        managerClan(player);
         if (requestedColor.isBlank()) {
             throw new ClanStore.ClanException("Usage: /clans color <color|#RRGGBB>");
         }
@@ -350,7 +357,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     }
 
     private void setStaff(Player player, String targetName, boolean promoted) throws IOException {
-        ClanStore.ClanView clan = leaderClan(player);
+        ClanStore.ClanView clan = managerClan(player);
         if (targetName.isBlank()) {
             throw new ClanStore.ClanException(
                     promoted ? "Usage: /clans promote <player>" : "Usage: /clans demote <player>"
@@ -370,6 +377,28 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         ));
     }
 
+    private void setCoOwner(Player player, String targetName, boolean promoted) throws IOException {
+        ClanStore.ClanView clan = leaderClan(player);
+        if (targetName.isBlank()) {
+            throw new ClanStore.ClanException(
+                    promoted ? "Usage: /clans coowner <player>" : "Usage: /clans uncoowner <player>"
+            );
+        }
+        UUID target = member(clan, targetName);
+        ClanStore.ClanView updated = store.setCoOwner(player.getUniqueId(), target, promoted);
+        String name = updated.members().get(target);
+        report(player, promoted ? "clan_coowner" : "clan_uncoowner",
+                (promoted ? "Made " : "Removed ") + name
+                        + (promoted ? " co-owner of " : " as co-owner of ") + updated.name())
+                .detail("clan", updated.name())
+                .detail("target", name)
+                .record();
+        broadcast(updated, Component.text(
+                name + (promoted ? " is now the clan co-owner." : " is no longer the clan co-owner."),
+                LIGHT_ORANGE
+        ));
+    }
+
     private void transfer(Player player, String targetName) throws IOException {
         ClanStore.ClanView clan = leaderClan(player);
         if (targetName.isBlank()) {
@@ -383,7 +412,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 .detail("target", updated.members().get(target))
                 .record();
         broadcast(updated, Component.text(
-                updated.members().get(target) + " is now the clan leader.", LIGHT_ORANGE
+                updated.members().get(target) + " is now the clan owner.", LIGHT_ORANGE
         ));
     }
 
@@ -485,7 +514,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
             player.sendMessage(help("/clans balance | donors", "What the clan holds, and who gave it"));
             player.sendMessage(help("/clans allies", "Clans you cannot damage"));
             player.sendMessage(help("/clans warp [name]", "Open or use the shared warp directory"));
-            if (role == ClanStore.ClanRole.LEADER || role == ClanStore.ClanRole.STAFF) {
+            if (role != ClanStore.ClanRole.MEMBER) {
                 player.sendMessage(help("/clans upgrade", "Spend the balance on levels or slots"));
                 player.sendMessage(help("/clans invite <player>", "Invite an online player"));
                 player.sendMessage(help("/clans kick <player>", "Remove a clan member"));
@@ -493,10 +522,15 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
                 player.sendMessage(help("/clans unally <clan>", "End an alliance"));
                 player.sendMessage(help("/clans warp set | delete <name>", "Manage shared locations"));
             }
-            if (role == ClanStore.ClanRole.LEADER) {
+            if (role == ClanStore.ClanRole.LEADER || role == ClanStore.ClanRole.CO_OWNER) {
                 player.sendMessage(help("/clans rename <name>", "Change your clan name"));
                 player.sendMessage(help("/clans color <color|#hex>", "Change your clan theme"));
                 player.sendMessage(help("/clans promote | demote <player>", "Manage clan staff"));
+                if (role == ClanStore.ClanRole.LEADER) {
+                    player.sendMessage(help("/clans coowner | uncoowner <player>", "Manage the one co-owner slot"));
+                }
+            }
+            if (role == ClanStore.ClanRole.LEADER) {
                 player.sendMessage(help("/clans transfer <player>", "Transfer leadership"));
                 player.sendMessage(help("/clans disband confirm", "Permanently remove your clan"));
             } else {
@@ -630,7 +664,8 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         if (action.equals("invite") || action.equals("add")) {
             return partial(args[1], Bukkit.getOnlinePlayers().stream().map(Player::getName).toList());
         }
-        if (List.of("promote", "demote", "transfer", "leader", "kick", "remove").contains(action)) {
+        if (List.of("promote", "demote", "coowner", "uncoowner", "transfer", "leader", "kick", "remove")
+                .contains(action)) {
             return store.clanOf(player.getUniqueId())
                     .map(clan -> partial(args[1], new ArrayList<>(clan.members().values())))
                     .orElse(List.of());
@@ -730,7 +765,16 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
     private ClanStore.ClanView leaderClan(Player player) {
         ClanStore.ClanView clan = ownClan(player);
         if (clan.roleOf(player.getUniqueId()) != ClanStore.ClanRole.LEADER) {
-            throw new ClanStore.ClanException("Only the clan leader can do that.");
+            throw new ClanStore.ClanException("Only the clan owner can do that.");
+        }
+        return clan;
+    }
+
+    private ClanStore.ClanView managerClan(Player player) {
+        ClanStore.ClanView clan = ownClan(player);
+        ClanStore.ClanRole role = clan.roleOf(player.getUniqueId());
+        if (role != ClanStore.ClanRole.LEADER && role != ClanStore.ClanRole.CO_OWNER) {
+            throw new ClanStore.ClanException("Only the clan owner or co-owner can do that.");
         }
         return clan;
     }
@@ -739,6 +783,7 @@ final class ClanService implements CommandExecutor, TabCompleter, Listener {
         return store.clanOf(player.getUniqueId())
                 .map(clan -> switch (clan.roleOf(player.getUniqueId())) {
                     case LEADER -> LEADER_SUBCOMMANDS;
+                    case CO_OWNER -> CO_OWNER_SUBCOMMANDS;
                     case STAFF -> STAFF_SUBCOMMANDS;
                     case MEMBER -> MEMBER_SUBCOMMANDS;
                 })

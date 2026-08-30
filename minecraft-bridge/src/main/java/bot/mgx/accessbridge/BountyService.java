@@ -338,8 +338,11 @@ final class BountyService implements CommandExecutor, TabCompleter, Listener {
             ClanStore.ClanView clan = clans.clanOf(player.getUniqueId()).orElseThrow(
                     () -> new IllegalArgumentException("You are not in a clan.")
             );
-            if (clan.roleOf(player.getUniqueId()) != ClanStore.ClanRole.LEADER) {
-                throw new IllegalArgumentException("Only the clan owner can spend the treasury on a bounty.");
+            ClanStore.ClanRole role = clan.roleOf(player.getUniqueId());
+            if (role != ClanStore.ClanRole.LEADER && role != ClanStore.ClanRole.CO_OWNER) {
+                throw new IllegalArgumentException(
+                        "Only the clan owner or co-owner can spend the treasury on a bounty."
+                );
             }
             if (clan.members().containsKey(target.getUniqueId())) {
                 throw new IllegalArgumentException("You cannot put a bounty on a clan member.");

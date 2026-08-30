@@ -129,7 +129,7 @@ final class ClanDirectoryService {
     }
 
     private ActionButton button(String label, java.util.function.Consumer<Player> run) {
-        return ActionButton.builder(Component.text(label, NamedTextColor.WHITE))
+        return ActionButton.builder(MenuText.buttonLabel(label, NamedTextColor.WHITE))
                 .width(150)
                 .action(callback((response, audience) -> run.accept(audience)))
                 .build();

@@ -90,8 +90,8 @@ final class PlayerSettingsDialogService {
         for (PlayerSettingsStore.Category category : PlayerSettingsStore.Category.values()) {
             categories.add(ActionButton.builder(Component.empty()
                             .append(MenuText.sprite(category.sprite()))
-                            .append(Component.text(" " + category.label(), NamedTextColor.WHITE)))
-                    .tooltip(Component.text("Open " + category.label() + " settings", NamedTextColor.GRAY))
+                            .append(MenuText.buttonLabel(" " + category.label(), NamedTextColor.WHITE)))
+                    .tooltip(MenuText.actionHint("Open " + category.label() + " settings"))
                     .width(200)
                     .action(callback((response, audience) -> openCategory(audience, category)))
                     .build());
@@ -119,14 +119,12 @@ final class PlayerSettingsDialogService {
         }
         if (category == PlayerSettingsStore.Category.AUDIO) {
             int volume = store.musicVolume(player.getUniqueId());
-            buttons.add(ActionButton.builder(Component.text(
+            buttons.add(ActionButton.builder(MenuText.buttonLabel(
                             "Synced Music Volume: " + volume + "%",
-                            volume == 0 ? NamedTextColor.RED : NamedTextColor.AQUA,
-                            TextDecoration.BOLD
+                            volume == 0 ? NamedTextColor.RED : NamedTextColor.AQUA
                     ))
-                    .tooltip(Component.text(
-                            "Separate from Minecraft Music. Click to cycle 100 / 75 / 50 / 25 / 0.",
-                            NamedTextColor.GRAY
+                    .tooltip(MenuText.actionHint(
+                            "Separate from Minecraft Music. Click to cycle 100 / 75 / 50 / 25 / 0."
                     ))
                     .width(310)
                     .action(callback((response, audience) -> cycleMusicVolume(audience)))
@@ -152,14 +150,14 @@ final class PlayerSettingsDialogService {
             String description,
             java.util.function.Consumer<Player> action
     ) {
-        Component text = Component.text(label + ": ", NamedTextColor.WHITE)
+        Component text = MenuText.buttonLabel(label + ": ", NamedTextColor.WHITE)
                 .append(Component.text(
                         enabled ? "ON" : "OFF",
                         enabled ? NamedTextColor.GREEN : NamedTextColor.RED,
                         TextDecoration.BOLD
                 ));
         return ActionButton.builder(text)
-                .tooltip(Component.text(description, NamedTextColor.GRAY))
+                .tooltip(MenuText.actionHint(description))
                 .width(310)
                 .action(callback((response, audience) -> action.accept(audience)))
                 .build();

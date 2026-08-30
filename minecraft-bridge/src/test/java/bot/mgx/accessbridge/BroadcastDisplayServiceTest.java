@@ -3,6 +3,8 @@ package bot.mgx.accessbridge;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -63,5 +65,15 @@ class BroadcastDisplayServiceTest {
     @Test
     void unrelatedCommandIsIgnored() {
         assertNull(BroadcastDisplayService.parse("/msg player hello"));
+    }
+
+    @Test
+    void discordBroadcastUsesTheDisplayServiceInsteadOfEssentialsDispatch() throws Exception {
+        String plugin = Files.readString(Path.of(
+                "src/main/java/bot/mgx/accessbridge/MGXAccessBridge.java"
+        ));
+
+        assertTrue(plugin.contains("toolKey.equals(\"broadcast\")"));
+        assertTrue(plugin.contains("broadcastDisplayService.showGlobal"));
     }
 }

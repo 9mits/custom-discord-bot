@@ -206,7 +206,7 @@ class MinecraftBotPolicyTests(unittest.TestCase):
 
         clan_commands = {command.name for command in member_commands["clan"].commands}
         self.assertLessEqual(
-            {"view", "invite", "kick", "promote", "demote", "transfer",
+            {"view", "invite", "kick", "promote", "demote", "coowner", "uncoowner", "transfer",
              "rename", "color", "disband", "leave"},
             clan_commands,
         )
@@ -2441,9 +2441,9 @@ class MinecraftInformationPanelTests(unittest.TestCase):
         self.assertIn(str(self.information.CLAN_MAX_MEMBERS), described)
         self.assertIn(str(self.information.CLAN_INVITE_EXPIRY_MINUTES), described)
         self.assertIn("online", described)
-        self.assertRegex(described, r"(?i)leader cannot be kicked")
-        self.assertRegex(described, r"(?i)only the leader can\s+remove")
-        self.assertIn("as **staff**", described)
+        self.assertRegex(described, r"(?i)owner cannot be kicked")
+        self.assertRegex(described, r"(?i)only the owner can\s+remove")
+        self.assertIn("otherwise you become staff", described)
 
     def test_perk_figures_match_the_plugin_that_applies_them(self):
         # The bridge is authoritative at runtime; copy quoting a stale figure is
@@ -3594,7 +3594,24 @@ class MinecraftCapabilityTests(unittest.TestCase):
     def test_every_clan_action_names_roles_that_exist(self):
         for action, (_label, roles) in self.capabilities.CLAN_ACTIONS.items():
             with self.subTest(action=action):
-                self.assertTrue(set(roles) <= {"leader", "staff", "member"})
+                self.assertTrue(set(roles) <= {"leader", "co_owner", "staff", "member"})
+
+    def test_the_co_owner_has_management_but_not_destructive_ownership_actions(self):
+        snapshot = {
+            "players": {
+                "co-owner": {
+                    "clan": "LUCKY", "clan_role": "co_owner",
+                    "clan_members": 4, "staff_tools": [],
+                }
+            }
+        }
+        caps = self.capabilities.capabilities_for(snapshot, "co-owner")
+
+        self.assertTrue(caps.may("promote"))
+        self.assertTrue(caps.may("rename"))
+        self.assertFalse(caps.may("coowner"))
+        self.assertFalse(caps.may("transfer"))
+        self.assertFalse(caps.may("disband"))
 
 
 class MinecraftClanActionTests(unittest.IsolatedAsyncioTestCase):

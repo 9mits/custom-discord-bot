@@ -118,8 +118,8 @@ final class StatsDialogService implements CommandExecutor, org.bukkit.event.List
                     .build());
         }
         buttons.add(ActionButton.builder(
-                        Component.text("+ Look Up a Player", MenuText.VALUE))
-                .tooltip(Component.text("Type a name, online or not.", MenuText.LABEL))
+                        MenuText.buttonLabel("+ Look Up a Player", MenuText.VALUE))
+                .tooltip(MenuText.actionHint("Type a name, online or not."))
                 .width(150)
                 .action(callback((response, audience) -> openLookup(audience)))
                 .build());
@@ -232,15 +232,18 @@ final class StatsDialogService implements CommandExecutor, org.bukkit.event.List
                 DialogBody.plainMessage(MenuText.stat(
                         "Money", "item/emerald", EconomyFormat.dollars(profile.money())
                 ), 400),
-                DialogBody.plainMessage(MenuText.stat("Kills", compact(profile.playerKills())), 400),
-                DialogBody.plainMessage(MenuText.stat("Deaths", compact(profile.deaths())), 400),
+                DialogBody.plainMessage(MenuText.stat("Kills", "item/diamond_sword",
+                        compact(profile.playerKills())), 400),
+                DialogBody.plainMessage(MenuText.stat("Deaths", "item/rotten_flesh",
+                        compact(profile.deaths())), 400),
                 DialogBody.plainMessage(
-                        MenuText.stat("Playtime", playtime(profile.playTimeTicks())), 400
+                        MenuText.stat("Playtime", "item/clock_00",
+                                playtime(profile.playTimeTicks())), 400
                 )
         );
         List<ActionButton> buttons = List.of(
-                ActionButton.builder(Component.text("View Full Profile", NamedTextColor.WHITE))
-                        .tooltip(Component.text("Every number we keep.", MenuText.LABEL))
+                ActionButton.builder(MenuText.buttonLabel("View Full Profile", NamedTextColor.WHITE))
+                        .tooltip(MenuText.actionHint("Every number we keep."))
                         .width(150)
                         .action(callback((response, audience) ->
                                 openProfile(audience, id, profile.name(),

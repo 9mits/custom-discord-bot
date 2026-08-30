@@ -106,6 +106,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private ClanBattleService clanBattles;
     private TeleportMenuService teleportMenus;
     private AirdropService airdrops;
+    private AmethystBlockEventService amethystBlockEvent;
+    private AmethystEventCoordinator amethystEvents;
+    private AmethystMobService amethystMobs;
     private AutoPayService autoPayService;
     private ServerEventService serverEventService;
     private BlogWatchService blogWatchService;
@@ -408,6 +411,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         airdrops = new AirdropService(
                 this, crateItems, cosmeticStore, cosmeticItems, amethystProgress, playerSettings
         );
+        amethystBlockEvent = new AmethystBlockEventService(this, crateItems, playerSettings);
+        amethystEvents = new AmethystEventCoordinator(this, airdrops, amethystBlockEvent);
+        amethystMobs = new AmethystMobService(this, crateItems);
         getCommand("wardrobe").setExecutor(wardrobeService);
         getCommand("wardrobe").setTabCompleter(wardrobeService);
         getCommand("crate").setExecutor(crates);
@@ -419,6 +425,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         getServer().getPluginManager().registerEvents(crates, this);
         getServer().getPluginManager().registerEvents(clanBattles, this);
         getServer().getPluginManager().registerEvents(airdrops, this);
+        getServer().getPluginManager().registerEvents(amethystBlockEvent, this);
+        getServer().getPluginManager().registerEvents(amethystMobs, this);
         getServer().getPluginManager().registerEvents(specialItems, this);
         getServer().getPluginManager().registerEvents(amethystItems, this);
         getServer().getPluginManager().registerEvents(enderChests, this);
@@ -641,6 +649,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 updateNotices,
                 crates,
                 airdrops,
+                amethystBlockEvent,
                 amethystProgress,
                 clanBattles
         );
@@ -653,7 +662,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         activityLog.start();
         crates.start();
         clanBattles.start();
-        airdrops.start();
+        amethystEvents.start();
+        amethystMobs.start();
         amethystItems.start();
         crateDisplays.refresh();
         cosmeticEffects.start();
@@ -722,8 +732,11 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         if (crates != null) {
             crates.stop();
         }
-        if (airdrops != null) {
-            airdrops.stop();
+        if (amethystEvents != null) {
+            amethystEvents.stop();
+        }
+        if (amethystMobs != null) {
+            amethystMobs.stop();
         }
         if (amethystItems != null) {
             amethystItems.stop();
@@ -858,7 +871,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 refreshClans();
                 return String.format("Clan colour set to #%06X.", recoloured.themeColor());
             }
-            case "kick", "promote", "demote", "transfer" -> {
+            case "kick", "promote", "demote", "coowner", "uncoowner", "transfer" -> {
                 ClanStore.ClanView view = clan.orElseThrow(
                         () -> new ClanStore.ClanException("You are not in a clan.")
                 );
@@ -875,9 +888,17 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                         clanStore.setStaff(actor, target, false);
                         yield argument + " is no longer clan staff.";
                     }
+                    case "coowner" -> {
+                        clanStore.setCoOwner(actor, target, true);
+                        yield argument + " is now the clan co-owner.";
+                    }
+                    case "uncoowner" -> {
+                        clanStore.setCoOwner(actor, target, false);
+                        yield argument + " is no longer the clan co-owner.";
+                    }
                     default -> {
                         clanStore.transfer(actor, target);
-                        yield argument + " now leads the clan.";
+                        yield argument + " now owns the clan.";
                     }
                 };
                 refreshClans();
@@ -929,7 +950,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             java.util.concurrent.CompletableFuture<String> dispatched =
                     new java.util.concurrent.CompletableFuture<>();
             getServer().getScheduler().runTask(this, () -> {
-                boolean ran = getServer().dispatchCommand(getServer().getConsoleSender(), finalCommand);
+                boolean ran = toolKey.equals("broadcast")
+                        && broadcastDisplayService != null
+                        ? broadcastDisplayService.showGlobal(getServer().getConsoleSender(), safeReason)
+                        : getServer().dispatchCommand(getServer().getConsoleSender(), finalCommand);
                 getLogger().info("Discord ran staff tool '" + toolKey + "' as " + actor);
                 dispatched.complete(ran
                         ? StaffTools.confirmation(toolKey, safeTarget, safeReason, safeDuration)

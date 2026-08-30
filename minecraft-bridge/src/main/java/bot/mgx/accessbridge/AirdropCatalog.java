@@ -9,6 +9,7 @@ import java.util.random.RandomGenerator;
 final class AirdropCatalog {
     private static final int RARITY_WEIGHT = 10_000;
     private static final int COSMETIC_WEIGHT = 10_000;
+    private static final int SHARD_WEIGHT = 2_000;
 
     enum Rarity {
         COMMON("Common", 5_500, 64, 96, 6, 0),
@@ -75,7 +76,8 @@ final class AirdropCatalog {
     record Contents(
             int keys,
             List<MaterialLoot> materialLoot,
-            Optional<String> cosmeticId
+            Optional<String> cosmeticId,
+            int shards
     ) {
         Contents {
             materialLoot = List.copyOf(materialLoot);
@@ -163,7 +165,8 @@ final class AirdropCatalog {
         Optional<String> cosmetic = random.nextInt(COSMETIC_WEIGHT) < rarity.cosmeticWeight()
                 ? Optional.of(randomCosmetic(random))
                 : Optional.empty();
-        return new Contents(keys, loot, cosmetic);
+        int shards = random.nextInt(SHARD_WEIGHT) == 0 ? 1 : 0;
+        return new Contents(keys, loot, cosmetic, shards);
     }
 
     static List<String> cosmeticIds() {

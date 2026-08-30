@@ -139,11 +139,11 @@ final class Screens {
                         .canCloseWithEscape(true)
                         .build())
                 .type(DialogType.confirmation(
-                        ActionButton.builder(Component.text(confirmLabel, confirmColour))
+                        ActionButton.builder(MenuText.buttonLabel(confirmLabel, confirmColour))
                                 .width(150)
                                 .action(callback(onConfirm))
                                 .build(),
-                        ActionButton.builder(Component.text("Cancel", MenuText.LABEL))
+                        ActionButton.builder(MenuText.buttonLabel("Cancel", MenuText.LABEL))
                                 .width(150)
                                 .action(callback((response, audience) -> onCancel.accept(audience)))
                                 .build()
@@ -202,17 +202,17 @@ final class Screens {
     /** Back to the caller, or to the main menu when a command opened this directly. */
     private static ActionButton back(Consumer<Player> back) {
         Consumer<Player> target = back == null ? Screens::home : back;
-        return ActionButton.builder(Component.text("Back", MenuText.LABEL))
-                .tooltip(Component.text(back == null
+        return ActionButton.builder(MenuText.buttonLabel("Back", MenuText.LABEL))
+                .tooltip(MenuText.actionHint(back == null
                         ? "Return to the main menu."
-                        : "Return to where you came from.", MenuText.LABEL))
+                        : "Return to where you came from."))
                 .width(150)
                 .action(callback((response, audience) -> target.accept(audience)))
                 .build();
     }
 
     private static ActionButton close() {
-        return ActionButton.builder(Component.text("Close", MenuText.LABEL))
+        return ActionButton.builder(MenuText.buttonLabel("Close", MenuText.LABEL))
                 .width(150)
                 .action(callback((response, audience) -> audience.closeDialog()))
                 .build();
@@ -220,15 +220,15 @@ final class Screens {
 
     static ActionButton button(String sprite, String label, String tooltip, Consumer<Player> run) {
         ActionButton.Builder builder = ActionButton.builder(sprite == null
-                        ? Component.text(label, NamedTextColor.WHITE)
+                        ? MenuText.buttonLabel(label, NamedTextColor.WHITE)
                         : Component.empty()
                                 .append(MenuText.sprite(sprite))
-                                .append(Component.text(" " + label, NamedTextColor.WHITE)))
+                                .append(MenuText.buttonLabel(" " + label, NamedTextColor.WHITE)))
                 .width(150)
                 .action(callback((response, audience) -> run.accept(audience)));
         return tooltip == null || tooltip.isBlank()
                 ? builder.build()
-                : builder.tooltip(Component.text(tooltip, MenuText.LABEL)).build();
+                : builder.tooltip(MenuText.actionHint(tooltip)).build();
     }
 
     static DialogAction callback(BiConsumer<DialogResponseView, Player> callback) {
