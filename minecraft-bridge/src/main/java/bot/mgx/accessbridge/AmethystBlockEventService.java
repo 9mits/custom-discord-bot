@@ -480,11 +480,12 @@ final class AmethystBlockEventService implements Listener {
                     plugin, this::frame, 1L, 5L
             );
             spawnArrival(active);
-            announce(Component.text("AMETHYST EVENT » ", AMETHYST, TextDecoration.BOLD)
-                    .append(Component.text("A Huge Amethyst Block appeared at "
-                            + coordinates(anchor) + " in the " + worldName(world)
-                            + "! Mine the solid block together before 30:00 runs out.",
-                            NamedTextColor.WHITE)));
+            announce(EventBanner.chat(
+                    "Huge Amethyst Block", AMETHYST, worldName(world),
+                    anchor.getBlockX(), anchor.getBlockY(), anchor.getBlockZ(),
+                    "Mine it together within",
+                    AirdropService.formatCountdown(active.expiresAt - System.currentTimeMillis())
+            ));
             plugin.getLogger().info("Spawned solid " + STRUCTURE_SIZE + "x" + STRUCTURE_SIZE
                     + "x" + STRUCTURE_SIZE + " Huge Amethyst Block at " + coordinates(anchor)
                     + " in " + worldName(world));
@@ -997,10 +998,12 @@ final class AmethystBlockEventService implements Listener {
     }
 
     private Component bossTitle(ActiveBlock block) {
-        return Component.text("HUGE AMETHYST BLOCK • " + coordinates(block.anchor)
-                        + " • " + Math.max(0L, Math.round(block.health)) + " HP • "
-                        + AirdropService.formatCountdown(block.expiresAt - System.currentTimeMillis()),
-                AMETHYST, TextDecoration.BOLD);
+        return EventBanner.bossBar(
+                "Huge Amethyst Block", AMETHYST,
+                block.anchor.getBlockX(), block.anchor.getBlockY(), block.anchor.getBlockZ(),
+                EventBanner.number(Math.max(0L, Math.round(block.health))) + " HP",
+                AirdropService.formatCountdown(block.expiresAt - System.currentTimeMillis())
+        );
     }
 
     private static Component countdownText(long remaining) {

@@ -767,15 +767,15 @@ final class AirdropService implements Listener {
     }
 
     private void announceSpawn(ActiveAirdrop drop) {
-        String where = coordinates(drop.chest);
-        String world = worldName(drop.chest.getWorld());
-        Component announcement = Component.text(
-                        "AIRDROP » ", AMETHYST, TextDecoration.BOLD
-                )
-                .append(Component.text(drop.rarity.displayName() + " Amethyst Airdrop",
-                        rarityColour(drop.rarity), TextDecoration.BOLD))
-                .append(Component.text(" at " + where + " in the " + world + "!",
-                        NamedTextColor.WHITE));
+        Location at = drop.chest;
+        Component announcement = EventBanner.chat(
+                drop.rarity.displayName() + " Amethyst Airdrop",
+                rarityColour(drop.rarity),
+                worldName(drop.chest.getWorld()),
+                at.getBlockX(), at.getBlockY(), at.getBlockZ(),
+                "Claim it within",
+                formatCountdown(drop.expiresAtMillis - drop.spawnedAtMillis)
+        );
         broadcast(announcement);
         // One bar per drop rather than one bar: a player who can see two drops should be
         // told about both, and Adventure stacks them.
@@ -837,12 +837,15 @@ final class AirdropService implements Listener {
     }
 
     private Component bossBarTitle(ActiveAirdrop drop, long remainingMillis) {
-        return Component.text(
-                drop.rarity.displayName().toUpperCase(Locale.ROOT)
-                        + " AIRDROP • " + worldName(drop.chest.getWorld()).toUpperCase(Locale.ROOT)
-                        + " • " + coordinates(drop.chest)
-                        + " • " + formatCountdown(remainingMillis),
-                rarityColour(drop.rarity), TextDecoration.BOLD
+        Location at = drop.chest;
+        // The world is dropped here rather than shortened: a bar is only shown to somebody
+        // already in the world the drop is in, so it was the one field that never varied.
+        return EventBanner.bossBar(
+                drop.rarity.displayName() + " Airdrop",
+                rarityColour(drop.rarity),
+                at.getBlockX(), at.getBlockY(), at.getBlockZ(),
+                null,
+                formatCountdown(remainingMillis)
         );
     }
 

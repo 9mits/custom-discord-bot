@@ -190,7 +190,8 @@ final class ClanDialogService {
                         DialogBody.plainMessage(
                                 MenuText.body("Donations cannot be withdrawn."), 400)
                 ),
-                List.of(DialogInput.text(AMOUNT_INPUT, Component.text("Amount", MenuText.LABEL))
+                List.of(DialogInput.text(AMOUNT_INPUT,
+                                Component.text("Amount  (2.5k, 200k, 1.4m)", MenuText.LABEL))
                         .maxLength(20)
                         .build()),
                 "Donate", MenuText.VALUE,
@@ -203,7 +204,7 @@ final class ClanDialogService {
         try {
             amount = EconomyFormat.parseAmount(rawAmount == null ? "" : rawAmount.strip());
         } catch (IllegalArgumentException failure) {
-            PlayerMenuService.error(player, "That is not an amount.");
+            PlayerMenuService.error(player, failure.getMessage());
             if (!clientSupport.supportsDialogs(player)) {
                 openDonate(player);
             }
