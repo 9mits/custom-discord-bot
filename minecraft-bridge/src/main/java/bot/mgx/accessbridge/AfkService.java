@@ -40,9 +40,13 @@ final class AfkService implements Listener, CommandExecutor {
     private final Map<UUID, Long> lastCombat = new ConcurrentHashMap<>();
     private final long combatWindowMillis;
     private final Set<UUID> afk = ConcurrentHashMap.newKeySet();
+    /** When each live AFK stretch began, so it can be closed into {@link AfkStore}. */
+    private final Map<UUID, Long> afkSince = new ConcurrentHashMap<>();
+    private final AfkStore store;
     private BukkitTask task;
 
-    AfkService(MGXAccessBridge plugin, long timeoutSeconds, boolean invincible) {
+    AfkService(MGXAccessBridge plugin, long timeoutSeconds, boolean invincible, AfkStore store) {
+        this.store = store;
         this.combatWindowMillis = Math.max(0L, plugin.getConfig().getLong(
                 "afk-combat-tag-seconds", CombatTag.DEFAULT_SECONDS
         )) * 1000L;
@@ -62,9 +66,50 @@ final class AfkService implements Listener, CommandExecutor {
             task.cancel();
             task = null;
         }
+        // A shutdown must not swallow the stretch a player is in the middle of, or a
+        // server that restarts nightly records almost no AFK at all.
+        for (UUID playerId : Set.copyOf(afk)) {
+            closeSession(playerId, null);
+        }
         afk.clear();
+        afkSince.clear();
         lastActivity.clear();
         lastCombat.clear();
+    }
+
+    /** Lifetime AFK for one player in seconds, including the stretch they are in now. */
+    long afkSeconds(UUID playerId) {
+        Long since = afkSince.get(playerId);
+        long live = since == null ? 0L : Math.max(0L, System.currentTimeMillis() - since);
+        return (store.totals(playerId).afkMillis() + live) / 1_000L;
+    }
+
+    /** How many players are AFK right now, for the periodic snapshot. */
+    int afkCount() {
+        return afk.size();
+    }
+
+    /** Ends one AFK stretch: adds it to the lifetime total and tells Discord. */
+    private void closeSession(UUID playerId, Player player) {
+        Long since = afkSince.remove(playerId);
+        if (since == null) {
+            return;
+        }
+        long millis = Math.max(0L, System.currentTimeMillis() - since);
+        store.record(playerId, millis);
+        if (player != null) {
+            report(player, false, millis);
+        }
+    }
+
+    /** Tells Discord an AFK stretch started or ended. */
+    private void report(Player player, boolean nowAfk, long sessionMillis) {
+        try {
+            plugin.queueAfkChange(player, nowAfk, afk.size(), Math.max(0L, sessionMillis) / 1_000L);
+        } catch (RuntimeException failure) {
+            // Statistics are never worth failing a player's AFK toggle over.
+            plugin.getLogger().warning("Could not report AFK change: " + failure.getMessage());
+        }
     }
 
     boolean isAfk(UUID playerId) {
@@ -103,6 +148,8 @@ final class AfkService implements Listener, CommandExecutor {
     @EventHandler
     public void onQuit(PlayerQuitEvent event) {
         UUID id = event.getPlayer().getUniqueId();
+        // Closed before the player is forgotten, so their stretch still reaches Discord.
+        closeSession(id, event.getPlayer());
         lastActivity.remove(id);
         lastCombat.remove(id);
         afk.remove(id);
@@ -246,7 +293,9 @@ final class AfkService implements Listener, CommandExecutor {
     private void markAfk(Player player) {
         lastActivity.put(player.getUniqueId(), System.currentTimeMillis());
         if (afk.add(player.getUniqueId())) {
+            afkSince.put(player.getUniqueId(), System.currentTimeMillis());
             player.sendActionBar(Component.text("You are now AFK.", NamedTextColor.GRAY));
+            report(player, true, 0L);
             refreshTab();
         }
     }
@@ -254,6 +303,7 @@ final class AfkService implements Listener, CommandExecutor {
     private void markActive(Player player) {
         lastActivity.put(player.getUniqueId(), System.currentTimeMillis());
         if (afk.remove(player.getUniqueId())) {
+            closeSession(player.getUniqueId(), player);
             player.sendActionBar(Component.text("Welcome back.", NamedTextColor.GREEN));
             refreshTab();
         }

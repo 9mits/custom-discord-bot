@@ -34,7 +34,7 @@ from .models import (
 
 JAVA_USERNAME = re.compile(r"^[A-Za-z0-9_]{3,16}$")
 BEDROCK_USERNAME = re.compile(r"^[\w -]{1,16}$", re.UNICODE)
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 COMMAND_LOG_RETENTION_DAYS = 30
 COMMAND_LOG_RETENTION_ROWS = 20_000
 
@@ -184,6 +184,35 @@ CREATE TABLE IF NOT EXISTS minecraft_bridge_events (
 );
 CREATE INDEX IF NOT EXISTS idx_minecraft_bridge_events_processed
     ON minecraft_bridge_events(processed_at);
+
+CREATE TABLE IF NOT EXISTS minecraft_player_afk (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_idempotency_key TEXT NOT NULL UNIQUE,
+    minecraft_uuid TEXT NOT NULL,
+    current_username TEXT NOT NULL,
+    edition TEXT NOT NULL CHECK (edition IN ('JAVA', 'BEDROCK')),
+    afk INTEGER NOT NULL CHECK (afk IN (0, 1)),
+    online_count INTEGER NOT NULL,
+    afk_count INTEGER NOT NULL,
+    session_seconds INTEGER NOT NULL,
+    occurred_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_minecraft_player_afk_time
+    ON minecraft_player_afk(occurred_at);
+CREATE INDEX IF NOT EXISTS idx_minecraft_player_afk_player
+    ON minecraft_player_afk(minecraft_uuid);
+
+-- Point-in-time samples. Nothing can back-fill a trend line, so the table exists to
+-- start the clock: one row per metric per sample, rather than a wide table that needs
+-- migrating every time a new figure is worth watching.
+CREATE TABLE IF NOT EXISTS minecraft_stat_snapshot (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    metric TEXT NOT NULL,
+    value REAL NOT NULL,
+    sampled_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_minecraft_stat_snapshot_metric
+    ON minecraft_stat_snapshot(metric, sampled_at);
 
 CREATE TABLE IF NOT EXISTS minecraft_player_activity (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -2071,6 +2100,128 @@ class MinecraftDataManager:
             except Exception:
                 await db.rollback()
                 raise
+
+    async def record_player_afk(
+        self,
+        *,
+        event_idempotency_key: str,
+        minecraft_uuid: str,
+        current_username: str,
+        edition: str,
+        afk: bool,
+        online_count: int,
+        afk_count: int,
+        session_seconds: int,
+        occurred_at: int,
+    ) -> None:
+        """Records one AFK transition. Nothing tracked this before schema 11."""
+        timestamp = int(occurred_at) if int(occurred_at) > 0 else _now()
+        async with self._write_lock:
+            db = self._connection()
+            try:
+                await db.execute(
+                    "INSERT OR IGNORE INTO minecraft_player_afk"
+                    "(event_idempotency_key, minecraft_uuid, current_username, edition, "
+                    "afk, online_count, afk_count, session_seconds, occurred_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        str(event_idempotency_key),
+                        str(minecraft_uuid),
+                        _clean_username(current_username),
+                        str(edition).upper(),
+                        int(bool(afk)),
+                        max(0, int(online_count)),
+                        max(0, int(afk_count)),
+                        max(0, int(session_seconds)),
+                        timestamp,
+                    ),
+                )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+
+    async def afk_metrics(self, *, days: int = 30) -> dict[str, Any]:
+        """
+        AFK totals over a window, split by edition.
+
+        Only completed stretches carry a duration, so the totals come from the rows where
+        a player came back rather than from the ones where they went away.
+        """
+        since = _now() - max(1, min(365, int(days))) * 86_400
+        db = self._connection()
+        rows = await db.execute_fetchall(
+            "SELECT minecraft_uuid, current_username, edition, "
+            "SUM(session_seconds) AS total, COUNT(*) AS sessions "
+            "FROM minecraft_player_afk WHERE afk=0 AND occurred_at>=? "
+            "GROUP BY minecraft_uuid ORDER BY total DESC",
+            (since,),
+        )
+        players = [
+            {
+                "minecraft_uuid": row[0],
+                "username": row[1],
+                "edition": row[2],
+                "afk_seconds": int(row[3] or 0),
+                "sessions": int(row[4] or 0),
+            }
+            for row in rows
+        ]
+        by_edition: dict[str, int] = {"JAVA": 0, "BEDROCK": 0}
+        for player in players:
+            by_edition[player["edition"]] = (
+                by_edition.get(player["edition"], 0) + player["afk_seconds"]
+            )
+        peak = await db.execute_fetchall(
+            "SELECT MAX(afk_count), occurred_at FROM minecraft_player_afk "
+            "WHERE occurred_at>=?",
+            (since,),
+        )
+        return {
+            "players": players,
+            "total_seconds": sum(p["afk_seconds"] for p in players),
+            "by_edition": by_edition,
+            "peak_afk": int(peak[0][0] or 0) if peak and peak[0][0] is not None else 0,
+        }
+
+    async def record_stat_snapshot(self, metrics: dict[str, float], *, at: int = 0) -> None:
+        """Writes one sample of each named metric. The only source of trend lines."""
+        if not metrics:
+            return
+        sampled_at = int(at) if int(at) > 0 else _now()
+        async with self._write_lock:
+            db = self._connection()
+            try:
+                await db.executemany(
+                    "INSERT INTO minecraft_stat_snapshot(metric, value, sampled_at) "
+                    "VALUES (?, ?, ?)",
+                    [(str(k), float(v), sampled_at) for k, v in metrics.items()],
+                )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+
+    async def stat_series(
+        self, metric: str, *, days: int = 30, limit: int = 5000
+    ) -> list[dict[str, Any]]:
+        """One metric's history, oldest first, for a chart."""
+        since = _now() - max(1, min(365, int(days))) * 86_400
+        db = self._connection()
+        rows = await db.execute_fetchall(
+            "SELECT sampled_at, value FROM minecraft_stat_snapshot "
+            "WHERE metric=? AND sampled_at>=? ORDER BY sampled_at LIMIT ?",
+            (str(metric), since, max(1, int(limit))),
+        )
+        return [{"at": int(r[0]), "value": float(r[1])} for r in rows]
+
+    async def stat_metrics(self) -> list[str]:
+        """Every metric name that has ever been sampled."""
+        db = self._connection()
+        rows = await db.execute_fetchall(
+            "SELECT DISTINCT metric FROM minecraft_stat_snapshot ORDER BY metric"
+        )
+        return [str(r[0]) for r in rows]
 
     async def player_activity_metrics(self, *, days: int = 30) -> dict[str, Any]:
         since = _now() - max(1, min(90, int(days))) * 86_400

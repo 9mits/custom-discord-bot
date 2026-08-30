@@ -194,6 +194,7 @@ class MinecraftAccessBot(commands.Bot):
             connected_handler=self.handle_bridge_connected,
             server_event_handler=self.handle_server_event,
             reverse_link_handler=self.handle_reverse_link_request,
+            afk_event_handler=self.handle_player_afk,
         )
         self.dashboard = DashboardServer(self)
         self.apply_rate_limit = RateLimiter(5)
@@ -241,6 +242,7 @@ class MinecraftAccessBot(commands.Bot):
         await self.dashboard.start()
         self.application_maintenance.start()
         self.leaderboard_refresh.start()
+        self.stat_sampler.start()
 
     async def close(self) -> None:
         self.application_maintenance.cancel()
@@ -980,6 +982,71 @@ class MinecraftAccessBot(commands.Bot):
             ),
             dedupe_key=f"player-event:{event_idempotency_key}",
         )
+
+    async def handle_player_afk(
+        self,
+        *,
+        minecraft_uuid: str,
+        current_username: str,
+        edition: str,
+        afk: bool,
+        online_count: int,
+        afk_count: int,
+        session_seconds: int,
+        event_idempotency_key: str,
+        occurred_at: int = 0,
+    ) -> None:
+        """Stores one AFK transition. Never logged to a channel: it is a statistic."""
+        record = getattr(self.data, "record_player_afk", None)
+        if record is None:
+            return
+        await record(
+            event_idempotency_key=event_idempotency_key,
+            minecraft_uuid=minecraft_uuid,
+            current_username=current_username,
+            edition=edition,
+            afk=afk,
+            online_count=online_count,
+            afk_count=afk_count,
+            session_seconds=session_seconds,
+            occurred_at=occurred_at,
+        )
+
+    @tasks.loop(seconds=900)
+    async def stat_sampler(self) -> None:
+        """
+        One sample of every headline figure, every fifteen minutes.
+
+        Nothing can back-fill a trend line, so this runs whether or not anybody is
+        looking. Each metric is a row rather than a column, so a new figure worth
+        watching needs no migration.
+        """
+        try:
+            activity = await self.data.player_activity_metrics(days=1)
+            counts = await self.data.access_status_counts()
+            metrics: dict[str, float] = {
+                "players.online": float(activity.get("current", 0)),
+                "players.joins_24h": float(activity.get("joins", 0)),
+                "players.java_joins_24h": float(activity.get("java_joins", 0)),
+                "players.bedrock_joins_24h": float(activity.get("bedrock_joins", 0)),
+                "access.verified": float(counts.get(AccessStatus.VERIFIED.value, 0)),
+                "access.total": float(sum(counts.values())),
+            }
+            afk = getattr(self.data, "afk_metrics", None)
+            if afk is not None:
+                window = await afk(days=1)
+                metrics["afk.seconds_24h"] = float(window.get("total_seconds", 0))
+                metrics["afk.peak_concurrent"] = float(window.get("peak_afk", 0))
+                by_edition = window.get("by_edition", {})
+                metrics["afk.java_seconds_24h"] = float(by_edition.get("JAVA", 0))
+                metrics["afk.bedrock_seconds_24h"] = float(by_edition.get("BEDROCK", 0))
+            await self.data.record_stat_snapshot(metrics)
+        except Exception:
+            logger.exception("Stat sampling failed; retrying on the next interval")
+
+    @stat_sampler.before_loop
+    async def _before_stat_sampler(self) -> None:
+        await self.wait_until_ready()
 
     async def handle_server_event(
         self,

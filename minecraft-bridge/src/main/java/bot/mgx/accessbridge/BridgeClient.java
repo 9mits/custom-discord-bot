@@ -33,7 +33,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
      * SET_MAINTENANCE, which holds the server closed before launch; 9 added
      * server-event toggles; 10 added the Minecraft-first Discord linking lobby.
      */
-    static final int PROTOCOL_VERSION = 11;
+    static final int PROTOCOL_VERSION = 12;
 
     private final MGXAccessBridge plugin;
     private final BridgeConfig config;
@@ -831,6 +831,42 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
     }
 
     private record PlayerActivity(boolean joined, JsonObject payload) {
+    }
+
+    /**
+     * Reports one AFK transition.
+     *
+     * <p>Deliberately not queued through the player-activity outbox. That outbox exists so
+     * a join is never lost while Discord is down, because a missing join corrupts the
+     * online count every later sample is compared against. An AFK change is a statistic:
+     * if the bridge is down when one happens, the right outcome is one missing sample, not
+     * a replay that lands minutes later carrying a timestamp nobody can trust.
+     */
+    void queueAfkChange(
+            boolean afk,
+            MinecraftEdition edition,
+            UUID minecraftUuid,
+            String currentUsername,
+            int onlineCount,
+            int afkCount,
+            long sessionSeconds,
+            long occurredAt
+    ) {
+        // No version gate: an older bot logs "Ignored unsupported bridge message type"
+        // and carries on, which is the right outcome for a statistic.
+        if (!isConnected()) {
+            return;
+        }
+        JsonObject payload = new JsonObject();
+        payload.addProperty("edition", edition.name());
+        payload.addProperty("minecraft_uuid", minecraftUuid.toString());
+        payload.addProperty("current_username", currentUsername);
+        payload.addProperty("afk", afk);
+        payload.addProperty("online_count", Math.max(0, onlineCount));
+        payload.addProperty("afk_count", Math.max(0, afkCount));
+        payload.addProperty("session_seconds", Math.max(0L, sessionSeconds));
+        payload.addProperty("occurred_at", occurredAt);
+        sendRaw(protocol.create("PLAYER_AFK", "afk:" + UUID.randomUUID(), payload));
     }
 
     void queueMinecraftChat(

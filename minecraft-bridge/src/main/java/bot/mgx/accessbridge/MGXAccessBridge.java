@@ -103,6 +103,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private AmethystDailyStockStore amethystDailyStock;
     private AmethystShopService amethystShop;
     private CrateOddsStore crateOdds;
+    private AfkStore afkStore;
     private GameVariableStore gameVariables;
     private ClanBattleStore clanBattleStore;
     private HomeIconStore homeIconStore;
@@ -196,6 +197,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             );
             crateOdds = new CrateOddsStore(
                     getDataFolder().toPath().resolve("crate-odds.json")
+            );
+            afkStore = new AfkStore(
+                    getDataFolder().toPath().resolve("afk.json")
             );
             gameVariables = new GameVariableStore(
                     getDataFolder().toPath().resolve("game-variables.json"), getConfig()
@@ -323,7 +327,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         afkService = new AfkService(
                 this,
                 getConfig().getLong("afk-timeout-seconds", 300L),
-                getConfig().getBoolean("afk-invincible", true)
+                getConfig().getBoolean("afk-invincible", true),
+                afkStore
         );
         sidebarService.useAfkService(afkService);
         getServer().getPluginManager().registerEvents(afkService, this);
@@ -1982,6 +1987,31 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 identity.username(),
                 identity.xuid(),
                 onlineCount,
+                System.currentTimeMillis() / 1_000L
+        );
+    }
+
+    /**
+     * Reports one AFK transition to Discord.
+     *
+     * <p>Lives here rather than in {@link AfkService} for the same reason
+     * {@code queuePlayerActivity} does: resolving whether a player is Java or Bedrock means
+     * asking Floodgate, and that lookup already has a home with its failure handled.
+     */
+    void queueAfkChange(Player player, boolean afk, int afkCount, long sessionSeconds) {
+        if (bridgeClient == null) {
+            return;
+        }
+        PlayerConnectionIdentity identity =
+                resolveConnectionIdentity(player.getUniqueId(), player.getName());
+        bridgeClient.queueAfkChange(
+                afk,
+                identity.edition(),
+                identity.uuid(),
+                identity.username(),
+                getServer().getOnlinePlayers().size(),
+                afkCount,
+                sessionSeconds,
                 System.currentTimeMillis() / 1_000L
         );
     }

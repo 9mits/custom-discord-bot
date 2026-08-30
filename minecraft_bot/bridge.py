@@ -29,7 +29,8 @@ MAINTENANCE_PROTOCOL_VERSION = 8
 SERVER_EVENT_TOGGLE_PROTOCOL_VERSION = 9
 REVERSE_LINK_PROTOCOL_VERSION = 10
 GAME_VARIABLE_PROTOCOL_VERSION = 11
-CURRENT_PROTOCOL_VERSION = GAME_VARIABLE_PROTOCOL_VERSION
+AFK_PROTOCOL_VERSION = 12
+CURRENT_PROTOCOL_VERSION = AFK_PROTOCOL_VERSION
 
 VerificationHandler = Callable[..., Awaitable[None]]
 ActionResultHandler = Callable[[OutboxRecord, Optional[Any]], Awaitable[None]]
@@ -53,6 +54,7 @@ class MinecraftBridgeServer:
         connected_handler: Optional[Callable[[], Awaitable[None]]] = None,
         server_event_handler: Optional[ServerEventHandler] = None,
         reverse_link_handler: Optional[ReverseLinkHandler] = None,
+        afk_event_handler: Optional[Callable[..., Awaitable[None]]] = None,
     ) -> None:
         self.config = config
         self.data = data
@@ -64,6 +66,7 @@ class MinecraftBridgeServer:
         self.connected_handler = connected_handler
         self.server_event_handler = server_event_handler
         self.reverse_link_handler = reverse_link_handler
+        self.afk_event_handler = afk_event_handler
         # Newest standings pushed by Paper; the leaderboard message renders from this.
         self.latest_leaderboard: dict[str, Any] = {}
         # Minecraft UUID -> clan standing and staff tools, pushed by Paper.
@@ -371,6 +374,32 @@ class MinecraftBridgeServer:
             await self._send(
                 "LINK_REQUEST_ACK",
                 {"request_id": str(payload["request_id"])},
+                idempotency_key=envelope["idempotency_key"],
+                expected_socket=source_socket,
+            )
+            return
+        if message_type == "PLAYER_AFK":
+            # A statistic, not a ledger entry: an AFK change that cannot be handled is one
+            # missing sample, so it is acked either way rather than replayed later carrying
+            # a timestamp no longer worth trusting.
+            try:
+                if self.afk_event_handler is not None:
+                    await self.afk_event_handler(
+                        minecraft_uuid=str(payload["minecraft_uuid"]),
+                        current_username=str(payload["current_username"]),
+                        edition=str(payload["edition"]).upper(),
+                        afk=bool(payload.get("afk", False)),
+                        online_count=max(0, int(payload.get("online_count", 0))),
+                        afk_count=max(0, int(payload.get("afk_count", 0))),
+                        session_seconds=max(0, int(payload.get("session_seconds", 0))),
+                        occurred_at=max(0, int(payload.get("occurred_at", 0))),
+                        event_idempotency_key=envelope["idempotency_key"],
+                    )
+            except Exception:
+                logger.exception("AFK event handler failed")
+            await self._send(
+                "PLAYER_AFK_ACK",
+                {"event_idempotency_key": envelope["idempotency_key"]},
                 idempotency_key=envelope["idempotency_key"],
                 expected_socket=source_socket,
             )
