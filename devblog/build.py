@@ -131,6 +131,9 @@ class Page:
         if not self.title:
             raise PostError("%s: front matter is missing a 'title'" % path.name)
         self.nav = str(meta.get("nav") or self.title).strip()
+        self.nav_hidden = str(meta.get("nav_hidden") or "").lower() in {
+            "1", "true", "yes"
+        }
         self.tagline = str(meta.get("tagline") or "").strip()
         try:
             self.order = int(str(meta.get("order") or "99"))
@@ -366,7 +369,10 @@ def build(site_url: str, include_drafts: bool = False) -> List[Post]:
         {"url": "blog/", "label": "Blog", "slug": "blog"},
         {"url": "events/", "label": "Events", "slug": "events"},
     ]
-    nav += [{"url": page.url, "label": page.nav, "slug": page.slug} for page in pages]
+    nav += [
+        {"url": page.url, "label": page.nav, "slug": page.slug}
+        for page in pages if not page.nav_hidden
+    ]
     stats = load_stats()
     if stats is not None:
         # Published beside the page so the browser can refresh the figures without

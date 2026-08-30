@@ -75,6 +75,7 @@ class MinecraftDashboardSecurityTests(unittest.IsolatedAsyncioTestCase):
             row = payload["individual"]["wealth"][0]
             self.assertEqual(row["discord_username"], "nine")
             self.assertIn("mc-heads.net", row["head_url"])
+            self.assertIn("mc-heads.net/body", row["skin_url"])
             self.assertNotIn("variables", payload)
             self.assertEqual(response.headers["X-Frame-Options"], "DENY")
 
@@ -121,6 +122,8 @@ class MinecraftDashboardAssetTests(unittest.TestCase):
         self.assertIn('defaultBoards = ["wealth", "kills"]', script)
         self.assertIn('eventBoards = ["amethyst_airdrops", "amethyst_crates"]', script)
         self.assertIn("slice(0, 10)", script)
+        self.assertIn("live-podium", script)
+        self.assertIn("skin_url", script)
         self.assertNotIn("The individual race", html)
         self.assertNotIn("Teams moving the server", html)
         self.assertNotIn("hidden-amethyst-one-in", html + script)
@@ -132,6 +135,11 @@ class MinecraftDashboardAssetTests(unittest.TestCase):
         for tier in ("rank-gold", "rank-silver", "rank-bronze"):
             self.assertIn(tier, script)
             self.assertIn(tier, theme)
+
+    def test_control_page_is_secret_but_still_has_a_direct_route(self):
+        control = (Path(__file__).parents[1] / "devblog" / "pages" / "control.md").read_text()
+        self.assertIn("nav_hidden: true", control)
+        self.assertIn('id="control-root"', control)
 
     def test_dashboard_script_is_static_data_not_an_embedded_secret(self):
         script = (Path(__file__).parents[1] / "devblog" / "static" / "server-dashboard.js").read_text()

@@ -46,6 +46,7 @@ MARK_FILENAME = "mysterious_smp_x_mark.png"
 MARK_PATH = Path(__file__).resolve().parent.parent / "assets" / "minecraft" / MARK_FILENAME
 MARK_ATTACHMENT_URI = f"attachment://{MARK_FILENAME}"
 MINECRAFT_HEAD_URL = "https://mc-heads.net/head/{identifier}/128.png"
+MINECRAFT_SKIN_URL = "https://mc-heads.net/body/{identifier}/160.png"
 BEDROCK_NAME_HEAD_URL = "https://api.mcheads.org/head/.{identifier}/128"
 #: A remote copy of the mark, for embeds that are not sent with an attachment —
 #: an ephemeral reply cannot carry one, so attachment:// silently renders nothing.
@@ -66,7 +67,17 @@ def head_url(minecraft_uuid: str, username: str = "") -> str:
         name = username[1:] if username.startswith(".") else username
         if name:
             return BEDROCK_NAME_HEAD_URL.format(identifier=quote(name, safe=""))
-    return MINECRAFT_HEAD_URL.format(identifier=quote(minecraft_uuid, safe=""))
+    identifier = minecraft_uuid or username
+    return MINECRAFT_HEAD_URL.format(identifier=quote(identifier, safe=""))
+
+
+def skin_url(minecraft_uuid: str, username: str = "") -> str:
+    """A full player render, falling back to the username when UUID is absent."""
+    compact = str(minecraft_uuid or "").replace("-", "").lower()
+    identifier = minecraft_uuid or username
+    if compact.startswith(_BEDROCK_UUID_PREFIX) and username:
+        identifier = username[1:] if username.startswith(".") else username
+    return MINECRAFT_SKIN_URL.format(identifier=quote(identifier, safe=""))
 
 #: How the server is described, in the one place both panels read it from. The
 #: application panel and the information panel would otherwise pitch the server

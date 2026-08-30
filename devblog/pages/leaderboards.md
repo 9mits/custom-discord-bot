@@ -25,7 +25,7 @@ tagline: Every published player and clan leaderboard, directly from the same Pap
         <div><p class="live-eyebrow">INDIVIDUAL STANDINGS</p><h2>Player Leaderboards</h2></div>
         <div id="player-tabs" class="live-tabs" role="tablist" aria-label="Player leaderboard"></div>
       </div>
-      <div id="player-board" class="live-rank-grid live-loading"></div>
+      <div id="player-board" class="live-board live-loading"></div>
     </section>
 
     <section class="live-panel live-clan-panel">
@@ -33,23 +33,27 @@ tagline: Every published player and clan leaderboard, directly from the same Pap
         <div><p class="live-eyebrow">TEAM STANDINGS</p><h2>Clan Leaderboards</h2></div>
         <div id="clan-tabs" class="live-tabs" role="tablist" aria-label="Clan leaderboard"></div>
       </div>
-      <div id="clan-board" class="live-rank-grid"></div>
+      <div id="clan-board" class="live-board"></div>
     </section>
   </div>
 
   <div class="live-view-panel" data-view-panel="events" hidden>
     <section class="live-panel live-event-panel">
       <div class="live-panel-head">
-        <div><p class="live-eyebrow">LIMITED-TIME COMPETITIONS</p><h2>Event Leaderboards</h2></div>
+        <div class="live-event-heading">
+          <span id="event-icon" class="live-board-icon" aria-hidden="true"></span>
+          <div><p class="live-eyebrow">LIMITED-TIME COMPETITIONS</p><h2>Event Leaderboards</h2><p id="event-description" class="live-panel-description">Race for exclusive event records while they are live.</p></div>
+        </div>
         <div id="event-tabs" class="live-tabs live-event-tabs" role="tablist" aria-label="Event leaderboard"></div>
       </div>
-      <div id="event-board" class="live-rank-grid"></div>
+      <div id="event-board" class="live-board"></div>
     </section>
   </div>
 
   <div class="live-view-panel" data-view-panel="clan-battle" hidden>
     <section class="live-battle" id="clan-battle">
       <div class="live-battle-copy">
+        <span class="live-board-icon live-battle-icon" data-static-icon="crown" aria-hidden="true"></span>
         <p class="live-eyebrow">CURRENT CLAN BATTLE</p>
         <h2 id="battle-title">No active battle</h2>
         <p id="battle-objective">When the next clan battle starts, its objective and live standings will appear here.</p>

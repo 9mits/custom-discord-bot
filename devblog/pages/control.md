@@ -1,6 +1,7 @@
 ---
 title: Owner Control Panel
 nav: Control
+nav_hidden: true
 order: 5
 layout: dashboard
 tagline: Change live crate, key, event and airdrop values without restarting Paper. Exact odds and audit logs remain owner-only.
@@ -19,7 +20,7 @@ tagline: Change live crate, key, event and airdrop values without restarting Pap
   <div id="owner-content" hidden>
     <section class="live-panel">
       <div class="live-panel-head">
-        <div><p class="live-eyebrow">OWNER CONTROL PLANE</p><h2>Live game variables</h2></div>
+        <div><p class="live-eyebrow">OWNER CONTROL PANEL</p><h2>Live game variables</h2></div>
         <div class="live-control-actions">
           <input id="setting-search" type="search" placeholder="Search everything" aria-label="Search settings">
           <button id="refresh-settings" class="btn live-secondary" type="button">Refresh</button>

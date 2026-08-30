@@ -729,6 +729,19 @@ class PageTests(unittest.TestCase):
             page = (build.DIST_DIR / rel).read_text(encoding="utf-8")
             self.assertIn(">Guide</a>", page, rel)
 
+    def test_a_nav_hidden_page_is_built_but_never_advertised(self):
+        self.page(
+            "control.md",
+            "---\ntitle: Owner Control\nnav: Control\nnav_hidden: true\n---\n\nsecret",
+        )
+        self.page("guide.md", "---\ntitle: G\nnav: Guide\n---\n\nx")
+        build.build("https://example.com")
+        control = build.DIST_DIR / "control" / "index.html"
+        self.assertTrue(control.is_file())
+        for rel in ("index.html", "404.html", "guide/index.html", "control/index.html"):
+            page = (build.DIST_DIR / rel).read_text(encoding="utf-8")
+            self.assertNotIn(">Control</a>", page, rel)
+
     def test_the_current_page_is_marked(self):
         self.page("guide.md", "---\ntitle: G\nnav: Guide\n---\n\nx")
         build.build("https://example.com")

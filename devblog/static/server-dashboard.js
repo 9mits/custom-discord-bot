@@ -20,6 +20,17 @@
     amethyst_airdrops: "Airdrops Claimed",
     clan_battle: "Clan Battle"
   };
+  var descriptions = {
+    amethyst_airdrops: "Claim the most Amethyst Airdrops before the event closes.",
+    amethyst_crates: "Open the most Amethyst Crates and take the event crown."
+  };
+  var iconPaths = {
+    wealth: '<circle cx="12" cy="12" r="8"></circle><path d="M15 9.5c0-1.1-1.3-2-3-2s-3 .9-3 2 1.3 2 3 2 3 .9 3 2-1.3 2-3 2-3-.9-3-2M12 5v14"></path>',
+    kills: '<path d="m14.5 5.5 4-3 1 1-3 4M9.5 14.5l-5 5M5.5 14.5l4 4M9.5 5.5l-4-3-1 1 3 4M14.5 14.5l5 5M18.5 14.5l-4 4"></path>',
+    amethyst_airdrops: '<path d="M4 9a8 8 0 0 1 16 0H4Z"></path><path d="m4 9 8 6 8-6M12 9v6M9 18h6v3H9z"></path>',
+    amethyst_crates: '<path d="M5 9h14v11H5zM4 5h16v4H4zM12 5v15M9 5c-2-3 3-4 3 0M15 5c2-3-3-4-3 0"></path>',
+    clan_battle: '<path d="m4 7 4 4 4-7 4 7 4-4-2 11H6L4 7Z"></path><path d="M7 21h10"></path>'
+  };
 
   function byId(id) { return document.getElementById(id); }
   function escapeHtml(value) {
@@ -51,47 +62,91 @@
     if (Math.abs(seconds) >= 60) return formatter.format(Math.round(seconds / 60), "minute");
     return formatter.format(seconds, "second");
   }
+  function iconSvg(key) {
+    return '<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+      (iconPaths[key] || iconPaths.clan_battle) + "</svg>";
+  }
   function tabs(target, keys, active, onSelect) {
     if (!target) return;
     target.innerHTML = keys.map(function (key) {
       return '<button type="button" role="tab" data-key="' + escapeHtml(key) + '" aria-selected="' +
-        (key === active ? "true" : "false") + '">' +
+        (key === active ? "true" : "false") + '"><span class="live-tab-icon">' + iconSvg(key) + "</span>" +
         escapeHtml(labels[key] || key.replaceAll("_", " ")) + "</button>";
     }).join("");
     target.querySelectorAll("button").forEach(function (button) {
       button.addEventListener("click", function () { onSelect(button.dataset.key); });
     });
   }
-  function rankCard(row, index, clan) {
+  function tierFor(rank) {
+    return rank === 1 ? "rank-gold" : (rank === 2 ? "rank-silver" : "rank-bronze");
+  }
+  function playerArt(row, full) {
+    var source = full ? row.skin_url : row.head_url;
+    var label = escapeHtml(row.username || "Player");
+    var initial = escapeHtml(String(row.username || "?").charAt(0).toUpperCase());
+    return '<div class="live-player-art ' + (full ? "full" : "head") + '">' +
+      (source ? '<img class="' + (full ? "live-skin-render" : "live-head-render") + '" src="' +
+        escapeHtml(source) + '" alt="' + label + (full ? ' Minecraft skin"' : ' Minecraft head"') +
+        ' loading="lazy">' : "") +
+      '<span class="live-avatar-fallback" aria-hidden="true">' + initial + "</span></div>";
+  }
+  function clanArt(row) {
+    var initial = escapeHtml(String(row.clan || "?").charAt(0).toUpperCase());
+    return '<div class="live-clan-crest" aria-hidden="true">' + iconSvg("clan_battle") + "<b>" + initial + "</b></div>";
+  }
+  function podiumCard(row, index, clan) {
     var rank = Number(row.rank || index + 1);
-    var tier = rank === 1 ? "rank-gold" : (rank === 2 ? "rank-silver" : (rank === 3 ? "rank-bronze" : ""));
-    var accolade = rank === 1 ? "Champion" : (rank === 2 ? "Runner-up" : (rank === 3 ? "Third place" : "Top 10"));
-    var head = !clan && row.head_url
-      ? '<img src="' + escapeHtml(row.head_url) + '" alt="' + escapeHtml(row.username) + ' Minecraft head" loading="lazy">'
-      : "";
+    var accolade = rank === 1 ? "Champion" : (rank === 2 ? "Runner-up" : "Third place");
     var name = clan ? row.clan : row.username;
     var detail = clan
       ? escapeHtml(row.members || 0) + " members · Level " + escapeHtml(row.level || 0)
-      : (row.discord_username ? "@" + escapeHtml(row.discord_username) : "No linked Discord name");
-    return '<article class="live-rank-card ' + (rank <= 3 ? "top-three " : "") + tier + " " + (clan ? "clan-card" : "") + '">' +
-      '<div class="live-card-shine" aria-hidden="true"></div>' +
-      '<header class="live-rank-head"><div class="live-place">#' + rank + '</div><span class="live-accolade">' + accolade + "</span></header>" + head +
-      "<h3>" + escapeHtml(name || "?") + "</h3>" +
+      : (row.discord_username ? "@" + escapeHtml(row.discord_username) : "Discord not linked");
+    return '<article class="live-podium-card ' + tierFor(rank) + " " + (clan ? "clan-card" : "player-card") + '">' +
+      '<header><span class="live-medal">#' + rank + '</span><span class="live-accolade">' + accolade + "</span></header>" +
+      (clan ? clanArt(row) : playerArt(row, true)) +
+      '<div class="live-podium-copy"><h3>' + escapeHtml(name || "?") + "</h3>" +
       '<div class="live-discord-name">' + detail + "</div>" +
-      '<div class="live-value">' + escapeHtml(row.display != null ? row.display : (row.value || 0)) + "</div></article>";
+      '<strong class="live-value">' + escapeHtml(row.display != null ? row.display : (row.value || 0)) + "</strong></div>" +
+      '<div class="live-podium-step" aria-hidden="true"></div></article>';
+  }
+  function rankRow(row, index, clan) {
+    var rank = Number(row.rank || index + 1);
+    var name = clan ? row.clan : row.username;
+    var detail = clan
+      ? escapeHtml(row.members || 0) + " members · Level " + escapeHtml(row.level || 0)
+      : (row.discord_username ? "@" + escapeHtml(row.discord_username) : "Discord not linked");
+    return '<li class="live-rank-row"><span class="live-row-place">#' + rank + "</span>" +
+      (clan ? clanArt(row) : playerArt(row, false)) +
+      '<div class="live-row-player"><strong>' + escapeHtml(name || "?") + "</strong><span>" + detail + "</span></div>" +
+      '<strong class="live-row-value">' + escapeHtml(row.display != null ? row.display : (row.value || 0)) + "</strong></li>";
+  }
+  function wireImageFallbacks(target) {
+    target.querySelectorAll(".live-player-art img").forEach(function (image) {
+      image.addEventListener("error", function () { image.parentElement.classList.add("image-missing"); });
+    });
   }
   function renderBoard(scope, board, targetId) {
     var rows = (state.snapshot && state.snapshot[scope] && state.snapshot[scope][board]) || [];
     var target = byId(targetId || (scope === "individual" ? "player-board" : "clan-board"));
     if (!target) return;
     target.classList.remove("live-loading");
-    target.innerHTML = rows.length
-      ? rows.slice(0, 10).map(function (row, index) { return rankCard(row, index, scope === "clan"); }).join("")
+    var ranked = rows.slice(0, 10);
+    var clan = scope === "clan";
+    target.innerHTML = ranked.length
+      ? '<div class="live-podium">' + ranked.slice(0, 3).map(function (row, index) {
+          return podiumCard(row, index, clan);
+        }).join("") + '</div><ol class="live-rank-list" start="4">' + ranked.slice(3).map(function (row, index) {
+          return rankRow(row, index + 3, clan);
+        }).join("") + "</ol>"
       : '<p class="live-empty">No standings yet.</p>';
+    wireImageFallbacks(target);
   }
   function renderBattle() {
     var event = (state.snapshot && state.snapshot.clan_battle) || {};
     var rows = ((state.snapshot && state.snapshot.clan && state.snapshot.clan.clan_battle) || []).slice(0, 10);
+    document.querySelectorAll("[data-static-icon]").forEach(function (node) {
+      node.innerHTML = iconSvg(node.dataset.staticIcon);
+    });
     byId("battle-title").textContent = event.name || "No active battle";
     byId("battle-objective").textContent = event.objective || "When the next clan battle starts, its objective and live standings will appear here.";
     byId("battle-deadline").textContent = event.ends_at ? "Ends " + new Date(event.ends_at).toLocaleString() : "";
@@ -106,6 +161,8 @@
     renderBoard("individual", state.playerBoard);
     renderBoard("clan", state.clanBoard);
     renderBoard("individual", state.eventBoard, "event-board");
+    if (byId("event-icon")) byId("event-icon").innerHTML = iconSvg(state.eventBoard);
+    if (byId("event-description")) byId("event-description").textContent = descriptions[state.eventBoard] || "Limited-time event standings.";
     document.querySelectorAll("#player-tabs button").forEach(function (button) {
       button.setAttribute("aria-selected", button.dataset.key === state.playerBoard ? "true" : "false");
     });
