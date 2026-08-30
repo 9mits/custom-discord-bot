@@ -1,5 +1,5 @@
 {
-  "textures": {"skin": "mgx:entity/amethyst_skeleton", "particle": "mgx:entity/amethyst_skeleton"},
+  "textures": {"skin": "mgx:item/mob/amethyst_skeleton", "particle": "mgx:item/mob/amethyst_skeleton"},
   "ambientocclusion": false,
   "gui_light": "front",
   "display": {

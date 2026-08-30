@@ -19,8 +19,8 @@ final class AmethystMobAssetsTest {
 
     @Test
     void importedTexturesAreTheExactTwoApprovedFiles() throws Exception {
-        Path skeleton = PACK.resolve("textures/entity/amethyst_skeleton.png");
-        Path zombie = PACK.resolve("textures/entity/amethyst_zombie.png");
+        Path skeleton = PACK.resolve("textures/item/mob/amethyst_skeleton.png");
+        Path zombie = PACK.resolve("textures/item/mob/amethyst_zombie.png");
 
         assertEquals("8f5128db8272693c8b8d236cebea6e4317cd28676a0b7ea36d4abccaf22b38cc",
                 sha256(skeleton));

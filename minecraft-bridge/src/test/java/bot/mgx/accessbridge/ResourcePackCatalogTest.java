@@ -1,5 +1,6 @@
 package bot.mgx.accessbridge;
 
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.bukkit.Material;
@@ -16,6 +17,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -224,6 +226,42 @@ class ResourcePackCatalogTest {
         }
     }
 
+    /**
+     * Block and item models can only sample textures the block_or_item atlas stitched, and
+     * that atlas sources the block/ and item/ directories. A texture parked anywhere else
+     * loads as the missing-texture checkerboard with only a client-side warning, which is
+     * how the amethyst mobs shipped as flat magenta slabs.
+     */
+    @Test
+    void everyModelTextureLivesWhereTheBlockOrItemAtlasCanStitchIt() throws Exception {
+        Path models = SOURCE.resolve("assets/mgx/models");
+        Path textures = SOURCE.resolve("assets/mgx/textures");
+        List<Path> files;
+        try (Stream<Path> walk = Files.walk(models)) {
+            files = walk.filter(path -> path.toString().endsWith(".json")).toList();
+        }
+        assertTrue(files.size() > 10, "expected the pack to define models");
+
+        for (Path file : files) {
+            JsonObject model = JsonParser.parseString(Files.readString(file)).getAsJsonObject();
+            if (!model.has("textures")) {
+                continue;
+            }
+            for (Map.Entry<String, JsonElement> texture
+                    : model.getAsJsonObject("textures").entrySet()) {
+                String reference = texture.getValue().getAsString();
+                if (reference.startsWith("#") || !reference.startsWith("mgx:")) {
+                    continue;
+                }
+                String relative = reference.substring("mgx:".length());
+                assertTrue(relative.startsWith("item/") || relative.startsWith("block/"),
+                        file + " samples " + reference
+                                + ", which the block_or_item atlas never stitches");
+                assertTrue(Files.isRegularFile(textures.resolve(relative + ".png")),
+                        file + " samples " + reference + ", which has no texture file");
+            }
+        }
+    }
     private static void assertExactVanillaPotionGeometry(BufferedImage image, String name)
             throws Exception {
         BufferedImage reference = ImageIO.read(POTION_REFERENCE.toFile());
