@@ -639,8 +639,9 @@ class HomePageTests(unittest.TestCase):
 
         self.assertIn('class="hero-address"', hero)
         self.assertIn('data-copy="play.mysterioussmpx.blog"', hero)
-        self.assertIn("Java server · Click to copy", hero)
         self.assertIn('<span class="label">play.mysterioussmpx.blog</span>', hero)
+        self.assertNotIn(">Java server", hero)
+        self.assertNotIn(">Click to copy", hero)
 
     def test_every_copy_address_control_is_wired_up(self):
         self.assertIn("document.querySelectorAll('[data-copy]')", theme.COPY_SCRIPT)
