@@ -137,9 +137,19 @@ the nav, ordered by their `order` key:
 | Page | URL | Source |
 |---|---|---|
 | Events | `/events` | generated from draftable `events/*.md` announcements |
+| Leaderboards | `/leaderboards` | live Paper snapshot, with the clan battle kept prominent |
 | Server Guide | `/guide` | **generated** from the bot's information panel |
 | Server Rules | `/rules` | **generated** from `SERVER_RULES` in the bot |
 | How to Join | `/apply` | hand-written |
+| Owner Control | `/control` | Discord OAuth owner controls and audit logs |
+
+`/leaderboards` and `/control` are built as native pages in this site rather than
+as a separate dashboard. A plain `build.py --serve` preview shows their layout,
+but it has no live API. For the complete local preview, first run
+`python devblog/build.py`, then start `python minecraft_main.py` and open
+`http://127.0.0.1:8090`. That backend serves the built blog and supplies the
+same-origin leaderboard, OAuth, settings, and log routes. Nothing is published
+to GitHub Pages by this local flow.
 
 Guide and rules are generated so the site and Discord can never drift:
 

@@ -136,6 +136,9 @@ class Page:
             self.order = int(str(meta.get("order") or "99"))
         except ValueError:
             raise PostError("%s: 'order' must be a whole number" % path.name)
+        self.layout = str(meta.get("layout") or "document").strip().lower()
+        if self.layout not in {"document", "dashboard"}:
+            raise PostError("%s: unknown page layout %r" % (path.name, self.layout))
         self.body_md = body_md
 
     @property

@@ -704,6 +704,23 @@ class PageTests(unittest.TestCase):
         with self.assertRaises(build.PostError):
             build.load_pages()
 
+    def test_dashboard_layout_uses_the_wide_site_shell_and_live_asset(self):
+        self.page(
+            "leaderboards.md",
+            "---\ntitle: Leaderboards\nlayout: dashboard\n---\n\n<div id=\"leaderboard-root\"></div>",
+        )
+        (build.STATIC_DIR / "server-dashboard.js").write_text("// live")
+        build.build("https://example.com")
+        page = (build.DIST_DIR / "leaderboards" / "index.html").read_text(encoding="utf-8")
+        self.assertIn('class="doc live-doc"', page)
+        self.assertIn('src="../assets/server-dashboard.js"', page)
+        self.assertTrue((build.DIST_DIR / "assets" / "server-dashboard.js").is_file())
+
+    def test_unknown_page_layout_is_an_error(self):
+        self.page("guide.md", "---\ntitle: G\nlayout: mystery\n---\n\nx")
+        with self.assertRaises(build.PostError):
+            build.load_pages()
+
     def test_nav_appears_on_every_rendered_page(self):
         self.page("guide.md", "---\ntitle: G\nnav: Guide\n---\n\nx")
         self.post("2026-01-01-p1.md")

@@ -763,6 +763,165 @@ a { color: inherit; }
 .doc-body th { color: var(--ink); font-weight: 700; white-space: nowrap; }
 .doc-body img { border-radius: var(--img-radius); margin: 1.25rem 0; }
 
+/* ===== live server pages ================================================= */
+.live-doc { max-width: none; padding-top: 3rem; }
+.live-body { overflow: visible; }
+.live-body .mgx-live-page { display: grid; gap: 1.5rem; }
+.live-body .mgx-live-page p { margin: 0; }
+.live-eyebrow {
+  color: var(--brand-orange); font-size: .72rem; font-weight: 900;
+  letter-spacing: .16em; text-transform: uppercase;
+}
+.live-status-card {
+  display: inline-flex; justify-self: end; align-items: center; gap: .9rem;
+  padding: .9rem 1.1rem; border: 1px solid var(--line); border-radius: 1rem;
+  background: var(--surface); box-shadow: var(--lift-1);
+}
+.live-status-card small, .live-status-card strong { display: block; }
+.live-status-card small { color: var(--grey); font-size: .66rem; font-weight: 800; letter-spacing: .1em; }
+.live-status-card strong { color: var(--ink); font-size: .9rem; }
+.live-pulse {
+  width: .65rem; height: .65rem; border-radius: 50%; background: var(--green);
+  box-shadow: 0 0 0 .35rem color-mix(in srgb, var(--green) 18%, transparent);
+}
+.live-panel {
+  padding: clamp(1.25rem, 3vw, 2rem); border: 1px solid var(--line);
+  border-radius: 1.35rem; background: var(--surface); box-shadow: var(--lift-2);
+}
+.live-clan-panel { background: linear-gradient(145deg, var(--surface), var(--surface-raised)); }
+.live-panel-head {
+  display: flex; align-items: end; justify-content: space-between;
+  gap: 1.5rem; margin-bottom: 1.5rem;
+}
+.live-body .live-panel h2, .live-body .live-battle h2, .live-lock-card h2 {
+  margin: .25rem 0 0; color: var(--ink); font-size: clamp(1.65rem, 3vw, 2.35rem);
+  text-decoration: none; letter-spacing: -.025em;
+}
+.live-tabs, .live-category-rail { display: flex; flex-wrap: wrap; gap: .45rem; }
+.live-tabs button, .live-category-rail button {
+  border: 1px solid var(--line); background: var(--surface-raised); color: var(--grey);
+  border-radius: 999px; padding: .55rem .8rem; font: inherit;
+  font-size: .76rem; font-weight: 800; cursor: pointer;
+}
+.live-tabs button[aria-selected="true"], .live-category-rail button[aria-pressed="true"] {
+  border-color: var(--brand-orange); background: var(--brand-ramp); color: #fff;
+}
+.live-rank-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: .65rem; }
+.live-rank-card {
+  position: relative; min-height: 13rem; overflow: hidden; padding: 1rem;
+  border: 1px solid var(--line); border-radius: 1rem;
+  background: linear-gradient(145deg, var(--surface-raised), var(--surface));
+}
+.live-rank-card.top-three { min-height: 14.5rem; }
+.live-rank-card:first-child {
+  border-color: color-mix(in srgb, var(--orange) 58%, var(--line));
+  background: linear-gradient(145deg, color-mix(in srgb, var(--orange) 13%, var(--surface)), var(--surface));
+}
+.live-place { color: var(--brand-orange); font-size: 1.7rem; font-weight: 800; }
+.live-rank-card img {
+  width: 4.25rem; height: 4.25rem; margin: .85rem 0; border-radius: .5rem;
+  image-rendering: pixelated; filter: drop-shadow(0 8px 10px rgb(var(--shadow-rgb) / .24));
+}
+.live-rank-card h3 { margin: .1rem 0; color: var(--ink); font-size: 1rem; overflow-wrap: anywhere; }
+.live-discord-name { color: #8b5cf6; font-size: .75rem; min-height: 1.1rem; }
+.live-value {
+  position: absolute; left: 1rem; bottom: .9rem; color: var(--grey);
+  font: .74rem ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.live-rank-card.clan-card { min-height: 10rem; }
+.live-battle {
+  display: grid; grid-template-columns: minmax(15rem, .7fr) 1.3fr; gap: 2rem;
+  padding: clamp(1.5rem, 4vw, 3.5rem); border-radius: 1.35rem;
+  color: #fef8ff; background: linear-gradient(120deg, #6d2f91, #3b224b 52%, #492817);
+  border: 1px solid rgba(225, 166, 255, .38); box-shadow: var(--lift-3);
+}
+.live-body .live-battle h2 { color: #fff; }
+.live-battle-copy > p:not(.live-eyebrow) { color: #e5d6e9; margin-top: .75rem; }
+.live-deadline { margin-top: 1.25rem; color: #ffc37d; font: 800 .8rem ui-monospace, monospace; }
+.live-battle-board { display: grid; align-content: start; gap: .55rem; }
+.live-battle-row {
+  display: grid; grid-template-columns: 3rem 1fr auto; align-items: center; gap: .8rem;
+  padding: .8rem 1rem; border: 1px solid rgba(255,255,255,.1);
+  border-radius: .75rem; background: rgba(255,255,255,.07);
+}
+.live-battle-row span:first-child { color: #e0b3ff; font-size: 1.2rem; font-weight: 800; }
+.live-battle-row span:last-child { color: #e1d4e5; font: .75rem ui-monospace, monospace; }
+.live-owner-account { display: flex; justify-content: flex-end; min-height: 2.75rem; }
+.btn-discord { background: #5865f2; color: #fff !important; height: 2.75rem; padding: 0 1rem; }
+.live-lock-card {
+  display: grid; justify-items: center; gap: .8rem; padding: 3.5rem 1.25rem;
+  text-align: center; border: 1px dashed var(--line); border-radius: 1.25rem;
+  background: var(--surface); box-shadow: var(--lift-1);
+}
+.live-lock-card img { width: 4rem; height: 4rem; margin: 0; border-radius: 1rem; }
+.live-lock-card p { max-width: 38rem; color: var(--text-muted); }
+.live-user-pill { display: flex; align-items: center; gap: .65rem; color: var(--grey); font-size: .82rem; }
+.live-user-pill img { width: 2.25rem; height: 2.25rem; margin: 0; border-radius: 50%; }
+.live-user-pill strong { display: block; color: var(--ink); }
+.live-user-pill button { border: 0; padding: 0; background: none; color: var(--brand-orange); cursor: pointer; }
+#owner-content { display: grid; gap: 1.5rem; }
+#owner-content[hidden] { display: none; }
+.live-control-actions { display: flex; gap: .55rem; }
+.live-control-actions input {
+  min-width: 17rem; border: 1px solid var(--line); background: var(--surface-raised);
+  color: var(--ink); border-radius: .7rem; padding: .65rem .85rem; font: inherit;
+}
+.live-secondary { height: 2.75rem; padding: 0 1rem; background: var(--surface-raised); color: var(--ink); border: 1px solid var(--line); }
+.live-category-rail { margin-bottom: 1.1rem; }
+.live-settings-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .7rem; }
+.live-setting-card {
+  display: flex; flex-direction: column; min-height: 13rem; padding: 1rem;
+  border: 1px solid var(--line); border-radius: .9rem; background: var(--surface-raised);
+}
+.live-setting-card header { display: flex; justify-content: space-between; gap: .75rem; }
+.live-setting-card h3 { margin: 0; color: var(--ink); font-size: .92rem; }
+.live-setting-card code { color: var(--grey); font-size: .64rem; overflow-wrap: anywhere; }
+.live-setting-card p { margin: .65rem 0; color: var(--text-muted); font-size: .78rem; }
+.live-setting-input { display: flex; gap: .4rem; margin-top: auto; }
+.live-setting-input input, .live-setting-input select {
+  width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: .55rem;
+  background: var(--surface); color: var(--ink); padding: .55rem;
+}
+.live-setting-input button {
+  border: 0; border-radius: .55rem; padding: .55rem .7rem;
+  background: var(--brand-ramp); color: #fff; font-weight: 800; cursor: pointer;
+}
+.live-setting-input button.reset { background: var(--surface); color: var(--grey); border: 1px solid var(--line); }
+.live-chance { color: #8b5cf6; font: .7rem ui-monospace, monospace; }
+.live-overridden { color: var(--brand-orange); font: .65rem ui-monospace, monospace; }
+.live-log-list { display: grid; gap: .5rem; }
+.live-log-row {
+  display: grid; grid-template-columns: 7rem 1fr auto; align-items: center; gap: 1rem;
+  padding: .8rem 1rem; border: 1px solid var(--line); border-radius: .7rem;
+  color: var(--grey); font-size: .8rem;
+}
+.live-log-row strong { color: var(--ink); }
+.live-log-row .ok { color: var(--green); }
+.live-log-row .failed { color: #ef4444; }
+.live-empty { grid-column: 1 / -1; color: var(--grey); }
+.live-toast {
+  position: fixed; z-index: 300; right: 1.5rem; bottom: 1.5rem; max-width: 26rem;
+  padding: .9rem 1rem; border: 1px solid var(--line); border-radius: .75rem;
+  background: var(--surface); color: var(--ink); box-shadow: var(--lift-3);
+  transform: translateY(160%); transition: transform var(--dur) var(--ease);
+}
+.live-toast.show { transform: translateY(0); }
+.live-toast.error { border-color: #ef4444; }
+
+@media (max-width: 1000px) {
+  .live-rank-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .live-settings-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .live-battle { grid-template-columns: 1fr; }
+}
+@media (max-width: 680px) {
+  .live-panel-head { align-items: flex-start; flex-direction: column; }
+  .live-rank-grid, .live-settings-grid { grid-template-columns: 1fr; }
+  .live-control-actions { width: 100%; }
+  .live-control-actions input { min-width: 0; width: 100%; }
+  .live-log-row { grid-template-columns: 1fr; gap: .25rem; }
+  .live-status-card { justify-self: stretch; }
+}
+
 /* ===== narrow screens ==================================================== */
 @media (max-width: 900px) {
   /* Brand text, four nav items and a button do not fit a phone. The wordmark
@@ -1531,17 +1690,24 @@ def render_page(page, body_html: str, prefix: str, site_url: str,
                 nav: Sequence[Dict[str, str]] = ()) -> str:
     """A guide, rules or how-to page: left-aligned prose, no dateline."""
     tagline = '<p class="page-tagline">%s</p>' % _esc(page.tagline) if page.tagline else ""
+    dashboard = getattr(page, "layout", "document") == "dashboard"
+    doc_class = "doc live-doc" if dashboard else "doc"
+    body_class = "doc-body live-body" if dashboard else "doc-body"
     body = (
-        '<div class="page"><div class="shell"><div class="doc">'
+        '<div class="page"><div class="shell"><div class="%s">'
         '<header class="doc-head"><h1>%s</h1>%s</header>'
-        '<article class="doc-body">%s</article>'
-        "</div></div></div>" % (_esc(page.title), tagline, body_html)
+        '<article class="%s">%s</article>'
+        "</div></div></div>" % (doc_class, _esc(page.title), tagline, body_class, body_html)
+    )
+    scripts = (
+        '<script src="%sassets/server-dashboard.js" defer></script>' % prefix
+        if dashboard else ""
     )
     return _page(
         "%s | %s" % (page.title, SITE_NAME),
         page.tagline or "%s — %s" % (SITE_NAME, page.title),
         prefix, body, None, "%s/%s" % (site_url.rstrip("/"), page.url),
-        current=page.slug, nav=nav,
+        current=page.slug, nav=nav, scripts=scripts,
     )
 
 

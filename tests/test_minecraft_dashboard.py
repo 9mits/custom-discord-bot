@@ -1,8 +1,10 @@
 import time
 import unittest
+from tempfile import TemporaryDirectory
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from unittest.mock import patch
 
 from aiohttp.test_utils import TestClient, TestServer
 
@@ -81,21 +83,44 @@ class MinecraftDashboardSecurityTests(unittest.IsolatedAsyncioTestCase):
         finally:
             await client.close()
 
+    async def test_existing_devblog_is_the_site_served_by_the_backend(self):
+        dashboard = self._dashboard()
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "leaderboards").mkdir()
+            (root / "assets").mkdir()
+            (root / "index.html").write_text("existing blog home")
+            (root / "leaderboards" / "index.html").write_text("integrated standings")
+            (root / "assets" / "style.css").write_text("body{}")
+            with patch("minecraft_bot.dashboard.SITE_ROOT", root):
+                client = TestClient(TestServer(dashboard._app))
+                await client.start_server()
+                try:
+                    home = await client.get("/")
+                    standings = await client.get("/leaderboards/")
+                    asset = await client.get("/assets/style.css")
+                    self.assertEqual(await home.text(), "existing blog home")
+                    self.assertEqual(await standings.text(), "integrated standings")
+                    self.assertEqual(asset.status, 200)
+                finally:
+                    await client.close()
+
 
 class MinecraftDashboardAssetTests(unittest.TestCase):
     def test_public_page_has_every_surface_and_no_private_odds(self):
-        root = Path(__file__).parents[1] / "minecraft_bot" / "dashboard_static"
-        html = (root / "index.html").read_text()
-        script = (root / "dashboard.js").read_text()
+        root = Path(__file__).parents[1] / "devblog"
+        html = (root / "pages" / "leaderboards.md").read_text()
+        html += (root / "pages" / "control.md").read_text()
+        script = (root / "static" / "server-dashboard.js").read_text()
         self.assertIn("PLAYER LEADERBOARDS", html)
         self.assertIn("CLAN LEADERBOARDS", html)
         self.assertIn("CURRENT CLAN BATTLE", html)
-        self.assertIn("Continue with Discord", html)
+        self.assertIn("Authorize with Discord", html)
         self.assertIn("discord_username", script)
         self.assertNotIn("hidden-amethyst-one-in", html + script)
 
     def test_dashboard_script_is_static_data_not_an_embedded_secret(self):
-        script = (Path(__file__).parents[1] / "minecraft_bot" / "dashboard_static" / "dashboard.js").read_text()
+        script = (Path(__file__).parents[1] / "devblog" / "static" / "server-dashboard.js").read_text()
         self.assertNotIn("client_secret", script)
         self.assertNotIn("MINECRAFT_BRIDGE_SECRET", script)
         self.assertIn("X-MGX-CSRF", script)

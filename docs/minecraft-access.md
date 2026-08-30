@@ -84,9 +84,12 @@ The Discord application needs the Server Members and Message Content intents ena
 
 ## Local game dashboard
 
-The dashboard stays on `http://127.0.0.1:8090` by default. Its leaderboard pages are
-public locally and read the same snapshot used in game and on Discord. Settings, exact
-loot weights, and audit logs are never included in that public response.
+The authenticated backend serves the existing Mysterious SMP X dev-blog build at
+`http://127.0.0.1:8090` by default. Build it first with `python devblog/build.py`,
+then start `python minecraft_main.py`. `/leaderboards/` and `/control/` use the
+same theme, navigation and footer as the rest of the website; they are not a second
+standalone site. Leaderboards read the same snapshot used in game and on Discord.
+Settings, exact loot weights, and audit logs are never included in the public response.
 
 To enable owner controls, add
 `http://127.0.0.1:8090/auth/callback` to the dedicated Discord application's OAuth2

@@ -32,7 +32,7 @@ from .presentation import head_url
 logger = logging.getLogger("MinecraftAccessBot.dashboard")
 OWNER_ROLE_ID = next(role_id for role_id, group, *_rest in RANK_ROLES if group == "owner")
 SESSION_SECONDS = 12 * 60 * 60
-STATIC_ROOT = Path(__file__).with_name("dashboard_static")
+SITE_ROOT = Path(__file__).resolve().parents[1] / "devblog" / "dist"
 
 
 class DashboardServer:
@@ -45,8 +45,6 @@ class DashboardServer:
             client_max_size=128 * 1024,
             middlewares=[self._security_headers],
         )
-        self._app.router.add_get("/", self.index)
-        self._app.router.add_get("/assets/{name}", self.asset)
         self._app.router.add_get("/auth/login", self.login)
         self._app.router.add_get("/auth/callback", self.callback)
         self._app.router.add_post("/auth/logout", self.logout)
@@ -55,6 +53,10 @@ class DashboardServer:
         self._app.router.add_get("/api/settings", self.settings)
         self._app.router.add_patch("/api/settings/{key:.+}", self.change_setting)
         self._app.router.add_get("/api/logs", self.logs)
+        # The dashboard is part of the existing dev-blog, not a second site.
+        # API/auth routes are registered first so this static fallback cannot
+        # shadow them.
+        self._app.router.add_get("/{path:.*}", self.site_file)
 
     @property
     def redirect_uri(self) -> str:
@@ -70,14 +72,21 @@ class DashboardServer:
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; img-src 'self' https://mc-heads.net https://api.mcheads.org "
             "https://cdn.discordapp.com "
-            "https://*.discordapp.net data:; style-src 'self'; script-src 'self'; "
-            "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+            "https://*.discordapp.net data:; style-src 'self' 'unsafe-inline' "
+            "https://fonts.googleapis.com; font-src https://fonts.gstatic.com; "
+            "script-src 'self' 'unsafe-inline'; connect-src 'self'; "
+            "frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
         )
         return response
 
     async def start(self) -> None:
         if not self.config.dashboard_enabled:
             return
+        if not (SITE_ROOT / "index.html").is_file():
+            raise RuntimeError(
+                "The dev-blog preview is not built. Run `python devblog/build.py` "
+                "before starting the local Minecraft dashboard."
+            )
         self._runner = web.AppRunner(self._app, access_log=None)
         await self._runner.setup()
         self._site = web.TCPSite(
@@ -87,7 +96,8 @@ class DashboardServer:
         )
         await self._site.start()
         logger.info(
-            "Local Minecraft dashboard listening at %s (Discord OAuth redirect: %s)",
+            "Local dev-blog preview with Minecraft controls listening at %s "
+            "(Discord OAuth redirect: %s)",
             self.config.dashboard_public_url,
             self.redirect_uri,
         )
@@ -98,14 +108,22 @@ class DashboardServer:
             self._runner = None
             self._site = None
 
-    async def index(self, _request: web.Request) -> web.FileResponse:
-        return web.FileResponse(STATIC_ROOT / "index.html")
-
-    async def asset(self, request: web.Request) -> web.FileResponse:
-        name = request.match_info["name"]
-        if name not in {"dashboard.css", "dashboard.js"}:
+    async def site_file(self, request: web.Request) -> web.FileResponse:
+        root = SITE_ROOT.resolve()
+        relative = request.match_info.get("path", "").lstrip("/")
+        candidate = (root / relative).resolve()
+        try:
+            candidate.relative_to(root)
+        except ValueError:
             raise web.HTTPNotFound()
-        return web.FileResponse(STATIC_ROOT / name)
+        if candidate.is_dir() or not candidate.suffix:
+            candidate = candidate / "index.html"
+        if candidate.is_file():
+            return web.FileResponse(candidate)
+        not_found = root / "404.html"
+        if not_found.is_file():
+            return web.FileResponse(not_found, status=404)
+        raise web.HTTPNotFound()
 
     async def login(self, _request: web.Request) -> web.StreamResponse:
         if not self.config.dashboard_client_secret or self.bot.user is None:
@@ -173,7 +191,7 @@ class DashboardServer:
         if member is None:
             raise web.HTTPForbidden(text="Only the Discord OWNER role may use this dashboard.")
         csrf = secrets.token_urlsafe(24)
-        response = web.HTTPFound("/#control")
+        response = web.HTTPFound("/control/")
         response.del_cookie("mgx_oauth_state")
         response.set_cookie(
             "mgx_dashboard_session",
