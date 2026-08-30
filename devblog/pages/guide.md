@@ -17,6 +17,7 @@ Everything available to you in game.
 `/bal` · `/pay <player> <amount>` — your wallet
 `/sethome` · `/home` — save a spot and return to it
 `/tpa <player>` — ask to teleport to someone
+`/crate` — open crates and read their exact odds
 
 ### Full list
 
@@ -112,6 +113,12 @@ Elytras, netherite, totems, shulker shells and enchanted golden apples are not s
 `/bounty clan <player> <amount>` — clan owner, paid from the treasury
 `/bounty check` — look up one player
 
+#### Hands off
+
+`/autosell` — sell what you mine as you mine it
+`/autobuy` — keep a stack topped up from the shop
+`/autopay <player> <amount|all> [seconds]` — pay on a timer
+
 ### Commands — Clans
 
 Founding, joining and running a clan.
@@ -145,6 +152,13 @@ Founding, joining and running a clan.
 ### Commands — Account
 
 Your perks and preferences, plus details about the server.
+
+#### Crates, cosmetics and boards
+
+`/crate` — open a crate; `/crate odds` — the exact chance of every reward, published in full
+`/crate claim` — collect a reward that would not fit
+`/wardrobe` — equip the cosmetics you own, and list them for sale
+`/leaderboard` — the richest, the deadliest, and the clan boards
 
 #### Your account
 
