@@ -189,9 +189,37 @@
       button.setAttribute("aria-selected", button.dataset.view === view ? "true" : "false");
     });
   }
+  /**
+   * Standings from the backend when it is serving this page, and from the snapshot
+   * CI published beside it otherwise.
+   *
+   * The public site is HTTPS and the dashboard is plain HTTP, so the page cannot call
+   * that API from a browser at all -- mixed content, before CORS even applies. So the
+   * build publishes assets/leaderboards.json as a same-origin file, and this reads it
+   * when /api/ is not there. Same page either way: live where it can be, and at worst
+   * as old as the last rebuild.
+   */
+  async function liveOrPublishedStandings() {
+    try {
+      var live = await api("/api/leaderboards");
+      if (live && (live.individual || live.clan)) { return live; }
+    } catch (ignored) {
+      // No backend on this origin. Expected on the published site.
+    }
+    var response = await fetch("../assets/leaderboards.json", { credentials: "omit" });
+    if (!response.ok) { throw new Error("No standings are published yet."); }
+    var document_ = await response.json();
+    var boards = document_.boards || {};
+    return {
+      individual: boards.individual || {},
+      clan: boards.clan || {},
+      generated_at: Math.floor(Date.parse(document_.checked_at || "") / 1000) || 0
+    };
+  }
+
   async function loadLeaderboards() {
     try {
-      state.snapshot = await api("/api/leaderboards");
+      state.snapshot = await liveOrPublishedStandings();
       byId("generated-at").textContent = relativeTime(Number(state.snapshot.generated_at || 0));
       var playerKeys = defaultBoards.filter(function (key) { return key in (state.snapshot.individual || {}); });
       var clanKeys = defaultBoards.filter(function (key) { return key in (state.snapshot.clan || {}); });

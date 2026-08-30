@@ -2,6 +2,7 @@
 title: Server Statistics
 nav: Statistics
 nav_hidden: true
+private: true
 order: 6
 layout: statistics
 tagline: Every figure the server records, charted over time. Activity, AFK, access and standings, owner-only.
