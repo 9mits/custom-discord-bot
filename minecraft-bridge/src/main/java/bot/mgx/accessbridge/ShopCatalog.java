@@ -23,6 +23,13 @@ final class ShopCatalog {
      * ones. The hub has room for twenty-one.
      */
     enum Category {
+        /**
+         * The Amethyst Event's own shelf, and the only one with a closing time.
+         *
+         * <p>First in the enum because the hub draws the grid in this order, and the
+         * one shelf that will not be here next month is the one worth seeing first.
+         */
+        AMETHYST("Amethyst", "AMETHYST_CLUSTER", true),
         STONE("Stone", "STONE"),
         EARTH("Earth", "DIRT"),
         WOOD("Wood", "OAK_LOG"),
@@ -43,10 +50,16 @@ final class ShopCatalog {
 
         private final String title;
         private final String icon;
+        private final boolean limited;
 
         Category(String title, String icon) {
+            this(title, icon, false);
+        }
+
+        Category(String title, String icon, boolean limited) {
             this.title = title;
             this.icon = icon;
+            this.limited = limited;
         }
 
         String title() {
@@ -55,6 +68,23 @@ final class ShopCatalog {
 
         String icon() {
             return icon;
+        }
+
+        boolean limited() {
+            return limited;
+        }
+
+        /**
+         * Borrowed from the Amethyst Crate rather than declared again here, so every
+         * amethyst surface in the game closes on the same second. Two deadlines that
+         * have to be edited together are one deadline that will not be.
+         */
+        long closesAt() {
+            return limited ? CrateKind.AMETHYST.closesAt() : Long.MAX_VALUE;
+        }
+
+        boolean available(long now) {
+            return !limited || now < closesAt();
         }
     }
 
@@ -152,6 +182,11 @@ final class ShopCatalog {
         return List.of(Category.values());
     }
 
+    /** The shelves a player may actually open: a limited one is gone once it closes. */
+    static List<Category> categories(long now) {
+        return categories().stream().filter(category -> category.available(now)).toList();
+    }
+
     static List<String> materialsOnBothCounters() {
         List<String> both = new ArrayList<>();
         for (String material : SELL_BY_MATERIAL.keySet()) {
@@ -164,6 +199,25 @@ final class ShopCatalog {
 
     private static Map<Category, List<Offer>> buildShop() {
         Map<Category, List<Offer>> catalog = new EnumMap<>(Category.class);
+        // Every vanilla amethyst item and nothing else. What the Amethyst Crate pays
+        // out stays in the crate: a shelf selling the crate's own table would be
+        // selling the reason to open one. The shards and blocks keep the prices they
+        // already carry on the permanent shelves, because one item may not cost two
+        // different amounts depending on which page it was found on.
+        catalog.put(Category.AMETHYST, List.of(
+                offer("AMETHYST_SHARD", 16, 1_120),
+                offer("AMETHYST_BLOCK", 64, 4_500),
+                // Four shards come back out of a cluster, so it has to cost more than
+                // the sell counter pays for four.
+                offer("AMETHYST_CLUSTER", 16, 4_800),
+                offer("LARGE_AMETHYST_BUD", 16, 3_200),
+                offer("MEDIUM_AMETHYST_BUD", 16, 2_400),
+                offer("SMALL_AMETHYST_BUD", 16, 1_600),
+                // The one block survival cannot mine, and it grows buds for as long as
+                // it stays placed - so no price makes it permanently unprofitable, only
+                // slow. A four-bud face pays for this one back in about 2,500 hours.
+                offer("BUDDING_AMETHYST", 1, 1_000_000)
+        ));
         catalog.put(Category.STONE, List.of(
                 offer("COBBLESTONE", 64, 450),
                 offer("STONE", 64, 630),
