@@ -182,6 +182,7 @@ final class AirdropService implements Listener {
     private BukkitTask effectTask;
     private BukkitTask countdownTask;
     private BossBar announcementBar;
+    private final AirdropGuardService guards;
     private volatile boolean stopped = true;
     private BooleanSupplier otherEventActive = () -> false;
     private Runnable spawnedCallback;
@@ -194,9 +195,10 @@ final class AirdropService implements Listener {
             CosmeticStore cosmeticStore,
             CosmeticItems cosmeticItems,
             AmethystProgressStore progress,
-            PlayerSettingsStore settings
+            PlayerSettingsStore settings,
+            AirdropGuardService guards
     ) {
-        this(plugin, crateItems, cosmeticStore, cosmeticItems, progress, settings,
+        this(plugin, crateItems, cosmeticStore, cosmeticItems, progress, settings, guards,
                 ThreadLocalRandom.current());
     }
 
@@ -207,6 +209,7 @@ final class AirdropService implements Listener {
             CosmeticItems cosmeticItems,
             AmethystProgressStore progress,
             PlayerSettingsStore settings,
+            AirdropGuardService guards,
             RandomGenerator random
     ) {
         this.plugin = plugin;
@@ -215,6 +218,7 @@ final class AirdropService implements Listener {
         this.cosmeticItems = cosmeticItems;
         this.progress = progress;
         this.settings = settings;
+        this.guards = guards;
         this.random = random;
         cosmeticMarker = new NamespacedKey(plugin, "airdrop_cosmetic");
         enabled = plugin.getConfig().getBoolean("airdrop.enabled", true);
@@ -570,6 +574,10 @@ final class AirdropService implements Listener {
                             + " Amethyst Airdrop expired unclaimed."),
                     Math.max(1L, lifetimeMillis / 50L)
             );
+            guards.deploy(chestLocation, rarity, () -> removeActive(
+                    true, "The guards claimed the " + rarity.displayName()
+                            + " Amethyst Airdrop. Nobody stayed to fight for it."
+            ));
             announceSpawn(active);
             plugin.getLogger().info("Spawned " + rarity.displayName() + " Amethyst Airdrop at "
                     + coordinates(chestLocation) + " in " + worldName(anchor.getWorld()));
@@ -1080,6 +1088,7 @@ final class AirdropService implements Listener {
     private void removeActive(boolean announce, String message) {
         ActiveAirdrop drop = active;
         active = null;
+        guards.dismiss();
         cancel(expiryTask);
         expiryTask = null;
         cancel(effectTask);

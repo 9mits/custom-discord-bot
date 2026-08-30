@@ -54,6 +54,51 @@ final class AmethystMobAssetsTest {
         }
     }
 
+    /**
+     * The Amethyst Golem is a retextured iron golem, derived from the mod art by
+     * import_amethyst_golem.py. Minecraft has no iron golem variant registry, so a pack
+     * holds exactly one iron_golem.png and every iron golem wears this skin; only the
+     * ones the airdrop guard deploys are actual amethyst mobs.
+     */
+    @Test
+    void theGolemSkinIsTheDerivedAmethystOne() throws Exception {
+        Path golem = VANILLA.resolve("iron_golem/iron_golem.png");
+
+        assertEquals("9b4517e704a86e52f18202e7507a41c7b1dcc57dbd378e47122d32cac36310e0",
+                sha256(golem));
+        assertEquals(128, ImageIO.read(golem.toFile()).getWidth());
+        assertEquals(128, ImageIO.read(golem.toFile()).getHeight());
+    }
+
+    /** The rarer the drop, the heavier the guard; the Mythic garrison is the top end. */
+    @Test
+    void theGarrisonGrowsWithRarity() {
+        int previous = -1;
+        for (AirdropCatalog.Rarity rarity : AirdropCatalog.Rarity.values()) {
+            int total = AirdropGuardService.garrisonFor(rarity).total();
+            assertTrue(total > previous, rarity + " must be guarded more heavily");
+            previous = total;
+        }
+        assertEquals(0, AirdropGuardService.garrisonFor(
+                AirdropCatalog.Rarity.COMMON).golems());
+        AirdropGuardService.Garrison mythic =
+                AirdropGuardService.garrisonFor(AirdropCatalog.Rarity.MYTHIC);
+        assertEquals(15, mythic.zombies());
+        assertEquals(15, mythic.skeletons());
+        assertEquals(5, mythic.golems());
+    }
+
+    /** The tag above an amethyst mob is what tells it apart from a plain iron golem. */
+    @Test
+    void theVariantsCarryAVisibleNameTag() throws Exception {
+        String source = Files.readString(Path.of(
+                "src/main/java/bot/mgx/accessbridge/AmethystMobService.java"
+        ));
+
+        assertTrue(source.contains("setCustomNameVisible(true)"));
+        assertFalse(source.contains("setCustomNameVisible(false)"));
+    }
+
     @Test
     void onlyOrdinaryZombieAndSkeletonSpawnsAreEligible() {
         assertTrue(AmethystMobService.eligible(EntityType.ZOMBIE,

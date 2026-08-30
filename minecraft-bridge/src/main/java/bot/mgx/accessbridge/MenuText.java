@@ -60,15 +60,15 @@ final class MenuText {
 
     /** {@code Label: value} with the value carrying the colour. */
     static Component stat(String label, String value) {
-        return Component.text(label + ": ", LABEL)
-                .append(Component.text(value, VALUE, TextDecoration.BOLD));
+        return upright(Component.text(label + ": ", LABEL)
+                .append(Component.text(value, VALUE, TextDecoration.BOLD)));
     }
 
     /** {@code Label: value} with an icon in front of the value. */
     static Component stat(String label, String sprite, String value) {
-        return Component.text(label + ": ", LABEL)
+        return upright(Component.text(label + ": ", LABEL)
                 .append(sprite(sprite))
-                .append(Component.text(" " + value, VALUE, TextDecoration.BOLD));
+                .append(Component.text(" " + value, VALUE, TextDecoration.BOLD)));
     }
 
     /** Gold, silver and bronze for the podium; everyone else is plain. */
@@ -84,29 +84,35 @@ final class MenuText {
     /** {@code #3 [face] Name — $ 1.6T}, the row every board uses. */
     static Component rankedRow(int rank, UUID playerId, String name, Component value) {
         TextColor colour = placeColour(rank);
-        return Component.text("#" + rank + " ", colour, TextDecoration.BOLD)
+        return upright(Component.text("#" + rank + " ", colour, TextDecoration.BOLD)
                 .append(head(playerId))
                 .append(Component.text(" " + name + " ", colour))
                 .append(Component.text("— ", NamedTextColor.DARK_GRAY))
-                .append(value);
+                .append(value));
     }
 
     static Component title(String text) {
-        return Component.text(text, ORANGE, TextDecoration.BOLD);
+        return upright(Component.text(text, ORANGE, TextDecoration.BOLD));
     }
 
     static Component body(String text) {
-        return Component.text(text, LABEL);
+        return upright(Component.text(text, LABEL));
     }
 
-    /** Clickable words keep the requested italic convention, using the normal font. */
     static Component buttonLabel(String text, TextColor colour) {
-        return Component.text(text, colour)
-                .decoration(TextDecoration.ITALIC, true);
+        return upright(Component.text(text, colour));
     }
 
     static Component actionHint(String text) {
-        return Component.text(text, LABEL)
-                .decoration(TextDecoration.ITALIC, true);
+        return upright(Component.text(text, LABEL));
+    }
+
+    /**
+     * Kills the slant. Leaving italic unset is not enough: an unset decoration inherits,
+     * and both item tooltips and dialog text arrive already italic, so every piece of
+     * menu text has to say so itself.
+     */
+    static Component upright(Component component) {
+        return component.decoration(TextDecoration.ITALIC, false);
     }
 }

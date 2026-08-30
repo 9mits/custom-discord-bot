@@ -161,6 +161,8 @@ final class QuickMenuDatapack {
     private static JsonObject text(String value) {
         JsonObject component = new JsonObject();
         component.addProperty("text", value);
+        // Dialog text inherits italic when the field is absent, so every string says so.
+        component.addProperty("italic", false);
         return component;
     }
 
