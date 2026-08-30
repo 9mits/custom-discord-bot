@@ -18,6 +18,7 @@ import org.bukkit.block.Block;
 import org.bukkit.block.data.BlockData;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.enchantments.Enchantment;
+import org.bukkit.entity.BlockDisplay;
 import org.bukkit.entity.Display;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Item;
@@ -102,6 +103,7 @@ final class AmethystBlockEventService implements Listener {
         /** Bottom-centre coordinate; the cube spans offsets -6 through +5. */
         private final Location anchor;
         private final Marker marker;
+        private final BlockDisplay visual;
         private final TextDisplay title;
         private final TextDisplay countdown;
         private final Set<Chunk> chunks;
@@ -115,12 +117,14 @@ final class AmethystBlockEventService implements Listener {
         private boolean finishing;
 
         private ActiveBlock(
-                Location anchor, Marker marker, TextDisplay title, TextDisplay countdown,
+                Location anchor, Marker marker, BlockDisplay visual,
+                TextDisplay title, TextDisplay countdown,
                 Set<Chunk> chunks, Map<BlockPosition, BlockData> originals,
                 long spawnedAt, long expiresAt
         ) {
             this.anchor = anchor;
             this.marker = marker;
+            this.visual = visual;
             this.title = title;
             this.countdown = countdown;
             this.chunks = chunks;
@@ -439,6 +443,20 @@ final class AmethystBlockEventService implements Listener {
                 block.setType(Material.AMETHYST_BLOCK, false);
             });
 
+            BlockDisplay visual = world.spawn(new Location(
+                    world, anchor.getBlockX() + MIN_OFFSET, anchor.getBlockY(),
+                    anchor.getBlockZ() + MIN_OFFSET
+            ), BlockDisplay.class, display -> {
+                display.setBlock(Material.AMETHYST_BLOCK.createBlockData());
+                display.setViewRange(12f);
+                display.setTransformation(new Transformation(
+                        new Vector3f(-0.01f, -0.01f, -0.01f), new Quaternionf(),
+                        new Vector3f(12.02f, 12.02f, 12.02f), new Quaternionf()
+                ));
+                decorate(display);
+            });
+            created.add(visual);
+
             TextDisplay title = label(anchor.clone().add(0d, STRUCTURE_SIZE + 3d, 0d),
                     Component.text("HUGE AMETHYST BLOCK", AMETHYST, TextDecoration.BOLD), 2.7f);
             created.add(title);
@@ -448,7 +466,7 @@ final class AmethystBlockEventService implements Listener {
 
             long spawnedAt = System.currentTimeMillis();
             active = new ActiveBlock(
-                    anchor.clone(), marker, title, countdown, Set.copyOf(chunks),
+                    anchor.clone(), marker, visual, title, countdown, Set.copyOf(chunks),
                     Map.copyOf(originals), spawnedAt, Math.addExact(spawnedAt, lifetimeMillis)
             );
             bossBar = BossBar.bossBar(
@@ -835,6 +853,8 @@ final class AmethystBlockEventService implements Listener {
 
     /** The cube disintegrates in 36 visible waves instead of vanishing in one tick. */
     private void beginShatterAnimation(ActiveBlock block) {
+        // Reveal the physical blocks before the staged breakup begins.
+        block.visual.remove();
         List<BlockPosition> positions = new ArrayList<>(block.originals.keySet());
         shuffle(positions);
         World world = block.anchor.getWorld();
@@ -921,53 +941,35 @@ final class AmethystBlockEventService implements Listener {
         world.playSound(centre, Sound.ENTITY_ENDER_DRAGON_GROWL, 16f, 0.45f);
     }
 
-    /** Dense rotating shells, helixes, sparks, and ambient haze around the whole cube. */
+    /** The earlier, restrained rotating aura around the whole cube. */
     private void drawAura(ActiveBlock block, long now) {
         Location centre = cubeCentre(block.anchor);
-        double phase = now / 420d;
+        double phase = now / 550d;
         for (Player viewer : centre.getWorld().getPlayers()) {
             if (!settings.isEnabled(viewer.getUniqueId(),
                     PlayerSettingsStore.Setting.AIRDROP_PARTICLES)) {
                 continue;
             }
-            for (int ring = 0; ring < 6; ring++) {
-                double radius = 7.3d + ring * 0.55d;
-                double y = -5d + ring * 2d;
-                for (int point = 0; point < 40; point++) {
+            for (int ring = 0; ring < 4; ring++) {
+                double radius = 7.2d + ring * 0.8d;
+                double y = -4.5d + ring * 3d;
+                for (int point = 0; point < 32; point++) {
                     double angle = phase * (ring % 2 == 0 ? 1d : -1d)
-                            + point * Math.PI * 2d / 40d;
+                            + point * Math.PI * 2d / 32d;
                     Location at = centre.clone().add(
                             Math.cos(angle) * radius,
-                            y + Math.sin(angle * 3d + phase) * 1.3d,
+                            y + Math.sin(angle * 3d) * 0.8d,
                             Math.sin(angle) * radius
                     );
-                    viewer.spawnParticle(Particle.DUST, at, 2,
-                            0.05d, 0.12d, 0.05d, 0d,
+                    viewer.spawnParticle(Particle.DUST, at, 1,
+                            0d, 0d, 0d, 0d,
                             ring % 2 == 0 ? DEEP : BRIGHT);
                 }
             }
-            for (int helix = 0; helix < 4; helix++) {
-                for (int level = 0; level < 12; level++) {
-                    double angle = phase * 1.7d + helix * Math.PI / 2d + level * 0.48d;
-                    viewer.spawnParticle(Particle.DUST, block.anchor.clone().add(
-                            Math.cos(angle) * 8.8d,
-                            level + 0.5d,
-                            Math.sin(angle) * 8.8d
-                    ), 2, 0d, 0.2d, 0d, 0d, WHITE);
-                }
-            }
-            viewer.spawnParticle(Particle.REVERSE_PORTAL, centre, 110,
-                    7d, 6d, 7d, 0.045d);
-            viewer.spawnParticle(Particle.END_ROD, centre, 34,
-                    7.5d, 6.5d, 7.5d, 0.025d);
-            viewer.spawnParticle(Particle.WITCH, centre, 45,
-                    8d, 6d, 8d, 0.03d);
-            viewer.spawnParticle(Particle.ELECTRIC_SPARK, centre, 30,
-                    8d, 6d, 8d, 0.09d);
-            if ((now / 250L) % 4L == 0L) {
-                viewer.spawnParticle(Particle.FIREWORK, centre, 24,
-                        8d, 6d, 8d, 0.12d);
-            }
+            viewer.spawnParticle(Particle.REVERSE_PORTAL, centre, 35,
+                    7d, 6d, 7d, 0.025d);
+            viewer.spawnParticle(Particle.END_ROD, centre, 10,
+                    6d, 6d, 6d, 0.01d);
         }
     }
 
@@ -1060,6 +1062,7 @@ final class AmethystBlockEventService implements Listener {
         restoreBlocks(block.anchor.getWorld(), block.originals);
         clearJournal();
         block.marker.remove();
+        block.visual.remove();
         block.title.remove();
         block.countdown.remove();
         block.chunks.forEach(chunk -> chunk.removePluginChunkTicket(plugin));

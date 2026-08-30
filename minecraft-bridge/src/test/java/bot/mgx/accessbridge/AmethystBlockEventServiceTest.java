@@ -11,7 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class AmethystBlockEventServiceTest {
     @Test
-    void eventIsFortyPercentSmallerAndUsesPhysicalBlockMining() throws Exception {
+    void seamlessVisualSkinKeepsPhysicalBlockMining() throws Exception {
         assertEquals(12, AmethystBlockEventService.STRUCTURE_SIZE);
         String source = Files.readString(Path.of(
                 "src/main/java/bot/mgx/accessbridge/AmethystBlockEventService.java"
@@ -21,9 +21,23 @@ final class AmethystBlockEventServiceTest {
         assertTrue(source.contains("BlockDamageAbortEvent"));
         assertTrue(source.contains("BlockBreakEvent"));
         assertTrue(source.contains("block.setType(Material.AMETHYST_BLOCK, false)"));
+        assertTrue(source.contains("BlockDisplay visual"));
+        assertTrue(source.contains("new Vector3f(12.02f, 12.02f, 12.02f)"));
         assertFalse(source.contains("EntityDamageByEntityEvent"));
         assertFalse(source.contains("Interaction interaction"));
-        assertFalse(source.contains("BlockDisplay display"));
+    }
+
+    @Test
+    void ambientAuraUsesTheEarlierParticleDensity() throws Exception {
+        String source = Files.readString(Path.of(
+                "src/main/java/bot/mgx/accessbridge/AmethystBlockEventService.java"
+        ));
+
+        assertTrue(source.contains("ring < 4"));
+        assertTrue(source.contains("point < 32"));
+        assertTrue(source.contains("Particle.REVERSE_PORTAL, centre, 35"));
+        assertTrue(source.contains("Particle.END_ROD, centre, 10"));
+        assertFalse(source.contains("ring < 6"));
     }
 
     @Test
