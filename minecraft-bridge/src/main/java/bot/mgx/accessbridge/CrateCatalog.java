@@ -293,7 +293,7 @@ final class CrateCatalog {
     }
 
     static int luckyTotalWeight(List<Reward> rewards, int luckPercent) {
-        int safePercent = clampLuckPercent(luckPercent);
+        int safePercent = clampRollPercent(luckPercent);
         return rewards.stream().mapToInt(reward -> effectiveWeight(reward, safePercent)).sum();
     }
 
@@ -303,7 +303,7 @@ final class CrateCatalog {
     }
 
     static Reward rewardAtLucky(List<Reward> rewards, int ticket, int luckPercent) {
-        int safePercent = clampLuckPercent(luckPercent);
+        int safePercent = clampRollPercent(luckPercent);
         int total = luckyTotalWeight(rewards, safePercent);
         if (ticket < 0 || ticket >= total) {
             throw new IllegalArgumentException(
@@ -331,6 +331,15 @@ final class CrateCatalog {
     /** No potion at all, and the ceiling a potion plus a live event may reach. */
     static int clampLuckPercent(int luckPercent) {
         return Math.max(NO_LUCK_PERCENT, Math.min(MAX_LUCK_PERCENT, luckPercent));
+    }
+
+    /**
+     * The band a roll may actually use. Wider at the bottom than {@link #clampLuckPercent}
+     * because {@link CrateOddsBalance} is allowed to nerf below the baseline, while a
+     * potion on its own never is.
+     */
+    static int clampRollPercent(int percent) {
+        return Math.max(CrateOddsBalance.FLOOR_PERCENT, Math.min(MAX_LUCK_PERCENT, percent));
     }
 
     static String percentage(int weight) {
