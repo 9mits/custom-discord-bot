@@ -259,6 +259,9 @@ final class ServerEventService implements Listener {
             case FORTUNE -> TextColor.color(0x66BB6A);
             case KEY -> TextColor.color(0x4FC3F7);
             case MONEY -> TextColor.color(0xFF9900);
+            case AIRDROP -> TextColor.color(0xB56CFF);
+            case AMETHYST_BLOCK -> TextColor.color(0x9C5BE8);
+            case MEGA_KEY -> TextColor.color(0x00E5FF);
         };
     }
 
@@ -268,6 +271,8 @@ final class ServerEventService implements Listener {
             case FORTUNE -> BossBar.Color.GREEN;
             case KEY -> BossBar.Color.BLUE;
             case MONEY -> BossBar.Color.PINK;
+            case AIRDROP, AMETHYST_BLOCK -> BossBar.Color.PURPLE;
+            case MEGA_KEY -> BossBar.Color.BLUE;
         };
     }
 }

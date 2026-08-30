@@ -47,13 +47,16 @@ class ServerEventTypeTest {
     }
 
     @Test
-    void everyTypeAdvertisesItselfAsTwoTimes() {
-        // The boss bar, the banner and the server list all say 2x. If the
-        // constant ever moved, the advertising would start lying.
-        assertEquals(2, ServerEventType.MULTIPLIER);
+    void everyTypeAdvertisesTheFactorItActuallyPays() {
+        // The boss bar, the banner and the server list all name the factor. These used to
+        // be uniformly 2x against a shared constant; 4x Keys made the factor per-type, so
+        // the name is now checked against the number instead of being true by
+        // construction. ServerEventTypeMultiplierTest covers the same rule in full.
         for (ServerEventType type : ServerEventType.values()) {
-            assertTrue(type.displayName().startsWith("2x"), type.id() + " is not named 2x");
-            assertTrue(type.motdLabel().contains("2X"), type.id() + " MOTD label is not 2X");
+            assertTrue(type.displayName().startsWith(type.multiplier() + "x"),
+                    type.id() + " is not named " + type.multiplier() + "x");
+            assertTrue(type.motdLabel().contains(type.multiplier() + "X"),
+                    type.id() + " MOTD label is not " + type.multiplier() + "X");
             assertFalse(type.motdLabel().isBlank());
         }
     }

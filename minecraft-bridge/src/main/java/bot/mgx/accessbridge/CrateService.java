@@ -1586,7 +1586,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         }
         try {
             Map<UUID, Integer> rates = new HashMap<>();
-            int eventRate = plugin.serverEventMultiplier(ServerEventType.KEY);
+            int eventRate = plugin.keyEventMultiplier();
             elapsed.keySet().forEach(playerId -> rates.put(
                     playerId,
                     (perks.profile(playerId).booster() ? BOOSTER_KEYS_PER_HOUR : KEYS_PER_HOUR)
