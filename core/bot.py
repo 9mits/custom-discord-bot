@@ -32,6 +32,7 @@ EXTENSIONS = (
     "cogs.moderation",
     "cogs.export",
     "cogs.roles",
+    "cogs.server_tags",
     "cogs.derole",
     "cogs.modmail",
     "cogs.automod",
