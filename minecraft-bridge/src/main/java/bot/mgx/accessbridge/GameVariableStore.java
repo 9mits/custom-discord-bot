@@ -8,6 +8,7 @@ import org.bukkit.configuration.file.FileConfiguration;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
@@ -212,18 +213,18 @@ final class GameVariableStore {
             row.addProperty("sensitive", definition.sensitive());
             row.addProperty("overridden", overrides.containsKey(definition.key()));
             if (definition.key().startsWith("crate.") && definition.key().endsWith(".weight")) {
-                row.addProperty("chance_percent", crateChance(definition.key()));
+                addChance(row, crateChance(definition.key()));
             } else if (definition.key().startsWith("airdrop.rarity.")
                     && definition.key().endsWith(".weight")) {
-                row.addProperty("chance_percent", airdropRarityChance(definition.key()));
+                addChance(row, airdropRarityChance(definition.key()));
             } else if (definition.key().startsWith("airdrop.loot.")
                     && definition.key().endsWith("-weight")) {
-                row.addProperty("chance_percent", airdropLootChance(definition.key()));
+                addChance(row, airdropLootChance(definition.key()));
             } else if (definition.key().endsWith(".cosmetic-weight")) {
-                row.addProperty("chance_percent", ((Number) value).doubleValue() / 100d);
+                addChance(row, ((Number) value).doubleValue() / 100d);
             } else if (definition.key().equals("airdrop.shard-one-in")
                     || definition.key().equals("crate.hidden-amethyst-one-in")) {
-                row.addProperty("chance_percent", 100d / ((Number) value).doubleValue());
+                addChance(row, 100d / ((Number) value).doubleValue());
             }
             variables.add(row);
         }
@@ -416,6 +417,16 @@ final class GameVariableStore {
     private static void addValue(JsonObject object, String key, Object value) {
         if (value instanceof Boolean bool) object.addProperty(key, bool);
         else object.addProperty(key, ((Number) value).longValue());
+    }
+
+    private static void addChance(JsonObject object, double chance) {
+        // Signed bridge envelopes are canonicalized independently by Gson and
+        // Python's json module. Decimal strings avoid language-specific float
+        // rendering while remaining directly consumable by the dashboard.
+        object.addProperty(
+                "chance_percent",
+                BigDecimal.valueOf(chance).stripTrailingZeros().toPlainString()
+        );
     }
 
     private void load() throws IOException {

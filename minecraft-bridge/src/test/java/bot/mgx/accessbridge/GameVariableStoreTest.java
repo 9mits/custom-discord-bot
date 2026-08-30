@@ -80,5 +80,7 @@ final class GameVariableStoreTest {
         assertTrue(hourly.get("overridden").getAsBoolean());
         assertEquals(9, hourly.get("value").getAsInt());
         assertTrue(reward.has("chance_percent"));
+        assertTrue(reward.get("chance_percent").getAsJsonPrimitive().isString());
+        assertTrue(Double.parseDouble(reward.get("chance_percent").getAsString()) > 0d);
     }
 }
