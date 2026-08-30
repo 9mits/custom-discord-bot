@@ -3,7 +3,7 @@ package bot.mgx.accessbridge;
 import org.bukkit.Location;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
-import org.bukkit.Material;
+import org.bukkit.block.Block;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
@@ -45,7 +45,9 @@ final class AirdropGuardService {
     /** How long the guards need alone with the drop before they take it. */
     static final int CLAIM_SECONDS = 20;
     private static final long PERIOD_TICKS = 5L;
-    private static final int VERTICAL_SEARCH = 6;
+    private static final int VERTICAL_SEARCH = 10;
+    /** An Amethyst Golem is nearly three blocks tall. */
+    private static final int GOLEM_CLEARANCE = 3;
 
     /** How many of each mob stand over a drop of a given rarity. */
     record Garrison(int zombies, int skeletons, int golems) {
@@ -129,10 +131,13 @@ final class AirdropGuardService {
     }
 
     private void spawnAll(EntityType type, int count) {
+        int clearance = type == EntityType.IRON_GOLEM ? GOLEM_CLEARANCE : 2;
         for (int index = 0; index < count; index++) {
-            Location where = ring();
+            Location where = ring(clearance);
             if (where == null) {
-                continue;
+                // Better a guard standing on the drop than a garrison quietly short of
+                // the count the rarity promised.
+                where = post.clone().add(0d, 1d, 0d);
             }
             LivingEntity guard = mobs.deploy(where, type);
             // Guards must not wander off or despawn while the drop is still standing.
@@ -148,14 +153,14 @@ final class AirdropGuardService {
     }
 
     /** A standing spot on solid ground somewhere in the ring around the chest. */
-    private Location ring() {
+    private Location ring(int clearance) {
         World world = post.getWorld();
-        for (int attempt = 0; attempt < 24; attempt++) {
+        for (int attempt = 0; attempt < 64; attempt++) {
             double angle = random.nextDouble() * Math.PI * 2d;
             double distance = INNER_RING + random.nextDouble() * (OUTER_RING - INNER_RING);
             int x = post.getBlockX() + (int) Math.round(Math.cos(angle) * distance);
             int z = post.getBlockZ() + (int) Math.round(Math.sin(angle) * distance);
-            Location standing = ground(world, x, post.getBlockY(), z);
+            Location standing = ground(world, x, post.getBlockY(), z, clearance);
             if (standing != null) {
                 return standing;
             }
@@ -163,11 +168,11 @@ final class AirdropGuardService {
         return null;
     }
 
-    private Location ground(World world, int x, int startY, int z) {
+    private Location ground(World world, int x, int startY, int z, int clearance) {
         for (int offset = 0; offset <= VERTICAL_SEARCH; offset++) {
             for (int direction : new int[] {1, -1}) {
                 int y = startY + offset * direction;
-                if (standable(world, x, y, z)) {
+                if (standable(world, x, y, z, clearance)) {
                     return new Location(world, x + 0.5d, y, z + 0.5d);
                 }
                 if (offset == 0) {
@@ -178,11 +183,23 @@ final class AirdropGuardService {
         return null;
     }
 
-    private boolean standable(World world, int x, int y, int z) {
-        Material floor = world.getBlockAt(x, y - 1, z).getType();
-        return floor.isSolid()
-                && world.getBlockAt(x, y, z).getType() == Material.AIR
-                && world.getBlockAt(x, y + 1, z).getType() == Material.AIR;
+    /**
+     * Grass, flowers and snow layers are not air, and an Amethyst Golem is nearly three
+     * blocks tall. Demanding bare air over exactly two blocks rejected most of the
+     * overworld, so garrisons landed a fraction of the size their rarity promised.
+     */
+    private boolean standable(World world, int x, int y, int z, int clearance) {
+        Block floor = world.getBlockAt(x, y - 1, z);
+        if (!floor.getType().isSolid() || floor.isLiquid()) {
+            return false;
+        }
+        for (int step = 0; step < clearance; step++) {
+            Block block = world.getBlockAt(x, y + step, z);
+            if (!block.isPassable() || block.isLiquid()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void patrol() {
