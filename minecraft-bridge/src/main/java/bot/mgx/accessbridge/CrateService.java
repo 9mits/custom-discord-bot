@@ -625,13 +625,19 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         // composed with the player's own luck rather than replacing it, so a potion still
         // does exactly what its lore says on top of whatever the table currently needs.
         int rollPercent = CrateOddsBalance.compose(luck, balancePercent(kind));
+        // What this open was expected to pay, on the table it is actually rolling on. A
+        // potion, an event and the balancer's own correction all live in rollPercent, so
+        // none of them can later be read back as the table having drifted.
+        double expectedRate = CrateOddsBalance.expectedRareRate(
+                variables.advertisedRareRate(kind), rollPercent
+        );
         int[] rows = pull == 1 ? new int[]{SINGLE_ROW} : TRIPLE_ROWS;
         List<Lane> lanes = new ArrayList<>();
         for (int row : rows) {
             CrateCatalog.Reward reward = variables.randomReward(
                     kind, rollPercent, ThreadLocalRandom.current()
             );
-            odds.record(kind, reward.rare());
+            odds.record(kind, player.getUniqueId(), reward.rare(), expectedRate);
             lanes.add(new Lane(row, reward));
         }
         if (!reserveLane(player, kind, lanes.get(0), now)) {
@@ -1191,8 +1197,9 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     /** One line for the keys leaving a player's hands, before anything is won. */
     private int balancePercent(CrateKind kind) {
         CrateOddsStore.Counts counts = odds.counts(kind);
+        double target = variables.advertisedRareRate(kind);
         return CrateOddsBalance.percent(
-                counts.opens(), counts.rareHits(), variables.advertisedRareRate(kind)
+                counts.opens(), counts.rareHits(), counts.expectedHits(), target
         );
     }
 
