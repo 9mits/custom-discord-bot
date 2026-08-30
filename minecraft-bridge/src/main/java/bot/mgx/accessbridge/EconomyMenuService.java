@@ -76,6 +76,11 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     private static final int CONFIRM_NO = 15;
     private static final int CONFIRM_SIZE = 27;
     private static final int MAIL_COLLECT_SLOT = EconomySlots.MAIL_COLLECT;
+    /**
+     * Where the Amethyst shelf's daily listing sits: the middle of the fourth row,
+     * clear of the seven stocked items and of the navigation row underneath.
+     */
+    private static final int DAILY_STOCK_SLOT = 31;
     /** Sits between Sell all and the deposit chest on the sell screen. */
     private static final int AUTO_SELL_SLOT = 47;
     private static final int BUY_SIZE = 54;
@@ -119,6 +124,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
 
     private final PlayerSettingsStore settings;
     private WardrobeService wardrobe;
+    private AmethystShopService amethystStock;
 
     EconomyMenuService(
             MGXAccessBridge plugin,
@@ -148,6 +154,10 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
 
     void useWardrobe(WardrobeService wardrobe) {
         this.wardrobe = wardrobe;
+    }
+
+    void useAmethystStock(AmethystShopService amethystStock) {
+        this.amethystStock = amethystStock;
     }
 
     /** Returns every inactive clone of a serial the moment another clone activates. */
@@ -252,6 +262,35 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     void tickAutoOrders() {
         autoTick++;
         runAutoOrders();
+    }
+
+    /**
+     * Keeps the countdown on an open shop hub moving.
+     *
+     * <p>A deadline that only changes when the screen is reopened reads as a fixed
+     * timestamp, which is the one thing a countdown must not look like - the crate
+     * screens redraw theirs every second for the same reason.
+     *
+     * <p>Redraws the whole grid rather than the limited tile alone, so the second the
+     * shelf closes it also leaves the hub of anybody standing in it. Twenty-one tiles
+     * a second, only for players who have the hub open, is nothing.
+     */
+    void refreshCountdowns() {
+        long now = System.currentTimeMillis();
+        for (Player player : plugin.getServer().getOnlinePlayers()) {
+            if (!(player.getOpenInventory().getTopInventory().getHolder() instanceof Menu menu)
+                    || menu.kind() != Menu.Kind.SHOP_HUB) {
+                continue;
+            }
+            Inventory inventory = menu.getInventory();
+            List<ShopCatalog.Category> categories = ShopCatalog.categories(now);
+            for (int index = 0; index < CATEGORY_SLOTS.length; index++) {
+                inventory.setItem(CATEGORY_SLOTS[index], index < categories.size()
+                        ? categoryIcon(categories.get(index), now)
+                        : null);
+            }
+            player.updateInventory();
+        }
     }
 
     /** Stops every standing order, for a shutdown. Nothing is owed; they pay as they go. */
@@ -429,16 +468,11 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                 "Shop  •  " + EconomyFormat.dollars(money.balance(player.getUniqueId())),
                 null
         );
-        List<ShopCatalog.Category> categories = ShopCatalog.categories();
+        long now = System.currentTimeMillis();
+        List<ShopCatalog.Category> categories = ShopCatalog.categories(now);
         for (int index = 0; index < categories.size() && index < CATEGORY_SLOTS.length; index++) {
             ShopCatalog.Category category = categories.get(index);
-            inventory.setItem(CATEGORY_SLOTS[index], button(
-                    materialOf(category.icon()),
-                    category.title(),
-                    List.of(
-                            ShopCatalog.offers(category).size() + " items."
-                    )
-            ));
+            inventory.setItem(CATEGORY_SLOTS[index], categoryIcon(category, now));
         }
         inventory.setItem(WALLET_SLOT, button(
                 Material.GOLD_INGOT,
@@ -448,7 +482,43 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         MenuItems.show(plugin, player, inventory);
     }
 
+    /**
+     * A shelf tile, and on the limited one the countdown that is the whole point of it.
+     *
+     * <p>Drawn with {@code detailed} rather than {@code button} because the greyed lore
+     * every other tile uses is exactly what a deadline must not look like.
+     */
+    private ItemStack categoryIcon(ShopCatalog.Category category, long now) {
+        String stock = ShopCatalog.offers(category).size() + " items.";
+        if (!category.limited()) {
+            return button(materialOf(category.icon()), category.title(), List.of(stock));
+        }
+        List<Component> lore = new ArrayList<>(CrateKind.AMETHYST.countdownLines(now));
+        lore.add(Component.text(stock, NamedTextColor.GRAY));
+        amethystStockLine(now).ifPresent(lore::add);
+        return MenuItems.detailed(materialOf(category.icon()), category.title(), lore);
+    }
+
+    /** The one-line trailer for today's rare listing, or nothing when it has sold out. */
+    private Optional<Component> amethystStockLine(long now) {
+        if (amethystStock == null) {
+            return Optional.empty();
+        }
+        return amethystStock.today()
+                .filter(stock -> !stock.soldOut())
+                .map(stock -> Component.text(
+                        "Today: " + stock.stock() + "x " + stock.displayName(),
+                        NamedTextColor.LIGHT_PURPLE
+                ));
+    }
+
     void openShopCategory(Player player, ShopCatalog.Category category, int page) {
+        long openedAt = System.currentTimeMillis();
+        if (!category.available(openedAt)) {
+            info(player, "The " + category.title() + " shelf has closed.");
+            openShopHub(player);
+            return;
+        }
         List<ShopCatalog.Offer> offers = ShopCatalog.offers(category);
         Inventory inventory = create(
                 Menu.Kind.SHOP_CATEGORY,
@@ -481,8 +551,48 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         if (offers.isEmpty()) {
             inventory.setItem(22, button(Material.BARRIER, "Nothing here"));
         }
+        if (category.limited() && page == 1) {
+            drawDailyStock(inventory);
+        }
         MenuItems.paginate(inventory, page, offers.size(), true);
         MenuItems.show(plugin, player, inventory);
+    }
+
+    /**
+     * Today's rare listing, sat well clear of the shelf itself.
+     *
+     * <p>The amethyst shelf holds seven items, so the row it uses is empty on every
+     * page and the slot cannot collide with stock. {@code clickShopCategory} checks it
+     * before the grid arithmetic for the same reason.
+     */
+    private void drawDailyStock(Inventory inventory) {
+        if (amethystStock == null) {
+            return;
+        }
+        Optional<AmethystDailyStock> today = amethystStock.today();
+        if (today.isEmpty()) {
+            return;
+        }
+        AmethystDailyStock stock = today.get();
+        CrateCatalog.Reward reward = stock.reward().orElse(null);
+        if (reward == null) {
+            return;
+        }
+        List<Component> lore = new ArrayList<>();
+        lore.add(Component.text("TODAY'S RARE STOCK", NamedTextColor.RED, TextDecoration.BOLD));
+        lore.add(Component.text(reward.description(), NamedTextColor.GRAY));
+        lore.add(Component.text(
+                EconomyFormat.dollars(AmethystDailyStock.PRICE) + " each",
+                NamedTextColor.YELLOW, TextDecoration.BOLD
+        ));
+        lore.add(stock.soldOut()
+                ? Component.text("Sold out. Back tomorrow.", NamedTextColor.DARK_GRAY)
+                : Component.text(stock.stock() + " left today", NamedTextColor.WHITE));
+        inventory.setItem(DAILY_STOCK_SLOT, MenuItems.detailed(
+                stock.soldOut() ? Material.BARRIER : materialOf(reward.materialName()),
+                reward.displayName(),
+                lore
+        ));
     }
 
     /**
@@ -984,6 +1094,96 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         MenuItems.show(plugin, player, inventory);
     }
 
+    /**
+     * The rare listing gets its own confirmation rather than the amount picker.
+     *
+     * <p>There is no amount to pick - each of the two or three is a separate serialised
+     * item - and five million is not a figure to hand over to a misclick.
+     */
+    void openDailyStock(Player player) {
+        AmethystDailyStock stock = amethystStock == null
+                ? null : amethystStock.today().orElse(null);
+        if (stock == null || stock.soldOut()) {
+            info(player, "Today's Amethyst stock is gone. A new one lands tomorrow.");
+            openShopCategory(player, ShopCatalog.Category.AMETHYST, 1);
+            return;
+        }
+        CrateCatalog.Reward reward = stock.reward().orElse(null);
+        if (reward == null) {
+            openShopCategory(player, ShopCatalog.Category.AMETHYST, 1);
+            return;
+        }
+        Inventory inventory = create(
+                Menu.Kind.SHOP_DAILY, null, 1, CONFIRM_SIZE,
+                "Buy for " + EconomyFormat.dollars(AmethystDailyStock.PRICE),
+                new Menu.Destination(
+                        Menu.Kind.SHOP_CATEGORY, categoryId(ShopCatalog.Category.AMETHYST), 1
+                )
+        );
+        inventory.setItem(CONFIRM_YES, button(
+                Material.LIME_CONCRETE, "Confirm",
+                "Pay " + EconomyFormat.dollars(AmethystDailyStock.PRICE) + ".",
+                "Your balance: " + EconomyFormat.dollars(money.balance(player.getUniqueId())),
+                stock.stock() + " left today."
+        ));
+        inventory.setItem(CONFIRM_ITEM, crateItems.reward(reward));
+        inventory.setItem(CONFIRM_NO, button(Material.RED_CONCRETE, "Cancel"));
+        MenuItems.show(plugin, player, inventory);
+    }
+
+    private void clickDailyStock(Player player, int slot) {
+        if (slot == CONFIRM_NO) {
+            openShopCategory(player, ShopCatalog.Category.AMETHYST, 1);
+            return;
+        }
+        if (slot != CONFIRM_YES) {
+            return;
+        }
+        buyDailyStock(player);
+        openShopCategory(player, ShopCatalog.Category.AMETHYST, 1);
+    }
+
+    /**
+     * Pays, then takes it off the shelf, then mints it.
+     *
+     * <p>The item comes out of {@code CrateItems.reward}, which is the same mint the
+     * crate itself uses: same serial, same 24-hour lore, same everything. A shop that
+     * built its own copy would be a second definition of the item to keep in step.
+     */
+    private void buyDailyStock(Player player) {
+        AmethystDailyStock stock = amethystStock == null
+                ? null : amethystStock.today().orElse(null);
+        if (stock == null || stock.soldOut()) {
+            throw new IllegalArgumentException(
+                    "Today's Amethyst stock is gone. A new one lands tomorrow."
+            );
+        }
+        CrateCatalog.Reward reward = stock.reward().orElseThrow(
+                () -> new IllegalArgumentException("That listing is no longer available.")
+        );
+        if (player.getInventory().firstEmpty() < 0) {
+            throw new IllegalArgumentException("Your inventory does not have room for that.");
+        }
+        long cost = AmethystDailyStock.PRICE;
+        if (!money.tryWithdraw(player.getUniqueId(), cost)) {
+            throw new IllegalArgumentException("You need " + EconomyFormat.dollars(cost) + ".");
+        }
+        if (!amethystStock.sell()) {
+            money.deposit(player.getUniqueId(), cost);
+            throw new IllegalArgumentException("Somebody else took the last one.");
+        }
+        give(player, crateItems.reward(reward));
+        info(player, "Bought " + reward.displayName()
+                + " for " + EconomyFormat.dollars(cost) + ".");
+        report(player, "shop_buy",
+                "Bought " + reward.displayName() + " for " + EconomyFormat.dollars(cost))
+                .detail("item", reward.displayName())
+                .detail("amount", 1)
+                .detail("paid", cost)
+                .detail("listing", "amethyst_daily")
+                .record();
+    }
+
     @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = false)
     public void onClick(InventoryClickEvent event) {
         if (!(event.getInventory().getHolder() instanceof Menu menu)
@@ -1008,6 +1208,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                 case SHOP_HUB -> clickShopHub(player, slot);
                 case SHOP_CATEGORY -> clickShopCategory(player, menu, slot);
                 case SHOP_BUY -> clickBuy(player, slot);
+                case SHOP_DAILY -> clickDailyStock(player, slot);
                 case SHOP_AUTOBUY -> clickAutoBuy(player, slot);
                 case SELL_PREVIEW -> clickSellPreview(player, slot);
                 case SELL_PRICES -> clickSellPrices(player, menu, slot);
@@ -1165,7 +1366,10 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
     }
 
     private void clickShopHub(Player player, int slot) {
-        List<ShopCatalog.Category> categories = ShopCatalog.categories();
+        // The same filtered list the hub was drawn from: once the limited shelf closes
+        // every tile shifts along one, and reading the unfiltered order here would open
+        // each tile's left-hand neighbour.
+        List<ShopCatalog.Category> categories = ShopCatalog.categories(System.currentTimeMillis());
         for (int index = 0; index < categories.size() && index < CATEGORY_SLOTS.length; index++) {
             if (slot == CATEGORY_SLOTS[index]) {
                 openShopCategory(player, categories.get(index), 1);
@@ -1182,6 +1386,10 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         }
         if (slot == NEXT_SLOT) {
             openShopCategory(player, category, menu.page() + 1);
+            return;
+        }
+        if (category.limited() && menu.page() == 1 && slot == DAILY_STOCK_SLOT) {
+            openDailyStock(player);
             return;
         }
         List<ShopCatalog.Offer> offers = ShopCatalog.offers(category);
@@ -1674,6 +1882,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         return kind == Menu.Kind.SHOP_HUB
                 || kind == Menu.Kind.SHOP_CATEGORY
                 || kind == Menu.Kind.SHOP_BUY
+                || kind == Menu.Kind.SHOP_DAILY
                 || kind == Menu.Kind.SHOP_AUTOBUY
                 || kind == Menu.Kind.SELL
                 || kind == Menu.Kind.SELL_PREVIEW

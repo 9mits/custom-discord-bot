@@ -104,7 +104,7 @@ final class PlayerSettingsStore {
                 "Announce it server-wide when somebody pulls a rare reward.", true,
                 Category.NOTIFICATIONS),
         AIRDROP_ANNOUNCEMENTS("airdrop_announcements", "Amethyst event alerts",
-                "Announce Airdrops and Huge Amethyst Blocks with their coordinates.", true,
+                "Announce Airdrops, Huge Amethyst Blocks and the daily shop stock.", true,
                 Category.NOTIFICATIONS),
         CLAN_BATTLE_ANNOUNCEMENTS("clan_battle_announcements", "Clan Battle alerts",
                 "Announce a Clan Battle starting, its countdown and its winners.", true,

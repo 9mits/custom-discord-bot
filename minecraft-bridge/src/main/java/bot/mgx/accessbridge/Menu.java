@@ -49,6 +49,7 @@ final class Menu implements InventoryHolder {
         SHOP_HUB,
         SHOP_CATEGORY,
         SHOP_BUY,
+        SHOP_DAILY,
         SHOP_AUTOBUY,
         SELL,
         SELL_PREVIEW,

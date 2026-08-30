@@ -100,6 +100,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private AutoPayStore autoPayStore;
     private CrateFilterStore crateFilterStore;
     private AmethystProgressStore amethystProgress;
+    private AmethystDailyStockStore amethystDailyStock;
+    private AmethystShopService amethystShop;
     private CrateOddsStore crateOdds;
     private GameVariableStore gameVariables;
     private ClanBattleStore clanBattleStore;
@@ -188,6 +190,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             );
             amethystProgress = new AmethystProgressStore(
                     getDataFolder().toPath().resolve("amethyst-event-progress.json")
+            );
+            amethystDailyStock = new AmethystDailyStockStore(
+                    getDataFolder().toPath().resolve("amethyst-daily-stock.json")
             );
             crateOdds = new CrateOddsStore(
                     getDataFolder().toPath().resolve("crate-odds.json")
@@ -561,6 +566,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         amethystItems.useAuctionSweep(economyMenus::returnActivatedAmethystListings);
         wardrobeService.useAuctionHouse(economyMenus);
         economyMenus.useWardrobe(wardrobeService);
+        amethystShop = new AmethystShopService(this, amethystDailyStock, playerSettings);
+        economyMenus.useAmethystStock(amethystShop);
         EconomyCommandService economyCommands = new EconomyCommandService(
                 economyStore, personalNotifications, playerSettings
         );
@@ -606,6 +613,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         // second avoids turning every hopper-fed farm into a per-tick entity scan.
         getServer().getScheduler().runTaskTimer(
                 this, economyMenus::tickAutoOrders, 20L, 20L
+        );
+        // The limited shelf's countdown, on the same second the crate screens use.
+        getServer().getScheduler().runTaskTimer(
+                this, economyMenus::refreshCountdowns, 20L, 20L
         );
         // Two seconds: fast enough that a farm feels like it is selling itself, slow
         // enough that a running farm is one balance write rather than one per item.
@@ -680,6 +691,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         amethystEvents.start();
         amethystMobs.start();
         amethystItems.start();
+        amethystShop.start();
         crateDisplays.refresh();
         cosmeticEffects.start();
         afkService.start();
@@ -755,6 +767,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         if (amethystItems != null) {
             amethystItems.stop();
+        }
+        if (amethystShop != null) {
+            amethystShop.stop();
         }
         if (activityLog != null) {
             activityLog.stop();

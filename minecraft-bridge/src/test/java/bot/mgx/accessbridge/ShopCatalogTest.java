@@ -77,6 +77,104 @@ class ShopCatalogTest {
         assertEquals(List.of(), overflowing);
     }
 
+    /**
+     * The Amethyst shelf leads the hub because it is the one that leaves. The hub draws
+     * the grid in enum order, so being first in the enum is the whole mechanism.
+     */
+    @Test
+    void theAmethystShelfLeadsTheHub() {
+        assertEquals(ShopCatalog.Category.AMETHYST, ShopCatalog.categories().get(0));
+        assertTrue(ShopCatalog.Category.AMETHYST.limited());
+        assertEquals(CrateKind.AMETHYST.closesAt(), ShopCatalog.Category.AMETHYST.closesAt(),
+                "the shelf and the crate must close together");
+    }
+
+    /** Every other shelf is permanent; a second deadline would need its own countdown. */
+    @Test
+    void onlyTheAmethystShelfEverCloses() {
+        for (ShopCatalog.Category category : ShopCatalog.categories()) {
+            if (category != ShopCatalog.Category.AMETHYST) {
+                assertFalse(category.limited(), category.name());
+                assertEquals(Long.MAX_VALUE, category.closesAt(), category.name());
+            }
+        }
+    }
+
+    @Test
+    void theAmethystShelfIsGoneFromTheHubOnceItCloses() {
+        long closesAt = ShopCatalog.Category.AMETHYST.closesAt();
+        assertTrue(ShopCatalog.categories(closesAt - 1L).contains(ShopCatalog.Category.AMETHYST));
+        assertFalse(ShopCatalog.categories(closesAt).contains(ShopCatalog.Category.AMETHYST));
+        assertEquals(
+                ShopCatalog.categories().size() - 1,
+                ShopCatalog.categories(closesAt).size(),
+                "closing the amethyst shelf must not take another one with it"
+        );
+    }
+
+    /**
+     * Vanilla amethyst only, and all of it. The shelf is a themed corner of the shop,
+     * not a second Amethyst Crate: what the crate pays out is the reason to open one.
+     */
+    @Test
+    void theAmethystShelfStocksEveryVanillaAmethystItemAndNothingElse() {
+        List<String> stocked = new ArrayList<>();
+        for (ShopCatalog.Offer offer : ShopCatalog.offers(ShopCatalog.Category.AMETHYST)) {
+            stocked.add(offer.material());
+        }
+        assertEquals(
+                List.of(
+                        "AMETHYST_SHARD", "AMETHYST_BLOCK", "AMETHYST_CLUSTER",
+                        "LARGE_AMETHYST_BUD", "MEDIUM_AMETHYST_BUD", "SMALL_AMETHYST_BUD",
+                        "BUDDING_AMETHYST"
+                ),
+                stocked
+        );
+        for (String material : stocked) {
+            assertTrue(material.contains("AMETHYST"), material + " is not an amethyst item");
+        }
+    }
+
+    /**
+     * The five crate exclusives reach the shop through the daily listing alone, which
+     * mints them from the crate's own recipe. A shelf offer is a bare material with no
+     * data on it, so stocking one of their materials here would not sell the Amethyst
+     * Totem - it would sell a plain totem off the amethyst shelf, which is worse.
+     *
+     * <p>Scoped to that shelf on purpose. Cosmetic rewards are drawn with amethyst
+     * materials as their icon, so a server-wide search by material name would flag the
+     * shards this shelf exists to sell.
+     */
+    @Test
+    void theAmethystShelfStocksNoCrateExclusiveMaterial() {
+        List<String> exclusiveMaterials = new ArrayList<>();
+        for (CrateCatalog.Reward reward : CrateCatalog.amethystAdminRewards()) {
+            if (CrateCatalog.isExclusiveAmethyst(reward) && !reward.cosmetic()) {
+                exclusiveMaterials.add(reward.materialName());
+            }
+        }
+        assertFalse(exclusiveMaterials.isEmpty(), "the exclusives should not have vanished");
+        List<String> stocked = new ArrayList<>();
+        for (ShopCatalog.Offer offer : ShopCatalog.offers(ShopCatalog.Category.AMETHYST)) {
+            if (exclusiveMaterials.contains(offer.material())) {
+                stocked.add(offer.material());
+            }
+        }
+        assertEquals(List.of(), stocked);
+    }
+
+    /**
+     * A cluster breaks into four shards the sell counter pays for, so a cluster cheaper
+     * than those four is the same money printer {@code DERIVED_FORMS} guards elsewhere -
+     * and it cannot be listed there, because the shop does not buy clusters back.
+     */
+    @Test
+    void aClusterCostsMoreThanTheShardsItBreaksInto() {
+        long cluster = ShopCatalog.offer("AMETHYST_CLUSTER").orElseThrow().unitPrice();
+        assertTrue(cluster > ShopCatalog.sellCredit("AMETHYST_SHARD", 4),
+                "cluster " + cluster + " <= 4 shards");
+    }
+
     @Test
     void everyShelfFitsOnTheHub() {
         // The hub draws one icon per category into a fixed grid; a shelf past the end
