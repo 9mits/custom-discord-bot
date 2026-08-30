@@ -11,12 +11,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 final class AmethystBlockRewardsTest {
     @Test
-    void maxedPickaxesMeetTheTwoAndFivePlayerTimingTargets() {
+    void halvedHealthMeetsTheRevisedMiningTimes() {
         double twoPlayerDps = AmethystBlockRewards.groupDamagePerSecond(10d, 2);
         double fivePlayerDps = AmethystBlockRewards.groupDamagePerSecond(25d, 5);
 
-        assertEquals(600d, AmethystBlockRewards.MAX_HEALTH / twoPlayerDps, 0.01d);
-        assertEquals(300d, AmethystBlockRewards.MAX_HEALTH / fivePlayerDps, 0.01d);
+        assertEquals(300d, AmethystBlockRewards.MAX_HEALTH / twoPlayerDps, 0.01d);
+        assertEquals(150d, AmethystBlockRewards.MAX_HEALTH / fivePlayerDps, 0.01d);
     }
 
     @Test

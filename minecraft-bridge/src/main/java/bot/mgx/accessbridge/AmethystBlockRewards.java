@@ -6,7 +6,7 @@ import java.util.random.RandomGenerator;
 
 /** Pure balancing and reward rules for the cooperative Amethyst Block event. */
 final class AmethystBlockRewards {
-    static final double MAX_HEALTH = 5_500d;
+    static final double MAX_HEALTH = 2_750d;
     static final int[] REWARD_HEALTH_PERCENTAGES = {80, 60, 40, 20};
     private static final int SHARD_ROLL = 2_500;
 
