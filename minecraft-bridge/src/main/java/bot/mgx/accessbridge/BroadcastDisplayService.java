@@ -75,6 +75,21 @@ final class BroadcastDisplayService implements Listener {
         clear();
     }
 
+    /**
+     * Sends a global broadcast through this service without redispatching the
+     * Essentials command. Discord actions call this directly because Bukkit does not
+     * fire {@link ServerCommandEvent} for programmatic command dispatches.
+     */
+    boolean showGlobal(CommandSender sender, String message) {
+        String safeMessage = message == null ? "" : message.strip();
+        if (safeMessage.isBlank()) {
+            sender.sendMessage(Component.text("A broadcast message is required.", NamedTextColor.RED));
+            return false;
+        }
+        show(sender, new Parsed(false, "", safeMessage));
+        return true;
+    }
+
     private void show(CommandSender sender, Parsed parsed) {
         Collection<? extends Player> audience = plugin.getServer().getOnlinePlayers();
         if (parsed.worldOnly()) {

@@ -61,6 +61,56 @@ class ClanStoreTest {
     }
 
     @Test
+    void oneCoOwnerGetsOwnerStyleManagementButNotOwnershipChanges() throws Exception {
+        Path path = temporaryDirectory.resolve("clans.json");
+        ClanStore store = new ClanStore(path);
+        UUID owner = UUID.randomUUID();
+        UUID coOwner = UUID.randomUUID();
+        UUID member = UUID.randomUUID();
+        store.create(owner, "Owner", "COOWN");
+        for (UUID player : java.util.List.of(coOwner, member)) {
+            store.invite(owner, player, "Member", 1_000);
+            store.accept(player, "Member", 1_001);
+        }
+
+        ClanStore.ClanView assigned = store.setCoOwner(owner, coOwner, true);
+        assertEquals(coOwner, assigned.coOwner().orElseThrow());
+        assertEquals(ClanStore.ClanRole.CO_OWNER, assigned.roleOf(coOwner));
+        store.rename(coOwner, "SHARED");
+        store.setThemeColor(coOwner, "#AA55FF");
+        store.setStaff(coOwner, member, true);
+
+        assertThrows(ClanStore.ClanException.class,
+                () -> store.setCoOwner(coOwner, member, true));
+        assertThrows(ClanStore.ClanException.class,
+                () -> store.transfer(coOwner, member));
+        assertThrows(ClanStore.ClanException.class,
+                () -> store.setCoOwner(owner, member, true));
+
+        ClanStore.ClanView reloaded = new ClanStore(path).clanOf(owner).orElseThrow();
+        assertEquals("SHARED", reloaded.name());
+        assertEquals(coOwner, reloaded.coOwner().orElseThrow());
+        assertTrue(reloaded.staff().contains(member));
+    }
+
+    @Test
+    void promotingTheCoOwnerToOwnerMovesTheOldOwnerIntoTheSlot() throws Exception {
+        ClanStore store = new ClanStore(temporaryDirectory.resolve("clans.json"));
+        UUID owner = UUID.randomUUID();
+        UUID coOwner = UUID.randomUUID();
+        store.create(owner, "Owner", "SWAP");
+        store.invite(owner, coOwner, "Second", 1_000);
+        store.accept(coOwner, "Second", 1_001);
+        store.setCoOwner(owner, coOwner, true);
+
+        ClanStore.ClanView transferred = store.transfer(owner, coOwner);
+
+        assertEquals(coOwner, transferred.leader());
+        assertEquals(owner, transferred.coOwner().orElseThrow());
+        assertFalse(transferred.staff().contains(owner));
+    }
+
+    @Test
     void onlyLeaderCanSetAValidThemeColor() throws Exception {
         ClanStore store = new ClanStore(temporaryDirectory.resolve("clans.json"));
         UUID leader = UUID.randomUUID();
@@ -161,7 +211,7 @@ class ClanStoreTest {
         assertEquals("You already have a clan!", duplicateCreate.getMessage());
         assertEquals("You already have a clan!", duplicateAccept.getMessage());
         assertEquals("That player already has a clan.", occupiedInvite.getMessage());
-        assertEquals("Transfer leadership or disband the clan before leaving.", selfKick.getMessage());
+        assertEquals("Transfer ownership or disband the clan before leaving.", selfKick.getMessage());
     }
 
     @Test

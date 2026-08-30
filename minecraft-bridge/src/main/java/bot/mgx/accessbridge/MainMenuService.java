@@ -77,8 +77,8 @@ final class MainMenuService implements CommandExecutor, Listener {
             // and the same picture is what the chest fallback shows in its slot.
             buttons.add(ActionButton.builder(Component.empty()
                             .append(MenuText.sprite(entry.sprite()))
-                            .append(Component.text(" " + entry.label(), NamedTextColor.WHITE)))
-                    .tooltip(Component.text(entry.tooltip(), NamedTextColor.GRAY))
+                            .append(MenuText.buttonLabel(" " + entry.label(), NamedTextColor.WHITE)))
+                    .tooltip(MenuText.actionHint(entry.tooltip()))
                     .width(BUTTON_WIDTH)
                     .action(DialogAction.staticAction(
                             net.kyori.adventure.text.event.ClickEvent.runCommand(

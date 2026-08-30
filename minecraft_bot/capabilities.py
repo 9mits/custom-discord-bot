@@ -49,17 +49,19 @@ REMOTE_STAFF_TOOLS: dict[str, dict[str, bool]] = {
 
 #: Clan actions and the roles allowed to use them, mirroring the plugin's own rules.
 CLAN_ACTIONS: dict[str, tuple[str, tuple[str, ...]]] = {
-    "invite": ("Invite a player", ("leader", "staff")),
-    "kick": ("Remove a member", ("leader", "staff")),
-    "promote": ("Promote to staff", ("leader",)),
-    "demote": ("Demote a staff member", ("leader",)),
-    "rename": ("Rename the clan", ("leader",)),
-    "color": ("Change the colour", ("leader",)),
+    "invite": ("Invite a player", ("leader", "co_owner", "staff")),
+    "kick": ("Remove a member", ("leader", "co_owner", "staff")),
+    "promote": ("Promote to staff", ("leader", "co_owner")),
+    "demote": ("Demote a staff member", ("leader", "co_owner")),
+    "coowner": ("Assign the co-owner", ("leader",)),
+    "uncoowner": ("Remove the co-owner", ("leader",)),
+    "rename": ("Rename the clan", ("leader", "co_owner")),
+    "color": ("Change the colour", ("leader", "co_owner")),
     "transfer": ("Transfer leadership", ("leader",)),
     "disband": ("Disband the clan", ("leader",)),
-    "leave": ("Leave the clan", ("staff", "member")),
-    "donate": ("Donate money in game", ("leader", "staff", "member")),
-    "upgrade": ("Buy a level or roster slot in game", ("leader", "staff")),
+    "leave": ("Leave the clan", ("co_owner", "staff", "member")),
+    "donate": ("Donate money in game", ("leader", "co_owner", "staff", "member")),
+    "upgrade": ("Buy a level or roster slot in game", ("leader", "co_owner", "staff")),
 }
 
 

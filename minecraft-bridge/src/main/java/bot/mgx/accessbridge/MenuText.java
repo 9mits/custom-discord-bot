@@ -35,6 +35,8 @@ final class MenuText {
      * every icon in the menu did before this.
      */
     private static final Key ITEM_ATLAS = Key.key("minecraft", "items");
+    /** Shorter bitmap lettering used for labels and clickable UI text. */
+    static final Key COMPACT_FONT = Key.key("mgx", "compact");
 
     private MenuText() {
     }
@@ -61,15 +63,17 @@ final class MenuText {
 
     /** {@code Label: value} with the value carrying the colour. */
     static Component stat(String label, String value) {
-        return Component.text(label + ": ", LABEL)
-                .append(Component.text(value, VALUE, TextDecoration.BOLD));
+        return Component.text(label + ": ", LABEL).font(COMPACT_FONT)
+                .append(Component.text(value, VALUE, TextDecoration.BOLD)
+                        .font(Key.key("minecraft", "default")));
     }
 
     /** {@code Label: value} with an icon in front of the value. */
     static Component stat(String label, String sprite, String value) {
-        return Component.text(label + ": ", LABEL)
+        return Component.text(label + ": ", LABEL).font(COMPACT_FONT)
                 .append(sprite(sprite))
-                .append(Component.text(" " + value, VALUE, TextDecoration.BOLD));
+                .append(Component.text(" " + value, VALUE, TextDecoration.BOLD)
+                        .font(Key.key("minecraft", "default")));
     }
 
     /** Gold, silver and bronze for the podium; everyone else is plain. */
@@ -97,6 +101,19 @@ final class MenuText {
     }
 
     static Component body(String text) {
-        return Component.text(text, LABEL);
+        return Component.text(text, LABEL).font(COMPACT_FONT);
+    }
+
+    /** Clickable words use the compact italic convention visible throughout the UI. */
+    static Component buttonLabel(String text, TextColor colour) {
+        return Component.text(text, colour)
+                .font(COMPACT_FONT)
+                .decoration(TextDecoration.ITALIC, true);
+    }
+
+    static Component actionHint(String text) {
+        return Component.text(text, LABEL)
+                .font(COMPACT_FONT)
+                .decoration(TextDecoration.ITALIC, true);
     }
 }

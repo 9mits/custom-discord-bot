@@ -174,7 +174,7 @@ final class ClanMenuService implements Listener {
         inventory.setItem(HUB_BALANCE, button(Material.SUNFLOWER, "Balance",
                 EconomyFormat.dollars(clan.balance()) + " in the treasury."));
         inventory.setItem(HUB_INFO, button(Material.BOOK, "Clan Info",
-                describeLevel(clan.level()), badgeSummary(clan.id()), "Leader, roster and theme."));
+                describeLevel(clan.level()), badgeSummary(clan.id()), "Owner, co-owner, roster and theme."));
         inventory.setItem(HUB_WARPS, button(Material.LODESTONE, "Clan Warps",
                 clan.warps().size() + "/" + ClanLevel.warpSlots(clan.level()) + " locations.",
                 "Shared with every clan member."));
@@ -338,7 +338,10 @@ final class ClanMenuService implements Listener {
         );
         String leader = clan.members().getOrDefault(clan.leader(), "Unknown");
         long online = clan.members().keySet().stream().filter(id -> Bukkit.getPlayer(id) != null).count();
-        inventory.setItem(11, head(clan.leader(), "Leader", List.of(leader)));
+        inventory.setItem(10, head(clan.leader(), "Owner", List.of(leader)));
+        inventory.setItem(11, clan.coOwner()
+                .map(id -> head(id, "Co-Owner", List.of(clan.members().getOrDefault(id, "Unknown"))))
+                .orElseGet(() -> button(Material.AMETHYST_SHARD, "Co-Owner", "Open slot")));
         List<String> levelLore = new ArrayList<>();
         levelLore.add(describeLevel(clan.level()));
         levelLore.addAll(clanBattles.badges(clan.id()).lore());
@@ -793,14 +796,16 @@ final class ClanMenuService implements Listener {
     private static int rank(ClanStore.ClanView clan, UUID playerId) {
         return switch (clan.roleOf(playerId)) {
             case LEADER -> 0;
-            case STAFF -> 1;
-            case MEMBER -> 2;
+            case CO_OWNER -> 1;
+            case STAFF -> 2;
+            case MEMBER -> 3;
         };
     }
 
     private static String roleName(ClanStore.ClanView clan, UUID playerId) {
         return switch (clan.roleOf(playerId)) {
-            case LEADER -> "Leader";
+            case LEADER -> "Owner";
+            case CO_OWNER -> "Co-Owner";
             case STAFF -> "Clan staff";
             case MEMBER -> "Member";
         };

@@ -224,6 +224,9 @@ final class CapabilityService {
         if (clan.leader().equals(playerId)) {
             return "leader";
         }
+        if (clan.coOwner().filter(playerId::equals).isPresent()) {
+            return "co_owner";
+        }
         return clan.staff().contains(playerId) ? "staff" : "member";
     }
 }

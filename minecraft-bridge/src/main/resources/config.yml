@@ -59,16 +59,29 @@ scoreboard:
 leaderboard:
   refresh-ticks: 6000
 
-# Amethyst Airdrops choose a fresh random delay after every spawn. The structure
-# and its loaded chunks are restored automatically when the chest is emptied or
-# the lifetime ends. Actual rarity and loot chances live only in the plugin.
-airdrop:
-  enabled: true
+# The shared Amethyst event scheduler alternates Airdrops and Huge Blocks. Its
+# randomized cooldown starts only after an event ends, so events never overlap or
+# spawn immediately after one another. Actual reward chances live only in the plugin.
+amethyst-events:
   minimum-delay-minutes: 30
   maximum-delay-minutes: 90
+
+airdrop:
+  enabled: true
   lifetime-minutes: 30
   minimum-radius: 500
   location-attempts: 24
+
+amethyst-block-event:
+  enabled: true
+  lifetime-minutes: 30
+  minimum-radius: 500
+  location-attempts: 24
+
+# Ordinary zombie and skeleton spawns have a one-in-five chance to become an
+# Amethyst variant. Their exact key count is rolled only when they die.
+amethyst-mobs:
+  one-in: 5
 
 # Random overworld teleports stay well away from spawn and inside the world border.
 rtp:

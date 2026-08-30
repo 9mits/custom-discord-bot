@@ -294,8 +294,12 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
         for (int index = first; index < last; index++) {
             Map.Entry<UUID, String> member = roster.get(index);
             List<String> lore = new ArrayList<>();
-            lore.add(clan.roleOf(member.getKey()).name().charAt(0)
-                    + clan.roleOf(member.getKey()).name().substring(1).toLowerCase(Locale.ROOT));
+            lore.add(switch (clan.roleOf(member.getKey())) {
+                case LEADER -> "Owner";
+                case CO_OWNER -> "Co-Owner";
+                case STAFF -> "Staff";
+                case MEMBER -> "Member";
+            });
             identities.visibleUsername(member.getKey())
                     .ifPresent(username -> lore.add("@" + username));
             lore.add(Bukkit.getPlayer(member.getKey()) != null ? "Online now" : "Offline");

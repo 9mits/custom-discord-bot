@@ -40,7 +40,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     static final String PERMISSION = "mgxaccessbridge.admin";
     private static final List<String> SUBCOMMANDS = List.of(
             "startserver", "teststart", "pvp", "give", "ranks", "eco", "bounty", "hologram",
-            "reset", "testverify", "testcrate", "testairdrop", "devblog", "update", "serials",
+            "reset", "testverify", "testcrate", "testairdrop", "testamethystblock", "devblog", "update", "serials",
             "cosmetics", "clanbattle", "abuse", "event", "help"
     );
     private static final List<String> CRATE_REVEAL_TIERS = List.of(
@@ -83,6 +83,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     private final UpdateNoticeService updateNotices;
     private final CrateService crates;
     private final AirdropService airdrops;
+    private final AmethystBlockEventService amethystBlocks;
     private final AmethystProgressStore amethystProgress;
     private final ClanBattleService clanBattles;
 
@@ -103,6 +104,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             UpdateNoticeService updateNotices,
             CrateService crates,
             AirdropService airdrops,
+            AmethystBlockEventService amethystBlocks,
             AmethystProgressStore amethystProgress,
             ClanBattleService clanBattles
     ) {
@@ -122,6 +124,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         this.updateNotices = updateNotices;
         this.crates = crates;
         this.airdrops = airdrops;
+        this.amethystBlocks = amethystBlocks;
         this.amethystProgress = amethystProgress;
         this.clanBattles = clanBattles;
     }
@@ -154,6 +157,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 case "testverify" -> testVerify(sender, args);
                 case "testcrate", "cratetest", "testreveal" -> testCrateReveal(sender, args);
                 case "testairdrop", "airdroptest", "testdrop" -> testAirdrop(sender, args);
+                case "testamethystblock", "testhugeblock" -> testAmethystBlock(sender, args);
                 case "devblog", "screenshot" -> devBlog(sender, args);
                 case "update" -> publishUpdate(sender);
                 case "serials" -> serials(sender, args);
@@ -901,6 +905,58 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 .append(Component.text("  remove your leaderboard fixture", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin testairdrop status|expire|remove", ORANGE)
                 .append(Component.text("  inspect or clean up the active test", NamedTextColor.GRAY)));
+    }
+
+    private void testAmethystBlock(CommandSender sender, String[] args) {
+        if (!plugin.isLocalTestServer()) {
+            throw new IllegalArgumentException(
+                    "Huge Amethyst Block tests are available only on the local test server."
+            );
+        }
+        String action = args.length < 2 ? "status" : args[1].toLowerCase(Locale.ROOT);
+        switch (action) {
+            case "spawn" -> {
+                if (!(sender instanceof Player player)) {
+                    throw new IllegalArgumentException("Run this spawn test in game.");
+                }
+                AmethystBlockEventService.Snapshot block = amethystBlocks.spawnTest(player);
+                success(sender, "Spawned " + block.describe() + ".");
+                info(sender, "Mine it normally, or use damage/finish/expire to test each path.");
+            }
+            case "status" -> {
+                AmethystBlockEventService.Snapshot block = amethystBlocks.snapshot();
+                info(sender, block == null ? "No Huge Amethyst Block is active." : block.describe());
+            }
+            case "damage" -> {
+                double damage = args.length < 3 ? 1_100d : Double.parseDouble(args[2]);
+                if (!amethystBlocks.damageTest(damage)) {
+                    throw new IllegalArgumentException("There is no active block to damage.");
+                }
+                success(sender, "Applied " + Math.round(damage) + " test damage.");
+            }
+            case "finish" -> {
+                if (!amethystBlocks.damageTest(AmethystBlockRewards.MAX_HEALTH)) {
+                    throw new IllegalArgumentException("There is no active block to finish.");
+                }
+                success(sender, "Finished the active block and delivered its rewards.");
+            }
+            case "expire" -> {
+                if (!amethystBlocks.expireTest()) {
+                    throw new IllegalArgumentException("There is no active block to expire.");
+                }
+                success(sender, "Expired the active block.");
+            }
+            case "remove" -> {
+                if (!amethystBlocks.removeTest()) {
+                    throw new IllegalArgumentException("There is no active block to remove.");
+                }
+                success(sender, "Removed the active block without rewards.");
+            }
+            default -> {
+                heading(sender, "Huge Amethyst Block test suite");
+                info(sender, "/mgxadmin testamethystblock spawn|status|damage [hp]|finish|expire|remove");
+            }
+        }
     }
 
     private void reset(CommandSender sender, String[] args) {

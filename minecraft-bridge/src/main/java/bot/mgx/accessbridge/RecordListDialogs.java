@@ -239,7 +239,7 @@ final class RecordListDialogs {
         }
         List<ActionButton> buttons = new ArrayList<>(
                 pager(current, pages, target -> openBounties(player, target)));
-        buttons.add(ActionButton.builder(Component.text("Place a Bounty", MenuText.VALUE))
+        buttons.add(ActionButton.builder(MenuText.buttonLabel("Place a Bounty", MenuText.VALUE))
                 .tooltip(Component.text("Put money on somebody's head.", MenuText.LABEL))
                 .width(150)
                 .action(callback((response, audience) -> promptBounty(audience, current)))
@@ -312,13 +312,13 @@ final class RecordListDialogs {
     private List<ActionButton> pager(int current, int pages, Consumer<Integer> go) {
         List<ActionButton> buttons = new ArrayList<>();
         if (current > 1) {
-            buttons.add(ActionButton.builder(Component.text("Previous", NamedTextColor.WHITE))
+            buttons.add(ActionButton.builder(MenuText.buttonLabel("Previous", NamedTextColor.WHITE))
                     .width(150)
                     .action(callback((response, audience) -> go.accept(current - 1)))
                     .build());
         }
         if (current < pages) {
-            buttons.add(ActionButton.builder(Component.text("Next", NamedTextColor.WHITE))
+            buttons.add(ActionButton.builder(MenuText.buttonLabel("Next", NamedTextColor.WHITE))
                     .width(150)
                     .action(callback((response, audience) -> go.accept(current + 1)))
                     .build());

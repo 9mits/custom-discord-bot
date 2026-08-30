@@ -103,7 +103,7 @@ final class ClanDialogService {
                         this::openDonors),
                 new Entry("item/nether_star", "Upgrades", "Spend the treasury on levels.",
                         this::openUpgrade),
-                new Entry("item/book", "Clan Info", "Leader, level, allies.",
+                new Entry("item/book", "Clan Info", "Owner, co-owner, level, allies.",
                         p -> openInfo(p, clan.id(), this::openHub)),
                 new Entry("item/iron_chestplate", "Members",
                         clan.members().size() + "/" + clan.memberSlots() + " in the clan.",
@@ -340,17 +340,21 @@ final class ClanDialogService {
         }
         String name = clan.members().getOrDefault(memberId, "Unknown");
         ProfileStatsService.Profile profile = profiles.of(memberId, name);
-        boolean manages = clan.roleOf(player.getUniqueId()) == ClanStore.ClanRole.LEADER;
+        ClanStore.ClanRole viewerRole = clan.roleOf(player.getUniqueId());
+        ClanStore.ClanRole targetRole = clan.roleOf(memberId);
+        boolean manages = viewerRole == ClanStore.ClanRole.LEADER
+                || viewerRole == ClanStore.ClanRole.CO_OWNER;
         boolean self = memberId.equals(player.getUniqueId());
         boolean targetIsLeader = memberId.equals(clan.leader());
-        boolean staff = clan.roleOf(memberId) == ClanStore.ClanRole.STAFF;
+        boolean coOwner = targetRole == ClanStore.ClanRole.CO_OWNER;
+        boolean staff = targetRole == ClanStore.ClanRole.STAFF;
         long donated = clan.donations().getOrDefault(memberId, 0L);
 
         List<Entry> entries = new ArrayList<>();
         entries.add(new Entry("item/book", "View Full Profile", "Every number we keep.",
                 audience -> stats.openProfile(audience, memberId, name,
                         viewer -> openMember(viewer, clanId, memberId, page, back))));
-        if (manages && !self && !targetIsLeader) {
+        if (manages && !self && !targetIsLeader && !coOwner) {
             entries.add(new Entry("item/gold_ingot", staff ? "Demote" : "Promote",
                     staff ? "Make them an ordinary member." : "Make them clan staff.",
                     audience -> setStaff(audience, memberId, !staff, clanId, page, back)));
@@ -367,6 +371,28 @@ final class ClanDialogService {
                                 () -> kick(audience, memberId, clanId, page, back),
                                 viewer -> openMember(viewer, clanId, memberId, page, back));
                     }));
+        }
+        if (viewerRole == ClanStore.ClanRole.LEADER && coOwner) {
+            entries.add(new Entry("item/barrier", "Kick", "Remove the co-owner from the clan.",
+                    audience -> {
+                        if (!clientSupport.supportsDialogs(audience)) {
+                            forms.confirm(audience, "Kick " + name,
+                                    "Remove them and clear the co-owner slot?", "Kick",
+                                    () -> kick(audience, memberId, clanId, page, back),
+                                    () -> openMember(audience, clanId, memberId, page, back));
+                            return;
+                        }
+                        confirm(audience, "Kick " + name,
+                                "They will lose clan access and the co-owner slot.", "Kick",
+                                () -> kick(audience, memberId, clanId, page, back),
+                                viewer -> openMember(viewer, clanId, memberId, page, back));
+                    }));
+        }
+        if (viewerRole == ClanStore.ClanRole.LEADER && !self && !targetIsLeader
+                && (coOwner || clan.coOwner().isEmpty())) {
+            entries.add(new Entry("item/amethyst_shard", coOwner ? "Remove Co-Owner" : "Make Co-Owner",
+                    coOwner ? "Clear the co-owner slot." : "Give them the one co-owner slot.",
+                    audience -> setCoOwner(audience, memberId, !coOwner, clanId, page, back)));
         }
 
         if (!clientSupport.supportsDialogs(player)) {
@@ -414,8 +440,8 @@ final class ClanDialogService {
         for (Entry entry : entries) {
             buttons.add(ActionButton.builder(Component.empty()
                             .append(MenuText.sprite(entry.sprite()))
-                            .append(Component.text(" " + entry.label(), NamedTextColor.WHITE)))
-                    .tooltip(Component.text(entry.tooltip(), MenuText.LABEL))
+                            .append(MenuText.buttonLabel(" " + entry.label(), NamedTextColor.WHITE)))
+                    .tooltip(MenuText.actionHint(entry.tooltip()))
                     .width(150)
                     .action(callback((response, audience) -> entry.action().accept(audience)))
                     .build());
@@ -433,6 +459,20 @@ final class ClanDialogService {
         } catch (IOException | ClanStore.ClanException failure) {
             PlayerMenuService.error(player, failure.getMessage() == null
                     ? "That could not be changed." : failure.getMessage());
+            return;
+        }
+        openMember(player, clanId, memberId, page, back);
+    }
+
+    private void setCoOwner(
+            Player player, UUID memberId, boolean promote, UUID clanId, int page,
+            Consumer<Player> back
+    ) {
+        try {
+            clans.setCoOwner(player.getUniqueId(), memberId, promote);
+        } catch (IOException | ClanStore.ClanException failure) {
+            PlayerMenuService.error(player, failure.getMessage() == null
+                    ? "The co-owner could not be changed." : failure.getMessage());
             return;
         }
         openMember(player, clanId, memberId, page, back);
@@ -528,7 +568,10 @@ final class ClanDialogService {
                     () -> openMembers(player, clanId, 1,
                             viewer -> openInfo(viewer, clanId, back))));
             if (!forms.menu(player, clan.name(), String.join("\n",
-                    "Leader: " + clan.members().getOrDefault(clan.leader(), "Unknown"),
+                    "Owner: " + clan.members().getOrDefault(clan.leader(), "Unknown"),
+                    "Co-Owner: " + clan.coOwner()
+                            .map(id -> clan.members().getOrDefault(id, "Unknown"))
+                            .orElse("Open slot"),
                     "Level: " + (clan.level() == 0 ? "Unranked" : String.valueOf(clan.level())),
                     medals.isBlank() ? "Battle medals: none" : "Battle medals: " + medals,
                     "Treasury: " + EconomyFormat.dollars(clan.balance()),
@@ -545,7 +588,15 @@ final class ClanDialogService {
                         .append(MenuText.head(clan.leader()))
                         .append(Component.text(" " + clan.members()
                                 .getOrDefault(clan.leader(), "Unknown"), NamedTextColor.WHITE))
-                        .append(Component.text("  leader", MenuText.LABEL)), 400),
+                        .append(Component.text("  owner", MenuText.LABEL)), 400),
+                DialogBody.plainMessage(clan.coOwner().<Component>map(
+                        id -> Component.empty().append(MenuText.head(id))
+                                .append(Component.text(" " + clan.members()
+                                        .getOrDefault(id, "Unknown"), NamedTextColor.WHITE))
+                                .append(Component.text("  co-owner", MenuText.LABEL)))
+                        .orElseGet(() -> MenuText.stat(
+                                "Co-Owner", "item/amethyst_shard", "Open slot"
+                        )), 400),
                 DialogBody.plainMessage(Component.empty(), 400),
                 DialogBody.plainMessage(MenuText.stat("Level", "item/nether_star",
                         clan.level() == 0 ? "Unranked" : String.valueOf(clan.level())), 400),
@@ -593,8 +644,8 @@ final class ClanDialogService {
         for (Entry entry : entries) {
             buttons.add(ActionButton.builder(Component.empty()
                             .append(MenuText.sprite(entry.sprite()))
-                            .append(Component.text(" " + entry.label(), NamedTextColor.WHITE)))
-                    .tooltip(Component.text(entry.tooltip(), MenuText.LABEL))
+                            .append(MenuText.buttonLabel(" " + entry.label(), NamedTextColor.WHITE)))
+                    .tooltip(MenuText.actionHint(entry.tooltip()))
                     .width(150)
                     .action(callback((response, audience) -> entry.action().accept(audience)))
                     .build());
@@ -622,7 +673,7 @@ final class ClanDialogService {
     }
 
     private ActionButton button(String label, Consumer<Player> run) {
-        return ActionButton.builder(Component.text(label, NamedTextColor.WHITE))
+        return ActionButton.builder(MenuText.buttonLabel(label, NamedTextColor.WHITE))
                 .width(150)
                 .action(callback((response, audience) -> run.accept(audience)))
                 .build();
@@ -648,7 +699,8 @@ final class ClanDialogService {
 
     private static String roleOf(ClanStore.ClanView clan, UUID id) {
         return switch (clan.roleOf(id)) {
-            case LEADER -> "Leader";
+            case LEADER -> "Owner";
+            case CO_OWNER -> "Co-Owner";
             case STAFF -> "Staff";
             case MEMBER -> "Member";
         };
@@ -657,6 +709,7 @@ final class ClanDialogService {
     private static TextColor roleColour(ClanStore.ClanView clan, UUID id) {
         return switch (clan.roleOf(id)) {
             case LEADER -> MenuText.GOLD;
+            case CO_OWNER -> MenuText.VALUE;
             case STAFF -> MenuText.VALUE;
             case MEMBER -> MenuText.LABEL;
         };
@@ -665,8 +718,9 @@ final class ClanDialogService {
     private static int rank(ClanStore.ClanView clan, UUID id) {
         return switch (clan.roleOf(id)) {
             case LEADER -> 0;
-            case STAFF -> 1;
-            case MEMBER -> 2;
+            case CO_OWNER -> 1;
+            case STAFF -> 2;
+            case MEMBER -> 3;
         };
     }
 

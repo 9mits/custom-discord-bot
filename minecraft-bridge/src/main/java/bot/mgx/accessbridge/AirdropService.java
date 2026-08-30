@@ -59,6 +59,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.BooleanSupplier;
 import java.util.random.RandomGenerator;
 
 /** Random Amethyst Airdrops, their temporary structure, loot, effects, and cleanup. */
@@ -66,7 +67,6 @@ final class AirdropService implements Listener {
     static final long DEFAULT_MINIMUM_DELAY_MILLIS = Duration.ofMinutes(30).toMillis();
     static final long DEFAULT_MAXIMUM_DELAY_MILLIS = Duration.ofMinutes(90).toMillis();
     static final long DEFAULT_LIFETIME_MILLIS = Duration.ofMinutes(30).toMillis();
-    private static final long RETRY_DELAY_TICKS = Duration.ofMinutes(5).toSeconds() * 20L;
     private static final long EFFECT_PERIOD_TICKS = 5L;
     private static final long COUNTDOWN_PERIOD_TICKS = 20L;
     private static final int DEFAULT_MINIMUM_RADIUS = 500;
@@ -172,20 +172,21 @@ final class AirdropService implements Listener {
     private final PlayerSettingsStore settings;
     private final NamespacedKey cosmeticMarker;
     private final RandomGenerator random;
-    private final long minimumDelayMillis;
-    private final long maximumDelayMillis;
     private final long lifetimeMillis;
     private final int minimumRadius;
     private final int attempts;
     private final boolean enabled;
 
     private ActiveAirdrop active;
-    private BukkitTask spawnTask;
     private BukkitTask expiryTask;
     private BukkitTask effectTask;
     private BukkitTask countdownTask;
     private BossBar announcementBar;
     private volatile boolean stopped = true;
+    private BooleanSupplier otherEventActive = () -> false;
+    private Runnable spawnedCallback;
+    private Runnable finishedCallback;
+    private Runnable failedCallback;
 
     AirdropService(
             MGXAccessBridge plugin,
@@ -217,10 +218,6 @@ final class AirdropService implements Listener {
         this.random = random;
         cosmeticMarker = new NamespacedKey(plugin, "airdrop_cosmetic");
         enabled = plugin.getConfig().getBoolean("airdrop.enabled", true);
-        long configuredMinimum = minutes("airdrop.minimum-delay-minutes", 30L);
-        long configuredMaximum = minutes("airdrop.maximum-delay-minutes", 90L);
-        minimumDelayMillis = Math.min(configuredMinimum, configuredMaximum);
-        maximumDelayMillis = Math.max(configuredMinimum, configuredMaximum);
         lifetimeMillis = minutes("airdrop.lifetime-minutes", 30L);
         minimumRadius = Math.max(0, plugin.getConfig().getInt(
                 "airdrop.minimum-radius", DEFAULT_MINIMUM_RADIUS
@@ -234,15 +231,32 @@ final class AirdropService implements Listener {
         stop();
         clearStaleLabels();
         stopped = false;
-        if (enabled && CrateKind.AMETHYST.available(System.currentTimeMillis())) {
-            scheduleNext();
+    }
+
+    void blockWhile(BooleanSupplier otherEventActive) {
+        this.otherEventActive = otherEventActive == null ? () -> false : otherEventActive;
+    }
+
+    boolean beginScheduled(Runnable onSpawned, Runnable onFinished, Runnable onFailed) {
+        if (stopped || !enabled || active != null || otherEventActive.getAsBoolean()
+                || spawnedCallback != null
+                || !CrateKind.AMETHYST.available(System.currentTimeMillis())) {
+            return false;
         }
+        spawnedCallback = onSpawned;
+        finishedCallback = onFinished;
+        failedCallback = onFailed;
+        attemptSpawn(AirdropCatalog.randomRarity(random), 0);
+        return true;
+    }
+
+    boolean isActiveOrSpawning() {
+        return active != null || spawnedCallback != null;
     }
 
     void stop() {
         stopped = true;
-        cancel(spawnTask);
-        spawnTask = null;
+        clearCoordinatorCallbacks();
         removeActive(false, null);
         hideAnnouncement();
     }
@@ -262,9 +276,9 @@ final class AirdropService implements Listener {
                     "Airdrop tests are available only on the local test server."
             );
         }
-        if (active != null) {
+        if (active != null || spawnedCallback != null || otherEventActive.getAsBoolean()) {
             throw new IllegalArgumentException(
-                    "An Airdrop is already active. Loot it or use /mgxadmin testairdrop remove."
+                    "An Amethyst world event is already active or spawning."
             );
         }
         if (player.getWorld().getEnvironment() != World.Environment.NORMAL
@@ -285,10 +299,7 @@ final class AirdropService implements Listener {
                     "No safe test site was found nearby. Move into open terrain and try again."
             );
         }
-        cancel(spawnTask);
-        spawnTask = null;
         createAirdrop(anchor, rarity, cosmetics);
-        scheduleNext();
         return snapshot(active);
     }
 
@@ -314,18 +325,6 @@ final class AirdropService implements Listener {
         return Duration.ofMinutes(value).toMillis();
     }
 
-    private void scheduleNext() {
-        if (stopped || !enabled || spawnTask != null
-                || !CrateKind.AMETHYST.available(System.currentTimeMillis())) {
-            return;
-        }
-        long delayMillis = randomDelayMillis(random, minimumDelayMillis, maximumDelayMillis);
-        long delayTicks = Math.max(1L, delayMillis / 50L);
-        spawnTask = plugin.getServer().getScheduler().runTaskLater(
-                plugin, this::scheduledSpawn, delayTicks
-        );
-    }
-
     static long randomDelayMillis(RandomGenerator random, long minimum, long maximum) {
         if (random == null || minimum < 0L || maximum < minimum) {
             throw new IllegalArgumentException("Airdrop delay bounds are invalid");
@@ -333,23 +332,10 @@ final class AirdropService implements Listener {
         return minimum == maximum ? minimum : random.nextLong(minimum, maximum + 1L);
     }
 
-    private void scheduledSpawn() {
-        spawnTask = null;
-        if (stopped || !CrateKind.AMETHYST.available(System.currentTimeMillis())) {
-            return;
-        }
-        if (active != null) {
-            spawnTask = plugin.getServer().getScheduler().runTaskLater(
-                    plugin, this::scheduledSpawn, RETRY_DELAY_TICKS
-            );
-            return;
-        }
-        attemptSpawn(AirdropCatalog.randomRarity(random), 0);
-    }
-
     private void attemptSpawn(AirdropCatalog.Rarity rarity, int attempt) {
-        if (stopped || active != null
+        if (stopped || active != null || otherEventActive.getAsBoolean()
                 || !CrateKind.AMETHYST.available(System.currentTimeMillis())) {
+            failScheduledSpawn();
             return;
         }
         if (attempt >= attempts) {
@@ -357,16 +343,12 @@ final class AirdropService implements Listener {
                     "Could not find safe ground for an Amethyst Airdrop after "
                             + attempts + " attempts; retrying in five minutes."
             );
-            spawnTask = plugin.getServer().getScheduler().runTaskLater(
-                    plugin, this::scheduledSpawn, RETRY_DELAY_TICKS
-            );
+            failScheduledSpawn();
             return;
         }
         Candidate candidate = randomCandidate();
         if (candidate == null) {
-            spawnTask = plugin.getServer().getScheduler().runTaskLater(
-                    plugin, this::scheduledSpawn, RETRY_DELAY_TICKS
-            );
+            failScheduledSpawn();
             return;
         }
         candidate.world().getChunkAtAsync(candidate.x() >> 4, candidate.z() >> 4, true)
@@ -386,7 +368,8 @@ final class AirdropService implements Listener {
             Candidate candidate,
             Throwable error
     ) {
-        if (stopped || active != null) {
+        if (stopped || active != null || otherEventActive.getAsBoolean()) {
+            failScheduledSpawn();
             return;
         }
         if (error != null) {
@@ -407,7 +390,11 @@ final class AirdropService implements Listener {
             attemptSpawn(rarity, attempt + 1);
             return;
         }
-        scheduleNext();
+        Runnable callback = spawnedCallback;
+        spawnedCallback = null;
+        if (callback != null) {
+            callback.run();
+        }
     }
 
     private Candidate randomCandidate() {
@@ -609,6 +596,9 @@ final class AirdropService implements Listener {
         List<ItemStack> items = new ArrayList<>();
         for (int portion : StackSplit.portions(contents.keys(), 64)) {
             items.add(crateItems.key(portion));
+        }
+        if (contents.shards() > 0) {
+            items.add(crateItems.shard(contents.shards()));
         }
         Map<Material, Integer> totals = new LinkedHashMap<>();
         for (AirdropCatalog.MaterialLoot reward : contents.materialLoot()) {
@@ -1117,6 +1107,26 @@ final class AirdropService implements Listener {
             broadcast(Component.text("AIRDROP » ", AMETHYST, TextDecoration.BOLD)
                     .append(Component.text(message, NamedTextColor.WHITE)));
         }
+        Runnable callback = finishedCallback;
+        finishedCallback = null;
+        failedCallback = null;
+        if (callback != null && !stopped) {
+            callback.run();
+        }
+    }
+
+    private void failScheduledSpawn() {
+        Runnable callback = failedCallback;
+        clearCoordinatorCallbacks();
+        if (callback != null && !stopped) {
+            callback.run();
+        }
+    }
+
+    private void clearCoordinatorCallbacks() {
+        spawnedCallback = null;
+        finishedCallback = null;
+        failedCallback = null;
     }
 
     private void playDisappearEffect(ActiveAirdrop drop) {
