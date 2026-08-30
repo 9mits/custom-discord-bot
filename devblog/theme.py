@@ -355,32 +355,26 @@ a { color: inherit; }
 @media (min-width: 1024px) { .hero-copy .lede { font-size: 1.4rem; } }
 
 .hero-address {
-  width: min(100%, 31rem); margin: 1.5rem auto 0; padding: .8rem 1rem;
-  display: flex; align-items: center; gap: .9rem; text-align: left;
-  color: var(--ink); background: color-mix(in srgb, var(--surface) 88%, transparent);
-  border: 1px solid color-mix(in srgb, var(--brand-orange) 48%, var(--line));
-  border-radius: 18px; box-shadow: var(--lift-2); cursor: pointer;
+  width: fit-content; max-width: 100%; height: 2.75rem; margin: 1.35rem auto 0;
+  padding: 0 1rem; display: flex; align-items: center; justify-content: center;
+  gap: .65rem; color: var(--text-muted); background: var(--surface);
+  border: 1px solid var(--line); border-radius: 999px; box-shadow: var(--lift-1);
+  cursor: pointer; font: inherit;
   transition: transform var(--dur) var(--ease), border-color var(--dur) var(--ease),
-              box-shadow var(--dur) var(--ease), background var(--dur) var(--ease);
+              box-shadow var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 @media (min-width: 1024px) { .hero-address { margin-left: 0; margin-right: 0; } }
 .hero-address:hover {
-  transform: translateY(-2px); border-color: var(--brand-orange);
-  background: var(--surface); box-shadow: var(--lift-3);
+  transform: translateY(-2px); color: var(--ink);
+  border-color: var(--brand-orange); box-shadow: var(--lift-2);
 }
 .hero-address:active { transform: translateY(0) scale(.99); }
-.hero-address-copy { min-width: 0; flex: 1; }
-.hero-address .eyebrow {
-  display: block; margin: 0 0 .2rem; color: var(--brand-orange);
-  font-size: .72rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase;
-}
 .hero-address .label {
-  display: block; overflow-wrap: anywhere; color: var(--ink);
-  font-size: clamp(1.05rem, 3.8vw, 1.35rem); font-weight: 800; letter-spacing: -.015em;
+  display: block; overflow-wrap: anywhere;
+  font-size: clamp(.9rem, 3.5vw, 1rem); font-weight: 700; letter-spacing: -.005em;
 }
-.hero-address svg { flex: 0 0 auto; width: 1.45rem; height: 1.45rem; color: var(--brand-orange); }
-.hero-address.copied { border-color: var(--green); }
-.hero-address.copied .eyebrow, .hero-address.copied svg { color: var(--green); }
+.hero-address svg { flex: 0 0 auto; width: 1.05rem; height: 1.05rem; color: currentColor; }
+.hero-address.copied { color: var(--green); border-color: var(--green); }
 
 .hero-cta { display: flex; flex-direction: column; align-items: center; gap: .75rem; margin-top: 2rem; }
 @media (min-width: 640px) { .hero-cta { flex-direction: row; justify-content: center; } }
@@ -1883,8 +1877,7 @@ def render_index(featured: Optional[Dict[str, object]], cards: Sequence[Dict[str
     server_address = (
         '<button type="button" class="hero-address" data-copy="%s"'
         ' aria-label="Copy Java server address %s">'
-        '<span class="hero-address-copy"><span class="eyebrow">Java server · Click to copy</span>'
-        '<span class="label">%s</span></span>%s</button>'
+        '<span class="label">%s</span>%s</button>'
         % (
             _esc(SERVER_ADDRESS),
             _esc(SERVER_ADDRESS),
