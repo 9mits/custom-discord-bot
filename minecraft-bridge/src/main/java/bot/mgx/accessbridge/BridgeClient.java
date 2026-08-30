@@ -33,7 +33,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
      * SET_MAINTENANCE, which holds the server closed before launch; 9 added
      * server-event toggles; 10 added the Minecraft-first Discord linking lobby.
      */
-    static final int PROTOCOL_VERSION = 10;
+    static final int PROTOCOL_VERSION = 11;
 
     private final MGXAccessBridge plugin;
     private final BridgeConfig config;
@@ -195,6 +195,7 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                     // Republish at once rather than making it wait for the next interval.
                     plugin.republishLeaderboard();
                     plugin.republishCapabilities();
+                    plugin.republishGameVariables();
                 }
                 case "HEARTBEAT_ACK" -> {
                     // The signed response is sufficient proof of liveness.
@@ -359,6 +360,10 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                     plugin,
                     () -> executeStaffAction(idempotencyKey, payload)
             );
+            case "GAME_VARIABLE" -> Bukkit.getScheduler().runTask(
+                    plugin,
+                    () -> executeGameVariable(idempotencyKey, payload)
+            );
             case "APPROVE", "REVOKE", "KICK", "STATUS" -> Bukkit.getScheduler().runTask(
                     plugin,
                     () -> executeMainThreadAction(idempotencyKey, action, payload)
@@ -437,6 +442,39 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             // A refusal thrown before dispatch is a real answer for the requester, not
             // an internal failure — relay it without the exception class name.
             recordAndSend(key, new ProcessedActionStore.Result(false, exception.getMessage()));
+        } catch (RuntimeException exception) {
+            recordAndSend(key, new ProcessedActionStore.Result(false, safeError(exception)));
+        }
+    }
+
+    private void executeGameVariable(String key, JsonObject payload) {
+        try {
+            UUID actor = UUID.fromString(payload.get("actor_uuid").getAsString());
+            String operation = optionalString(payload, "operation").toLowerCase(java.util.Locale.ROOT);
+            String variable = optionalString(payload, "key");
+            String value = optionalString(payload, "value");
+            plugin.hasOwnerRank(actor).whenComplete((allowed, error) ->
+                    Bukkit.getScheduler().runTask(plugin, () -> {
+                        if (error != null || !Boolean.TRUE.equals(allowed)) {
+                            recordAndSend(key, new ProcessedActionStore.Result(
+                                    false, "The linked Minecraft account does not hold the LuckPerms owner group."
+                            ));
+                            return;
+                        }
+                        try {
+                            String outcome = switch (operation) {
+                                case "set" -> plugin.gameVariables().set(variable, value);
+                                case "reset" -> plugin.gameVariables().reset(variable);
+                                default -> throw new IllegalArgumentException("Use set or reset.");
+                            };
+                            recordAndSend(key, new ProcessedActionStore.Result(true, outcome));
+                        } catch (RuntimeException exception) {
+                            recordAndSend(key, new ProcessedActionStore.Result(
+                                    false, safeError(exception)
+                            ));
+                        }
+                    })
+            );
         } catch (RuntimeException exception) {
             recordAndSend(key, new ProcessedActionStore.Result(false, safeError(exception)));
         }
@@ -834,6 +872,12 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             return;
         }
         sendRaw(protocol.create("CAPABILITY_SNAPSHOT", UUID.randomUUID().toString(), snapshot));
+    }
+
+    /** Owner-only values are pushed only over the signed bridge, never in announcements. */
+    void sendGameVariableSnapshot(JsonObject snapshot) {
+        if (!isConnected()) return;
+        sendRaw(protocol.create("GAME_VARIABLE_SNAPSHOT", UUID.randomUUID().toString(), snapshot));
     }
 
     private void flushMinecraftChatOutbox() {

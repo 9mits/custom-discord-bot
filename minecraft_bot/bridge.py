@@ -28,7 +28,8 @@ SERVER_EVENT_PROTOCOL_VERSION = 7
 MAINTENANCE_PROTOCOL_VERSION = 8
 SERVER_EVENT_TOGGLE_PROTOCOL_VERSION = 9
 REVERSE_LINK_PROTOCOL_VERSION = 10
-CURRENT_PROTOCOL_VERSION = REVERSE_LINK_PROTOCOL_VERSION
+GAME_VARIABLE_PROTOCOL_VERSION = 11
+CURRENT_PROTOCOL_VERSION = GAME_VARIABLE_PROTOCOL_VERSION
 
 VerificationHandler = Callable[..., Awaitable[None]]
 ActionResultHandler = Callable[[OutboxRecord, Optional[Any]], Awaitable[None]]
@@ -67,6 +68,8 @@ class MinecraftBridgeServer:
         self.latest_leaderboard: dict[str, Any] = {}
         # Minecraft UUID -> clan standing and staff tools, pushed by Paper.
         self.latest_capabilities: dict[str, Any] = {}
+        # Sensitive odds and live controls. Only authenticated dashboard routes expose it.
+        self.latest_game_variables: dict[str, Any] = {}
         # Idempotency key -> future, for actions awaiting a real outcome from Paper
         # rather than the outbox flow application actions use.
         self._pending_results: dict[str, asyncio.Future] = {}
@@ -137,6 +140,10 @@ class MinecraftBridgeServer:
     @property
     def supports_reverse_link(self) -> bool:
         return self.connected and self._peer_protocol_version >= REVERSE_LINK_PROTOCOL_VERSION
+
+    @property
+    def supports_game_variables(self) -> bool:
+        return self.connected and self._peer_protocol_version >= GAME_VARIABLE_PROTOCOL_VERSION
 
     async def start(self) -> None:
         ssl_context = None
@@ -454,6 +461,10 @@ class MinecraftBridgeServer:
                 except Exception:
                     logger.exception("Minecraft leaderboard handler failed")
             return
+        if message_type == "GAME_VARIABLE_SNAPSHOT":
+            if self._peer_protocol_version >= GAME_VARIABLE_PROTOCOL_VERSION:
+                self.latest_game_variables = payload
+            return
         if message_type == "ACTION_RESULT":
             action_key = str(payload.get("action_idempotency_key", ""))
             if not action_key:
@@ -677,6 +688,29 @@ class MinecraftBridgeServer:
                 "target": str(target).strip()[:32],
                 "reason": str(reason).strip()[:200],
                 "duration": str(duration).strip()[:20],
+            },
+            timeout=15.0,
+        )
+
+    async def change_game_variable(
+        self,
+        *,
+        actor_uuid: str,
+        operation: str,
+        key: str,
+        value: object = "",
+    ) -> tuple[bool, str]:
+        """Changes one allowlisted Paper value and waits for its validated outcome."""
+        if not self.supports_game_variables:
+            return False, "The connected Paper plugin does not support live game variables."
+        return await self._send_awaiting_result(
+            "ACTION",
+            {
+                "action": "GAME_VARIABLE",
+                "actor_uuid": str(actor_uuid),
+                "operation": str(operation).strip().lower(),
+                "key": str(key).strip()[:160],
+                "value": str(value).strip()[:160],
             },
             timeout=15.0,
         )

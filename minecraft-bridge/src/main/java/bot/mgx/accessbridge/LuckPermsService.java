@@ -173,6 +173,25 @@ final class LuckPermsService {
                 .exceptionally(error -> false);
     }
 
+    private static boolean hasGroup(User user, String groupName) {
+        return user.resolveInheritedNodes(user.getQueryOptions()).stream()
+                .filter(NodeType.INHERITANCE::matches)
+                .map(NodeType.INHERITANCE::cast)
+                .anyMatch(node -> node.getValue()
+                        && node.getGroupName().equalsIgnoreCase(groupName));
+    }
+
+    boolean hasGroupLoaded(UUID playerId, String groupName) {
+        User user = luckPerms.getUserManager().getUser(playerId);
+        return user != null && hasGroup(user, groupName);
+    }
+
+    CompletableFuture<Boolean> hasGroup(UUID playerId, String groupName) {
+        return luckPerms.getUserManager().loadUser(playerId)
+                .thenApply(user -> hasGroup(user, groupName))
+                .exceptionally(error -> false);
+    }
+
     /** Drops every stored node so the player sits on the default group only. */
     CompletableFuture<Void> resetToDefaultGroup(UUID playerId) {
         return luckPerms.getUserManager().modifyUser(playerId, user -> user.data().clear())

@@ -101,6 +101,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private CrateFilterStore crateFilterStore;
     private AmethystProgressStore amethystProgress;
     private CrateOddsStore crateOdds;
+    private GameVariableStore gameVariables;
     private ClanBattleStore clanBattleStore;
     private HomeIconStore homeIconStore;
     private ClanWarpMetaStore clanWarpMetaStore;
@@ -191,6 +192,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             crateOdds = new CrateOddsStore(
                     getDataFolder().toPath().resolve("crate-odds.json")
             );
+            gameVariables = new GameVariableStore(
+                    getDataFolder().toPath().resolve("game-variables.json"), getConfig()
+            );
             clanBattleStore = new ClanBattleStore(
                     getDataFolder().toPath().resolve("clan-battles.json")
             );
@@ -244,6 +248,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         bridgeClient = new BridgeClient(
                 this, bridgeConfig, pending, processed, verificationEvents, verifiedAccounts, networkExecutor
         );
+        gameVariables.onChange(() -> bridgeClient.sendGameVariableSnapshot(gameVariables.snapshot()));
         verificationLobby = new VerificationLobbyService(this, bridgeClient);
         chatRelayService = new ChatRelayService(bridgeClient, playerSettings);
         // Statistics live beside the main world, which is where the server writes them.
@@ -411,15 +416,18 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 crateFilterStore,
                 amethystProgress,
                 clanBattles,
-                crateOdds
+                crateOdds,
+                gameVariables
         );
         amethystMobs = new AmethystMobService(this, crateItems);
         airdrops = new AirdropService(
                 this, crateItems, cosmeticStore, cosmeticItems, amethystProgress, playerSettings,
-                new AirdropGuardService(this, amethystMobs)
+                new AirdropGuardService(this, amethystMobs), gameVariables
         );
         amethystBlockEvent = new AmethystBlockEventService(this, crateItems, playerSettings);
-        amethystEvents = new AmethystEventCoordinator(this, airdrops, amethystBlockEvent);
+        amethystEvents = new AmethystEventCoordinator(
+                this, airdrops, amethystBlockEvent, gameVariables
+        );
         getCommand("wardrobe").setExecutor(wardrobeService);
         getCommand("wardrobe").setTabCompleter(wardrobeService);
         getCommand("crate").setExecutor(crates);
@@ -657,7 +665,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 airdrops,
                 amethystBlockEvent,
                 amethystProgress,
-                clanBattles
+                clanBattles,
+                gameVariables
         );
         getCommand("mgxadmin").setExecutor(adminService);
         getCommand("mgxadmin").setTabCompleter(adminService);
@@ -1108,6 +1117,27 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     void applyPlayerRank(UUID minecraftUuid, String rankGroup) {
         if (luckPermsService != null) {
             luckPermsService.applyRank(minecraftUuid, rankGroup);
+        }
+    }
+
+    boolean hasOwnerRankLoaded(UUID minecraftUuid) {
+        return luckPermsService != null
+                && luckPermsService.hasGroupLoaded(minecraftUuid, "owner");
+    }
+
+    java.util.concurrent.CompletableFuture<Boolean> hasOwnerRank(UUID minecraftUuid) {
+        return luckPermsService == null
+                ? java.util.concurrent.CompletableFuture.completedFuture(false)
+                : luckPermsService.hasGroup(minecraftUuid, "owner");
+    }
+
+    GameVariableStore gameVariables() {
+        return gameVariables;
+    }
+
+    void republishGameVariables() {
+        if (bridgeClient != null && gameVariables != null) {
+            bridgeClient.sendGameVariableSnapshot(gameVariables.snapshot());
         }
     }
 

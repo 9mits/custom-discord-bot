@@ -115,6 +115,26 @@ final class AirdropCatalog {
         }
     }
 
+    /** Read-only catalog metadata used to build the live control registry. */
+    record LootDefinitionView(
+            String materialName,
+            int minimumAmount,
+            int maximumAmount,
+            int commonWeight,
+            int rareWeight,
+            int legendaryWeight,
+            int mythicWeight
+    ) {
+        int weight(Rarity rarity) {
+            return switch (rarity) {
+                case COMMON -> commonWeight;
+                case RARE -> rareWeight;
+                case LEGENDARY -> legendaryWeight;
+                case MYTHIC -> mythicWeight;
+            };
+        }
+    }
+
     private static final List<LootDefinition> LOOT = List.of(
             loot("AMETHYST_SHARD", 8, 16, 30, 18, 8, 3),
             loot("DIAMOND", 3, 8, 25, 28, 24, 18),
@@ -169,10 +189,43 @@ final class AirdropCatalog {
         return new Contents(keys, loot, cosmetic, shards);
     }
 
+    static Contents roll(Rarity rarity, RandomGenerator random, GameVariableStore variables) {
+        int minimumKeys = variables.rarityValue(rarity, "minimum-keys");
+        int maximumKeys = variables.rarityValue(rarity, "maximum-keys");
+        int keys = random.nextInt(minimumKeys, maximumKeys + 1);
+        int rolls = variables.rarityValue(rarity, "loot-rolls") + random.nextInt(3);
+        List<MaterialLoot> loot = new ArrayList<>(rolls);
+        for (int index = 0; index < rolls; index++) {
+            LootDefinition reward = randomLoot(rarity, random, variables);
+            int minimum = variables.lootValue(reward.materialName(), "minimum-amount");
+            int maximum = variables.lootValue(reward.materialName(), "maximum-amount");
+            int base = random.nextInt(minimum, maximum + 1);
+            int multiplier = switch (rarity) {
+                case COMMON -> 1;
+                case RARE -> 2;
+                case LEGENDARY -> 3;
+                case MYTHIC -> 4;
+            };
+            loot.add(new MaterialLoot(reward.materialName(), Math.multiplyExact(base, multiplier)));
+        }
+        Optional<String> cosmetic = random.nextInt(COSMETIC_WEIGHT)
+                < variables.rarityValue(rarity, "cosmetic-weight")
+                ? Optional.of(randomCosmetic(random)) : Optional.empty();
+        int shards = random.nextInt(variables.integer("airdrop.shard-one-in")) == 0 ? 1 : 0;
+        return new Contents(keys, loot, cosmetic, shards);
+    }
+
     static List<String> cosmeticIds() {
         return CosmeticCatalog.amethystAirdropRewards().stream()
                 .map(CosmeticCatalog.Definition::id)
                 .toList();
+    }
+
+    static List<LootDefinitionView> lootDefinitions() {
+        return LOOT.stream().map(value -> new LootDefinitionView(
+                value.materialName(), value.minimumAmount(), value.maximumAmount(),
+                value.commonWeight(), value.rareWeight(), value.legendaryWeight(), value.mythicWeight()
+        )).toList();
     }
 
     private static LootDefinition randomLoot(Rarity rarity, RandomGenerator random) {
@@ -184,6 +237,26 @@ final class AirdropCatalog {
             if (ticket < cursor) {
                 return reward;
             }
+        }
+        throw new IllegalStateException("Airdrop loot table is empty for " + rarity);
+    }
+
+    private static LootDefinition randomLoot(
+            Rarity rarity, RandomGenerator random, GameVariableStore variables
+    ) {
+        long total = LOOT.stream().mapToLong(entry -> variables.lootValue(
+                entry.materialName(), rarity.name().toLowerCase(java.util.Locale.ROOT) + "-weight"
+        )).sum();
+        if (total <= 0) {
+            throw new IllegalStateException("Airdrop loot table is empty for " + rarity);
+        }
+        long ticket = random.nextLong(total);
+        long cursor = 0;
+        for (LootDefinition reward : LOOT) {
+            cursor += variables.lootValue(
+                    reward.materialName(), rarity.name().toLowerCase(java.util.Locale.ROOT) + "-weight"
+            );
+            if (ticket < cursor) return reward;
         }
         throw new IllegalStateException("Airdrop loot table is empty for " + rarity);
     }

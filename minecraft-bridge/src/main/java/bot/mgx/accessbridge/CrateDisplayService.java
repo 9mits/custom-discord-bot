@@ -223,8 +223,9 @@ final class CrateDisplayService implements CommandExecutor, TabCompleter, Listen
     }
 
     /** The key line, which is not the same sentence for a crate that costs two. */
-    private static String keyLine(CrateKind kind) {
-        return kind.keyCost() + " " + kind.currency().fullName(kind.keyCost());
+    private String keyLine(CrateKind kind) {
+        int cost = crates.keyCost(kind);
+        return cost + " " + kind.currency().fullName(cost);
     }
 
     /**

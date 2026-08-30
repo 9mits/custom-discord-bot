@@ -62,6 +62,11 @@ class MinecraftConfig:
     allow_insecure_localhost: bool
     bridge_tls_cert_path: Optional[Path] = None
     bridge_tls_key_path: Optional[Path] = None
+    dashboard_enabled: bool = False
+    dashboard_host: str = "127.0.0.1"
+    dashboard_port: int = 8090
+    dashboard_public_url: str = "http://127.0.0.1:8090"
+    dashboard_client_secret: str = ""
 
     @property
     def database_path(self) -> Path:
@@ -78,9 +83,11 @@ class MinecraftConfig:
         try:
             bridge_port = int(os.environ.get("MINECRAFT_BRIDGE_PORT", "8080"))
             bedrock_port = int(os.environ.get("MINECRAFT_BEDROCK_PORT", "50549"))
+            dashboard_port = int(os.environ.get("MINECRAFT_DASHBOARD_PORT", "8090"))
         except ValueError as exc:
             raise RuntimeError("Minecraft port values must be integers") from exc
-        if not 1 <= bridge_port <= 65535 or not 1 <= bedrock_port <= 65535:
+        if (not 1 <= bridge_port <= 65535 or not 1 <= bedrock_port <= 65535
+                or not 1 <= dashboard_port <= 65535):
             raise RuntimeError("Minecraft port values must be between 1 and 65535")
         data_dir = Path(os.environ.get("MINECRAFT_DATA_DIR", "runtime/minecraft")).expanduser()
         if not data_dir.is_absolute():
@@ -125,6 +132,18 @@ class MinecraftConfig:
             ).strip().lower() in {"1", "true", "yes"},
             bridge_tls_cert_path=optional_path(tls_cert_text),
             bridge_tls_key_path=optional_path(tls_key_text),
+            dashboard_enabled=os.environ.get("MINECRAFT_DASHBOARD_ENABLED", "0")
+            .strip().lower() in {"1", "true", "yes"},
+            dashboard_host=os.environ.get(
+                "MINECRAFT_DASHBOARD_HOST", "127.0.0.1"
+            ).strip() or "127.0.0.1",
+            dashboard_port=dashboard_port,
+            dashboard_public_url=os.environ.get(
+                "MINECRAFT_DASHBOARD_PUBLIC_URL", "http://127.0.0.1:8090"
+            ).strip().rstrip("/"),
+            dashboard_client_secret=os.environ.get(
+                "MINECRAFT_DASHBOARD_CLIENT_SECRET", ""
+            ).strip(),
         )
 
 
