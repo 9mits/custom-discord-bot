@@ -139,6 +139,12 @@ class Page:
             self.order = int(str(meta.get("order") or "99"))
         except ValueError:
             raise PostError("%s: 'order' must be a whole number" % path.name)
+        # Pages that only work behind the authenticated backend. They call /auth/login
+        # and the owner-gated half of /api/*, which exist in minecraft_bot/dashboard.py
+        # and nowhere else, so publishing them to a static host yields a page that looks
+        # complete and whose sign-in button 404s. Marked per page rather than per layout:
+        # /leaderboards/ shares their layout and is deliberately public.
+        self.private = str(meta.get("private") or "").lower() in {"1", "true", "yes"}
         self.layout = str(meta.get("layout") or "document").strip().lower()
         if self.layout not in {"document", "dashboard", "statistics"}:
             raise PostError("%s: unknown page layout %r" % (path.name, self.layout))
@@ -220,6 +226,18 @@ def load_events(include_drafts: bool = False) -> List[Post]:
     return events
 
 
+def load_leaderboards() -> Optional[Dict[str, object]]:
+    """The standings snapshot, when CI wrote one. Absent is normal, not an error."""
+    path = DATA_DIR / "leaderboards.json"
+    if not path.is_file():
+        return None
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (ValueError, OSError):
+        return None
+    return document if isinstance(document, dict) and document.get("boards") else None
+
+
 def load_stats() -> Optional[Dict[str, object]]:
     """Server numbers written by `server_status.py`, if CI managed to fetch them.
 
@@ -238,13 +256,6 @@ def load_stats() -> Optional[Dict[str, object]]:
     return stats
 
 
-#: Layouts whose pages only work when the authenticated backend is serving them.
-#: They call /api/* and /auth/login, which exist in minecraft_bot/dashboard.py and
-#: nowhere else -- so publishing them to a static host produces a page that looks
-#: complete and whose sign-in button 404s. Excluded unless the caller is that backend.
-PRIVATE_LAYOUTS = {"dashboard", "statistics"}
-
-
 def load_pages(include_private: bool = False) -> List[Page]:
     pages: List[Page] = []
     if not PAGES_DIR.exists():
@@ -252,7 +263,7 @@ def load_pages(include_private: bool = False) -> List[Page]:
     for path in sorted(PAGES_DIR.glob("*.md")):
         meta, body = parse_front_matter(path.read_text(encoding="utf-8"), path)
         page = Page(path, meta, body)
-        if page.layout in PRIVATE_LAYOUTS and not include_private:
+        if page.private and not include_private:
             continue
         pages.append(page)
     pages.sort(key=lambda page: (page.order, page.slug))
@@ -393,6 +404,16 @@ def build(
         # else - no address, no player names, no MOTD - and a test pins that.
         (DIST_DIR / "assets" / "stats.json").write_text(
             json.dumps(stats, indent=2) + "\n", encoding="utf-8"
+        )
+
+    boards = load_leaderboards()
+    if boards is not None:
+        # Same reasoning as stats.json, and the same safety: leaderboard_snapshot.py
+        # copies standings through an allowlist and writes no address. Published as a
+        # same-origin asset because the site is HTTPS and the dashboard is not, so the
+        # page cannot call that API itself without the browser blocking it.
+        (DIST_DIR / "assets" / "leaderboards.json").write_text(
+            json.dumps(boards, indent=2) + "\n", encoding="utf-8"
         )
 
     for page in pages:

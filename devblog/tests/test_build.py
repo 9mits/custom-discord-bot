@@ -724,8 +724,8 @@ class PageTests(unittest.TestCase):
         render perfectly and their sign-in button 404s, which is worse than absent.
         """
         self.page("guide.md", "---\ntitle: G\nnav: Guide\n---\n\nx")
-        self.page("control.md", "---\ntitle: C\nlayout: dashboard\n---\n\nx")
-        self.page("statistics.md", "---\ntitle: S\nlayout: statistics\n---\n\nx")
+        self.page("control.md", "---\ntitle: C\nlayout: dashboard\nprivate: true\n---\n\nx")
+        self.page("statistics.md", "---\ntitle: S\nlayout: statistics\nprivate: true\n---\n\nx")
         (build.STATIC_DIR / "server-dashboard.js").write_text("// live")
         (build.STATIC_DIR / "server-statistics.js").write_text("// stats")
 
@@ -736,8 +736,8 @@ class PageTests(unittest.TestCase):
         self.assertFalse((build.DIST_DIR / "statistics").exists())
 
     def test_the_backend_build_carries_them(self):
-        self.page("control.md", "---\ntitle: C\nlayout: dashboard\n---\n\nx")
-        self.page("statistics.md", "---\ntitle: S\nlayout: statistics\n---\n\nx")
+        self.page("control.md", "---\ntitle: C\nlayout: dashboard\nprivate: true\n---\n\nx")
+        self.page("statistics.md", "---\ntitle: S\nlayout: statistics\nprivate: true\n---\n\nx")
         (build.STATIC_DIR / "server-dashboard.js").write_text("// live")
         (build.STATIC_DIR / "server-statistics.js").write_text("// stats")
 
@@ -750,8 +750,8 @@ class PageTests(unittest.TestCase):
         """A nav link to an excluded page is the 404 in a different costume."""
         self.page("guide.md", "---\ntitle: G\nnav: Guide\n---\n\nx")
         self.page(
-            "leaderboards.md",
-            "---\ntitle: L\nnav: Leaderboards\nlayout: dashboard\n---\n\nx",
+            "secret.md",
+            "---\ntitle: S\nnav: Secret\nlayout: dashboard\nprivate: true\n---\n\nx",
         )
         (build.STATIC_DIR / "server-dashboard.js").write_text("// live")
 
@@ -759,7 +759,78 @@ class PageTests(unittest.TestCase):
 
         home = (build.DIST_DIR / "index.html").read_text(encoding="utf-8")
         self.assertIn('href="guide/"', home)
-        self.assertNotIn('href="leaderboards/"', home)
+        self.assertNotIn('href="secret/"', home)
+
+    def test_the_snapshot_never_carries_the_dashboard_address(self):
+        """The repo is public. The panel's host must not reach a published file."""
+        import leaderboard_snapshot
+
+        hostile = {
+            "individual": {"wealth": [{"username": "A", "value": 5, "secret": "x"}]},
+            "origin": "http://203.0.113.9:9086",
+            "settings": {"hidden-amethyst-one-in": 500000},
+        }
+        cleaned = leaderboard_snapshot.clean(hostile)
+
+        self.assertEqual(list(cleaned), ["individual"])
+        self.assertNotIn("origin", cleaned)
+        self.assertNotIn("settings", cleaned)
+        # Row fields are an allowlist, so a new field cannot ride along.
+        self.assertEqual(sorted(cleaned["individual"]["wealth"][0]), ["username", "value"])
+
+    def test_a_snapshot_is_published_beside_the_page(self):
+        self.page(
+            "leaderboards.md",
+            "---\ntitle: L\nnav: Leaderboards\nlayout: dashboard\n---\n\nx",
+        )
+        (build.STATIC_DIR / "server-dashboard.js").write_text("// live")
+        build.DATA_DIR.mkdir(parents=True, exist_ok=True)
+        (build.DATA_DIR / "leaderboards.json").write_text(json.dumps({
+            "boards": {"individual": {"wealth": [{"username": "A", "value": 1}]}},
+            "checked_at": "2026-08-30T00:00:00+00:00", "version": 1,
+        }))
+
+        build.build("https://example.com")
+
+        published = build.DIST_DIR / "assets" / "leaderboards.json"
+        self.assertTrue(published.is_file())
+        self.assertIn("wealth", published.read_text())
+
+    def test_a_missing_snapshot_is_not_an_error(self):
+        self.page(
+            "leaderboards.md",
+            "---\ntitle: L\nlayout: dashboard\n---\n\nx",
+        )
+        (build.STATIC_DIR / "server-dashboard.js").write_text("// live")
+        # DATA_DIR is the developer's real one; a snapshot left there by a local run
+        # must not decide this test either way.
+        snapshot = build.DATA_DIR / "leaderboards.json"
+        saved = snapshot.read_text() if snapshot.is_file() else None
+        if saved is not None:
+            snapshot.unlink()
+        try:
+            build.build("https://example.com")
+            self.assertFalse((build.DIST_DIR / "assets" / "leaderboards.json").exists())
+        finally:
+            if saved is not None:
+                snapshot.write_text(saved)
+
+    def test_the_public_leaderboard_is_published_even_though_it_shares_the_layout(self):
+        """
+        Privacy is a property of the page, not the layout. Gating on layout took
+        /leaderboards/ off the site along with the two owner pages; it is public.
+        """
+        self.page(
+            "leaderboards.md",
+            "---\ntitle: L\nnav: Leaderboards\nlayout: dashboard\n---\n\nx",
+        )
+        (build.STATIC_DIR / "server-dashboard.js").write_text("// live")
+
+        build.build("https://example.com")
+
+        self.assertTrue((build.DIST_DIR / "leaderboards" / "index.html").is_file())
+        home = (build.DIST_DIR / "index.html").read_text(encoding="utf-8")
+        self.assertIn('href="leaderboards/"', home)
 
     def test_unknown_page_layout_is_an_error(self):
         self.page("guide.md", "---\ntitle: G\nlayout: mystery\n---\n\nx")

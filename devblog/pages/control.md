@@ -2,6 +2,7 @@
 title: Owner Control Panel
 nav: Control
 nav_hidden: true
+private: true
 order: 5
 layout: dashboard
 tagline: Change live crate, key, event and airdrop values without restarting Paper. Exact odds and audit logs remain owner-only.
