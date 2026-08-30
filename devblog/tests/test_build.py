@@ -633,6 +633,18 @@ class SlugSafetyTests(unittest.TestCase):
 
 
 class HomePageTests(unittest.TestCase):
+    def test_the_hero_leads_with_a_copyable_server_address(self):
+        page = _home()
+        hero = page.split('<section class="hero-band">', 1)[1].split("</section>", 1)[0]
+
+        self.assertIn('class="hero-address"', hero)
+        self.assertIn('data-copy="play.mysterioussmpx.blog"', hero)
+        self.assertIn("Java server · Click to copy", hero)
+        self.assertIn('<span class="label">play.mysterioussmpx.blog</span>', hero)
+
+    def test_every_copy_address_control_is_wired_up(self):
+        self.assertIn("document.querySelectorAll('[data-copy]')", theme.COPY_SCRIPT)
+
     def test_the_newest_post_leads_the_hero(self):
         page = _home()
         self.assertIn('class="hero-band"', page)
