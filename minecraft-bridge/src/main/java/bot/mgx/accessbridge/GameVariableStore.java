@@ -118,25 +118,25 @@ final class GameVariableStore {
     }
 
     private void defineAfkRewards() {
-        bool("afk-rewards.enabled", "AFK streak rewards", "AFK Rewards",
-                "Whether completed AFK intervals grant the escalating reward ladder.", true);
-        integer("afk-rewards.interval-minutes", "AFK reward interval", "AFK Rewards",
-                "Continuous AFK minutes required for each reward. Moving resets the interval streak.",
+        bool("afk-rewards.enabled", "Online stay rewards", "Online Rewards",
+                "Whether connected players receive the escalating stay-online reward ladder.", true);
+        integer("afk-rewards.interval-minutes", "Online reward interval", "Online Rewards",
+                "Continuous connected minutes required for each reward. Disconnecting resets the interval.",
                 60, 5, 1_440, "minutes", false);
-        integer("afk-rewards.online.minimum-players", "Online bonus starts at", "AFK Rewards",
-                "Eligible online players required before AFK rewards gain bonus keys.",
+        integer("afk-rewards.online.minimum-players", "Population boost starts at", "Online Rewards",
+                "Eligible online players required before stay rewards gain bonus keys.",
                 5, 1, 1_000, "players", false);
-        integer("afk-rewards.online.players-per-step", "Players per online bonus step", "AFK Rewards",
+        integer("afk-rewards.online.players-per-step", "Players per population step", "Online Rewards",
                 "Additional online players required for each further bonus-key step.",
                 5, 1, 1_000, "players", false);
-        integer("afk-rewards.online.keys-per-step", "Keys per online bonus step", "AFK Rewards",
-                "Bonus keys added to every AFK reward for each reached player-count step.",
+        integer("afk-rewards.online.keys-per-step", "Keys per population step", "Online Rewards",
+                "Bonus keys added to every stay reward for each reached player-count step.",
                 1, 0, 256, "keys", false);
-        integer("afk-rewards.online.maximum-bonus-keys", "Maximum online bonus", "AFK Rewards",
+        integer("afk-rewards.online.maximum-bonus-keys", "Maximum population bonus", "Online Rewards",
                 "Ceiling on bonus keys supplied by the current online player count.",
                 4, 0, 1_024, "keys", false);
-        bool("afk-rewards.key-events-multiply-bonus", "Key events multiply AFK keys", "AFK Rewards",
-                "Whether 2x/4x key events also multiply AFK ladder and online-count bonus keys.", false);
+        bool("afk-rewards.key-events-multiply-bonus", "Key events multiply stay rewards", "Online Rewards",
+                "Whether 2x/4x key events also multiply stay-ladder and population bonus keys.", false);
 
         defineAfkTier(1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1);
         defineAfkTier(2, 3, 2, 1, 2, 0, 1, 0, 1, 0, 1);
@@ -144,7 +144,7 @@ final class GameVariableStore {
         defineAfkTier(4, 12, 4, 2, 1, 1, 2, 0, 1, 0, 1);
         defineAfkTier(5, 24, 6, 3, 1, 1, 1, 1, 24, 0, 1);
         // Passive Shards must remain far rarer than active event rewards. They start
-        // only after 72 lifetime AFK hours, then average one per 5,000 hourly rolls.
+        // only after 72 lifetime online hours, then average one per 5,000 hourly rolls.
         defineAfkTier(6, 72, 10, 4, 1, 2, 1, 1, 24, 1, 5_000);
     }
 
@@ -154,12 +154,12 @@ final class GameVariableStore {
             int netherite, int netheriteOneIn, int shards, int shardOneIn
     ) {
         String base = "afk-rewards.tier." + tier + ".";
-        String category = "AFK Tier " + tier;
-        integer(base + "minimum-hours", "Minimum lifetime AFK", category,
-                "Lifetime AFK hours required before this tier becomes the hourly reward.",
+        String category = "Online Tier " + tier;
+        integer(base + "minimum-hours", "Minimum lifetime playtime", category,
+                "Lifetime online hours required before this tier becomes the stay reward.",
                 minimumHours, 1, 100_000, "hours", false);
         integer(base + "bonus-keys", "Bonus keys", category,
-                "Keys added by this AFK tier before the online-player bonus.",
+                "Keys added by this online tier before the population bonus.",
                 bonusKeys, 0, 1_024, "keys", false);
         rewardRoll(base, category, "emerald", "Emeralds", emeralds, emeraldOneIn, 2_304);
         rewardRoll(base, category, "diamond", "Diamonds", diamonds, diamondOneIn, 2_304);
@@ -175,7 +175,7 @@ final class GameVariableStore {
                 label + " delivered when this tier's roll succeeds. Zero disables the reward.",
                 amount, 0, maximumAmount, "items", false);
         integer(base + key + "-one-in", label + " chance", category,
-                "One successful " + label + " roll in this many AFK rewards.",
+                "One successful " + label + " roll in this many online stay rewards.",
                 oneIn, 1, 100_000_000, "one in", key.equals("shard"));
     }
 
@@ -655,12 +655,12 @@ final class GameVariableStore {
             if (tier > 1 && hours <= integer(
                     "afk-rewards.tier." + (tier - 1) + ".minimum-hours"
             )) {
-                throw new IllegalArgumentException(key + " must exceed the previous AFK tier.");
+                throw new IllegalArgumentException(key + " must exceed the previous online tier.");
             }
             if (tier < 6 && hours >= integer(
                     "afk-rewards.tier." + (tier + 1) + ".minimum-hours"
             )) {
-                throw new IllegalArgumentException(key + " must stay below the next AFK tier.");
+                throw new IllegalArgumentException(key + " must stay below the next online tier.");
             }
         }
         if (key.startsWith("huge-amethyst.wave.") && key.endsWith(".health-percent")) {
