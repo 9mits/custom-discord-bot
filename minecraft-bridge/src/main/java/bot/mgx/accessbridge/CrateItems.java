@@ -49,7 +49,7 @@ final class CrateItems {
             meta.displayName(Component.text("Shard", TextColor.color(0x53E5FF), TextDecoration.BOLD)
                     .decoration(TextDecoration.ITALIC, false));
             meta.lore(List.of(
-                    Component.text("Extremely rare permanent crate currency.", NamedTextColor.LIGHT_PURPLE)
+                    Component.text("Extremely rare Shard Crate currency.", NamedTextColor.LIGHT_PURPLE)
                             .decoration(TextDecoration.ITALIC, false),
                     line("Use it to open the Shard Crate.")
             ));
@@ -83,8 +83,9 @@ final class CrateItems {
             meta.displayName(Component.text("Mysterious Crate Key", ORANGE, TextDecoration.BOLD)
                     .decoration(TextDecoration.ITALIC, false));
             meta.lore(List.of(
-                    line("Default Crate: 1 key"),
-                    line("Limited Amethyst Crate: 2 keys")
+                    line("Opens the Default Crate: 1 key"),
+                    line("Opens the Limited Amethyst Crate: 2 keys"),
+                    line("Use /crate to open or inspect rewards.")
             ));
             meta.getPersistentDataContainer().set(keyMarker, PersistentDataType.BYTE, (byte) 1);
             NamespacedKey model = NamespacedKey.fromString("mgx:crate_key");

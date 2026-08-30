@@ -1530,7 +1530,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
      */
     private void refreshKeyBars() {
         long now = System.currentTimeMillis();
-        boolean onlineRewardsEnabled = variables.bool("afk-rewards.enabled");
+        boolean onlineRewardsEnabled = variables.bool("online-rewards.enabled");
         int onlinePlayers = (int) plugin.getServer().getOnlinePlayers().stream()
                 .filter(player -> !VerificationLobbyService.isLobbyWorld(player.getWorld()))
                 .count();
@@ -1552,19 +1552,19 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             BossBar.Color colour;
             if (onlineRewardsEnabled) {
                 long startedAt = onlineRewardStarted.computeIfAbsent(playerId, ignored -> now);
-                AfkRewardDisplay.Status status = onlineRewardStatus(
+                OnlineRewardDisplay.Status status = onlineRewardStatus(
                         player, startedAt, now, onlinePlayers
                 );
-                title = AfkRewardDisplay.bossBar(status, now);
+                title = OnlineRewardDisplay.bossBar(status, now);
                 progress = KeyTimer.progress(
                         status.rewardRemainingMillis(),
                         Duration.ofMinutes(status.intervalMinutes()).toMillis()
                 );
-                colour = AfkRewardDisplay.barColor(status.onlineBonusKeys());
+                colour = OnlineRewardDisplay.barColor(status.onlineBonusKeys());
                 Integer previousTier = displayedOnlineTiers.put(playerId, status.tier());
                 if (previousTier != null && status.tier() > previousTier) {
                     player.sendMessage(PlayerMenuService.prefix().append(
-                            AfkRewardDisplay.tierUp(status)
+                            OnlineRewardDisplay.tierUp(status)
                     ));
                     player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP,
                             0.9f, 1.25f);
@@ -1599,14 +1599,14 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         }
     }
 
-    private AfkRewardDisplay.Status onlineRewardStatus(
+    private OnlineRewardDisplay.Status onlineRewardStatus(
             Player player,
             long startedAt,
             long now,
             int onlinePlayers
     ) {
         UUID playerId = player.getUniqueId();
-        int intervalMinutes = variables.integer("afk-rewards.interval-minutes");
+        int intervalMinutes = variables.integer("online-rewards.interval-minutes");
         long intervalMillis = Duration.ofMinutes(intervalMinutes).toMillis();
         OnlineRewardState state = onlineRewardStates.get(playerId);
         long rewarded = state != null && state.sessionStartedAt() == startedAt
@@ -1614,14 +1614,14 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         long nextRewardAt = startedAt + (rewarded + 1L) * intervalMillis;
         long remaining = Math.max(0L, nextRewardAt - now);
         long lifetimeSeconds = lifetimeOnlineSeconds(player);
-        GameVariableStore.AfkRewardTier tier = variables.afkRewardTier(lifetimeSeconds);
-        int onlineBonus = variables.afkOnlineBonusKeys(onlinePlayers);
-        int eventMultiplier = variables.bool("afk-rewards.key-events-multiply-bonus")
+        GameVariableStore.OnlineRewardTier tier = variables.onlineRewardTier(lifetimeSeconds);
+        int onlineBonus = variables.onlinePopulationBonusKeys(onlinePlayers);
+        int eventMultiplier = variables.bool("online-rewards.key-events-multiply-bonus")
                 ? plugin.keyEventMultiplier() : 1;
         int keys = Math.multiplyExact(
                 Math.addExact(tier.bonusKeys(), onlineBonus), eventMultiplier
         );
-        return new AfkRewardDisplay.Status(
+        return new OnlineRewardDisplay.Status(
                 tier.number(), keys, onlinePlayers, onlineBonus, intervalMinutes, remaining
         );
     }
@@ -1705,13 +1705,13 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
      */
     private void creditOnlineRewards(long now) {
         long intervalMillis = Duration.ofMinutes(
-                variables.integer("afk-rewards.interval-minutes")
+                variables.integer("online-rewards.interval-minutes")
         ).toMillis();
         List<? extends Player> eligible = plugin.getServer().getOnlinePlayers().stream()
                 .filter(player -> !VerificationLobbyService.isLobbyWorld(player.getWorld()))
                 .toList();
         int onlinePlayers = eligible.size();
-        boolean enabled = variables.bool("afk-rewards.enabled");
+        boolean enabled = variables.bool("online-rewards.enabled");
         Set<UUID> currentlyOnline = new java.util.HashSet<>();
         for (Player player : eligible) {
             UUID playerId = player.getUniqueId();
@@ -1766,25 +1766,25 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             return;
         }
         long intervalMillis = Duration.ofMinutes(
-                variables.integer("afk-rewards.interval-minutes")
+                variables.integer("online-rewards.interval-minutes")
         ).toMillis();
         int onlinePlayers = (int) plugin.getServer().getOnlinePlayers().stream()
                 .filter(online -> !VerificationLobbyService.isLobbyWorld(online.getWorld()))
                 .count();
         creditOnlineReward(
                 player, startedAt, now, intervalMillis, Math.max(1, onlinePlayers),
-                variables.bool("afk-rewards.enabled")
+                variables.bool("online-rewards.enabled")
         );
     }
 
     private void deliverOnlineReward(
             Player player, long lifetimeOnlineSeconds, int onlinePlayers
     ) {
-        GameVariableStore.AfkRewardTier tier = variables.afkRewardTier(lifetimeOnlineSeconds);
-        int onlineBonus = variables.afkOnlineBonusKeys(onlinePlayers);
+        GameVariableStore.OnlineRewardTier tier = variables.onlineRewardTier(lifetimeOnlineSeconds);
+        int onlineBonus = variables.onlinePopulationBonusKeys(onlinePlayers);
         int keys = Math.addExact(tier.bonusKeys(), onlineBonus);
         int displayedOnlineBonus = onlineBonus;
-        if (variables.bool("afk-rewards.key-events-multiply-bonus")) {
+        if (variables.bool("online-rewards.key-events-multiply-bonus")) {
             int eventMultiplier = plugin.keyEventMultiplier();
             keys = Math.multiplyExact(keys, eventMultiplier);
             displayedOnlineBonus = Math.multiplyExact(onlineBonus, eventMultiplier);
@@ -1801,14 +1801,14 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         int diamonds = rollAmount(tier.diamonds(), tier.diamondOneIn());
         int netherite = rollAmount(tier.netheriteIngots(), tier.netheriteOneIn());
         int shards = rollAmount(tier.shards(), tier.shardOneIn());
-        giveAfkItem(player, Material.EMERALD, emeralds, delivered, "emerald");
-        giveAfkItem(player, Material.DIAMOND, diamonds, delivered, "diamond");
-        giveAfkItem(player, Material.NETHERITE_INGOT, netherite, delivered, "netherite ingot");
+        giveOnlineRewardItem(player, Material.EMERALD, emeralds, delivered, "emerald");
+        giveOnlineRewardItem(player, Material.DIAMOND, diamonds, delivered, "diamond");
+        giveOnlineRewardItem(player, Material.NETHERITE_INGOT, netherite, delivered, "netherite ingot");
         if (shards > 0) {
-            giveAfkStack(player, items.shard(shards));
+            giveOnlineRewardStack(player, items.shard(shards));
             delivered.add(shards + " " + (shards == 1 ? "Shard" : "Shards"));
             ServerEvent.of(
-                    "afk_shard_reward", ServerEvent.CATEGORY_CRATE,
+                    "online_shard_reward", ServerEvent.CATEGORY_CRATE,
                     player.getUniqueId(), player.getName(), plugin::recordServerEvent
             ).summary(player.getName() + " earned an exceptionally rare online Shard")
                     .detail("Online tier", tier.number())
@@ -1839,19 +1839,19 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         return ThreadLocalRandom.current().nextInt(Math.max(1, oneIn)) == 0 ? amount : 0;
     }
 
-    private void giveAfkItem(
+    private void giveOnlineRewardItem(
             Player player, Material material, int amount, List<String> delivered, String name
     ) {
         if (amount <= 0) {
             return;
         }
         for (int portion : StackSplit.portions(amount, material.getMaxStackSize())) {
-            giveAfkStack(player, new ItemStack(material, portion));
+            giveOnlineRewardStack(player, new ItemStack(material, portion));
         }
         delivered.add(amount + " " + name + (amount == 1 ? "" : "s"));
     }
 
-    private static void giveAfkStack(Player player, ItemStack stack) {
+    private static void giveOnlineRewardStack(Player player, ItemStack stack) {
         player.getInventory().addItem(stack).values().forEach(overflow -> {
             Item drop = player.getWorld().dropItemNaturally(player.getLocation(), overflow);
             drop.setOwner(player.getUniqueId());

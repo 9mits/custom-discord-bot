@@ -244,7 +244,7 @@ def commands_chat_embed(settings=None) -> discord.Embed:
                 "> `/mail send <player> <message>` — message an offline player\n"
                 "> `/mail read` — read your mail\n"
                 "> `/me <action>` — emote in chat\n"
-                "> `/afk [reason]` — mark yourself away",
+                "> `/afk` — toggle your away status; idling also marks you automatically",
             ),
             (
                 "Needing help",

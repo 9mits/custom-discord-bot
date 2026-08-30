@@ -1,6 +1,6 @@
 """Command audit trail for the Minecraft access bot.
 
-Every `/minecraft`, `/mcstaff`, and `/mcadmin` invocation, review button, and modal
+Every `/minecraft`, `/mgxstaff`, and `/mgxadmin` invocation, review button, and modal
 submission produces a record here. Routine ones go to the activity log; access-changing and failed ones
 go to the quieter important log.
 
@@ -21,6 +21,13 @@ import discord
 from discord import InteractionType, app_commands
 
 from . import logroutes
+from .command_names import (
+    ADMIN_GROUP,
+    AUDIT_GROUPS,
+    LEGACY_ADMIN_GROUP,
+    LEGACY_STAFF_GROUP,
+    STAFF_GROUP,
+)
 from .presentation import branded_send, head_url, info_embed
 
 
@@ -51,18 +58,18 @@ RISK_DESTRUCTIVE = "destructive"
 # Anything absent is treated as read-only.
 COMMAND_RISK: Mapping[str, str] = {
     "minecraft cancel": RISK_DESTRUCTIVE,
-    "mcstaff cancel": RISK_DESTRUCTIVE,
-    "mcstaff revoke": RISK_DESTRUCTIVE,
-    "mcstaff unlink": RISK_DESTRUCTIVE,
-    "mcstaff kick": RISK_DESTRUCTIVE,
-    "mcstaff mute": RISK_DESTRUCTIVE,
-    "mcstaff ban": RISK_DESTRUCTIVE,
-    "mcstaff tempban": RISK_DESTRUCTIVE,
-    "mcstaff unban": RISK_DESTRUCTIVE,
-    "mcstaff broadcast": RISK_DESTRUCTIVE,
-    "mcstaff update": RISK_MODERATE,
-    "mcstaff heal": RISK_MODERATE,
-    "mcstaff retry": RISK_MODERATE,
+    f"{STAFF_GROUP} cancel": RISK_DESTRUCTIVE,
+    f"{STAFF_GROUP} revoke": RISK_DESTRUCTIVE,
+    f"{STAFF_GROUP} unlink": RISK_DESTRUCTIVE,
+    f"{STAFF_GROUP} kick": RISK_DESTRUCTIVE,
+    f"{STAFF_GROUP} mute": RISK_DESTRUCTIVE,
+    f"{STAFF_GROUP} ban": RISK_DESTRUCTIVE,
+    f"{STAFF_GROUP} tempban": RISK_DESTRUCTIVE,
+    f"{STAFF_GROUP} unban": RISK_DESTRUCTIVE,
+    f"{STAFF_GROUP} broadcast": RISK_DESTRUCTIVE,
+    f"{STAFF_GROUP} update": RISK_MODERATE,
+    f"{STAFF_GROUP} heal": RISK_MODERATE,
+    f"{STAFF_GROUP} retry": RISK_MODERATE,
     "minecraft clan invite": RISK_MODERATE,
     "minecraft clan kick": RISK_MODERATE,
     "minecraft clan promote": RISK_MODERATE,
@@ -74,17 +81,42 @@ COMMAND_RISK: Mapping[str, str] = {
     "minecraft clan color": RISK_MODERATE,
     "minecraft clan disband": RISK_MODERATE,
     "minecraft clan leave": RISK_MODERATE,
-    "mcadmin setup": RISK_CONFIGURATION,
-    "mcadmin log-channel": RISK_CONFIGURATION,
-    "mcadmin logs": RISK_CONFIGURATION,
-    "mcadmin log-route": RISK_CONFIGURATION,
-    "mcadmin chat-channel": RISK_CONFIGURATION,
-    "mcadmin leaderboard": RISK_CONFIGURATION,
-    "mcadmin wipe": RISK_DESTRUCTIVE,
-    "mcadmin maintenance": RISK_DESTRUCTIVE,
-    "mcadmin event": RISK_CONFIGURATION,
-    "mcadmin information": RISK_CONFIGURATION,
-    "mcadmin cleanheads": RISK_CONFIGURATION,
+    f"{ADMIN_GROUP} setup": RISK_CONFIGURATION,
+    f"{ADMIN_GROUP} log-channel": RISK_CONFIGURATION,
+    f"{ADMIN_GROUP} logs": RISK_CONFIGURATION,
+    f"{ADMIN_GROUP} log-route": RISK_CONFIGURATION,
+    f"{ADMIN_GROUP} chat-channel": RISK_CONFIGURATION,
+    f"{ADMIN_GROUP} leaderboard": RISK_CONFIGURATION,
+    f"{ADMIN_GROUP} wipe": RISK_DESTRUCTIVE,
+    f"{ADMIN_GROUP} maintenance": RISK_DESTRUCTIVE,
+    f"{ADMIN_GROUP} event": RISK_CONFIGURATION,
+    f"{ADMIN_GROUP} information": RISK_CONFIGURATION,
+    f"{ADMIN_GROUP} cleanheads": RISK_CONFIGURATION,
+    # Historical records keep their original command text. Preserve their risk
+    # classification without registering or advertising the retired namespaces.
+    f"{LEGACY_STAFF_GROUP} cancel": RISK_DESTRUCTIVE,
+    f"{LEGACY_STAFF_GROUP} revoke": RISK_DESTRUCTIVE,
+    f"{LEGACY_STAFF_GROUP} unlink": RISK_DESTRUCTIVE,
+    f"{LEGACY_STAFF_GROUP} kick": RISK_DESTRUCTIVE,
+    f"{LEGACY_STAFF_GROUP} mute": RISK_DESTRUCTIVE,
+    f"{LEGACY_STAFF_GROUP} ban": RISK_DESTRUCTIVE,
+    f"{LEGACY_STAFF_GROUP} tempban": RISK_DESTRUCTIVE,
+    f"{LEGACY_STAFF_GROUP} unban": RISK_DESTRUCTIVE,
+    f"{LEGACY_STAFF_GROUP} broadcast": RISK_DESTRUCTIVE,
+    f"{LEGACY_STAFF_GROUP} update": RISK_MODERATE,
+    f"{LEGACY_STAFF_GROUP} heal": RISK_MODERATE,
+    f"{LEGACY_STAFF_GROUP} retry": RISK_MODERATE,
+    f"{LEGACY_ADMIN_GROUP} setup": RISK_CONFIGURATION,
+    f"{LEGACY_ADMIN_GROUP} log-channel": RISK_CONFIGURATION,
+    f"{LEGACY_ADMIN_GROUP} logs": RISK_CONFIGURATION,
+    f"{LEGACY_ADMIN_GROUP} log-route": RISK_CONFIGURATION,
+    f"{LEGACY_ADMIN_GROUP} chat-channel": RISK_CONFIGURATION,
+    f"{LEGACY_ADMIN_GROUP} leaderboard": RISK_CONFIGURATION,
+    f"{LEGACY_ADMIN_GROUP} wipe": RISK_DESTRUCTIVE,
+    f"{LEGACY_ADMIN_GROUP} maintenance": RISK_DESTRUCTIVE,
+    f"{LEGACY_ADMIN_GROUP} event": RISK_CONFIGURATION,
+    f"{LEGACY_ADMIN_GROUP} information": RISK_CONFIGURATION,
+    f"{LEGACY_ADMIN_GROUP} cleanheads": RISK_CONFIGURATION,
 }
 
 # In-game actions reported over the bridge. Everything absent is routine, which is the
@@ -402,7 +434,8 @@ _OUTCOME_CODES = {
 
 def _action_title(record: CommandAuditRecord) -> str:
     command = str(record.command).strip()
-    for prefix in ("minecraft ", "mcstaff ", "mcadmin "):
+    for group in AUDIT_GROUPS:
+        prefix = group + " "
         if command.casefold().startswith(prefix):
             return f"Minecraft {command[len(prefix):].replace('-', ' ').title()}"
     return command.replace("→", "—") or "Minecraft Action"

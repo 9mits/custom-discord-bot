@@ -6,6 +6,7 @@ import org.yaml.snakeyaml.Yaml;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -39,9 +40,12 @@ class PluginDescriptorTest {
         Map<String, Object> commands = (Map<String, Object>) root.get("commands");
         assertNotNull(commands, "commands block failed to parse");
         assertTrue(commands.containsKey("mgxadmin"), "the operator command must be declared");
-        assertTrue(((Map<?, ?>) commands.get("mgxadmin")).get("usage").toString()
-                        .contains("testairdrop"),
-                "the local Airdrop test suite must be discoverable from command usage");
+        assertEquals(List.of("mcadmin"),
+                ((Map<?, ?>) commands.get("mgxadmin")).get("aliases"),
+                "the old in-game spelling must remain a compatibility alias");
+        assertEquals("/mgxadmin help",
+                ((Map<?, ?>) commands.get("mgxadmin")).get("usage"),
+                "the descriptor must route operators to the complete live help");
         for (Map.Entry<String, Object> entry : commands.entrySet()) {
             assertTrue(entry.getValue() instanceof Map,
                     entry.getKey() + " did not parse as a mapping; check for an unquoted colon");

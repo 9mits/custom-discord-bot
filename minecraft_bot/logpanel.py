@@ -1,4 +1,4 @@
-"""The routing panel behind `/mcadmin logs`.
+"""The routing panel behind `/mgxadmin logs`.
 
 One screen that shows every log stream and where it currently goes, and changes any
 of them in two clicks: pick the topic, pick the channel. Muting and clearing are
@@ -166,7 +166,7 @@ class LogRoutingView(discord.ui.View):
             **branded_send(
                 info_embed(
                     "Not Your Panel",
-                    "> Run `/mcadmin logs` to open your own.",
+                    "> Run `/mgxadmin logs` to open your own.",
                     error=True,
                 )
             ),

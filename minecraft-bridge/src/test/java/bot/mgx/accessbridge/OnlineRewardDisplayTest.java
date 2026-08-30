@@ -6,15 +6,15 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-final class AfkRewardDisplayTest {
+final class OnlineRewardDisplayTest {
     @Test
     void boostedBarAlternatesAHeadlineWithTheCountdown() {
-        AfkRewardDisplay.Status status = new AfkRewardDisplay.Status(
+        OnlineRewardDisplay.Status status = new OnlineRewardDisplay.Status(
                 3, 5, 12, 2, 60, 17 * 60_000L
         );
 
-        String headline = plain(AfkRewardDisplay.bossBar(status, 0L));
-        String countdown = plain(AfkRewardDisplay.bossBar(status, 5_000L));
+        String headline = plain(OnlineRewardDisplay.bossBar(status, 0L));
+        String countdown = plain(OnlineRewardDisplay.bossBar(status, 5_000L));
         assertEquals(
                 "★ REWARDS BOOSTED! 12 PLAYERS ONLINE ★",
                 headline
@@ -29,41 +29,41 @@ final class AfkRewardDisplayTest {
 
     @Test
     void readyRewardAndTierUpgradeStaySimple() {
-        AfkRewardDisplay.Status status = new AfkRewardDisplay.Status(
+        OnlineRewardDisplay.Status status = new OnlineRewardDisplay.Status(
                 6, 14, 30, 4, 60, 0L
         );
 
         assertEquals(
                 "★ BOOSTED REWARD READY! ★",
-                plain(AfkRewardDisplay.bossBar(status, 0L))
+                plain(OnlineRewardDisplay.bossBar(status, 0L))
         );
-        assertTrue(plain(AfkRewardDisplay.tierUp(status)).contains(
+        assertTrue(plain(OnlineRewardDisplay.tierUp(status)).contains(
                 "You reached Online Tier 6. Your next payout includes 14 bonus keys."
         ));
     }
 
     @Test
     void noPopulationBoostKeepsThePlainOnlineRewardTimer() {
-        AfkRewardDisplay.Status status = new AfkRewardDisplay.Status(
+        OnlineRewardDisplay.Status status = new OnlineRewardDisplay.Status(
                 1, 1, 3, 0, 30, 90_000L
         );
 
         assertEquals(
                 "NEXT ONLINE REWARD IN 1M",
-                plain(AfkRewardDisplay.bossBar(status, 0L))
+                plain(OnlineRewardDisplay.bossBar(status, 0L))
         );
     }
 
     @Test
     void largerPopulationBoostsChangeTheWholeBarColour() {
         assertEquals(net.kyori.adventure.bossbar.BossBar.Color.YELLOW,
-                AfkRewardDisplay.barColor(0));
+                OnlineRewardDisplay.barColor(0));
         assertEquals(net.kyori.adventure.bossbar.BossBar.Color.GREEN,
-                AfkRewardDisplay.barColor(1));
+                OnlineRewardDisplay.barColor(1));
         assertEquals(net.kyori.adventure.bossbar.BossBar.Color.BLUE,
-                AfkRewardDisplay.barColor(2));
+                OnlineRewardDisplay.barColor(2));
         assertEquals(net.kyori.adventure.bossbar.BossBar.Color.PINK,
-                AfkRewardDisplay.barColor(4));
+                OnlineRewardDisplay.barColor(4));
     }
 
     private static String plain(net.kyori.adventure.text.Component component) {

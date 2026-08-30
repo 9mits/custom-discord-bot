@@ -1121,7 +1121,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             info(sender, "Players offline now respawn fresh on their next join.");
         }
         if (scopes.contains(ResetScope.ACCESS)) {
-            info(sender, "Run /mcadmin wipe in Discord too — that side keeps its own "
+            info(sender, "Run Discord's /mgxadmin wipe too — that side keeps its own "
                     + "applications and linked accounts, which this cannot reach.");
         }
         report(sender, "data_reset", "Reset " + scopes.size() + " data scope(s)")
@@ -1255,7 +1255,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         sender.sendMessage(Component.text("  /mgxadmin give <player|everyone> key [amount]", ORANGE)
                 .append(Component.text("  hand over crate keys", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin give <player|everyone> shard [amount]", ORANGE)
-                .append(Component.text("  hand over permanent Shard Crate currency", NamedTextColor.GRAY)));
+                .append(Component.text("  hand over rare Shard Crate currency", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin give <player|everyone> cosmetic <id>", ORANGE)
                 .append(Component.text("  mint a cosmetic straight to them", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin give <player|everyone> reward <id>", ORANGE)
@@ -1266,6 +1266,9 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                         NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin eco join on|off [amount]", ORANGE)
                 .append(Component.text("  pay everyone who joins", NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text(
+                        "  /mgxadmin eco <give|take|set> <player|everyone> <amount>", ORANGE
+                ).append(Component.text("  manage player balances directly", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin bounty set <player|everyone> <amount>", ORANGE)
                 .append(Component.text("  place a bounty without paying", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin bounty join on|off [amount]", ORANGE)
@@ -1274,7 +1277,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 .append(Component.text("  place or remove a spawn leaderboard", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin airdrop [rarity]", ORANGE)
                 .append(Component.text(
-                        "  call an Airdrop in near you, several at a time",
+                        "  call an Airdrop near you, several at a time",
                         NamedTextColor.GRAY
                 )));
         sender.sendMessage(Component.text(
@@ -1299,6 +1302,11 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                             "  test Airdrops, cosmetics, cleanup, and event boards",
                             NamedTextColor.GRAY
                     )));
+            sender.sendMessage(Component.text("  /mgxadmin testamethystblock", ORANGE)
+                    .append(Component.text(
+                            "  spawn and exercise a Huge Amethyst Block",
+                            NamedTextColor.GRAY
+                    )));
         }
         sender.sendMessage(Component.text("  /mgxadmin serials reset <cosmetic> confirm", ORANGE)
                 .append(Component.text("  renumber one cosmetic without deleting it", NamedTextColor.GRAY)));
@@ -1312,7 +1320,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 .append(Component.text("  screenshot mode: stash your gear, clear the screen",
                         NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin event <type> <on|off> [seconds]", ORANGE)
-                .append(Component.text("  run a server-wide 2x event", NamedTextColor.GRAY)));
+                .append(Component.text("  run a timed server-wide multiplier", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin event list", ORANGE)
                 .append(Component.text("  which multipliers are live", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text(
@@ -1320,6 +1328,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 ).append(Component.text(
                         "  OWNER-only live controls; no restart required", NamedTextColor.GRAY
                 )));
+        sender.sendMessage(Component.text("  /mgxadmin variables list [filter]", ORANGE)
+                .append(Component.text("  browse every controllable live value", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin abuse <effect> [seconds]", ORANGE)
                 .append(Component.text("  run a live admin event", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin abuse list", ORANGE)

@@ -60,22 +60,26 @@ def make_record(**overrides):
 
 class RiskTests(unittest.TestCase):
     def test_access_changing_commands_are_destructive(self):
-        for name in ("mcstaff revoke", "mcstaff unlink", "mcstaff cancel", "minecraft cancel"):
+        for name in ("mgxstaff revoke", "mgxstaff unlink", "mgxstaff cancel", "minecraft cancel"):
             with self.subTest(command=name):
                 self.assertEqual(risk_for(name), RISK_DESTRUCTIVE)
 
     def test_ingame_moderation_commands_are_destructive(self):
-        for name in ("mcstaff kick", "mcstaff mute", "mcstaff ban", "mcstaff tempban", "mcstaff broadcast"):
+        for name in ("mgxstaff kick", "mgxstaff mute", "mgxstaff ban", "mgxstaff tempban", "mgxstaff broadcast"):
             with self.subTest(command=name):
                 self.assertEqual(risk_for(name), RISK_DESTRUCTIVE)
 
     def test_lookups_stay_read_only(self):
-        for name in ("mcstaff status", "mcstaff lookup", "mcstaff panel", "mcstaff stats"):
+        for name in ("mgxstaff status", "mgxstaff lookup", "mgxstaff panel", "mgxstaff stats"):
             with self.subTest(command=name):
                 self.assertEqual(risk_for(name), RISK_READ_ONLY)
 
     def test_risk_lookup_is_case_insensitive(self):
-        self.assertEqual(risk_for("MCStaff Revoke"), RISK_DESTRUCTIVE)
+        self.assertEqual(risk_for("MGXStaff Revoke"), RISK_DESTRUCTIVE)
+
+    def test_historical_command_names_keep_their_original_risk(self):
+        self.assertEqual(risk_for("mcstaff revoke"), RISK_DESTRUCTIVE)
+        self.assertEqual(risk_for("mcadmin wipe"), RISK_DESTRUCTIVE)
 
     def test_unknown_commands_default_to_read_only(self):
         self.assertEqual(risk_for("minecraft brand-new-thing"), RISK_READ_ONLY)
@@ -167,7 +171,7 @@ class TargetResolutionTests(unittest.TestCase):
 class RecordBuildingTests(unittest.TestCase):
     def test_a_revoke_captures_actor_target_and_arguments(self):
         interaction = make_interaction({
-            "name": "mcstaff",
+            "name": "mgxstaff",
             "options": [{
                 "name": "revoke",
                 "type": 1,
@@ -178,7 +182,7 @@ class RecordBuildingTests(unittest.TestCase):
 
         record = build_record(interaction)
 
-        self.assertEqual(record.command, "mcstaff revoke")
+        self.assertEqual(record.command, "mgxstaff revoke")
         self.assertEqual(record.risk, RISK_DESTRUCTIVE)
         self.assertEqual(record.user_id, 7)
         self.assertEqual(record.target_id, 555)

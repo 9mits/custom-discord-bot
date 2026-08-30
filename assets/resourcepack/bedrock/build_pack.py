@@ -110,7 +110,7 @@ def main() -> None:
         "format_version": 2,
         "header": {
             "name": "Mysterious SMP X",
-            "description": "Custom Mysterious SMP X items for Bedrock players",
+            "description": "Mysterious SMP X — custom items, cosmetics, sounds, and UI",
             "uuid": HEADER_UUID,
             "version": version,
             "min_engine_version": [1, 21, 0],

@@ -2,7 +2,7 @@ name: MGXAccessBridge
 version: ${version}
 main: bot.mgx.accessbridge.MGXAccessBridge
 api-version: "1.21.11"
-description: Signed access, economy, airdrops, crates, cosmetics, scoreboard, and clans.
+description: Mysterious SMP X access, economy, events, crates, cosmetics, UI, and clans.
 authors: [9mits]
 depend: [floodgate]
 softdepend: [LuckPerms, ViaVersion, Essentials]
@@ -55,7 +55,7 @@ commands:
     aliases: [cosmetics]
     permission: mgx.cosmetics
   crate:
-    description: Open Mysterious Crates, inspect exact odds and claim saved rewards.
+    description: Open Default, Amethyst, or Shard Crates; inspect odds and claim saved rewards.
     usage: /crate [open|odds|trash|claim]
     aliases: [crates]
     permission: mgx.crate
@@ -129,8 +129,8 @@ commands:
     aliases: [tpr]
     permission: mgx.rtp
   mgxadmin:
-    description: Give rewards, run events, hold rank sync, and reset data.
-    usage: /mgxadmin <give|abuse|startserver|teststart|testcrate|testairdrop|pvp|ranks|eco|bounty|hologram|serials|reset>
+    description: Run Mysterious SMP X administration, events, rewards, rank sync, and resets.
+    usage: /mgxadmin help
     aliases: [mcadmin]
     permission: mgxaccessbridge.admin
 permissions:

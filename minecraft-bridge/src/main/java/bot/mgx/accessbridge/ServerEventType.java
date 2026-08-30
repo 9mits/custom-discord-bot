@@ -31,7 +31,7 @@ enum ServerEventType {
     /** The factor an event carries when no per-type figure applies. */
     static final int MULTIPLIER = 2;
 
-    /** An hour is the shortest worth announcing; a fortnight is the longest worth forgetting. */
+    /** A minute is the shortest worth announcing; a fortnight is the longest worth forgetting. */
     static final long MINIMUM_SECONDS = 60L;
     static final long MAXIMUM_SECONDS = 1_209_600L;
 

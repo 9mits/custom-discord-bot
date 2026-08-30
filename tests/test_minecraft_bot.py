@@ -1147,6 +1147,13 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
 
 
 class MinecraftConfigurationTests(unittest.IsolatedAsyncioTestCase):
+    def test_discord_command_namespaces_use_the_mgx_brand(self):
+        bot = object.__new__(MinecraftAccessBot)
+        self.assertEqual(
+            [group.name for group in bot._build_command_groups()],
+            ["minecraft", "mgxstaff", "mgxadmin"],
+        )
+
     async def test_test_panel_command_configures_and_posts_the_working_panel(self):
         bot = object.__new__(MinecraftAccessBot)
         bot.require_administrator = AsyncMock(return_value=True)
@@ -1161,7 +1168,7 @@ class MinecraftConfigurationTests(unittest.IsolatedAsyncioTestCase):
         )
         channel = SimpleNamespace(id=99, mention="#verify-test")
         admin_group = next(
-            group for group in bot._build_command_groups() if group.name == "mcadmin"
+            group for group in bot._build_command_groups() if group.name == "mgxadmin"
         )
         command = next(
             command
@@ -2505,7 +2512,7 @@ class MinecraftInformationPanelTests(unittest.TestCase):
         )
 
     def test_members_are_never_offered_a_way_to_unlink(self):
-        # Linking only ever adds. Unlinking is a staff action through /mcstaff
+        # Linking only ever adds. Unlinking is a staff action through /mgxstaff
         # unlink, and a member-facing button would let someone shed an account to
         # dodge whatever is attached to it.
         from minecraft_bot.ui import AccountView
@@ -2690,7 +2697,7 @@ class MinecraftInformationPanelTests(unittest.TestCase):
         for name, embed in self._every_embed():
             with self.subTest(page=name):
                 described = self.embed_text(embed).lower()
-                self.assertNotIn("/mcstaff", described)
+                self.assertNotIn("/mgxstaff", described)
                 self.assertNotIn("staff only", described)
                 self.assertNotIn("/co ", described)
                 self.assertNotIn("/vanish", described)

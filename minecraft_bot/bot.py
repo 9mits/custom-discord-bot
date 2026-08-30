@@ -29,6 +29,7 @@ from . import logroutes
 from .logpanel import LogRoutingView, routing_embed
 from .bridge import MinecraftBridgeServer
 from .config import MinecraftConfig
+from .command_names import ADMIN_GROUP, MEMBER_GROUP, STAFF_GROUP
 from .data import MinecraftDataManager
 from .models import (
     AccessStatus,
@@ -1887,7 +1888,7 @@ class MinecraftAccessBot(commands.Bot):
         if needs is None:
             return info_embed(
                 "Not Available",
-                "> That tool cannot be run from Discord. Use `/mcstaff tools` to see "
+                "> That tool cannot be run from Discord. Use `/mgxstaff tools` to see "
                 "what you hold, and run it in game instead.",
                 error=True,
             )
@@ -1927,7 +1928,7 @@ class MinecraftAccessBot(commands.Bot):
             )
         return info_embed(
             "Not Allowed",
-            "> Your account does not hold that permission. Use `/mcstaff tools` to "
+            "> Your account does not hold that permission. Use `/mgxstaff tools` to "
             "see what you can run.",
             error=True,
         )
@@ -2225,7 +2226,7 @@ class MinecraftAccessBot(commands.Bot):
         embed = info_embed(
             "Minecraft Control",
             "> Live access, application, and bridge status. Use the menu below for read-only tools; "
-            "use `/mcstaff lookup` or the focused access commands for member-specific actions.",
+            "use `/mgxstaff lookup` or the focused access commands for member-specific actions.",
         )
         embed.add_field(
             name="Service",
@@ -2407,16 +2408,16 @@ class MinecraftAccessBot(commands.Bot):
         who cannot run them.
         """
         group = app_commands.Group(
-            name="minecraft",
+            name=MEMBER_GROUP,
             description="Minecraft access, accounts, and clans.",
         )
         staff_group = app_commands.Group(
-            name="mcstaff",
+            name=STAFF_GROUP,
             description="Minecraft staff tools and records.",
             default_permissions=discord.Permissions(manage_messages=True),
         )
         admin_group = app_commands.Group(
-            name="mcadmin",
+            name=ADMIN_GROUP,
             description="Minecraft bot administration.",
             default_permissions=discord.Permissions(administrator=True),
         )
@@ -2983,7 +2984,7 @@ class MinecraftAccessBot(commands.Bot):
                 embed = info_embed(
                     "Minecraft Lookup",
                     "> Select a Discord member below, choose **Username Lookup**, or rerun "
-                    "`/mcstaff lookup` with one search field.",
+                    "`/mgxstaff lookup` with one search field.",
                 )
             await interaction.edit_original_response(
                 **branded_edit(embed),
@@ -3177,7 +3178,7 @@ class MinecraftAccessBot(commands.Bot):
                         f"> **{topic.name}** — "
                         f"{logroutes.destination_label(self.settings, topic.value)}\n\n"
                         "The change takes effect immediately. "
-                        "Run `/mcadmin logs` to see every stream at once.",
+                        "Run `/mgxadmin logs` to see every stream at once.",
                         success=True,
                     )
                 ),
@@ -3430,40 +3431,40 @@ class MinecraftAccessBot(commands.Bot):
                 embed.add_field(
                     name="Moderator Essentials",
                     value=(
-                        "`/mcstaff panel` — interactive moderator controls\n"
-                        "`/mcstaff lookup` — search by member or Minecraft username\n"
-                        "`/mcstaff applications` — recent applications by status\n"
-                        "`/mcstaff tools` — the in-game tools your permissions allow"
+                        "`/mgxstaff panel` — interactive moderator controls\n"
+                        "`/mgxstaff lookup` — search by member or Minecraft username\n"
+                        "`/mgxstaff applications` — recent applications by status\n"
+                        "`/mgxstaff tools` — the in-game tools your permissions allow"
                     ),
                     inline=False,
                 )
                 embed.add_field(
                     name="In-Game Moderation",
                     value=(
-                        "`/mcstaff kick` · `/mcstaff mute` · `/mcstaff ban` · `/mcstaff tempban` · "
-                        "`/mcstaff unban` · `/mcstaff heal`\n"
-                        "`/mcstaff broadcast` — announce a message to everyone online\n"
-                        "`/mcstaff update` — NEW UPDATE notice on the next login"
+                        "`/mgxstaff kick` · `/mgxstaff mute` · `/mgxstaff ban` · `/mgxstaff tempban` · "
+                        "`/mgxstaff unban` · `/mgxstaff heal`\n"
+                        "`/mgxstaff broadcast` — announce a message to everyone online\n"
+                        "`/mgxstaff update` — NEW UPDATE notice on the next login"
                     ),
                     inline=False,
                 )
                 embed.add_field(
                     name="Access Actions",
                     value=(
-                        "`/mcstaff revoke` — remove a member's access\n"
-                        "`/mcstaff unlink` — unlink one account\n"
-                        "`/mcstaff cancel` — cancel a staff-managed application"
+                        "`/mgxstaff revoke` — remove a member's access\n"
+                        "`/mgxstaff unlink` — unlink one account\n"
+                        "`/mgxstaff cancel` — cancel a staff-managed application"
                     ),
                     inline=False,
                 )
                 embed.add_field(
                     name="Health & Records",
                     value=(
-                        "`/mcstaff status` — bridge and queue health\n"
-                        "`/mcstaff retry` — retry failed bridge actions\n"
-                        "`/mcstaff audit` — one application's lifecycle\n"
-                        "`/mcstaff commandlog` — who ran which command\n"
-                        "`/mcstaff stats` — access totals, peaks and busiest play times"
+                        "`/mgxstaff status` — bridge and queue health\n"
+                        "`/mgxstaff retry` — retry failed bridge actions\n"
+                        "`/mgxstaff audit` — one application's lifecycle\n"
+                        "`/mgxstaff commandlog` — who ran which command\n"
+                        "`/mgxstaff stats` — access totals, peaks and busiest play times"
                     ),
                     inline=False,
                 )
@@ -3471,16 +3472,16 @@ class MinecraftAccessBot(commands.Bot):
                 embed.add_field(
                     name="Administrators",
                     value=(
-                        "`/mcadmin setup` — the setup dashboard\n"
-                        "`/mcadmin information` — post the server guide panel\n"
-                        "`/mcadmin leaderboard` — choose the player or clan leaderboard channel\n"
-                        "`/mcadmin logs` — route every kind of log to the channel it belongs in\n"
-                        "`/mcadmin log-channel` — set the Activity and Important channels at once\n"
-                        "`/mcadmin chat-channel` — two-way Minecraft chat sync\n"
-                        "`/mcadmin maintenance` — hold the server closed before "
+                        "`/mgxadmin setup` — the setup dashboard\n"
+                        "`/mgxadmin information` — post the server guide panel\n"
+                        "`/mgxadmin leaderboard` — choose the player or clan leaderboard channel\n"
+                        "`/mgxadmin logs` — route every kind of log to the channel it belongs in\n"
+                        "`/mgxadmin log-channel` — set the Activity and Important channels at once\n"
+                        "`/mgxadmin chat-channel` — two-way Minecraft chat sync\n"
+                        "`/mgxadmin maintenance` — hold the server closed before "
                         "launch, or open it again\n"
-                        "`/mcadmin cleanheads` — remove leaderboard head emoji\n"
-                        "`/mcadmin wipe` — owner only; delete all application and whitelist data"
+                        "`/mgxadmin cleanheads` — remove leaderboard head emoji\n"
+                        "`/mgxadmin wipe` — owner only; delete all application and whitelist data"
                     ),
                     inline=False,
                 )
@@ -3497,7 +3498,7 @@ class MinecraftAccessBot(commands.Bot):
                         "balances, linked Discord names, settings, verification and "
                         "the whitelist. The world and everything built in it, "
                         "operators, bans and rank holds are kept.\n"
-                        "Run `/mcadmin wipe` here as well — the two sides keep "
+                        "Run Discord's `/mgxadmin wipe` as well — the two sides keep "
                         "separate data and neither can clear the other."
                     ),
                     inline=False,
@@ -3541,7 +3542,7 @@ class MinecraftAccessBot(commands.Bot):
             days: Optional[app_commands.Range[int, 1, 90]] = 30,
         ) -> None:
             if not await self.require_moderator(interaction):
-                await record_denial(self, interaction, "mcstaff stats", "Not a moderator")
+                await record_denial(self, interaction, "mgxstaff stats", "Not a moderator")
                 return
             await interaction.response.defer(ephemeral=True, thinking=True)
             counts = await self.data.access_status_counts()
@@ -3611,7 +3612,7 @@ class MinecraftAccessBot(commands.Bot):
             limit: Optional[app_commands.Range[int, 1, 50]] = None,
         ) -> None:
             if not await self.require_moderator(interaction):
-                await record_denial(self, interaction, "mcstaff commandlog", "Not a moderator")
+                await record_denial(self, interaction, "mgxstaff commandlog", "Not a moderator")
                 return
             await interaction.response.defer(ephemeral=True, thinking=True)
             await interaction.edit_original_response(
