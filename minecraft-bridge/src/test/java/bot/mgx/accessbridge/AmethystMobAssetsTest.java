@@ -46,6 +46,33 @@ final class AmethystMobAssetsTest {
                 CreatureSpawnEvent.SpawnReason.CUSTOM));
     }
 
+    @Test
+    void variantsAreUnlabelledUnarmouredAndNotHighlighted() throws Exception {
+        String source = Files.readString(Path.of(
+                "src/main/java/bot/mgx/accessbridge/AmethystMobService.java"
+        ));
+
+        assertTrue(source.contains("entity.setInvisible(true)"));
+        assertTrue(source.contains("removeLegacyFallback(entity)"));
+        assertFalse(source.contains("setCustomNameVisible(true)"));
+        assertFalse(source.contains("setGlowing(true)"));
+        assertFalse(source.contains("equipFallback"));
+        assertFalse(source.contains("Particle.END_ROD"));
+    }
+
+    @Test
+    void displayModelsAlignWithTheMobAndUseVanillaBodyProportions() throws Exception {
+        String skeleton = Files.readString(PACK.resolve("models/entity/amethyst_skeleton.json"));
+        String zombie = Files.readString(PACK.resolve("models/entity/amethyst_zombie.json"));
+
+        assertTrue(skeleton.contains("\"translation\": [0, 8, 0]"));
+        assertTrue(zombie.contains("\"translation\": [0, 8, 0]"));
+        assertTrue(skeleton.contains("\"from\": [4,12,6], \"to\": [12,24,10]"));
+        assertTrue(zombie.contains("\"from\": [4,12,6], \"to\": [12,24,10]"));
+        assertFalse(skeleton.contains("\"translation\": [0, -16, 0]"));
+        assertFalse(zombie.contains("\"translation\": [0, -16, 0]"));
+    }
+
     private static String sha256(Path path) throws Exception {
         return HexFormat.of().formatHex(
                 MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(path))

@@ -29,7 +29,9 @@ import org.bukkit.util.Transformation;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
@@ -81,6 +83,13 @@ final class AmethystMobService implements Listener {
         if (followTask != null) {
             followTask.cancel();
             followTask = null;
+        }
+        for (World world : plugin.getServer().getWorlds()) {
+            for (LivingEntity entity : world.getLivingEntities()) {
+                if (isAmethyst(entity)) {
+                    entity.setInvisible(false);
+                }
+            }
         }
         visuals.values().forEach(Entity::remove);
         visuals.clear();
@@ -140,43 +149,52 @@ final class AmethystMobService implements Listener {
 
     private void mark(LivingEntity entity) {
         entity.getPersistentDataContainer().set(marker, PersistentDataType.BYTE, (byte) 1);
-        entity.customName(Component.text(displayName(entity.getType()), AMETHYST,
-                TextDecoration.BOLD));
-        entity.setCustomNameVisible(true);
-        entity.setGlowing(true);
-        equipFallback(entity);
+        prepareAppearance(entity);
     }
 
-    private void equipFallback(LivingEntity entity) {
+    /** Removes the old discoverability aids without touching naturally generated equipment. */
+    private void prepareAppearance(LivingEntity entity) {
+        Component legacyName = Component.text(displayName(entity.getType()), AMETHYST,
+                TextDecoration.BOLD);
+        if (legacyName.equals(entity.customName())) {
+            entity.customName(null);
+        }
+        entity.setCustomNameVisible(false);
+        entity.setGlowing(false);
+        removeLegacyFallback(entity);
+    }
+
+    private void removeLegacyFallback(LivingEntity entity) {
         EntityEquipment equipment = entity.getEquipment();
         if (equipment == null) {
             return;
         }
-        if (equipment.getChestplate().getType().isAir()) {
-            equipment.setChestplate(leather(Material.LEATHER_CHESTPLATE));
-            equipment.setChestplateDropChance(0f);
+        if (isLegacyFallback(equipment.getChestplate(), Material.LEATHER_CHESTPLATE)) {
+            equipment.setChestplate(null);
         }
-        if (equipment.getLeggings().getType().isAir()) {
-            equipment.setLeggings(leather(Material.LEATHER_LEGGINGS));
-            equipment.setLeggingsDropChance(0f);
+        if (isLegacyFallback(equipment.getLeggings(), Material.LEATHER_LEGGINGS)) {
+            equipment.setLeggings(null);
         }
-        if (equipment.getBoots().getType().isAir()) {
-            equipment.setBoots(leather(Material.LEATHER_BOOTS));
-            equipment.setBootsDropChance(0f);
+        if (isLegacyFallback(equipment.getBoots(), Material.LEATHER_BOOTS)) {
+            equipment.setBoots(null);
         }
     }
 
-    private static ItemStack leather(Material material) {
-        ItemStack item = new ItemStack(material);
-        LeatherArmorMeta meta = (LeatherArmorMeta) item.getItemMeta();
-        meta.setColor(Color.fromRGB(139, 66, 201));
-        meta.setEnchantmentGlintOverride(true);
-        item.setItemMeta(meta);
-        return item;
+    private static boolean isLegacyFallback(ItemStack item, Material material) {
+        if (item.getType() != material || !(item.getItemMeta() instanceof LeatherArmorMeta meta)) {
+            return false;
+        }
+        return Color.fromRGB(139, 66, 201).equals(meta.getColor())
+                && Boolean.TRUE.equals(meta.getEnchantmentGlintOverride());
     }
 
     private void createVisual(LivingEntity entity) {
-        if (!entity.isValid() || !isAmethyst(entity) || visuals.containsKey(entity.getUniqueId())) {
+        if (!entity.isValid() || !isAmethyst(entity)) {
+            return;
+        }
+        prepareAppearance(entity);
+        entity.setInvisible(true);
+        if (visuals.containsKey(entity.getUniqueId())) {
             return;
         }
         String model = entity.getType() == EntityType.ZOMBIE
@@ -202,22 +220,22 @@ final class AmethystMobService implements Listener {
     }
 
     private void follow() {
+        List<LivingEntity> missingVisuals = new ArrayList<>();
         visuals.entrySet().removeIf(entry -> {
             LivingEntity mob = living(entry.getKey());
             ItemDisplay visual = entry.getValue();
-            if (mob == null || !mob.isValid() || !visual.isValid()) {
+            if (mob == null || !mob.isValid()) {
                 visual.remove();
                 return true;
             }
-            visual.teleport(mob.getLocation());
-            if (plugin.getServer().getCurrentTick() % 10 == 0) {
-                mob.getWorld().spawnParticle(
-                        Particle.END_ROD, mob.getLocation().add(0d, 1d, 0d),
-                        1, 0.35d, 0.65d, 0.35d, 0d
-                );
+            if (!visual.isValid()) {
+                missingVisuals.add(mob);
+                return true;
             }
+            visual.teleport(mob.getLocation());
             return false;
         });
+        missingVisuals.forEach(this::createVisual);
     }
 
     private LivingEntity living(UUID id) {
