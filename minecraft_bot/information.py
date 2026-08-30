@@ -160,7 +160,8 @@ def commands_embed() -> discord.Embed:
                 "> `/shop` · `/sell` — buy building blocks, or sell farm bulk\n"
                 "> `/bal` · `/pay <player> <amount>` — your wallet\n"
                 "> `/sethome` · `/home` — save a spot and return to it\n"
-                "> `/tpa <player>` — ask to teleport to someone",
+                "> `/tpa <player>` — ask to teleport to someone\n"
+                "> `/crate` — open crates and read their exact odds",
             ),
             (
                 "Full list",
@@ -281,6 +282,12 @@ def commands_economy_embed(settings=None) -> discord.Embed:
                 "> `/bounty clan <player> <amount>` — clan owner, paid from the treasury\n"
                 "> `/bounty check` — look up one player",
             ),
+            (
+                "Hands off",
+                "> `/autosell` — sell what you mine as you mine it\n"
+                "> `/autobuy` — keep a stack topped up from the shop\n"
+                "> `/autopay <player> <amount|all> [seconds]` — pay on a timer",
+            ),
         ],
     )
 
@@ -325,6 +332,14 @@ def commands_account_embed(settings=None) -> discord.Embed:
         "Commands — Account",
         "Your perks and preferences, plus details about the server.",
         [
+            (
+                "Crates, cosmetics and boards",
+                "> `/crate` — open a crate; `/crate odds` — the exact chance of every "
+                "reward, published in full\n"
+                "> `/crate claim` — collect a reward that would not fit\n"
+                "> `/wardrobe` — equip the cosmetics you own, and list them for sale\n"
+                "> `/leaderboard` — the richest, the deadliest, and the clan boards",
+            ),
             (
                 "Your account",
                 "> `/perks` — your level rewards and bonuses\n"

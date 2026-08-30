@@ -4007,3 +4007,44 @@ class MinecraftAccessGuardTests(unittest.IsolatedAsyncioTestCase):
             )
 
         bot.spawn_background_task.assert_not_called()
+
+
+class GuideCoversTheServerTests(unittest.TestCase):
+    """
+    The public guide is generated from information.py, so it drifts silently: nothing
+    runs the generator automatically, and a PR that adds a command leaves the guide
+    wrong until somebody notices. This pins the two directions that matter.
+    """
+
+    def _documented(self):
+        from pathlib import Path
+        import re
+
+        guide = (Path(__file__).parents[1] / "devblog" / "pages" / "guide.md").read_text()
+        return set(re.findall(r"`/([a-z]+)", guide))
+
+    def test_the_guide_documents_the_commands_players_can_actually_run(self):
+        # A representative set that is live in production, not the whole registry:
+        # the guide is prose, and pinning every alias would make it unwriteable.
+        for command in (
+            "shop", "sell", "bal", "pay", "bounty", "crate", "wardrobe",
+            "leaderboard", "autosell", "autobuy", "autopay", "clans", "settings",
+        ):
+            self.assertIn(
+                command,
+                self._documented(),
+                "/%s is on the live server and missing from the public guide" % command,
+            )
+
+    def test_the_guide_does_not_promise_commands_that_are_not_released(self):
+        """
+        Production runs whatever the newest dev-blog post covers, which is well behind
+        main. Documenting a command players cannot run is worse than omitting it.
+        """
+        documented = self._documented()
+        for command in ("rtp", "tpmenu", "echest", "menu", "stats", "verify"):
+            self.assertNotIn(
+                command,
+                documented,
+                "/%s is not on the live server yet and must not be in the guide" % command,
+            )
