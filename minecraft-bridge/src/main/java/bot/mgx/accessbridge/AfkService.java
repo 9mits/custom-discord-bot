@@ -37,10 +37,15 @@ final class AfkService implements Listener, CommandExecutor {
     private final long timeoutMillis;
     private final boolean invincible;
     private final Map<UUID, Long> lastActivity = new ConcurrentHashMap<>();
+    private final Map<UUID, Long> lastCombat = new ConcurrentHashMap<>();
+    private final long combatWindowMillis;
     private final Set<UUID> afk = ConcurrentHashMap.newKeySet();
     private BukkitTask task;
 
     AfkService(MGXAccessBridge plugin, long timeoutSeconds, boolean invincible) {
+        this.combatWindowMillis = Math.max(0L, plugin.getConfig().getLong(
+                "afk-combat-tag-seconds", CombatTag.DEFAULT_SECONDS
+        )) * 1000L;
         this.plugin = plugin;
         this.timeoutMillis = Math.max(60L, timeoutSeconds) * 1_000L;
         this.invincible = invincible;
@@ -59,6 +64,7 @@ final class AfkService implements Listener, CommandExecutor {
         }
         afk.clear();
         lastActivity.clear();
+        lastCombat.clear();
     }
 
     boolean isAfk(UUID playerId) {
@@ -73,9 +79,19 @@ final class AfkService implements Listener, CommandExecutor {
         }
         if (afk.contains(player.getUniqueId())) {
             markActive(player);
-        } else {
-            markAfk(player);
+            return true;
         }
+        if (inCombat(player)) {
+            // AFK grants damage immunity, so allowing it here turns a losing fight into
+            // an unloseable one.
+            player.sendActionBar(Component.text(
+                    "You cannot go AFK for another "
+                            + CombatTag.describe(remainingCombatSeconds(player)) + ".",
+                    NamedTextColor.RED
+            ));
+            return true;
+        }
+        markAfk(player);
         return true;
     }
 
@@ -88,7 +104,39 @@ final class AfkService implements Listener, CommandExecutor {
     public void onQuit(PlayerQuitEvent event) {
         UUID id = event.getPlayer().getUniqueId();
         lastActivity.remove(id);
+        lastCombat.remove(id);
         afk.remove(id);
+    }
+
+    boolean inCombat(Player player) {
+        return CombatTag.inCombat(
+                lastCombat.getOrDefault(player.getUniqueId(), 0L),
+                System.currentTimeMillis(), combatWindowMillis
+        );
+    }
+
+    private long remainingCombatSeconds(Player player) {
+        return CombatTag.remainingSeconds(
+                lastCombat.getOrDefault(player.getUniqueId(), 0L),
+                System.currentTimeMillis(), combatWindowMillis
+        );
+    }
+
+    /** Both sides of a fight are held, so neither can duck out through AFK. */
+    private void tagCombat(EntityDamageEvent event) {
+        if (event.getEntity() instanceof Player victim) {
+            lastCombat.put(victim.getUniqueId(), System.currentTimeMillis());
+        }
+        if (event instanceof EntityDamageByEntityEvent byEntity) {
+            Entity source = byEntity.getDamager();
+            if (source instanceof Projectile projectile
+                    && projectile.getShooter() instanceof Entity shooter) {
+                source = shooter;
+            }
+            if (source instanceof Player attacker) {
+                lastCombat.put(attacker.getUniqueId(), System.currentTimeMillis());
+            }
+        }
     }
 
     @EventHandler(ignoreCancelled = true)
@@ -143,6 +191,7 @@ final class AfkService implements Listener, CommandExecutor {
         if (!(event.getEntity() instanceof Player player)) {
             return;
         }
+        tagCombat(event);
         AfkProtection.Decision decision = AfkProtection.decide(
                 invincible,
                 afk.contains(player.getUniqueId()),
@@ -180,7 +229,8 @@ final class AfkService implements Listener, CommandExecutor {
         long cutoff = System.currentTimeMillis() - timeoutMillis;
         for (Player player : plugin.getServer().getOnlinePlayers()) {
             if (!afk.contains(player.getUniqueId())
-                    && lastActivity.getOrDefault(player.getUniqueId(), 0L) <= cutoff) {
+                    && lastActivity.getOrDefault(player.getUniqueId(), 0L) <= cutoff
+                    && !inCombat(player)) {
                 markAfk(player);
             }
         }
