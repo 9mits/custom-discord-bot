@@ -226,6 +226,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private final Map<UUID, CrateKind> selectedKinds = new HashMap<>();
     private final Map<UUID, Long> onlineCreditStarted = new HashMap<>();
     private final Map<UUID, AfkRewardState> afkRewardStates = new HashMap<>();
+    /** The last tier rendered for each live AFK stretch, used to announce real upgrades once. */
+    private final Map<UUID, Integer> displayedAfkTiers = new HashMap<>();
     private final Map<UUID, BossBar> keyBars = new HashMap<>();
     private BukkitTask keyBarTask;
     private BukkitTask hourlyTask;
@@ -1437,6 +1439,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         lastRewardTrashed.remove(player.getUniqueId());
         watchingReveal.remove(player.getUniqueId());
         afkRewardStates.remove(player.getUniqueId());
+        displayedAfkTiers.remove(player.getUniqueId());
         hideKeyBar(player.getUniqueId());
         RollSession session = sessions.remove(player.getUniqueId());
         if (session != null && session.task != null) {
@@ -1502,6 +1505,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         }
         onlineCreditStarted.clear();
         afkRewardStates.clear();
+        displayedAfkTiers.clear();
         for (RollSession session : sessions.values()) {
             if (session.task != null) {
                 session.task.cancel();
@@ -1517,28 +1521,59 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
      */
     private void refreshKeyBars() {
         long now = System.currentTimeMillis();
+        AfkService afk = plugin.afkService();
+        boolean afkRewardsEnabled = afk != null && variables.bool("afk-rewards.enabled");
+        int onlinePlayers = (int) plugin.getServer().getOnlinePlayers().stream()
+                .filter(player -> !VerificationLobbyService.isLobbyWorld(player.getWorld()))
+                .count();
         for (Player player : plugin.getServer().getOnlinePlayers()) {
             UUID playerId = player.getUniqueId();
-            if (VerificationLobbyService.isLobbyWorld(player.getWorld())
-                    || !settings.isEnabled(playerId, PlayerSettingsStore.Setting.KEY_TIMER_BAR)) {
+            long afkStartedAt = afkRewardsEnabled ? afk.sessionStartedAt(playerId) : 0L;
+            boolean showingAfkRewards = afkStartedAt > 0L && afkStartedAt <= now;
+            if (VerificationLobbyService.isLobbyWorld(player.getWorld()) || (!showingAfkRewards
+                    && !settings.isEnabled(playerId, PlayerSettingsStore.Setting.KEY_TIMER_BAR))) {
+                displayedAfkTiers.remove(playerId);
                 hideKeyBar(playerId);
                 continue;
             }
-            Long since = onlineCreditStarted.get(playerId);
-            long uncredited = since == null ? 0L : now - since;
-            long remaining = KeyTimer.remaining(store.millisUntilNextKey(playerId), uncredited);
-            float progress = KeyTimer.progress(remaining, CrateStore.HOURLY_KEY_MILLIS);
+            Component title;
+            float progress;
+            BossBar.Color colour;
+            if (showingAfkRewards) {
+                AfkRewardDisplay.Status status = afkRewardStatus(
+                        playerId, afk, afkStartedAt, now, onlinePlayers
+                );
+                title = AfkRewardDisplay.bossBar(status);
+                progress = status.tierProgress();
+                colour = BossBar.Color.PURPLE;
+                Integer previousTier = displayedAfkTiers.put(playerId, status.tier());
+                if (previousTier != null && status.tier() > previousTier) {
+                    player.sendMessage(PlayerMenuService.prefix().append(
+                            AfkRewardDisplay.tierUp(status)
+                    ));
+                    player.playSound(player.getLocation(), Sound.ENTITY_PLAYER_LEVELUP,
+                            0.9f, 1.25f);
+                }
+            } else {
+                displayedAfkTiers.remove(playerId);
+                Long since = onlineCreditStarted.get(playerId);
+                long uncredited = since == null ? 0L : now - since;
+                long remaining = KeyTimer.remaining(store.millisUntilNextKey(playerId), uncredited);
+                title = keyBarTitle(remaining);
+                progress = KeyTimer.progress(remaining, CrateStore.HOURLY_KEY_MILLIS);
+                colour = BossBar.Color.YELLOW;
+            }
             BossBar bar = keyBars.get(playerId);
             if (bar == null) {
                 bar = BossBar.bossBar(
-                        keyBarTitle(remaining), progress,
-                        BossBar.Color.YELLOW, BossBar.Overlay.PROGRESS
+                        title, progress, colour, BossBar.Overlay.PROGRESS
                 );
                 keyBars.put(playerId, bar);
                 player.showBossBar(bar);
             } else {
-                bar.name(keyBarTitle(remaining));
+                bar.name(title);
                 bar.progress(progress);
+                bar.color(colour);
             }
         }
         // A player who logged out between pulses still owns a bar in the map.
@@ -1547,6 +1582,41 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 keyBars.remove(playerId);
             }
         }
+    }
+
+    private AfkRewardDisplay.Status afkRewardStatus(
+            UUID playerId,
+            AfkService afk,
+            long startedAt,
+            long now,
+            int onlinePlayers
+    ) {
+        int intervalMinutes = variables.integer("afk-rewards.interval-minutes");
+        long intervalMillis = Duration.ofMinutes(intervalMinutes).toMillis();
+        AfkRewardState state = afkRewardStates.get(playerId);
+        long rewarded = state != null && state.sessionStartedAt() == startedAt
+                ? state.rewardedIntervals() : 0L;
+        long nextRewardAt = startedAt + (rewarded + 1L) * intervalMillis;
+        long remaining = Math.max(0L, nextRewardAt - now);
+        long lifetimeSeconds = afk.afkSeconds(playerId);
+        GameVariableStore.AfkRewardTier tier = variables.afkRewardTier(lifetimeSeconds);
+        GameVariableStore.AfkRewardTier next = variables.nextAfkRewardTier(lifetimeSeconds)
+                .orElse(null);
+        int onlineBonus = variables.afkOnlineBonusKeys(onlinePlayers);
+        int eventMultiplier = variables.bool("afk-rewards.key-events-multiply-bonus")
+                ? plugin.keyEventMultiplier() : 1;
+        int keys = Math.multiplyExact(
+                Math.addExact(tier.bonusKeys(), onlineBonus), eventMultiplier
+        );
+        int displayedOnlineBonus = Math.multiplyExact(onlineBonus, eventMultiplier);
+        int currentMinimum = tier.number() == 1 ? 0 : tier.minimumHours();
+        float tierProgress = next == null ? 1f : AfkRewardDisplay.tierProgress(
+                lifetimeSeconds, currentMinimum, next.minimumHours()
+        );
+        return new AfkRewardDisplay.Status(
+                tier.number(), keys, onlinePlayers, displayedOnlineBonus, intervalMinutes,
+                remaining, next == null ? 0 : next.number(), tierProgress
+        );
     }
 
     private static Component keyBarTitle(long remaining) {
@@ -1687,8 +1757,11 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         GameVariableStore.AfkRewardTier tier = variables.afkRewardTier(lifetimeAfkSeconds);
         int onlineBonus = variables.afkOnlineBonusKeys(onlinePlayers);
         int keys = Math.addExact(tier.bonusKeys(), onlineBonus);
+        int displayedOnlineBonus = onlineBonus;
         if (variables.bool("afk-rewards.key-events-multiply-bonus")) {
-            keys = Math.multiplyExact(keys, plugin.keyEventMultiplier());
+            int eventMultiplier = plugin.keyEventMultiplier();
+            keys = Math.multiplyExact(keys, eventMultiplier);
+            displayedOnlineBonus = Math.multiplyExact(onlineBonus, eventMultiplier);
         }
 
         List<String> delivered = new ArrayList<>();
@@ -1720,18 +1793,17 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         if (delivered.isEmpty()) {
             delivered.add("progress toward the next tier");
         }
-        if (settings.isEnabled(
-                player.getUniqueId(), PlayerSettingsStore.Setting.CHAT_NOTIFICATIONS
-        ) || shards > 0 || netherite > 0) {
-            player.sendMessage(PlayerMenuService.prefix()
-                    .append(Component.text("AFK Tier " + tier.number() + " reward: ",
-                            NamedTextColor.LIGHT_PURPLE, TextDecoration.BOLD))
-                    .append(Component.text(String.join(", ", delivered) + ". ",
-                            NamedTextColor.WHITE))
-                    .append(Component.text(onlinePlayers + " online added " + onlineBonus
-                            + " bonus " + (onlineBonus == 1 ? "key" : "keys") + ".",
-                            NamedTextColor.GRAY)));
-        }
+        // One persistent line per completed AFK interval is the receipt for the whole
+        // ladder. Unlike ordinary hourly-key notices, hiding it made the new tiers and
+        // online-player boost look as if they did not exist at all.
+        player.sendMessage(PlayerMenuService.prefix()
+                .append(Component.text("AFK Tier " + tier.number() + " reward: ",
+                        NamedTextColor.LIGHT_PURPLE, TextDecoration.BOLD))
+                .append(Component.text(String.join(", ", delivered) + ". ",
+                        NamedTextColor.WHITE))
+                .append(Component.text(onlinePlayers + " online added " + displayedOnlineBonus
+                        + " bonus " + (displayedOnlineBonus == 1 ? "key" : "keys") + ".",
+                        NamedTextColor.GRAY)));
         player.playSound(player.getLocation(), Sound.ENTITY_EXPERIENCE_ORB_PICKUP,
                 0.8f, shards > 0 ? 1.7f : 1.25f);
     }
