@@ -604,7 +604,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         );
         chaosService = new ChaosService(this, crateItems);
         getServer().getPluginManager().registerEvents(chaosService, this);
-        spawnMobBarrier = new SpawnMobBarrierService(this);
+        spawnMobBarrier = new SpawnMobBarrierService(this, amethystMobs);
         getServer().getPluginManager().registerEvents(spawnMobBarrier, this);
         spawnMobBarrier.start();
         // Anyone already online across a /reload, before the join handler can reach them.

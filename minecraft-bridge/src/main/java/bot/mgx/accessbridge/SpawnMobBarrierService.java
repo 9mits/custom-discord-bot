@@ -11,16 +11,25 @@ import org.bukkit.scheduler.BukkitTask;
 
 import java.util.UUID;
 
-/** Keeps every zombie out of the spawn building, including mobs spawned outside it. */
+/**
+ * Keeps every zombie out of the spawn building, including mobs spawned outside it.
+ *
+ * <p>Amethyst mobs are exempt. {@code Husk extends Zombie}, so this barrier was silently
+ * cancelling every Amethyst Zombie an airdrop garrison tried to place near spawn, and its
+ * one-second sweep deleted any that got through — leaving a drop guarded by skeletons and
+ * golems only. The barrier is for ambient spawns; a garrison is deliberate and temporary.
+ */
 final class SpawnMobBarrierService implements Listener {
     private final MGXAccessBridge plugin;
+    private final AmethystMobService amethystMobs;
     private final UUID worldId;
     private final SpawnMobBarrier bounds;
     private final boolean enabled;
     private BukkitTask sweep;
 
-    SpawnMobBarrierService(MGXAccessBridge plugin) {
+    SpawnMobBarrierService(MGXAccessBridge plugin, AmethystMobService amethystMobs) {
         this.plugin = plugin;
+        this.amethystMobs = amethystMobs;
         this.worldId = plugin.getServer().getWorlds().getFirst().getUID();
         this.enabled = plugin.getConfig().getBoolean("spawn.zombie-barrier.enabled", true);
         this.bounds = new SpawnMobBarrier(
@@ -48,7 +57,8 @@ final class SpawnMobBarrierService implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onCreatureSpawn(CreatureSpawnEvent event) {
         if (enabled && isProtected(event.getEntity().getWorld(), event.getLocation().getX(),
-                event.getLocation().getZ()) && event.getEntity() instanceof Zombie) {
+                event.getLocation().getZ()) && event.getEntity() instanceof Zombie
+                && !amethystMobs.isAmethystMob(event.getEntity())) {
             event.setCancelled(true);
         }
     }
@@ -56,6 +66,7 @@ final class SpawnMobBarrierService implements Listener {
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onZombieMove(EntityMoveEvent event) {
         if (!enabled || !(event.getEntity() instanceof Zombie)
+                || amethystMobs.isAmethystMob(event.getEntity())
                 || !event.getEntity().getWorld().getUID().equals(worldId)) {
             return;
         }
@@ -73,7 +84,8 @@ final class SpawnMobBarrierService implements Listener {
             return;
         }
         for (Zombie zombie : world.getEntitiesByClass(Zombie.class)) {
-            if (bounds.contains(zombie.getX(), zombie.getZ())) {
+            if (bounds.contains(zombie.getX(), zombie.getZ())
+                    && !amethystMobs.isAmethystMob(zombie)) {
                 zombie.remove();
             }
         }

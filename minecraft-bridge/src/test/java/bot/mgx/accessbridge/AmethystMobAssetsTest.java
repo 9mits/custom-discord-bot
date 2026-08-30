@@ -192,6 +192,21 @@ final class AmethystMobAssetsTest {
         assertFalse(source.contains("runTaskTimer"));
     }
 
+    /**
+     * Husk extends Zombie, so the spawn building's zombie barrier was cancelling every
+     * Amethyst Zombie a garrison placed near spawn and sweeping away any that got
+     * through — a drop guarded by skeletons and golems only.
+     */
+    @Test
+    void theSpawnBarrierLeavesAmethystMobsAlone() throws Exception {
+        String barrier = Files.readString(Path.of(
+                "src/main/java/bot/mgx/accessbridge/SpawnMobBarrierService.java"
+        ));
+
+        assertEquals(3, barrier.split("isAmethystMob", -1).length - 1,
+                "the spawn cancel, the movement block and the sweep must all exempt them");
+    }
+
     private static String source() throws Exception {
         return Files.readString(Path.of(
                 "src/main/java/bot/mgx/accessbridge/AmethystMobService.java"
