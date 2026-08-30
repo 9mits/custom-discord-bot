@@ -1,5 +1,6 @@
 package bot.mgx.accessbridge;
 
+import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
@@ -17,6 +18,7 @@ import org.bukkit.scheduler.BukkitTask;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Predicate;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.random.RandomGenerator;
 
@@ -37,13 +39,17 @@ final class AirdropGuardService {
     /** How far out the guards stand, and how far in a player counts as engaged. */
     private static final double INNER_RING = 6d;
     private static final double OUTER_RING = 14d;
-    static final double ENGAGE_RADIUS = 28d;
+    static final double ENGAGE_RADIUS = 64d;
     /** Guards hunt further out than the ring they defend, so nobody picks them off safely. */
     private static final double HUNT_RADIUS = 40d;
     private static final double FOLLOW_RANGE = 48d;
     private static final double SPEED_MULTIPLIER = 1.2d;
-    /** How long the guards need alone with the drop before they take it. */
-    static final int CLAIM_SECONDS = 20;
+    /**
+     * How long the guards need genuinely alone with the drop before they take it. A short
+     * window plus a tight ring lost a Mythic drop 41 seconds after it landed, while the
+     * player who called it in was still getting ready.
+     */
+    static final int CLAIM_SECONDS = 120;
     private static final long PERIOD_TICKS = 5L;
     private static final int VERTICAL_SEARCH = 10;
     /** An Amethyst Golem is nearly three blocks tall. */
@@ -214,7 +220,7 @@ final class AirdropGuardService {
             return;
         }
 
-        Player hunted = nearestPlayer(HUNT_RADIUS);
+        Player hunted = nearestTarget(HUNT_RADIUS);
         if (hunted != null) {
             for (UUID id : guards) {
                 if (!(plugin.getServer().getEntity(id) instanceof Mob guard)) {
@@ -227,7 +233,7 @@ final class AirdropGuardService {
                 }
             }
         }
-        if (nearestPlayer(ENGAGE_RADIUS) != null) {
+        if (nearestWatcher(ENGAGE_RADIUS) != null) {
             engaged = true;
             unattendedTicks = 0;
             return;
@@ -245,11 +251,27 @@ final class AirdropGuardService {
         }
     }
 
-    private Player nearestPlayer(double radius) {
+    /** Who the guards will chase: mobs do not hunt creative or spectating players. */
+    private Player nearestTarget(double radius) {
+        return nearest(radius, player -> !player.isDead()
+                && (player.getGameMode() == GameMode.SURVIVAL
+                        || player.getGameMode() == GameMode.ADVENTURE));
+    }
+
+    /**
+     * Who counts as present. Deliberately wider than {@link #nearestTarget}: an operator
+     * watching in creative is still somebody standing over the drop, and the claim must
+     * not fire out from under them.
+     */
+    private Player nearestWatcher(double radius) {
+        return nearest(radius, player -> player.getGameMode() != GameMode.SPECTATOR);
+    }
+
+    private Player nearest(double radius, Predicate<Player> eligible) {
         Player nearest = null;
         double best = radius * radius;
         for (Player player : post.getWorld().getPlayers()) {
-            if (player.isDead() || !player.getGameMode().name().equals("SURVIVAL")) {
+            if (!eligible.test(player)) {
                 continue;
             }
             double distance = player.getLocation().distanceSquared(post);

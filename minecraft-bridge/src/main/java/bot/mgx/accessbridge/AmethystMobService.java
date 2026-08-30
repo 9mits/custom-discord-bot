@@ -2,7 +2,6 @@ package bot.mgx.accessbridge;
 
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.TextColor;
-import net.kyori.adventure.text.format.TextDecoration;
 import org.bukkit.Color;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
@@ -30,6 +29,7 @@ import org.bukkit.event.world.EntitiesLoadEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.EntityShootBowEvent;
+import org.bukkit.event.entity.PlayerDeathEvent;
 import org.bukkit.event.entity.EntityPotionEffectEvent;
 import org.bukkit.event.entity.EntityTargetEvent;
 import org.bukkit.event.entity.EntityTransformEvent;
@@ -337,19 +337,61 @@ final class AmethystMobService implements Listener {
     }
 
     /**
-     * Names the variant for death messages and the activity log, but never shows the tag.
-     * A floating label over a mob is not wanted on any amethyst mob.
+     * Strips the mob of anything that could label it.
+     *
+     * <p>An amethyst mob carries no custom name at all. Clearing {@code CustomNameVisible}
+     * is not enough and never was: vanilla renders a named entity's name whenever the
+     * player's crosshair is on it, whatever that flag says
+     * ({@code shouldShowName() || hasCustomName() && entity == crosshairPickEntity}). The
+     * only way to have no tag is to have no name, so the amethyst name lives in the death
+     * message instead — see {@link #onPlayerDeath}.
      */
     private void dress(LivingEntity entity) {
-        entity.customName(Component.text(displayName(entity.getType()), AMETHYST,
-                TextDecoration.BOLD));
+        entity.customName(null);
         entity.setCustomNameVisible(false);
         entity.setGlowing(false);
         entity.setInvisible(false);
-        entity.setPersistent(true);
         if (entity instanceof Zombie zombie) {
             zombie.setShouldBurnInDay(false);
         }
+    }
+
+    /**
+     * Puts the amethyst name back into the death message, since the mob itself has none.
+     * Replacing the subtype's name inside vanilla's own message keeps its phrasing —
+     * "slain by", "shot by" — rather than inventing one per damage type.
+     */
+    @EventHandler(priority = EventPriority.HIGH, ignoreCancelled = true)
+    public void onPlayerDeath(PlayerDeathEvent event) {
+        Entity killer = event.getEntity().getKiller();
+        if (killer == null) {
+            killer = lastAmethystAttacker(event.getEntity());
+        }
+        if (!(killer instanceof LivingEntity living) || !isAmethyst(living)) {
+            return;
+        }
+        Component message = event.deathMessage();
+        if (message == null) {
+            return;
+        }
+        event.deathMessage(message.replaceText(builder -> builder
+                .matchLiteral(vanillaName(living.getType()))
+                .replacement(Component.text(displayName(living.getType()), AMETHYST))));
+    }
+
+    private LivingEntity lastAmethystAttacker(Player player) {
+        return player.getLastDamageCause() instanceof EntityDamageByEntityEvent cause
+                && cause.getDamager() instanceof LivingEntity living && isAmethyst(living)
+                ? living : null;
+    }
+
+    private static String vanillaName(EntityType type) {
+        return switch (type) {
+            case HUSK -> "Husk";
+            case STRAY -> "Stray";
+            case IRON_GOLEM -> "Iron Golem";
+            default -> type.name();
+        };
     }
 
     /** Removes the item displays the previous, non-animating implementation left behind. */
