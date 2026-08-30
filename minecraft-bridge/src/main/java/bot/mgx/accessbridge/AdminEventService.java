@@ -51,7 +51,8 @@ final class AdminEventService {
                 yield "Stopped every running event and restored everything";
             }
             case KEYRAIN -> {
-                int amount = bounded(args, 2, 50, 1, 250, "key amount");
+                int amount = bounded(args, 2, chaosService.defaultKeyRainKeys(),
+                        1, 250, "key amount");
                 int radius = bounded(args, 3, 12, 4, 30, "radius");
                 keyRain(player, amount, radius);
                 yield "Started a " + amount + "-key rain within " + radius + " blocks";
@@ -69,12 +70,13 @@ final class AdminEventService {
                 String sub = args.length > 2 ? args[2].toLowerCase(Locale.ROOT) : "";
                 yield switch (sub) {
                     case "hp", "health" -> chaosService.retuneAlfredo(
-                            bounded(args, 3, 2_000, 20, 100_000, "health"));
+                            bounded(args, 3, chaosService.defaultAlfredoHealth(),
+                                    20, 100_000, "health"));
                     case "keys" -> chaosService.setAlfredoLoot(
-                            bounded(args, 3, ChaosService.ALFREDO_DEFAULT_KEYS, 0, 2_000, "keys"),
+                            bounded(args, 3, chaosService.defaultAlfredoKeys(), 0, 2_000, "keys"),
                             null);
                     case "diamonds" -> chaosService.setAlfredoLoot(null,
-                            bounded(args, 3, ChaosService.ALFREDO_DEFAULT_DIAMONDS, 0, 5_000,
+                            bounded(args, 3, chaosService.defaultAlfredoDiamonds(), 0, 5_000,
                                     "diamonds"));
                     case "add" -> chaosService.addAlfredoLoot(
                             bounded(args, 3, 10, 0, 2_000, "keys"),
@@ -85,14 +87,14 @@ final class AdminEventService {
                     default -> {
                         boolean test = sub.equals("test");
                         int health = test
-                                ? (int) ChaosService.ALFREDO_DEFAULT_HEALTH
-                                : bounded(args, 2, (int) ChaosService.ALFREDO_DEFAULT_HEALTH,
+                                ? chaosService.defaultAlfredoHealth()
+                                : bounded(args, 2, chaosService.defaultAlfredoHealth(),
                                         20, 100_000, "health");
-                        int keys = test ? ChaosService.ALFREDO_DEFAULT_KEYS
-                                : bounded(args, 3, ChaosService.ALFREDO_DEFAULT_KEYS,
+                        int keys = test ? chaosService.defaultAlfredoKeys()
+                                : bounded(args, 3, chaosService.defaultAlfredoKeys(),
                                         0, 2_000, "keys");
-                        int diamonds = test ? ChaosService.ALFREDO_DEFAULT_DIAMONDS
-                                : bounded(args, 4, ChaosService.ALFREDO_DEFAULT_DIAMONDS,
+                        int diamonds = test ? chaosService.defaultAlfredoDiamonds()
+                                : bounded(args, 4, chaosService.defaultAlfredoDiamonds(),
                                         0, 5_000, "diamonds");
                         yield chaosService.summonAlfredo(
                                 player, health, keys, diamonds,
@@ -109,7 +111,7 @@ final class AdminEventService {
             case AIRDROP -> chaosService.run(
                     player, effect, 0,
                     ChaosTargeting.radiusOrThrow(args.length > 3 ? args[3] : null, configuredRadius()),
-                    bounded(args, 2, ChaosService.DEFAULT_AIRDROP_KEYS, 1, 2_000, "keys"));
+                    bounded(args, 2, chaosService.defaultSupplyDropKeys(), 1, 2_000, "keys"));
             case JACKPOT -> chaosService.run(
                     player, effect, 0,
                     ChaosTargeting.radiusOrThrow(args.length > 3 ? args[3] : null, configuredRadius()),

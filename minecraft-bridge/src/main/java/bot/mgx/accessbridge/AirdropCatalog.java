@@ -193,7 +193,8 @@ final class AirdropCatalog {
         int minimumKeys = variables.rarityValue(rarity, "minimum-keys");
         int maximumKeys = variables.rarityValue(rarity, "maximum-keys");
         int keys = random.nextInt(minimumKeys, maximumKeys + 1);
-        int rolls = variables.rarityValue(rarity, "loot-rolls") + random.nextInt(3);
+        int rolls = variables.rarityValue(rarity, "loot-rolls")
+                + random.nextInt(variables.integer("airdrop.bonus-loot-rolls") + 1);
         List<MaterialLoot> loot = new ArrayList<>(rolls);
         for (int index = 0; index < rolls; index++) {
             LootDefinition reward = randomLoot(rarity, random, variables);
@@ -211,7 +212,8 @@ final class AirdropCatalog {
         Optional<String> cosmetic = random.nextInt(COSMETIC_WEIGHT)
                 < variables.rarityValue(rarity, "cosmetic-weight")
                 ? Optional.of(randomCosmetic(random)) : Optional.empty();
-        int shards = random.nextInt(variables.integer("airdrop.shard-one-in")) == 0 ? 1 : 0;
+        int shards = random.nextInt(variables.integer("airdrop.shard-one-in")) == 0
+                ? variables.integer("airdrop.shard-amount") : 0;
         return new Contents(keys, loot, cosmetic, shards);
     }
 

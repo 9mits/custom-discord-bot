@@ -40,6 +40,20 @@ final class GameVariableStore {
             boolean sensitive
     ) { }
 
+    record AfkRewardTier(
+            int number,
+            int minimumHours,
+            int bonusKeys,
+            int emeralds,
+            int emeraldOneIn,
+            int diamonds,
+            int diamondOneIn,
+            int netheriteIngots,
+            int netheriteOneIn,
+            int shards,
+            int shardOneIn
+    ) { }
+
     private final Path file;
     private final Map<String, Definition> definitions = new LinkedHashMap<>();
     private final Map<String, Object> overrides = new LinkedHashMap<>();
@@ -49,6 +63,8 @@ final class GameVariableStore {
         this.file = file;
         Files.createDirectories(file.getParent());
         defineCore(config);
+        defineAfkRewards();
+        defineEventRewards(config);
         defineCrateRewards();
         defineAirdropRewards();
         load();
@@ -93,6 +109,172 @@ final class GameVariableStore {
                 config.getLong("airdrop.location-attempts", 24), 1, 100, "attempts", false);
         integer("airdrop.shard-one-in", "Airdrop Shard chance", "Airdrops",
                 "One Shard roll succeeds in this many Airdrops.", 2_000, 1, 10_000_000, "one in", true);
+        integer("airdrop.shard-amount", "Airdrop Shard amount", "Airdrops",
+                "Shards placed when the exceptionally rare Shard roll succeeds.",
+                1, 0, 64, "shards", false);
+        integer("airdrop.bonus-loot-rolls", "Maximum bonus loot rolls", "Airdrops",
+                "Random extra material rolls added above the rarity's base rolls.",
+                2, 0, 54, "rolls", false);
+    }
+
+    private void defineAfkRewards() {
+        bool("afk-rewards.enabled", "AFK streak rewards", "AFK Rewards",
+                "Whether completed AFK intervals grant the escalating reward ladder.", true);
+        integer("afk-rewards.interval-minutes", "AFK reward interval", "AFK Rewards",
+                "Continuous AFK minutes required for each reward. Moving resets the interval streak.",
+                60, 5, 1_440, "minutes", false);
+        integer("afk-rewards.online.minimum-players", "Online bonus starts at", "AFK Rewards",
+                "Eligible online players required before AFK rewards gain bonus keys.",
+                5, 1, 1_000, "players", false);
+        integer("afk-rewards.online.players-per-step", "Players per online bonus step", "AFK Rewards",
+                "Additional online players required for each further bonus-key step.",
+                5, 1, 1_000, "players", false);
+        integer("afk-rewards.online.keys-per-step", "Keys per online bonus step", "AFK Rewards",
+                "Bonus keys added to every AFK reward for each reached player-count step.",
+                1, 0, 256, "keys", false);
+        integer("afk-rewards.online.maximum-bonus-keys", "Maximum online bonus", "AFK Rewards",
+                "Ceiling on bonus keys supplied by the current online player count.",
+                4, 0, 1_024, "keys", false);
+        bool("afk-rewards.key-events-multiply-bonus", "Key events multiply AFK keys", "AFK Rewards",
+                "Whether 2x/4x key events also multiply AFK ladder and online-count bonus keys.", false);
+
+        defineAfkTier(1, 1, 1, 0, 1, 0, 1, 0, 1, 0, 1);
+        defineAfkTier(2, 3, 2, 1, 2, 0, 1, 0, 1, 0, 1);
+        defineAfkTier(3, 6, 3, 1, 1, 1, 4, 0, 1, 0, 1);
+        defineAfkTier(4, 12, 4, 2, 1, 1, 2, 0, 1, 0, 1);
+        defineAfkTier(5, 24, 6, 3, 1, 1, 1, 1, 24, 0, 1);
+        // Passive Shards must remain far rarer than active event rewards. They start
+        // only after 72 lifetime AFK hours, then average one per 5,000 hourly rolls.
+        defineAfkTier(6, 72, 10, 4, 1, 2, 1, 1, 24, 1, 5_000);
+    }
+
+    private void defineAfkTier(
+            int tier, int minimumHours, int bonusKeys,
+            int emeralds, int emeraldOneIn, int diamonds, int diamondOneIn,
+            int netherite, int netheriteOneIn, int shards, int shardOneIn
+    ) {
+        String base = "afk-rewards.tier." + tier + ".";
+        String category = "AFK Tier " + tier;
+        integer(base + "minimum-hours", "Minimum lifetime AFK", category,
+                "Lifetime AFK hours required before this tier becomes the hourly reward.",
+                minimumHours, 1, 100_000, "hours", false);
+        integer(base + "bonus-keys", "Bonus keys", category,
+                "Keys added by this AFK tier before the online-player bonus.",
+                bonusKeys, 0, 1_024, "keys", false);
+        rewardRoll(base, category, "emerald", "Emeralds", emeralds, emeraldOneIn, 2_304);
+        rewardRoll(base, category, "diamond", "Diamonds", diamonds, diamondOneIn, 2_304);
+        rewardRoll(base, category, "netherite", "Netherite Ingots", netherite, netheriteOneIn, 64);
+        rewardRoll(base, category, "shard", "Shards", shards, shardOneIn, 64);
+    }
+
+    private void rewardRoll(
+            String base, String category, String key, String label,
+            int amount, int oneIn, int maximumAmount
+    ) {
+        integer(base + key + "-amount", label, category,
+                label + " delivered when this tier's roll succeeds. Zero disables the reward.",
+                amount, 0, maximumAmount, "items", false);
+        integer(base + key + "-one-in", label + " chance", category,
+                "One successful " + label + " roll in this many AFK rewards.",
+                oneIn, 1, 100_000_000, "one in", key.equals("shard"));
+    }
+
+    private void defineEventRewards(FileConfiguration config) {
+        bool("huge-amethyst.enabled", "Huge Amethyst enabled", "Huge Amethyst",
+                "Whether the shared scheduler may choose a Huge Amethyst Block.",
+                config.getBoolean("amethyst-block-event.enabled", true));
+        integer("huge-amethyst.lifetime-minutes", "Huge Amethyst lifetime", "Huge Amethyst",
+                "Minutes before an unfinished Huge Amethyst Block dissolves.",
+                config.getLong("amethyst-block-event.lifetime-minutes", 30),
+                1, 1_440, "minutes", false);
+        integer("huge-amethyst.minimum-radius", "Huge Amethyst minimum radius", "Huge Amethyst",
+                "Minimum Overworld distance from spawn for scheduled blocks.",
+                config.getLong("amethyst-block-event.minimum-radius", 500),
+                0, 100_000, "blocks", false);
+        integer("huge-amethyst.location-attempts", "Huge Amethyst location attempts", "Huge Amethyst",
+                "Safe-ground candidates checked before the scheduler retries later.",
+                config.getLong("amethyst-block-event.location-attempts", 24),
+                1, 100, "attempts", false);
+        integer("huge-amethyst.maximum-health", "Huge Amethyst health", "Huge Amethyst",
+                "Total health of the cooperative Huge Amethyst Block.",
+                (long) AmethystBlockRewards.MAX_HEALTH, 100, 10_000_000, "health", false);
+        for (int wave = 1; wave <= AmethystBlockRewards.REWARD_HEALTH_PERCENTAGES.length; wave++) {
+            integer("huge-amethyst.wave." + wave + ".health-percent",
+                    "Reward wave " + wave + " health", "Huge Amethyst",
+                    "Remaining-health percentage that triggers this reward wave.",
+                    AmethystBlockRewards.REWARD_HEALTH_PERCENTAGES[wave - 1],
+                    1, 99, "percent", false);
+        }
+        defineHugeBundle("milestone", "Reward Wave", 3, 5, 1, 3, 2, 5, 4, 8);
+        defineHugeBundle("completion", "Completion", 8, 12, 3, 6, 5, 9, 8, 16);
+        integer("huge-amethyst.shard-one-in", "Huge Amethyst Shard chance", "Huge Amethyst",
+                "One Shard roll succeeds in this many individual reward bundles.",
+                2_500, 1, 100_000_000, "one in", true);
+        integer("huge-amethyst.shard-amount", "Huge Amethyst Shard amount", "Huge Amethyst",
+                "Shards delivered when the rare bundle roll succeeds.",
+                1, 0, 64, "shards", false);
+        integer("huge-amethyst.contribution-base-keys", "Contribution base keys", "Huge Amethyst",
+                "Completion keys guaranteed to every player who damaged the block.",
+                5, 0, 10_000, "keys", false);
+        integer("huge-amethyst.contribution-pool-keys", "Contribution key pool", "Huge Amethyst",
+                "Completion keys divided proportionally by damage dealt.",
+                45, 0, 100_000, "keys", false);
+
+        integer("chaos.supply-drop.keys", "Supply Drop keys", "Admin Event Rewards",
+                "Default crate-key payout for the theatrical Supply Drop.",
+                ChaosService.DEFAULT_AIRDROP_KEYS, 0, 100_000, "keys", false);
+        integer("chaos.key-rain.keys", "Key Rain keys", "Admin Event Rewards",
+                "Default number of crate keys dropped by a Key Rain.",
+                50, 1, 250, "keys", false);
+        integer("chaos.pinata.base-keys", "Pinata base keys", "Admin Event Rewards",
+                "Default Pinata payout before its per-player addition.",
+                30, 0, 100_000, "keys", false);
+        integer("chaos.pinata.keys-per-player", "Pinata keys per player", "Admin Event Rewards",
+                "Keys added to the Pinata payout for each eligible player.",
+                5, 0, 10_000, "keys", false);
+        integer("chaos.pinata.minimum-hits", "Pinata minimum hits", "Admin Event Rewards",
+                "Fewest hits required to break a Pinata.", 20, 1, 100_000, "hits", false);
+        integer("chaos.pinata.hits-per-player", "Pinata hits per player", "Admin Event Rewards",
+                "Hit requirement contributed by each eligible player.",
+                15, 0, 10_000, "hits", false);
+        integer("chaos.jackpot.minimum-keys", "Jackpot minimum keys", "Admin Event Rewards",
+                "Smallest random default Jackpot payout.", 5, 0, 100_000, "keys", false);
+        integer("chaos.jackpot.maximum-keys", "Jackpot maximum keys", "Admin Event Rewards",
+                "Largest random default Jackpot payout.", 20, 0, 100_000, "keys", false);
+        integer("chaos.alfredo.health", "Alfredo health", "Admin Event Rewards",
+                "Default maximum health of Alfredo.",
+                (long) ChaosService.ALFREDO_DEFAULT_HEALTH, 20, 10_000_000, "health", false);
+        integer("chaos.alfredo.keys", "Alfredo keys", "Admin Event Rewards",
+                "Default total key payout carried by Alfredo.",
+                ChaosService.ALFREDO_DEFAULT_KEYS, 0, 100_000, "keys", false);
+        integer("chaos.alfredo.diamonds", "Alfredo diamonds", "Admin Event Rewards",
+                "Default total diamond payout carried by Alfredo.",
+                ChaosService.ALFREDO_DEFAULT_DIAMONDS, 0, 100_000, "diamonds", false);
+        integer("chaos.alfredo.bursts", "Alfredo reward bursts", "Admin Event Rewards",
+                "Reward bursts paid before Alfredo's final eruption.",
+                10, 1, 100, "bursts", false);
+    }
+
+    private void defineHugeBundle(
+            String key, String label,
+            int minKeys, int maxKeys, int minDiamonds, int maxDiamonds,
+            int minEmeralds, int maxEmeralds, int minGold, int maxGold
+    ) {
+        String base = "huge-amethyst." + key + ".";
+        for (Object[] value : List.of(
+                new Object[]{"keys", minKeys, maxKeys},
+                new Object[]{"diamonds", minDiamonds, maxDiamonds},
+                new Object[]{"emeralds", minEmeralds, maxEmeralds},
+                new Object[]{"gold", minGold, maxGold}
+        )) {
+            String item = (String) value[0];
+            integer(base + "minimum-" + item, label + " minimum " + item, "Huge Amethyst",
+                    "Fewest " + item + " in each " + label.toLowerCase(Locale.ROOT) + " bundle.",
+                    (int) value[1], 0, 100_000, item, false);
+            integer(base + "maximum-" + item, label + " maximum " + item, "Huge Amethyst",
+                    "Most " + item + " in each " + label.toLowerCase(Locale.ROOT) + " bundle.",
+                    (int) value[2], 0, 100_000, item, false);
+        }
     }
 
     private void defineCrateRewards() {
@@ -226,8 +408,7 @@ final class GameVariableStore {
                 addChance(row, airdropLootChance(definition.key()));
             } else if (definition.key().endsWith(".cosmetic-weight")) {
                 addChance(row, ((Number) value).doubleValue() / 100d);
-            } else if (definition.key().equals("airdrop.shard-one-in")
-                    || definition.key().equals("crate.hidden-amethyst-one-in")) {
+            } else if (definition.key().endsWith("one-in")) {
                 addChance(row, 100d / ((Number) value).doubleValue());
             }
             variables.add(row);
@@ -242,6 +423,48 @@ final class GameVariableStore {
 
     int keysPerHour(boolean booster) {
         return integer(booster ? "crate.booster-keys-per-hour" : "crate.keys-per-hour");
+    }
+
+    AfkRewardTier afkRewardTier(long lifetimeAfkSeconds) {
+        AfkRewardTier selected = afkTier(1);
+        long safeSeconds = Math.max(0L, lifetimeAfkSeconds);
+        for (int tier = 2; tier <= 6; tier++) {
+            AfkRewardTier candidate = afkTier(tier);
+            if (safeSeconds < candidate.minimumHours() * 3_600L) {
+                break;
+            }
+            selected = candidate;
+        }
+        return selected;
+    }
+
+    private AfkRewardTier afkTier(int tier) {
+        String base = "afk-rewards.tier." + tier + ".";
+        return new AfkRewardTier(
+                tier,
+                integer(base + "minimum-hours"),
+                integer(base + "bonus-keys"),
+                integer(base + "emerald-amount"),
+                integer(base + "emerald-one-in"),
+                integer(base + "diamond-amount"),
+                integer(base + "diamond-one-in"),
+                integer(base + "netherite-amount"),
+                integer(base + "netherite-one-in"),
+                integer(base + "shard-amount"),
+                integer(base + "shard-one-in")
+        );
+    }
+
+    int afkOnlineBonusKeys(int onlinePlayers) {
+        int minimum = integer("afk-rewards.online.minimum-players");
+        int safeOnline = Math.max(0, onlinePlayers);
+        if (safeOnline < minimum) {
+            return 0;
+        }
+        int stepSize = integer("afk-rewards.online.players-per-step");
+        int steps = 1 + (safeOnline - minimum) / stepSize;
+        long bonus = (long) steps * integer("afk-rewards.online.keys-per-step");
+        return (int) Math.min(integer("afk-rewards.online.maximum-bonus-keys"), bonus);
     }
 
     int rewardWeight(CrateKind kind, CrateCatalog.Reward reward) {
@@ -385,12 +608,21 @@ final class GameVariableStore {
     }
 
     private void validatePair(String key, Object value) {
-        Map<String, String> pairs = Map.of(
-                "amethyst-events.minimum-delay-minutes", "amethyst-events.maximum-delay-minutes",
-                "airdrop.rarity.common.minimum-keys", "airdrop.rarity.common.maximum-keys",
-                "airdrop.rarity.rare.minimum-keys", "airdrop.rarity.rare.maximum-keys",
-                "airdrop.rarity.legendary.minimum-keys", "airdrop.rarity.legendary.maximum-keys",
-                "airdrop.rarity.mythic.minimum-keys", "airdrop.rarity.mythic.maximum-keys"
+        Map<String, String> pairs = Map.ofEntries(
+                Map.entry("amethyst-events.minimum-delay-minutes", "amethyst-events.maximum-delay-minutes"),
+                Map.entry("airdrop.rarity.common.minimum-keys", "airdrop.rarity.common.maximum-keys"),
+                Map.entry("airdrop.rarity.rare.minimum-keys", "airdrop.rarity.rare.maximum-keys"),
+                Map.entry("airdrop.rarity.legendary.minimum-keys", "airdrop.rarity.legendary.maximum-keys"),
+                Map.entry("airdrop.rarity.mythic.minimum-keys", "airdrop.rarity.mythic.maximum-keys"),
+                Map.entry("huge-amethyst.milestone.minimum-keys", "huge-amethyst.milestone.maximum-keys"),
+                Map.entry("huge-amethyst.milestone.minimum-diamonds", "huge-amethyst.milestone.maximum-diamonds"),
+                Map.entry("huge-amethyst.milestone.minimum-emeralds", "huge-amethyst.milestone.maximum-emeralds"),
+                Map.entry("huge-amethyst.milestone.minimum-gold", "huge-amethyst.milestone.maximum-gold"),
+                Map.entry("huge-amethyst.completion.minimum-keys", "huge-amethyst.completion.maximum-keys"),
+                Map.entry("huge-amethyst.completion.minimum-diamonds", "huge-amethyst.completion.maximum-diamonds"),
+                Map.entry("huge-amethyst.completion.minimum-emeralds", "huge-amethyst.completion.maximum-emeralds"),
+                Map.entry("huge-amethyst.completion.minimum-gold", "huge-amethyst.completion.maximum-gold"),
+                Map.entry("chaos.jackpot.minimum-keys", "chaos.jackpot.maximum-keys")
         );
         String maximum = pairs.get(key);
         if (maximum != null && ((Number) value).longValue() > integer(maximum)) {
@@ -410,6 +642,35 @@ final class GameVariableStore {
             String other = key.replace(".maximum-amount", ".minimum-amount");
             if (((Number) value).longValue() < integer(other)) {
                 throw new IllegalArgumentException(key + " cannot be below " + other + ".");
+            }
+        }
+        if (key.startsWith("afk-rewards.tier.") && key.endsWith(".minimum-hours")) {
+            int tier = Integer.parseInt(key.split("\\.")[2]);
+            long hours = ((Number) value).longValue();
+            if (tier > 1 && hours <= integer(
+                    "afk-rewards.tier." + (tier - 1) + ".minimum-hours"
+            )) {
+                throw new IllegalArgumentException(key + " must exceed the previous AFK tier.");
+            }
+            if (tier < 6 && hours >= integer(
+                    "afk-rewards.tier." + (tier + 1) + ".minimum-hours"
+            )) {
+                throw new IllegalArgumentException(key + " must stay below the next AFK tier.");
+            }
+        }
+        if (key.startsWith("huge-amethyst.wave.") && key.endsWith(".health-percent")) {
+            int wave = Integer.parseInt(key.split("\\.")[2]);
+            long percent = ((Number) value).longValue();
+            if (wave > 1 && percent >= integer(
+                    "huge-amethyst.wave." + (wave - 1) + ".health-percent"
+            )) {
+                throw new IllegalArgumentException(key + " must stay below the previous wave.");
+            }
+            if (wave < AmethystBlockRewards.REWARD_HEALTH_PERCENTAGES.length
+                    && percent <= integer(
+                    "huge-amethyst.wave." + (wave + 1) + ".health-percent"
+            )) {
+                throw new IllegalArgumentException(key + " must stay above the next wave.");
             }
         }
     }

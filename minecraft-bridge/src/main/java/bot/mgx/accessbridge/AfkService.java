@@ -84,6 +84,11 @@ final class AfkService implements Listener, CommandExecutor {
         return (store.totals(playerId).afkMillis() + live) / 1_000L;
     }
 
+    /** Start of the current uninterrupted AFK stretch, or zero while active. */
+    long sessionStartedAt(UUID playerId) {
+        return afkSince.getOrDefault(playerId, 0L);
+    }
+
     /** How many players are AFK right now, for the periodic snapshot. */
     int afkCount() {
         return afk.size();
@@ -294,7 +299,18 @@ final class AfkService implements Listener, CommandExecutor {
         lastActivity.put(player.getUniqueId(), System.currentTimeMillis());
         if (afk.add(player.getUniqueId())) {
             afkSince.put(player.getUniqueId(), System.currentTimeMillis());
-            player.sendActionBar(Component.text("You are now AFK.", NamedTextColor.GRAY));
+            if (plugin.gameVariables().bool("afk-rewards.enabled")) {
+                int minutes = plugin.gameVariables().integer("afk-rewards.interval-minutes");
+                int tier = plugin.gameVariables().afkRewardTier(
+                        afkSeconds(player.getUniqueId())
+                ).number();
+                player.sendActionBar(Component.text(
+                        "You are now AFK • Tier " + tier + " reward in " + minutes + "m",
+                        NamedTextColor.LIGHT_PURPLE
+                ));
+            } else {
+                player.sendActionBar(Component.text("You are now AFK.", NamedTextColor.GRAY));
+            }
             report(player, true, 0L);
             refreshTab();
         }

@@ -112,7 +112,8 @@ final class AmethystBlockEventService implements Listener {
         private final long expiresAt;
         private final Map<UUID, BlockPosition> mining = new HashMap<>();
         private final Map<UUID, Double> damage = new HashMap<>();
-        private double health = AmethystBlockRewards.MAX_HEALTH;
+        private final double maximumHealth;
+        private double health;
         private int nextMilestone;
         private boolean finishing;
 
@@ -120,7 +121,7 @@ final class AmethystBlockEventService implements Listener {
                 Location anchor, Marker marker, BlockDisplay visual,
                 TextDisplay title, TextDisplay countdown,
                 Set<Chunk> chunks, Map<BlockPosition, BlockData> originals,
-                long spawnedAt, long expiresAt
+                long spawnedAt, long expiresAt, double maximumHealth
         ) {
             this.anchor = anchor;
             this.marker = marker;
@@ -131,17 +132,16 @@ final class AmethystBlockEventService implements Listener {
             this.originals = originals;
             this.spawnedAt = spawnedAt;
             this.expiresAt = expiresAt;
+            this.maximumHealth = maximumHealth;
+            this.health = maximumHealth;
         }
     }
 
     private final MGXAccessBridge plugin;
     private final CrateItems crateItems;
     private final PlayerSettingsStore settings;
+    private final GameVariableStore variables;
     private final RandomGenerator random;
-    private final long lifetimeMillis;
-    private final int minimumRadius;
-    private final int attempts;
-    private final boolean enabled;
     private final Path journal;
     private final Set<Item> visualKeys = new HashSet<>();
 
@@ -157,29 +157,21 @@ final class AmethystBlockEventService implements Listener {
     private Runnable failedCallback;
 
     AmethystBlockEventService(
-            MGXAccessBridge plugin, CrateItems crateItems, PlayerSettingsStore settings
+            MGXAccessBridge plugin, CrateItems crateItems, PlayerSettingsStore settings,
+            GameVariableStore variables
     ) {
-        this(plugin, crateItems, settings, ThreadLocalRandom.current());
+        this(plugin, crateItems, settings, variables, ThreadLocalRandom.current());
     }
 
     AmethystBlockEventService(
             MGXAccessBridge plugin, CrateItems crateItems, PlayerSettingsStore settings,
-            RandomGenerator random
+            GameVariableStore variables, RandomGenerator random
     ) {
         this.plugin = plugin;
         this.crateItems = crateItems;
         this.settings = settings;
+        this.variables = variables;
         this.random = random;
-        enabled = plugin.getConfig().getBoolean("amethyst-block-event.enabled", true);
-        lifetimeMillis = Duration.ofMinutes(Math.clamp(plugin.getConfig().getLong(
-                "amethyst-block-event.lifetime-minutes", 30L
-        ), 1L, 1_440L)).toMillis();
-        minimumRadius = Math.max(0, plugin.getConfig().getInt(
-                "amethyst-block-event.minimum-radius", DEFAULT_MINIMUM_RADIUS
-        ));
-        attempts = Math.clamp(plugin.getConfig().getInt(
-                "amethyst-block-event.location-attempts", DEFAULT_ATTEMPTS
-        ), 1, 100);
         journal = plugin.getDataFolder().toPath().resolve("amethyst-block-event.yml");
     }
 
@@ -209,7 +201,8 @@ final class AmethystBlockEventService implements Listener {
     }
 
     boolean beginScheduled(Runnable onSpawned, Runnable onFinished, Runnable onFailed) {
-        if (stopped || !enabled || active != null || spawnedCallback != null
+        if (stopped || !variables.bool("huge-amethyst.enabled")
+                || active != null || spawnedCallback != null
                 || otherEventActive.getAsBoolean()
                 || !CrateKind.AMETHYST.available(System.currentTimeMillis())) {
             return false;
@@ -254,7 +247,7 @@ final class AmethystBlockEventService implements Listener {
         return new Snapshot(
                 worldName(block.anchor.getWorld()), block.anchor.getBlockX(),
                 block.anchor.getBlockY(), block.anchor.getBlockZ(), block.health,
-                AmethystBlockRewards.MAX_HEALTH
+                block.maximumHealth
         );
     }
 
@@ -287,6 +280,7 @@ final class AmethystBlockEventService implements Listener {
             failScheduledSpawn();
             return;
         }
+        int attempts = variables.integer("huge-amethyst.location-attempts");
         if (attempt >= attempts) {
             plugin.getLogger().warning("Could not find open ground for a Huge Amethyst Block after "
                     + attempts + " attempts; retrying this event later.");
@@ -340,6 +334,7 @@ final class AmethystBlockEventService implements Listener {
         for (int index = 0; index < 24; index++) {
             int x = centre.getBlockX() + random.nextInt(-limit, limit + 1);
             int z = centre.getBlockZ() + random.nextInt(-limit, limit + 1);
+            int minimumRadius = variables.integer("huge-amethyst.minimum-radius");
             if ((long) x * x + (long) z * z < (long) minimumRadius * minimumRadius) {
                 continue;
             }
@@ -460,14 +455,19 @@ final class AmethystBlockEventService implements Listener {
             TextDisplay title = label(anchor.clone().add(0d, STRUCTURE_SIZE + 3d, 0d),
                     Component.text("HUGE AMETHYST BLOCK", AMETHYST, TextDecoration.BOLD), 2.7f);
             created.add(title);
+            long lifetimeMillis = Duration.ofMinutes(
+                    variables.integer("huge-amethyst.lifetime-minutes")
+            ).toMillis();
             TextDisplay countdown = label(anchor.clone().add(0d, STRUCTURE_SIZE + 1.7d, 0d),
                     countdownText(lifetimeMillis), 2.0f);
             created.add(countdown);
 
             long spawnedAt = System.currentTimeMillis();
+            double maximumHealth = variables.integer("huge-amethyst.maximum-health");
             active = new ActiveBlock(
                     anchor.clone(), marker, visual, title, countdown, Set.copyOf(chunks),
-                    Map.copyOf(originals), spawnedAt, Math.addExact(spawnedAt, lifetimeMillis)
+                    Map.copyOf(originals), spawnedAt, Math.addExact(spawnedAt, lifetimeMillis),
+                    maximumHealth
             );
             bossBar = BossBar.bossBar(
                     bossTitle(active), 1f, BossBar.Color.PURPLE, BossBar.Overlay.NOTCHED_20
@@ -697,14 +697,15 @@ final class AmethystBlockEventService implements Listener {
         }
         block.health = Math.max(0d, block.health - amount);
         while (block.nextMilestone < AmethystBlockRewards.REWARD_HEALTH_PERCENTAGES.length
-                && healthPercent(block.health)
-                <= AmethystBlockRewards.REWARD_HEALTH_PERCENTAGES[block.nextMilestone]) {
-            rewardEveryone(AmethystBlockRewards.rollMilestone(random), false, block);
+                && healthPercent(block.health, block.maximumHealth)
+                <= variables.integer("huge-amethyst.wave."
+                        + (block.nextMilestone + 1) + ".health-percent")) {
+            rewardEveryone(AmethystBlockRewards.rollMilestone(random, variables), false, block);
             milestoneBurst(block);
             block.nextMilestone++;
         }
         if (block.health <= 0d) {
-            rewardEveryone(AmethystBlockRewards.completionBundle(random), true, block);
+            rewardEveryone(AmethystBlockRewards.completionBundle(random, variables), true, block);
             complete(block);
         }
     }
@@ -714,7 +715,11 @@ final class AmethystBlockEventService implements Listener {
     ) {
         for (Player player : eligiblePlayers()) {
             int bonus = completion
-                    ? AmethystBlockRewards.contributionKeys(player.getUniqueId(), block.damage) : 0;
+                    ? AmethystBlockRewards.contributionKeys(
+                            player.getUniqueId(), block.damage,
+                            variables.integer("huge-amethyst.contribution-base-keys"),
+                            variables.integer("huge-amethyst.contribution-pool-keys")
+                    ) : 0;
             giveOwned(player, crateItems.key(bundle.keys() + bonus));
             giveOwned(player, new ItemStack(Material.DIAMOND, bundle.diamonds()));
             giveOwned(player, new ItemStack(Material.EMERALD, bundle.emeralds()));
@@ -988,7 +993,7 @@ final class AmethystBlockEventService implements Listener {
         long remaining = Math.max(0L, block.expiresAt - now);
         if (bossBar != null) {
             bossBar.progress((float) Math.clamp(
-                    block.health / AmethystBlockRewards.MAX_HEALTH, 0d, 1d
+                    block.health / block.maximumHealth, 0d, 1d
             ));
             bossBar.name(bossTitle(block));
         }
@@ -1209,8 +1214,8 @@ final class AmethystBlockEventService implements Listener {
                 anchor.getBlockY() + STRUCTURE_SIZE / 2d, anchor.getBlockZ());
     }
 
-    private static int healthPercent(double health) {
-        return (int) Math.floor(health * 100d / AmethystBlockRewards.MAX_HEALTH);
+    private static int healthPercent(double health, double maximumHealth) {
+        return (int) Math.floor(health * 100d / maximumHealth);
     }
 
     private static String coordinates(Location location) {
