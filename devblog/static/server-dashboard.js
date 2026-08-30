@@ -6,9 +6,13 @@
     me: null,
     settings: [],
     category: "All",
+    leaderboardView: "leaderboards",
     playerBoard: "wealth",
-    clanBoard: "wealth"
+    clanBoard: "wealth",
+    eventBoard: "amethyst_airdrops"
   };
+  var defaultBoards = ["wealth", "kills"];
+  var eventBoards = ["amethyst_airdrops", "amethyst_crates"];
   var labels = {
     wealth: "Richest",
     kills: "Most Kills",
@@ -60,6 +64,8 @@
   }
   function rankCard(row, index, clan) {
     var rank = Number(row.rank || index + 1);
+    var tier = rank === 1 ? "rank-gold" : (rank === 2 ? "rank-silver" : (rank === 3 ? "rank-bronze" : ""));
+    var accolade = rank === 1 ? "Champion" : (rank === 2 ? "Runner-up" : (rank === 3 ? "Third place" : "Top 10"));
     var head = !clan && row.head_url
       ? '<img src="' + escapeHtml(row.head_url) + '" alt="' + escapeHtml(row.username) + ' Minecraft head" loading="lazy">'
       : "";
@@ -67,24 +73,25 @@
     var detail = clan
       ? escapeHtml(row.members || 0) + " members · Level " + escapeHtml(row.level || 0)
       : (row.discord_username ? "@" + escapeHtml(row.discord_username) : "No linked Discord name");
-    return '<article class="live-rank-card ' + (rank <= 3 ? "top-three " : "") + (clan ? "clan-card" : "") + '">' +
-      '<div class="live-place">#' + rank + "</div>" + head +
+    return '<article class="live-rank-card ' + (rank <= 3 ? "top-three " : "") + tier + " " + (clan ? "clan-card" : "") + '">' +
+      '<div class="live-card-shine" aria-hidden="true"></div>' +
+      '<header class="live-rank-head"><div class="live-place">#' + rank + '</div><span class="live-accolade">' + accolade + "</span></header>" + head +
       "<h3>" + escapeHtml(name || "?") + "</h3>" +
       '<div class="live-discord-name">' + detail + "</div>" +
       '<div class="live-value">' + escapeHtml(row.display != null ? row.display : (row.value || 0)) + "</div></article>";
   }
-  function renderBoard(scope, board) {
+  function renderBoard(scope, board, targetId) {
     var rows = (state.snapshot && state.snapshot[scope] && state.snapshot[scope][board]) || [];
-    var target = byId(scope === "individual" ? "player-board" : "clan-board");
+    var target = byId(targetId || (scope === "individual" ? "player-board" : "clan-board"));
     if (!target) return;
     target.classList.remove("live-loading");
     target.innerHTML = rows.length
-      ? rows.map(function (row, index) { return rankCard(row, index, scope === "clan"); }).join("")
+      ? rows.slice(0, 10).map(function (row, index) { return rankCard(row, index, scope === "clan"); }).join("")
       : '<p class="live-empty">No standings yet.</p>';
   }
   function renderBattle() {
     var event = (state.snapshot && state.snapshot.clan_battle) || {};
-    var rows = (state.snapshot && state.snapshot.clan && state.snapshot.clan.clan_battle) || [];
+    var rows = ((state.snapshot && state.snapshot.clan && state.snapshot.clan.clan_battle) || []).slice(0, 10);
     byId("battle-title").textContent = event.name || "No active battle";
     byId("battle-objective").textContent = event.objective || "When the next clan battle starts, its objective and live standings will appear here.";
     byId("battle-deadline").textContent = event.ends_at ? "Ends " + new Date(event.ends_at).toLocaleString() : "";
@@ -98,25 +105,42 @@
   function renderLeaderboards() {
     renderBoard("individual", state.playerBoard);
     renderBoard("clan", state.clanBoard);
+    renderBoard("individual", state.eventBoard, "event-board");
     document.querySelectorAll("#player-tabs button").forEach(function (button) {
       button.setAttribute("aria-selected", button.dataset.key === state.playerBoard ? "true" : "false");
     });
     document.querySelectorAll("#clan-tabs button").forEach(function (button) {
       button.setAttribute("aria-selected", button.dataset.key === state.clanBoard ? "true" : "false");
     });
+    document.querySelectorAll("#event-tabs button").forEach(function (button) {
+      button.setAttribute("aria-selected", button.dataset.key === state.eventBoard ? "true" : "false");
+    });
+  }
+  function selectLeaderboardView(view) {
+    state.leaderboardView = view;
+    document.querySelectorAll("[data-view-panel]").forEach(function (panel) {
+      panel.hidden = panel.dataset.viewPanel !== view;
+    });
+    document.querySelectorAll("[data-view]").forEach(function (button) {
+      button.setAttribute("aria-selected", button.dataset.view === view ? "true" : "false");
+    });
   }
   async function loadLeaderboards() {
     try {
       state.snapshot = await api("/api/leaderboards");
       byId("generated-at").textContent = relativeTime(Number(state.snapshot.generated_at || 0));
-      var playerKeys = Object.keys(state.snapshot.individual || {});
-      var clanKeys = Object.keys(state.snapshot.clan || {}).filter(function (key) { return key !== "clan_battle"; });
+      var playerKeys = defaultBoards.filter(function (key) { return key in (state.snapshot.individual || {}); });
+      var clanKeys = defaultBoards.filter(function (key) { return key in (state.snapshot.clan || {}); });
+      var eventKeys = eventBoards.filter(function (key) { return key in (state.snapshot.individual || {}); });
       if (!playerKeys.includes(state.playerBoard)) state.playerBoard = playerKeys[0];
       if (!clanKeys.includes(state.clanBoard)) state.clanBoard = clanKeys[0];
+      if (!eventKeys.includes(state.eventBoard)) state.eventBoard = eventKeys[0];
       tabs(byId("player-tabs"), playerKeys, state.playerBoard, function (key) { state.playerBoard = key; renderLeaderboards(); });
       tabs(byId("clan-tabs"), clanKeys, state.clanBoard, function (key) { state.clanBoard = key; renderLeaderboards(); });
+      tabs(byId("event-tabs"), eventKeys, state.eventBoard, function (key) { state.eventBoard = key; renderLeaderboards(); });
       renderLeaderboards();
       renderBattle();
+      selectLeaderboardView(state.leaderboardView);
     } catch (error) {
       toast(error.message, true);
     }
@@ -215,6 +239,9 @@
   }
 
   if (byId("leaderboard-root")) {
+    document.querySelectorAll("[data-view]").forEach(function (button) {
+      button.addEventListener("click", function () { selectLeaderboardView(button.dataset.view); });
+    });
     loadLeaderboards();
     window.setInterval(loadLeaderboards, 60000);
   }

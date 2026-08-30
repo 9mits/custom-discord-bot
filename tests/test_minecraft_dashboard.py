@@ -112,12 +112,26 @@ class MinecraftDashboardAssetTests(unittest.TestCase):
         html = (root / "pages" / "leaderboards.md").read_text()
         html += (root / "pages" / "control.md").read_text()
         script = (root / "static" / "server-dashboard.js").read_text()
-        self.assertIn("PLAYER LEADERBOARDS", html)
-        self.assertIn("CLAN LEADERBOARDS", html)
+        self.assertIn("Player Leaderboards", html)
+        self.assertIn("Clan Leaderboards", html)
+        self.assertIn("Event Leaderboards", html)
         self.assertIn("CURRENT CLAN BATTLE", html)
         self.assertIn("Authorize with Discord", html)
         self.assertIn("discord_username", script)
+        self.assertIn('defaultBoards = ["wealth", "kills"]', script)
+        self.assertIn('eventBoards = ["amethyst_airdrops", "amethyst_crates"]', script)
+        self.assertIn("slice(0, 10)", script)
+        self.assertNotIn("The individual race", html)
+        self.assertNotIn("Teams moving the server", html)
         self.assertNotIn("hidden-amethyst-one-in", html + script)
+
+    def test_top_three_have_distinct_podium_treatments(self):
+        root = Path(__file__).parents[1] / "devblog"
+        script = (root / "static" / "server-dashboard.js").read_text()
+        theme = (root / "theme.py").read_text()
+        for tier in ("rank-gold", "rank-silver", "rank-bronze"):
+            self.assertIn(tier, script)
+            self.assertIn(tier, theme)
 
     def test_dashboard_script_is_static_data_not_an_embedded_secret(self):
         script = (Path(__file__).parents[1] / "devblog" / "static" / "server-dashboard.js").read_text()
