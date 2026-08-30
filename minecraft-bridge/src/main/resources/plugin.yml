@@ -93,7 +93,7 @@ commands:
     permission: mgx.shop
   autopay:
     description: Forward your money to another account on a timer.
-    usage: /autopay [player] [amount|all] [seconds]
+    usage: /autopay [player] [amount|all] [seconds]  (amounts accept 2.5k, 200k, 1.4m)
     aliases: [autopayment]
     permission: mgx.shop
   autobuy:
@@ -112,11 +112,11 @@ commands:
     permission: mgx.shop
   pay:
     description: Send money to an online player.
-    usage: /pay <player> <amount>
+    usage: /pay <player> <amount>  (amounts accept 2.5k, 200k, 1.4m)
     permission: mgx.shop
   bounty:
     description: Put money on a player's head, or list active bounties.
-    usage: /bounty [set <player> <amount>|clan <player> <amount>|check]
+    usage: /bounty [set <player> <amount>|clan <player> <amount>|check]  (amounts accept 2.5k, 200k, 1.4m)
     aliases: [bounties]
     permission: mgx.shop
   afk:

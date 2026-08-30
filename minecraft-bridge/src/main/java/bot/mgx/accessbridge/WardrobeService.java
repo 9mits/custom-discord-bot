@@ -566,7 +566,8 @@ final class WardrobeService implements CommandExecutor, TabCompleter, Listener {
         try {
             price = EconomyFormat.parseAmount(typed);
         } catch (IllegalArgumentException exception) {
-            PlayerMenuService.error(player, "That is not a price. Nothing was listed.");
+            PlayerMenuService.error(player,
+                    exception.getMessage() + " Nothing was listed.");
             return;
         }
         CosmeticStore.Token token = store.token(serial).orElse(null);
