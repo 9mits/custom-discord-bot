@@ -15,6 +15,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -821,6 +822,33 @@ class PageTests(unittest.TestCase):
         self.assertEqual(row["clan"], "Quartz")
         self.assertEqual(row["display"], "$1.2m")
         self.assertEqual(row["icon"], "diamond")
+
+    def test_the_https_relay_targets_only_the_public_leaderboard_endpoint(self):
+        import leaderboard_snapshot
+
+        url = leaderboard_snapshot.relay_url("http://private.example:9086/")
+        self.assertEqual(
+            url,
+            "https://r.jina.ai/http://private.example:9086/api/leaderboards",
+        )
+        with self.assertRaises(ValueError):
+            leaderboard_snapshot.relay_url("https://private.example/")
+
+    def test_the_relay_wrapper_is_removed_before_sanitizing(self):
+        import leaderboard_snapshot
+
+        body = (
+            "Title: \n\nURL Source: http://redacted/api/leaderboards\n\n"
+            "Markdown Content:\n{\"individual\": {\"wealth\": "
+            "[{\"username\": \"A\", \"value\": 5}]}}"
+        ).encode()
+        response = mock.MagicMock()
+        response.__enter__.return_value.read.return_value = body
+        with mock.patch.object(
+            leaderboard_snapshot.urllib.request, "urlopen", return_value=response
+        ):
+            fetched = leaderboard_snapshot.fetch_via_relay("http://private.example:9086")
+        self.assertEqual(fetched["individual"]["wealth"][0]["username"], "A")
 
     def test_a_snapshot_is_published_beside_the_page(self):
         self.page(
