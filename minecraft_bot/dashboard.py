@@ -85,10 +85,14 @@ class DashboardServer:
         if not self.config.dashboard_enabled:
             return
         if not (SITE_ROOT / "index.html").is_file():
-            raise RuntimeError(
-                "The dev-blog preview is not built. Run `python devblog/build.py` "
-                "before starting the local Minecraft dashboard."
+            # A missing site build must not take the Minecraft bot down with it. The
+            # dashboard is an accessory; verification, chat relay and rank sync are not.
+            logger.error(
+                "Dashboard disabled: %s has no build. Run "
+                "`python devblog/build.py --include-private` and restart.",
+                SITE_ROOT,
             )
+            return
         self._runner = web.AppRunner(self._app, access_log=None)
         await self._runner.setup()
         self._site = web.TCPSite(

@@ -172,6 +172,46 @@ class ProcessSupervisor:
             self.shutdown()
 
 
+def build_dashboard_site(workdir: Path, specs: Iterable[InstanceSpec]) -> None:
+    """
+    Builds the site the dashboard serves, when any instance turns the dashboard on.
+
+    dist/ is git-ignored, so a host that deploys by pulling the repo has no site to
+    serve and every page 404s. Built here rather than committed because the output is
+    generated from the pages beside it.
+
+    --include-private is what carries /control/ and /statistics/, which only work when
+    this backend is the one answering; the public site is built without them.
+
+    Best effort on purpose. A website that fails to build must never stop the bots.
+    """
+    if not any(
+        str(spec.env.get("MINECRAFT_DASHBOARD_ENABLED", "0")).strip().lower()
+        in {"1", "true", "yes"}
+        for spec in specs
+    ):
+        return
+    script = workdir / "devblog" / "build.py"
+    if not script.is_file():
+        return
+    print("Building the dashboard site...", flush=True)
+    try:
+        result = subprocess.run(
+            [sys.executable, str(script), "--include-private"],
+            cwd=str(workdir), capture_output=True, text=True, timeout=300,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        print(f"Dashboard site build failed ({exc}); the dashboard will stay off.")
+        return
+    if result.returncode != 0:
+        tail = (result.stderr or result.stdout or "").strip().splitlines()
+        print("Dashboard site build failed; the dashboard will stay off.")
+        for line in tail[-5:]:
+            print(f"  {line}")
+        return
+    print("Dashboard site built.", flush=True)
+
+
 def main() -> int:
     workdir = Path(__file__).resolve().parent
     specs = discover_instances(workdir)
@@ -183,6 +223,8 @@ def main() -> int:
     except RuntimeError as exc:
         print(f"Startup refused: {exc}")
         return 1
+
+    build_dashboard_site(workdir, specs)
 
     supervisor = ProcessSupervisor(specs, workdir=workdir)
     for signal_name in (signal.SIGINT, signal.SIGTERM):

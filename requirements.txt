@@ -5,3 +5,5 @@ python-dotenv~=1.0
 Pillow~=11.0
 rapidocr~=3.9.1
 onnxruntime~=1.27.0
+# The dashboard host builds devblog/dist at startup; the generator needs this.
+Markdown>=3.5

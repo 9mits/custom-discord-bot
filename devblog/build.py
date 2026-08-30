@@ -238,13 +238,23 @@ def load_stats() -> Optional[Dict[str, object]]:
     return stats
 
 
-def load_pages() -> List[Page]:
+#: Layouts whose pages only work when the authenticated backend is serving them.
+#: They call /api/* and /auth/login, which exist in minecraft_bot/dashboard.py and
+#: nowhere else -- so publishing them to a static host produces a page that looks
+#: complete and whose sign-in button 404s. Excluded unless the caller is that backend.
+PRIVATE_LAYOUTS = {"dashboard", "statistics"}
+
+
+def load_pages(include_private: bool = False) -> List[Page]:
     pages: List[Page] = []
     if not PAGES_DIR.exists():
         return pages
     for path in sorted(PAGES_DIR.glob("*.md")):
         meta, body = parse_front_matter(path.read_text(encoding="utf-8"), path)
-        pages.append(Page(path, meta, body))
+        page = Page(path, meta, body)
+        if page.layout in PRIVATE_LAYOUTS and not include_private:
+            continue
+        pages.append(page)
     pages.sort(key=lambda page: (page.order, page.slug))
     return pages
 
@@ -343,10 +353,12 @@ def check_slugs(names: Sequence[str], what: str) -> None:
             )
 
 
-def build(site_url: str, include_drafts: bool = False) -> List[Post]:
+def build(
+    site_url: str, include_drafts: bool = False, include_private: bool = False
+) -> List[Post]:
     posts = load_posts(include_drafts=include_drafts)
     events = load_events(include_drafts=include_drafts)
-    pages = load_pages()
+    pages = load_pages(include_private=include_private)
 
     # Posts and pages share the root namespace, so they must not collide.
     page_slugs = [page.slug for page in pages]
@@ -503,12 +515,22 @@ def main() -> int:
         help="Absolute base URL used for canonical and share tags.",
     )
     parser.add_argument("--drafts", action="store_true", help="Include posts marked draft.")
+    parser.add_argument(
+        "--include-private",
+        action="store_true",
+        help="Include the pages that need the authenticated backend (control, statistics). "
+             "Only the backend itself should pass this; the public site must not carry them.",
+    )
     parser.add_argument("--serve", action="store_true", help="Serve dist/ after building.")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
 
     try:
-        posts = build(args.site_url, include_drafts=args.drafts)
+        posts = build(
+            args.site_url,
+            include_drafts=args.drafts,
+            include_private=args.include_private,
+        )
     except PostError as exc:
         print("error: %s" % exc, file=sys.stderr)
         return 1

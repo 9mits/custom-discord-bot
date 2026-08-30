@@ -710,11 +710,56 @@ class PageTests(unittest.TestCase):
             "---\ntitle: Leaderboards\nlayout: dashboard\n---\n\n<div id=\"leaderboard-root\"></div>",
         )
         (build.STATIC_DIR / "server-dashboard.js").write_text("// live")
-        build.build("https://example.com")
+        # Dashboard pages only exist in the backend's own build; see the tests below.
+        build.build("https://example.com", include_private=True)
         page = (build.DIST_DIR / "leaderboards" / "index.html").read_text(encoding="utf-8")
         self.assertIn('class="doc live-doc"', page)
         self.assertIn('src="../assets/server-dashboard.js"', page)
         self.assertTrue((build.DIST_DIR / "assets" / "server-dashboard.js").is_file())
+
+    def test_backend_pages_are_not_published_to_the_static_site(self):
+        """
+        The bug this prevents: /control/ and /statistics/ call /api/* and /auth/login,
+        which exist only in minecraft_bot/dashboard.py. Published to GitHub Pages they
+        render perfectly and their sign-in button 404s, which is worse than absent.
+        """
+        self.page("guide.md", "---\ntitle: G\nnav: Guide\n---\n\nx")
+        self.page("control.md", "---\ntitle: C\nlayout: dashboard\n---\n\nx")
+        self.page("statistics.md", "---\ntitle: S\nlayout: statistics\n---\n\nx")
+        (build.STATIC_DIR / "server-dashboard.js").write_text("// live")
+        (build.STATIC_DIR / "server-statistics.js").write_text("// stats")
+
+        build.build("https://example.com")
+
+        self.assertTrue((build.DIST_DIR / "guide" / "index.html").is_file())
+        self.assertFalse((build.DIST_DIR / "control").exists())
+        self.assertFalse((build.DIST_DIR / "statistics").exists())
+
+    def test_the_backend_build_carries_them(self):
+        self.page("control.md", "---\ntitle: C\nlayout: dashboard\n---\n\nx")
+        self.page("statistics.md", "---\ntitle: S\nlayout: statistics\n---\n\nx")
+        (build.STATIC_DIR / "server-dashboard.js").write_text("// live")
+        (build.STATIC_DIR / "server-statistics.js").write_text("// stats")
+
+        build.build("https://example.com", include_private=True)
+
+        self.assertTrue((build.DIST_DIR / "control" / "index.html").is_file())
+        self.assertTrue((build.DIST_DIR / "statistics" / "index.html").is_file())
+
+    def test_the_public_nav_never_points_at_a_page_that_was_not_built(self):
+        """A nav link to an excluded page is the 404 in a different costume."""
+        self.page("guide.md", "---\ntitle: G\nnav: Guide\n---\n\nx")
+        self.page(
+            "leaderboards.md",
+            "---\ntitle: L\nnav: Leaderboards\nlayout: dashboard\n---\n\nx",
+        )
+        (build.STATIC_DIR / "server-dashboard.js").write_text("// live")
+
+        build.build("https://example.com")
+
+        home = (build.DIST_DIR / "index.html").read_text(encoding="utf-8")
+        self.assertIn('href="guide/"', home)
+        self.assertNotIn('href="leaderboards/"', home)
 
     def test_unknown_page_layout_is_an_error(self):
         self.page("guide.md", "---\ntitle: G\nlayout: mystery\n---\n\nx")
