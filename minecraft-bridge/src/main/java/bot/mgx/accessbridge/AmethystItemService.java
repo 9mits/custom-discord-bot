@@ -55,6 +55,9 @@ final class AmethystItemService implements Listener {
     private static final Set<String> TIMED_KINDS = Set.of(
             "pickaxe", "shovel", "axe", "shield"
     );
+    /** The three that break blocks, and so the three Efficiency means anything on. */
+    private static final Set<String> DIGGING_KINDS = Set.of("pickaxe", "shovel", "axe");
+    private static final int EFFICIENCY_LEVEL = 5;
     private static final Map<Material, Material> SMELTED = Map.ofEntries(
             Map.entry(Material.RAW_IRON, Material.IRON_INGOT),
             Map.entry(Material.RAW_GOLD, Material.GOLD_INGOT),
@@ -144,6 +147,13 @@ final class AmethystItemService implements Listener {
         data.set(kindKey, PersistentDataType.STRING, kind);
         data.set(serialKey, PersistentDataType.STRING, UUID.randomUUID().toString());
         meta.setUnbreakable(true);
+        // Ships at the vanilla maximum so nobody has to spend an anvil bringing a
+        // 24-hour tool up to the speed the abilities already imply. The shield is
+        // deliberately not in this set: Efficiency does nothing on one, and forcing
+        // an enchantment vanilla would refuse only adds a line to its tooltip.
+        if (DIGGING_KINDS.contains(kind)) {
+            meta.addEnchant(Enchantment.EFFICIENCY, EFFICIENCY_LEVEL, true);
+        }
         NamespacedKey model = NamespacedKey.fromString(modelKey);
         if (model != null) {
             meta.setItemModel(model);
@@ -625,6 +635,14 @@ final class AmethystItemService implements Listener {
         }
         if (meta.getEnchantLevel(Enchantment.UNBREAKING) == 1) {
             meta.removeEnchant(Enchantment.UNBREAKING);
+            changed = true;
+        }
+        // Tools minted before Efficiency shipped with them catch up here, on the join
+        // and container sweeps, rather than staying slower than the ones bought today.
+        // Only ever upwards: a player who put Efficiency V on by hand loses nothing.
+        if (kind(item).filter(DIGGING_KINDS::contains).isPresent()
+                && meta.getEnchantLevel(Enchantment.EFFICIENCY) < EFFICIENCY_LEVEL) {
+            meta.addEnchant(Enchantment.EFFICIENCY, EFFICIENCY_LEVEL, true);
             changed = true;
         }
         if (changed) {

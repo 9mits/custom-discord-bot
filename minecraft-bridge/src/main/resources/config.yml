@@ -77,6 +77,11 @@ airdrop:
   lifetime-minutes: 30
   minimum-radius: 500
   location-attempts: 24
+  # The shared scheduler still calls one Airdrop at a time. This is the ceiling on
+  # how many may stand at once, which only /mgxadmin airdrop can reach: each drop
+  # holds chunk tickets and a live garrison, so the number is a server-load figure
+  # rather than a gameplay one.
+  maximum-active: 5
 
 amethyst-block-event:
   enabled: true

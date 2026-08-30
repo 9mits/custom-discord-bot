@@ -42,11 +42,15 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     static final String PERMISSION = "mgxaccessbridge.admin";
     private static final List<String> SUBCOMMANDS = List.of(
             "startserver", "teststart", "pvp", "give", "ranks", "eco", "bounty", "hologram",
+            "airdrop",
             "reset", "testverify", "testcrate", "testairdrop", "testamethystblock", "devblog", "update", "serials",
             "cosmetics", "clanbattle", "abuse", "event", "variables", "help"
     );
     private static final List<String> CRATE_REVEAL_TIERS = List.of(
             "legendary", "mythic", "exotic", "secret"
+    );
+    private static final List<String> AIRDROP_RARITIES = List.of(
+            "common", "rare", "legendary", "mythic"
     );
     private static final List<String> PVP_ACTIONS = List.of("on", "off", "status");
     private static final List<String> RANK_ACTIONS = List.of("hold", "release", "list");
@@ -173,6 +177,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 case "reset" -> reset(sender, args);
                 case "testverify" -> testVerify(sender, args);
                 case "testcrate", "cratetest", "testreveal" -> testCrateReveal(sender, args);
+                case "airdrop", "calldrop" -> callAirdrop(sender, args);
                 case "testairdrop", "airdroptest", "testdrop" -> testAirdrop(sender, args);
                 case "testamethystblock", "testhugeblock" -> testAmethystBlock(sender, args);
                 case "devblog", "screenshot" -> devBlog(sender, args);
@@ -867,22 +872,62 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             case SPAWN -> spawnTestAirdrop(sender, request);
             case STATUS -> showAirdropTestStatus(sender, request.targetName());
             case EXPIRE -> {
-                if (!airdrops.expireTest()) {
+                int expired = airdrops.expireTest();
+                if (expired == 0) {
                     throw new IllegalArgumentException("There is no active Airdrop to expire.");
                 }
-                success(sender, "Expired the active Airdrop and restored its site.");
+                success(sender, "Expired " + expired + " Airdrop(s) and restored their sites.");
                 report(sender, "airdrop_test_expire", "Expired a local test Airdrop").record();
             }
             case REMOVE -> {
-                if (!airdrops.removeTest()) {
+                int removed = airdrops.removeTest();
+                if (removed == 0) {
                     throw new IllegalArgumentException("There is no active Airdrop to remove.");
                 }
-                success(sender, "Removed the active Airdrop and restored its site.");
+                success(sender, "Removed " + removed + " Airdrop(s) and restored their sites.");
                 report(sender, "airdrop_test_remove", "Removed a local test Airdrop").record();
             }
             case PROGRESS_SET -> setAirdropTestProgress(sender, request, false);
             case PROGRESS_RESET -> setAirdropTestProgress(sender, request, true);
         }
+    }
+
+    /**
+     * Calls a real Airdrop in near the operator, on any server.
+     *
+     * <p>Separate from {@code testairdrop}, which is a local-only harness with forced
+     * cosmetics and its own cleanup shortcuts. This is the live one: staff say when,
+     * the whole server is told where, and several may stand at once up to
+     * {@code airdrop.maximum-active}.
+     */
+    private void callAirdrop(CommandSender sender, String[] args) {
+        if (!(sender instanceof Player player)) {
+            throw new IllegalArgumentException(
+                    "Run /mgxadmin airdrop in game so the Airdrop can land near you."
+            );
+        }
+        AirdropCatalog.Rarity rarity = args.length > 1 ? airdropRarity(args[1]) : null;
+        AirdropService.Snapshot drop = airdrops.spawnNear(player, rarity, List.of());
+        success(sender, "Called in " + drop.describe() + ".");
+        info(sender, airdrops.activeCount() + " of " + airdrops.maximumActive()
+                + " Airdrops standing.");
+        report(sender, "airdrop_spawn", sender.getName() + " called in an Amethyst Airdrop")
+                .detail("rarity", drop.rarity().displayName())
+                .detail("world", drop.world())
+                .detail("coordinates", "X " + drop.x() + " Y " + drop.y() + " Z " + drop.z())
+                .detail("standing", airdrops.activeCount())
+                .record();
+    }
+
+    private static AirdropCatalog.Rarity airdropRarity(String name) {
+        for (AirdropCatalog.Rarity rarity : AirdropCatalog.Rarity.values()) {
+            if (rarity.name().equalsIgnoreCase(name)) {
+                return rarity;
+            }
+        }
+        throw new IllegalArgumentException(
+                "Choose a rarity: common, rare, legendary or mythic — or none for a random one."
+        );
     }
 
     private void spawnTestAirdrop(CommandSender sender, AirdropTestPlan.Request request) {
@@ -916,8 +961,14 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     }
 
     private void showAirdropTestStatus(CommandSender sender, String targetName) {
-        info(sender, airdrops.snapshot().map(AirdropService.Snapshot::describe)
-                .orElse("No Airdrop is active."));
+        List<AirdropService.Snapshot> standing = airdrops.snapshots();
+        if (standing.isEmpty()) {
+            info(sender, "No Airdrop is active.");
+        } else {
+            for (AirdropService.Snapshot drop : standing) {
+                info(sender, drop.describe());
+            }
+        }
         OfflinePlayer target = optionalTestTarget(sender, targetName);
         if (target == null) {
             return;
@@ -1221,6 +1272,11 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 .append(Component.text("  bounty everyone who joins, once each", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin hologram <board|remove>", ORANGE)
                 .append(Component.text("  place or remove a spawn leaderboard", NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text("  /mgxadmin airdrop [rarity]", ORANGE)
+                .append(Component.text(
+                        "  call an Airdrop in near you, several at a time",
+                        NamedTextColor.GRAY
+                )));
         sender.sendMessage(Component.text(
                         "  /mgxadmin clanbattle <start crates [7d]|status|end|cancel confirm>",
                         ORANGE
@@ -1302,6 +1358,11 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                         .toList());
             }
             return List.of();
+        }
+        if (action.equals("airdrop") || action.equals("calldrop")) {
+            return args.length == 2
+                    ? partial(args[1], AIRDROP_RARITIES)
+                    : List.of();
         }
         if (action.equals("testairdrop") || action.equals("airdroptest")
                 || action.equals("testdrop")) {

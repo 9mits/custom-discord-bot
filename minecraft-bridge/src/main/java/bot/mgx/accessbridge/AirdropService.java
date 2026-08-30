@@ -50,6 +50,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -124,7 +125,11 @@ final class AirdropService implements Listener {
         private final long spawnedAtMillis;
         private final long expiresAtMillis;
         private final List<ArmorStand> labels;
+        /** Set when the shared event scheduler asked for this one, not a staff member. */
+        private final boolean scheduled;
         private UUID firstOpener;
+        private BossBar bar;
+        private BukkitTask expiryTask;
 
         private ActiveAirdrop(
                 UUID id,
@@ -136,7 +141,8 @@ final class AirdropService implements Listener {
                 Set<Chunk> chunks,
                 long spawnedAtMillis,
                 long expiresAtMillis,
-                List<ArmorStand> labels
+                List<ArmorStand> labels,
+                boolean scheduled
         ) {
             this.id = id;
             this.rarity = rarity;
@@ -148,6 +154,7 @@ final class AirdropService implements Listener {
             this.spawnedAtMillis = spawnedAtMillis;
             this.expiresAtMillis = expiresAtMillis;
             this.labels = labels;
+            this.scheduled = scheduled;
         }
     }
 
@@ -174,11 +181,32 @@ final class AirdropService implements Listener {
     private final RandomGenerator random;
     private final GameVariableStore variables;
 
-    private ActiveAirdrop active;
-    private BukkitTask expiryTask;
+    /**
+     * Every drop currently standing, newest last.
+     *
+     * <p>Was a single field. Staff can call drops in whenever they like and several may
+     * be out at once, so everything a drop owns - its blocks, its garrison, its boss
+     * bar, its expiry - hangs off the drop rather than off the service.
+     */
+    private final Map<UUID, ActiveAirdrop> active = new LinkedHashMap<>();
+    /**
+     * Every protected block, flattened across drops.
+     *
+     * <p>Block break, place, flow, piston and explosion events all ask this question,
+     * so it must stay one lookup no matter how many drops are standing.
+     */
+    private final Map<BlockKey, UUID> protectedIndex = new HashMap<>();
+    /**
+     * Chunk tickets, counted.
+     *
+     * <p>A plugin chunk ticket is per plugin, not per drop: two drops sharing a chunk
+     * and one of them leaving would drop the ticket out from under the other. Counting
+     * them means the last drop in a chunk is the one that releases it.
+     */
+    private final Map<Chunk, Integer> chunkTickets = new HashMap<>();
+    /** Shared while anything is standing: the work is per drop, the schedule is not. */
     private BukkitTask effectTask;
     private BukkitTask countdownTask;
-    private BossBar announcementBar;
     private final AirdropGuardService guards;
     private volatile boolean stopped = true;
     private BooleanSupplier otherEventActive = () -> false;
@@ -234,8 +262,10 @@ final class AirdropService implements Listener {
     }
 
     boolean beginScheduled(Runnable onSpawned, Runnable onFinished, Runnable onFailed) {
+        // The scheduler still calls one drop in at a time, staff drops included: its
+        // pacing is what keeps an Airdrop an event rather than scenery.
         if (stopped || !variables.bool("airdrop.enabled")
-                || active != null || otherEventActive.getAsBoolean()
+                || !active.isEmpty() || otherEventActive.getAsBoolean()
                 || spawnedCallback != null
                 || !CrateKind.AMETHYST.available(System.currentTimeMillis())) {
             return false;
@@ -248,19 +278,35 @@ final class AirdropService implements Listener {
     }
 
     boolean isActiveOrSpawning() {
-        return active != null || spawnedCallback != null;
+        return !active.isEmpty() || spawnedCallback != null;
+    }
+
+    /** How many drops are standing right now. */
+    int activeCount() {
+        return active.size();
+    }
+
+    /** The ceiling on drops standing at once, which staff spawns are also held to. */
+    int maximumActive() {
+        return Math.max(1, variables.integer("airdrop.maximum-active"));
+    }
+
+    private boolean atCapacity() {
+        return active.size() >= maximumActive();
     }
 
     void stop() {
         stopped = true;
         clearCoordinatorCallbacks();
-        removeActive(false, null);
-        hideAnnouncement();
+        for (ActiveAirdrop drop : List.copyOf(active.values())) {
+            remove(drop, false, null);
+        }
+        guards.dismissAll();
     }
 
-    Optional<Snapshot> snapshot() {
-        ActiveAirdrop drop = active;
-        return drop == null ? Optional.empty() : Optional.of(snapshot(drop));
+    /** Every standing drop, newest last. */
+    List<Snapshot> snapshots() {
+        return active.values().stream().map(AirdropService::snapshot).toList();
     }
 
     Snapshot spawnTest(
@@ -273,9 +319,34 @@ final class AirdropService implements Listener {
                     "Airdrop tests are available only on the local test server."
             );
         }
-        if (active != null || spawnedCallback != null || otherEventActive.getAsBoolean()) {
+        return spawnNear(player, rarity, forcedCosmetics);
+    }
+
+    /**
+     * Calls a drop in near a player, on any server.
+     *
+     * <p>What the staff command runs, and what the local test harness runs through
+     * {@link #spawnTest}. Unlike the scheduler this does not wait for a quiet slot:
+     * staff asked for a drop, so the only thing that can refuse them is the ceiling on
+     * how many may stand at once. The Huge Block event is not consulted either - it
+     * blocks the scheduler's choice, not a person's.
+     */
+    Snapshot spawnNear(
+            Player player,
+            AirdropCatalog.Rarity requestedRarity,
+            List<String> forcedCosmetics
+    ) {
+        AirdropCatalog.Rarity rarity = requestedRarity == null
+                ? variables.randomAirdropRarity(random)
+                : requestedRarity;
+        if (stopped) {
+            throw new IllegalArgumentException("Airdrops are not running.");
+        }
+        if (atCapacity()) {
             throw new IllegalArgumentException(
-                    "An Amethyst world event is already active or spawning."
+                    "There are already " + active.size() + " Airdrops standing, which is the"
+                            + " maximum. Wait for one to be claimed or raise"
+                            + " airdrop.maximum-active."
             );
         }
         if (player.getWorld().getEnvironment() != World.Environment.NORMAL
@@ -290,31 +361,38 @@ final class AirdropService implements Listener {
         if (cosmetics.stream().anyMatch(id -> !CosmeticCatalog.isAmethystAirdrop(id))) {
             throw new IllegalArgumentException("That is not an Amethyst Airdrop cosmetic.");
         }
+        // The search checks every candidate against safeStructureSite, which refuses a
+        // site already occupied by a standing drop - so this walks past one rather than
+        // landing on it.
         Location anchor = findTestAnchor(player);
         if (anchor == null) {
             throw new IllegalArgumentException(
-                    "No safe test site was found nearby. Move into open terrain and try again."
+                    "No clear site was found nearby - open terrain, or another Airdrop may be"
+                            + " standing in the way. Move and try again."
             );
         }
-        createAirdrop(anchor, rarity, cosmetics);
-        return snapshot(active);
+        return snapshot(createAirdrop(anchor, rarity, cosmetics, false));
     }
 
-    boolean expireTest() {
-        if (active == null) {
-            return false;
+    /** Expires every standing drop, as the test command's timeout shortcut. */
+    int expireTest() {
+        int expired = 0;
+        for (ActiveAirdrop drop : List.copyOf(active.values())) {
+            remove(drop, true, "The " + drop.rarity.displayName()
+                    + " Amethyst Airdrop expired unclaimed.");
+            expired++;
         }
-        String rarity = active.rarity.displayName();
-        removeActive(true, "The " + rarity + " Amethyst Airdrop expired unclaimed.");
-        return true;
+        return expired;
     }
 
-    boolean removeTest() {
-        if (active == null) {
-            return false;
+    /** Takes every standing drop away without announcing anything. */
+    int removeTest() {
+        int removed = 0;
+        for (ActiveAirdrop drop : List.copyOf(active.values())) {
+            remove(drop, false, null);
+            removed++;
         }
-        removeActive(false, null);
-        return true;
+        return removed;
     }
 
     private long minutes(String path, long fallback) {
@@ -330,7 +408,7 @@ final class AirdropService implements Listener {
     }
 
     private void attemptSpawn(AirdropCatalog.Rarity rarity, int attempt) {
-        if (stopped || active != null || otherEventActive.getAsBoolean()
+        if (stopped || !active.isEmpty() || otherEventActive.getAsBoolean()
                 || !CrateKind.AMETHYST.available(System.currentTimeMillis())) {
             failScheduledSpawn();
             return;
@@ -366,7 +444,7 @@ final class AirdropService implements Listener {
             Candidate candidate,
             Throwable error
     ) {
-        if (stopped || active != null || otherEventActive.getAsBoolean()) {
+        if (stopped || !active.isEmpty() || otherEventActive.getAsBoolean()) {
             failScheduledSpawn();
             return;
         }
@@ -381,7 +459,7 @@ final class AirdropService implements Listener {
             return;
         }
         try {
-            createAirdrop(anchor, rarity);
+            createAirdrop(anchor, rarity, List.of(), true);
         } catch (RuntimeException exception) {
             plugin.getLogger().warning("Could not create an Amethyst Airdrop: "
                     + exception.getMessage());
@@ -496,6 +574,12 @@ final class AirdropService implements Listener {
             if (!border.isInside(block.getLocation()) || block.getState() instanceof Container) {
                 return false;
             }
+            // Never on top of a drop that is already standing. Each drop restores the
+            // ground it saved when it leaves, so two overlapping structures would write
+            // each other's walls back into the world as they went.
+            if (protectedIndex.containsKey(BlockKey.of(block))) {
+                return false;
+            }
             if (placement.y() > 0 && !replaceable(block)) {
                 return false;
             }
@@ -506,14 +590,11 @@ final class AirdropService implements Listener {
         return true;
     }
 
-    private void createAirdrop(Location anchor, AirdropCatalog.Rarity rarity) {
-        createAirdrop(anchor, rarity, List.of());
-    }
-
-    private void createAirdrop(
+    private ActiveAirdrop createAirdrop(
             Location anchor,
             AirdropCatalog.Rarity rarity,
-            List<String> forcedCosmetics
+            List<String> forcedCosmetics,
+            boolean scheduled
     ) {
         List<SavedBlock> saved = new ArrayList<>();
         Set<BlockKey> protectedBlocks = new HashSet<>();
@@ -529,7 +610,7 @@ final class AirdropService implements Listener {
             protectedBlocks.add(BlockKey.of(block));
             Chunk chunk = block.getChunk();
             if (chunks.add(chunk)) {
-                chunk.addPluginChunkTicket(plugin);
+                holdChunk(chunk);
             }
             block.setType(placement.material(), false);
         }
@@ -554,43 +635,60 @@ final class AirdropService implements Listener {
             ).toMillis();
             long expiresAt = Math.addExact(spawnedAt, lifetimeMillis);
             labels.addAll(spawnLabels(chestLocation, rarity, expiresAt));
-            active = new ActiveAirdrop(
+            ActiveAirdrop drop = new ActiveAirdrop(
                     UUID.randomUUID(), rarity, anchor.clone(), chestLocation,
                     List.copyOf(saved), Set.copyOf(protectedBlocks), Set.copyOf(chunks),
-                    spawnedAt, expiresAt, List.copyOf(labels)
+                    spawnedAt, expiresAt, List.copyOf(labels), scheduled
             );
-            effectTask = plugin.getServer().getScheduler().runTaskTimer(
-                    plugin, this::drawEffects, 1L, EFFECT_PERIOD_TICKS
-            );
-            countdownTask = plugin.getServer().getScheduler().runTaskTimer(
-                    plugin, this::refreshCountdown, 1L, COUNTDOWN_PERIOD_TICKS
-            );
-            expiryTask = plugin.getServer().getScheduler().runTaskLater(
+            active.put(drop.id, drop);
+            for (BlockKey key : drop.protectedBlocks) {
+                protectedIndex.put(key, drop.id);
+            }
+            startTickers();
+            drop.expiryTask = plugin.getServer().getScheduler().runTaskLater(
                     plugin,
-                    () -> removeActive(true, "The " + rarity.displayName()
+                    () -> remove(drop, true, "The " + rarity.displayName()
                             + " Amethyst Airdrop expired unclaimed."),
                     Math.max(1L, lifetimeMillis / 50L)
             );
-            guards.deploy(chestLocation, rarity, () -> removeActive(
-                    true, "The guards claimed the " + rarity.displayName()
+            guards.deploy(drop.id, chestLocation, rarity, () -> remove(
+                    drop, true, "The guards claimed the " + rarity.displayName()
                             + " Amethyst Airdrop. Nobody stayed to fight for it."
             ));
-            announceSpawn(active);
+            announceSpawn(drop);
             plugin.getLogger().info("Spawned " + rarity.displayName() + " Amethyst Airdrop at "
-                    + coordinates(chestLocation) + " in " + worldName(anchor.getWorld()));
+                    + coordinates(chestLocation) + " in " + worldName(anchor.getWorld())
+                    + " (" + active.size() + " standing)");
+            return drop;
         } catch (RuntimeException exception) {
-            active = null;
-            cancel(expiryTask);
-            expiryTask = null;
-            cancel(effectTask);
-            effectTask = null;
-            cancel(countdownTask);
-            countdownTask = null;
-            hideAnnouncement();
             removeLabels(labels);
             restore(saved, chunks);
             throw exception;
         }
+    }
+
+    /** The shared effect and countdown tickers run only while something is standing. */
+    private void startTickers() {
+        if (effectTask == null) {
+            effectTask = plugin.getServer().getScheduler().runTaskTimer(
+                    plugin, this::drawEffects, 1L, EFFECT_PERIOD_TICKS
+            );
+        }
+        if (countdownTask == null) {
+            countdownTask = plugin.getServer().getScheduler().runTaskTimer(
+                    plugin, this::refreshCountdown, 1L, COUNTDOWN_PERIOD_TICKS
+            );
+        }
+    }
+
+    private void stopTickersIfIdle() {
+        if (!active.isEmpty()) {
+            return;
+        }
+        cancel(effectTask);
+        effectTask = null;
+        cancel(countdownTask);
+        countdownTask = null;
     }
 
     private void fillChest(
@@ -679,8 +777,9 @@ final class AirdropService implements Listener {
                 .append(Component.text(" at " + where + " in the " + world + "!",
                         NamedTextColor.WHITE));
         broadcast(announcement);
-        hideAnnouncement();
-        announcementBar = BossBar.bossBar(
+        // One bar per drop rather than one bar: a player who can see two drops should be
+        // told about both, and Adventure stacks them.
+        drop.bar = BossBar.bossBar(
                 bossBarTitle(drop, drop.expiresAtMillis - drop.spawnedAtMillis),
                 1f,
                 BossBar.Color.PURPLE,
@@ -690,47 +789,50 @@ final class AirdropService implements Listener {
             if (PlayerBroadcast.wants(
                     settings, PlayerSettingsStore.Setting.AIRDROP_BAR, player
             )) {
-                player.showBossBar(announcementBar);
+                player.showBossBar(drop.bar);
             }
             playSpawnCue(player);
         }
         refreshCountdown();
     }
 
-    private void hideAnnouncement() {
-        if (announcementBar == null) {
+    private void hideAnnouncement(ActiveAirdrop drop) {
+        if (drop.bar == null) {
             return;
         }
         for (Player player : plugin.getServer().getOnlinePlayers()) {
-            player.hideBossBar(announcementBar);
+            player.hideBossBar(drop.bar);
         }
-        announcementBar = null;
+        drop.bar = null;
     }
 
     private void refreshCountdown() {
-        ActiveAirdrop drop = active;
-        if (drop == null) {
-            return;
-        }
         long now = System.currentTimeMillis();
-        long remaining = Math.max(0L, drop.expiresAtMillis - now);
-        if (announcementBar != null) {
-            announcementBar.progress(remainingProgress(
-                    now, drop.spawnedAtMillis, drop.expiresAtMillis
-            ));
-            announcementBar.name(bossBarTitle(drop, remaining));
-        }
-        if (drop.labels.size() >= 2 && drop.labels.get(1).isValid()) {
-            drop.labels.get(1).customName(countdownLabel(remaining));
+        for (ActiveAirdrop drop : List.copyOf(active.values())) {
+            long remaining = Math.max(0L, drop.expiresAtMillis - now);
+            if (drop.bar != null) {
+                drop.bar.progress(remainingProgress(
+                        now, drop.spawnedAtMillis, drop.expiresAtMillis
+                ));
+                drop.bar.name(bossBarTitle(drop, remaining));
+            }
+            if (drop.labels.size() >= 2 && drop.labels.get(1).isValid()) {
+                drop.labels.get(1).customName(countdownLabel(remaining));
+            }
         }
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
     public void onJoin(PlayerJoinEvent event) {
-        if (active != null && announcementBar != null && PlayerBroadcast.wants(
+        if (!PlayerBroadcast.wants(
                 settings, PlayerSettingsStore.Setting.AIRDROP_BAR, event.getPlayer()
         )) {
-            event.getPlayer().showBossBar(announcementBar);
+            return;
+        }
+        for (ActiveAirdrop drop : active.values()) {
+            if (drop.bar != null) {
+                event.getPlayer().showBossBar(drop.bar);
+            }
         }
     }
 
@@ -844,10 +946,12 @@ final class AirdropService implements Listener {
     }
 
     private void drawEffects() {
-        ActiveAirdrop drop = active;
-        if (drop == null) {
-            return;
+        for (ActiveAirdrop drop : List.copyOf(active.values())) {
+            drawDropEffects(drop);
         }
+    }
+
+    private void drawDropEffects(ActiveAirdrop drop) {
         World world = drop.chest.getWorld();
         Location centre = drop.chest.clone().add(0.5d, 1.1d, 0.5d);
         Color deep = Color.fromRGB(132, 43, 214);
@@ -886,10 +990,10 @@ final class AirdropService implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onOpen(InventoryOpenEvent event) {
+        ActiveAirdrop drop = dropFor(event.getInventory()).orElse(null);
         if (!(event.getPlayer() instanceof Player player)
-                || !isActiveInventory(event.getInventory())
-                || active == null
-                || active.firstOpener != null) {
+                || drop == null
+                || drop.firstOpener != null) {
             return;
         }
         try {
@@ -899,19 +1003,19 @@ final class AirdropService implements Listener {
                     + exception.getMessage());
             return;
         }
-        active.firstOpener = player.getUniqueId();
+        drop.firstOpener = player.getUniqueId();
         ServerEvent.of(
                 "airdrop_open",
                 ServerEvent.CATEGORY_CRATE,
                 player.getUniqueId(),
                 player.getName(),
                 plugin::recordServerEvent
-        ).summary(player.getName() + " opened a " + active.rarity.displayName()
+        ).summary(player.getName() + " opened a " + drop.rarity.displayName()
                         + " Amethyst Airdrop")
-                .detail("rarity", active.rarity.displayName())
-                .detail("world", worldName(active.chest.getWorld()))
-                .detail("coordinates", coordinates(active.chest))
-                .detail("airdrop_id", active.id.toString())
+                .detail("rarity", drop.rarity.displayName())
+                .detail("world", worldName(drop.chest.getWorld()))
+                .detail("coordinates", coordinates(drop.chest))
+                .detail("airdrop_id", drop.id.toString())
                 .record();
     }
 
@@ -1002,14 +1106,17 @@ final class AirdropService implements Listener {
                 .get(cosmeticMarker, PersistentDataType.STRING);
     }
 
+    /** Sweeps every standing drop, since a click only says a chest changed, not which. */
     private void removeIfEmpty() {
-        ActiveAirdrop drop = active;
-        if (drop == null) {
-            return;
+        for (ActiveAirdrop drop : List.copyOf(active.values())) {
+            removeIfLooted(drop);
         }
+    }
+
+    private void removeIfLooted(ActiveAirdrop drop) {
         BlockState state = drop.chest.getBlock().getState();
         if (!(state instanceof Chest chest)) {
-            removeActive(true, "The Amethyst Airdrop vanished after its chest was disturbed.");
+            remove(drop, true, "The Amethyst Airdrop vanished after its chest was disturbed.");
             return;
         }
         for (ItemStack item : chest.getBlockInventory().getContents()) {
@@ -1017,7 +1124,7 @@ final class AirdropService implements Listener {
                 return;
             }
         }
-        removeActive(true, "The " + drop.rarity.displayName()
+        remove(drop, true, "The " + drop.rarity.displayName()
                 + " Amethyst Airdrop was looted.");
     }
 
@@ -1070,32 +1177,42 @@ final class AirdropService implements Listener {
     }
 
     private boolean protectedBlock(Block block) {
-        ActiveAirdrop drop = active;
-        return drop != null && drop.protectedBlocks.contains(BlockKey.of(block));
+        return protectedIndex.containsKey(BlockKey.of(block));
+    }
+
+    /** Which standing drop a chest belongs to, if any. */
+    private Optional<ActiveAirdrop> dropFor(Inventory inventory) {
+        if (inventory == null || !(inventory.getHolder() instanceof Chest chest)) {
+            return Optional.empty();
+        }
+        BlockKey key = BlockKey.of(chest.getLocation());
+        return active.values().stream()
+                .filter(drop -> BlockKey.of(drop.chest).equals(key))
+                .findFirst();
     }
 
     private boolean isActiveInventory(Inventory inventory) {
-        ActiveAirdrop drop = active;
-        if (drop == null || !(inventory.getHolder() instanceof Chest chest)) {
-            return false;
-        }
-        return BlockKey.of(chest.getLocation()).equals(BlockKey.of(drop.chest));
+        return dropFor(inventory).isPresent();
     }
 
-    private void removeActive(boolean announce, String message) {
-        ActiveAirdrop drop = active;
-        active = null;
-        guards.dismiss();
-        cancel(expiryTask);
-        expiryTask = null;
-        cancel(effectTask);
-        effectTask = null;
-        cancel(countdownTask);
-        countdownTask = null;
-        hideAnnouncement();
-        if (drop == null) {
+    /**
+     * Takes one drop down, leaving every other standing one alone.
+     *
+     * <p>Removal is idempotent: the expiry timer, the guards' claim and a looted chest
+     * can all reach for the same drop, and only the first of them may restore its
+     * blocks. Restoring twice would write the drop's own structure back over whatever
+     * a player has built there since.
+     */
+    private void remove(ActiveAirdrop drop, boolean announce, String message) {
+        if (drop == null || active.remove(drop.id) == null) {
             return;
         }
+        protectedIndex.keySet().removeAll(drop.protectedBlocks);
+        guards.dismiss(drop.id);
+        cancel(drop.expiryTask);
+        drop.expiryTask = null;
+        hideAnnouncement(drop);
+        stopTickersIfIdle();
         removeLabels(drop.labels);
         BlockState state = drop.chest.getBlock().getState();
         if (state instanceof Chest chest) {
@@ -1112,6 +1229,11 @@ final class AirdropService implements Listener {
         if (announce && message != null && !message.isBlank()) {
             broadcast(Component.text("AIRDROP » ", AMETHYST, TextDecoration.BOLD)
                     .append(Component.text(message, NamedTextColor.WHITE)));
+        }
+        if (!drop.scheduled) {
+            // A staff drop is not the scheduler's event, so finishing it must not start
+            // the cooldown that decides when the next automatic one lands.
+            return;
         }
         Runnable callback = finishedCallback;
         finishedCallback = null;
@@ -1187,7 +1309,26 @@ final class AirdropService implements Listener {
             original.location().getBlock().setBlockData(original.data(), false);
         }
         for (Chunk chunk : chunks) {
+            releaseChunk(chunk);
+        }
+    }
+
+    private void holdChunk(Chunk chunk) {
+        if (chunkTickets.merge(chunk, 1, Integer::sum) == 1) {
+            chunk.addPluginChunkTicket(plugin);
+        }
+    }
+
+    private void releaseChunk(Chunk chunk) {
+        Integer held = chunkTickets.get(chunk);
+        if (held == null) {
+            return;
+        }
+        if (held <= 1) {
+            chunkTickets.remove(chunk);
             chunk.removePluginChunkTicket(plugin);
+        } else {
+            chunkTickets.put(chunk, held - 1);
         }
     }
 

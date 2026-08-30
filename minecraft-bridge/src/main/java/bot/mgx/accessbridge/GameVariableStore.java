@@ -84,6 +84,10 @@ final class GameVariableStore {
         integer("airdrop.minimum-radius", "Airdrop minimum radius", "Airdrops",
                 "Minimum Overworld distance from spawn for scheduled Airdrops.",
                 config.getLong("airdrop.minimum-radius", 500), 0, 100_000, "blocks", false);
+        integer("airdrop.maximum-active", "Airdrops at once", "Airdrops",
+                "How many Airdrops may stand at the same time. The scheduler still calls"
+                        + " one at a time; this is the ceiling on staff-called drops.",
+                config.getLong("airdrop.maximum-active", 5), 1, 20, "Airdrops", false);
         integer("airdrop.location-attempts", "Airdrop location attempts", "Airdrops",
                 "Safe-ground candidates checked before the scheduler retries later.",
                 config.getLong("airdrop.location-attempts", 24), 1, 100, "attempts", false);
