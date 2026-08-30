@@ -265,6 +265,8 @@ final class HologramService {
             }
             String display = text(row, "display");
             return prefix
+                    .append(MenuText.sprite(ClanIcon.resolve(text(row, "icon")).sprite()))
+                    .append(Component.text(" "))
                     .append(Component.text(tag, TextColor.color(colour), TextDecoration.BOLD))
                     .append(Component.text(": " + display, NamedTextColor.WHITE));
         }

@@ -207,7 +207,8 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
         int last = MenuPaging.lastIndex(page, ranked.size(), PER_PAGE);
         for (int index = first; index < last; index++) {
             ClanStore.ClanView clan = ranked.get(index);
-            inventory.setItem(index - first, head(clan.leader(),
+            ClanIcon icon = ClanIcon.resolve(clan.icon());
+            inventory.setItem(index - first, button(icon.material(),
                     "#" + (index + 1) + "  " + clan.name() + "  " + ClanLevel.badge(clan.level()),
                     List.of(
                             clan.level() == 0 ? "Unranked." : "Level " + clan.level() + ".",
@@ -249,8 +250,9 @@ final class LeaderboardMenuService implements CommandExecutor, TabCompleter, Lis
             if (!badges.isBlank()) {
                 lore.add("Battle badges: " + badges);
             }
-            inventory.setItem(index - first, head(
-                    clan == null ? null : clan.leader(),
+            ClanIcon icon = ClanIcon.resolve(clan == null ? text(row, "icon", "") : clan.icon());
+            inventory.setItem(index - first, button(
+                    icon.material(),
                     "#" + rank + "  " + name
                             + (clan == null ? "" : "  " + ClanLevel.badge(clan.level())),
                     lore

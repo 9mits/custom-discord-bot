@@ -334,8 +334,10 @@ final class LeaderboardService implements Listener {
             entry.addProperty("username", row.username());
             entry.addProperty("value", row.value(type));
             entry.addProperty("display", type.describe(row.value(type)));
-            clans.clanOf(row.minecraftUuid())
-                    .ifPresent(view -> entry.addProperty("clan", view.name()));
+            clans.clanOf(row.minecraftUuid()).ifPresent(view -> {
+                entry.addProperty("clan", view.name());
+                entry.addProperty("clan_icon", view.icon());
+            });
             rows.add(entry);
         }
         return rows;
@@ -358,6 +360,7 @@ final class LeaderboardService implements Listener {
             row.addProperty("clan", clan.name());
             row.addProperty("members", clan.members().size());
             row.addProperty("colour", clan.themeColor());
+            row.addProperty("icon", clan.icon());
             row.addProperty("level", clan.level());
             row.addProperty("value", total);
             row.addProperty("display", LeaderboardType.WEALTH.describe(total));
@@ -372,6 +375,7 @@ final class LeaderboardService implements Listener {
         Map<String, Integer> colours = new HashMap<>();
         Map<String, Integer> levels = new HashMap<>();
         Map<String, String> ids = new HashMap<>();
+        Map<String, String> icons = new HashMap<>();
         for (PlayerStats row : everyone) {
             Optional<ClanStore.ClanView> clan = clans.clanOf(row.minecraftUuid());
             if (clan.isEmpty()) {
@@ -383,6 +387,7 @@ final class LeaderboardService implements Listener {
             colours.putIfAbsent(name, clan.get().themeColor());
             levels.putIfAbsent(name, clan.get().level());
             ids.putIfAbsent(name, clan.get().id().toString());
+            icons.putIfAbsent(name, clan.get().icon());
         }
         List<Map.Entry<String, Long>> ranked = new ArrayList<>(totals.entrySet());
         ranked.sort(Map.Entry.<String, Long>comparingByValue().reversed());
@@ -396,6 +401,7 @@ final class LeaderboardService implements Listener {
             row.addProperty("clan", entry.getKey());
             row.addProperty("members", members.getOrDefault(entry.getKey(), 0));
             row.addProperty("colour", colours.getOrDefault(entry.getKey(), 0xFF9900));
+            row.addProperty("icon", icons.getOrDefault(entry.getKey(), ClanIcon.DEFAULT.id()));
             row.addProperty("level", levels.getOrDefault(entry.getKey(), 0));
             row.addProperty("value", entry.getValue());
             row.addProperty("display", type.describe(entry.getValue()));
@@ -420,6 +426,9 @@ final class LeaderboardService implements Listener {
             row.addProperty("clan", standing.clanName());
             row.addProperty("members", standing.members().size());
             row.addProperty("colour", standing.colour());
+            row.addProperty("icon", clans.findClanById(standing.clanId())
+                    .map(ClanStore.ClanView::icon)
+                    .orElse(ClanIcon.DEFAULT.id()));
             row.addProperty("level", standing.level());
             row.addProperty("value", standing.score());
             row.addProperty("display", String.format("%,d openings", standing.score()));

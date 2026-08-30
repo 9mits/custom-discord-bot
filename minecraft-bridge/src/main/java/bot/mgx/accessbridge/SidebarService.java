@@ -194,7 +194,7 @@ final class SidebarService {
                     .append(profile.rankWeight())
                     .append(':')
                     .append(clans.clanOf(player.getUniqueId())
-                            .map(clan -> clan.name() + clan.level() + clan.themeColor())
+                            .map(clan -> clan.name() + clan.level() + clan.themeColor() + clan.icon())
                             .orElse(""))
                     .append(':')
                     .append(identities.visibleUsername(player.getUniqueId()).orElse(""))
@@ -426,7 +426,7 @@ final class SidebarService {
                 ? SidebarText.textWidth("[" + profile.rankLabel() + "] ", true) : 0;
         Optional<ClanStore.ClanView> clan = clans.clanOf(player.getUniqueId());
         if (clan.isPresent()) {
-            width += SidebarText.textWidth(
+            width += ClanTag.iconWidth() + SidebarText.textWidth(
                     ClanTag.plain(clan.get(), clanBattles.badges(clan.get().id())), true
             );
         }

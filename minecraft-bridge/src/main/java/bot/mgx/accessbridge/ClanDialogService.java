@@ -118,6 +118,8 @@ final class ClanDialogService {
                         })
         ));
         ClanStore.ClanRole role = clan.roleOf(player.getUniqueId());
+        entries.add(new Entry(ClanIcon.resolve(clan.icon()).sprite(), "Clan Icon",
+                "Choose the Minecraft item shown beside your clan.", this::openIcons));
         if ((role == ClanStore.ClanRole.LEADER || role == ClanStore.ClanRole.CO_OWNER)
                 && clan.members().keySet().stream()
                 .anyMatch(id -> clan.roleOf(id) == ClanStore.ClanRole.MEMBER)) {
@@ -127,6 +129,36 @@ final class ClanDialogService {
         }
         if (!render(player, clan.name(), "Your clan.", entries, 2)) {
             menus.openHub(player);
+        }
+    }
+
+    // --------------------------------------------------------------- icon
+
+    void openIcons(Player player) {
+        ClanStore.ClanView clan = clans.clanOf(player.getUniqueId()).orElse(null);
+        if (clan == null) {
+            PlayerMenuService.error(player, "You are not in a clan.");
+            return;
+        }
+        ClanStore.ClanRole role = clan.roleOf(player.getUniqueId());
+        if (role != ClanStore.ClanRole.LEADER && role != ClanStore.ClanRole.CO_OWNER) {
+            PlayerMenuService.error(player, "Only the clan owner or co-owner can change its icon.");
+            openHub(player);
+            return;
+        }
+        ClanIcon selected = ClanIcon.resolve(clan.icon());
+        List<Entry> entries = ClanIcon.choices().stream()
+                .map(icon -> new Entry(
+                        icon.sprite(),
+                        icon.label() + (icon == selected ? "  (Selected)" : ""),
+                        icon == selected ? "This is your current clan icon." : "Use this clan icon.",
+                        audience -> menus.chooseIcon(audience, icon.id())
+                ))
+                .toList();
+        if (!render(player, "Clan Icon",
+                "Pick the Minecraft item shown beside your clan everywhere.",
+                entries, 3, this::openHub)) {
+            menus.openIcons(player);
         }
     }
 
@@ -690,6 +722,9 @@ final class ClanDialogService {
                                 "Co-Owner", "item/amethyst_shard", "Open slot"
                         )), 400),
                 DialogBody.plainMessage(Component.empty(), 400),
+                DialogBody.plainMessage(MenuText.stat("Clan icon",
+                        ClanIcon.resolve(clan.icon()).sprite(),
+                        ClanIcon.resolve(clan.icon()).label()), 400),
                 DialogBody.plainMessage(MenuText.stat("Level", "item/nether_star",
                         clan.level() == 0 ? "Unranked" : String.valueOf(clan.level())), 400),
                 DialogBody.plainMessage(MenuText.stat("Battle medals", "item/gold_ingot",

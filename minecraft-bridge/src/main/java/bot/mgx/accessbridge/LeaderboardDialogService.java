@@ -157,6 +157,8 @@ final class LeaderboardDialogService {
         String badges = text(row, "badges");
         int members = row.has("members") ? row.get("members").getAsInt() : 0;
         Component line = Component.text("#" + rank + " ", MenuText.placeColour(rank))
+                .append(MenuText.sprite(ClanIcon.resolve(text(row, "icon")).sprite()))
+                .append(Component.text(" "))
                 .append(tag)
                 .append(Component.text(badges.isBlank() ? " " : "  " + badges + " ",
                         MenuText.GOLD))

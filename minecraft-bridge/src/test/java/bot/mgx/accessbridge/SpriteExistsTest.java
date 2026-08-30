@@ -48,6 +48,11 @@ final class SpriteExistsTest {
                     missing.add("settings " + category + " -> " + category.sprite());
                 }
             }
+            for (ClanIcon icon : ClanIcon.choices()) {
+                if (client.getEntry(texture(icon.sprite())) == null) {
+                    missing.add("clan icon " + icon.id() + " -> " + icon.sprite());
+                }
+            }
         }
         assertTrue(missing.isEmpty(), "icons pointing at nothing: " + missing);
     }

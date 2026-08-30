@@ -26,9 +26,11 @@ final class ClanTag {
 
     /** The bracketed name, its level star, and any Clan Battle medals. */
     static Component of(ClanStore.ClanView clan, ClanBattleStore.Badges badges) {
-        Component tag = Component.text(
+        Component tag = MenuText.sprite(ClanIcon.resolve(clan.icon()).sprite())
+                .append(Component.text(" "))
+                .append(Component.text(
                 "[" + clan.name() + "] ", TextColor.color(clan.themeColor()), TextDecoration.BOLD
-        );
+        ));
         if (clan.level() > 0) {
             tag = tag.append(Component.text(
                     ClanLevel.badge(clan.level()),
@@ -46,6 +48,11 @@ final class ClanTag {
             text.append(ClanLevel.badge(clan.level())).append(' ');
         }
         return text.append(plainMedals(badges)).toString();
+    }
+
+    /** An inline object sprite is 8px wide, followed by the normal 4px space. */
+    static int iconWidth() {
+        return 12;
     }
 
     static Component medals(ClanBattleStore.Badges badges) {

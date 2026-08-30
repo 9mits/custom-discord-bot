@@ -28,6 +28,7 @@ final class Menu implements InventoryHolder {
         CLAN_DONORS,
         CLAN_UPGRADE,
         CLAN_INFO,
+        CLAN_ICONS,
         CLAN_MEMBERS,
         CLAN_LIST,
         CLAN_WARPS,
