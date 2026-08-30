@@ -20,7 +20,7 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from core.context import bot
-from .shared import logger, make_embed
+from .shared import format_user_ref, logger, make_embed, send_log
 
 ROLE_KEY = "server_tag_role_id"
 GUILDS_KEY = "server_tag_guild_ids"
@@ -108,8 +108,14 @@ class ServerTagCog(commands.Cog):
 
     # ---- syncing -------------------------------------------------------
 
-    async def sync_member(self, member: discord.Member) -> Optional[bool]:
-        """Applies or removes the role. Returns the new state, or None if nothing to do."""
+    async def sync_member(
+        self, member: discord.Member, *, announce: bool = False
+    ) -> Optional[bool]:
+        """Applies or removes the role. Returns the new state, or None if nothing to do.
+
+        ``announce`` logs the single change. Bulk passes leave it off deliberately: a
+        first-time setup would otherwise post one line per member into the log channel.
+        """
         if member.bot:
             return None
         role = self._role(member.guild)
@@ -135,7 +141,30 @@ class ServerTagCog(commands.Cog):
         except discord.HTTPException as error:
             logger.warning("Server tag role update failed for %s: %s", member.id, error)
             return None
+        if announce:
+            await self._log_change(member, role, wanted)
         return wanted
+
+    async def _log_change(
+        self, member: discord.Member, role: discord.Role, equipped: bool
+    ) -> None:
+        primary = getattr(member, "primary_guild", None)
+        tag = getattr(primary, "tag", None) if primary else None
+        worn = f" (`{tag}`)" if tag else ""
+        try:
+            await send_log(
+                member.guild,
+                make_embed(
+                    "Server Tag " + ("Equipped" if equipped else "Removed"),
+                    f"{format_user_ref(member)} "
+                    + (f"equipped a linked server tag{worn} and gained "
+                       if equipped else "removed their linked server tag and lost ")
+                    + f"{role.mention}.",
+                    kind="success" if equipped else "muted",
+                ),
+            )
+        except Exception as error:  # noqa: BLE001 - logging must never break the sync
+            logger.warning("Could not log a server tag change for %s: %s", member.id, error)
 
     def _assignable(self, guild: discord.Guild, role: discord.Role) -> bool:
         """A role above the bot cannot be granted; say so once rather than 429ing on it."""
@@ -144,12 +173,17 @@ class ServerTagCog(commands.Cog):
             return False
         return role < me.top_role
 
-    async def sync_guild(self, guild: discord.Guild) -> int:
-        changed = 0
+    async def sync_guild(self, guild: discord.Guild) -> tuple:
+        """Returns (granted, removed). Bulk passes never announce per member."""
+        granted = 0
+        removed = 0
         for member in guild.members:
-            if await self.sync_member(member) is not None:
-                changed += 1
-        return changed
+            result = await self.sync_member(member)
+            if result is True:
+                granted += 1
+            elif result is False:
+                removed += 1
+        return granted, removed
 
     # ---- events --------------------------------------------------------
 
@@ -163,11 +197,11 @@ class ServerTagCog(commands.Cog):
         for guild in self.bot.guilds:
             member = guild.get_member(after.id)
             if member is not None:
-                await self.sync_member(member)
+                await self.sync_member(member, announce=True)
 
     @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member) -> None:
-        await self.sync_member(member)
+        await self.sync_member(member, announce=True)
 
     @tasks.loop(minutes=RECONCILE_MINUTES)
     async def reconcile_loop(self) -> None:
@@ -175,9 +209,12 @@ class ServerTagCog(commands.Cog):
         async with self._lock:
             for guild in self.bot.guilds:
                 try:
-                    await self.sync_guild(guild)
+                    granted, removed = await self.sync_guild(guild)
                 except Exception as error:  # noqa: BLE001 - a sweep must never die
                     logger.warning("Server tag reconcile failed for %s: %s", guild.id, error)
+                    continue
+                if granted or removed:
+                    await self._log_sweep(guild, granted, removed, "Scheduled reconcile")
 
     @reconcile_loop.before_loop
     async def _before_reconcile(self) -> None:
@@ -209,11 +246,14 @@ class ServerTagCog(commands.Cog):
                 ephemeral=True,
             )
             return
-        changed = await self.sync_guild(interaction.guild) if interaction.guild else 0
+        granted, removed = (
+            await self.sync_guild(interaction.guild) if interaction.guild else (0, 0)
+        )
         await interaction.followup.send(
             embed=make_embed(
                 "Server Tag",
-                f"{role.mention} now tracks the server tag. Updated {changed} member(s).",
+                f"{role.mention} now tracks the server tag. "
+                + _summary(granted, removed),
                 kind="success",
             ),
             ephemeral=True,
@@ -234,11 +274,11 @@ class ServerTagCog(commands.Cog):
         current.add(target)
         bot.data_manager.config[GUILDS_KEY] = sorted(current)
         bot.data_manager.mark_config_dirty()
-        changed = await self.sync_guild(interaction.guild)
+        granted, removed = await self.sync_guild(interaction.guild)
         await interaction.followup.send(
             embed=make_embed(
                 "Server Tag",
-                f"Now accepting {len(current)} server tag(s). Updated {changed} member(s).",
+                f"Now accepting {len(current)} server tag(s). " + _summary(granted, removed),
                 kind="success",
             ),
             ephemeral=True,
@@ -261,15 +301,40 @@ class ServerTagCog(commands.Cog):
             current = {interaction.guild.id}
         bot.data_manager.config[GUILDS_KEY] = sorted(current)
         bot.data_manager.mark_config_dirty()
-        changed = await self.sync_guild(interaction.guild)
+        granted, removed = await self.sync_guild(interaction.guild)
         await interaction.followup.send(
             embed=make_embed(
                 "Server Tag",
-                f"Now accepting {len(current)} server tag(s). Updated {changed} member(s).",
+                f"Now accepting {len(current)} server tag(s). " + _summary(granted, removed),
                 kind="success",
             ),
             ephemeral=True,
         )
+
+    @servertag.command(
+        name="sync", description="Re-check every member's server tag right now."
+    )
+    async def sync(self, interaction: discord.Interaction) -> None:
+        granted, removed = await self.sync_guild(interaction.guild)
+        if granted or removed:
+            await self._log_sweep(interaction.guild, granted, removed, "Manual sync")
+        await interaction.followup.send(
+            embed=make_embed("Server Tag", _summary(granted, removed), kind="success"),
+            ephemeral=True,
+        )
+
+    async def _log_sweep(
+        self, guild: discord.Guild, granted: int, removed: int, reason: str
+    ) -> None:
+        """One line for a whole pass. Per-member logging here would flood the channel."""
+        try:
+            await send_log(
+                guild,
+                make_embed("Server Tag Sync", f"{reason}: {_summary(granted, removed)}",
+                           kind="info"),
+            )
+        except Exception as error:  # noqa: BLE001 - logging must never break the sweep
+            logger.warning("Could not log a server tag sweep for %s: %s", guild.id, error)
 
     @servertag.command(name="status", description="Show the current server tag setup.")
     async def status(self, interaction: discord.Interaction) -> None:
@@ -286,6 +351,17 @@ class ServerTagCog(commands.Cog):
         await interaction.response.send_message(
             embed=make_embed("Server Tag", "\n".join(lines), kind="info"), ephemeral=True
         )
+
+
+def _summary(granted: int, removed: int) -> str:
+    if not granted and not removed:
+        return "Everyone already had the right role."
+    parts = []
+    if granted:
+        parts.append(f"**{granted}** gained the role")
+    if removed:
+        parts.append(f"**{removed}** lost it")
+    return " and ".join(parts) + "."
 
 
 def _identity(primary: Optional[discord.PrimaryGuild]) -> tuple:
