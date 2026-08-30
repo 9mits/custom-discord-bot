@@ -153,26 +153,16 @@ final class MenuItems {
 
     private static Component title(String name) {
         return Component.text(name, ORANGE, TextDecoration.BOLD)
-                .decoration(TextDecoration.ITALIC, true);
+                .decoration(TextDecoration.ITALIC, false);
     }
 
     private static List<Component> loreOf(List<String> lore) {
         List<Component> lines = new ArrayList<>();
         for (String line : lore) {
-            boolean action = isActionHint(line);
             lines.add(Component.text(line, NamedTextColor.GRAY)
-                    .decoration(TextDecoration.ITALIC, action));
+                    .decoration(TextDecoration.ITALIC, false));
         }
         return lines;
     }
 
-    private static boolean isActionHint(String line) {
-        String value = line == null ? "" : line.strip().toLowerCase(java.util.Locale.ROOT);
-        return value.startsWith("click") || value.startsWith("open")
-                || value.startsWith("return") || value.startsWith("choose")
-                || value.startsWith("select") || value.startsWith("travel")
-                || value.startsWith("manage") || value.startsWith("confirm")
-                || value.startsWith("cancel") || value.startsWith("previous")
-                || value.startsWith("next");
-    }
 }

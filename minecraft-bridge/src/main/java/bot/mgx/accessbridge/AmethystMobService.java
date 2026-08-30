@@ -7,12 +7,14 @@ import org.bukkit.Color;
 import org.bukkit.attribute.Attribute;
 import org.bukkit.attribute.AttributeInstance;
 import org.bukkit.Location;
+import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Particle;
 import org.bukkit.Sound;
 import org.bukkit.World;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
+import org.bukkit.entity.IronGolem;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Mob;
 import org.bukkit.entity.Player;
@@ -263,11 +265,11 @@ final class AmethystMobService implements Listener {
         return spawned;
     }
 
-    /** Names the variant so death messages read right; the tag itself stays hidden. */
+    /** Names the variant and shows the tag, so an amethyst mob is obvious at a glance. */
     private void dress(LivingEntity entity) {
         entity.customName(Component.text(displayName(entity.getType()), AMETHYST,
                 TextDecoration.BOLD));
-        entity.setCustomNameVisible(false);
+        entity.setCustomNameVisible(true);
         entity.setGlowing(false);
         entity.setInvisible(false);
         entity.setPersistent(true);
@@ -297,6 +299,42 @@ final class AmethystMobService implements Listener {
         if (type == EntityType.HUSK || type == EntityType.ZOMBIE) {
             return "Amethyst Zombie";
         }
-        return "Amethyst Skeleton";
+        return type == EntityType.IRON_GOLEM ? "Amethyst Golem" : "Amethyst Skeleton";
+    }
+
+    /**
+     * Spawns a marked amethyst mob to order. Only the airdrop guard calls this, which is
+     * what keeps Amethyst Golems off the natural spawn table entirely: nothing converts a
+     * spawn into one, so the only golems that carry the name tag, fight and drop keys are
+     * the ones deployed around an airdrop. A plain village or player-built iron golem is
+     * left completely alone — it wears the retextured skin, because a pack holds one
+     * iron_golem.png and Minecraft has no iron golem variant registry, but it is not an
+     * amethyst mob.
+     */
+    LivingEntity deploy(Location where, EntityType type) {
+        if (type != EntityType.HUSK && type != EntityType.STRAY
+                && type != EntityType.IRON_GOLEM) {
+            throw new IllegalArgumentException("Not an amethyst mob type: " + type);
+        }
+        LivingEntity mob = (LivingEntity) where.getWorld().spawnEntity(
+                where, type, CreatureSpawnEvent.SpawnReason.CUSTOM
+        );
+        mob.getPersistentDataContainer().set(marker, PersistentDataType.BYTE, (byte) 1);
+        EntityEquipment equipment = mob.getEquipment();
+        if (type == EntityType.STRAY && equipment != null) {
+            // A CUSTOM spawn skips vanilla's finalisation, and a bowless stray cannot fight.
+            equipment.setItemInMainHand(new ItemStack(Material.BOW));
+            equipment.setItemInMainHandDropChance(0f);
+        }
+        if (mob instanceof IronGolem golem) {
+            // A player-created golem will not turn on players however it is provoked.
+            golem.setPlayerCreated(false);
+        }
+        dress(mob);
+        return mob;
+    }
+
+    boolean isAmethystMob(Entity entity) {
+        return entity instanceof LivingEntity living && isAmethyst(living);
     }
 }

@@ -408,12 +408,13 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 amethystProgress,
                 clanBattles
         );
+        amethystMobs = new AmethystMobService(this, crateItems);
         airdrops = new AirdropService(
-                this, crateItems, cosmeticStore, cosmeticItems, amethystProgress, playerSettings
+                this, crateItems, cosmeticStore, cosmeticItems, amethystProgress, playerSettings,
+                new AirdropGuardService(this, amethystMobs)
         );
         amethystBlockEvent = new AmethystBlockEventService(this, crateItems, playerSettings);
         amethystEvents = new AmethystEventCoordinator(this, airdrops, amethystBlockEvent);
-        amethystMobs = new AmethystMobService(this, crateItems);
         getCommand("wardrobe").setExecutor(wardrobeService);
         getCommand("wardrobe").setTabCompleter(wardrobeService);
         getCommand("crate").setExecutor(crates);
