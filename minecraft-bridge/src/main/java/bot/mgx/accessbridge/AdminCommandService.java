@@ -1,5 +1,7 @@
 package bot.mgx.accessbridge;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.kyori.adventure.text.format.TextDecoration;
@@ -41,7 +43,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     private static final List<String> SUBCOMMANDS = List.of(
             "startserver", "teststart", "pvp", "give", "ranks", "eco", "bounty", "hologram",
             "reset", "testverify", "testcrate", "testairdrop", "testamethystblock", "devblog", "update", "serials",
-            "cosmetics", "clanbattle", "abuse", "event", "help"
+            "cosmetics", "clanbattle", "abuse", "event", "variables", "help"
     );
     private static final List<String> CRATE_REVEAL_TIERS = List.of(
             "legendary", "mythic", "exotic", "secret"
@@ -86,6 +88,7 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     private final AmethystBlockEventService amethystBlocks;
     private final AmethystProgressStore amethystProgress;
     private final ClanBattleService clanBattles;
+    private final GameVariableStore variables;
 
     AdminCommandService(
             MGXAccessBridge plugin,
@@ -106,7 +109,8 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             AirdropService airdrops,
             AmethystBlockEventService amethystBlocks,
             AmethystProgressStore amethystProgress,
-            ClanBattleService clanBattles
+            ClanBattleService clanBattles,
+            GameVariableStore variables
     ) {
         this.plugin = plugin;
         this.rankSync = rankSync;
@@ -127,16 +131,29 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
         this.amethystBlocks = amethystBlocks;
         this.amethystProgress = amethystProgress;
         this.clanBattles = clanBattles;
+        this.variables = variables;
     }
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         args = CommandArgs.withoutEchoedSender(sender.getName(), args);
+        String action = args.length == 0 ? "help" : args[0].toLowerCase(Locale.ROOT);
+        if (action.equals("variables") || action.equals("variable") || action.equals("vars")) {
+            if (sender instanceof Player player && !plugin.hasOwnerRankLoaded(player.getUniqueId())) {
+                error(sender, "Only the synced OWNER role can change live game variables.");
+                return true;
+            }
+            try {
+                variables(sender, args);
+            } catch (IllegalArgumentException exception) {
+                error(sender, exception.getMessage());
+            }
+            return true;
+        }
         if (!plugin.mayAdminister(sender)) {
             error(sender, "You do not have permission to do that.");
             return true;
         }
-        String action = args.length == 0 ? "help" : args[0].toLowerCase(Locale.ROOT);
         try {
             switch (action) {
                 case "startserver" -> {
@@ -175,6 +192,63 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             error(sender, exception.getMessage());
         }
         return true;
+    }
+
+    private void variables(CommandSender sender, String[] args) {
+        String operation = args.length < 2 ? "list" : args[1].toLowerCase(Locale.ROOT);
+        if (operation.equals("list")) {
+            String filter = args.length >= 3 ? args[2].toLowerCase(Locale.ROOT) : "";
+            List<JsonObject> rows = variables.snapshot().getAsJsonArray("variables").asList()
+                    .stream().map(JsonElement::getAsJsonObject)
+                    .filter(row -> filter.isBlank()
+                            || row.get("key").getAsString().toLowerCase(Locale.ROOT).contains(filter)
+                            || row.get("category").getAsString().toLowerCase(Locale.ROOT).contains(filter))
+                    .toList();
+            sender.sendMessage(Component.text("Live game variables", ORANGE, TextDecoration.BOLD));
+            rows.stream().limit(40).forEach(row -> {
+                sender.sendMessage(Component.text("  " + row.get("key").getAsString() + " = "
+                        + row.get("value").getAsString(), NamedTextColor.GRAY));
+            });
+            sender.sendMessage(Component.text(
+                    "  Showing " + Math.min(rows.size(), 40) + " of " + rows.size()
+                            + ". Filter with /mgxadmin variables list <word>.", NamedTextColor.GRAY
+            ));
+            sender.sendMessage(Component.text(
+                    "  Use get|set|reset <key> [value] for one variable.", NamedTextColor.GRAY
+            ));
+            return;
+        }
+        if (args.length < 3) {
+            throw new IllegalArgumentException(
+                    "Use /mgxadmin variables get|set|reset <key> [value]."
+            );
+        }
+        String key = args[2];
+        if (operation.equals("get")) {
+            JsonObject row = variables.snapshot().getAsJsonArray("variables").asList().stream()
+                    .map(JsonElement::getAsJsonObject)
+                    .filter(value -> value.get("key").getAsString().equalsIgnoreCase(key))
+                    .findFirst().orElseThrow(() -> new IllegalArgumentException(
+                            "Unknown variable '" + key + "'."
+                    ));
+            info(sender, row.get("key").getAsString() + " = " + row.get("value").getAsString());
+            return;
+        }
+        String summary;
+        if (operation.equals("reset")) {
+            summary = variables.reset(key);
+        } else if (operation.equals("set") && args.length >= 4) {
+            summary = variables.set(key, args[3]);
+        } else {
+            throw new IllegalArgumentException(
+                    "Use /mgxadmin variables get|set|reset <key> [value]."
+            );
+        }
+        success(sender, summary + ". It is live now; no restart is required.");
+        report(sender, "game_variable", "Changed live game variable")
+                .detail("key", key)
+                .detail("value", summary)
+                .record();
     }
 
     /** {@code /mgxadmin pvp <on|off|status>} */
@@ -1185,6 +1259,11 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
                 .append(Component.text("  run a server-wide 2x event", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin event list", ORANGE)
                 .append(Component.text("  which multipliers are live", NamedTextColor.GRAY)));
+        sender.sendMessage(Component.text(
+                        "  /mgxadmin variables get|set|reset <key> [value]", ORANGE
+                ).append(Component.text(
+                        "  OWNER-only live controls; no restart required", NamedTextColor.GRAY
+                )));
         sender.sendMessage(Component.text("  /mgxadmin abuse <effect> [seconds]", ORANGE)
                 .append(Component.text("  run a live admin event", NamedTextColor.GRAY)));
         sender.sendMessage(Component.text("  /mgxadmin abuse list", ORANGE)
@@ -1308,6 +1387,20 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
             }
             if (args.length == 4) {
                 return partial(args[3], List.of("confirm"));
+            }
+            return List.of();
+        }
+        if (action.equals("variables") || action.equals("variable") || action.equals("vars")) {
+            if (args.length == 2) {
+                return partial(args[1], List.of("list", "get", "set", "reset"));
+            }
+            if (args.length == 3) {
+                return partial(args[2], variables.snapshot().getAsJsonArray("variables").asList()
+                        .stream().map(JsonElement::getAsJsonObject)
+                        .map(row -> row.get("key").getAsString()).toList());
+            }
+            if (args.length == 4 && args[1].equalsIgnoreCase("set")) {
+                return partial(args[3], List.of("true", "false"));
             }
             return List.of();
         }

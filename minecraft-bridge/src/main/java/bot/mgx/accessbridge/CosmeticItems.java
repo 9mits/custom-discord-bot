@@ -70,6 +70,12 @@ final class CosmeticItems {
     }
 
     ItemStack preview(CosmeticCatalog.Definition definition, boolean oddsScreen) {
+        return preview(definition, oddsScreen, null);
+    }
+
+    ItemStack preview(
+            CosmeticCatalog.Definition definition, boolean oddsScreen, String chanceOverride
+    ) {
         boolean masked = masksSecret(definition, oddsScreen);
         Material material = Material.matchMaterial(previewMaterialName(definition, oddsScreen));
         if (material == null) {
@@ -121,7 +127,8 @@ final class CosmeticItems {
         if (showsExactChance(definition, oddsScreen)) {
             lore.add(masked
                     ? line("Chance: ").append(obfuscated("0.001%", NamedTextColor.DARK_PURPLE))
-                    : line("Chance: " + definition.displayedChance()));
+                    : line("Chance: " + (chanceOverride == null
+                            ? definition.displayedChance() : chanceOverride)));
         }
         meta.lore(lore);
         NamespacedKey model = NamespacedKey.fromString(previewModelKey(definition, oddsScreen));

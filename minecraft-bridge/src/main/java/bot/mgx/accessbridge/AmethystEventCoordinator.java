@@ -27,8 +27,7 @@ final class AmethystEventCoordinator {
     private final AirdropService airdrops;
     private final AmethystBlockEventService blocks;
     private final RandomGenerator random;
-    private final long minimumDelayMillis;
-    private final long maximumDelayMillis;
+    private final GameVariableStore variables;
     private Kind next;
     private BukkitTask task;
     private boolean reserved;
@@ -36,28 +35,27 @@ final class AmethystEventCoordinator {
 
     AmethystEventCoordinator(
             MGXAccessBridge plugin, AirdropService airdrops,
-            AmethystBlockEventService blocks
+            AmethystBlockEventService blocks, GameVariableStore variables
     ) {
-        this(plugin, airdrops, blocks, ThreadLocalRandom.current());
+        this(plugin, airdrops, blocks, variables, ThreadLocalRandom.current());
     }
 
     AmethystEventCoordinator(
             MGXAccessBridge plugin, AirdropService airdrops,
-            AmethystBlockEventService blocks, RandomGenerator random
+            AmethystBlockEventService blocks, GameVariableStore variables,
+            RandomGenerator random
     ) {
         this.plugin = plugin;
         this.airdrops = airdrops;
         this.blocks = blocks;
+        this.variables = variables;
         this.random = random;
-        long configuredMinimum = minutes("amethyst-events.minimum-delay-minutes",
-                plugin.getConfig().getLong("airdrop.minimum-delay-minutes", 30L));
-        long configuredMaximum = minutes("amethyst-events.maximum-delay-minutes",
-                plugin.getConfig().getLong("airdrop.maximum-delay-minutes", 90L));
-        minimumDelayMillis = Math.min(configuredMinimum, configuredMaximum);
-        maximumDelayMillis = Math.max(configuredMinimum, configuredMaximum);
         next = random.nextBoolean() ? Kind.AIRDROP : Kind.HUGE_BLOCK;
         airdrops.blockWhile(blocks::isActiveOrSpawning);
         blocks.blockWhile(airdrops::isActiveOrSpawning);
+        variables.onChange(key -> {
+            if (key.startsWith("amethyst-events.")) rescheduleCooldown();
+        });
     }
 
     void start() {
@@ -86,10 +84,22 @@ final class AmethystEventCoordinator {
     }
 
     private void scheduleCooldown() {
+        long configuredMinimum = Duration.ofMinutes(
+                variables.integer("amethyst-events.minimum-delay-minutes")
+        ).toMillis();
+        long configuredMaximum = Duration.ofMinutes(
+                variables.integer("amethyst-events.maximum-delay-minutes")
+        ).toMillis();
+        long minimumDelayMillis = Math.min(configuredMinimum, configuredMaximum);
+        long maximumDelayMillis = Math.max(configuredMinimum, configuredMaximum);
         long delay = AirdropService.randomDelayMillis(
                 random, minimumDelayMillis, maximumDelayMillis
         );
         schedule(hastened(delay), this::tryStart);
+    }
+
+    private void rescheduleCooldown() {
+        if (!stopped && !reserved) scheduleCooldown();
     }
 
     /**

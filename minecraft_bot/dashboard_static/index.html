@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>Mysterious SMP X — Server Control</title>
+  <link rel="stylesheet" href="/assets/dashboard.css">
+</head>
+<body>
+  <div class="ambient ambient-one"></div>
+  <div class="ambient ambient-two"></div>
+  <header class="site-header">
+    <a class="brand" href="#leaderboards" aria-label="Mysterious SMP X home">
+      <span class="brand-mark">M</span>
+      <span><b>Mysterious SMP X</b><small>Server intelligence</small></span>
+    </a>
+    <nav aria-label="Primary navigation">
+      <a href="#leaderboards">Leaderboards</a>
+      <a href="#clan-battle">Clan battle</a>
+      <a href="#control">Control</a>
+      <a href="#logs">Logs</a>
+    </nav>
+    <div id="account" class="account"><a class="discord-button" href="/auth/login">Continue with Discord</a></div>
+  </header>
+
+  <main>
+    <section class="hero" id="leaderboards">
+      <div>
+        <p class="eyebrow">LIVE FROM PAPER</p>
+        <h1>Every race.<br><span>One clear view.</span></h1>
+        <p class="hero-copy">Player and clan standings update from the same snapshot used in game and on Discord.</p>
+      </div>
+      <div class="status-card">
+        <span class="pulse"></span>
+        <div><small>LAST SERVER SNAPSHOT</small><strong id="generated-at">Waiting for Paper</strong></div>
+      </div>
+    </section>
+
+    <section class="section-shell">
+      <div class="section-heading">
+        <div><p class="eyebrow">PLAYER LEADERBOARDS</p><h2>The individual race</h2></div>
+        <div id="player-tabs" class="tabs" role="tablist"></div>
+      </div>
+      <div id="player-board" class="leaderboard-grid skeleton-board"></div>
+    </section>
+
+    <section class="section-shell clan-shell">
+      <div class="section-heading">
+        <div><p class="eyebrow">CLAN LEADERBOARDS</p><h2>Teams that move the server</h2></div>
+        <div id="clan-tabs" class="tabs" role="tablist"></div>
+      </div>
+      <div id="clan-board" class="leaderboard-grid"></div>
+    </section>
+
+    <section class="battle-shell" id="clan-battle">
+      <div class="battle-copy">
+        <p class="eyebrow">CURRENT CLAN BATTLE</p>
+        <h2 id="battle-title">No active battle</h2>
+        <p id="battle-objective">When the next clan battle starts, its objective and live standings will appear here.</p>
+        <div id="battle-deadline" class="deadline"></div>
+      </div>
+      <div id="battle-board" class="battle-board"></div>
+    </section>
+
+    <section class="control-shell locked" id="control">
+      <div class="section-heading">
+        <div><p class="eyebrow">OWNER CONTROL PLANE</p><h2>Live game variables</h2></div>
+        <div class="control-actions">
+          <input id="setting-search" type="search" placeholder="Search everything" aria-label="Search settings">
+          <button id="refresh-settings" class="secondary-button" type="button">Refresh</button>
+        </div>
+      </div>
+      <div id="control-lock" class="lock-card">
+        <div class="lock-icon">M</div>
+        <h3>Owner access only</h3>
+        <p>Authorize with Discord. Access is granted only while your account holds the mapped OWNER role.</p>
+        <a class="discord-button" href="/auth/login">Continue with Discord</a>
+      </div>
+      <div id="settings-content" hidden>
+        <div id="setting-categories" class="category-rail"></div>
+        <div id="settings-grid" class="settings-grid"></div>
+      </div>
+    </section>
+
+    <section class="section-shell logs-shell" id="logs">
+      <div class="section-heading">
+        <div><p class="eyebrow">AUDIT TRAIL</p><h2>Recent control activity</h2></div>
+      </div>
+      <div id="logs-content" class="log-list"><p class="empty">Owner authorization is required to view logs.</p></div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/assets/dashboard.js" defer></script>
+</body>
+</html>

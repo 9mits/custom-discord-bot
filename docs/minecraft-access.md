@@ -42,7 +42,7 @@ window is allowed rather than turned away.
 
 The bridge exposes an HTTP WebSocket path inside the Minecraft bot process. Production traffic must reach it through a TLS endpoint (`wss://`). The Paper plugin makes the outbound connection, so the Minecraft server does not need an inbound bridge port and RCON is never used.
 
-Every bridge message carries an HMAC-SHA256 signature, timestamp, random nonce, and idempotency key. Both sides reject messages outside a 30-second clock window and replayed nonces. The bridge accepts only `APPROVE`, `REVOKE`, `KICK`, `SYNC_PENDING`, `REMOVE_PENDING`, `STATUS`, `DISCORD_CHAT`, and the transient `SYNC_PROFILE` perk update; it cannot run arbitrary console commands. Paper sends signed, acknowledged `PLAYER_JOIN`, `PLAYER_LEAVE`, and `MINECRAFT_CHAT` events and receives a derived level profile when a linked player joins or their milestone roles change.
+Every bridge message carries an HMAC-SHA256 signature, timestamp, random nonce, and idempotency key. Both sides reject messages outside a 30-second clock window and replayed nonces. Actions are allowlisted; the bridge does not expose arbitrary console execution. Owner-only `GAME_VARIABLE` actions change a typed Paper registry, and Paper independently verifies that the linked Minecraft account holds the Discord-synced `owner` group. Paper sends signed activity, chat, leaderboard, capability, and sensitive game-variable snapshots back to the bot.
 
 Each Discord member can link as many Java and Bedrock accounts as they want. A Minecraft account (UUID or Floodgate XUID) can still belong to only one Discord member.
 
@@ -64,6 +64,11 @@ secrets, and process-level bridge settings belong in this file:
 | `MINECRAFT_BRIDGE_TLS_KEY` | Optional private-key PEM path for direct WSS. Must be set with the certificate. |
 | `MINECRAFT_ALLOW_INSECURE_LOCALHOST` | Keep `0` in production. Set `1` only for a local `ws://localhost` test. |
 | `MINECRAFT_DATA_DIR` | Dedicated runtime directory; defaults to `runtime/minecraft`. |
+| `MINECRAFT_DASHBOARD_ENABLED` | Starts the dashboard when `1`; defaults off so it cannot appear on production by accident. |
+| `MINECRAFT_DASHBOARD_HOST` | Dashboard bind address. Keep `127.0.0.1` for local testing. |
+| `MINECRAFT_DASHBOARD_PORT` | Dashboard HTTP port, normally `8090`. |
+| `MINECRAFT_DASHBOARD_PUBLIC_URL` | Browser-visible base URL used to build the OAuth callback. |
+| `MINECRAFT_DASHBOARD_CLIENT_SECRET` | Discord application OAuth2 client secret. Keep it only in `.env.minecraft`. |
 
 Access and verification channels, access/verification/player-activity logs, two-way chat,
 moderator/approved-member roles, and the public Java and Bedrock addresses are
@@ -76,6 +81,21 @@ one-time bootstrap defaults when the database has no saved value, but can be rem
 after the first successful startup.
 
 The Discord application needs the Server Members and Message Content intents enabled in the Developer Portal. Server Members powers review metadata, approved roles, and milestone perks; Message Content is required for Discord-to-Minecraft chat. Invite only this dedicated application to the configured guild. Its role must sit above the approved-member role selected in the panel, and it needs View Channels, Send Messages, Embed Links, Read Message History, and Manage Roles in the relevant channels/server. The optional chat-sync channel also requires Manage Webhooks.
+
+## Local game dashboard
+
+The dashboard stays on `http://127.0.0.1:8090` by default. Its leaderboard pages are
+public locally and read the same snapshot used in game and on Discord. Settings, exact
+loot weights, and audit logs are never included in that public response.
+
+To enable owner controls, add
+`http://127.0.0.1:8090/auth/callback` to the dedicated Discord application's OAuth2
+redirects, then set `MINECRAFT_DASHBOARD_CLIENT_SECRET` in the git-ignored
+`.env.minecraft`. The browser session is signed and short-lived, every modifying request
+has CSRF protection, and every request rechecks the exact Discord role mapped to the
+LuckPerms `owner` group. Paper performs a second check against the linked Minecraft
+account before applying a value. Use `/mgxadmin variables list|get|set|reset` in game for
+the same live registry; no Paper restart is required.
 
 ## Shared secret
 

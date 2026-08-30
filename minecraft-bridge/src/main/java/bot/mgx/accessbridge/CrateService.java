@@ -37,6 +37,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Stream;
 
 /** Physical crate openings, published odds, hourly keys, and crash-safe pending claims. */
@@ -194,6 +195,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private final MGXAccessBridge plugin;
     private final CrateStore store;
     private final CrateOddsStore odds;
+    private final GameVariableStore variables;
     private final CrateItems items;
     private final CosmeticStore cosmetics;
     private final CosmeticItems cosmeticItems;
@@ -238,11 +240,13 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             CrateFilterStore filters,
             AmethystProgressStore amethystProgress,
             ClanBattleService clanBattles,
-            CrateOddsStore odds
+            CrateOddsStore odds,
+            GameVariableStore variables
     ) {
         this.plugin = plugin;
         this.store = store;
         this.odds = odds;
+        this.variables = variables;
         this.items = items;
         this.cosmetics = cosmetics;
         this.cosmeticItems = cosmeticItems;
@@ -397,7 +401,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         inventory.setItem(HUB_OPEN_SLOT, MenuItems.button(
                 kind.icon(),
                 "Open " + kind.menuName(),
-                "Spends " + kind.keyCost() + " " + kind.currency().shortName(kind.keyCost()) + "."
+                "Spends " + keyCost(kind) + " " + kind.currency().shortName(keyCost(kind)) + "."
         ));
         inventory.setItem(HUB_ODDS_SLOT, MenuItems.button(
                 Material.BOOK,
@@ -417,8 +421,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 pull == 1
                         ? "Every opening spins one reel."
                         : "Every opening spins three reels at once.",
-                "Costs " + (kind.keyCost() * TRIPLE_PULL_SIZE) + " "
-                        + kind.currency().shortName(kind.keyCost() * TRIPLE_PULL_SIZE)
+                "Costs " + (keyCost(kind) * TRIPLE_PULL_SIZE) + " "
+                        + kind.currency().shortName(keyCost(kind) * TRIPLE_PULL_SIZE)
                         + " per opening when on.",
                 "Auto Open uses it too."
         ));
@@ -454,7 +458,10 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         int first = (page - 1) * ODDS_PER_PAGE;
         int last = Math.min(rewards.size(), first + ODDS_PER_PAGE);
         for (int index = first; index < last; index++) {
-            inventory.setItem(index - first, items.oddsPreview(rewards.get(index), cosmeticItems));
+            CrateCatalog.Reward reward = rewards.get(index);
+            inventory.setItem(index - first, items.oddsPreview(
+                    reward, cosmeticItems, variables.displayedChance(kind, reward)
+            ));
         }
         if (page > 1) {
             inventory.setItem(PREVIOUS_SLOT, MenuItems.button(Material.ARROW, "Previous Page"));
@@ -606,7 +613,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         }
         selectedKinds.put(playerId, kind);
         int pull = pullSize(player);
-        int cost = kind.keyCost() * pull;
+        int cost = keyCost(kind) * pull;
         if (currencyCount(player, kind) < cost) {
             PlayerMenuService.error(player, "You need " + cost
                     + " " + kind.currency().fullName(cost)
@@ -621,7 +628,9 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         int[] rows = pull == 1 ? new int[]{SINGLE_ROW} : TRIPLE_ROWS;
         List<Lane> lanes = new ArrayList<>();
         for (int row : rows) {
-            CrateCatalog.Reward reward = kind.randomReward(rollPercent);
+            CrateCatalog.Reward reward = variables.randomReward(
+                    kind, rollPercent, ThreadLocalRandom.current()
+            );
             odds.record(kind, reward.rare());
             lanes.add(new Lane(row, reward));
         }
@@ -654,8 +663,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
      * for does not exist yet.
      */
     private boolean reserveLane(Player player, CrateKind kind, Lane lane, long now) {
-        int consumed = removeCurrency(player, kind, kind.keyCost());
-        if (consumed != kind.keyCost()) {
+        int consumed = removeCurrency(player, kind, keyCost(kind));
+        if (consumed != keyCost(kind)) {
             returnCurrency(player, kind, consumed);
             PlayerMenuService.error(player, "Your " + kind.currency().shortName(2)
                     + " moved before they could be consumed.");
@@ -669,7 +678,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             // committed, not whichever battle happens to be live after the reel ends.
             clanBattles.recordCrateOpening(player);
         } catch (IllegalStateException | UncheckedIOException exception) {
-            returnCurrency(player, kind, kind.keyCost());
+            returnCurrency(player, kind, keyCost(kind));
             plugin.getLogger().warning("Could not reserve a crate reward: " + exception.getMessage());
             PlayerMenuService.error(player, "That opening could not be saved. Your key was returned.");
             return false;
@@ -800,7 +809,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         }
         int keys = currencyCount(player, kind);
         int pull = pullSize(player);
-        int cost = kind.keyCost() * pull;
+        int cost = keyCost(kind) * pull;
         boolean canOpen = keys >= cost;
         inventory.setItem(RESULT_AGAIN_SLOT, MenuItems.button(
                 canOpen ? Material.CHEST : Material.BARRIER,
@@ -851,7 +860,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
         }
         int keys = currencyCount(player, kind);
         int pull = pullSize(player);
-        int cost = kind.keyCost() * pull;
+        int cost = keyCost(kind) * pull;
         int opens = keys / cost;
         if (opens <= 0) {
             PlayerMenuService.error(player, "You need " + cost + " "
@@ -874,8 +883,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 pull == 1
                         ? "Opens " + opens + " crates one after another."
                         : "Runs " + opens + " pulls of " + pull + " reels each.",
-                kind.keyCost() + " " + kind.currency().shortName(kind.keyCost())
-                        + (kind.keyCost() == 1 ? " is" : " are") + " spent per crate.",
+                keyCost(kind) + " " + kind.currency().shortName(keyCost(kind))
+                        + (keyCost(kind) == 1 ? " is" : " are") + " spent per crate.",
                 "Close the menu part way to keep the rest."
         ));
         inventory.setItem(CONFIRM_NO_SLOT, MenuItems.button(
@@ -894,7 +903,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
      */
     private void beginAutoOpen(Player player, CrateKind kind) {
         int keys = currencyCount(player, kind);
-        int cost = kind.keyCost() * pullSize(player);
+        int cost = keyCost(kind) * pullSize(player);
         int opens = keys / cost;
         if (opens <= 0) {
             PlayerMenuService.error(player, "You need " + cost + " "
@@ -943,7 +952,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             return;
         }
         int left = remaining - 1;
-        if (left <= 0 || currencyCount(player, kind) < kind.keyCost() * pullSize(player)) {
+        if (left <= 0 || currencyCount(player, kind) < keyCost(kind) * pullSize(player)) {
             autoRuns.remove(player.getUniqueId());
             Integer counted = autoTrashed.remove(player.getUniqueId());
             int trashed = counted == null ? 0 : counted;
@@ -1183,7 +1192,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private int balancePercent(CrateKind kind) {
         CrateOddsStore.Counts counts = odds.counts(kind);
         return CrateOddsBalance.percent(
-                counts.opens(), counts.rareHits(), kind.advertisedRareRate()
+                counts.opens(), counts.rareHits(), variables.advertisedRareRate(kind)
         );
     }
 
@@ -1591,9 +1600,11 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
 
     /** What an hour online is worth to this player, before any live event. */
     private int keysPerHour(Player player) {
-        return perks.profile(player.getUniqueId()).booster()
-                ? BOOSTER_KEYS_PER_HOUR
-                : KEYS_PER_HOUR;
+        return variables.keysPerHour(perks.profile(player.getUniqueId()).booster());
+    }
+
+    int keyCost(CrateKind kind) {
+        return variables.keyCost(kind);
     }
 
     private Map<UUID, CrateStore.KeyCredit> creditOnline(Map<UUID, Long> elapsed) {
@@ -1605,7 +1616,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             int eventRate = plugin.keyEventMultiplier();
             elapsed.keySet().forEach(playerId -> rates.put(
                     playerId,
-                    (perks.profile(playerId).booster() ? BOOSTER_KEYS_PER_HOUR : KEYS_PER_HOUR)
+                    variables.keysPerHour(perks.profile(playerId).booster())
                             * eventRate
             ));
             return store.creditOnline(elapsed, rates);
@@ -1741,10 +1752,10 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
      * <p>Shared with {@link #refreshCountdowns()} so the tile a player is looking at
      * and the tile the timer rewrites are drawn by the same code.
      */
-    private static ItemStack selectButton(CrateKind kind, boolean oddsOnly, long now) {
+    private ItemStack selectButton(CrateKind kind, boolean oddsOnly, long now) {
         String action = oddsOnly
                 ? "View exact odds."
-                : kind.keyCost() + " " + kind.currency().shortName(kind.keyCost()) + " required.";
+                : keyCost(kind) + " " + kind.currency().shortName(keyCost(kind)) + " required.";
         if (!kind.limited()) {
             return MenuItems.button(kind.icon(), kind.menuName(), "Permanent rewards.", action);
         }

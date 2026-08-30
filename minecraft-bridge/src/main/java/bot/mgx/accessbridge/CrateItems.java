@@ -302,29 +302,34 @@ final class CrateItems {
     }
 
     ItemStack preview(CrateCatalog.Reward reward, CosmeticItems cosmetics) {
-        return preview(reward, cosmetics, false);
+        return preview(reward, cosmetics, false, null);
     }
 
     ItemStack oddsPreview(CrateCatalog.Reward reward, CosmeticItems cosmetics) {
-        return preview(reward, cosmetics, false);
+        return preview(reward, cosmetics, false, null);
+    }
+
+    ItemStack oddsPreview(
+            CrateCatalog.Reward reward, CosmeticItems cosmetics, String displayedChance
+    ) {
+        return preview(reward, cosmetics, false, displayedChance);
     }
 
     ItemStack revealedPreview(CrateCatalog.Reward reward, CosmeticItems cosmetics) {
-        return preview(reward, cosmetics, true);
+        return preview(reward, cosmetics, true, null);
     }
 
     private ItemStack preview(
             CrateCatalog.Reward reward,
             CosmeticItems cosmetics,
-            boolean revealSecret
+            boolean revealSecret,
+            String chanceOverride
     ) {
         if (reward.cosmetic()) {
             return CosmeticCatalog.find(reward.cosmeticId())
                     .map(definition -> withSupply(
-                            cosmetics.preview(
-                                    definition,
-                                    !(revealSecret && definition.secret())
-                            ),
+                            cosmetics.preview(definition,
+                                    !(revealSecret && definition.secret()), chanceOverride),
                             cosmeticStore.inExistence(definition.id())
                     ))
                     .orElseGet(() -> new ItemStack(Material.BARRIER));
@@ -349,7 +354,8 @@ final class CrateItems {
             lore.add(line(reward.description()));
             lore.add(Component.empty());
             lore.add(line("Rarity: " + reward.rarityDisplay()));
-            lore.add(line("Chance: " + reward.displayedChance()));
+            lore.add(line("Chance: " + (chanceOverride == null
+                    ? reward.displayedChance() : chanceOverride)));
             meta.lore(lore);
             item.setItemMeta(meta);
         }

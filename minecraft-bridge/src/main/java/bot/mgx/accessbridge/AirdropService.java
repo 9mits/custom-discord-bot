@@ -172,10 +172,7 @@ final class AirdropService implements Listener {
     private final PlayerSettingsStore settings;
     private final NamespacedKey cosmeticMarker;
     private final RandomGenerator random;
-    private final long lifetimeMillis;
-    private final int minimumRadius;
-    private final int attempts;
-    private final boolean enabled;
+    private final GameVariableStore variables;
 
     private ActiveAirdrop active;
     private BukkitTask expiryTask;
@@ -196,10 +193,11 @@ final class AirdropService implements Listener {
             CosmeticItems cosmeticItems,
             AmethystProgressStore progress,
             PlayerSettingsStore settings,
-            AirdropGuardService guards
+            AirdropGuardService guards,
+            GameVariableStore variables
     ) {
         this(plugin, crateItems, cosmeticStore, cosmeticItems, progress, settings, guards,
-                ThreadLocalRandom.current());
+                variables, ThreadLocalRandom.current());
     }
 
     AirdropService(
@@ -210,6 +208,7 @@ final class AirdropService implements Listener {
             AmethystProgressStore progress,
             PlayerSettingsStore settings,
             AirdropGuardService guards,
+            GameVariableStore variables,
             RandomGenerator random
     ) {
         this.plugin = plugin;
@@ -219,16 +218,9 @@ final class AirdropService implements Listener {
         this.progress = progress;
         this.settings = settings;
         this.guards = guards;
+        this.variables = variables;
         this.random = random;
         cosmeticMarker = new NamespacedKey(plugin, "airdrop_cosmetic");
-        enabled = plugin.getConfig().getBoolean("airdrop.enabled", true);
-        lifetimeMillis = minutes("airdrop.lifetime-minutes", 30L);
-        minimumRadius = Math.max(0, plugin.getConfig().getInt(
-                "airdrop.minimum-radius", DEFAULT_MINIMUM_RADIUS
-        ));
-        attempts = Math.clamp(plugin.getConfig().getInt(
-                "airdrop.location-attempts", DEFAULT_ATTEMPTS
-        ), 1, 100);
     }
 
     void start() {
@@ -242,7 +234,8 @@ final class AirdropService implements Listener {
     }
 
     boolean beginScheduled(Runnable onSpawned, Runnable onFinished, Runnable onFailed) {
-        if (stopped || !enabled || active != null || otherEventActive.getAsBoolean()
+        if (stopped || !variables.bool("airdrop.enabled")
+                || active != null || otherEventActive.getAsBoolean()
                 || spawnedCallback != null
                 || !CrateKind.AMETHYST.available(System.currentTimeMillis())) {
             return false;
@@ -250,7 +243,7 @@ final class AirdropService implements Listener {
         spawnedCallback = onSpawned;
         finishedCallback = onFinished;
         failedCallback = onFailed;
-        attemptSpawn(AirdropCatalog.randomRarity(random), 0);
+        attemptSpawn(variables.randomAirdropRarity(random), 0);
         return true;
     }
 
@@ -342,6 +335,7 @@ final class AirdropService implements Listener {
             failScheduledSpawn();
             return;
         }
+        int attempts = variables.integer("airdrop.location-attempts");
         if (attempt >= attempts) {
             plugin.getLogger().warning(
                     "Could not find safe ground for an Amethyst Airdrop after "
@@ -415,6 +409,7 @@ final class AirdropService implements Listener {
         WorldBorder border = world.getWorldBorder();
         Location centre = border.getCenter();
         int limit = Math.max(1, (int) Math.floor(border.getSize() / 2d) - BORDER_MARGIN);
+        int minimumRadius = variables.integer("airdrop.minimum-radius");
         int localMinimum = world.getEnvironment() == World.Environment.NETHER
                 ? Math.max(64, minimumRadius / 8)
                 : minimumRadius;
@@ -550,11 +545,13 @@ final class AirdropService implements Listener {
                     TextDecoration.BOLD
             ));
             chest.update(true, false);
-            fillChest(
-                    chest.getBlockInventory(), AirdropCatalog.roll(rarity, random), forcedCosmetics
-            );
+            fillChest(chest.getBlockInventory(),
+                    AirdropCatalog.roll(rarity, random, variables), forcedCosmetics);
 
             long spawnedAt = System.currentTimeMillis();
+            long lifetimeMillis = Duration.ofMinutes(
+                    variables.integer("airdrop.lifetime-minutes")
+            ).toMillis();
             long expiresAt = Math.addExact(spawnedAt, lifetimeMillis);
             labels.addAll(spawnLabels(chestLocation, rarity, expiresAt));
             active = new ActiveAirdrop(
@@ -684,7 +681,7 @@ final class AirdropService implements Listener {
         broadcast(announcement);
         hideAnnouncement();
         announcementBar = BossBar.bossBar(
-                bossBarTitle(drop, lifetimeMillis),
+                bossBarTitle(drop, drop.expiresAtMillis - drop.spawnedAtMillis),
                 1f,
                 BossBar.Color.PURPLE,
                 BossBar.Overlay.PROGRESS

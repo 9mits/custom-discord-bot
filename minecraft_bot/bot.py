@@ -72,6 +72,7 @@ from .presentation import (
     reverse_link_request_embed,
 )
 from .settings import MinecraftSettings, SETTING_KEYS
+from .dashboard import DashboardServer
 from .ui import (
     AccountView,
     LinkEditionView,
@@ -194,6 +195,7 @@ class MinecraftAccessBot(commands.Bot):
             server_event_handler=self.handle_server_event,
             reverse_link_handler=self.handle_reverse_link_request,
         )
+        self.dashboard = DashboardServer(self)
         self.apply_rate_limit = RateLimiter(5)
         self.status_rate_limit = RateLimiter(10)
         self.chat_rate_limit = RateLimiter(2)
@@ -236,12 +238,14 @@ class MinecraftAccessBot(commands.Bot):
             ReverseLinkButton,
         )
         await self.bridge.start()
+        await self.dashboard.start()
         self.application_maintenance.start()
         self.leaderboard_refresh.start()
 
     async def close(self) -> None:
         self.application_maintenance.cancel()
         self.leaderboard_refresh.cancel()
+        await self.dashboard.close()
         await self.bridge.close()
         if self._background_tasks:
             _done, pending = await asyncio.wait(self._background_tasks, timeout=5)
