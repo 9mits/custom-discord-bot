@@ -1,8 +1,13 @@
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from contextlib import contextmanager
+from unittest.mock import AsyncMock, Mock, patch
+
+import discord
 
 import cogs.server_tags as server_tags
+from core import context
+from core.actions import AcknowledgementPolicy, get_action_spec
 from cogs.server_tags import (
     accepted_guild_ids,
     parse_guild_ids,
@@ -124,3 +129,83 @@ class SyncMemberTests(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@contextmanager
+def stub_runtime():
+    """Stands in for the live bot for every module at once.
+
+    ``core.context.bot`` is a proxy that forwards to one module global, and both the cog
+    and ``cogs.shared`` (which ``make_embed`` uses for the theme colour) hold the same
+    proxy object. Patching each module's own name is fragile; replacing what the proxy
+    resolves to covers all of them.
+    """
+    runtime = SimpleNamespace(
+        data_manager=SimpleNamespace(config={}, mark_config_dirty=lambda: None)
+    )
+    with patch.object(context, "_active_bot", runtime):
+        yield runtime
+
+
+class DeferredResponseTests(unittest.IsolatedAsyncioTestCase):
+    """The command tree defers these before the callback runs.
+
+    ``MetricsCommandTree._call`` auto-defers any command whose action spec declares
+    ``AcknowledgementPolicy.DEFER``. A callback that then defers again, or replies through
+    ``interaction.response``, raises ``InteractionResponded`` and the command hangs on
+    "thinking..." forever — which is exactly what shipped.
+    """
+
+    DEFERRED = ("servertag role", "servertag link", "servertag unlink")
+
+    def setUp(self):
+        self.cog = server_tags.ServerTagCog(Mock())
+        self.cog.sync_guild = AsyncMock(return_value=0)
+        self.cog._assignable = Mock(return_value=True)
+        self.cog._accepted = Mock(return_value={HOME})
+        self.cog._role = Mock(return_value=None)
+        self.guild = SimpleNamespace(id=HOME, members=[])
+        self.interaction = Mock()
+        self.interaction.guild = self.guild
+        # Exactly what discord.py does once the tree has already responded.
+        self.interaction.response.defer = AsyncMock(
+            side_effect=discord.errors.InteractionResponded(Mock())
+        )
+        self.interaction.response.send_message = AsyncMock(
+            side_effect=discord.errors.InteractionResponded(Mock())
+        )
+        self.interaction.followup.send = AsyncMock()
+
+    def test_the_registry_really_does_declare_them_deferred(self):
+        for name in self.DEFERRED:
+            spec = get_action_spec(name)
+            self.assertIsNotNone(spec, f"{name} is missing from the action registry")
+            self.assertIs(spec.acknowledgement_policy, AcknowledgementPolicy.DEFER, name)
+
+    async def test_setting_a_role_replies_through_the_followup(self):
+        role = Mock()
+        role.id = 555
+        role.mention = "@Tag"
+        with stub_runtime():
+            await self.cog.set_role.callback(self.cog, self.interaction, role)
+        self.interaction.followup.send.assert_awaited_once()
+
+    async def test_clearing_the_role_replies_through_the_followup(self):
+        with stub_runtime():
+            await self.cog.set_role.callback(self.cog, self.interaction, None)
+        self.interaction.followup.send.assert_awaited_once()
+
+    async def test_linking_replies_through_the_followup(self):
+        with stub_runtime():
+            await self.cog.link.callback(self.cog, self.interaction, str(LINKED))
+        self.interaction.followup.send.assert_awaited_once()
+
+    async def test_a_bad_server_id_still_replies_through_the_followup(self):
+        with stub_runtime():
+            await self.cog.link.callback(self.cog, self.interaction, "not-an-id")
+        self.interaction.followup.send.assert_awaited_once()
+
+    async def test_unlinking_replies_through_the_followup(self):
+        with stub_runtime():
+            await self.cog.unlink.callback(self.cog, self.interaction, str(LINKED))
+        self.interaction.followup.send.assert_awaited_once()
