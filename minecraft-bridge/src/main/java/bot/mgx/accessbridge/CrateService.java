@@ -193,6 +193,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
 
     private final MGXAccessBridge plugin;
     private final CrateStore store;
+    private final CrateOddsStore odds;
     private final CrateItems items;
     private final CosmeticStore cosmetics;
     private final CosmeticItems cosmeticItems;
@@ -236,10 +237,12 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             SpecialItemService specialItems,
             CrateFilterStore filters,
             AmethystProgressStore amethystProgress,
-            ClanBattleService clanBattles
+            ClanBattleService clanBattles,
+            CrateOddsStore odds
     ) {
         this.plugin = plugin;
         this.store = store;
+        this.odds = odds;
         this.items = items;
         this.cosmetics = cosmetics;
         this.cosmeticItems = cosmeticItems;
@@ -611,10 +614,16 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
             return;
         }
         int luck = specialItems.crateLuckPercent(player);
+        // The balancer steers the realised rare rate back towards the published one. It is
+        // composed with the player's own luck rather than replacing it, so a potion still
+        // does exactly what its lore says on top of whatever the table currently needs.
+        int rollPercent = CrateOddsBalance.compose(luck, balancePercent(kind));
         int[] rows = pull == 1 ? new int[]{SINGLE_ROW} : TRIPLE_ROWS;
         List<Lane> lanes = new ArrayList<>();
         for (int row : rows) {
-            lanes.add(new Lane(row, kind.randomReward(luck)));
+            CrateCatalog.Reward reward = kind.randomReward(rollPercent);
+            odds.record(kind, reward.rare());
+            lanes.add(new Lane(row, reward));
         }
         if (!reserveLane(player, kind, lanes.get(0), now)) {
             return;
@@ -1171,6 +1180,13 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     }
 
     /** One line for the keys leaving a player's hands, before anything is won. */
+    private int balancePercent(CrateKind kind) {
+        CrateOddsStore.Counts counts = odds.counts(kind);
+        return CrateOddsBalance.percent(
+                counts.opens(), counts.rareHits(), kind.advertisedRareRate()
+        );
+    }
+
     private void auditOpen(Player player, CrateKind kind, int pull, int cost, int luck) {
         ServerEvent.Builder builder = ServerEvent.of(
                 "crate_open",

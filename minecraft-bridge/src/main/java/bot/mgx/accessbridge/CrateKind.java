@@ -225,6 +225,22 @@ enum CrateKind {
         return Math.max(1L, minutes) + "m remaining";
     }
 
+    /**
+     * The share of this crate's table that is rare, which is the rate the published odds
+     * advertise and therefore the rate {@link CrateOddsBalance} steers back towards.
+     */
+    double advertisedRareRate() {
+        int total = rewards.stream().mapToInt(CrateCatalog.Reward::weight).sum();
+        if (total <= 0) {
+            return 0d;
+        }
+        int rare = rewards.stream()
+                .filter(CrateCatalog.Reward::rare)
+                .mapToInt(CrateCatalog.Reward::weight)
+                .sum();
+        return (double) rare / (double) total;
+    }
+
     CrateCatalog.Reward randomReward(int luckPercent) {
         if (this == AMETHYST) {
             int jackpotTicket = java.util.concurrent.ThreadLocalRandom.current()

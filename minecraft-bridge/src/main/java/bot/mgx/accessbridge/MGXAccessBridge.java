@@ -100,6 +100,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private AutoPayStore autoPayStore;
     private CrateFilterStore crateFilterStore;
     private AmethystProgressStore amethystProgress;
+    private CrateOddsStore crateOdds;
     private ClanBattleStore clanBattleStore;
     private HomeIconStore homeIconStore;
     private ClanWarpMetaStore clanWarpMetaStore;
@@ -186,6 +187,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             );
             amethystProgress = new AmethystProgressStore(
                     getDataFolder().toPath().resolve("amethyst-event-progress.json")
+            );
+            crateOdds = new CrateOddsStore(
+                    getDataFolder().toPath().resolve("crate-odds.json")
             );
             clanBattleStore = new ClanBattleStore(
                     getDataFolder().toPath().resolve("clan-battles.json")
@@ -406,7 +410,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 specialItems,
                 crateFilterStore,
                 amethystProgress,
-                clanBattles
+                clanBattles,
+                crateOdds
         );
         amethystMobs = new AmethystMobService(this, crateItems);
         airdrops = new AirdropService(
