@@ -37,7 +37,7 @@ final class ClanStore {
     static final int MAX_ALLIES = 3;
     /** Long enough for the other clan's leader to be fetched, short enough to expire. */
     static final long ALLY_OFFER_TTL_MILLIS = 10 * 60 * 1000L;
-    private static final int FORMAT_VERSION = 4;
+    private static final int FORMAT_VERSION = 5;
     private static final Pattern VALID_NAME = Pattern.compile("[A-Z0-9]{2,6}");
     private static final Pattern VALID_WARP_NAME = Pattern.compile("[a-z0-9_-]{1,16}");
 
@@ -52,6 +52,7 @@ final class ClanStore {
             UUID id,
             String name,
             int themeColor,
+            String icon,
             UUID leader,
             Optional<UUID> coOwner,
             Map<UUID, String> members,
@@ -146,6 +147,8 @@ final class ClanStore {
         String name;
         String tag; // Read once when migrating data written by plugin 2.1.0.
         Integer themeColor;
+        /** A {@link ClanIcon#id()}; absent before format 5 and migrated to Amethyst. */
+        String icon;
         String leader;
         /** One optional co-owner. Absent before format 4, which reads as no co-owner. */
         String coOwner;
@@ -227,6 +230,7 @@ final class ClanStore {
         clan.id = UUID.randomUUID().toString();
         clan.name = name;
         clan.themeColor = DEFAULT_THEME_COLOR;
+        clan.icon = ClanIcon.DEFAULT.id();
         clan.leader = owner.toString();
         clan.members.put(owner.toString(), cleanPlayerName(ownerName));
         clan.joinedAt = new LinkedHashMap<>();
@@ -451,6 +455,18 @@ final class ClanStore {
             throw new ClanException("Your clan already uses that theme color.");
         }
         clan.themeColor = themeColor;
+        persist();
+        return view(clan);
+    }
+
+    synchronized ClanView setIcon(UUID actor, String requestedIcon) throws IOException {
+        SavedClan clan = requireManager(actor);
+        ClanIcon icon = ClanIcon.find(requestedIcon)
+                .orElseThrow(() -> new ClanException("That clan icon does not exist."));
+        if (icon.id().equals(clan.icon)) {
+            throw new ClanException("Your clan already uses that icon.");
+        }
+        clan.icon = icon.id();
         persist();
         return view(clan);
     }
@@ -838,6 +854,12 @@ final class ClanStore {
                 } else if (clan.themeColor < 0 || clan.themeColor > 0xFFFFFF) {
                     throw new IOException("Clan theme colors must be valid RGB values");
                 }
+                if (clan.icon == null || clan.icon.isBlank()) {
+                    clan.icon = ClanIcon.DEFAULT.id();
+                    migrated = true;
+                } else if (ClanIcon.find(clan.icon).isEmpty()) {
+                    throw new IOException("Clan icons must come from the supported icon catalog");
+                }
                 if (clan.members == null || !clan.members.containsKey(leader.toString())) {
                     throw new IOException("A clan leader must be present in its member list");
                 }
@@ -1150,6 +1172,7 @@ final class ClanStore {
                 UUID.fromString(clan.id),
                 clan.name,
                 clan.themeColor,
+                clan.icon,
                 UUID.fromString(clan.leader),
                 Optional.ofNullable(clan.coOwner).map(UUID::fromString),
                 Map.copyOf(members),

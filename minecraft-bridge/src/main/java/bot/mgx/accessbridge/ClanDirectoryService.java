@@ -106,7 +106,9 @@ final class ClanDirectoryService {
             tag = tag.append(Component.text("  " + medals, MenuText.GOLD));
         }
         UUID clanId = clan.id();
-        return tag
+        return MenuText.sprite(ClanIcon.resolve(clan.icon()).sprite())
+                .append(Component.text(" "))
+                .append(tag)
                 .append(Component.text("  —  ", NamedTextColor.DARK_GRAY))
                 .append(Component.text(
                         clan.members().size() + " member" + (clan.members().size() == 1 ? "" : "s"),

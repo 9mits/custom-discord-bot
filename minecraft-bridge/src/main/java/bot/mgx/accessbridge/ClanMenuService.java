@@ -50,10 +50,13 @@ final class ClanMenuService implements Listener {
     private static final int HUB_MEMBERS = 14;
     private static final int HUB_UPGRADE = 15;
     private static final int HUB_DONORS = 16;
+    private static final int HUB_ICON = 17;
     private static final int UPGRADE_LEVEL = 20;
     private static final int UPGRADE_MEMBERS = 24;
     /** Finishes the clan card's single row. Must stay inside {@link #HUB_SIZE}. */
     private static final int INFO_MEMBERS = 15;
+    private static final int INFO_ICON = 17;
+    private static final int[] ICON_SLOTS = {10, 11, 12, 13, 14, 15, 16, 19, 20, 21, 23, 24};
     private static final int[] WARP_SLOTS = {10, 11, 12, 14, 15, 16};
 
     private static final long[] DONATE_AMOUNTS = {100L, 1_000L, 10_000L, 100_000L, 1_000_000L};
@@ -150,6 +153,14 @@ final class ClanMenuService implements Listener {
         }
     }
 
+    void openIconsPreferred(Player player) {
+        if (dialogs != null) {
+            dialogs.openIcons(player);
+        } else {
+            openIcons(player);
+        }
+    }
+
     /** Every route to the warps goes through here, so only one screen can open. */
     void openWarpsPreferred(Player player) {
         openWarpsPreferred(player, null);
@@ -185,6 +196,32 @@ final class ClanMenuService implements Listener {
                 clan.members().size() + "/" + clan.memberSlots() + " members."));
         inventory.setItem(HUB_DONORS, button(Material.EMERALD, "Donors",
                 "Who has given what.", "Largest first."));
+        ClanIcon icon = ClanIcon.resolve(clan.icon());
+        inventory.setItem(HUB_ICON, button(icon.material(), "Clan Icon",
+                icon.label(), "Owner or co-owner can change it."));
+        MenuItems.back(inventory);
+        MenuItems.show(plugin, player, inventory);
+    }
+
+    void openIcons(Player player) {
+        ClanStore.ClanView clan = requireOwnClan(player);
+        ClanIcon selected = ClanIcon.resolve(clan.icon());
+        Menu menu = new Menu(
+                Menu.Kind.CLAN_ICONS, clan.id(), 1,
+                Menu.Destination.of(Menu.Kind.CLAN_HUB)
+        );
+        Inventory inventory = Bukkit.createInventory(
+                menu, HUB_SIZE, Component.text("Clan icon", ORANGE)
+        );
+        menu.attach(inventory);
+        List<ClanIcon> choices = ClanIcon.choices();
+        for (int index = 0; index < choices.size(); index++) {
+            ClanIcon icon = choices.get(index);
+            int slot = ICON_SLOTS[index];
+            inventory.setItem(slot, button(icon.material(), icon.label(),
+                    icon == selected ? "Selected" : "Click to use this icon."));
+            menu.option(slot, icon.id());
+        }
         MenuItems.back(inventory);
         MenuItems.show(plugin, player, inventory);
     }
@@ -361,6 +398,8 @@ final class ClanMenuService implements Listener {
             allyLore.add("No friendly fire with these clans.");
         }
         inventory.setItem(16, button(Material.SHIELD, "Allies", allyLore));
+        ClanIcon icon = ClanIcon.resolve(clan.icon());
+        inventory.setItem(INFO_ICON, button(icon.material(), "Clan Icon", icon.label()));
         inventory.setItem(INFO_MEMBERS, head(clan.leader(), "Members",
                 List.of(clan.members().size() + "/" + clan.memberSlots() + " — click to see them.")));
         MenuItems.back(inventory);
@@ -446,7 +485,8 @@ final class ClanMenuService implements Listener {
             lore.addAll(clanBattles.badges(clan.id()).lore());
             lore.add(clan.members().size() + "/" + clan.memberSlots() + " members.");
             lore.add("Treasury " + EconomyFormat.dollars(clan.balance()) + ".");
-            inventory.setItem(index - first, head(clan.leader(),
+            ClanIcon icon = ClanIcon.resolve(clan.icon());
+            inventory.setItem(index - first, button(icon.material(),
                     clan.name() + "  " + ClanLevel.badge(clan.level()) + badgeSuffix(clan.id()),
                     lore));
         }
@@ -601,9 +641,11 @@ final class ClanMenuService implements Listener {
                     }
                     case HUB_UPGRADE -> openUpgradePreferred(player);
                     case HUB_DONORS -> openDonorsPreferred(player);
+                    case HUB_ICON -> openIconsPreferred(player);
                     default -> { }
                 }
             }
+            case CLAN_ICONS -> menu.option(slot).ifPresent(icon -> chooseIcon(player, icon));
             case CLAN_INFO -> {
                 if (slot == INFO_MEMBERS) {
                     // Back out of the roster returns to this card, still remembering
@@ -645,6 +687,7 @@ final class ClanMenuService implements Listener {
         switch (back.kind()) {
             case CLAN_LIST -> openList(player, back.page(), back.back());
             case CLAN_INFO -> openInfo(player, requireClan(back.subject()), back.back());
+            case CLAN_ICONS -> openIconsPreferred(player);
             case CLAN_MEMBERS -> openMembers(player, back.subject(), back.page(),
                     back.back());
             case MAIN_MENU -> {
@@ -671,6 +714,24 @@ final class ClanMenuService implements Listener {
 
     void buyMembersFor(Player player) throws IOException {
         buyMembers(player);
+    }
+
+    void chooseIcon(Player player, String iconId) {
+        try {
+            ClanStore.ClanView updated = store.setIcon(player.getUniqueId(), iconId);
+            plugin.refreshClans();
+            ClanIcon icon = ClanIcon.resolve(updated.icon());
+            report(player, "clan_icon",
+                    "Changed " + updated.name() + " clan icon to " + icon.label())
+                    .detail("clan", updated.name())
+                    .detail("icon", icon.id())
+                    .record();
+            info(player, "Clan icon changed to " + icon.label() + ".");
+            openIconsPreferred(player);
+        } catch (IOException | ClanStore.ClanException failure) {
+            error(player, failure.getMessage() == null
+                    ? "That clan icon could not be saved." : failure.getMessage());
+        }
     }
 
     private void buyLevel(Player player) throws IOException {
