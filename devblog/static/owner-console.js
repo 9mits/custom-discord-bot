@@ -255,20 +255,68 @@
 
   /* ---------- distributions ---------- */
 
-  function tableRows(table) {
+  var JACKPOT_KEY = "crate.hidden-amethyst-one-in";
+  // The hidden jackpot is rolled before the ordinary table, and only for these two.
+  var JACKPOT_TABLES = ["crate.amethyst", "crate.shard"];
+
+  /**
+   * The jackpot as a row of the table it actually competes with.
+   *
+   * It is not a weight — it is a separate "one in N" roll that happens first — so it
+   * cannot sit in the weight column. It still belongs in the list: it is one of the
+   * things a player can open the crate and receive, and showing it in a card of its own
+   * left the table claiming chances that did not account for it.
+   */
+  function jackpotRow(table) {
+    if (JACKPOT_TABLES.indexOf(table) < 0) return null;
+    var row = state.byKey[JACKPOT_KEY];
+    if (!row) return null;
+    // One variable shown in two tables. The odds are identical in both; recording which
+    // table drew it keeps chanceOf from having to guess.
+    row.jackpotTable = table;
+    return row;
+  }
+
+  function isJackpot(row) {
+    return !!row && row.key === JACKPOT_KEY;
+  }
+
+  /** The share the jackpot takes before the weighted table is consulted at all. */
+  function jackpotShare(table, useDraft) {
+    var row = jackpotRow(table);
+    if (!row) return 0;
+    var oneIn = useDraft ? draftedValue(row.key) : row.value;
+    return oneIn > 0 ? 100 / oneIn : 0;
+  }
+
+  function weightedRows(table) {
     return state.rows.filter(function (row) { return row.table === table; });
   }
 
+  /** Every row shown in a table's editor, jackpot included where there is one. */
+  function tableRows(table) {
+    var rows = weightedRows(table);
+    var jackpot = jackpotRow(table);
+    return jackpot ? rows.concat([jackpot]) : rows;
+  }
+
   function tableTotal(table, useDraft) {
-    return tableRows(table).reduce(function (sum, row) {
+    return weightedRows(table).reduce(function (sum, row) {
       return sum + (useDraft ? draftedValue(row.key) : row.value);
     }, 0);
   }
 
   function chanceOf(row, useDraft) {
+    if (isJackpot(row)) {
+      return jackpotShare(row.jackpotTable || "crate.amethyst", useDraft);
+    }
     var total = tableTotal(row.table, useDraft);
     if (total <= 0) return 0;
-    return ((useDraft ? draftedValue(row.key) : row.value) / total) * 100;
+    // The weighted roll only happens when the jackpot roll misses, so every ordinary
+    // chance is scaled by the share the jackpot took first. Without this the column
+    // summed past 100% and quietly overstated every reward.
+    var remaining = 1 - jackpotShare(row.table, useDraft) / 100;
+    return ((useDraft ? draftedValue(row.key) : row.value) / total) * 100 * remaining;
   }
 
   /**
@@ -284,6 +332,18 @@
     if (others <= 0) return Math.max(row.minimum || 1, draftedValue(row.key));
     var weight = Math.round((share * others) / (1 - share));
     return Math.min(Math.max(weight, row.minimum || 0), row.maximum || 10000000);
+  }
+
+  /** The jackpot's own name, with the crate-facing framing stripped. */
+  function jackpotName(row) {
+    return String(row.label || "").replace(/\s*chance$/i, "");
+  }
+
+  /** Enough decimals to show a one-in-500,000 without rounding it to zero. */
+  function trimChance(percent) {
+    if (percent >= 1) return percent.toFixed(3);
+    if (percent >= 0.001) return percent.toFixed(5);
+    return percent.toFixed(8);
   }
 
   function formatChance(percent) {
@@ -448,26 +508,37 @@
       }).join("") + "</div>";
 
     var body = rows.map(function (row) {
-      var live = chanceOf(row, false);
-      var now = chanceOf(row, true);
-      var changed = Math.abs(live - now) > 0.000001;
+      var jackpot = isJackpot(row);
+      var live = jackpot ? jackpotShare(table, false) : chanceOf(row, false);
+      var now = jackpot ? jackpotShare(table, true) : chanceOf(row, true);
+      var changed = Math.abs(live - now) > 0.0000001;
       var finding = state.findings[row.key];
-      return '<tr class="' + (isDirty(row.key) ? "dirty" : "") + (finding ? " invalid" : "") + '">' +
+      return '<tr class="' + (isDirty(row.key) ? "dirty" : "") + (finding ? " invalid" : "") +
+        (jackpot ? " jackpot" : "") + '">' +
         '<td><div class="con-entry">' + rowIcon(row) + "<span>" +
-        escapeHtml(rowName(row)) + "</span></div></td>" +
-        '<td class="con-num"><input class="con-pct" type="number" step="0.001" min="0" max="99.9" ' +
-        'data-chance="' + escapeHtml(row.key) + '" value="' + now.toFixed(3) + '"></td>' +
+        escapeHtml(jackpot ? jackpotName(row) : rowName(row)) +
+        (jackpot ? '<em class="con-tag">rolled first</em>' : "") + "</span></div></td>" +
+        '<td class="con-num"><input class="con-pct" type="number" step="0.000001" min="0" max="99.9" ' +
+        'data-chance="' + escapeHtml(row.key) + '" data-table="' + escapeHtml(table) +
+        '" value="' + escapeHtml(trimChance(now)) + '"></td>' +
         '<td class="con-num"><span class="con-move' + (changed ? " shown" : "") + '">' +
         (changed ? formatChance(live) + " &rarr; " + formatChance(now) : "") + "</span></td>" +
-        '<td class="con-num"><input class="con-number tight" type="number" data-key="' +
-        escapeHtml(row.key) + '" value="' + escapeHtml(draftedValue(row.key)) +
-        '" min="' + escapeHtml(row.minimum) + '" max="' + escapeHtml(row.maximum) + '"></td>' +
+        '<td class="con-num">' + (jackpot
+          ? '<span class="con-muted">1 in ' +
+            escapeHtml(Number(draftedValue(row.key)).toLocaleString()) + "</span>"
+          : '<input class="con-number tight" type="number" data-key="' +
+            escapeHtml(row.key) + '" value="' + escapeHtml(draftedValue(row.key)) +
+            '" min="' + escapeHtml(row.minimum) + '" max="' + escapeHtml(row.maximum) + '">') +
+        "</td>" +
         '<td class="con-num con-muted">' + oneInFrom(now) + "</td>" +
-        '<td class="con-num"><button type="button" class="con-remove" data-remove="' +
-        escapeHtml(row.key) + '" data-table="' + escapeHtml(table) +
-        '" title="Remove from this table" aria-label="Remove ' + escapeHtml(rowName(row)) +
-        '">&times;</button>' +
-        (isAddedRow(table, row.key) ? '<span class="con-added" title="You added this">+</span>' : "") +
+        '<td class="con-num">' + (jackpot
+          ? '<span class="con-muted" title="Built into how the crate rolls">&nbsp;</span>'
+          : '<button type="button" class="con-remove" data-remove="' +
+            escapeHtml(row.key) + '" data-table="' + escapeHtml(table) +
+            '" title="Remove from this table" aria-label="Remove ' + escapeHtml(rowName(row)) +
+            '">&times;</button>' +
+            (isAddedRow(table, row.key)
+              ? '<span class="con-added" title="You added this">+</span>' : "")) +
         "</td></tr>";
     }).join("");
 
@@ -733,7 +804,11 @@
 
     // Everything that is not a distribution row, paired up where two keys are really
     // one range, and grouped under the heading the catalogue already gives them.
-    var singles = rows.filter(function (row) { return !row.table; });
+    // Drawn inside the crate tables it competes with, so it must not also appear as a
+    // card of its own further down the page.
+    var singles = rows.filter(function (row) {
+      return !row.table && row.key !== JACKPOT_KEY;
+    });
     var used = {};
     var sections = {};
     singles.forEach(function (row) {
@@ -924,6 +999,13 @@
       }
       if (target.dataset.chance !== undefined) {
         var row = state.byKey[target.dataset.chance];
+        if (isJackpot(row)) {
+          // This row has no weight. A percentage here is the odds themselves, so it
+          // converts back to the "one in N" the roll actually uses.
+          var share = Math.min(Math.max(Number(target.value), 0.0000001), 90);
+          setDraft(row.key, Math.min(Math.max(Math.round(100 / share), 1), row.maximum));
+          return;
+        }
         setDraft(row.key, weightForChance(row, target.value));
         return;
       }

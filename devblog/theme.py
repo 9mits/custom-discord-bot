@@ -1232,6 +1232,12 @@ img.live-minecraft-icon {
 .con-entry { display: flex; align-items: center; gap: .45rem; min-width: 0; }
 .con-entry span { overflow-wrap: anywhere; }
 .con-table tr.dirty td { background: var(--bloom-2); }
+.con-table tr.jackpot td { background: rgba(139, 92, 246, .10); }
+.con-table tr.jackpot td:first-child { box-shadow: inset 3px 0 0 #8b5cf6; }
+.con-tag {
+  display: block; font-style: normal; font-size: .66rem; letter-spacing: .04em;
+  text-transform: uppercase; color: #8b5cf6; font-weight: 700;
+}
 .con-table tr.invalid td { background: rgba(239, 68, 68, .08); }
 .con-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .con-muted { color: var(--grey); }
