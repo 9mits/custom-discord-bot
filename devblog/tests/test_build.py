@@ -813,6 +813,11 @@ class PageTests(unittest.TestCase):
         import leaderboard_snapshot
 
         cleaned = leaderboard_snapshot.clean({
+            "clan_battle": {
+                "id": "battle-1", "kind": "crates", "name": "Crates Clan Battle",
+                "objective": "Open the most crates!", "started_at": 1000,
+                "ends_at": 2000, "private_note": "never publish this",
+            },
             "clan": {"wealth": [{
                 "clan": "Quartz", "display": "$1.2m", "value": 1_200_000,
                 "rank": 1, "members": 4, "level": 3, "icon": "diamond",
@@ -822,6 +827,9 @@ class PageTests(unittest.TestCase):
         self.assertEqual(row["clan"], "Quartz")
         self.assertEqual(row["display"], "$1.2m")
         self.assertEqual(row["icon"], "diamond")
+        self.assertEqual(cleaned["clan_battle"]["name"], "Crates Clan Battle")
+        self.assertEqual(cleaned["clan_battle"]["ends_at"], 2000)
+        self.assertNotIn("private_note", cleaned["clan_battle"])
 
     def test_the_https_relay_targets_only_the_public_leaderboard_endpoint(self):
         import leaderboard_snapshot
@@ -878,6 +886,7 @@ class PageTests(unittest.TestCase):
         )
         self.assertIn("if (timestamp < 1000000000000) timestamp *= 1000", script)
         self.assertNotIn("Date.parse(document_.checked_at || \"\") / 1000", script)
+        self.assertIn("clan_battle: boards.clan_battle || {}", script)
 
     def test_a_missing_snapshot_is_not_an_error(self):
         self.page(

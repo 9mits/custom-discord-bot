@@ -24,10 +24,6 @@
     amethyst_airdrops: "Claim the most Amethyst Airdrops before the event closes.",
     amethyst_crates: "Open the most Amethyst Crates and take the event crown."
   };
-  var clanIcons = new Set([
-    "amethyst_shard", "diamond", "emerald", "gold_ingot", "netherite_ingot", "nether_star",
-    "ender_pearl", "heart_of_the_sea", "blaze_powder", "echo_shard", "totem_of_undying", "golden_apple"
-  ]);
   var eventIcons = {amethyst_airdrops: "amethyst_shard", amethyst_crates: "crate_key"};
   var steveHead = "https://api.mcheads.org/ioshead/MHF_Steve/left";
   var steveBody = "https://api.mcheads.org/iosbody/MHF_Steve/left";
@@ -94,7 +90,8 @@
         (full ? ' Minecraft skin"' : ' Minecraft head"') + ' loading="lazy"></div>';
   }
   function clanArt(row) {
-    var icon = clanIcons.has(row.icon) ? row.icon : "amethyst_shard";
+    var supplied = String(row.icon || "");
+    var icon = /^[a-z0-9_]+$/.test(supplied) ? supplied : "amethyst_shard";
     return '<div class="live-clan-crest">' + itemIcon(icon, "", (row.clan || "Clan") + " clan icon") + "</div>";
   }
   function memberCount(row) {
@@ -158,8 +155,11 @@
   function renderBattle() {
     var event = (state.snapshot && state.snapshot.clan_battle) || {};
     var rows = ((state.snapshot && state.snapshot.clan && state.snapshot.clan.clan_battle) || []).slice(0, 10);
-    byId("battle-title").textContent = event.name || "No active battle";
-    byId("battle-objective").textContent = event.objective || "When the next clan battle starts, its objective and live standings will appear here.";
+    var active = Boolean(event.name || rows.length);
+    byId("battle-title").textContent = event.name || (active ? "Current Clan Battle" : "No active battle");
+    byId("battle-objective").textContent = event.objective || (active
+      ? "Live standings for the current clan battle."
+      : "When the next clan battle starts, its objective and live standings will appear here.");
     byId("battle-deadline").textContent = event.ends_at ? "Ends " + new Date(event.ends_at).toLocaleString() : "";
     byId("battle-board").innerHTML = rows.length
       ? rows.map(function (row, index) {
@@ -220,6 +220,7 @@
     return {
       individual: boards.individual || {},
       clan: boards.clan || {},
+      clan_battle: boards.clan_battle || {},
       generated_at: Date.parse(document_.checked_at || "") || 0
     };
   }
