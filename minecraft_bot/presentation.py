@@ -45,9 +45,10 @@ APPLY_ATTACHMENT_URI = f"attachment://{APPLY_FILENAME}"
 MARK_FILENAME = "mysterious_smp_x_mark.png"
 MARK_PATH = Path(__file__).resolve().parent.parent / "assets" / "minecraft" / MARK_FILENAME
 MARK_ATTACHMENT_URI = f"attachment://{MARK_FILENAME}"
-MINECRAFT_HEAD_URL = "https://mc-heads.net/head/{identifier}/128.png"
-MINECRAFT_SKIN_URL = "https://mc-heads.net/body/{identifier}/160.png"
-BEDROCK_NAME_HEAD_URL = "https://api.mcheads.org/head/.{identifier}/128"
+MINECRAFT_HEAD_URL = "https://api.mcheads.org/ioshead/{identifier}/left"
+MINECRAFT_SKIN_URL = "https://api.mcheads.org/iosbody/{identifier}/left"
+STEVE_HEAD_URL = MINECRAFT_HEAD_URL.format(identifier="MHF_Steve")
+STEVE_SKIN_URL = MINECRAFT_SKIN_URL.format(identifier="MHF_Steve")
 #: A remote copy of the mark, for embeds that are not sent with an attachment —
 #: an ephemeral reply cannot carry one, so attachment:// silently renders nothing.
 MARK_ICON_URL = (
@@ -60,23 +61,27 @@ _BEDROCK_UUID_PREFIX = "0" * 16
 
 
 def head_url(minecraft_uuid: str, username: str = "") -> str:
-    """The head image for a player, on either edition."""
+    """One square, isometric head render for a player on either edition.
+
+    The renderer understands a dot-prefixed Bedrock gamertag.  Keeping every
+    edition on the same endpoint prevents Bedrock faces from appearing as flat
+    tiles beside Java's isometric heads.  A completely missing identity gets a
+    real Steve render rather than a broken image or a punctuation initial.
+    """
     compact = str(minecraft_uuid or "").replace("-", "").lower()
-    if compact.startswith(_BEDROCK_UUID_PREFIX):
-        # Geyser prefixes Bedrock gamertags with a dot, which the URL already has.
-        name = username[1:] if username.startswith(".") else username
-        if name:
-            return BEDROCK_NAME_HEAD_URL.format(identifier=quote(name, safe=""))
-    identifier = minecraft_uuid or username
+    if compact.startswith(_BEDROCK_UUID_PREFIX) and username:
+        name = username if username.startswith(".") else f".{username}"
+        return MINECRAFT_HEAD_URL.format(identifier=quote(name, safe=""))
+    identifier = minecraft_uuid or username or "MHF_Steve"
     return MINECRAFT_HEAD_URL.format(identifier=quote(identifier, safe=""))
 
 
 def skin_url(minecraft_uuid: str, username: str = "") -> str:
-    """A full player render, falling back to the username when UUID is absent."""
+    """A matching isometric body render, with Steve for an absent identity."""
     compact = str(minecraft_uuid or "").replace("-", "").lower()
-    identifier = minecraft_uuid or username
+    identifier = minecraft_uuid or username or "MHF_Steve"
     if compact.startswith(_BEDROCK_UUID_PREFIX) and username:
-        identifier = username[1:] if username.startswith(".") else username
+        identifier = username if username.startswith(".") else f".{username}"
     return MINECRAFT_SKIN_URL.format(identifier=quote(identifier, safe=""))
 
 #: How the server is described, in the one place both panels read it from. The
@@ -141,8 +146,8 @@ def minecraft_head_url(
     if not allow_claimed_username or not username:
         return None
     if application.edition.value == "BEDROCK":
-        return BEDROCK_NAME_HEAD_URL.format(identifier=quote(username, safe=""))
-    return MINECRAFT_HEAD_URL.format(identifier=quote(username, safe=""))
+        username = username if username.startswith(".") else f".{username}"
+    return head_url("", username)
 
 
 def _set_minecraft_thumbnail(embed: discord.Embed, thumbnail_url: Optional[str]) -> discord.Embed:

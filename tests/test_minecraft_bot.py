@@ -360,7 +360,10 @@ class MinecraftBotPolicyTests(unittest.TestCase):
             verified_username="VerifiedName",
             minecraft_uuid="12345678-1234-1234-1234-123456789abc",
         )
-        expected = "https://mc-heads.net/head/12345678-1234-1234-1234-123456789abc/128.png"
+        expected = (
+            "https://api.mcheads.org/ioshead/"
+            "12345678-1234-1234-1234-123456789abc/left"
+        )
 
         self.assertEqual(application_log_embed(verified).thumbnail.url, expected)
         self.assertEqual(verification_log_embed(verified).thumbnail.url, expected)
@@ -402,11 +405,11 @@ class MinecraftBotPolicyTests(unittest.TestCase):
 
         self.assertEqual(
             application_log_embed(java_application).thumbnail.url,
-            "https://mc-heads.net/head/JavaPlayer/128.png",
+            "https://api.mcheads.org/ioshead/JavaPlayer/left",
         )
         self.assertEqual(
             application_log_embed(bedrock_application).thumbnail.url,
-            "https://api.mcheads.org/head/.Bedrock%20Player/128",
+            "https://api.mcheads.org/ioshead/.Bedrock%20Player/left",
         )
 
     def test_setup_dashboard_uses_components_v2(self):
@@ -1524,9 +1527,18 @@ class MinecraftLeaderboardRenderTests(unittest.TestCase):
         bedrock = head_url("00000000-0000-0000-0009-01f9d1ebbeb2", ".Wv4mp")
         java = head_url("5ebdc316-b5d6-4f32-8afb-330642f6ff2a", "MinimumOrc")
 
+        self.assertIn("api.mcheads.org/ioshead", bedrock)
+        self.assertIn(".Wv4mp", bedrock)
         self.assertIn("Wv4mp", bedrock)
         self.assertNotIn("00000000", bedrock)
+        self.assertIn("api.mcheads.org/ioshead", java)
         self.assertIn("5ebdc316-b5d6-4f32-8afb-330642f6ff2a", java)
+
+    def test_missing_player_identity_uses_the_3d_steve_head(self):
+        from minecraft_bot.presentation import STEVE_HEAD_URL, head_url
+
+        self.assertEqual(head_url("", ""), STEVE_HEAD_URL)
+        self.assertIn("ioshead/MHF_Steve/left", STEVE_HEAD_URL)
 
     def test_thumbnail_falls_back_to_the_brand_when_a_board_is_empty(self):
         from minecraft_bot.presentation import MARK_ICON_URL, MARK_PATH
@@ -1757,6 +1769,41 @@ class MinecraftPodiumEmojiCapacityTests(unittest.IsolatedAsyncioTestCase):
         await store.sync(self._guild(limit=250, used=249), self._snapshot)
 
         self.assertEqual(store._create.await_count, 1)
+
+
+class MinecraftPodiumEmojiFallbackTests(unittest.IsolatedAsyncioTestCase):
+    class Response:
+        def __init__(self, status, body=b""):
+            self.status = status
+            self.body = body
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def read(self):
+            return self.body
+
+    async def test_failed_player_render_retries_as_3d_steve(self):
+        from minecraft_bot.leaderboard import HeadEmojiStore
+        from minecraft_bot.presentation import STEVE_HEAD_URL
+
+        responses = [self.Response(500), self.Response(200, b"steve")]
+        session = SimpleNamespace(
+            get=Mock(side_effect=lambda _url: responses.pop(0))
+        )
+
+        result = await HeadEmojiStore(SimpleNamespace())._fetch_head(
+            session, ".missing", "https://example.test/missing.png"
+        )
+
+        self.assertEqual(result, b"steve")
+        self.assertEqual(
+            [call.args[0] for call in session.get.call_args_list],
+            ["https://example.test/missing.png", STEVE_HEAD_URL],
+        )
 
 
 class MinecraftPodiumDuplicateTests(unittest.IsolatedAsyncioTestCase):

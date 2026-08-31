@@ -12,6 +12,8 @@
 (function () {
   "use strict";
 
+  var steveHead = "https://api.mcheads.org/ioshead/MHF_Steve/left";
+
   var root = document.getElementById("stats-root");
   if (!root) { return; }
 
@@ -260,7 +262,7 @@
     var rows = players.slice(0, 50).map(function (p, i) {
       return "<tr><td>" + (i + 1) + "</td>" +
         '<td class="stat-player">' +
-          (p.head_url ? '<img src="' + esc(p.head_url) + '" alt="" width="20" height="20">' : "") +
+          '<img src="' + esc(p.head_url || steveHead) + '" data-head-fallback alt="" width="20" height="20">' +
           esc(p.username || "") + "</td>" +
         "<td>" + esc(p.edition === "BEDROCK" ? "Bedrock" : "Java") + "</td>" +
         '<td class="num">' + esc(duration(p.afk_seconds)) + "</td>" +
@@ -270,6 +272,15 @@
       '<table class="stat-table"><thead><tr><th>#</th><th>Player</th><th>Edition</th>' +
       '<th class="num">AFK time</th><th class="num">Stretches</th></tr></thead><tbody>' +
       rows + "</tbody></table>";
+    wireHeadFallbacks($("afk-table"));
+  }
+
+  function wireHeadFallbacks(target) {
+    target.querySelectorAll("img[data-head-fallback]").forEach(function (image) {
+      image.addEventListener("error", function () {
+        if (image.src !== steveHead) image.src = steveHead;
+      });
+    });
   }
 
   function renderBoards(snapshot) {
@@ -284,7 +295,7 @@
         html += '<div class="stat-board"><h3>' + esc(key.replace(/_/g, " ")) + "</h3><ol>";
         rows.slice(0, 10).forEach(function (row) {
           html += "<li><span>" +
-            (row.head_url ? '<img src="' + esc(row.head_url) + '" alt="" width="18" height="18">' : "") +
+            '<img src="' + esc(row.head_url || steveHead) + '" data-head-fallback alt="" width="18" height="18">' +
             esc(row.username || row.name || "") + "</span><b>" +
             esc(compactNumber(row.value != null ? row.value : row.score || 0)) + "</b></li>";
         });
@@ -292,6 +303,7 @@
       });
     });
     host.innerHTML = html || '<p class="stat-empty">No standings have been pushed by the server yet.</p>';
+    wireHeadFallbacks(host);
   }
 
   function renderMetricToggles(metrics) {

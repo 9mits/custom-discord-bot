@@ -15,6 +15,7 @@ from .presentation import (
     BRAND_NAME,
     FOOTER_ICON_URL,
     MARK_ICON_URL,
+    STEVE_HEAD_URL,
     head_url,
 )
 
@@ -209,11 +210,9 @@ class HeadEmojiStore:
         url: str,
     ) -> Optional[discord.Emoji]:
         try:
-            async with session.get(url) as response:
-                if response.status != 200:
-                    logger.warning("Image for %s returned HTTP %s", label, response.status)
-                    return None
-                image = await response.read()
+            image = await self._fetch_head(session, label, url)
+            if image is None:
+                return None
             return await guild.create_custom_emoji(
                 name=_emoji_name(label),
                 image=image,
@@ -230,6 +229,23 @@ class HeadEmojiStore:
         except (aiohttp.ClientError, OSError) as error:
             logger.warning("Could not fetch the image for %s: %s", label, error)
             return None
+
+    async def _fetch_head(
+        self,
+        session: aiohttp.ClientSession,
+        label: str,
+        url: str,
+    ) -> Optional[bytes]:
+        """Fetch a podium render, retrying unavailable skins as 3D Steve."""
+        for source in dict.fromkeys((url, STEVE_HEAD_URL)):
+            try:
+                async with session.get(source) as response:
+                    if response.status == 200:
+                        return await response.read()
+                    logger.warning("Image for %s returned HTTP %s", label, response.status)
+            except (aiohttp.ClientError, OSError) as error:
+                logger.warning("Could not fetch the image for %s: %s", label, error)
+        return None
 
     async def _forget_orphans(
         self,

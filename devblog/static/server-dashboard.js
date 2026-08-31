@@ -29,6 +29,8 @@
     "ender_pearl", "heart_of_the_sea", "blaze_powder", "echo_shard", "totem_of_undying", "golden_apple"
   ]);
   var eventIcons = {amethyst_airdrops: "amethyst_shard", amethyst_crates: "crate_key"};
+  var steveHead = "https://api.mcheads.org/ioshead/MHF_Steve/left";
+  var steveBody = "https://api.mcheads.org/iosbody/MHF_Steve/left";
 
   function byId(id) { return document.getElementById(id); }
   function escapeHtml(value) {
@@ -83,14 +85,13 @@
     return rank === 1 ? "rank-gold" : (rank === 2 ? "rank-silver" : "rank-bronze");
   }
   function playerArt(row, full) {
-    var source = full ? row.skin_url : row.head_url;
+    var fallback = full ? steveBody : steveHead;
+    var source = (full ? row.skin_url : row.head_url) || fallback;
     var label = escapeHtml(row.username || "Player");
-    var initial = escapeHtml(String(row.username || "?").charAt(0).toUpperCase());
     return '<div class="live-player-art ' + (full ? "full" : "head") + '">' +
-      (source ? '<img class="' + (full ? "live-skin-render" : "live-head-render") + '" src="' +
-        escapeHtml(source) + '" alt="' + label + (full ? ' Minecraft skin"' : ' Minecraft head"') +
-        ' loading="lazy">' : "") +
-      '<span class="live-avatar-fallback" aria-hidden="true">' + initial + "</span></div>";
+      '<img class="' + (full ? "live-skin-render" : "live-head-render") + '" src="' +
+        escapeHtml(source) + '" data-fallback="' + fallback + '" alt="' + label +
+        (full ? ' Minecraft skin"' : ' Minecraft head"') + ' loading="lazy"></div>';
   }
   function clanArt(row) {
     var icon = clanIcons.has(row.icon) ? row.icon : "amethyst_shard";
@@ -128,7 +129,9 @@
   }
   function wireImageFallbacks(target) {
     target.querySelectorAll(".live-player-art img").forEach(function (image) {
-      image.addEventListener("error", function () { image.parentElement.classList.add("image-missing"); });
+      image.addEventListener("error", function () {
+        if (image.src !== image.dataset.fallback) image.src = image.dataset.fallback;
+      });
     });
     target.querySelectorAll(".live-clan-crest img").forEach(function (image) {
       image.addEventListener("error", function () {
