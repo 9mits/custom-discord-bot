@@ -105,6 +105,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private CrateOddsStore crateOdds;
     private AfkStore afkStore;
     private GameVariableStore gameVariables;
+    private volatile boolean gameVariableBroadcastPending;
     private ClanBattleStore clanBattleStore;
     private HomeIconStore homeIconStore;
     private ClanWarpMetaStore clanWarpMetaStore;
@@ -257,7 +258,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         bridgeClient = new BridgeClient(
                 this, bridgeConfig, pending, processed, verificationEvents, verifiedAccounts, networkExecutor
         );
-        gameVariables.onChange(() -> bridgeClient.sendGameVariableSnapshot(gameVariables.snapshot()));
+        gameVariables.onChange(this::scheduleGameVariableBroadcast);
         verificationLobby = new VerificationLobbyService(this, bridgeClient);
         chatRelayService = new ChatRelayService(bridgeClient, playerSettings);
         // Statistics live beside the main world, which is where the server writes them.
@@ -1163,6 +1164,25 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         if (bridgeClient != null && gameVariables != null) {
             bridgeClient.sendGameVariableSnapshot(gameVariables.snapshot());
         }
+    }
+
+    /**
+     * Sends one snapshot per tick however many values moved.
+     *
+     * <p>The observer fires per key, which was right while a change was always one key.
+     * Publishing a rebalance moves dozens at once, and a snapshot carries the whole
+     * catalogue, so sending one each would put the same payload on the wire dozens of
+     * times for a single owner action.
+     */
+    private void scheduleGameVariableBroadcast() {
+        if (gameVariableBroadcastPending || bridgeClient == null || gameVariables == null) {
+            return;
+        }
+        gameVariableBroadcastPending = true;
+        getServer().getScheduler().runTask(this, () -> {
+            gameVariableBroadcastPending = false;
+            republishGameVariables();
+        });
     }
 
     /**

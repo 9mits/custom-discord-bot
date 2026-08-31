@@ -16,12 +16,15 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.random.RandomGenerator;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 /** Persistent, typed game values that take effect without reloading Paper. */
 final class GameVariableStore {
@@ -61,10 +64,13 @@ final class GameVariableStore {
     private final Map<String, Definition> definitions = new LinkedHashMap<>();
     private final Map<String, Object> overrides = new LinkedHashMap<>();
     private final List<Consumer<String>> changeObservers = new ArrayList<>();
+    private final ConfigHistory history;
 
     GameVariableStore(Path file, FileConfiguration config) throws IOException {
         this.file = file;
         Files.createDirectories(file.getParent());
+        this.history = new ConfigHistory(
+                file.resolveSibling("game-variables-history.json"));
         defineCore(config);
         defineOnlineRewards();
         defineEventRewards(config);
@@ -375,22 +381,225 @@ final class GameVariableStore {
         return (Boolean) overrides.getOrDefault(definition.key(), definition.defaultValue());
     }
 
+    /** One edit in a proposed change set. A reset carries no value. */
+    record Edit(String key, String value, boolean reset) {
+        static Edit set(String key, String value) {
+            return new Edit(key, value, false);
+        }
+
+        static Edit reset(String key) {
+            return new Edit(key, null, true);
+        }
+    }
+
+    /** Why a proposed change set cannot be applied. Empty means it can. */
+    record Finding(String key, String message) { }
+
+    /** What one key actually moved, for the trail and for rollback. */
+    record Change(String key, Object before, Object after) { }
+
+    /** Raised instead of applying a change set that would leave the game inconsistent. */
+    static final class InvalidChangeSet extends IllegalArgumentException {
+        private final transient List<Finding> findings;
+
+        InvalidChangeSet(List<Finding> findings) {
+            super(findings.stream().map(Finding::message).collect(Collectors.joining(" ")));
+            this.findings = List.copyOf(findings);
+        }
+
+        List<Finding> findings() {
+            return findings;
+        }
+    }
+
     synchronized String set(String key, String raw) {
         Definition definition = definition(key);
-        Object value = parse(definition, raw);
-        validatePair(definition.key(), value);
-        overrides.put(definition.key(), value);
-        save();
-        changeObservers.forEach(observer -> observer.accept(definition.key()));
-        return describe(definition, value);
+        apply(List.of(Edit.set(definition.key(), raw)), "");
+        return describe(definition, resolve(Map.of(), Set.of(), definition.key()));
     }
 
     synchronized String reset(String key) {
         Definition definition = definition(key);
-        overrides.remove(definition.key());
-        save();
-        changeObservers.forEach(observer -> observer.accept(definition.key()));
+        apply(List.of(Edit.reset(definition.key())), "");
         return describe(definition, definition.defaultValue());
+    }
+
+    /**
+     * Checks a whole change set without touching anything.
+     *
+     * <p>Judging one field at a time cannot see the combinations that matter. Raising a
+     * minimum above its current maximum is fine when the maximum moves with it in the
+     * same publish, and every weight in a distribution can be lowered safely right up
+     * until the last one that keeps the total above zero. Both readings need the state
+     * the set would leave behind, not the state it started from.
+     */
+    synchronized List<Finding> validate(List<Edit> edits) {
+        List<Finding> findings = new ArrayList<>();
+        Map<String, Object> pending = new LinkedHashMap<>();
+        Set<String> resets = new LinkedHashSet<>();
+        project(edits, pending, resets, findings);
+        if (!findings.isEmpty()) {
+            // Ordering and totals are meaningless while a value is unparseable.
+            return List.copyOf(findings);
+        }
+        pending.forEach((key, value) -> validatePair(key, value, pending, resets, findings));
+        validateDistributions(pending, resets, findings);
+        return List.copyOf(findings);
+    }
+
+    /**
+     * Applies a validated change set atomically, or nothing at all.
+     *
+     * <p>One publish, one write, one history entry. Half of a rebalance is worse than
+     * none of it: the old per-key path could leave a distribution mid-edit and, because
+     * weights may legitimately reach zero, could leave one summing to zero — which is
+     * not a bad balance but a crash the next time anything rolls against it.
+     */
+    synchronized List<Change> apply(List<Edit> edits, String actor) {
+        List<Finding> findings = validate(edits);
+        if (!findings.isEmpty()) {
+            throw new InvalidChangeSet(findings);
+        }
+        Map<String, Object> pending = new LinkedHashMap<>();
+        Set<String> resets = new LinkedHashSet<>();
+        project(edits, pending, resets, new ArrayList<>());
+
+        List<Change> changes = new ArrayList<>();
+        boolean rewritten = false;
+        for (Map.Entry<String, Object> entry : pending.entrySet()) {
+            String key = entry.getKey();
+            Definition definition = definitions.get(key);
+            Object before = overrides.getOrDefault(key, definition.defaultValue());
+            Object after = entry.getValue();
+            // An override is only worth storing when it differs from the catalogue, so
+            // setting a value back to its default clears it rather than recording the
+            // default as a deliberate choice. That keeps "overridden" meaning what it
+            // says on the panel.
+            boolean wantsOverride = !resets.contains(key) && !after.equals(definition.defaultValue());
+            if (wantsOverride != overrides.containsKey(key)) {
+                rewritten = true;
+                if (wantsOverride) {
+                    overrides.put(key, after);
+                } else {
+                    overrides.remove(key);
+                }
+            } else if (wantsOverride && !before.equals(after)) {
+                rewritten = true;
+                overrides.put(key, after);
+            }
+            if (!before.equals(after)) {
+                changes.add(new Change(key, before, after));
+            }
+        }
+        if (!rewritten) {
+            return List.of();
+        }
+        save();
+        if (!changes.isEmpty()) {
+            // Nothing to undo when only the override bookkeeping was normalised.
+            history.record(actor, changes);
+        }
+        changes.forEach(change -> changeObservers.forEach(observer -> observer.accept(change.key())));
+        return List.copyOf(changes);
+    }
+
+    /** Puts every value in a publish back the way it was, as one further publish. */
+    synchronized List<Change> rollback(String publishId, String actor) {
+        List<Change> recorded = history.changesOf(publishId).orElseThrow(
+                () -> new IllegalArgumentException("No recorded change '" + publishId + "'.")
+        );
+        List<Edit> undo = new ArrayList<>();
+        for (Change change : recorded) {
+            Definition definition = definitions.get(change.key());
+            if (definition == null) {
+                continue;
+            }
+            undo.add(definition.defaultValue().equals(change.before())
+                    ? Edit.reset(change.key())
+                    : Edit.set(change.key(), String.valueOf(change.before())));
+        }
+        if (undo.isEmpty()) {
+            throw new IllegalArgumentException("Nothing in that change can be restored.");
+        }
+        return apply(undo, actor);
+    }
+
+    ConfigHistory history() {
+        return history;
+    }
+
+    /**
+     * Resolves a change set into the values it would leave behind.
+     *
+     * <p>A reset lands in {@code pending} as the catalogue default so ordering and total
+     * checks see the same number the game would, and in {@code resets} so the apply step
+     * knows to drop the override rather than store the default as one.
+     */
+    private void project(
+            List<Edit> edits, Map<String, Object> pending, Set<String> resets, List<Finding> findings
+    ) {
+        for (Edit edit : edits) {
+            Definition definition = definitions.get(canonicalKey(edit.key()));
+            if (definition == null) {
+                findings.add(new Finding(edit.key(), "Unknown variable '" + edit.key() + "'."));
+                continue;
+            }
+            if (edit.reset()) {
+                pending.put(definition.key(), definition.defaultValue());
+                resets.add(definition.key());
+                continue;
+            }
+            try {
+                pending.put(definition.key(), parse(definition, edit.value()));
+                resets.remove(definition.key());
+            } catch (IllegalArgumentException rejected) {
+                findings.add(new Finding(definition.key(), rejected.getMessage()));
+            }
+        }
+    }
+
+    /** A value as the change set would leave it, falling back to what is stored now. */
+    private Object resolve(Map<String, Object> pending, Set<String> resets, String key) {
+        if (pending.containsKey(key)) {
+            return pending.get(key);
+        }
+        Definition definition = definitions.get(key);
+        return overrides.getOrDefault(key, definition.defaultValue());
+    }
+
+    private int resolveInt(Map<String, Object> pending, Set<String> resets, String key) {
+        return Math.toIntExact(((Number) resolve(pending, resets, key)).longValue());
+    }
+
+    /**
+     * Refuses any change set that would empty a distribution.
+     *
+     * <p>Airdrop rarity and material weights may each fall to zero, so nothing stopped
+     * the last positive one going too. {@code randomAirdropRarity} and
+     * {@code AirdropCatalog.randomLoot} both throw on a zero total, which surfaces as an
+     * Airdrop that fails to spawn rather than as anything pointing at the setting that
+     * caused it.
+     */
+    private void validateDistributions(
+            Map<String, Object> pending, Set<String> resets, List<Finding> findings
+    ) {
+        Map<String, Long> totals = new LinkedHashMap<>();
+        Map<String, String> firstKeyOf = new LinkedHashMap<>();
+        for (String key : definitions.keySet()) {
+            String table = SettingMetadata.table(key).orElse(null);
+            if (table == null) {
+                continue;
+            }
+            totals.merge(table, (long) resolveInt(pending, resets, key), Long::sum);
+            firstKeyOf.putIfAbsent(table, key);
+        }
+        totals.forEach((table, total) -> {
+            if (total <= 0) {
+                findings.add(new Finding(firstKeyOf.get(table),
+                        "Every weight in " + table + " would be zero, so nothing could be"
+                                + " drawn from it. Leave at least one above zero."));
+            }
+        });
     }
 
     synchronized Optional<Definition> find(String key) {
@@ -434,6 +643,7 @@ final class GameVariableStore {
         }
         root.add("variables", variables);
         root.add("tables", tableSummary());
+        root.add("history", history.snapshot(ConfigHistory.RETAINED_PUBLISHES));
         return root;
     }
 
@@ -690,76 +900,71 @@ final class GameVariableStore {
         return parsed;
     }
 
-    private void validatePair(String key, Object value) {
-        Map<String, String> pairs = Map.ofEntries(
-                Map.entry("amethyst-events.minimum-delay-minutes", "amethyst-events.maximum-delay-minutes"),
-                Map.entry("airdrop.rarity-radius.common.minimum", "airdrop.rarity-radius.common.maximum"),
-                Map.entry("airdrop.rarity-radius.rare.minimum", "airdrop.rarity-radius.rare.maximum"),
-                Map.entry("airdrop.rarity-radius.legendary.minimum", "airdrop.rarity-radius.legendary.maximum"),
-                Map.entry("airdrop.rarity-radius.mythic.minimum", "airdrop.rarity-radius.mythic.maximum"),
-                Map.entry("airdrop.rarity.common.minimum-keys", "airdrop.rarity.common.maximum-keys"),
-                Map.entry("airdrop.rarity.rare.minimum-keys", "airdrop.rarity.rare.maximum-keys"),
-                Map.entry("airdrop.rarity.legendary.minimum-keys", "airdrop.rarity.legendary.maximum-keys"),
-                Map.entry("airdrop.rarity.mythic.minimum-keys", "airdrop.rarity.mythic.maximum-keys"),
-                Map.entry("huge-amethyst.milestone.minimum-keys", "huge-amethyst.milestone.maximum-keys"),
-                Map.entry("huge-amethyst.milestone.minimum-diamonds", "huge-amethyst.milestone.maximum-diamonds"),
-                Map.entry("huge-amethyst.milestone.minimum-emeralds", "huge-amethyst.milestone.maximum-emeralds"),
-                Map.entry("huge-amethyst.milestone.minimum-gold", "huge-amethyst.milestone.maximum-gold"),
-                Map.entry("huge-amethyst.completion.minimum-keys", "huge-amethyst.completion.maximum-keys"),
-                Map.entry("huge-amethyst.completion.minimum-diamonds", "huge-amethyst.completion.maximum-diamonds"),
-                Map.entry("huge-amethyst.completion.minimum-emeralds", "huge-amethyst.completion.maximum-emeralds"),
-                Map.entry("huge-amethyst.completion.minimum-gold", "huge-amethyst.completion.maximum-gold"),
-                Map.entry("chaos.jackpot.minimum-keys", "chaos.jackpot.maximum-keys")
-        );
-        String maximum = pairs.get(key);
-        if (maximum != null && ((Number) value).longValue() > integer(maximum)) {
-            throw new IllegalArgumentException(key + " cannot be greater than " + maximum + ".");
+    /**
+     * Range and ordering rules, read against the state the change set would leave.
+     *
+     * <p>The minimum/maximum relation is taken from the catalogue rather than a
+     * hand-maintained list of pairs. The old list named eighteen of the thirty-one and
+     * covered the rest with a separate suffix branch, so a new pair was only protected
+     * if somebody remembered to add it in the right one of the two places.
+     */
+    private void validatePair(
+            String key, Object value, Map<String, Object> pending,
+            Set<String> resets, List<Finding> findings
+    ) {
+        Definition definition = definitions.get(key);
+        if (definition == null || definition.type() == Type.BOOLEAN) {
+            return;
         }
-        for (Map.Entry<String, String> pair : pairs.entrySet()) {
-            if (pair.getValue().equals(key) && ((Number) value).longValue() < integer(pair.getKey())) {
-                throw new IllegalArgumentException(key + " cannot be less than " + pair.getKey() + ".");
+        long proposed = ((Number) value).longValue();
+        SettingMetadata.partner(key, definitions.keySet()).ifPresent(partner -> {
+            long other = resolveInt(pending, resets, partner);
+            String otherLabel = definitions.get(partner).label();
+            if (isMinimumSide(key)) {
+                if (proposed > other) {
+                    findings.add(new Finding(key, definition.label() + " (" + proposed
+                            + ") cannot be above " + otherLabel + " (" + other + ")."));
+                }
+            } else if (proposed < other) {
+                findings.add(new Finding(key, definition.label() + " (" + proposed
+                        + ") cannot be below " + otherLabel + " (" + other + ")."));
             }
-        }
-        if (key.endsWith(".minimum-amount")) {
-            String other = key.replace(".minimum-amount", ".maximum-amount");
-            if (((Number) value).longValue() > integer(other)) {
-                throw new IllegalArgumentException(key + " cannot exceed " + other + ".");
-            }
-        } else if (key.endsWith(".maximum-amount")) {
-            String other = key.replace(".maximum-amount", ".minimum-amount");
-            if (((Number) value).longValue() < integer(other)) {
-                throw new IllegalArgumentException(key + " cannot be below " + other + ".");
-            }
-        }
+        });
         if (key.startsWith("online-rewards.tier.") && key.endsWith(".minimum-hours")) {
             int tier = Integer.parseInt(key.split("\\.")[2]);
-            long hours = ((Number) value).longValue();
-            if (tier > 1 && hours <= integer(
-                    "online-rewards.tier." + (tier - 1) + ".minimum-hours"
+            if (tier > 1 && proposed <= resolveInt(
+                    pending, resets, "online-rewards.tier." + (tier - 1) + ".minimum-hours"
             )) {
-                throw new IllegalArgumentException(key + " must exceed the previous online tier.");
+                findings.add(new Finding(key, "Online tier " + tier
+                        + " must start later than tier " + (tier - 1) + "."));
             }
-            if (tier < 6 && hours >= integer(
-                    "online-rewards.tier." + (tier + 1) + ".minimum-hours"
+            if (tier < 6 && proposed >= resolveInt(
+                    pending, resets, "online-rewards.tier." + (tier + 1) + ".minimum-hours"
             )) {
-                throw new IllegalArgumentException(key + " must stay below the next online tier.");
+                findings.add(new Finding(key, "Online tier " + tier
+                        + " must start earlier than tier " + (tier + 1) + "."));
             }
         }
         if (key.startsWith("huge-amethyst.wave.") && key.endsWith(".health-percent")) {
             int wave = Integer.parseInt(key.split("\\.")[2]);
-            long percent = ((Number) value).longValue();
-            if (wave > 1 && percent >= integer(
-                    "huge-amethyst.wave." + (wave - 1) + ".health-percent"
+            if (wave > 1 && proposed >= resolveInt(
+                    pending, resets, "huge-amethyst.wave." + (wave - 1) + ".health-percent"
             )) {
-                throw new IllegalArgumentException(key + " must stay below the previous wave.");
+                findings.add(new Finding(key, "Reward wave " + wave
+                        + " must trigger below wave " + (wave - 1) + "."));
             }
             if (wave < AmethystBlockRewards.REWARD_HEALTH_PERCENTAGES.length
-                    && percent <= integer(
-                    "huge-amethyst.wave." + (wave + 1) + ".health-percent"
+                    && proposed <= resolveInt(
+                    pending, resets, "huge-amethyst.wave." + (wave + 1) + ".health-percent"
             )) {
-                throw new IllegalArgumentException(key + " must stay above the next wave.");
+                findings.add(new Finding(key, "Reward wave " + wave
+                        + " must trigger above wave " + (wave + 1) + "."));
             }
         }
+    }
+
+    private static boolean isMinimumSide(String key) {
+        return key.endsWith(".minimum") || key.contains(".minimum-");
     }
 
     private static String describe(Definition definition, Object value) {

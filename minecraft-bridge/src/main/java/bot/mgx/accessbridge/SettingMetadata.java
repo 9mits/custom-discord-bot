@@ -196,17 +196,29 @@ record SettingMetadata(
         if (parts.length == 5 && parts[0].equals("crate") && parts[2].equals("reward")) {
             return Optional.of("crate." + parts[1]);
         }
-        // airdrop.rarity.<rarity>.weight
-        if (parts.length == 4 && parts[0].equals("airdrop") && parts[1].equals("rarity")) {
+        // airdrop.rarity.<rarity>.weight — the suffix must be exactly "weight".
+        // airdrop.rarity.<rarity>.cosmetic-weight sits beside it and is a rate out of a
+        // fixed denominator, not a competitor for the same total; folding it in here
+        // made the rarity table look non-empty when every real weight was zero.
+        if (parts.length == 4 && parts[0].equals("airdrop") && parts[1].equals("rarity")
+                && parts[3].equals("weight")) {
             return Optional.of("airdrop.rarity");
         }
         // airdrop.loot.<material>.<rarity>-weight — one table per rarity, across materials.
         if (parts.length == 4 && parts[0].equals("airdrop") && parts[1].equals("loot")) {
-            String suffix = parts[3];
-            return Optional.of("airdrop.loot."
-                    + suffix.substring(0, suffix.length() - "-weight".length()));
+            String rarity = parts[3].substring(0, parts[3].length() - "-weight".length());
+            return isAirdropRarity(rarity) ? Optional.of("airdrop.loot." + rarity) : Optional.empty();
         }
         return Optional.empty();
+    }
+
+    private static boolean isAirdropRarity(String name) {
+        for (AirdropCatalog.Rarity rarity : AirdropCatalog.Rarity.values()) {
+            if (rarity.name().equalsIgnoreCase(name)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

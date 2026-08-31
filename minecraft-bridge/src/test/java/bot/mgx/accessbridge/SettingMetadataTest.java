@@ -131,6 +131,46 @@ final class SettingMetadataTest {
         assertTrue(empty.isEmpty(), "distributions that cannot produce a chance: " + empty);
     }
 
+    /**
+     * The published summary has to hold exactly the rows that compete for the total.
+     *
+     * <p>Counting tables alone missed a real defect: {@code cosmetic-weight} sits beside
+     * the rarity weights and ends in the same suffix, so it was being summed into their
+     * total. That inflated every printed chance and, worse, left the table looking
+     * non-empty when every actual weight had been zeroed.
+     */
+    @Test
+    void publishedTableTotalsHoldOnlyTheirOwnRows() throws Exception {
+        Map<String, Integer> entries = new TreeMap<>();
+        for (JsonElement element : store().snapshot().getAsJsonArray("tables")) {
+            JsonObject entry = element.getAsJsonObject();
+            entries.put(entry.get("table").getAsString(), entry.get("entries").getAsInt());
+        }
+        Map<String, Integer> expected = new TreeMap<>();
+        expected.put("crate.default", 64);
+        expected.put("crate.amethyst", 51);
+        expected.put("crate.shard", 36);
+        expected.put("airdrop.rarity", 4);
+        expected.put("airdrop.loot.common", 13);
+        expected.put("airdrop.loot.rare", 13);
+        expected.put("airdrop.loot.legendary", 13);
+        expected.put("airdrop.loot.mythic", 13);
+        assertEquals(expected, entries, "a table gained or lost rows");
+    }
+
+    /** A rate expressed per fixed denominator is not a member of any distribution. */
+    @Test
+    void cosmeticRatesAreNotPartOfTheRarityDistribution() throws Exception {
+        for (JsonObject row : rows()) {
+            String key = row.get("key").getAsString();
+            if (key.endsWith(".cosmetic-weight")) {
+                assertEquals("rate", row.get("control").getAsString(), key);
+                assertTrue(!row.has("table"),
+                        key + " must not compete for a distribution total");
+            }
+        }
+    }
+
     /** A range control needs both halves, and each half must point back at the other. */
     @Test
     void minimumAndMaximumPairsAreMutual() throws Exception {
