@@ -45,6 +45,37 @@
 
   var DRAFT_STORAGE = "mgx-console-draft";
 
+  /**
+   * How often something should show up, in words.
+   *
+   * A weight means nothing without the rest of its table, so adding an entry asks for a
+   * frequency and works the weight out from whatever the table currently totals. The
+   * percentages are the share the new entry takes once it is in.
+   */
+  var FREQUENCIES = [
+    {id: "very_common", label: "Very common", share: 25, blurb: "about 1 in 4"},
+    {id: "common", label: "Common", share: 12, blurb: "about 1 in 8"},
+    {id: "uncommon", label: "Uncommon", share: 5, blurb: "about 1 in 20"},
+    {id: "rare", label: "Rare", share: 1.5, blurb: "about 1 in 65"},
+    {id: "very_rare", label: "Very rare", share: 0.4, blurb: "about 1 in 250"},
+    {id: "ultra_rare", label: "Ultra rare", share: 0.05, blurb: "about 1 in 2,000"}
+  ];
+
+  var CATEGORIES = [
+    {id: "RESOURCE", label: "Resources"},
+    {id: "TREASURE", label: "Treasure"},
+    {id: "TRIAL", label: "Trial Chamber"},
+    {id: "POTION", label: "Potions"},
+    {id: "ENCHANTMENT", label: "Enchantments"},
+    {id: "COSMETIC", label: "Cosmetics"}
+  ];
+
+  var CRATE_OF_TABLE = {
+    "crate.default": "default",
+    "crate.amethyst": "amethyst",
+    "crate.shard": "shard"
+  };
+
   var state = {
     snapshot: null,
     rows: [],
@@ -54,7 +85,10 @@
     findings: {},
     search: "",
     validating: false,
-    publishing: false
+    publishing: false,
+    catalog: null,
+    materials: [],
+    adding: null
   };
 
   function byId(id) { return document.getElementById(id); }
@@ -417,26 +451,245 @@
         escapeHtml(row.key) + '" value="' + escapeHtml(draftedValue(row.key)) +
         '" min="' + escapeHtml(row.minimum) + '" max="' + escapeHtml(row.maximum) + '"></td>' +
         '<td class="con-num con-muted">' + oneInFrom(now) + "</td>" +
-        "</tr>";
+        '<td class="con-num"><button type="button" class="con-remove" data-remove="' +
+        escapeHtml(row.key) + '" data-table="' + escapeHtml(table) +
+        '" title="Remove from this table" aria-label="Remove ' + escapeHtml(rowName(row)) +
+        '">&times;</button>' +
+        (isAddedRow(table, row.key) ? '<span class="con-added" title="You added this">+</span>' : "") +
+        "</td></tr>";
     }).join("");
 
     return '<section class="con-table' + (invalid ? " invalid" : "") + '">' +
       '<header><div><h3>' + escapeHtml(TABLE_TITLES[table] || table) + "</h3>" +
       "<p>" + escapeHtml(TABLE_BLURBS[table] || "") + "</p></div>" +
+      '<div class="con-table-actions">' +
+      '<button type="button" class="con-secondary" data-add="' + escapeHtml(table) +
+      '">Add an item</button>' +
       '<div class="con-table-total"><strong>' + rows.length + "</strong> entries" +
       "<span>total weight " + draftTotal.toLocaleString() +
       (moved && draftTotal !== liveTotal
-        ? " (was " + liveTotal.toLocaleString() + ")" : "") + "</span></div></header>" +
-      bar +
+        ? " (was " + liveTotal.toLocaleString() + ")" : "") + "</span></div></div></header>" +
+      bar + removedStrip(table) +
       (invalid
         ? '<p class="con-finding">Every weight here is zero, so nothing could be drawn ' +
           "from this table. Leave at least one above zero.</p>"
         : "") +
       '<div class="con-table-scroll"><table><thead><tr>' +
-      "<th>Entry</th><th>Chance</th><th>Change</th><th>Weight</th><th>Roughly</th>" +
+      "<th>Entry</th><th>Chance</th><th>Change</th><th>Weight</th><th>Roughly</th><th></th>" +
       "</tr></thead><tbody>" + body + "</tbody></table></div>" +
       '<p class="con-table-note">Type a percentage and the rest of the table re-reads ' +
       "against the new total. Weights stay exactly where you left them.</p></section>";
+  }
+
+  /* ---------- catalogue editing ---------- */
+
+  function catalogFor(table) {
+    var kind = CRATE_OF_TABLE[table];
+    if (!kind || !state.catalog) return null;
+    return (state.catalog.crates || []).filter(function (entry) {
+      return entry.kind === kind;
+    })[0] || null;
+  }
+
+  function isAddedRow(table, key) {
+    var entry = catalogFor(table);
+    if (!entry) {
+      if (table.indexOf("airdrop.loot.") !== 0 || !state.catalog) return false;
+      var material = MATERIAL.exec(key);
+      return !!material && (state.catalog.airdrop_loot_added || []).some(function (row) {
+        return row.material.toLowerCase() === material[1];
+      });
+    }
+    var id = (/\.reward\.([a-z0-9_]+)\.weight$/.exec(key) || [])[1];
+    return !!id && (entry.added || []).some(function (row) { return row.id === id; });
+  }
+
+  /** Weight that gives a new entry the requested share of a table it is not yet in. */
+  function weightForShare(table, share) {
+    var others = tableTotal(table, true);
+    if (others <= 0) return 100;
+    var fraction = Math.min(Math.max(share, 0.001), 90) / 100;
+    return Math.max(1, Math.round((fraction * others) / (1 - fraction)));
+  }
+
+  function frequencyChooser(table) {
+    return '<div class="con-freq" role="radiogroup" aria-label="How often">' +
+      FREQUENCIES.map(function (frequency, index) {
+        return '<label class="con-freq-option"><input type="radio" name="con-frequency" value="' +
+          escapeHtml(frequency.share) + '"' + (index === 2 ? " checked" : "") +
+          '><span><strong>' + escapeHtml(frequency.label) + "</strong><em>" +
+          escapeHtml(frequency.blurb) + "</em></span></label>";
+      }).join("") +
+      '<label class="con-freq-option custom"><input type="radio" name="con-frequency" value="custom">' +
+      '<span><strong>Exactly</strong><em><input id="con-freq-custom" type="number" step="0.01" ' +
+      'min="0.001" max="90" value="2"> % of this table</em></span></label></div>';
+  }
+
+  function materialPicker() {
+    // The id is written out rather than passed in so it can be found by reading the
+    // file, which is how the page-contract test checks the console only reaches for
+    // elements that exist.
+    return '<input class="con-search-field" id="con-add-material" list="con-materials" ' +
+      'placeholder="Start typing an item, e.g. copper ingot" autocomplete="off">' +
+      '<datalist id="con-materials">' +
+      state.materials.slice(0, 1200).map(function (material) {
+        return '<option value="' + escapeHtml(material) + '">' +
+          escapeHtml(titleCase(material)) + "</option>";
+      }).join("") + "</datalist>";
+  }
+
+  function openAddDialog(table) {
+    state.adding = {table: table, crate: CRATE_OF_TABLE[table] || null};
+    var isCrate = !!state.adding.crate;
+    var rarity = isCrate ? null : table.replace("airdrop.loot.", "");
+    byId("con-add-title").textContent = isCrate
+      ? "Add a reward to the " + (TABLE_TITLES[table] || table)
+      : "Add a material to " + (TABLE_TITLES[table] || table);
+    byId("con-add-body").innerHTML =
+      '<label class="con-field"><span>Item</span>' + materialPicker() +
+      '<em>Anything the server can hand a player.</em></label>' +
+      '<label class="con-field"><span>Name players see</span>' +
+      '<input class="con-search-field" id="con-add-name" placeholder="Filled in from the item">' +
+      "</label>" +
+      (isCrate
+        ? '<div class="con-field-row">' +
+          '<label class="con-field"><span>How many</span>' +
+          '<input class="con-number" id="con-add-amount" type="number" min="1" max="64" value="1">' +
+          "</label>" +
+          '<label class="con-field"><span>Group</span><select id="con-add-category">' +
+          CATEGORIES.map(function (category) {
+            return '<option value="' + escapeHtml(category.id) + '">' +
+              escapeHtml(category.label) + "</option>";
+          }).join("") + "</select></label></div>"
+        : '<div class="con-field-row">' +
+          '<label class="con-field"><span>Smallest amount</span>' +
+          '<input class="con-number" id="con-add-min" type="number" min="1" max="1000" value="4">' +
+          "</label>" +
+          '<label class="con-field"><span>Largest amount</span>' +
+          '<input class="con-number" id="con-add-max" type="number" min="1" max="1000" value="12">' +
+          "</label></div>" +
+          '<p class="con-help">Airdrops multiply these by rarity: doubled in Rare, tripled in ' +
+          "Legendary, quadrupled in Mythic.</p>") +
+      '<div class="con-field"><span>How often should it show up?</span>' +
+      frequencyChooser(table) +
+      (isCrate ? "" : '<p class="con-help">Applies to the ' + escapeHtml(rarity) +
+        " table. You can tune the other rarities afterwards.</p>") +
+      "</div>";
+    byId("con-add").hidden = false;
+    window.setTimeout(function () { byId("con-add-material").focus(); }, 30);
+  }
+
+  function chosenShare() {
+    var picked = document.querySelector('input[name="con-frequency"]:checked');
+    if (!picked) return 5;
+    if (picked.value === "custom") {
+      return Number(byId("con-freq-custom").value) || 1;
+    }
+    return Number(picked.value);
+  }
+
+  async function submitAdd() {
+    var context = state.adding;
+    if (!context) return;
+    var material = String(byId("con-add-material").value || "").trim().toUpperCase()
+      .replace(/ /g, "_");
+    if (!material) { toast("Pick an item first.", true); return; }
+    var name = String(byId("con-add-name").value || "").trim() || titleCase(material);
+    var weight = weightForShare(context.table, chosenShare());
+    var payload;
+    if (context.crate) {
+      payload = {
+        operation: "add_reward",
+        crate: context.crate,
+        id: material.toLowerCase(),
+        display_name: name,
+        category: byId("con-add-category").value,
+        material: material,
+        amount: Number(byId("con-add-amount").value) || 1,
+        weight: weight
+      };
+    } else {
+      var rarity = context.table.replace("airdrop.loot.", "");
+      var weights = {};
+      ["common", "rare", "legendary", "mythic"].forEach(function (name_) {
+        weights[name_] = name_ === rarity ? weight : 0;
+      });
+      payload = {
+        operation: "add_loot",
+        material: material,
+        minimum_amount: Number(byId("con-add-min").value) || 1,
+        maximum_amount: Number(byId("con-add-max").value) || 1,
+        weights: weights
+      };
+    }
+    await sendCatalog(payload, "Added " + name + ".");
+    byId("con-add").hidden = true;
+    state.adding = null;
+  }
+
+  async function sendCatalog(payload, success) {
+    try {
+      var result = await post("/api/catalog", payload);
+      toast((result && result.message) || success, false);
+      await loadSettings();
+      render();
+    } catch (error) {
+      toast(error.message, true);
+    }
+  }
+
+  function removeRow(table, key) {
+    var crate = CRATE_OF_TABLE[table];
+    var row = state.byKey[key];
+    var label = row ? rowName(row) : key;
+    if (!window.confirm(
+      "Remove " + label + "? Built-in entries can be put back afterwards; ones you added"
+      + " cannot."
+    )) return;
+    if (crate) {
+      var id = (/\.reward\.([a-z0-9_]+)\.weight$/.exec(key) || [])[1];
+      sendCatalog({operation: "remove_reward", crate: crate, id: id}, "Removed " + label + ".");
+      return;
+    }
+    var material = MATERIAL.exec(key);
+    if (material) {
+      sendCatalog(
+        {operation: "remove_loot", material: material[1].toUpperCase()},
+        "Removed " + label + "."
+      );
+    }
+  }
+
+  function restoreRow(table, id) {
+    var crate = CRATE_OF_TABLE[table];
+    sendCatalog(
+      crate
+        ? {operation: "restore_reward", crate: crate, id: id}
+        : {operation: "restore_loot", material: id},
+      "Restored."
+    );
+  }
+
+  /** Built-ins an owner removed, offered back rather than simply gone. */
+  function removedStrip(table) {
+    var removed = [];
+    var entry = catalogFor(table);
+    if (entry) {
+      removed = (entry.removed || []).map(function (row) {
+        return {id: row.id, label: row.display_name || row.id};
+      });
+    } else if (table.indexOf("airdrop.loot.") === 0 && state.catalog) {
+      removed = (state.catalog.airdrop_loot_removed || []).map(function (material) {
+        return {id: material, label: titleCase(material)};
+      });
+    }
+    if (!removed.length) return "";
+    return '<div class="con-removed"><span>Removed from this table:</span>' +
+      removed.map(function (row) {
+        return '<button type="button" class="con-chip" data-restore="' + escapeHtml(row.id) +
+          '" data-table="' + escapeHtml(table) + '" title="Put this back">' +
+          escapeHtml(row.label) + " <em>put back</em></button>";
+      }).join("") + "</div>";
   }
 
   /* ---------- pages ---------- */
@@ -672,7 +925,38 @@
       var reset = event.target.closest("[data-default]");
       if (reset) { resetToDefault(reset.dataset.default); return; }
       var rollback = event.target.closest("[data-rollback]");
-      if (rollback) { rollBack(rollback.dataset.rollback); }
+      if (rollback) { rollBack(rollback.dataset.rollback); return; }
+      var add = event.target.closest("[data-add]");
+      if (add) { openAddDialog(add.dataset.add); return; }
+      var remove = event.target.closest("[data-remove]");
+      if (remove) { removeRow(remove.dataset.table, remove.dataset.remove); return; }
+      var restore = event.target.closest("[data-restore]");
+      if (restore) { restoreRow(restore.dataset.table, restore.dataset.restore); }
+    });
+
+    byId("con-add").addEventListener("click", function (event) {
+      if (event.target.dataset.close !== undefined || event.target.id === "con-add") {
+        byId("con-add").hidden = true;
+        state.adding = null;
+      }
+      if (event.target.id === "con-add-confirm") submitAdd();
+    });
+
+    // Typing an item fills the player-facing name, until the owner writes their own.
+    byId("con-add").addEventListener("input", function (event) {
+      if (event.target.id !== "con-add-material") return;
+      var name = byId("con-add-name");
+      if (name && !name.dataset.touched) {
+        name.value = titleCase(String(event.target.value || "").replace(/_/g, " "));
+      }
+      if (event.target.id === "con-add-name") name.dataset.touched = "1";
+    });
+    byId("con-add").addEventListener("change", function (event) {
+      if (event.target.id === "con-add-name") event.target.dataset.touched = "1";
+      if (event.target.id === "con-freq-custom") {
+        var custom = document.querySelector('input[name="con-frequency"][value="custom"]');
+        if (custom) custom.checked = true;
+      }
     });
 
     byId("con-draftbar").addEventListener("click", function (event) {
@@ -698,7 +982,10 @@
     });
 
     document.addEventListener("keydown", function (event) {
-      if (event.key === "Escape") byId("con-preview").hidden = true;
+      if (event.key !== "Escape") return;
+      byId("con-preview").hidden = true;
+      byId("con-add").hidden = true;
+      state.adding = null;
     });
 
     window.addEventListener("beforeunload", function (event) {
@@ -761,6 +1048,8 @@
     });
     state.byKey = {};
     state.rows.forEach(function (row) { state.byKey[row.key] = row; });
+    state.catalog = state.snapshot.catalog || null;
+    state.materials = state.snapshot.materials || [];
   }
 
   async function boot() {

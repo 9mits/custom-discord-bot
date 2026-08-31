@@ -37,6 +37,20 @@ tagline: Balance crates, airdrops, rewards and events from one place. Nothing go
 
     <div class="con-draftbar" id="con-draftbar" hidden></div>
 
+    <div class="con-modal" id="con-add" hidden>
+      <div class="con-modal-card" role="dialog" aria-modal="true" aria-labelledby="con-add-title">
+        <header>
+          <h3 id="con-add-title">Add an item</h3>
+          <button type="button" class="con-close" data-close aria-label="Close">&times;</button>
+        </header>
+        <div id="con-add-body"></div>
+        <footer>
+          <button type="button" class="con-secondary" data-close>Cancel</button>
+          <button type="button" class="con-primary" id="con-add-confirm">Add it</button>
+        </footer>
+      </div>
+    </div>
+
     <div class="con-modal" id="con-preview" hidden>
       <div class="con-modal-card" role="dialog" aria-modal="true" aria-labelledby="con-preview-title">
         <header>

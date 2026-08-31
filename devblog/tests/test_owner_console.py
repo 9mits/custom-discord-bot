@@ -34,6 +34,13 @@ STORE_JAVA = (
     ROOT / "minecraft-bridge" / "src" / "main" / "java" / "bot" / "mgx" / "accessbridge"
     / "GameVariableStore.java"
 ).read_text(encoding="utf-8")
+# The snapshot has two producers: the variable registry, and the catalogue of what an
+# owner added or removed. A field check that knows about only one reports the other's
+# fields as missing.
+CATALOG_JAVA = (
+    ROOT / "minecraft-bridge" / "src" / "main" / "java" / "bot" / "mgx" / "accessbridge"
+    / "CustomCatalogStore.java"
+).read_text(encoding="utf-8")
 HISTORY_JAVA = (
     ROOT / "minecraft-bridge" / "src" / "main" / "java" / "bot" / "mgx" / "accessbridge"
     / "ConfigHistory.java"
@@ -47,9 +54,12 @@ class ConsolePageContractTests(unittest.TestCase):
         # move — a broken pattern yields nothing and would otherwise pass silently.
         self.assertGreater(len(wanted), 5, "the id scrape stopped matching")
         defined = set(re.findall(r'id="([a-z0-9-]+)"', CONTROL_MD))
-        # Created by the console itself once the owner is known, not present in markup.
-        runtime_created = {"owner-logout"}
-        missing = wanted - defined - runtime_created
+        # Elements the console builds itself — the sign-out button, the fields inside a
+        # dialog body. Scraped rather than listed, so an id it both writes and reads
+        # stays self-consistent without this test needing to know about each one.
+        creates = set(re.findall(r'id=\\?"([a-z0-9-]+)\\?"', CONSOLE_JS))
+        creates |= set(re.findall(r"""id='([a-z0-9-]+)'""", CONSOLE_JS))
+        missing = wanted - defined - creates
         self.assertEqual(
             set(), missing,
             "owner-console.js reaches for element(s) control.md never defines: %s" % sorted(missing),
@@ -140,11 +150,11 @@ class ConsoleSnapshotContractTests(unittest.TestCase):
         wanted -= {"filter", "map", "forEach", "some", "reduce", "indexOf", "slice", "push"}
         self.assertIn("control", wanted, "the field scrape stopped matching")
 
-        written = self._written_fields(STORE_JAVA)
+        written = self._written_fields(STORE_JAVA) | self._written_fields(CATALOG_JAVA)
         missing = wanted - written
         self.assertEqual(
             set(), missing,
-            "the console reads snapshot field(s) GameVariableStore never writes: %s"
+            "the console reads snapshot field(s) no store ever writes: %s"
             % sorted(missing),
         )
 

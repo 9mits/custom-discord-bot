@@ -1282,6 +1282,50 @@ img.live-minecraft-icon {
 .con-preview-list span { font-size: .7rem; color: var(--grey); }
 .con-preview-list code { font: 600 .78rem ui-monospace, monospace; background: none; color: var(--brand-orange); white-space: nowrap; }
 
+.con-table-actions { display: flex; align-items: center; gap: 1rem; }
+.con-remove {
+  border: 0; background: none; color: var(--grey); font-size: 1.05rem; line-height: 1;
+  padding: 0 .2rem; cursor: pointer; border-radius: .3rem;
+}
+.con-remove:hover { color: #ef4444; background: rgba(239, 68, 68, .12); }
+.con-added { color: var(--brand-orange); font-weight: 800; margin-left: .2rem; }
+.con-removed {
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem;
+  margin: 0 0 .9rem; font-size: .76rem; color: var(--grey);
+}
+.con-chip {
+  display: inline-flex; align-items: baseline; gap: .35rem; padding: .2rem .5rem;
+  border: 1px dashed var(--line-strong, var(--line)); border-radius: 999px;
+  background: var(--surface-raised); color: var(--text-muted);
+  font: 600 .74rem inherit; font-family: inherit; cursor: pointer;
+}
+.con-chip:hover { border-style: solid; color: var(--ink); }
+.con-chip em { font-style: normal; color: var(--brand-orange); font-size: .68rem; }
+.con-field { display: flex; flex-direction: column; gap: .3rem; margin-bottom: .9rem; }
+.con-field > span { font: 600 .8rem inherit; color: var(--ink); }
+.con-field > em { font-style: normal; font-size: .74rem; color: var(--grey); }
+.con-field-row { display: flex; gap: .8rem; flex-wrap: wrap; }
+.con-field-row .con-field { flex: 1 1 9rem; }
+.con-search-field, .con-field select {
+  width: 100%; padding: .5rem .6rem; border-radius: .5rem; border: 1px solid var(--line);
+  background: var(--surface-raised); color: var(--ink); font: inherit; font-size: .86rem;
+}
+.con-freq { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .4rem; }
+.con-freq-option {
+  display: flex; align-items: flex-start; gap: .45rem; padding: .5rem .6rem;
+  border: 1px solid var(--line); border-radius: .55rem; background: var(--surface-raised);
+  cursor: pointer;
+}
+.con-freq-option:has(input:checked) { border-color: var(--brand-orange); box-shadow: 0 0 0 1px var(--brand-orange) inset; }
+.con-freq-option span { display: flex; flex-direction: column; }
+.con-freq-option strong { font-size: .82rem; color: var(--ink); }
+.con-freq-option em { font-style: normal; font-size: .72rem; color: var(--grey); }
+.con-freq-option.custom { grid-column: 1 / -1; }
+.con-freq-option.custom input[type="number"] {
+  width: 5rem; padding: .15rem .3rem; border-radius: .35rem; border: 1px solid var(--line);
+  background: var(--surface); color: var(--ink); font: 600 .78rem ui-monospace, monospace;
+}
+
 @media (max-width: 860px) {
   .con-shell { grid-template-columns: 1fr; }
   .con-rail { position: static; flex-direction: row; flex-wrap: wrap; }
