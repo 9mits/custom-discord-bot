@@ -189,13 +189,19 @@ class MinecraftDashboardAssetTests(unittest.TestCase):
     def test_control_page_is_secret_but_still_has_a_direct_route(self):
         control = (Path(__file__).parents[1] / "devblog" / "pages" / "control.md").read_text()
         self.assertIn("nav_hidden: true", control)
-        self.assertIn('id="control-root"', control)
+        self.assertIn("private: true", control)
+        # The root the console boots from. Renamed with the panel rebuild; what matters
+        # is that the page carries a root at all, since the script keys off it.
+        self.assertIn('id="console-root"', control)
 
     def test_dashboard_script_is_static_data_not_an_embedded_secret(self):
-        script = (Path(__file__).parents[1] / "devblog" / "static" / "server-dashboard.js").read_text()
-        self.assertNotIn("client_secret", script)
-        self.assertNotIn("MINECRAFT_BRIDGE_SECRET", script)
-        self.assertIn("X-MGX-CSRF", script)
+        static = Path(__file__).parents[1] / "devblog" / "static"
+        for name in ("server-dashboard.js", "owner-console.js"):
+            with self.subTest(script=name):
+                script = (static / name).read_text()
+                self.assertNotIn("client_secret", script)
+                self.assertNotIn("MINECRAFT_BRIDGE_SECRET", script)
+                self.assertIn("X-MGX-CSRF", script)
 
 
 if __name__ == "__main__":

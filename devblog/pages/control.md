@@ -4,11 +4,11 @@ nav: Control
 nav_hidden: true
 private: true
 order: 5
-layout: dashboard
-tagline: Change live crate, key, event and airdrop values without restarting Paper. Exact odds and audit logs remain owner-only.
+layout: console
+tagline: Balance crates, airdrops, rewards and events from one place. Nothing goes live until you publish it, and every change can be undone.
 ---
 
-<div class="mgx-live-page" id="control-root">
+<div class="mgx-live-page" id="console-root">
   <div id="owner-account" class="live-owner-account"><a class="btn btn-discord" href="/auth/login">Authorize with Discord</a></div>
 
   <section id="control-lock" class="live-lock-card">
@@ -19,22 +19,37 @@ tagline: Change live crate, key, event and airdrop values without restarting Pap
   </section>
 
   <div id="owner-content" hidden>
-    <section class="live-panel">
-      <div class="live-panel-head">
-        <div><p class="live-eyebrow">OWNER CONTROL PANEL</p><h2>Live game variables</h2></div>
-        <div class="live-control-actions">
-          <input id="setting-search" type="search" placeholder="Search everything" aria-label="Search settings">
-          <button id="refresh-settings" class="btn live-secondary" type="button">Refresh</button>
-        </div>
-      </div>
-      <div id="setting-categories" class="live-category-rail"></div>
-      <div id="settings-grid" class="live-settings-grid"></div>
-    </section>
+    <div class="con-shell">
+      <nav class="con-rail" id="con-nav" aria-label="Settings sections"></nav>
 
-    <section class="live-panel">
-      <div class="live-panel-head"><div><p class="live-eyebrow">AUDIT TRAIL</p><h2>Recent control activity</h2></div></div>
-      <div id="logs-content" class="live-log-list"><p class="live-empty">Loading control activity…</p></div>
-    </section>
+      <div class="con-main">
+        <header class="con-head">
+          <div>
+            <p class="live-eyebrow">OWNER CONTROL PANEL</p>
+            <h2 id="con-page-title">Overview</h2>
+          </div>
+          <input id="con-search" type="search" placeholder="Search settings, or paste a key" aria-label="Search settings">
+        </header>
+
+        <div id="con-page"></div>
+      </div>
+    </div>
+
+    <div class="con-draftbar" id="con-draftbar" hidden></div>
+
+    <div class="con-modal" id="con-preview" hidden>
+      <div class="con-modal-card" role="dialog" aria-modal="true" aria-labelledby="con-preview-title">
+        <header>
+          <h3 id="con-preview-title">Review before publishing</h3>
+          <button type="button" class="con-close" data-close aria-label="Close">&times;</button>
+        </header>
+        <div id="con-preview-body"></div>
+        <footer>
+          <button type="button" class="con-secondary" data-close>Keep editing</button>
+          <button type="button" class="con-primary" id="con-preview-publish">Publish</button>
+        </footer>
+      </div>
+    </div>
   </div>
 </div>
 

@@ -146,7 +146,7 @@ class Page:
         # /leaderboards/ shares their layout and is deliberately public.
         self.private = str(meta.get("private") or "").lower() in {"1", "true", "yes"}
         self.layout = str(meta.get("layout") or "document").strip().lower()
-        if self.layout not in {"document", "dashboard", "statistics"}:
+        if self.layout not in {"document", "dashboard", "statistics", "console"}:
             raise PostError("%s: unknown page layout %r" % (path.name, self.layout))
         self.body_md = body_md
 

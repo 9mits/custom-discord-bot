@@ -1787,4 +1787,12 @@ class LightDepthTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    # The dev-blog CI job runs this one file, so a test module not reachable from here
+    # never runs at all. Load every sibling suite rather than leaving the second one
+    # to a workflow edit that needs a scope this project's token does not have.
+    # Discovery imports this file as its own module, so it collects these tests too —
+    # adding them again here would run every one of them twice.
+    _here = str(Path(__file__).resolve().parent)
+    _suite = unittest.TestLoader().discover(_here, pattern="test_*.py", top_level_dir=_here)
+    _result = unittest.TextTestRunner(verbosity=2).run(_suite)
+    sys.exit(0 if _result.wasSuccessful() else 1)
