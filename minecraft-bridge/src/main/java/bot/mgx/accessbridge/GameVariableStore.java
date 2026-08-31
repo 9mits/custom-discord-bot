@@ -65,9 +65,24 @@ final class GameVariableStore {
     private final Map<String, Object> overrides = new LinkedHashMap<>();
     private final List<Consumer<String>> changeObservers = new ArrayList<>();
     private final ConfigHistory history;
+    private final CustomCatalogStore custom;
+    /**
+     * Overrides whose definition is not currently in the catalogue.
+     *
+     * <p>Removing a reward takes its weight variable away with it. Discarding the tuning
+     * at that moment would mean putting the reward back later silently resets it, so the
+     * value waits here instead and is picked up again if the definition returns.
+     */
+    private final Map<String, Object> parked = new LinkedHashMap<>();
 
     GameVariableStore(Path file, FileConfiguration config) throws IOException {
+        this(file, config, null);
+    }
+
+    GameVariableStore(Path file, FileConfiguration config, CustomCatalogStore custom)
+            throws IOException {
         this.file = file;
+        this.custom = custom;
         Files.createDirectories(file.getParent());
         this.history = new ConfigHistory(
                 file.resolveSibling("game-variables-history.json"));
@@ -77,6 +92,40 @@ final class GameVariableStore {
         defineCrateRewards();
         defineAirdropRewards();
         load();
+    }
+
+    /** The rewards this crate actually contains, after an owner's additions and removals. */
+    List<CrateCatalog.Reward> rewards(CrateKind kind) {
+        return CrateCatalog.effectiveRewards(kind, custom);
+    }
+
+    /** The Airdrop loot table as it stands. */
+    List<AirdropCatalog.LootDefinitionView> loot() {
+        return AirdropCatalog.effectiveLoot(custom);
+    }
+
+    /**
+     * Rebuilds the catalogue-derived variables after an entry is added or removed.
+     *
+     * <p>Definitions are otherwise fixed at startup, which is what made adding a reward
+     * a code change. Only the catalogue families are touched; core, event and reward-tier
+     * definitions are untouched, and every override survives — a weight whose reward has
+     * just been removed is parked rather than lost.
+     */
+    synchronized void rebuildCatalogue() {
+        definitions.keySet().removeIf(key ->
+                (key.startsWith("crate.") && key.endsWith(".weight"))
+                        || key.startsWith("airdrop.loot."));
+        defineCrateRewards();
+        defineAirdropRewards();
+        parked.putAll(overrides);
+        overrides.keySet().removeIf(key -> !definitions.containsKey(key));
+        parked.forEach((key, value) -> {
+            if (definitions.containsKey(key)) overrides.putIfAbsent(key, value);
+        });
+        parked.keySet().removeIf(definitions::containsKey);
+        save();
+        changeObservers.forEach(observer -> observer.accept(""));
     }
 
     private void defineCore(FileConfiguration config) {
@@ -301,7 +350,7 @@ final class GameVariableStore {
 
     private void defineCrateRewards() {
         for (CrateKind kind : CrateKind.values()) {
-            for (CrateCatalog.Reward reward : kind.rewards()) {
+            for (CrateCatalog.Reward reward : CrateCatalog.effectiveRewards(kind, custom)) {
                 integer(
                         "crate." + kind.key() + ".reward." + reward.id() + ".weight",
                         reward.displayName(),
@@ -329,7 +378,7 @@ final class GameVariableStore {
             integer("airdrop.rarity." + key + ".cosmetic-weight", "Cosmetic chance", category,
                     "Winning cosmetic tickets out of 10,000.", rarity.cosmeticWeight(), 0, 10_000, "per 10,000", true);
         }
-        for (AirdropCatalog.LootDefinitionView loot : AirdropCatalog.lootDefinitions()) {
+        for (AirdropCatalog.LootDefinitionView loot : AirdropCatalog.effectiveLoot(custom)) {
             String base = "airdrop.loot." + loot.materialName().toLowerCase(Locale.ROOT);
             integer(base + ".minimum-amount", loot.materialName() + " minimum amount", "Airdrop Loot",
                     "Base amount before the rarity multiplier.", loot.minimumAmount(), 1, 1_000, "items", false);
@@ -770,15 +819,15 @@ final class GameVariableStore {
     }
 
     double advertisedRareRate(CrateKind kind) {
-        long total = kind.rewards().stream().mapToLong(reward -> rewardWeight(kind, reward)).sum();
-        long rare = kind.rewards().stream().filter(CrateCatalog.Reward::rare)
+        long total = rewards(kind).stream().mapToLong(reward -> rewardWeight(kind, reward)).sum();
+        long rare = rewards(kind).stream().filter(CrateCatalog.Reward::rare)
                 .mapToLong(reward -> rewardWeight(kind, reward)).sum();
         return total <= 0 ? 0d : (double) rare / (double) total;
     }
 
     String displayedChance(CrateKind kind, CrateCatalog.Reward reward) {
         if (reward.secret()) return "???";
-        long total = kind.rewards().stream().mapToLong(value -> rewardWeight(kind, value)).sum();
+        long total = rewards(kind).stream().mapToLong(value -> rewardWeight(kind, value)).sum();
         return total <= 0 ? "0%" : String.format(
                 Locale.ROOT, "%.6f%%", rewardWeight(kind, reward) * 100d / total
         ).replaceAll("0+%$", "%").replaceAll("\\.%$", "%");
@@ -790,7 +839,7 @@ final class GameVariableStore {
             return CrateCatalog.hiddenAmethystAt(0).orElseThrow();
         }
         int safeLuck = CrateCatalog.clampRollPercent(luckPercent);
-        List<CrateCatalog.Reward> rewards = kind.rewards();
+        List<CrateCatalog.Reward> rewards = rewards(kind);
         long total = 0;
         for (CrateCatalog.Reward reward : rewards) {
             total += effectiveWeight(kind, reward, safeLuck);
@@ -841,10 +890,10 @@ final class GameVariableStore {
         if (parts.length < 5) return 0;
         CrateKind kind = CrateKind.from(parts[1]).orElse(null);
         if (kind == null) return 0;
-        long total = kind.rewards().stream().mapToLong(reward -> rewardWeight(kind, reward)).sum();
+        long total = rewards(kind).stream().mapToLong(reward -> rewardWeight(kind, reward)).sum();
         if (total <= 0) return 0;
         String rewardId = parts[3];
-        return kind.rewards().stream()
+        return rewards(kind).stream()
                 .filter(reward -> reward.id().equals(rewardId))
                 .findFirst()
                 .map(reward -> rewardWeight(kind, reward) * 100d / total)
@@ -867,8 +916,8 @@ final class GameVariableStore {
         if (parts.length != 4) return 0d;
         String suffix = parts[3];
         String rarity = suffix.substring(0, suffix.length() - "-weight".length());
-        long total = AirdropCatalog.lootDefinitions().stream()
-                .mapToLong(loot -> lootValue(loot.materialName(), suffix)).sum();
+        long total = loot().stream()
+                .mapToLong(entry -> lootValue(entry.materialName(), suffix)).sum();
         if (total <= 0) return 0d;
         return lootValue(parts[2], rarity + "-weight") * 100d / total;
     }
@@ -1007,7 +1056,13 @@ final class GameVariableStore {
             for (Map.Entry<String, JsonElement> entry : root.entrySet()) {
                 String canonical = canonicalKey(entry.getKey());
                 Definition definition = definitions.get(canonical);
-                if (definition == null) continue;
+                if (definition == null) {
+                    // A weight whose reward is currently removed. Held, not dropped.
+                    parked.put(canonical, entry.getValue().isJsonPrimitive()
+                            && entry.getValue().getAsJsonPrimitive().isBoolean()
+                            ? entry.getValue().getAsBoolean() : entry.getValue().getAsLong());
+                    continue;
+                }
                 Object value = definition.type() == Type.BOOLEAN
                         ? entry.getValue().getAsBoolean() : entry.getValue().getAsLong();
                 parse(definition, String.valueOf(value));
@@ -1027,6 +1082,9 @@ final class GameVariableStore {
     private void save() {
         JsonObject root = new JsonObject();
         overrides.forEach((key, value) -> addValue(root, key, value));
+        // Written alongside the live ones so a reward restored after a restart comes
+        // back with the weight it had, rather than silently at the catalogue default.
+        parked.forEach((key, value) -> addValue(root, key, value));
         try {
             Path temporary = file.resolveSibling(file.getFileName() + ".tmp");
             Files.writeString(temporary, root.toString(), StandardCharsets.UTF_8);

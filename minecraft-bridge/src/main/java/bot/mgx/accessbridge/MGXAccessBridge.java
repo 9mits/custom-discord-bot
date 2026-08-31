@@ -105,6 +105,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private CrateOddsStore crateOdds;
     private AfkStore afkStore;
     private GameVariableStore gameVariables;
+    private CustomCatalogStore customCatalog;
     private volatile boolean gameVariableBroadcastPending;
     private ClanBattleStore clanBattleStore;
     private HomeIconStore homeIconStore;
@@ -202,9 +203,19 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             afkStore = new AfkStore(
                     getDataFolder().toPath().resolve("afk.json")
             );
-            gameVariables = new GameVariableStore(
-                    getDataFolder().toPath().resolve("game-variables.json"), getConfig()
+            customCatalog = new CustomCatalogStore(
+                    getDataFolder().toPath().resolve("custom-catalog.json")
             );
+            gameVariables = new GameVariableStore(
+                    getDataFolder().toPath().resolve("game-variables.json"), getConfig(),
+                    customCatalog
+            );
+            // Adding or removing an entry changes which weight variables exist, so the
+            // registry is rebuilt before anything reads it, and the console is told.
+            customCatalog.onChange(() -> {
+                gameVariables.rebuildCatalogue();
+                scheduleGameVariableBroadcast();
+            });
             clanBattleStore = new ClanBattleStore(
                     getDataFolder().toPath().resolve("clan-battles.json")
             );

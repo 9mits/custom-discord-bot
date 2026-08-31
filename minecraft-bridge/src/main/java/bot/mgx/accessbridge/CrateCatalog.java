@@ -215,6 +215,69 @@ final class CrateCatalog {
         ).toList();
     }
 
+    /** The built-in reward list for one crate, before an owner's additions or removals. */
+    static List<Reward> builtIn(CrateKind kind) {
+        return switch (kind) {
+            case DEFAULT -> REWARDS;
+            case AMETHYST -> AMETHYST_REWARDS;
+            case SHARD -> SHARD_REWARDS;
+        };
+    }
+
+    static java.util.Set<String> builtInIds(CrateKind kind) {
+        return builtIn(kind).stream().map(Reward::id)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
+    static Optional<Reward> builtInReward(CrateKind kind, String id) {
+        return builtIn(kind).stream().filter(reward -> reward.id().equals(id)).findFirst();
+    }
+
+    /**
+     * What the crate actually contains right now: the built-ins an owner has not removed,
+     * plus the ones they added.
+     *
+     * <p>Order matters and is deliberate — built-ins keep their catalogue order so the
+     * odds pages do not reshuffle when something is added, and additions land at the end.
+     */
+    static List<Reward> effectiveRewards(CrateKind kind, CustomCatalogStore custom) {
+        if (custom == null) {
+            return builtIn(kind);
+        }
+        java.util.Set<String> removed = custom.disabledRewards(kind.key());
+        List<Reward> rewards = new java.util.ArrayList<>(
+                builtIn(kind).stream().filter(reward -> !removed.contains(reward.id())).toList()
+        );
+        for (CustomCatalogStore.CrateAddition addition : custom.addedRewards(kind.key())) {
+            rewards.add(fromAddition(addition));
+        }
+        return List.copyOf(rewards);
+    }
+
+    /**
+     * Turns a stored addition into a reward the rest of the crate engine can use.
+     *
+     * <p>The description is what the odds screen shows under the name. Rewards must have
+     * one, but making an owner write flavour text before they can add copper is friction
+     * for its own sake, so a blank one becomes a plain statement of what the reward is.
+     */
+    static Reward fromAddition(CustomCatalogStore.CrateAddition addition) {
+        String description = addition.description() == null ? "" : addition.description().strip();
+        if (description.isEmpty()) {
+            description = addition.amount() + "x "
+                    + addition.material().toLowerCase(Locale.ROOT).replace('_', ' ') + ".";
+        }
+        return item(
+                addition.id(),
+                addition.displayName(),
+                Category.valueOf(addition.category()),
+                Math.max(1, addition.weight()),
+                addition.material(),
+                addition.amount(),
+                description
+        );
+    }
+
     /** Every reward an administrator may grant, across permanent and limited crates. */
     static List<Reward> everyReward() {
         return java.util.stream.Stream.of(
