@@ -66,6 +66,10 @@ record SettingMetadata(
         EVENT_SCHEDULE("Event Schedule"),
         AMETHYST_MOBS("Amethyst Mobs"),
         EVENT_MULTIPLIERS("Event Multipliers"),
+        PLAYERS("Players"),
+        WORLD("World"),
+        CLANS("Clans"),
+        AUCTION_HOUSE("Auction House"),
         /**
          * A value whose prefix nothing here recognises.
          *
@@ -155,6 +159,8 @@ record SettingMetadata(
             case "health" -> Control.HEALTH;
             case "attempts" -> Control.COUNT;
             case "x" -> Control.MULTIPLIER;
+            case "seconds" -> Control.DURATION;
+            case "chunks", "X", "Z" -> Control.COUNT;
             default -> Control.QUANTITY;
         };
     }
@@ -183,6 +189,22 @@ record SettingMetadata(
         }
         if (key.startsWith("events.")) {
             return Group.EVENT_MULTIPLIERS;
+        }
+        if (key.startsWith("afk.") || key.startsWith("rtp.")
+                || key.startsWith("verification.") || key.startsWith("combat.")) {
+            return Group.PLAYERS;
+        }
+        if (key.startsWith("world.") || key.startsWith("spawn.")) {
+            return Group.WORLD;
+        }
+        if (key.startsWith("clans.")) {
+            return Group.CLANS;
+        }
+        if (key.startsWith("auction.")) {
+            return Group.AUCTION_HOUSE;
+        }
+        if (key.startsWith("admin-events.")) {
+            return Group.ADMIN_EVENTS;
         }
         return Group.UNCLASSIFIED;
     }

@@ -144,7 +144,7 @@ final class AdminEventService {
     }
 
     private double configuredRadius() {
-        return plugin.getConfig().getDouble("abuse-radius", ChaosTargeting.DEFAULT_RADIUS);
+        return plugin.gameVariables().integer("admin-events.radius");
     }
 
     /** The one-line reminder, and the full menu behind {@code event admin list}. */

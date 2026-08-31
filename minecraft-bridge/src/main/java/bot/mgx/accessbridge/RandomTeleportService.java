@@ -37,20 +37,25 @@ final class RandomTeleportService implements CommandExecutor {
 
     private final MGXAccessBridge plugin;
     private final TeleportWarmupService warmups;
-    private final int minimumRadius;
-    private final int maximumRadius;
-    private final int attempts;
     private final Set<UUID> searching = ConcurrentHashMap.newKeySet();
 
     RandomTeleportService(MGXAccessBridge plugin, TeleportWarmupService warmups) {
         this.plugin = plugin;
         this.warmups = warmups;
-        this.minimumRadius = Math.max(0, plugin.getConfig().getInt("rtp.minimum-radius", 500));
-        this.maximumRadius = Math.max(
-                minimumRadius + 1,
-                plugin.getConfig().getInt("rtp.maximum-radius", 25_000)
-        );
-        this.attempts = Math.max(1, Math.min(100, plugin.getConfig().getInt("rtp.attempts", 24)));
+    }
+
+    // Read per teleport rather than at startup. None of these has a startup dependency;
+    // they needed a restart only because nothing had moved them into the live registry.
+    private int minimumRadius() {
+        return plugin.gameVariables().integer("rtp.minimum-radius");
+    }
+
+    private int maximumRadius() {
+        return Math.max(minimumRadius() + 1, plugin.gameVariables().integer("rtp.maximum-radius"));
+    }
+
+    private int attempts() {
+        return plugin.gameVariables().integer("rtp.attempts");
     }
 
     @Override
@@ -86,7 +91,7 @@ final class RandomTeleportService implements CommandExecutor {
             searching.remove(player.getUniqueId());
             return;
         }
-        if (attempted >= attempts) {
+        if (attempted >= attempts()) {
             searching.remove(player.getUniqueId());
             error(player, "No safe location was found. Try again in a moment.");
             return;
@@ -94,14 +99,14 @@ final class RandomTeleportService implements CommandExecutor {
         World world = player.getWorld();
         WorldBorder border = world.getWorldBorder();
         double borderRadius = Math.max(0d, border.getSize() / 2d - BORDER_MARGIN);
-        double usableMaximum = Math.min(maximumRadius, borderRadius);
-        if (usableMaximum <= minimumRadius) {
+        double usableMaximum = Math.min(maximumRadius(), borderRadius);
+        if (usableMaximum <= minimumRadius()) {
             searching.remove(player.getUniqueId());
             error(player, "The world border is too small for RTP.");
             return;
         }
         ThreadLocalRandom random = ThreadLocalRandom.current();
-        double radius = radius(minimumRadius, usableMaximum, random.nextDouble());
+        double radius = radius(minimumRadius(), usableMaximum, random.nextDouble());
         double angle = random.nextDouble(0d, Math.PI * 2d);
         int x = (int) Math.floor(border.getCenter().getX() + Math.cos(angle) * radius);
         int z = (int) Math.floor(border.getCenter().getZ() + Math.sin(angle) * radius);

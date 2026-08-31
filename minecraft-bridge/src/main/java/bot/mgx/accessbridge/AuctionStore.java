@@ -31,6 +31,37 @@ import java.util.function.Predicate;
  */
 final class AuctionStore {
     static final int MAX_LISTINGS_PER_PLAYER = 14;
+    /**
+     * Where the live limits come from.
+     *
+     * <p>Set once the registry exists so these can move without a build. The constants
+     * remain the defaults, and stand alone in tests, which construct the store directly.
+     */
+    private volatile java.util.function.ToLongFunction<String> limits = key -> -1L;
+
+    void limitSource(java.util.function.ToLongFunction<String> source) {
+        if (source != null) {
+            this.limits = source;
+        }
+    }
+
+    private long limit(String key, long fallback) {
+        long value = limits.applyAsLong(key);
+        return value < 0 ? fallback : value;
+    }
+
+    int maxListings() {
+        return (int) limit("auction.maximum-listings", MAX_LISTINGS_PER_PLAYER);
+    }
+
+    long maxPrice() {
+        return limit("auction.maximum-price", MAX_PRICE);
+    }
+
+    private long listingDuration() {
+        return limit("auction.listing-hours", LISTING_DURATION_MILLIS / 3_600_000L) * 3_600_000L;
+    }
+
     static final long LISTING_DURATION_MILLIS = 48L * 60L * 60L * 1000L;
     static final long MIN_PRICE = 1L;
     static final long MAX_PRICE = 100_000_000L;
@@ -107,18 +138,18 @@ final class AuctionStore {
             String itemData,
             long now
     ) {
-        if (price < MIN_PRICE || price > MAX_PRICE) {
+        if (price < MIN_PRICE || price > maxPrice()) {
             throw new IllegalArgumentException(
                     "Price must be between " + EconomyFormat.dollars(MIN_PRICE)
-                            + " and " + EconomyFormat.dollars(MAX_PRICE) + "."
+                            + " and " + EconomyFormat.dollars(maxPrice()) + "."
             );
         }
         if (itemData == null || itemData.isBlank()) {
             throw new IllegalArgumentException("That item could not be listed.");
         }
-        if (countBySeller(seller) >= MAX_LISTINGS_PER_PLAYER) {
+        if (countBySeller(seller) >= maxListings()) {
             throw new IllegalArgumentException(
-                    "You already have " + MAX_LISTINGS_PER_PLAYER + " listings."
+                    "You already have " + maxListings() + " listings."
             );
         }
         Listing listing = new Listing(
@@ -127,7 +158,7 @@ final class AuctionStore {
                 sellerName == null ? "" : sellerName,
                 price,
                 now,
-                now + LISTING_DURATION_MILLIS,
+                now + listingDuration(),
                 material == null ? "" : material,
                 Math.max(1, amount),
                 displayName == null || displayName.isBlank() ? material : displayName,

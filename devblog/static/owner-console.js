@@ -20,6 +20,10 @@
     {id: "amethyst_mobs", label: "Amethyst Mobs"},
     {id: "event_multipliers", label: "Event Multipliers"},
     {id: "event_schedule", label: "Event Schedule"},
+    {id: "players", label: "Players"},
+    {id: "world", label: "World"},
+    {id: "clans", label: "Clans"},
+    {id: "auction_house", label: "Auction House"},
     {id: "history", label: "History"}
   ];
 

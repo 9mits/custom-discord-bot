@@ -214,6 +214,20 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             // become 3x without a build.
             serverEventStore.factorSource(type ->
                     gameVariables.integer("events." + type.id() + ".multiplier"));
+            // Distance caps and the border are pushed onto each world rather than read
+            // from it, so unlike everything else these have to be re-applied when they
+            // change instead of simply being read again on next use.
+            clanStore.limitSource(key -> gameVariables.integer(key));
+            gameVariables.onChange(key -> {
+                if (key.startsWith("world.")) {
+                    getServer().getScheduler().runTask(this, () -> {
+                        for (World world : getServer().getWorlds()) {
+                            applyWorldMemory(world);
+                            applyWorldLimits(world);
+                        }
+                    });
+                }
+            });
             // Adding or removing an entry changes which weight variables exist, so the
             // registry is rebuilt before anything reads it, and the console is told.
             customCatalog.onChange(() -> {
@@ -578,6 +592,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         AuctionStore auctionStore;
         try {
             auctionStore = new AuctionStore(getDataFolder().toPath().resolve("auctions.json"));
+            auctionStore.limitSource(key -> gameVariables.integer(key));
         } catch (IOException exception) {
             getLogger().severe("MGXAccessBridge could not open the auction house: " + exception.getMessage());
             getServer().getPluginManager().disablePlugin(this);
@@ -1681,7 +1696,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private void applyWorldMemory(World world) {
         int view = WorldMemory.capDistance(
                 world.getViewDistance(),
-                getConfig().getInt("world.max-view-distance", WorldMemory.MAX_VIEW_DISTANCE)
+                gameVariables.integer("world.max-view-distance")
         );
         if (view != world.getViewDistance()) {
             world.setViewDistance(view);
@@ -1689,7 +1704,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         int simulation = WorldMemory.capSimulation(
                 world.getSimulationDistance(),
-                getConfig().getInt("world.max-simulation-distance", WorldMemory.MAX_SIMULATION_DISTANCE),
+                gameVariables.integer("world.max-simulation-distance"),
                 view
         );
         if (simulation != world.getSimulationDistance()) {
@@ -1700,7 +1715,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     }
 
     private void applyWorldLimits(World world) {
-        double radius = getConfig().getDouble("world.border-radius", WorldLimits.OVERWORLD_RADIUS);
+        double radius = gameVariables.integer("world.border-radius");
         if (radius < 0) {
             return;
         }

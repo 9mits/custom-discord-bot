@@ -88,6 +88,7 @@ final class GameVariableStore {
                 file.resolveSibling("game-variables-history.json"));
         defineCore(config);
         defineWorldAndMobs(config);
+        definePlayerAndWorld(config);
         defineOnlineRewards();
         defineEventRewards(config);
         defineCrateRewards();
@@ -212,6 +213,99 @@ final class GameVariableStore {
                             + " announcement follows whatever it is set to.",
                     type.baseMultiplier(), 2, 100, "x", false);
         }
+    }
+
+    /**
+     * Values that lived in config.yml and were therefore read once at startup.
+     *
+     * <p>None of them has a startup dependency: an AFK timeout, a teleport radius, a
+     * combat tag. They needed a restart only because nothing had moved them into the
+     * live registry. config.yml stays the source of the starting figure, so an existing
+     * server keeps whatever it had set.
+     */
+    private void definePlayerAndWorld(FileConfiguration config) {
+        integer("afk.timeout-seconds", "Idle before marked AFK", "Players",
+                "Seconds of stillness before a player is marked AFK automatically.",
+                config.getLong("afk-timeout-seconds", 300L), 30, 86_400, "seconds", false);
+        bool("afk.invincible", "AFK players are protected", "Players",
+                "Whether a player marked AFK cannot be damaged.",
+                config.getBoolean("afk-invincible", true));
+        integer("afk.combat-tag-seconds", "Combat tag", "Players",
+                "Seconds after taking or dealing damage during which a player counts as"
+                        + " in combat and cannot be marked AFK.",
+                config.getLong("afk-combat-tag-seconds", 15L), 0, 3_600, "seconds", false);
+
+        integer("rtp.minimum-radius", "Random teleport minimum", "Players",
+                "Nearest distance from spawn a random teleport may land.",
+                config.getLong("rtp.minimum-radius", 500), 0, 100_000, "blocks", false);
+        integer("rtp.maximum-radius", "Random teleport maximum", "Players",
+                "Farthest distance from spawn a random teleport may land.",
+                config.getLong("rtp.maximum-radius", 25_000), 1, 100_000, "blocks", false);
+        integer("rtp.attempts", "Random teleport attempts", "Players",
+                "Safe-ground candidates checked before giving up on a random teleport.",
+                config.getLong("rtp.attempts", 24), 1, 100, "attempts", false);
+
+        integer("verification.expiry-seconds", "Verification expiry", "Players",
+                "Seconds a pending verification stays valid before it lapses.",
+                config.getLong("verification-expiry-seconds", 900L), 60, 604_800, "seconds", false);
+
+        integer("world.border-radius", "World border", "World",
+                "Distance from spawn to the Overworld border. The Nether is an eighth of"
+                        + " this.",
+                (long) config.getDouble("world.border-radius", WorldLimits.OVERWORLD_RADIUS),
+                1_000, 29_999_984, "blocks", false);
+        integer("world.max-view-distance", "View distance cap", "World",
+                "Chunks a client may be sent. Zero leaves the panel's own value alone.",
+                config.getLong("world.max-view-distance", WorldMemory.MAX_VIEW_DISTANCE),
+                0, WorldMemory.ABSOLUTE_MAX_DISTANCE, "chunks", false);
+        integer("world.max-simulation-distance", "Simulation distance cap", "World",
+                "Chunks that keep ticking around a player.",
+                config.getLong("world.max-simulation-distance", WorldMemory.MAX_SIMULATION_DISTANCE),
+                0, WorldMemory.ABSOLUTE_MAX_DISTANCE, "chunks", false);
+
+        bool("spawn.protection.enabled", "Spawn mob barrier", "World",
+                "Whether hostile mobs are kept out of the box around spawn.",
+                config.getBoolean("spawn.protection.enabled", true));
+        integer("spawn.protection.min-x", "Spawn box west edge", "World",
+                "Western edge of the protected spawn box.",
+                config.getLong("spawn.protection.min-x", -50), -10_000, 10_000, "X", false);
+        integer("spawn.protection.max-x", "Spawn box east edge", "World",
+                "Eastern edge of the protected spawn box.",
+                config.getLong("spawn.protection.max-x", 49), -10_000, 10_000, "X", false);
+        integer("spawn.protection.min-z", "Spawn box north edge", "World",
+                "Northern edge of the protected spawn box.",
+                config.getLong("spawn.protection.min-z", -50), -10_000, 10_000, "Z", false);
+        integer("spawn.protection.max-z", "Spawn box south edge", "World",
+                "Southern edge of the protected spawn box.",
+                config.getLong("spawn.protection.max-z", 49), -10_000, 10_000, "Z", false);
+
+        integer("admin-events.radius", "Admin event radius", "Admin Event Rewards",
+                "How far from the operator an admin event reaches.",
+                (long) config.getDouble("abuse-radius", 64), 1, 512, "blocks", false);
+
+        integer("clans.maximum-members", "Clan size limit", "Clans",
+                "Members one clan may hold, the leader included.",
+                ClanStore.MAX_MEMBERS, 2, 200, "members", false);
+        integer("clans.maximum-allies", "Alliance limit", "Clans",
+                "Alliances one clan may hold at once.", ClanStore.MAX_ALLIES, 0, 50, "allies", false);
+        integer("clans.invite-minutes", "Clan invite expiry", "Clans",
+                "Minutes a clan invitation stays open.", 5, 1, 1_440, "minutes", false);
+        integer("clans.ally-offer-minutes", "Alliance offer expiry", "Clans",
+                "Minutes an alliance offer stays open.", 10, 1, 1_440, "minutes", false);
+
+        integer("auction.maximum-listings", "Auction slots per player", "Auction House",
+                "Listings one player may have running at once.",
+                AuctionStore.MAX_LISTINGS_PER_PLAYER, 1, 200, "listings", false);
+        integer("auction.listing-hours", "Listing lifetime", "Auction House",
+                "Hours a listing stands before it expires back to its seller.",
+                48, 1, 8_760, "hours", false);
+        integer("auction.maximum-price", "Highest asking price", "Auction House",
+                "Most a player may ask for one listing.",
+                AuctionStore.MAX_PRICE, 1, 1_000_000_000, "money", false);
+
+        integer("combat.tag-seconds", "Combat log window", "Players",
+                "Seconds after combat during which logging out counts as fleeing.",
+                CombatTag.DEFAULT_SECONDS, 0, 3_600, "seconds", false);
     }
 
     private void defineAirdropRadius(

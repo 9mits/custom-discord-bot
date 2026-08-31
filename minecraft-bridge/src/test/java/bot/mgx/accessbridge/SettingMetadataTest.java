@@ -187,8 +187,8 @@ final class SettingMetadataTest {
             }
         });
         assertTrue(broken.isEmpty(), "one-sided range pairs: " + broken);
-        assertEquals(64, partners.size(),
-                "expected 32 mutual minimum/maximum pairs across the catalogue");
+        assertEquals(66, partners.size(),
+                "expected 33 mutual minimum/maximum pairs across the catalogue");
     }
 
     /**
@@ -243,20 +243,24 @@ final class SettingMetadataTest {
             perGroup.merge(row.get("group").getAsString(), 1, Integer::sum);
         }
         assertEquals(
-                Map.of(
-                        "crates", 157,
-                        "airdrops", 113,
-                        "online_rewards", 67,
-                        "huge_amethyst", 29,
-                        "admin_events", 12,
-                        "event_schedule", 2,
-                        "amethyst_mobs", 3,
-                        "event_multipliers", 7
+                Map.ofEntries(
+                        Map.entry("crates", 157),
+                        Map.entry("airdrops", 113),
+                        Map.entry("online_rewards", 67),
+                        Map.entry("huge_amethyst", 29),
+                        Map.entry("admin_events", 13),
+                        Map.entry("event_multipliers", 7),
+                        Map.entry("players", 8),
+                        Map.entry("world", 8),
+                        Map.entry("clans", 4),
+                        Map.entry("amethyst_mobs", 3),
+                        Map.entry("auction_house", 3),
+                        Map.entry("event_schedule", 2)
                 ),
                 perGroup,
                 "the catalogue moved between panel pages"
         );
-        assertEquals(390, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
+        assertEquals(414, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
                 "group counts no longer add up to the catalogue");
     }
 
