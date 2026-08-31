@@ -868,6 +868,17 @@ class PageTests(unittest.TestCase):
         self.assertTrue(published.is_file())
         self.assertIn("wealth", published.read_text())
 
+    def test_the_public_snapshot_time_stays_in_javascript_milliseconds(self):
+        """Date.now() and Date.parse() must use the same unit in the age badge."""
+        script = (
+            Path(__file__).resolve().parents[1] / "static" / "server-dashboard.js"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            'generated_at: Date.parse(document_.checked_at || "") || 0', script
+        )
+        self.assertIn("if (timestamp < 1000000000000) timestamp *= 1000", script)
+        self.assertNotIn("Date.parse(document_.checked_at || \"\") / 1000", script)
+
     def test_a_missing_snapshot_is_not_an_error(self):
         self.page(
             "leaderboards.md",

@@ -53,7 +53,11 @@
     return response.json();
   }
   function relativeTime(timestamp) {
-    if (!timestamp) return "Waiting for Paper";
+    timestamp = Number(timestamp);
+    if (!Number.isFinite(timestamp) || timestamp <= 0) return "Waiting for Paper";
+    // The bridge publishes milliseconds. Accept legacy Unix-second snapshots too,
+    // but always compare milliseconds with JavaScript's millisecond clock.
+    if (timestamp < 1000000000000) timestamp *= 1000;
     var seconds = Math.round((timestamp - Date.now()) / 1000);
     var formatter = new Intl.RelativeTimeFormat(undefined, {numeric: "auto"});
     if (Math.abs(seconds) >= 3600) return formatter.format(Math.round(seconds / 3600), "hour");
@@ -213,7 +217,7 @@
     return {
       individual: boards.individual || {},
       clan: boards.clan || {},
-      generated_at: Math.floor(Date.parse(document_.checked_at || "") / 1000) || 0
+      generated_at: Date.parse(document_.checked_at || "") || 0
     };
   }
 
