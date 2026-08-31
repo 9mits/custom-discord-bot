@@ -73,6 +73,38 @@ class ConsolePageContractTests(unittest.TestCase):
         self.assertTrue(self._control_page().private)
         self.assertNotIn("control", [page.slug for page in build.load_pages()])
 
+    def test_the_hidden_attribute_actually_hides(self):
+        """A flex or grid component toggled with `el.hidden` needs the global reset.
+
+        Without it the author `display` wins, so the element renders empty and on top
+        of the page from load — which is how both the review dialog and the draft bar
+        shipped visible and blocking. The theme used to patch this per element, which
+        is precisely why a new one was missed.
+        """
+        # assertTrue, not assertIn: a failing assertIn prints the whole stylesheet.
+        self.assertTrue(
+            "[hidden] { display: none !important; }" in theme.STYLESHEET,
+            "the global [hidden] reset is gone, so anything toggled with el.hidden that "
+            "sets its own display will render visible and empty",
+        )
+
+    def test_no_component_patches_hidden_by_itself(self):
+        # A per-element patch means someone worked around the missing reset instead of
+        # relying on it, and the next component added will not be covered.
+        patches = re.findall(r"^[^\n{]*\[hidden\][^\n{]*\{", theme.STYLESHEET, re.M)
+        stray = [p.strip() for p in patches if not p.strip().startswith("[hidden]")]
+        self.assertEqual([], stray, "these should rely on the global reset: %s" % stray)
+
+    def test_every_element_toggled_by_script_is_hidden_in_the_markup(self):
+        # `el.hidden = false` on something the page never hid is a no-op that reads as
+        # working, so the element is simply always on screen.
+        shown = set(re.findall(r'byId\("([a-z0-9-]+)"\)\.hidden = false', CONSOLE_JS))
+        for element in shown:
+            self.assertRegex(
+                CONTROL_MD, r'id="%s"[^>]*hidden' % re.escape(element),
+                "%s is revealed by the console but never hidden in control.md" % element,
+            )
+
     def test_every_class_the_console_emits_is_styled(self):
         # A class with no rule renders as unstyled text in the middle of a panel, which
         # reads as a broken page rather than a missing stylesheet.

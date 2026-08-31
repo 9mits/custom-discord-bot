@@ -127,6 +127,11 @@ STYLESHEET = """
 /* ===== base ============================================================== */
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+/* Any author `display` beats the hidden attribute's UA rule, so a flex or grid
+   component toggled with `el.hidden` stays on screen — empty, and often on top of
+   everything else. Patching it per element is what let that happen twice; this makes
+   `hidden` mean hidden for anything added later. */
+[hidden] { display: none !important; }
 
 body {
   margin: 0;
@@ -804,7 +809,6 @@ a { color: inherit; }
 }
 .live-view-tabs button[aria-selected="true"] { color: #fff; background: var(--brand-ramp); box-shadow: var(--lift-1); }
 .live-view-panel { display: grid; gap: 1.5rem; }
-.live-view-panel[hidden] { display: none; }
 .live-eyebrow {
   color: var(--brand-orange); font-size: .72rem; font-weight: 900;
   letter-spacing: .16em; text-transform: uppercase;
@@ -971,7 +975,6 @@ img.live-minecraft-icon {
 .live-user-pill strong { display: block; color: var(--ink); }
 .live-user-pill button { border: 0; padding: 0; background: none; color: var(--brand-orange); cursor: pointer; }
 #owner-content { display: grid; gap: 1.5rem; }
-#owner-content[hidden] { display: none; }
 .live-control-actions { display: flex; gap: .55rem; }
 .live-control-actions input {
   min-width: 17rem; border: 1px solid var(--line); background: var(--surface-raised);
