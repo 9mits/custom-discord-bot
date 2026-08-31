@@ -55,6 +55,7 @@ class DashboardServer:
         self._app.router.add_post("/api/settings/validate", self.validate_changeset)
         self._app.router.add_post("/api/settings/publish", self.publish_changeset)
         self._app.router.add_post("/api/settings/rollback", self.rollback_publish)
+        self._app.router.add_post("/api/catalog", self.change_catalog)
         # aiohttp resolves plain paths ahead of dynamic ones however they are ordered,
         # so this wildcard cannot swallow the fixed routes above. Listed last anyway,
         # because reading it the other way round invites the opposite conclusion.
@@ -504,6 +505,63 @@ class DashboardServer:
             raise web.HTTPConflict(text=message)
         return web.json_response(
             {"ok": True, "message": message, "changes": detail.get("changes", [])},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    CATALOG_OPERATIONS = {
+        "add_reward": ("crate", "id", "display_name", "category", "material", "amount",
+                       "weight", "description"),
+        "remove_reward": ("crate", "id"),
+        "restore_reward": ("crate", "id"),
+        "add_loot": ("material", "minimum_amount", "maximum_amount", "weights"),
+        "remove_loot": ("material",),
+        "restore_loot": ("material",),
+    }
+
+    async def change_catalog(self, request: web.Request) -> web.Response:
+        """Adds or removes one catalogue entry — a crate reward, or an Airdrop material.
+
+        Separate from a value change set: this alters what exists rather than what a
+        thing is worth, so it applies immediately and is recorded on its own rather than
+        collecting into a draft.
+        """
+        member, actor_uuid = await self._changeset_actor(request)
+        body = await self._json_body(request)
+        operation = str(body.get("operation", "")).strip().lower() if isinstance(body, dict) else ""
+        allowed = self.CATALOG_OPERATIONS.get(operation)
+        if allowed is None:
+            raise web.HTTPBadRequest(
+                text="Unknown catalogue operation. Use one of: %s."
+                % ", ".join(sorted(self.CATALOG_OPERATIONS))
+            )
+        fields = {name: body[name] for name in allowed if name in body}
+        started = time.monotonic()
+        success, message, detail = await self.bot.bridge.run_catalog_entry(
+            actor_uuid=actor_uuid, operation=operation, fields=fields
+        )
+        await deliver(
+            self.bot,
+            CommandAuditRecord(
+                source=SOURCE_COMMAND,
+                command="dashboard catalog %s" % operation,
+                user_id=member.id,
+                user_label=member.name,
+                guild_id=self.config.guild_id,
+                options=tuple(
+                    (name, str(fields.get(name, ""))[:120])
+                    for name in allowed
+                    if name in fields
+                ),
+                outcome=OUTCOME_SUCCESS if success else OUTCOME_FAILED,
+                risk=RISK_CONFIGURATION,
+                duration_ms=int((time.monotonic() - started) * 1000),
+                detail=message,
+            ),
+        )
+        if not success:
+            raise web.HTTPConflict(text=message)
+        return web.json_response(
+            {"ok": True, "message": message, "catalog": detail},
             headers={"Cache-Control": "no-store"},
         )
 

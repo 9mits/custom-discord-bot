@@ -34,9 +34,10 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
      * SET_MAINTENANCE, which holds the server closed before launch; 9 added
      * server-event toggles; 10 added the Minecraft-first Discord linking lobby;
      * 11 added live game variables; 12 added AFK reporting; 13 added validated
-     * configuration change sets, publish history and rollback.
+     * configuration change sets, publish history and rollback; 14 added
+     * catalogue entries an owner can add and remove while the server runs.
      */
-    static final int PROTOCOL_VERSION = 13;
+    static final int PROTOCOL_VERSION = 14;
 
     private final MGXAccessBridge plugin;
     private final BridgeConfig config;
@@ -367,6 +368,10 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                     plugin,
                     () -> executeGameVariable(idempotencyKey, payload)
             );
+            case "CATALOG_ENTRY" -> Bukkit.getScheduler().runTask(
+                    plugin,
+                    () -> executeCatalogEntry(idempotencyKey, payload)
+            );
             case "APPROVE", "REVOKE", "KICK", "STATUS" -> Bukkit.getScheduler().runTask(
                     plugin,
                     () -> executeMainThreadAction(idempotencyKey, action, payload)
@@ -611,6 +616,113 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         } else {
             row.addProperty(name, ((Number) value).longValue());
         }
+    }
+
+    /**
+     * Adds or removes a catalogue entry, gated on the same owner rank as a value change.
+     *
+     * <p>Changing what a crate contains is at least as consequential as changing how
+     * often it gives something, so it sits behind the same check rather than a looser
+     * one.
+     */
+    private void executeCatalogEntry(String key, JsonObject payload) {
+        try {
+            UUID actor = UUID.fromString(payload.get("actor_uuid").getAsString());
+            String operation = optionalString(payload, "operation").toLowerCase(java.util.Locale.ROOT);
+            plugin.hasOwnerRank(actor).whenComplete((allowed, error) ->
+                    Bukkit.getScheduler().runTask(plugin, () -> {
+                        if (error != null || !Boolean.TRUE.equals(allowed)) {
+                            recordAndSend(key, new ProcessedActionStore.Result(
+                                    false,
+                                    "The linked Minecraft account does not hold the LuckPerms owner group."
+                            ));
+                            return;
+                        }
+                        try {
+                            recordAndSend(
+                                    key,
+                                    new ProcessedActionStore.Result(true, runCatalogEntry(operation, payload)),
+                                    plugin.customCatalog().snapshot()
+                            );
+                        } catch (RuntimeException exception) {
+                            recordAndSend(key, new ProcessedActionStore.Result(
+                                    false, safeError(exception)
+                            ));
+                        }
+                    })
+            );
+        } catch (RuntimeException exception) {
+            recordAndSend(key, new ProcessedActionStore.Result(false, safeError(exception)));
+        }
+    }
+
+    private String runCatalogEntry(String operation, JsonObject payload) {
+        CustomCatalogStore catalog = plugin.customCatalog();
+        switch (operation) {
+            case "add_reward": {
+                CrateKind kind = crateKind(payload);
+                CustomCatalogStore.CrateAddition added = catalog.addReward(
+                        kind,
+                        optionalString(payload, "id"),
+                        optionalString(payload, "display_name"),
+                        optionalString(payload, "category"),
+                        optionalString(payload, "material"),
+                        intOr(payload, "amount", 1),
+                        intOr(payload, "weight", 100),
+                        optionalString(payload, "description")
+                );
+                return "Added " + added.displayName() + " to the " + kind.displayName() + ".";
+            }
+            case "remove_reward": {
+                CrateKind kind = crateKind(payload);
+                catalog.removeReward(kind, optionalString(payload, "id"));
+                return "Removed that reward from the " + kind.displayName() + ".";
+            }
+            case "restore_reward": {
+                CrateKind kind = crateKind(payload);
+                catalog.restoreReward(kind, optionalString(payload, "id"));
+                return "Put that reward back into the " + kind.displayName() + ".";
+            }
+            case "add_loot": {
+                java.util.Map<String, Integer> weights = new java.util.LinkedHashMap<>();
+                JsonObject raw = payload.has("weights") && payload.get("weights").isJsonObject()
+                        ? payload.getAsJsonObject("weights") : new JsonObject();
+                for (AirdropCatalog.Rarity rarity : AirdropCatalog.Rarity.values()) {
+                    String name = rarity.name().toLowerCase(java.util.Locale.ROOT);
+                    weights.put(name, raw.has(name) ? raw.get(name).getAsInt() : 0);
+                }
+                CustomCatalogStore.LootAddition added = catalog.addLoot(
+                        optionalString(payload, "material"),
+                        intOr(payload, "minimum_amount", 1),
+                        intOr(payload, "maximum_amount", 1),
+                        weights
+                );
+                return "Added " + added.material() + " to the Airdrop loot table.";
+            }
+            case "remove_loot":
+                catalog.removeLoot(optionalString(payload, "material"));
+                return "Removed that material from the Airdrop loot table.";
+            case "restore_loot":
+                catalog.restoreLoot(optionalString(payload, "material"));
+                return "Put that material back into the Airdrop loot table.";
+            default:
+                throw new IllegalArgumentException(
+                        "Use add_reward, remove_reward, restore_reward, add_loot, remove_loot"
+                                + " or restore_loot."
+                );
+        }
+    }
+
+    private static CrateKind crateKind(JsonObject payload) {
+        String raw = optionalString(payload, "crate");
+        return CrateKind.from(raw).orElseThrow(
+                () -> new IllegalArgumentException("Unknown crate '" + raw + "'.")
+        );
+    }
+
+    private static int intOr(JsonObject payload, String name, int fallback) {
+        return payload.has(name) && payload.get(name).isJsonPrimitive()
+                ? payload.get(name).getAsInt() : fallback;
     }
 
     private void executeProfileSync(String key, JsonObject payload) {

@@ -31,7 +31,8 @@ REVERSE_LINK_PROTOCOL_VERSION = 10
 GAME_VARIABLE_PROTOCOL_VERSION = 11
 AFK_PROTOCOL_VERSION = 12
 CONFIG_CHANGESET_PROTOCOL_VERSION = 13
-CURRENT_PROTOCOL_VERSION = CONFIG_CHANGESET_PROTOCOL_VERSION
+CATALOG_ENTRY_PROTOCOL_VERSION = 14
+CURRENT_PROTOCOL_VERSION = CATALOG_ENTRY_PROTOCOL_VERSION
 
 VerificationHandler = Callable[..., Awaitable[None]]
 ActionResultHandler = Callable[[OutboxRecord, Optional[Any]], Awaitable[None]]
@@ -157,6 +158,15 @@ class MinecraftBridgeServer:
         publishing edits individually rather than refusing to work at all.
         """
         return self.connected and self._peer_protocol_version >= CONFIG_CHANGESET_PROTOCOL_VERSION
+
+    @property
+    def supports_catalog_entries(self) -> bool:
+        """Whether the plugin can add and remove catalogue entries while it runs.
+
+        An older plugin has a fixed catalogue compiled in, so there is nothing to fall
+        back to — the request is refused with a reason rather than half-applied.
+        """
+        return self.connected and self._peer_protocol_version >= CATALOG_ENTRY_PROTOCOL_VERSION
 
     async def start(self) -> None:
         ssl_context = None
@@ -820,6 +830,42 @@ class MinecraftBridgeServer:
                 # several times over; the panel edits a page at a time.
                 for edit in list(edits)[:400]
             ]
+        return await self._send_awaiting_detail("ACTION", payload, timeout=20.0)
+
+    async def run_catalog_entry(
+        self,
+        *,
+        actor_uuid: str,
+        operation: str,
+        fields: dict[str, Any],
+    ) -> tuple[bool, str, dict[str, Any]]:
+        """Adds or removes one catalogue entry — a crate reward, or an Airdrop material.
+
+        The detail carries the catalogue as it stands afterwards, so the console can
+        redraw what an owner has changed without a second round trip.
+        """
+        if not self.supports_catalog_entries:
+            return (
+                False,
+                "The connected Paper plugin is too old to change what a crate contains.",
+                {},
+            )
+        payload: dict[str, Any] = {
+            "action": "CATALOG_ENTRY",
+            "actor_uuid": str(actor_uuid),
+            "operation": str(operation).strip().lower(),
+        }
+        for name, value in fields.items():
+            if name == "weights" and isinstance(value, dict):
+                payload["weights"] = {
+                    str(key)[:16]: int(weight) for key, weight in list(value.items())[:8]
+                }
+            elif isinstance(value, bool):
+                payload[name] = value
+            elif isinstance(value, int):
+                payload[name] = value
+            else:
+                payload[name] = str(value)[:160]
         return await self._send_awaiting_detail("ACTION", payload, timeout=20.0)
 
     async def send_maintenance(self, enabled: bool) -> bool:

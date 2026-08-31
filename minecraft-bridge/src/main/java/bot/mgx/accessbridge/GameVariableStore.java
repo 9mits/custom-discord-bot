@@ -706,6 +706,12 @@ final class GameVariableStore {
         root.add("variables", variables);
         root.add("tables", tableSummary());
         root.add("history", history.snapshot(ConfigHistory.RETAINED_PUBLISHES));
+        // What an owner has added to or taken out of the catalogues, so the console can
+        // show removed built-ins as restorable rather than simply absent.
+        if (custom != null) {
+            root.add("catalog", custom.snapshot());
+        }
+        root.add("materials", itemMaterials());
         return root;
     }
 
@@ -726,6 +732,32 @@ final class GameVariableStore {
         if (metadata.restartReason() != null) {
             row.addProperty("restart_reason", metadata.restartReason());
         }
+    }
+
+    /**
+     * Item materials an owner may add, for the console's picker.
+     *
+     * <p>Sent with the snapshot rather than looked up per keystroke: the list is fixed
+     * for the life of the server, and a picker that has to ask the server on every
+     * character is slower and fails differently when the bridge is busy.
+     */
+    private static JsonArray itemMaterials() {
+        JsonArray materials = new JsonArray();
+        for (org.bukkit.Material material : org.bukkit.Material.values()) {
+            if (material.isLegacy()) {
+                continue;
+            }
+            try {
+                if (!material.isItem()) {
+                    continue;
+                }
+            } catch (RuntimeException | LinkageError offServer) {
+                // No item registry outside a running server. Offering the enum is better
+                // than offering nothing; the add itself still refuses a non-item.
+            }
+            materials.add(material.name());
+        }
+        return materials;
     }
 
     /**

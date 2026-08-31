@@ -1171,6 +1171,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         return gameVariables;
     }
 
+    CustomCatalogStore customCatalog() {
+        return customCatalog;
+    }
+
     void republishGameVariables() {
         if (bridgeClient != null && gameVariables != null) {
             bridgeClient.sendGameVariableSnapshot(gameVariables.snapshot());
