@@ -879,14 +879,11 @@ a { color: inherit; }
 .live-player-art.head { width: 2.75rem; height: 2.75rem; }
 .live-player-art img { position: relative; z-index: 1; margin: 0; image-rendering: pixelated; }
 .live-skin-render { width: auto; height: 9.5rem; object-fit: contain; filter: drop-shadow(0 9px 8px rgb(var(--shadow-rgb) / .25)); }
-.live-head-render { width: 2.75rem; height: 2.75rem; border-radius: .45rem; object-fit: cover; }
-.live-avatar-fallback {
-  position: absolute; inset: 0; display: grid; place-items: center; border-radius: .5rem;
-  background: color-mix(in srgb, var(--rank, var(--orange)) 18%, var(--surface-raised));
-  color: var(--rank-deep, var(--orange-deep)); font-weight: 900;
-}
-.live-player-art.image-missing img { display: none; }
-.live-player-art:not(.image-missing) .live-avatar-fallback { visibility: hidden; }
+/* The article image rule is more specific than a class selector. Target the img
+   directly so small player renders stay square and fully visible, not rounded
+   into a circle or cropped like editorial photography. */
+img.live-head-render { width: 2.75rem; height: 2.75rem; border-radius: 0; object-fit: contain; }
+img.live-skin-render { border-radius: 0; }
 .live-podium-copy { min-width: 0; margin-top: auto; text-align: center; }
 .live-podium-copy h3 { margin: 0; color: var(--ink); font-size: 1.05rem; line-height: 1.2; overflow-wrap: anywhere; }
 .live-discord-name { margin-top: .18rem; color: var(--grey); font-size: .75rem; line-height: 1.25; overflow-wrap: anywhere; }
@@ -1056,7 +1053,9 @@ img.live-minecraft-icon {
 .stat-table th { font-size: .68rem; text-transform: uppercase; letter-spacing: .07em; color: var(--grey); }
 .stat-table .num, .stat-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .stat-player { display: flex; align-items: center; gap: .45rem; }
-.stat-player img, .stat-board img { border-radius: .2rem; image-rendering: pixelated; }
+.doc-body .stat-player img, .doc-body .stat-board img {
+  margin: 0; border-radius: 0; object-fit: contain; image-rendering: pixelated;
+}
 .stat-board-grid {
   display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
 }

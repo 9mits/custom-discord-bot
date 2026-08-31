@@ -251,8 +251,8 @@ class DashboardServer:
             for row in rows:
                 uuid = str(row.get("minecraft_uuid") or "")
                 username = str(row.get("username") or "")
-                row["head_url"] = head_url(uuid, username) if uuid or username else ""
-                row["skin_url"] = skin_url(uuid, username) if uuid or username else ""
+                row["head_url"] = head_url(uuid, username)
+                row["skin_url"] = skin_url(uuid, username)
                 discord_id = links.get(uuid)
                 member = guild.get_member(int(discord_id)) if guild and discord_id else None
                 row["discord_user_id"] = discord_id

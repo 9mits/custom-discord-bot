@@ -86,8 +86,8 @@ class MinecraftDashboardSecurityTests(unittest.IsolatedAsyncioTestCase):
             payload = await response.json()
             row = payload["individual"]["wealth"][0]
             self.assertEqual(row["discord_username"], "nine")
-            self.assertIn("mc-heads.net", row["head_url"])
-            self.assertIn("mc-heads.net/body", row["skin_url"])
+            self.assertIn("api.mcheads.org/ioshead", row["head_url"])
+            self.assertIn("api.mcheads.org/iosbody", row["skin_url"])
             self.assertNotIn("variables", payload)
             self.assertEqual(response.headers["X-Frame-Options"], "DENY")
 
@@ -136,6 +136,9 @@ class MinecraftDashboardAssetTests(unittest.TestCase):
         self.assertIn("slice(0, 10)", script)
         self.assertIn("live-podium", script)
         self.assertIn("skin_url", script)
+        self.assertIn("ioshead/MHF_Steve/left", script)
+        self.assertIn('data-fallback="', script)
+        self.assertNotIn("live-avatar-fallback", script)
         self.assertIn("row.icon", script)
         self.assertNotIn("live-tab-icon", script)
         self.assertNotIn("iconSvg", script)
@@ -150,6 +153,21 @@ class MinecraftDashboardAssetTests(unittest.TestCase):
         for tier in ("rank-gold", "rank-silver", "rank-bronze"):
             self.assertIn(tier, script)
             self.assertIn(tier, theme)
+
+    def test_leaderboard_heads_are_not_rounded_or_cropped(self):
+        theme = (Path(__file__).parents[1] / "devblog" / "theme.py").read_text()
+
+        self.assertIn("img.live-head-render", theme)
+        self.assertIn("border-radius: 0; object-fit: contain", theme)
+
+    def test_statistics_heads_use_the_same_steve_fallback(self):
+        script = (
+            Path(__file__).parents[1] / "devblog" / "static" / "server-statistics.js"
+        ).read_text()
+
+        self.assertIn("ioshead/MHF_Steve/left", script)
+        self.assertIn("wireHeadFallbacks", script)
+        self.assertIn("data-head-fallback", script)
 
     def test_every_clan_icon_has_a_real_minecraft_texture(self):
         root = Path(__file__).parents[1]
