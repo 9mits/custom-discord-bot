@@ -40,6 +40,7 @@ RELAY_PREFIX = "https://r.jina.ai/http://"
 #: Keys copied out of the response. An allowlist rather than a filter, so a future
 #: field added to the API cannot reach a public page by simply existing.
 GROUPS = ("individual", "clan")
+BATTLE_FIELDS = ("id", "kind", "name", "objective", "started_at", "ends_at")
 ROW_FIELDS = (
     "username", "name", "clan", "display", "value", "score", "rank", "minecraft_uuid",
     "head_url", "skin_url", "discord_username", "clan_id", "colour",
@@ -72,6 +73,11 @@ def clean(snapshot: object) -> dict:
             for key, value in boards.items()
             if clean_rows(value)
         }
+    battle = snapshot.get("clan_battle")
+    if isinstance(battle, dict):
+        cleaned_battle = {key: battle[key] for key in BATTLE_FIELDS if key in battle}
+        if cleaned_battle:
+            out["clan_battle"] = cleaned_battle
     return {k: v for k, v in out.items() if v}
 
 
@@ -135,9 +141,14 @@ def main() -> int:
         "version": 1,
     }
     OUTPUT.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
-    total = sum(len(rows) for boards in snapshot.values() for rows in boards.values())
+    total = sum(
+        len(rows)
+        for group in GROUPS
+        for rows in snapshot.get(group, {}).values()
+    )
+    board_count = sum(len(snapshot.get(group, {})) for group in GROUPS)
     print(f"Wrote {OUTPUT.name}: "
-          f"{sum(len(b) for b in snapshot.values())} board(s), {total} row(s).")
+          f"{board_count} board(s), {total} row(s).")
     return 0
 
 

@@ -1,3 +1,4 @@
+import re
 import time
 import unittest
 from tempfile import TemporaryDirectory
@@ -140,6 +141,8 @@ class MinecraftDashboardAssetTests(unittest.TestCase):
         self.assertIn('data-fallback="', script)
         self.assertNotIn("live-avatar-fallback", script)
         self.assertIn("row.icon", script)
+        self.assertNotIn("clanIcons", script)
+        self.assertIn('active ? "Current Clan Battle" : "No active battle"', script)
         self.assertNotIn("live-tab-icon", script)
         self.assertNotIn("iconSvg", script)
         self.assertNotIn("The individual race", html)
@@ -159,6 +162,8 @@ class MinecraftDashboardAssetTests(unittest.TestCase):
 
         self.assertIn("img.live-head-render", theme)
         self.assertIn("border-radius: 0; object-fit: contain", theme)
+        self.assertIn("width: 9.5rem; max-width: 100%; height: 9.5rem; object-fit: contain", theme)
+        self.assertIn("object-position: center bottom", theme)
 
     def test_statistics_heads_use_the_same_steve_fallback(self):
         script = (
@@ -174,12 +179,11 @@ class MinecraftDashboardAssetTests(unittest.TestCase):
         assets = root / "devblog" / "static" / "minecraft-items"
         catalog = root / "minecraft-bridge" / "src" / "main" / "java" / "bot" / "mgx" / "accessbridge" / "ClanIcon.java"
         source = catalog.read_text()
-        for icon in (
-            "amethyst_shard", "diamond", "emerald", "gold_ingot", "netherite_ingot", "nether_star",
-            "ender_pearl", "heart_of_the_sea", "blaze_powder", "echo_shard", "totem_of_undying", "golden_apple",
-        ):
-            self.assertIn('"' + icon + '"', source)
-            self.assertGreater((assets / (icon + ".png")).stat().st_size, 0)
+        icons = re.findall(r'^\s+[A-Z0-9_]+\("([a-z0-9_]+)"', source, re.MULTILINE)
+        self.assertEqual(len(icons), 97)
+        for icon in icons:
+            with self.subTest(icon=icon):
+                self.assertGreater((assets / (icon + ".png")).stat().st_size, 0)
         self.assertGreater((assets / "crate_key.png").stat().st_size, 0)
 
     def test_control_page_is_secret_but_still_has_a_direct_route(self):

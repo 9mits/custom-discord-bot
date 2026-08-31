@@ -878,7 +878,10 @@ a { color: inherit; }
 .live-player-art.full { height: 9.75rem; margin: .45rem 0 .2rem; }
 .live-player-art.head { width: 2.75rem; height: 2.75rem; }
 .live-player-art img { position: relative; z-index: 1; margin: 0; image-rendering: pixelated; }
-.live-skin-render { width: auto; height: 9.5rem; object-fit: contain; filter: drop-shadow(0 9px 8px rgb(var(--shadow-rgb) / .25)); }
+.live-skin-render {
+  width: 9.5rem; max-width: 100%; height: 9.5rem; object-fit: contain;
+  object-position: center bottom; filter: drop-shadow(0 9px 8px rgb(var(--shadow-rgb) / .25));
+}
 /* The article image rule is more specific than a class selector. Target the img
    directly so small player renders stay square and fully visible, not rounded
    into a circle or cropped like editorial photography. */
