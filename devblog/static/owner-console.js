@@ -17,6 +17,8 @@
     {id: "online_rewards", label: "Online Rewards"},
     {id: "huge_amethyst", label: "Huge Amethyst"},
     {id: "admin_events", label: "Admin Events"},
+    {id: "amethyst_mobs", label: "Amethyst Mobs"},
+    {id: "event_multipliers", label: "Event Multipliers"},
     {id: "event_schedule", label: "Event Schedule"},
     {id: "history", label: "History"}
   ];
@@ -319,9 +321,13 @@
 
   function rowIcon(row) {
     var material = MATERIAL.exec(row.key);
-    if (!material) return "";
+    if (!material) return '<span class="con-icon-gap" aria-hidden="true"></span>';
+    // A missing sprite becomes an empty box of the same size rather than nothing, so
+    // one row without art does not shift its name out of the column.
     return '<img class="con-icon" src="/assets/minecraft-items/' + escapeHtml(material[1]) +
-      '.png" alt="" loading="lazy" onerror="this.remove()">';
+      '.png" alt="" loading="lazy" ' +
+      'onerror="this.replaceWith(Object.assign(document.createElement(\'span\'),' +
+      '{className:\'con-icon-gap\'}))">';
   }
 
   /* ---------- controls ---------- */
@@ -358,6 +364,11 @@
       return '<div class="con-odds">' + numberField(row, value) +
         '<span class="con-odds-read">' + formatChance(value / 100) +
         " &middot; " + escapeHtml(value) + " per 10,000</span></div>";
+    }
+    if (row.control === "multiplier") {
+      return '<div class="con-odds">' + numberField(row, value) +
+        '<span class="con-odds-read"><strong>' + escapeHtml(value) +
+        "&times;</strong> &middot; players are told this figure</span></div>";
     }
     if (row.control === "percent") {
       return '<div class="con-odds">' + numberField(row, value) +
@@ -442,7 +453,8 @@
       var changed = Math.abs(live - now) > 0.000001;
       var finding = state.findings[row.key];
       return '<tr class="' + (isDirty(row.key) ? "dirty" : "") + (finding ? " invalid" : "") + '">' +
-        "<td>" + rowIcon(row) + "<span>" + escapeHtml(rowName(row)) + "</span></td>" +
+        '<td><div class="con-entry">' + rowIcon(row) + "<span>" +
+        escapeHtml(rowName(row)) + "</span></div></td>" +
         '<td class="con-num"><input class="con-pct" type="number" step="0.001" min="0" max="99.9" ' +
         'data-chance="' + escapeHtml(row.key) + '" value="' + now.toFixed(3) + '"></td>' +
         '<td class="con-num"><span class="con-move' + (changed ? " shown" : "") + '">' +

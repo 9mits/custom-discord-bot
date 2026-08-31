@@ -1203,7 +1203,7 @@ img.live-minecraft-icon {
 .con-range-fields label { display: flex; flex-direction: column; gap: .2rem; font-size: .7rem; color: var(--grey); text-transform: uppercase; letter-spacing: .05em; }
 .con-range-dash { padding-bottom: .55rem; color: var(--grey); font-size: .76rem; }
 
-.con-table { margin-bottom: 2rem; padding: 1.1rem; border: 1px solid var(--line); border-radius: .9rem; background: var(--surface); }
+.con-table { margin-bottom: 2rem; min-width: 0; padding: 1.1rem; border: 1px solid var(--line); border-radius: .9rem; background: var(--surface); }
 .con-table.invalid { border-color: #ef4444; }
 .con-table > header { display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: flex-start; margin-bottom: .9rem; }
 .con-table h3 { margin: 0 0 .2rem; font-size: 1rem; color: var(--ink); }
@@ -1211,7 +1211,7 @@ img.live-minecraft-icon {
 .con-table-total { text-align: right; font-size: .74rem; color: var(--grey); }
 .con-table-total strong { display: block; font-size: 1.2rem; color: var(--ink); font-variant-numeric: tabular-nums; }
 .con-table-total span { display: block; }
-.con-dist { display: flex; height: .55rem; border-radius: 999px; overflow: hidden; background: var(--canvas); margin-bottom: .9rem; }
+.con-dist { display: flex; max-width: 100%; height: .55rem; border-radius: 999px; overflow: hidden; background: var(--canvas); margin-bottom: .9rem; }
 .con-dist-slice { display: block; height: 100%; }
 .con-dist-slice.tone-0 { background: #f06000; }
 .con-dist-slice.tone-1 { background: #f09030; }
@@ -1219,19 +1219,25 @@ img.live-minecraft-icon {
 .con-dist-slice.tone-3 { background: #8b5cf6; }
 .con-dist-slice.tone-4 { background: #34c46b; }
 .con-dist-slice.tone-5 { background: #a01000; }
-.con-table-scroll { overflow-x: auto; }
-.con-table table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+.con-table-scroll { overflow-x: auto; max-width: 100%; }
+.con-table table { width: 100%; min-width: 34rem; border-collapse: collapse; font-size: .82rem; }
 .con-table th {
   text-align: left; padding: .4rem .5rem; border-bottom: 1px solid var(--line);
   font: 600 .68rem ui-monospace, monospace; text-transform: uppercase; letter-spacing: .06em; color: var(--grey);
 }
 .con-table td { padding: .35rem .5rem; border-bottom: 1px solid var(--line); color: var(--ink); }
-.con-table td:first-child { display: flex; align-items: center; gap: .45rem; }
+/* display:flex on a td takes the cell out of table layout, so its bottom border stops
+   lining up with the rest of the row — visible as a stepped rule wherever an entry had
+   no icon. The cell stays a cell; the flex box goes inside it. */
+.con-entry { display: flex; align-items: center; gap: .45rem; min-width: 0; }
+.con-entry span { overflow-wrap: anywhere; }
 .con-table tr.dirty td { background: var(--bloom-2); }
 .con-table tr.invalid td { background: rgba(239, 68, 68, .08); }
 .con-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .con-muted { color: var(--grey); }
-.con-icon { width: 1.1rem; height: 1.1rem; image-rendering: pixelated; }
+.con-icon, .con-icon-gap {
+  flex: 0 0 1.1rem; width: 1.1rem; height: 1.1rem; image-rendering: pixelated;
+}
 .con-pct {
   width: 5.5rem; padding: .3rem .4rem; border-radius: .4rem; border: 1px solid var(--line);
   background: var(--surface-raised); color: var(--ink);

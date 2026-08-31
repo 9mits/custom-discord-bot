@@ -64,9 +64,29 @@ final class ServerEventStore {
         return deadline == NO_DEADLINE || now < deadline;
     }
 
+    /**
+     * Where each event's factor comes from.
+     *
+     * <p>Set once the live registry exists so an owner can change 2x Keys into 3x
+     * without a build. Until then, and in tests, the catalogue figure stands.
+     */
+    private volatile java.util.function.ToIntFunction<ServerEventType> factors =
+            ServerEventType::baseMultiplier;
+
+    void factorSource(java.util.function.ToIntFunction<ServerEventType> source) {
+        if (source != null) {
+            this.factors = source;
+        }
+    }
+
+    /** The factor this event carries, running or not. */
+    int factor(ServerEventType type) {
+        return Math.max(1, factors.applyAsInt(type));
+    }
+
     /** What to multiply by right now: the event's factor, or 1 when it is off. */
     synchronized int multiplier(ServerEventType type, long now) {
-        return active(type, now) ? type.multiplier() : 1;
+        return active(type, now) ? factor(type) : 1;
     }
 
     /** Milliseconds left, or 0 when this event is off or runs until turned off. */

@@ -51,7 +51,9 @@ record SettingMetadata(
         /** A number of players. */
         POPULATION,
         /** A bare count with no player-facing unit, such as placement attempts. */
-        COUNT
+        COUNT,
+        /** How much an event multiplies by, shown as the factor players are told. */
+        MULTIPLIER
     }
 
     /** The page a value belongs on, keyed off what it configures rather than its prefix depth. */
@@ -62,6 +64,8 @@ record SettingMetadata(
         HUGE_AMETHYST("Huge Amethyst"),
         ADMIN_EVENTS("Admin Events"),
         EVENT_SCHEDULE("Event Schedule"),
+        AMETHYST_MOBS("Amethyst Mobs"),
+        EVENT_MULTIPLIERS("Event Multipliers"),
         /**
          * A value whose prefix nothing here recognises.
          *
@@ -150,6 +154,7 @@ record SettingMetadata(
             case "players" -> Control.POPULATION;
             case "health" -> Control.HEALTH;
             case "attempts" -> Control.COUNT;
+            case "x" -> Control.MULTIPLIER;
             default -> Control.QUANTITY;
         };
     }
@@ -172,6 +177,12 @@ record SettingMetadata(
         }
         if (key.startsWith("amethyst-events.")) {
             return Group.EVENT_SCHEDULE;
+        }
+        if (key.startsWith("amethyst-mobs.")) {
+            return Group.AMETHYST_MOBS;
+        }
+        if (key.startsWith("events.")) {
+            return Group.EVENT_MULTIPLIERS;
         }
         return Group.UNCLASSIFIED;
     }

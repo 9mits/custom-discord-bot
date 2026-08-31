@@ -71,20 +71,46 @@ final class AmethystMobService implements Listener {
     private final CrateItems crateItems;
     private final RandomGenerator random;
     private final NamespacedKey marker;
-    private final int oneIn;
+    /**
+     * Read at use rather than at construction.
+     *
+     * <p>These came from config.yml once, when the service was built, so changing how
+     * often an Amethyst mob appeared meant restarting Paper — for a number with no
+     * startup dependency at all.
+     */
+    private final GameVariableStore variables;
 
     AmethystMobService(MGXAccessBridge plugin, CrateItems crateItems) {
-        this(plugin, crateItems, ThreadLocalRandom.current());
+        this(plugin, crateItems, ThreadLocalRandom.current(), null);
     }
 
     AmethystMobService(
             MGXAccessBridge plugin, CrateItems crateItems, RandomGenerator random
     ) {
+        this(plugin, crateItems, random, null);
+    }
+
+    AmethystMobService(
+            MGXAccessBridge plugin, CrateItems crateItems, RandomGenerator random,
+            GameVariableStore variables
+    ) {
         this.plugin = plugin;
         this.crateItems = crateItems;
         this.random = random;
+        this.variables = variables;
         marker = new NamespacedKey(plugin, "amethyst_mob");
-        oneIn = Math.clamp(plugin.getConfig().getInt("amethyst-mobs.one-in", 5), 1, 10_000);
+    }
+
+    private int rarity() {
+        return variables == null
+                ? Math.clamp(plugin.getConfig().getInt("amethyst-mobs.one-in", 5), 1, 10_000)
+                : variables.integer("amethyst-mobs.one-in");
+    }
+
+    private int keyDrop() {
+        int lowest = variables == null ? 1 : variables.integer("amethyst-mobs.minimum-keys");
+        int highest = variables == null ? 5 : variables.integer("amethyst-mobs.maximum-keys");
+        return highest <= lowest ? lowest : random.nextInt(lowest, highest + 1);
     }
 
     void start() {
@@ -115,7 +141,7 @@ final class AmethystMobService implements Listener {
             }
             return;
         }
-        if (!eligible(entity.getType(), event.getSpawnReason()) || random.nextInt(oneIn) != 0) {
+        if (!eligible(entity.getType(), event.getSpawnReason()) || random.nextInt(rarity()) != 0) {
             return;
         }
         plugin.getServer().getScheduler().runTask(plugin, () -> convert(entity));
@@ -222,7 +248,7 @@ final class AmethystMobService implements Listener {
         if (!isAmethyst(entity)) {
             return;
         }
-        int keys = random.nextInt(1, 6);
+        int keys = keyDrop();
         event.getDrops().add(crateItems.key(keys));
         entity.getWorld().spawnParticle(
                 Particle.DUST, entity.getLocation().add(0d, 1d, 0d), 45,

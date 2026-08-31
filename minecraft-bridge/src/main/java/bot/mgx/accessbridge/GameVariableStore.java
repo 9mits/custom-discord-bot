@@ -87,6 +87,7 @@ final class GameVariableStore {
         this.history = new ConfigHistory(
                 file.resolveSibling("game-variables-history.json"));
         defineCore(config);
+        defineWorldAndMobs(config);
         defineOnlineRewards();
         defineEventRewards(config);
         defineCrateRewards();
@@ -139,8 +140,14 @@ final class GameVariableStore {
                 "Ordinary keys earned for each completed online hour.", CrateService.KEYS_PER_HOUR, 1, 256, "keys", false);
         integer("crate.booster-keys-per-hour", "Booster keys per online hour", "Crates",
                 "Keys earned per online hour while the linked member is boosting.", CrateService.BOOSTER_KEYS_PER_HOUR, 1, 256, "keys", false);
-        integer("crate.hidden-amethyst-one-in", "Hidden Amethyst jackpot", "Crates",
-                "One winning hidden-jackpot ticket in this many crate openings.",
+        // Named after the thing you actually win. "Hidden Amethyst jackpot" told an
+        // owner nothing about what was at stake behind the number.
+        String jackpot = CosmeticCatalog.hiddenAmethystRewards().stream()
+                .map(CosmeticCatalog.Definition::displayName)
+                .findFirst().orElse("the hidden jackpot cosmetic");
+        integer("crate.hidden-amethyst-one-in", jackpot + " chance", "Crates",
+                "One in this many crate openings wins " + jackpot
+                        + ", ahead of the ordinary reward roll. Amethyst and Shard Crates only.",
                 CrateCatalog.HIDDEN_AMETHYST_ONE_IN, 1, 100_000_000, "one in", true);
 
         integer("amethyst-events.minimum-delay-minutes", "Minimum event delay", "Amethyst Events",
@@ -174,6 +181,37 @@ final class GameVariableStore {
         integer("airdrop.bonus-loot-rolls", "Maximum bonus loot rolls", "Airdrops",
                 "Random extra material rolls added above the rarity's base rolls.",
                 2, 0, 54, "rolls", false);
+    }
+
+    /**
+     * Systems that had no live controls at all.
+     *
+     * <p>The registry was populated where the work happened to be — crates, Airdrops,
+     * the Amethyst event — which left whole systems reachable only by editing Java or
+     * config.yml and restarting. Mob spawning in particular read {@code config.yml} once
+     * at construction, so changing how often an Amethyst mob appeared meant a restart
+     * even though nothing about it needed one.
+     */
+    private void defineWorldAndMobs(FileConfiguration config) {
+        integer("amethyst-mobs.one-in", "Amethyst mob rarity", "Amethyst Mobs",
+                "One natural monster spawn in this many becomes an Amethyst mob.",
+                config.getLong("amethyst-mobs.one-in", 5), 1, 10_000, "one in", false);
+        integer("amethyst-mobs.minimum-keys", "Fewest keys dropped", "Amethyst Mobs",
+                "Smallest key drop from killing an Amethyst mob.", 1, 0, 512, "keys", false);
+        integer("amethyst-mobs.maximum-keys", "Most keys dropped", "Amethyst Mobs",
+                "Largest key drop from killing an Amethyst mob.", 5, 0, 512, "keys", false);
+
+        for (ServerEventType type : ServerEventType.values()) {
+            // The factor was fixed because an event advertised as 2x that paid 3x would
+            // be worse than none. The name is now derived from the factor instead, so it
+            // can be changed and still say what it does.
+            integer("events." + type.id() + ".multiplier", type.baseDisplayName() + " factor",
+                    "Event Multipliers",
+                    "How much the " + type.baseDisplayName()
+                            + " event multiplies. Players are told this figure, so the"
+                            + " announcement follows whatever it is set to.",
+                    type.baseMultiplier(), 2, 100, "x", false);
+        }
     }
 
     private void defineAirdropRadius(

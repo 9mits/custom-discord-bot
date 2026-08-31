@@ -187,8 +187,8 @@ final class SettingMetadataTest {
             }
         });
         assertTrue(broken.isEmpty(), "one-sided range pairs: " + broken);
-        assertEquals(62, partners.size(),
-                "expected 31 mutual minimum/maximum pairs across the catalogue");
+        assertEquals(64, partners.size(),
+                "expected 32 mutual minimum/maximum pairs across the catalogue");
     }
 
     /**
@@ -249,12 +249,14 @@ final class SettingMetadataTest {
                         "online_rewards", 67,
                         "huge_amethyst", 29,
                         "admin_events", 12,
-                        "event_schedule", 2
+                        "event_schedule", 2,
+                        "amethyst_mobs", 3,
+                        "event_multipliers", 7
                 ),
                 perGroup,
                 "the catalogue moved between panel pages"
         );
-        assertEquals(380, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
+        assertEquals(390, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
                 "group counts no longer add up to the catalogue");
     }
 

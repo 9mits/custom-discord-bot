@@ -55,9 +55,36 @@ enum ServerEventType {
         return id;
     }
 
+    /** The factor this event ships with, before an owner changes it. */
+    int baseMultiplier() {
+        return multiplier;
+    }
+
     /** What this event multiplies by while it is running. */
     int multiplier() {
         return multiplier;
+    }
+
+    /**
+     * The name with the factor stripped: "Keys", not "2x Keys".
+     *
+     * <p>The advertised name is built from whatever factor is actually in force, so the
+     * two can no longer disagree. That was the reason the factor was fixed in the first
+     * place — an event called 2x that quietly paid 3x would be worse than one that did
+     * not exist — and deriving it keeps that guarantee while letting the number move.
+     */
+    String baseDisplayName() {
+        return displayName.replaceFirst("^\\d+x\\s*", "");
+    }
+
+    /** For chat, the boss bar and the join banner, at the factor actually in force. */
+    String displayName(int factor) {
+        return factor + "x " + baseDisplayName();
+    }
+
+    /** For the second line of the server list entry, at the factor actually in force. */
+    String motdLabel(int factor) {
+        return factor + "X " + baseDisplayName().toUpperCase(Locale.ROOT) + " EVENT!";
     }
 
     /**

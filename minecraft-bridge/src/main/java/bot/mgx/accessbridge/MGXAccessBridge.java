@@ -210,6 +210,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                     getDataFolder().toPath().resolve("game-variables.json"), getConfig(),
                     customCatalog
             );
+            // Event factors come from the live registry once it exists, so 2x Keys can
+            // become 3x without a build.
+            serverEventStore.factorSource(type ->
+                    gameVariables.integer("events." + type.id() + ".multiplier"));
             // Adding or removing an entry changes which weight variables exist, so the
             // registry is rebuilt before anything reads it, and the console is told.
             customCatalog.onChange(() -> {
@@ -441,7 +445,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 crateOdds,
                 gameVariables
         );
-        amethystMobs = new AmethystMobService(this, crateItems);
+        amethystMobs = new AmethystMobService(
+                this, crateItems, java.util.concurrent.ThreadLocalRandom.current(), gameVariables
+        );
         airdrops = new AirdropService(
                 this, crateItems, cosmeticStore, cosmeticItems, amethystProgress, playerSettings,
                 new AirdropGuardService(this, amethystMobs), gameVariables
