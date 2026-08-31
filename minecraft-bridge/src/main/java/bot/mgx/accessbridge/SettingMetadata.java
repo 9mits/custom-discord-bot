@@ -53,7 +53,13 @@ record SettingMetadata(
         /** A bare count with no player-facing unit, such as placement attempts. */
         COUNT,
         /** How much an event multiplies by, shown as the factor players are told. */
-        MULTIPLIER
+        MULTIPLIER,
+        /** One of a fixed set of names, such as a boss-bar colour. */
+        CHOICE,
+        /** Free text with a length cap. */
+        TEXT,
+        /** A potion or enchantment level. */
+        LEVEL
     }
 
     /** The page a value belongs on, keyed off what it configures rather than its prefix depth. */
@@ -70,6 +76,10 @@ record SettingMetadata(
         WORLD("World"),
         CLANS("Clans"),
         AUCTION_HOUSE("Auction House"),
+        BOSS_BARS("Boss Bars"),
+        POTIONS("Potions"),
+        ENCHANTMENTS("Enchantments"),
+        PRESENTATION("Presentation"),
         /**
          * A value whose prefix nothing here recognises.
          *
@@ -139,8 +149,17 @@ record SettingMetadata(
     }
 
     private static Control control(GameVariableStore.Definition definition) {
-        if (definition.type() == GameVariableStore.Type.BOOLEAN) {
-            return Control.TOGGLE;
+        // Kind before unit: a choice and a flag both declare no unit, so deciding on the
+        // unit alone made one of them look like the other.
+        switch (definition.type()) {
+            case BOOLEAN:
+                return Control.TOGGLE;
+            case CHOICE:
+                return Control.CHOICE;
+            case TEXT:
+                return Control.TEXT;
+            default:
+                break;
         }
         String key = definition.key();
         if (key.endsWith("one-in")) {
@@ -161,6 +180,7 @@ record SettingMetadata(
             case "x" -> Control.MULTIPLIER;
             case "seconds" -> Control.DURATION;
             case "chunks", "X", "Z" -> Control.COUNT;
+            case "level" -> Control.LEVEL;
             default -> Control.QUANTITY;
         };
     }
@@ -196,6 +216,18 @@ record SettingMetadata(
         }
         if (key.startsWith("world.") || key.startsWith("spawn.")) {
             return Group.WORLD;
+        }
+        if (key.startsWith("bars.")) {
+            return Group.BOSS_BARS;
+        }
+        if (key.startsWith("potions.")) {
+            return Group.POTIONS;
+        }
+        if (key.startsWith("enchants.")) {
+            return Group.ENCHANTMENTS;
+        }
+        if (key.startsWith("scoreboard.")) {
+            return Group.PRESENTATION;
         }
         if (key.startsWith("clans.")) {
             return Group.CLANS;

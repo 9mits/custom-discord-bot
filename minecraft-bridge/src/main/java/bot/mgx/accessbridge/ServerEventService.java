@@ -250,7 +250,7 @@ final class ServerEventService implements Listener {
                     // Full and steady. Event lengths can differ, so one draining bar
                     // would lie about at least one of the stacked events.
                     1f,
-                    BossBar.Color.YELLOW,
+                    plugin.gameVariables().barColour("bars.event.colour", BossBar.Color.YELLOW),
                     BossBar.Overlay.PROGRESS
             );
         }

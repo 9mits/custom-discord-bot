@@ -218,6 +218,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             // from it, so unlike everything else these have to be re-applied when they
             // change instead of simply being read again on next use.
             clanStore.limitSource(key -> gameVariables.integer(key));
+            CustomEnchants.capSource(
+                    id -> gameVariables.integer("enchants." + id + ".maximum-level"));
             gameVariables.onChange(key -> {
                 if (key.startsWith("world.")) {
                     getServer().getScheduler().runTask(this, () -> {

@@ -119,7 +119,7 @@ final class BroadcastDisplayService implements Listener {
                                 parsed.message(), NamedTextColor.WHITE, TextDecoration.BOLD
                         )),
                 1f,
-                BossBar.Color.RED,
+                plugin.gameVariables().barColour("bars.broadcast.colour", BossBar.Color.RED),
                 BossBar.Overlay.PROGRESS
         );
         for (Player player : audience) {

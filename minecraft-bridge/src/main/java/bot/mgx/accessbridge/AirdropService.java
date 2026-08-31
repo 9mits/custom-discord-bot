@@ -814,7 +814,7 @@ final class AirdropService implements Listener {
         drop.bar = BossBar.bossBar(
                 bossBarTitle(drop, drop.expiresAtMillis - drop.spawnedAtMillis),
                 1f,
-                BossBar.Color.PURPLE,
+                plugin.gameVariables().barColour("bars.airdrop.colour", BossBar.Color.PURPLE),
                 BossBar.Overlay.PROGRESS
         );
         for (Player player : plugin.getServer().getOnlinePlayers()) {

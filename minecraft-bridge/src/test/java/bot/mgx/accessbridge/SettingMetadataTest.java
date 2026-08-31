@@ -68,18 +68,23 @@ final class SettingMetadataTest {
      */
     @Test
     void controlsCoverEveryUnitTheStoreDeclares() throws Exception {
+        // Keyed by kind and unit together, not unit alone. A choice and a flag both
+        // declare no unit and are told apart by their type, so grouping on unit alone
+        // reported that pair as an ambiguity when it is the rule working correctly.
         Map<String, Set<String>> controlsPerUnit = new TreeMap<>();
         for (JsonObject row : rows()) {
             controlsPerUnit
-                    .computeIfAbsent(row.get("unit").getAsString(), ignored -> new java.util.TreeSet<>())
+                    .computeIfAbsent(
+                            row.get("type").getAsString() + "/" + row.get("unit").getAsString(),
+                            ignored -> new java.util.TreeSet<>())
                     .add(row.get("control").getAsString());
         }
-        // One unit must never resolve to two different controls; that would mean the
-        // derivation is guessing rather than deciding.
+        // One kind and unit must never resolve to two different controls; that would
+        // mean the derivation is guessing rather than deciding.
         List<String> ambiguous = controlsPerUnit.entrySet().stream()
                 .filter(entry -> entry.getValue().size() > 1)
                 // "weight" legitimately splits: a share of a table, or a rate per 10,000.
-                .filter(entry -> !entry.getKey().equals("weight"))
+                .filter(entry -> !entry.getKey().endsWith("/weight"))
                 .map(entry -> entry.getKey() + " -> " + entry.getValue())
                 .toList();
         assertTrue(ambiguous.isEmpty(), "units resolving to more than one control: " + ambiguous);
@@ -249,18 +254,22 @@ final class SettingMetadataTest {
                         Map.entry("online_rewards", 67),
                         Map.entry("huge_amethyst", 29),
                         Map.entry("admin_events", 13),
-                        Map.entry("event_multipliers", 7),
+                        Map.entry("potions", 13),
                         Map.entry("players", 8),
                         Map.entry("world", 8),
+                        Map.entry("event_multipliers", 7),
                         Map.entry("clans", 4),
+                        Map.entry("boss_bars", 4),
+                        Map.entry("enchantments", 4),
                         Map.entry("amethyst_mobs", 3),
                         Map.entry("auction_house", 3),
-                        Map.entry("event_schedule", 2)
+                        Map.entry("event_schedule", 2),
+                        Map.entry("presentation", 1)
                 ),
                 perGroup,
                 "the catalogue moved between panel pages"
         );
-        assertEquals(414, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
+        assertEquals(436, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
                 "group counts no longer add up to the catalogue");
     }
 

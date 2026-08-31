@@ -24,6 +24,10 @@
     {id: "world", label: "World"},
     {id: "clans", label: "Clans"},
     {id: "auction_house", label: "Auction House"},
+    {id: "potions", label: "Potions"},
+    {id: "enchantments", label: "Enchantments"},
+    {id: "boss_bars", label: "Boss Bars"},
+    {id: "presentation", label: "Presentation"},
     {id: "history", label: "History"}
   ];
 
@@ -417,6 +421,29 @@
         escapeHtml(row.key) + '" data-toggle' + (value ? " checked" : "") +
         '><span class="con-track" aria-hidden="true"></span><span class="con-switch-text">' +
         (value ? "Enabled" : "Disabled") + "</span></label>";
+    }
+    if (row.control === "choice") {
+      return '<div class="con-odds"><select class="con-choice" data-key="' +
+        escapeHtml(row.key) + '">' + (row.choices || []).map(function (option) {
+          return '<option value="' + escapeHtml(option) + '"' +
+            (option === value ? " selected" : "") + ">" +
+            escapeHtml(titleCase(option)) + "</option>";
+        }).join("") + "</select>" +
+        (/colour|color/.test(row.key)
+          ? '<span class="con-swatch tone-' + escapeHtml(String(value).toLowerCase()) +
+            '" aria-hidden="true"></span>'
+          : "") + "</div>";
+    }
+    if (row.control === "text") {
+      return '<div class="con-odds"><input class="con-search-field" type="text" data-key="' +
+        escapeHtml(row.key) + '" value="' + escapeHtml(value) + '" maxlength="' +
+        escapeHtml(row.maximum) + '"><span class="con-odds-read">up to ' +
+        escapeHtml(row.maximum) + " characters</span></div>";
+    }
+    if (row.control === "level") {
+      return '<div class="con-odds">' + numberField(row, value) +
+        '<span class="con-odds-read">level <strong>' + escapeHtml(value) +
+        "</strong>" + (Number(value) > 1 ? " &middot; the II variant" : "") + "</span></div>";
     }
     if (row.control === "odds") {
       var percent = value > 0 ? 100 / value : 0;
@@ -1014,6 +1041,11 @@
         return;
       }
       if (target.dataset.key !== undefined) {
+        var edited = state.byKey[target.dataset.key];
+        if (edited && (edited.control === "choice" || edited.control === "text")) {
+          setDraft(edited.key, target.value);
+          return;
+        }
         var parsed = parseInt(target.value, 10);
         if (!isNaN(parsed)) setDraft(target.dataset.key, parsed);
       }

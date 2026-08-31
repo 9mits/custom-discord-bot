@@ -1188,6 +1188,18 @@ img.live-minecraft-icon {
 }
 .con-number.tight { flex-basis: 5.5rem; }
 .con-odds-read { font-size: .76rem; color: var(--text-muted); }
+.con-choice {
+  flex: 0 1 10rem; padding: .45rem .55rem; border-radius: .5rem; border: 1px solid var(--line);
+  background: var(--surface-raised); color: var(--ink); font: inherit; font-size: .84rem;
+}
+.con-swatch { width: 1rem; height: 1rem; border-radius: 50%; border: 1px solid var(--line); }
+.con-swatch.tone-pink { background: #f472b6; }
+.con-swatch.tone-blue { background: #3b82f6; }
+.con-swatch.tone-red { background: #ef4444; }
+.con-swatch.tone-green { background: #34c46b; }
+.con-swatch.tone-yellow { background: #eab308; }
+.con-swatch.tone-purple { background: #8b5cf6; }
+.con-swatch.tone-white { background: #f8fafc; }
 .con-unit { font-size: .76rem; color: var(--grey); }
 
 .con-switch { display: inline-flex; align-items: center; gap: .55rem; cursor: pointer; }

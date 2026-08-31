@@ -31,7 +31,14 @@ final class GameVariableStore {
     private static final String ONLINE_REWARD_PREFIX = "online-rewards.";
     private static final String LEGACY_REWARD_PREFIX = "afk-rewards.";
 
-    enum Type { INTEGER, BOOLEAN }
+    /**
+     * What a value is.
+     *
+     * <p>Numbers and flags were all the registry could hold, which is why the scoreboard
+     * footer and every boss-bar colour stayed in code: there was nowhere to put them.
+     * CHOICE is one of a fixed set; TEXT is free text with a length cap.
+     */
+    enum Type { INTEGER, BOOLEAN, CHOICE, TEXT }
 
     record Definition(
             String key,
@@ -43,8 +50,13 @@ final class GameVariableStore {
             Long minimum,
             Long maximum,
             String unit,
-            boolean sensitive
-    ) { }
+            boolean sensitive,
+            List<String> choices
+    ) {
+        Definition {
+            choices = choices == null ? List.of() : List.copyOf(choices);
+        }
+    }
 
     record OnlineRewardTier(
             int number,
@@ -89,6 +101,7 @@ final class GameVariableStore {
         defineCore(config);
         defineWorldAndMobs(config);
         definePlayerAndWorld(config);
+        definePresentationAndItems(config);
         defineOnlineRewards();
         defineEventRewards(config);
         defineCrateRewards();
@@ -306,6 +319,65 @@ final class GameVariableStore {
         integer("combat.tag-seconds", "Combat log window", "Players",
                 "Seconds after combat during which logging out counts as fleeing.",
                 CombatTag.DEFAULT_SECONDS, 0, 3_600, "seconds", false);
+    }
+
+    /**
+     * Presentation and item strength, which had nowhere to live until the registry
+     * learned to hold something other than a number.
+     */
+    private void definePresentationAndItems(FileConfiguration config) {
+        List<String> colours = List.of(
+                "PINK", "BLUE", "RED", "GREEN", "YELLOW", "PURPLE", "WHITE"
+        );
+        choice("bars.airdrop.colour", "Airdrop bar colour", "Boss Bars",
+                "Colour of the boss bar shown while an Airdrop is standing.",
+                "PURPLE", colours);
+        choice("bars.huge-amethyst.colour", "Huge Amethyst bar colour", "Boss Bars",
+                "Colour of the boss bar shown while a Huge Amethyst Block is up.",
+                "PURPLE", colours);
+        choice("bars.broadcast.colour", "Broadcast bar colour", "Boss Bars",
+                "Colour of the timed bar used by /broadcast.", "RED", colours);
+        choice("bars.event.colour", "Event bar colour", "Boss Bars",
+                "Colour of the boss bar shown while a multiplier event runs.",
+                "YELLOW", colours);
+
+        text("scoreboard.footer", "Scoreboard footer", "Presentation",
+                "The last line of the in-game sidebar.",
+                config.getString("scoreboard.footer", "discord.gg/mgx"), 32);
+
+        // Potions were fixed in code: a level and a duration per kind, seven of them.
+        definePotion("healing", "Healing", 0, 2);
+        definePotion("strength", "Strength", 5, 2);
+        definePotion("swiftness", "Swiftness", 5, 2);
+        definePotion("regeneration", "Regeneration", 2, 2);
+        definePotion("night_vision", "Night Vision", 8, 1);
+        definePotion("water_breathing", "Water Breathing", 8, 1);
+        definePotion("fire_resistance", "Fire Resistance", 5, 1);
+
+        for (Map.Entry<String, Integer> mark : new java.util.TreeMap<>(
+                CustomEnchants.MAX_LEVEL).entrySet()) {
+            integer("enchants." + mark.getKey() + ".maximum-level",
+                    capitalise(mark.getKey()) + " cap", "Enchantments",
+                    "Highest level of " + capitalise(mark.getKey())
+                            + " a crate book may carry.",
+                    mark.getValue(), 1, 10, "level", false);
+        }
+    }
+
+    private void definePotion(String id, String label, int minutes, int level) {
+        String base = "potions." + id + ".";
+        if (minutes > 0) {
+            integer(base + "minutes", label + " duration", "Potions",
+                    "How long a " + label + " potion lasts.", minutes, 1, 60, "minutes", false);
+        }
+        integer(base + "level", label + " strength", "Potions",
+                "Potion level. 1 is the ordinary effect, 2 is the II variant.",
+                level, 1, 5, "level", false);
+    }
+
+    private static String capitalise(String word) {
+        return word.isEmpty() ? word
+                : Character.toUpperCase(word.charAt(0)) + word.substring(1);
     }
 
     private void defineAirdropRadius(
@@ -532,14 +604,36 @@ final class GameVariableStore {
     ) {
         definitions.put(key, new Definition(
                 key, label, category, description, Type.INTEGER, value,
-                minimum, maximum, unit, sensitive
+                minimum, maximum, unit, sensitive, List.of()
         ));
     }
 
     private void bool(String key, String label, String category, String description, boolean value) {
         definitions.put(key, new Definition(
                 key, label, category, description, Type.BOOLEAN, value,
-                null, null, "", false
+                null, null, "", false, List.of()
+        ));
+    }
+
+    /** One of a fixed set of names, such as a boss-bar colour. */
+    private void choice(
+            String key, String label, String category, String description,
+            String value, List<String> options
+    ) {
+        definitions.put(key, new Definition(
+                key, label, category, description, Type.CHOICE, value,
+                null, null, "", false, options
+        ));
+    }
+
+    /** Free text with a length cap, such as a line shown under the scoreboard. */
+    private void text(
+            String key, String label, String category, String description,
+            String value, int maximumLength
+    ) {
+        definitions.put(key, new Definition(
+                key, label, category, description, Type.TEXT, value,
+                0L, (long) maximumLength, "characters", false, List.of()
         ));
     }
 
@@ -555,6 +649,28 @@ final class GameVariableStore {
         Definition definition = definition(key);
         Object value = overrides.getOrDefault(definition.key(), definition.defaultValue());
         return Math.toIntExact(((Number) value).longValue());
+    }
+
+    /**
+     * A configured boss-bar colour, or the built-in one if it no longer resolves.
+     *
+     * <p>Falling back rather than throwing: a colour that fails to parse should show the
+     * wrong shade, not stop the event it belongs to from starting.
+     */
+    net.kyori.adventure.bossbar.BossBar.Color barColour(
+            String key, net.kyori.adventure.bossbar.BossBar.Color fallback
+    ) {
+        try {
+            return net.kyori.adventure.bossbar.BossBar.Color.valueOf(string(key));
+        } catch (RuntimeException unknown) {
+            return fallback;
+        }
+    }
+
+    /** A choice or free-text value, as text. */
+    synchronized String string(String key) {
+        Definition definition = definition(key);
+        return String.valueOf(overrides.getOrDefault(definition.key(), definition.defaultValue()));
     }
 
     synchronized boolean bool(String key) {
@@ -816,6 +932,11 @@ final class GameVariableStore {
             addValue(row, "default", definition.defaultValue());
             if (definition.minimum() != null) row.addProperty("minimum", definition.minimum());
             if (definition.maximum() != null) row.addProperty("maximum", definition.maximum());
+            if (!definition.choices().isEmpty()) {
+                JsonArray options = new JsonArray();
+                definition.choices().forEach(options::add);
+                row.add("choices", options);
+            }
             row.addProperty("unit", definition.unit());
             row.addProperty("sensitive", definition.sensitive());
             row.addProperty("overridden", overrides.containsKey(definition.key()));
@@ -1106,6 +1227,25 @@ final class GameVariableStore {
 
     private static Object parse(Definition definition, String raw) {
         String value = String.valueOf(raw).strip();
+        if (definition.type() == Type.CHOICE) {
+            String wanted = value.toUpperCase(Locale.ROOT).replace(' ', '_');
+            return definition.choices().stream()
+                    .filter(option -> option.equalsIgnoreCase(wanted))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            definition.label() + " must be one of: "
+                                    + String.join(", ", definition.choices()) + "."
+                    ));
+        }
+        if (definition.type() == Type.TEXT) {
+            if (value.length() > definition.maximum()) {
+                throw new IllegalArgumentException(
+                        definition.label() + " must be at most " + definition.maximum()
+                                + " characters."
+                );
+            }
+            return value;
+        }
         if (definition.type() == Type.BOOLEAN) {
             return switch (value.toLowerCase(Locale.ROOT)) {
                 case "true", "on", "yes", "1" -> true;
@@ -1139,7 +1279,7 @@ final class GameVariableStore {
             Set<String> resets, List<Finding> findings
     ) {
         Definition definition = definitions.get(key);
-        if (definition == null || definition.type() == Type.BOOLEAN) {
+        if (definition == null || definition.type() != Type.INTEGER) {
             return;
         }
         long proposed = ((Number) value).longValue();
@@ -1199,6 +1339,7 @@ final class GameVariableStore {
 
     private static void addValue(JsonObject object, String key, Object value) {
         if (value instanceof Boolean bool) object.addProperty(key, bool);
+        else if (value instanceof String text) object.addProperty(key, text);
         else object.addProperty(key, ((Number) value).longValue());
     }
 
@@ -1227,8 +1368,11 @@ final class GameVariableStore {
                             ? entry.getValue().getAsBoolean() : entry.getValue().getAsLong());
                     continue;
                 }
-                Object value = definition.type() == Type.BOOLEAN
-                        ? entry.getValue().getAsBoolean() : entry.getValue().getAsLong();
+                Object value = switch (definition.type()) {
+                    case BOOLEAN -> entry.getValue().getAsBoolean();
+                    case CHOICE, TEXT -> entry.getValue().getAsString();
+                    case INTEGER -> entry.getValue().getAsLong();
+                };
                 parse(definition, String.valueOf(value));
                 if (canonical.equals(entry.getKey())) {
                     overrides.put(canonical, value);

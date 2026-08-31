@@ -478,7 +478,9 @@ final class AmethystBlockEventService implements Listener {
                     maximumHealth
             );
             bossBar = BossBar.bossBar(
-                    bossTitle(active), 1f, BossBar.Color.PURPLE, BossBar.Overlay.NOTCHED_20
+                    bossTitle(active), 1f,
+                    variables.barColour("bars.huge-amethyst.colour", BossBar.Color.PURPLE),
+                    BossBar.Overlay.NOTCHED_20
             );
             for (Player player : plugin.getServer().getOnlinePlayers()) {
                 showBar(player);
