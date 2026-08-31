@@ -1094,6 +1094,10 @@ img.live-minecraft-icon {
   background: var(--surface); color: var(--ink); padding: .55rem;
 }
 .live-setting-input button {
+  /* The field beside this is width:100%, so without flex-shrink:0 the button is the
+     only thing that can give — and "Apply" breaks across two lines. Both properties
+     are load-bearing: nowrap alone still lets the box shrink narrower than its text. */
+  flex: 0 0 auto; white-space: nowrap;
   border: 0; border-radius: .55rem; padding: .55rem .7rem;
   background: var(--brand-ramp); color: #fff; font-weight: 800; cursor: pointer;
 }
@@ -1109,6 +1113,17 @@ img.live-minecraft-icon {
 .live-log-row strong { color: var(--ink); }
 .live-log-row .ok { color: var(--green); }
 .live-log-row .failed { color: #ef4444; }
+.live-log-change {
+  display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: .4rem; margin-top: .2rem;
+}
+.live-log-change code { font-size: .7rem; color: var(--grey); background: none; padding: 0; }
+.live-log-from, .live-log-to {
+  font: 500 .78rem ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: .05rem .35rem; border-radius: .3rem; background: var(--surface); border: 1px solid var(--line);
+}
+.live-log-from { color: var(--grey); text-decoration: line-through; }
+.live-log-to { color: var(--ink); }
+.live-log-arrow { color: var(--brand-orange); font-weight: 800; }
 .live-empty { grid-column: 1 / -1; color: var(--grey); }
 .live-toast {
   position: fixed; z-index: 300; right: 1.5rem; bottom: 1.5rem; max-width: 26rem;

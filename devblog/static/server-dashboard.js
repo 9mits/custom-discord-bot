@@ -324,13 +324,48 @@
       toast(error.message, true);
     }
   }
+  /**
+   * The recorded options as a plain lookup.
+   *
+   * Stored as a JSON array of [name, value] pairs. Older rows predate the fields read
+   * here and legitimately have none, so a miss is normal and never an error.
+   */
+  function options(row) {
+    var pairs = row.options;
+    if (typeof pairs === "string") {
+      try { pairs = JSON.parse(pairs); } catch (malformed) { return {}; }
+    }
+    if (!Array.isArray(pairs)) return {};
+    var found = {};
+    pairs.forEach(function (pair) {
+      if (Array.isArray(pair) && pair.length >= 2) found[String(pair[0])] = String(pair[1]);
+    });
+    return found;
+  }
+  /** What changed, as "Setting name  12 -> 30". Empty for rows that are not edits. */
+  function changeSummary(row) {
+    var recorded = options(row);
+    var name = recorded.label || recorded.key;
+    if (!name) return "";
+    var from = recorded.previous;
+    var to = recorded.value;
+    var movement = (from !== undefined && to !== undefined && from !== to)
+      ? '<span class="live-log-from">' + escapeHtml(from) + '</span>' +
+        '<span class="live-log-arrow" aria-label="changed to">→</span>' +
+        '<span class="live-log-to">' + escapeHtml(to) + "</span>"
+      : "";
+    return '<span class="live-log-change"><strong>' + escapeHtml(name) + "</strong>" + movement +
+      (recorded.key && recorded.label ? '<code>' + escapeHtml(recorded.key) + "</code>" : "") + "</span>";
+  }
   async function loadLogs() {
     try {
       var data = await api("/api/logs");
       byId("logs-content").innerHTML = data.logs.length ? data.logs.map(function (row) {
+        var change = changeSummary(row);
         return '<div class="live-log-row"><span class="' + (row.outcome === "success" ? "ok" : "failed") + '">' +
           escapeHtml(row.outcome) + "</span><span><strong>" + escapeHtml(row.command) + "</strong><br>" +
-          escapeHtml(row.actor_label) + (row.detail ? " · " + escapeHtml(row.detail) : "") + "</span><time>" +
+          escapeHtml(row.actor_label) + (row.detail ? " · " + escapeHtml(row.detail) : "") +
+          (change ? "<br>" + change : "") + "</span><time>" +
           new Date(Number(row.created_at) * 1000).toLocaleString() + "</time></div>";
       }).join("") : '<p class="live-empty">No control activity has been recorded.</p>';
     } catch (error) {

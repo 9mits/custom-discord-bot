@@ -86,12 +86,23 @@ final class CrateDisplayService implements CommandExecutor, TabCompleter, Listen
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!(sender instanceof Player player)) {
-            sender.sendMessage("Place physical crates in game.");
+        // One admin gate for the whole plugin. Bukkit's own `permission:` check on this
+        // command currently makes the difference invisible, but the moment that line
+        // moves — as the administrative redesign requires — a second, differently
+        // spelled check would start answering differently from every other command.
+        // Bukkit hasPermission also honours `default:`, which Floodgate players can
+        // satisfy before their attachments exist; mayAdminister is isOp plus an
+        // explicit LuckPerms node, and is what the rest of the plugin asks.
+        if (!plugin.mayAdminister(sender)) {
+            if (sender instanceof Player player) {
+                PlayerMenuService.error(player, "You do not have permission to place crates.");
+            } else {
+                sender.sendMessage("You do not have permission to place crates.");
+            }
             return true;
         }
-        if (!player.hasPermission("mgxaccessbridge.admin")) {
-            PlayerMenuService.error(player, "You do not have permission to place crates.");
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage("Place physical crates in game.");
             return true;
         }
         try {

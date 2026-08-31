@@ -326,6 +326,19 @@ class DashboardServer:
         payload = self.bot.bridge.latest_game_variables or {}
         return web.json_response(payload, headers={"Cache-Control": "no-store"})
 
+    def _variable_row(self, key: str) -> dict[str, Any]:
+        """The last snapshot's row for one variable, or an empty mapping.
+
+        The snapshot is what the panel is already showing, so reading the prior value
+        from it records what the owner actually saw when they decided to change it.
+        """
+        snapshot = self.bot.bridge.latest_game_variables or {}
+        wanted = str(key).strip().casefold()
+        for row in snapshot.get("variables", []):
+            if str(row.get("key", "")).casefold() == wanted:
+                return row
+        return {}
+
     async def change_setting(self, request: web.Request) -> web.Response:
         session, member = await self._require_owner(request)
         self._require_csrf(request, session)
@@ -342,6 +355,12 @@ class DashboardServer:
         )
         if not actor_uuid:
             raise web.HTTPConflict(text="The Discord OWNER account has no linked Minecraft account.")
+        # Read the value being replaced before the write lands. Without it the trail
+        # records only what a setting became, which is not enough to review a change
+        # or to undo one.
+        before = self._variable_row(key)
+        previous = before.get("value", "")
+        requested = str(before.get("default", "")) if operation == "reset" else str(body.get("value", ""))
         started = time.monotonic()
         success, message = await self.bot.bridge.change_game_variable(
             actor_uuid=actor_uuid,
@@ -351,11 +370,16 @@ class DashboardServer:
         )
         record = CommandAuditRecord(
             source=SOURCE_COMMAND,
-            command="dashboard game variable",
+            command=f"dashboard config {operation}",
             user_id=member.id,
             user_label=member.name,
             guild_id=self.config.guild_id,
-            options=(("operation", operation), ("key", key), ("value", str(body.get("value", "")))),
+            options=(
+                ("key", key),
+                ("label", str(before.get("label", ""))),
+                ("previous", str(previous)),
+                ("value", requested),
+            ),
             outcome=OUTCOME_SUCCESS if success else OUTCOME_FAILED,
             risk=RISK_CONFIGURATION,
             duration_ms=int((time.monotonic() - started) * 1000),
