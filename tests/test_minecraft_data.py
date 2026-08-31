@@ -174,7 +174,7 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(cancelled_sync[0]["status"], "CANCELLED")
         audit = await self.data.audit_rows(pending.id)
-        withdrawn = [row for row in audit if row["action"] == "APPLICATION_WITHDRAWN"]
+        withdrawn = [row for row in audit if row["action"] == "ACCESS_WITHDRAWN"]
         self.assertEqual(len(withdrawn), 1)
         self.assertEqual(withdrawn[0]["actor_discord_id"], "42")
 
@@ -621,6 +621,18 @@ class MinecraftDataTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["actor_discord_id"], "42")
         self.assertIn("application_channel_id", rows[0]["payload"])
+
+    async def test_retired_configuration_keys_can_be_removed_after_migration(self):
+        await self.data.set_configs(
+            {"application_log_channel_id": 100, "access_log_channel_id": 100}
+        )
+
+        await self.data.delete_configs(("application_log_channel_id",))
+
+        values = await self.data.get_configs(
+            ("application_log_channel_id", "access_log_channel_id")
+        )
+        self.assertEqual(values, {"access_log_channel_id": 100})
 
     async def test_edition_is_detected_from_verified_connection(self):
         application = await self.data.create_verification(

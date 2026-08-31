@@ -171,7 +171,7 @@ class MinecraftChannelSelect(discord.ui.ChannelSelect):
         try:
             if self.setting == "activity_log_channel_id":
                 updates = {
-                    "application_log_channel_id": self.values[0].id,
+                    "access_log_channel_id": self.values[0].id,
                     "verification_log_channel_id": self.values[0].id,
                     "player_log_channel_id": self.values[0].id,
                     "command_log_channel_id": self.values[0].id,
@@ -299,7 +299,7 @@ class MinecraftAddressModal(discord.ui.Modal):
                 info_embed(
                     "Addresses Updated",
                     "> The Java and Bedrock connection addresses were validated and saved.\n\n"
-                    "New applicant instructions will use these values immediately.",
+                    "New verification instructions will use these values immediately.",
                     success=True,
                 )
             ),

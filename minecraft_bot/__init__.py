@@ -1,1 +1,1 @@
-"""Isolated Minecraft application and access bot."""
+"""Isolated Minecraft verification and access bot."""

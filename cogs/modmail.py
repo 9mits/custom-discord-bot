@@ -842,10 +842,10 @@ async def create_minecraft_support_ticket(guild: discord.Guild, user: discord.Us
     """Create the same persisted modmail ticket as the public support panel."""
     existing = bot.data_manager.modmail.get(str(user.id))
     details = [
-        f"**Application:** #{request.get('application_id')}" if request.get("application_id") else "**Application:** Not available",
+        f"**Access record:** #{request.get('application_id')}" if request.get("application_id") else "**Access record:** Not available",
         f"**Status:** {str(request.get('status', 'Unknown')).replace('_', ' ').title()}",
         f"**Minecraft name:** {request.get('username') or 'Not available'}",
-        "**Request:** The applicant asked for help from their private Minecraft verification card.",
+        "**Request:** The member asked for help from their private Minecraft verification card.",
     ]
     if existing and existing.get("status") == "open":
         thread = await resolve_modmail_thread(guild, existing)
@@ -870,7 +870,7 @@ async def create_minecraft_support_ticket(guild: discord.Guild, user: discord.Us
         raise RuntimeError("Modmail inbox is unavailable")
     embed = make_embed(
         "New Ticket: Minecraft Support",
-        "> A Minecraft applicant requested help from their private verification card.",
+        "> A member requested help from their private Minecraft verification card.",
         kind="support",
         scope=SCOPE_SUPPORT,
         guild=guild,

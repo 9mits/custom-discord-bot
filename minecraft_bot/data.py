@@ -1,4 +1,4 @@
-"""Transactional SQLite storage for Minecraft applications and bridge work."""
+"""Transactional SQLite storage for Minecraft access and bridge work."""
 
 from __future__ import annotations
 
@@ -947,7 +947,7 @@ class MinecraftDataManager:
                 )
                 await self._audit(
                     db,
-                    "APPLICATION_CREATED",
+                    "ACCESS_CREATED",
                     access_id=access_id,
                     target_id=discord_user_id,
                     payload={"edition": "AUTO" if auto_detect_edition else edition.value, "claimed_username": claimed},
@@ -1111,9 +1111,7 @@ class MinecraftDataManager:
                     await self._release_account_if_unused(db, application)
                     await self._audit(
                         db,
-                        "VERIFICATION_EXPIRED"
-                        if application.status is AccessStatus.PENDING_VERIFICATION
-                        else "APPLICATION_FORM_EXPIRED",
+                        "VERIFICATION_EXPIRED",
                         access_id=application.id,
                         target_id=application.discord_user_id,
                         timestamp=current,
@@ -1527,7 +1525,7 @@ class MinecraftDataManager:
                     await self._release_account_if_unused(db, application)
                 await self._audit(
                     db,
-                    "APPLICATION_CANCELLED",
+                    "ACCESS_CANCELLED",
                     access_id=application.id,
                     actor_id=moderator_id,
                     target_id=application.discord_user_id,
@@ -1596,7 +1594,7 @@ class MinecraftDataManager:
                 )
                 await self._audit(
                     db,
-                    "APPLICATION_WITHDRAWN",
+                    "ACCESS_WITHDRAWN",
                     access_id=application.id,
                     actor_id=discord_user_id,
                     target_id=discord_user_id,
@@ -2008,6 +2006,25 @@ class MinecraftDataManager:
             except (TypeError, json.JSONDecodeError):
                 continue
         return values
+
+    async def delete_configs(self, keys: tuple[str, ...] | list[str]) -> None:
+        """Remove retired settings after their replacement has been persisted."""
+        normalized = tuple(dict.fromkeys(str(key) for key in keys))
+        if not normalized:
+            return
+        placeholders = ",".join("?" for _ in normalized)
+        async with self._write_lock:
+            db = self._connection()
+            try:
+                await self._begin(db)
+                await db.execute(
+                    f"DELETE FROM minecraft_config WHERE key IN ({placeholders})",
+                    normalized,
+                )
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
 
     async def claim_nonce(self, nonce: str, *, expires_at: int, now: Optional[int] = None) -> bool:
         current = _now() if now is None else int(now)

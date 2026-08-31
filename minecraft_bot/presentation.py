@@ -1,4 +1,4 @@
-"""Discord presentation helpers for Minecraft applications."""
+"""Discord presentation helpers for Minecraft verification and access."""
 
 from __future__ import annotations
 
@@ -177,7 +177,7 @@ def about_image_file() -> discord.File:
 
 
 def apply_image_file() -> discord.File:
-    return _asset_file(APPLY_PATH, APPLY_FILENAME, f"{BRAND_NAME} application mark")
+    return _asset_file(APPLY_PATH, APPLY_FILENAME, f"{BRAND_NAME} verification mark")
 
 
 def verification_image_file() -> discord.File:
