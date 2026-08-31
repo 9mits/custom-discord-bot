@@ -503,6 +503,19 @@ final class GameVariableStore {
         return List.copyOf(changes);
     }
 
+    /**
+     * Applies a change set and hands back the publish it produced.
+     *
+     * <p>Reads the entry straight back under the same monitor, so the identifier belongs
+     * to this publish and not to whatever happened to be newest. Empty when nothing
+     * moved, because a publish that changed nothing is not one.
+     */
+    synchronized Optional<ConfigHistory.Publish> publish(List<Edit> edits, String actor) {
+        return apply(edits, actor).isEmpty()
+                ? Optional.empty()
+                : history.recent(1).stream().findFirst();
+    }
+
     /** Puts every value in a publish back the way it was, as one further publish. */
     synchronized List<Change> rollback(String publishId, String actor) {
         List<Change> recorded = history.changesOf(publishId).orElseThrow(

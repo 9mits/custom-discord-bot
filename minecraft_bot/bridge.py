@@ -30,7 +30,8 @@ SERVER_EVENT_TOGGLE_PROTOCOL_VERSION = 9
 REVERSE_LINK_PROTOCOL_VERSION = 10
 GAME_VARIABLE_PROTOCOL_VERSION = 11
 AFK_PROTOCOL_VERSION = 12
-CURRENT_PROTOCOL_VERSION = AFK_PROTOCOL_VERSION
+CONFIG_CHANGESET_PROTOCOL_VERSION = 13
+CURRENT_PROTOCOL_VERSION = CONFIG_CHANGESET_PROTOCOL_VERSION
 
 VerificationHandler = Callable[..., Awaitable[None]]
 ActionResultHandler = Callable[[OutboxRecord, Optional[Any]], Awaitable[None]]
@@ -147,6 +148,15 @@ class MinecraftBridgeServer:
     @property
     def supports_game_variables(self) -> bool:
         return self.connected and self._peer_protocol_version >= GAME_VARIABLE_PROTOCOL_VERSION
+
+    @property
+    def supports_config_changesets(self) -> bool:
+        """Whether the plugin can validate, publish and roll back a whole change set.
+
+        An older plugin still accepts one key at a time, so the panel falls back to
+        publishing edits individually rather than refusing to work at all.
+        """
+        return self.connected and self._peer_protocol_version >= CONFIG_CHANGESET_PROTOCOL_VERSION
 
     async def start(self) -> None:
         ssl_context = None
@@ -503,10 +513,12 @@ class MinecraftBridgeServer:
                 if not pending.done():
                     # Newer plugins send the outcome text as "message" for successes and
                     # failures alike; older ones only set "error" on failure.
+                    detail = payload.get("detail")
                     pending.set_result(
                         (
                             payload.get("success") is True,
                             str(payload.get("message") or payload.get("error") or ""),
+                            detail if isinstance(detail, dict) else {},
                         )
                     )
                 self._sent_this_connection.pop(action_key, None)
@@ -561,7 +573,9 @@ class MinecraftBridgeServer:
         self._pending_results.clear()
         for future in pending:
             if not future.done():
-                future.set_result((False, message))
+                # Same three-value shape an ACTION_RESULT resolves with. A disconnect is
+                # exactly when a caller unpacking a result must not also hit a TypeError.
+                future.set_result((False, message, {}))
 
     async def _release_failed_event(self, idempotency_key: str, message_type: str) -> None:
         release = getattr(self.data, "release_bridge_event", None)
@@ -657,6 +671,24 @@ class MinecraftBridgeServer:
         the thing actually happened — a ban that silently failed is worse than one
         that visibly refuses.
         """
+        success, message, _detail = await self._send_awaiting_detail(
+            message_type, payload, timeout=timeout
+        )
+        return success, message
+
+    async def _send_awaiting_detail(
+        self,
+        message_type: str,
+        payload: dict[str, Any],
+        *,
+        timeout: float = 10.0,
+    ) -> tuple[bool, str, dict[str, Any]]:
+        """As `_send_awaiting_result`, but keeps the structured detail beside the text.
+
+        A change set needs more back than a sentence: the panel marks the individual
+        fields a rejection names, and shows what a publish actually moved. Callers that
+        only need the outcome keep using the two-value form.
+        """
         key = f"{message_type.lower()}:{secrets.token_hex(12)}"
         loop = asyncio.get_running_loop()
         future: asyncio.Future = loop.create_future()
@@ -665,13 +697,13 @@ class MinecraftBridgeServer:
             await self._send(message_type, payload, idempotency_key=key)
         except ConnectionError:
             self._pending_results.pop(key, None)
-            return False, "The Minecraft bridge is offline."
+            return False, "The Minecraft bridge is offline.", {}
         try:
-            success, message = await asyncio.wait_for(future, timeout=timeout)
+            success, message, detail = await asyncio.wait_for(future, timeout=timeout)
         except asyncio.TimeoutError:
             self._pending_results.pop(key, None)
-            return False, "The server did not respond in time."
-        return success, message
+            return False, "The server did not respond in time.", {}
+        return success, message, detail
 
     async def run_clan_action(
         self,
@@ -743,6 +775,52 @@ class MinecraftBridgeServer:
             },
             timeout=15.0,
         )
+
+    async def run_config_changeset(
+        self,
+        *,
+        actor_uuid: str,
+        actor_label: str,
+        operation: str,
+        edits: list[dict[str, Any]] | None = None,
+        publish_id: str = "",
+    ) -> tuple[bool, str, dict[str, Any]]:
+        """Validates, publishes or rolls back a whole configuration change set.
+
+        `validate` reports what a set would do without touching anything; `publish`
+        applies it atomically or not at all; `rollback` restores every value one
+        earlier publish replaced. The detail carries per-key findings for a rejection
+        and the before/after of each change for a publish.
+        """
+        if not self.supports_config_changesets:
+            return (
+                False,
+                "The connected Paper plugin is too old to publish a change set.",
+                {},
+            )
+        payload: dict[str, Any] = {
+            "action": "GAME_VARIABLE",
+            "actor_uuid": str(actor_uuid),
+            "actor_label": str(actor_label)[:80],
+            "operation": str(operation).strip().lower(),
+        }
+        if publish_id:
+            payload["publish_id"] = str(publish_id)[:64]
+        if edits is not None:
+            payload["edits"] = [
+                {
+                    "key": str(edit.get("key", "")).strip()[:160],
+                    **(
+                        {"reset": True}
+                        if edit.get("reset")
+                        else {"value": str(edit.get("value", "")).strip()[:160]}
+                    ),
+                }
+                # A publish is bounded so one request cannot carry the whole catalogue
+                # several times over; the panel edits a page at a time.
+                for edit in list(edits)[:400]
+            ]
+        return await self._send_awaiting_detail("ACTION", payload, timeout=20.0)
 
     async def send_maintenance(self, enabled: bool) -> bool:
         """Opens or closes the server to regular players.

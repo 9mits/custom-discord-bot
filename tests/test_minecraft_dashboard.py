@@ -322,3 +322,158 @@ class MinecraftStatisticsAssetTests(unittest.TestCase):
     def test_owner_only_values_are_never_rendered_by_this_page(self):
         page, script = self._files()
         self.assertNotIn("hidden-amethyst-one-in", page + script)
+
+
+class ConfigChangeSetEndpointTests(unittest.IsolatedAsyncioTestCase):
+    """Draft, validate, publish, roll back — and what each one writes to the trail."""
+
+    def _dashboard(self, *, changeset=None, snapshot=None):
+        config = SimpleNamespace(
+            bridge_secret=b"x" * 32,
+            dashboard_enabled=True,
+            dashboard_host="127.0.0.1",
+            dashboard_port=8090,
+            dashboard_public_url="http://127.0.0.1:8090",
+            dashboard_client_secret="secret",
+            guild_id=10,
+        )
+        data = SimpleNamespace(
+            list_accounts_for_user=AsyncMock(return_value=[{"minecraft_uuid": "uuid-1"}]),
+        )
+        bot = SimpleNamespace(
+            config=config,
+            data=data,
+            bridge=SimpleNamespace(
+                latest_game_variables=snapshot if snapshot is not None else {
+                    "variables": [{"key": "crate.default.key-cost", "label": "Default crate key cost"}],
+                    "history": [{"id": "abc", "changes": [], "change_count": 0}],
+                },
+                run_config_changeset=AsyncMock(
+                    return_value=changeset
+                    if changeset is not None
+                    else (True, "Published 1 change(s).", {
+                        "publish_id": "abc",
+                        "changes": [
+                            {"key": "crate.default.key-cost", "before": 1, "after": 3}
+                        ],
+                    })
+                ),
+            ),
+            get_guild=lambda _id: None,
+        )
+        return DashboardServer(bot)
+
+    async def _owner_client(self, dashboard):
+        member = SimpleNamespace(id=9, name="mits")
+        patcher = patch.object(
+            dashboard, "_require_owner", AsyncMock(return_value=({"csrf": "t"}, member))
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        csrf = patch.object(dashboard, "_require_csrf", lambda *_args, **_kwargs: None)
+        csrf.start()
+        self.addCleanup(csrf.stop)
+        client = TestClient(TestServer(dashboard._app))
+        await client.start_server()
+        self.addAsyncCleanup(client.close)
+        return client
+
+    async def test_change_set_endpoints_require_the_owner_role(self):
+        dashboard = self._dashboard()
+        client = TestClient(TestServer(dashboard._app))
+        await client.start_server()
+        self.addAsyncCleanup(client.close)
+        for path in ("/api/settings/validate", "/api/settings/publish", "/api/settings/rollback"):
+            response = await client.post(path, json={"edits": [{"key": "a", "value": "1"}]})
+            self.assertEqual(response.status, 401, path)
+        self.assertEqual((await client.get("/api/settings/history")).status, 401)
+
+    async def test_each_fixed_settings_path_reaches_its_own_handler(self):
+        # /api/settings/{key} is a greedy wildcard sitting over the same prefix. aiohttp
+        # prefers plain paths, so this holds today; the point of asserting it is that the
+        # panel breaks quietly rather than loudly if that ever stops being true.
+        dashboard = self._dashboard()
+        client = await self._owner_client(dashboard)
+        body = await (await client.get("/api/settings/history")).json()
+        self.assertEqual(body["history"][0]["id"], "abc")
+        # /api/settings returns the whole snapshot and would also carry "history", so
+        # the absence of "variables" is what proves which handler answered.
+        self.assertNotIn("variables", body)
+
+    async def test_publish_records_one_audit_row_per_value_with_both_numbers(self):
+        dashboard = self._dashboard()
+        client = await self._owner_client(dashboard)
+        with patch("minecraft_bot.dashboard.deliver", AsyncMock()) as deliver:
+            response = await client.post(
+                "/api/settings/publish",
+                json={"edits": [{"key": "crate.default.key-cost", "value": "3"}]},
+            )
+            body = await response.json()
+
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["publish_id"], "abc")
+        record = deliver.await_args_list[0].args[1]
+        options = dict(record.options)
+        self.assertEqual(options["key"], "crate.default.key-cost")
+        self.assertEqual(options["previous"], "1")
+        self.assertEqual(options["value"], "3")
+        self.assertEqual(options["publish"], "abc")
+        # The label makes the trail readable without looking the key up.
+        self.assertEqual(options["label"], "Default crate key cost")
+
+    async def test_a_rejected_publish_returns_findings_and_records_the_refusal(self):
+        dashboard = self._dashboard(changeset=(
+            False,
+            "Every weight in airdrop.rarity would be zero.",
+            {"findings": [{"key": "airdrop.rarity.common.weight", "message": "Leave one above zero."}]},
+        ))
+        client = await self._owner_client(dashboard)
+        with patch("minecraft_bot.dashboard.deliver", AsyncMock()) as deliver:
+            response = await client.post(
+                "/api/settings/publish",
+                json={"edits": [{"key": "airdrop.rarity.common.weight", "value": "0"}]},
+            )
+            body = await response.json()
+
+        self.assertEqual(response.status, 409)
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["findings"][0]["key"], "airdrop.rarity.common.weight")
+        self.assertEqual(dict(deliver.await_args_list[0].args[1].options)["outcome"], "rejected")
+
+    async def test_validate_writes_nothing_to_the_trail(self):
+        dashboard = self._dashboard(changeset=(True, "The change set is valid.", {"findings": []}))
+        client = await self._owner_client(dashboard)
+        with patch("minecraft_bot.dashboard.deliver", AsyncMock()) as deliver:
+            body = await (await client.post(
+                "/api/settings/validate",
+                json={"edits": [{"key": "crate.default.key-cost", "value": "3"}]},
+            )).json()
+
+        self.assertTrue(body["valid"])
+        deliver.assert_not_awaited()
+
+    async def test_an_empty_change_set_is_refused_before_it_reaches_the_bridge(self):
+        dashboard = self._dashboard()
+        client = await self._owner_client(dashboard)
+        for payload in ({}, {"edits": []}, {"edits": [{"value": "3"}]}):
+            response = await client.post("/api/settings/publish", json=payload)
+            self.assertEqual(response.status, 400, payload)
+        dashboard.bot.bridge.run_config_changeset.assert_not_awaited()
+
+    async def test_rollback_needs_the_publish_it_undoes(self):
+        dashboard = self._dashboard()
+        client = await self._owner_client(dashboard)
+        self.assertEqual(
+            (await client.post("/api/settings/rollback", json={})).status, 400
+        )
+
+    async def test_an_owner_with_no_linked_minecraft_account_is_told_why(self):
+        dashboard = self._dashboard()
+        dashboard.bot.data.list_accounts_for_user = AsyncMock(return_value=[])
+        client = await self._owner_client(dashboard)
+        response = await client.post(
+            "/api/settings/publish",
+            json={"edits": [{"key": "crate.default.key-cost", "value": "3"}]},
+        )
+        self.assertEqual(response.status, 409)
+        self.assertIn("linked Minecraft account", await response.text())

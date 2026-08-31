@@ -51,6 +51,13 @@ class DashboardServer:
         self._app.router.add_get("/api/me", self.me)
         self._app.router.add_get("/api/leaderboards", self.leaderboards)
         self._app.router.add_get("/api/settings", self.settings)
+        self._app.router.add_get("/api/settings/history", self.settings_history)
+        self._app.router.add_post("/api/settings/validate", self.validate_changeset)
+        self._app.router.add_post("/api/settings/publish", self.publish_changeset)
+        self._app.router.add_post("/api/settings/rollback", self.rollback_publish)
+        # aiohttp resolves plain paths ahead of dynamic ones however they are ordered,
+        # so this wildcard cannot swallow the fixed routes above. Listed last anyway,
+        # because reading it the other way round invites the opposite conclusion.
         self._app.router.add_patch("/api/settings/{key:.+}", self.change_setting)
         self._app.router.add_get("/api/logs", self.logs)
         self._app.router.add_get("/api/stats", self.stats_overview)
@@ -389,6 +396,175 @@ class DashboardServer:
         if not success:
             raise web.HTTPConflict(text=message)
         return web.json_response({"ok": True, "message": message})
+
+    async def settings_history(self, request: web.Request) -> web.Response:
+        """Recent publishes, newest first, each with the values it replaced."""
+        await self._require_owner(request)
+        snapshot = self.bot.bridge.latest_game_variables or {}
+        return web.json_response(
+            {"history": snapshot.get("history", [])}, headers={"Cache-Control": "no-store"}
+        )
+
+    async def _changeset_actor(self, request: web.Request) -> tuple[Any, str]:
+        """The owner making the change, and the Minecraft account that proves it.
+
+        The plugin authorises against the LuckPerms owner group on a linked Minecraft
+        account, so a Discord owner with nothing linked cannot publish. Saying that
+        plainly beats letting the bridge refuse it as a permission failure.
+        """
+        session, member = await self._require_owner(request)
+        self._require_csrf(request, session)
+        accounts = await self.bot.data.list_accounts_for_user(member.id)
+        actor_uuid = next(
+            (str(row.get("minecraft_uuid") or "") for row in accounts if row.get("minecraft_uuid")),
+            "",
+        )
+        if not actor_uuid:
+            raise web.HTTPConflict(text="The Discord OWNER account has no linked Minecraft account.")
+        return member, actor_uuid
+
+    @staticmethod
+    def _read_edits(body: Any) -> list[dict[str, Any]]:
+        edits = body.get("edits") if isinstance(body, dict) else None
+        if not isinstance(edits, list) or not edits:
+            raise web.HTTPBadRequest(text="Send an 'edits' array with at least one change.")
+        cleaned: list[dict[str, Any]] = []
+        for edit in edits:
+            if not isinstance(edit, dict) or not str(edit.get("key", "")).strip():
+                raise web.HTTPBadRequest(text="Every edit needs a key.")
+            cleaned.append(edit)
+        return cleaned
+
+    async def _json_body(self, request: web.Request) -> Any:
+        try:
+            return await request.json()
+        except (json.JSONDecodeError, TypeError):
+            raise web.HTTPBadRequest(text="A JSON request body is required.")
+
+    async def validate_changeset(self, request: web.Request) -> web.Response:
+        """Reports what a change set would do. Writes nothing, audits nothing."""
+        _member, actor_uuid = await self._changeset_actor(request)
+        edits = self._read_edits(await self._json_body(request))
+        valid, message, detail = await self.bot.bridge.run_config_changeset(
+            actor_uuid=actor_uuid, actor_label="", operation="validate", edits=edits
+        )
+        return web.json_response(
+            {"valid": valid, "message": message, "findings": detail.get("findings", [])},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    async def publish_changeset(self, request: web.Request) -> web.Response:
+        """Applies a whole change set atomically, and records what each value was."""
+        member, actor_uuid = await self._changeset_actor(request)
+        edits = self._read_edits(await self._json_body(request))
+        started = time.monotonic()
+        success, message, detail = await self.bot.bridge.run_config_changeset(
+            actor_uuid=actor_uuid,
+            actor_label=member.name,
+            operation="publish",
+            edits=edits,
+        )
+        await self._audit_changeset(
+            member, "dashboard config publish", success, message, detail, started
+        )
+        if not success:
+            return web.json_response(
+                {"ok": False, "message": message, "findings": detail.get("findings", [])},
+                status=409,
+                headers={"Cache-Control": "no-store"},
+            )
+        return web.json_response(
+            {
+                "ok": True,
+                "message": message,
+                "publish_id": detail.get("publish_id", ""),
+                "changes": detail.get("changes", []),
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    async def rollback_publish(self, request: web.Request) -> web.Response:
+        """Restores every value one earlier publish replaced."""
+        member, actor_uuid = await self._changeset_actor(request)
+        body = await self._json_body(request)
+        publish_id = str(body.get("publish_id", "")).strip() if isinstance(body, dict) else ""
+        if not publish_id:
+            raise web.HTTPBadRequest(text="Send the 'publish_id' of the change to undo.")
+        started = time.monotonic()
+        success, message, detail = await self.bot.bridge.run_config_changeset(
+            actor_uuid=actor_uuid,
+            actor_label=member.name,
+            operation="rollback",
+            publish_id=publish_id,
+        )
+        await self._audit_changeset(
+            member, "dashboard config rollback", success, message, detail, started
+        )
+        if not success:
+            raise web.HTTPConflict(text=message)
+        return web.json_response(
+            {"ok": True, "message": message, "changes": detail.get("changes", [])},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    async def _audit_changeset(
+        self,
+        member: Any,
+        command: str,
+        success: bool,
+        message: str,
+        detail: dict[str, Any],
+        started: float,
+    ) -> None:
+        """Records one audit row per value moved, each with what it was and became.
+
+        Per value rather than per publish: the trail is read to answer what happened to
+        a particular setting, and a single row saying "changed 40 things" cannot answer
+        that. A rejected set moved nothing, so it records one row carrying the reason.
+        """
+        duration_ms = int((time.monotonic() - started) * 1000)
+        changes = detail.get("changes") or []
+        if not success or not changes:
+            await deliver(
+                self.bot,
+                CommandAuditRecord(
+                    source=SOURCE_COMMAND,
+                    command=command,
+                    user_id=member.id,
+                    user_label=member.name,
+                    guild_id=self.config.guild_id,
+                    options=(("outcome", "rejected" if not success else "no change"),),
+                    outcome=OUTCOME_SUCCESS if success else OUTCOME_FAILED,
+                    risk=RISK_CONFIGURATION,
+                    duration_ms=duration_ms,
+                    detail=message,
+                ),
+            )
+            return
+        publish_id = str(detail.get("publish_id", ""))
+        for change in changes:
+            key = str(change.get("key", ""))
+            await deliver(
+                self.bot,
+                CommandAuditRecord(
+                    source=SOURCE_COMMAND,
+                    command=command,
+                    user_id=member.id,
+                    user_label=member.name,
+                    guild_id=self.config.guild_id,
+                    options=(
+                        ("key", key),
+                        ("label", str(self._variable_row(key).get("label", ""))),
+                        ("previous", str(change.get("before", ""))),
+                        ("value", str(change.get("after", ""))),
+                        ("publish", publish_id),
+                    ),
+                    outcome=OUTCOME_SUCCESS,
+                    risk=RISK_CONFIGURATION,
+                    duration_ms=duration_ms,
+                    detail=message,
+                ),
+            )
 
     async def logs(self, request: web.Request) -> web.Response:
         await self._require_owner(request)
