@@ -1,4 +1,4 @@
-"""Dedicated Discord bot for Minecraft applications and access management."""
+"""Dedicated Discord bot for Minecraft verification and access management."""
 
 from __future__ import annotations
 
@@ -72,7 +72,7 @@ from .presentation import (
     live_status_embed,
     reverse_link_request_embed,
 )
-from .settings import MinecraftSettings, SETTING_KEYS
+from .settings import LEGACY_SETTING_KEYS, MinecraftSettings, SETTING_KEYS
 from .dashboard import DashboardServer
 from .ui import (
     AccountView,
@@ -86,6 +86,14 @@ from .information import CONFIG_CHANNEL as INFORMATION_CHANNEL_CONFIG
 
 
 logger = logging.getLogger("MinecraftAccessBot")
+
+
+def access_action_label(action: Any) -> str:
+    """Human label for both current and legacy access-audit identifiers."""
+    normalized = str(action)
+    normalized = normalized.replace("APPLICATION_FORM", "VERIFICATION")
+    normalized = normalized.replace("APPLICATION", "ACCESS")
+    return normalized.replace("_", " ").title()
 
 
 class RateLimiter:
@@ -222,9 +230,10 @@ class MinecraftAccessBot(commands.Bot):
     async def setup_hook(self) -> None:
         install_component_audit(self)
         await self.data.open()
-        stored_settings = await self.data.get_configs(SETTING_KEYS)
+        stored_settings = await self.data.get_configs(SETTING_KEYS + LEGACY_SETTING_KEYS)
         self.settings = MinecraftSettings.from_sources(self.config, stored_settings)
         await self.data.set_configs(self.settings.persistent_values())
+        await self.data.delete_configs(LEGACY_SETTING_KEYS)
         self.add_view(application_panel())
         self.add_view(LiveApplicationView())
         # Without this the leaderboard dropdowns have no handler, so Discord reports
@@ -295,7 +304,7 @@ class MinecraftAccessBot(commands.Bot):
             try:
                 await self.post_application_panel()
             except Exception:
-                logger.exception("Could not refresh the Minecraft application panel")
+                logger.exception("Could not refresh the Minecraft verification panel")
             else:
                 self._application_panel_refreshed = True
         await self.change_presence(activity=discord.Game(name="Mysterious SMP X"))
@@ -527,13 +536,13 @@ class MinecraftAccessBot(commands.Bot):
 
     async def log_application_submission(self, application: MinecraftAccess) -> None:
         await self._send_configured_log(
-            logroutes.resolve(self.settings, "application"),
+            logroutes.resolve(self.settings, "access"),
             application_log_embed(application),
         )
 
     async def log_access_change(self, application: MinecraftAccess) -> None:
         await self._send_configured_log(
-            logroutes.resolve(self.settings, "application"),
+            logroutes.resolve(self.settings, "access"),
             application_log_embed(application),
         )
 
@@ -669,7 +678,7 @@ class MinecraftAccessBot(commands.Bot):
                     payload={"access_id": application.id, "notification": notification},
                 )
             logger.warning(
-                "Minecraft %s DM deferred for application %s: %s",
+                "Minecraft %s DM deferred for access record %s: %s",
                 notification,
                 application.id,
                 type(exc).__name__,
@@ -1457,7 +1466,7 @@ class MinecraftAccessBot(commands.Bot):
             )
         except InvalidTransition as exc:
             logger.warning(
-                "Rejected Minecraft verification for application %s: %s",
+                "Rejected Minecraft verification for access record %s: %s",
                 access_id,
                 exc,
             )
@@ -1707,7 +1716,7 @@ class MinecraftAccessBot(commands.Bot):
                                 )))
             if record.action in {BridgeAction.APPROVE, BridgeAction.REVOKE}:
                 logger.warning(
-                    "Minecraft action %s failed for application %s: %s",
+                    "Minecraft action %s failed for access record %s: %s",
                     record.action.value,
                     record.access_id,
                     record.last_error or "Paper rejected the action",
@@ -1728,13 +1737,13 @@ class MinecraftAccessBot(commands.Bot):
                 await self._finish_approval(application)
                 await self.log_access_change(application)
             except Exception:
-                logger.exception("Discord approval finalization failed for application %s", application.id)
+                logger.exception("Discord approval finalization failed for access record %s", application.id)
         elif record.action is BridgeAction.REVOKE and application.status is AccessStatus.REVOKED:
             try:
                 await self._finish_revocation(application)
                 await self.log_access_change(application)
             except Exception:
-                logger.exception("Discord revocation finalization failed for application %s", application.id)
+                logger.exception("Discord revocation finalization failed for access record %s", application.id)
         await self.update_live_card(application)
         if record.action in {BridgeAction.APPROVE, BridgeAction.REVOKE}:
             with suppress(Exception):
@@ -1746,9 +1755,9 @@ class MinecraftAccessBot(commands.Bot):
         role = guild.get_role(self.settings.member_role_id) if guild else None
         if member is not None and role is not None:
             try:
-                await member.add_roles(role, reason="Minecraft application approved")
+                await member.add_roles(role, reason="Minecraft access verified")
             except (discord.Forbidden, discord.HTTPException) as exc:
-                logger.exception("Approved-role assignment failed for application %s", application.id)
+                logger.exception("Approved-role assignment failed for access record %s", application.id)
                 try:
                     await self.data.write_audit(
                         "APPROVED_ROLE_FAILED",
@@ -1757,7 +1766,7 @@ class MinecraftAccessBot(commands.Bot):
                         payload={"error_type": type(exc).__name__},
                     )
                 except Exception:
-                    logger.exception("Could not record approved-role failure for application %s", application.id)
+                    logger.exception("Could not record approved-role failure for access record %s", application.id)
     async def _finish_revocation(self, application: MinecraftAccess) -> None:
         guild = await self._configured_guild()
         member = await self._resolve_guild_member(guild, application.discord_user_id)
@@ -2186,7 +2195,7 @@ class MinecraftAccessBot(commands.Bot):
         except asyncio.CancelledError:
             raise
         except Exception:
-            logger.exception("Minecraft application maintenance failed")
+            logger.exception("Minecraft access maintenance failed")
 
     async def _prune_command_log(self) -> None:
         """Age out the command trail roughly hourly rather than every 30s tick."""
@@ -3207,7 +3216,7 @@ class MinecraftAccessBot(commands.Bot):
             channel_id = channel.id if channel is not None else 0
             if log.value == "activity":
                 updates = {
-                    "application_log_channel_id": channel_id,
+                    "access_log_channel_id": channel_id,
                     "verification_log_channel_id": channel_id,
                     "player_log_channel_id": channel_id,
                     "command_log_channel_id": channel_id,
@@ -3333,10 +3342,14 @@ class MinecraftAccessBot(commands.Bot):
                 )
                 return
             rows = await self.data.audit_rows(access)
-            lines = [
-                f"<t:{int(row['created_at'])}:F> · **{str(row['action']).replace('_', ' ').title()}**"
-                for row in rows[-20:]
-            ]
+            lines = []
+            for row in rows[-20:]:
+                # Historical rows keep their stored identifiers, but the retired
+                # application vocabulary must never leak back into Discord.
+                lines.append(
+                    f"<t:{int(row['created_at'])}:F> · "
+                    f"**{access_action_label(row['action'])}**"
+                )
             await interaction.edit_original_response(
                 **branded_edit(
                     info_embed(

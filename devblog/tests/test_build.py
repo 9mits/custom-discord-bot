@@ -1652,6 +1652,11 @@ class PostContentTests(unittest.TestCase):
             for href in re.findall(r"\]\(/([^)]*)\)", path.read_text(encoding="utf-8")):
                 self.assertIn(href.strip("/"), known, "%s links /%s" % (path.name, href))
 
+    def test_latest_release_copy_is_player_facing(self):
+        latest = max(self.POSTS).read_text(encoding="utf-8").casefold()
+        for staff_copy in ("/mgxadmin", "full staff controls", "admin help"):
+            self.assertNotIn(staff_copy, latest)
+
 
 
 class ContrastTests(unittest.TestCase):

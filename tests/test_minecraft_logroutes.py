@@ -39,17 +39,26 @@ class TopicRegistryTests(unittest.TestCase):
         self.assertLessEqual(len(logroutes.TOPICS), 25)
         for topic in logroutes.TOPICS:
             self.assertLessEqual(len(topic.description), 100, topic.key)
+            visible = f"{topic.key} {topic.label} {topic.description}".casefold()
+            self.assertNotIn("application", visible, topic.key)
 
-    def test_legacy_application_route_is_presented_as_access(self):
-        topic = logroutes.BY_KEY["application"]
+    def test_legacy_application_route_is_migrated_to_access(self):
+        topic = logroutes.BY_KEY["access"]
         self.assertEqual(topic.label, "Access")
         self.assertNotIn("application", topic.description.casefold())
+        self.assertNotIn("application", logroutes.BY_KEY)
+        self.assertEqual(logroutes.normalize({"application": 55}), {"access": 55})
+
+    def test_the_routing_summary_never_resurrects_the_retired_label(self):
+        rendered = " ".join(logroutes.summary_rows(settings())).casefold()
+        self.assertNotIn("application", rendered)
+        self.assertIn("access", rendered)
 
     def test_the_streams_the_bot_already_had_still_name_their_old_setting(self):
         for key, fallback in (
             ("important", "critical_log_channel_id"),
             ("command", "command_log_channel_id"),
-            ("application", "application_log_channel_id"),
+            ("access", "access_log_channel_id"),
             ("verification", "verification_log_channel_id"),
             ("session", "player_log_channel_id"),
         ):

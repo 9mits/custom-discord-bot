@@ -21,7 +21,7 @@ SETTING_KEYS = (
     "review_channel_id",
     "mod_role_id",
     "member_role_id",
-    "application_log_channel_id",
+    "access_log_channel_id",
     "verification_log_channel_id",
     "player_log_channel_id",
     "command_log_channel_id",
@@ -33,6 +33,10 @@ SETTING_KEYS = (
     "maintenance_mode",
     "log_routes",
 )
+
+# Read only during startup migration, then delete. These names must not return to
+# settings panels, command choices, or newly persisted configuration.
+LEGACY_SETTING_KEYS = ("application_log_channel_id",)
 
 _HOST = re.compile(r"^(?:[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?|\[[0-9A-Fa-f:]+\])$")
 
@@ -115,7 +119,7 @@ class MinecraftSettings:
     review_channel_id: int = 0
     mod_role_id: int = 0
     member_role_id: int = 0
-    application_log_channel_id: int = 0
+    access_log_channel_id: int = 0
     verification_log_channel_id: int = 0
     player_log_channel_id: int = 0
     command_log_channel_id: int = 0
@@ -169,7 +173,14 @@ class MinecraftSettings:
             member_role_id=_positive_int(
                 stored_or("member_role_id", getattr(bootstrap_config, "member_role_id", 0))
             ),
-            application_log_channel_id=_positive_int(stored_or("application_log_channel_id", 0)),
+            access_log_channel_id=_positive_int(
+                stored_or(
+                    "access_log_channel_id",
+                    # Read the retired setting once so existing servers keep their
+                    # destination, then persist only the access-named replacement.
+                    stored_or("application_log_channel_id", 0),
+                )
+            ),
             verification_log_channel_id=_positive_int(stored_or("verification_log_channel_id", 0)),
             player_log_channel_id=_positive_int(stored_or("player_log_channel_id", 0)),
             command_log_channel_id=_positive_int(stored_or("command_log_channel_id", 0)),
@@ -199,7 +210,7 @@ class MinecraftSettings:
                     raise ValueError(f"{key} must be a positive Discord ID")
                 normalized[key] = value
         for key in (
-            "application_log_channel_id",
+            "access_log_channel_id",
             "verification_log_channel_id",
             "player_log_channel_id",
             "command_log_channel_id",

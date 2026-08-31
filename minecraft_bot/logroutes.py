@@ -64,10 +64,10 @@ TOPICS: tuple[Topic, ...] = (
         "command_log_channel_id",
     ),
     Topic(
-        "application",
+        "access",
         "Access",
         "Verification starts, access grants, revocations, and account changes.",
-        "application_log_channel_id",
+        "access_log_channel_id",
     ),
     Topic(
         "verification",
@@ -103,6 +103,8 @@ DEFAULT_FALLBACK = "command_log_channel_id"
 #: listed and not a topic key is treated as `world`, so a category added to the
 #: plugin logs somewhere sensible before this table catches up with it.
 CATEGORY_ALIASES: Mapping[str, str] = {
+    # Saved routes from before verification-only access used this topic name.
+    "application": "access",
     "server": "world",
     "lootbox": "crate",
     "pvp": "combat",
@@ -134,6 +136,7 @@ def normalize(raw: Any) -> dict[str, int]:
     routes: dict[str, int] = {}
     for key, value in raw.items():
         topic = str(key).strip().casefold()
+        topic = CATEGORY_ALIASES.get(topic, topic)
         if topic not in BY_KEY:
             continue
         try:

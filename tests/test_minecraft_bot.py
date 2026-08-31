@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import discord
 
-from minecraft_bot.bot import MinecraftAccessBot, RateLimiter
+from minecraft_bot.bot import MinecraftAccessBot, RateLimiter, access_action_label
 from minecraft_bot.config import MinecraftConfig
 from minecraft_bot.models import (
     AccessStatus,
@@ -51,6 +51,52 @@ from minecraft_bot.ui import (
     LiveApplicationView,
     RulesAgreementView,
 )
+
+
+class RetiredApplicationCopyTests(unittest.TestCase):
+    def test_historical_audit_actions_render_as_access(self):
+        for stored, expected in (
+            ("APPLICATION_CREATED", "Access Created"),
+            ("APPLICATION_FORM_EXPIRED", "Verification Expired"),
+            ("APPLICATION_CANCELLED", "Access Cancelled"),
+            ("ACCESS_WITHDRAWN", "Access Withdrawn"),
+        ):
+            with self.subTest(stored=stored):
+                label = access_action_label(stored)
+                self.assertEqual(label, expected)
+                self.assertNotIn("application", label.casefold())
+
+    def test_setup_dashboard_has_no_retired_user_facing_copy(self):
+        bot = SimpleNamespace(
+            settings=MinecraftSettings(),
+            bridge=SimpleNamespace(connected=False),
+            is_administrator=lambda _member: True,
+        )
+        payload = MinecraftSetupView(bot, 123, None).to_components()
+        visible_keys = {"content", "label", "placeholder", "description", "title"}
+        visible = []
+
+        def collect(value):
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    if key in visible_keys and isinstance(child, str):
+                        visible.append(child)
+                    else:
+                        collect(child)
+            elif isinstance(value, list):
+                for child in value:
+                    collect(child)
+
+        collect(payload)
+        self.assertNotIn("application", " ".join(visible).casefold())
+        self.assertNotIn("applicant", " ".join(visible).casefold())
+
+    def test_minecraft_support_ticket_copy_uses_access_language(self):
+        source = (
+            Path(__file__).resolve().parents[1] / "cogs" / "modmail.py"
+        ).read_text(encoding="utf-8")
+        for retired in ("**Application:**", "Minecraft applicant", "The applicant"):
+            self.assertNotIn(retired, source)
 
 
 class ReverseLinkSuccessTests(unittest.IsolatedAsyncioTestCase):
@@ -1257,7 +1303,7 @@ class MinecraftConfigurationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(settings.application_channel_id, 99)
         self.assertEqual(settings.review_channel_id, 20)
-        self.assertEqual(settings.application_log_channel_id, 0)
+        self.assertEqual(settings.access_log_channel_id, 0)
         self.assertEqual(settings.java_address, "saved.example:25570")
 
     def test_legacy_numeric_addresses_migrate_to_public_hostname(self):
@@ -1288,16 +1334,29 @@ class MinecraftConfigurationTests(unittest.IsolatedAsyncioTestCase):
 
     def test_log_channels_are_persistent_and_can_be_disabled(self):
         settings = MinecraftSettings().with_updates(
-            application_log_channel_id=101,
+            access_log_channel_id=101,
             verification_log_channel_id=102,
             player_log_channel_id=103,
         )
         disabled = settings.with_updates(player_log_channel_id=0)
 
-        self.assertEqual(settings.application_log_channel_id, 101)
+        self.assertEqual(settings.access_log_channel_id, 101)
         self.assertEqual(settings.verification_log_channel_id, 102)
         self.assertEqual(settings.player_log_channel_id, 103)
         self.assertEqual(disabled.player_log_channel_id, 0)
+
+    def test_the_retired_access_log_setting_migrates_without_staying_public(self):
+        settings = MinecraftSettings.from_sources(
+            SimpleNamespace(),
+            {
+                "application_log_channel_id": 101,
+                "log_routes": {"application": 202},
+            },
+        )
+
+        self.assertEqual(settings.access_log_channel_id, 101)
+        self.assertEqual(settings.log_routes, {"access": 202})
+        self.assertNotIn("application_log_channel_id", settings.persistent_values())
 
     def test_invalid_or_overlapping_panel_settings_are_rejected(self):
         settings = MinecraftSettings(application_channel_id=10, mod_role_id=20)
