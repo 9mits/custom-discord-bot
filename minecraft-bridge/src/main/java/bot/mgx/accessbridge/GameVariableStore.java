@@ -416,6 +416,7 @@ final class GameVariableStore {
             row.addProperty("unit", definition.unit());
             row.addProperty("sensitive", definition.sensitive());
             row.addProperty("overridden", overrides.containsKey(definition.key()));
+            addMetadata(row, definition);
             if (definition.key().startsWith("crate.") && definition.key().endsWith(".weight")) {
                 addChance(row, crateChance(definition.key()));
             } else if (definition.key().startsWith("airdrop.rarity.")
@@ -432,7 +433,58 @@ final class GameVariableStore {
             variables.add(row);
         }
         root.add("variables", variables);
+        root.add("tables", tableSummary());
         return root;
+    }
+
+    /**
+     * Adds the presentation and dependency fields alongside the original ones.
+     *
+     * <p>Purely additive: every field the existing panel reads is still written above,
+     * so a panel that has not been rebuilt yet keeps working unchanged.
+     */
+    private void addMetadata(JsonObject row, Definition definition) {
+        SettingMetadata metadata = SettingMetadata.of(definition, definitions.keySet());
+        row.addProperty("control", metadata.control().name().toLowerCase(Locale.ROOT));
+        row.addProperty("group", metadata.group().name().toLowerCase(Locale.ROOT));
+        row.addProperty("group_label", metadata.group().displayName());
+        row.addProperty("reload", metadata.reload().name().toLowerCase(Locale.ROOT));
+        if (metadata.table() != null) row.addProperty("table", metadata.table());
+        if (metadata.partner() != null) row.addProperty("partner", metadata.partner());
+        if (metadata.restartReason() != null) {
+            row.addProperty("restart_reason", metadata.restartReason());
+        }
+    }
+
+    /**
+     * Every distribution, with the total its rows share.
+     *
+     * <p>A weight only means something against this total, and the panel needs it before
+     * it can turn one into a percentage or show what an edit does to the rest of the
+     * table. Sending it once beside the rows saves the browser rebuilding it per row and
+     * keeps the arithmetic on the side that owns the numbers.
+     */
+    private JsonArray tableSummary() {
+        Map<String, long[]> totals = new LinkedHashMap<>();
+        Map<String, Integer> rows = new LinkedHashMap<>();
+        for (Definition definition : definitions.values()) {
+            String table = SettingMetadata.table(definition.key()).orElse(null);
+            if (table == null) {
+                continue;
+            }
+            Object value = overrides.getOrDefault(definition.key(), definition.defaultValue());
+            totals.computeIfAbsent(table, ignored -> new long[1])[0] += ((Number) value).longValue();
+            rows.merge(table, 1, Integer::sum);
+        }
+        JsonArray summary = new JsonArray();
+        totals.forEach((table, total) -> {
+            JsonObject entry = new JsonObject();
+            entry.addProperty("table", table);
+            entry.addProperty("total_weight", total[0]);
+            entry.addProperty("entries", rows.get(table));
+            summary.add(entry);
+        });
+        return summary;
     }
 
     int keyCost(CrateKind kind) {
