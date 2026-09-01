@@ -243,6 +243,15 @@ record SettingMetadata(
         if (key.startsWith("scoreboard.")) {
             return Group.PRESENTATION;
         }
+        if (key.startsWith("autopay.")) {
+            return Group.ECONOMY;
+        }
+        if (key.startsWith("amethyst-items.")) {
+            return Group.AMETHYST_SHOP;
+        }
+        if (key.startsWith("give.") || key.startsWith("activity-feed.")) {
+            return key.startsWith("give.") ? Group.PLAYERS : Group.PRESENTATION;
+        }
         if (key.startsWith("bounty.")) {
             return Group.ECONOMY;
         }

@@ -12,6 +12,20 @@ import java.util.Locale;
 final class AdminGive {
     /** Keys are handed over as items, so one command cannot exceed a stack. */
     static final int MAX_KEYS = 64;
+    /** Live tuning; the constants above stay the defaults and stand alone in tests. */
+    private static volatile java.util.function.ToDoubleFunction<String> tuning = key -> Double.NaN;
+
+    static void tuningSource(java.util.function.ToDoubleFunction<String> source) {
+        if (source != null) {
+            tuning = source;
+        }
+    }
+
+    private static double tuned(String key, double fallback) {
+        double value = tuning.applyAsDouble(key);
+        return Double.isNaN(value) ? fallback : value;
+    }
+
 
     static final List<String> TYPES = List.of(
             "money", "key", "shard", "cosmetic", "cosmetics", "reward", "amethyst"
@@ -59,18 +73,18 @@ final class AdminGive {
             case "key", "keys", "crate", "crates" -> {
                 // The amount is optional here because one key is the common case.
                 int amount = value == null ? 1 : parseCount(value);
-                if (amount < 1 || amount > MAX_KEYS) {
+                if (amount < 1 || amount > (int) tuned("give.maximum-keys", MAX_KEYS)) {
                     throw new IllegalArgumentException(
-                            "Give between 1 and " + MAX_KEYS + " keys at a time."
+                            "Give between 1 and " + (int) tuned("give.maximum-keys", MAX_KEYS) + " keys at a time."
                     );
                 }
                 return new Request(Type.KEY, amount, null);
             }
             case "shard", "shards" -> {
                 int amount = value == null ? 1 : parseCount(value);
-                if (amount < 1 || amount > MAX_KEYS) {
+                if (amount < 1 || amount > (int) tuned("give.maximum-keys", MAX_KEYS)) {
                     throw new IllegalArgumentException(
-                            "Give between 1 and " + MAX_KEYS + " Shards at a time."
+                            "Give between 1 and " + (int) tuned("give.maximum-keys", MAX_KEYS) + " Shards at a time."
                     );
                 }
                 return new Request(Type.SHARD, amount, null);

@@ -24,6 +24,24 @@ import java.util.Set;
 final class ActivityFeed {
     /** Entries kept before the oldest is dropped. */
     static final int RETAINED = 300;
+    /** Live tuning; the constants above stay the defaults and stand alone in tests. */
+    private static volatile java.util.function.ToDoubleFunction<String> tuning = key -> Double.NaN;
+
+    static void tuningSource(java.util.function.ToDoubleFunction<String> source) {
+        if (source != null) {
+            tuning = source;
+        }
+    }
+
+    private static double tuned(String key, double fallback) {
+        double value = tuning.applyAsDouble(key);
+        return Double.isNaN(value) ? fallback : value;
+    }
+
+    private static int retained() {
+        return (int) tuned("activity-feed.retained", RETAINED);
+    }
+
 
     private final Deque<ServerEvent> entries = new ArrayDeque<>();
 
@@ -32,7 +50,7 @@ final class ActivityFeed {
             return;
         }
         entries.addFirst(event);
-        while (entries.size() > RETAINED) {
+        while (entries.size() > retained()) {
             entries.removeLast();
         }
     }
@@ -71,7 +89,7 @@ final class ActivityFeed {
         JsonArray categories = new JsonArray();
         categories().forEach(categories::add);
         root.add("categories", categories);
-        root.addProperty("retained", RETAINED);
+        root.addProperty("retained", retained());
         return root;
     }
 }

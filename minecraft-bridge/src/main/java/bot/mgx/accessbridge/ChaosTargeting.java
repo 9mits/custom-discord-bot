@@ -22,6 +22,20 @@ final class ChaosTargeting {
     static final double DEFAULT_RADIUS = 64.0d;
     static final double MINIMUM_RADIUS = 4.0d;
     static final double MAXIMUM_RADIUS = 256.0d;
+    /** Live tuning; the constants above stay the defaults and stand alone in tests. */
+    private static volatile java.util.function.ToDoubleFunction<String> tuning = key -> Double.NaN;
+
+    static void tuningSource(java.util.function.ToDoubleFunction<String> source) {
+        if (source != null) {
+            tuning = source;
+        }
+    }
+
+    private static double tuned(String key, double fallback) {
+        double value = tuning.applyAsDouble(key);
+        return Double.isNaN(value) ? fallback : value;
+    }
+
 
     private ChaosTargeting() {
     }
@@ -66,10 +80,10 @@ final class ChaosTargeting {
         } catch (NumberFormatException exception) {
             throw new IllegalArgumentException("Radius must be a number of blocks.");
         }
-        if (value < MINIMUM_RADIUS || value > MAXIMUM_RADIUS) {
+        if (value < tuned("admin-events.minimum-radius", MINIMUM_RADIUS) || value > tuned("admin-events.maximum-radius", MAXIMUM_RADIUS)) {
             throw new IllegalArgumentException(
-                    "Radius must be between " + (int) MINIMUM_RADIUS
-                            + " and " + (int) MAXIMUM_RADIUS + " blocks."
+                    "Radius must be between " + (int) tuned("admin-events.minimum-radius", MINIMUM_RADIUS)
+                            + " and " + (int) tuned("admin-events.maximum-radius", MAXIMUM_RADIUS) + " blocks."
             );
         }
         return value;
@@ -77,6 +91,6 @@ final class ChaosTargeting {
 
     /** Keeps a configured default inside the rail even if the config is wrong. */
     static double clamp(double value) {
-        return Math.min(MAXIMUM_RADIUS, Math.max(MINIMUM_RADIUS, value));
+        return Math.min(tuned("admin-events.maximum-radius", MAXIMUM_RADIUS), Math.max(tuned("admin-events.minimum-radius", MINIMUM_RADIUS), value));
     }
 }

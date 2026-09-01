@@ -110,6 +110,7 @@ final class GameVariableStore {
         defineTail();
         defineLastValues();
         defineTeleportAndBounty();
+        defineFinalValues();
         defineOnlineRewards();
         defineEventRewards(config);
         defineCrateRewards();
@@ -571,6 +572,30 @@ final class GameVariableStore {
         integer("bounty.minimum", "Smallest bounty", "Economy",
                 "Least a player may put on someone's head.",
                 100, 1, 100_000_000, "money", false);
+    }
+
+    /** The genuine last of it. */
+    private void defineFinalValues() {
+        integer("give.maximum-keys", "Most keys per give", "Players",
+                "Largest number of keys one give may hand over at a time.",
+                64, 1, 10_000, "keys", false);
+        integer("amethyst-items.active-hours", "Amethyst item lifetime", "Amethyst Shop",
+                "Hours an activated Amethyst item stays usable.", 24, 1, 8_760, "hours", false);
+        integer("amethyst-items.efficiency-level", "Amethyst tool Efficiency", "Amethyst Shop",
+                "Efficiency level Amethyst tools carry.", 5, 1, 10, "level", false);
+        integer("autopay.minimum-interval-seconds", "Fastest auto-pay", "Economy",
+                "Shortest interval a player may set for automatic payments.",
+                5, 1, 86_400, "seconds", false);
+        integer("autopay.maximum-interval-seconds", "Slowest auto-pay", "Economy",
+                "Longest interval a player may set for automatic payments.",
+                3_600, 5, 604_800, "seconds", false);
+        integer("admin-events.minimum-radius", "Smallest event radius", "Admin Event Rewards",
+                "Least an admin event's radius may be set to.", 4, 1, 512, "blocks", false);
+        integer("admin-events.maximum-radius", "Largest event radius", "Admin Event Rewards",
+                "Most an admin event's radius may be set to.", 256, 4, 2_048, "blocks", false);
+        integer("activity-feed.retained", "Activity log length", "Presentation",
+                "In-game actions kept for the panel's activity page.",
+                300, 20, 5_000, "entries", false);
     }
 
     private void definePotion(String id, String label, int minutes, int level) {

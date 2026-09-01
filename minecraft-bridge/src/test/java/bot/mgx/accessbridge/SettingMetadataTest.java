@@ -192,8 +192,8 @@ final class SettingMetadataTest {
             }
         });
         assertTrue(broken.isEmpty(), "one-sided range pairs: " + broken);
-        assertEquals(72, partners.size(),
-                "expected 36 mutual minimum/maximum pairs across the catalogue");
+        assertEquals(76, partners.size(),
+                "expected 38 mutual minimum/maximum pairs across the catalogue");
     }
 
     /**
@@ -254,13 +254,14 @@ final class SettingMetadataTest {
                         Map.entry("online_rewards", 67),
                         Map.entry("huge_amethyst", 30),
                         Map.entry("shop", 20),
-                        Map.entry("admin_events", 15),
+                        Map.entry("admin_events", 17),
                         Map.entry("world", 14),
                         Map.entry("potions", 13),
                         Map.entry("cosmetics", 13),
-                        Map.entry("players", 11),
+                        Map.entry("players", 12),
                         Map.entry("event_multipliers", 9),
                         Map.entry("crate_balance", 7),
+                        Map.entry("amethyst_shop", 5),
                         Map.entry("clans", 4),
                         Map.entry("boss_bars", 4),
                         Map.entry("enchantments", 4),
@@ -268,16 +269,15 @@ final class SettingMetadataTest {
                         Map.entry("auction_house", 3),
                         Map.entry("perks", 3),
                         Map.entry("clan_battles", 3),
-                        Map.entry("amethyst_shop", 3),
+                        Map.entry("economy", 3),
                         Map.entry("event_schedule", 2),
-                        Map.entry("launch", 2),
-                        Map.entry("presentation", 1),
-                        Map.entry("economy", 1)
+                        Map.entry("presentation", 2),
+                        Map.entry("launch", 2)
                 ),
                 perGroup,
                 "the catalogue moved between panel pages"
         );
-        assertEquals(508, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
+        assertEquals(516, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
                 "group counts no longer add up to the catalogue");
     }
 
