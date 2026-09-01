@@ -1416,6 +1416,9 @@ body.cx .theme-switch button[aria-checked="true"] { background: var(--brand-oran
 .con-live::before, .con-lag::before {
   content: ""; width: .4rem; height: .4rem; border-radius: 50%; background: currentColor;
 }
+/* No separator glyph: the footer is a flex row with its own gap, and a CSS-escaped
+   middot here rendered as replacement text in Chromium. */
+.con-limits { color: var(--grey); font-variant-numeric: tabular-nums; }
 .con-key {
   margin-left: auto; font-family: var(--mono); font-size: .66rem; color: var(--grey);
   background: var(--surface-raised); border-radius: .25rem; padding: .05rem .3rem;
@@ -1825,7 +1828,16 @@ body.cx #control-lock p { font-size: .82rem; margin-bottom: 1.25rem; }
   #console-root, #owner-content { height: auto; }
   .con-shell { grid-template-columns: 1fr; height: auto; }
   .con-rail { border-right: 0; border-bottom: 1px solid var(--line); }
-  .cx-nav { max-height: 14rem; }
+  /* A capped-height column clipped a heading mid-word behind a scrollbar nobody could
+     see. The sections wrap as chips instead: nothing is hidden and nothing scrolls. */
+  .cx-nav { display: flex; flex-wrap: wrap; gap: .3rem; overflow: visible; padding: .6rem; }
+  .cx-group { width: 100%; padding: .5rem 0 .1rem; }
+  .cx-group:first-child { padding-top: 0; }
+  .con-rail button {
+    width: auto; border: 1px solid var(--line); border-radius: 2rem; padding: .25rem .65rem;
+  }
+  .con-rail button[aria-current="page"] { border-color: var(--brand-orange); }
+  .con-rail button[aria-current="page"]::before { display: none; }
   .con-main { overflow: visible; }
   .con-head { flex-wrap: wrap; height: auto; padding: .6rem 1rem; gap: .5rem; }
   #con-search { width: 100%; }

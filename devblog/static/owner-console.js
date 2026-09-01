@@ -790,6 +790,40 @@
       '<span class="con-odds-read">' + escapeHtml(unitLabel(row)) + "</span></div>";
   }
 
+  /**
+   * The default and the allowed range, spelled out.
+   *
+   * Both were already enforced — min/max landed on the input and the server refused
+   * anything outside them — but neither was ever shown, so the only way to learn a
+   * bound was to hit it. Knowing that view distance stops at 32 before typing 64 is
+   * the difference between a control and a guess.
+   */
+  function limitsOf(row) {
+    var parts = [];
+    if (row["default"] !== undefined && row["default"] !== "") {
+      parts.push("default " + escapeHtml(row["default"]));
+    }
+    var low = row.minimum;
+    var high = row.maximum;
+    if (row.control === "toggle" || row.control === "choice") {
+      low = undefined;
+      high = undefined;
+    }
+    if (row.control === "text" && high !== undefined) {
+      parts.push("up to " + escapeHtml(high) + " characters");
+    } else if (low !== undefined && high !== undefined) {
+      parts.push(Number(low).toLocaleString() + "\u2013" + Number(high).toLocaleString() +
+        (unitLabel(row) ? " " + escapeHtml(unitLabel(row)) : ""));
+    } else if (high !== undefined) {
+      parts.push("up to " + Number(high).toLocaleString());
+    } else if (low !== undefined) {
+      parts.push("at least " + Number(low).toLocaleString());
+    }
+    return parts.length
+      ? '<span class="con-limits">' + parts.join(" &middot; ") + "</span>"
+      : "";
+  }
+
   function settingCard(row) {
     var dirty = isDirty(row.key);
     var finding = state.findings[row.key];
@@ -809,6 +843,7 @@
       (row.reload === "next_event"
         ? '<span class="con-lag" title="Anything already standing in the world keeps the value it spawned with">applies to the next one</span>'
         : '<span class="con-live">live</span>') +
+      limitsOf(row) +
       (overridden
         ? '<button type="button" class="con-link" data-default="' + escapeHtml(row.key) +
           '">Reset to ' + escapeHtml(row["default"]) + "</button>"
