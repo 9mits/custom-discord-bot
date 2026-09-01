@@ -15,6 +15,20 @@ final class WorldLimits {
     static final double OVERWORLD_RADIUS = 100_000;
     static final double NETHER_SCALE = 8;
     static final int WARNING_DISTANCE = 100;
+    /** Live tuning; the constants above stay the defaults and stand alone in tests. */
+    private static volatile java.util.function.ToDoubleFunction<String> tuning = key -> Double.NaN;
+
+    static void tuningSource(java.util.function.ToDoubleFunction<String> source) {
+        if (source != null) {
+            tuning = source;
+        }
+    }
+
+    private static double tuned(String key, double fallback) {
+        double value = tuning.applyAsDouble(key);
+        return Double.isNaN(value) ? fallback : value;
+    }
+
     static final int SPAWN_TICKET_RADIUS = 1;
 
     private WorldLimits() {
@@ -23,7 +37,7 @@ final class WorldLimits {
     static double diameter(boolean nether, double overworldRadius) {
         double radius = overworldRadius <= 0 ? OVERWORLD_RADIUS : overworldRadius;
         if (nether) {
-            return (radius / NETHER_SCALE) * 2;
+            return (radius / tuned("world.nether-scale", NETHER_SCALE)) * 2;
         }
         return radius * 2;
     }

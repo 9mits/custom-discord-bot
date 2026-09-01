@@ -240,7 +240,8 @@ record SettingMetadata(
         if (key.startsWith("cosmetics.")) {
             return Group.COSMETICS;
         }
-        if (key.startsWith("crates.balance.")) {
+        if (key.startsWith("crates.")) {
+            // Balance and luck both describe how generous a crate is, so they share a page.
             return Group.CRATE_BALANCE;
         }
         if (key.startsWith("shop.")) {

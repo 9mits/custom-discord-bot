@@ -90,6 +90,10 @@ final class ChaosService implements Listener {
     /** Ceiling on live entities one bat storm may hold at once. */
     private static final int MAX_SWARM = 120;
 
+    private static int maxSwarm() {
+        return (int) tuned("chaos.maximum-swarm", MAX_SWARM);
+    }
+
     /** Blocks a landing player or mob destroys just by touching them. */
     private static final Set<Material> TRAMPLEABLE = Set.of(
             Material.FARMLAND, Material.TURTLE_EGG, Material.SNIFFER_EGG
@@ -710,7 +714,7 @@ final class ChaosService implements Listener {
             for (Player player : targets(session)) {
                 // Hard ceiling. Without it a full-length storm is hundreds of
                 // entities per player and the server stops keeping up.
-                if (session.spawned.size() >= MAX_SWARM) {
+                if (session.spawned.size() >= maxSwarm()) {
                     return;
                 }
                 for (int index = 0; index < 2; index++) {
@@ -1266,6 +1270,24 @@ final class ChaosService implements Listener {
      * legally be. A vanilla zombie is 1.95 blocks, which puts him near 31.
      */
     private static final double ALFREDO_SCALE = 16d;
+
+    private static double alfredoScale() {
+        return tuned("chaos.alfredo.scale", ALFREDO_SCALE);
+    }
+    /** Live tuning; the constants above stay the defaults and stand alone in tests. */
+    private static volatile java.util.function.ToDoubleFunction<String> tuning = key -> Double.NaN;
+
+    static void tuningSource(java.util.function.ToDoubleFunction<String> source) {
+        if (source != null) {
+            tuning = source;
+        }
+    }
+
+    private static double tuned(String key, double fallback) {
+        double value = tuning.applyAsDouble(key);
+        return Double.isNaN(value) ? fallback : value;
+    }
+
     /** Roughly how long the test run should take before he falls. */
     private static final long ALFREDO_TEST_SECONDS = 55L;
 
@@ -1304,7 +1326,7 @@ final class ChaosService implements Listener {
         if (scale == null) {
             plugin.getLogger().warning("Alfredo has no SCALE attribute; he will be zombie-sized.");
         } else {
-            scale.setBaseValue(ALFREDO_SCALE);
+            scale.setBaseValue(alfredoScale());
         }
         double health = applyBossHealth(boss, requestedHealth);
         session.spawned.add(boss.getUniqueId());

@@ -237,14 +237,21 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             CosmeticEffectService.tuningSource(tuning);
             AirdropGuardService.tuningSource(tuning);
             CrateOddsBalance.tuningSource(tuning);
+            CrateCatalog.tuningSource(tuning);
+            WorldLimits.tuningSource(tuning);
+            ChaosService.tuningSource(tuning);
+            VerificationLobbyService.tuningSource(tuning);
+            AmethystBlockEventService.tuningSource(tuning);
+            AirdropService.tuningSource(tuning);
             CustomEnchants.capSource(
                     id -> gameVariables.integer("enchants." + id + ".maximum-level"));
             gameVariables.onChange(key -> {
-                if (key.startsWith("world.")) {
+                if (key.startsWith("world.") || key.startsWith("spawn.")) {
                     getServer().getScheduler().runTask(this, () -> {
                         for (World world : getServer().getWorlds()) {
                             applyWorldMemory(world);
                             applyWorldLimits(world);
+                            lockWorldSpawn(world);
                         }
                     });
                 }
@@ -1743,15 +1750,23 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         if (world.getEnvironment() != World.Environment.NORMAL) {
             return;
         }
+        // The lock stays; what it locks to is now configurable. Moving spawn from the
+        // panel and having something quietly drag it back to 0 69 0 would be worse than
+        // not being able to move it at all.
+        int wantedX = gameVariables.integer("spawn.x");
+        int wantedY = gameVariables.integer("spawn.y");
+        int wantedZ = gameVariables.integer("spawn.z");
+        int wantedRadius = gameVariables.integer("spawn.radius");
         Location current = world.getSpawnLocation();
-        if (!WorldSpawn.isExact(current.getBlockX(), current.getBlockY(), current.getBlockZ())) {
-            world.setSpawnLocation(WorldSpawn.X, WorldSpawn.Y, WorldSpawn.Z);
+        if (current.getBlockX() != wantedX || current.getBlockY() != wantedY
+                || current.getBlockZ() != wantedZ) {
+            world.setSpawnLocation(wantedX, wantedY, wantedZ);
             getLogger().info("World spawn locked to "
-                    + WorldSpawn.X + " " + WorldSpawn.Y + " " + WorldSpawn.Z + ".");
+                    + wantedX + " " + wantedY + " " + wantedZ + ".");
         }
         Integer radius = world.getGameRuleValue(GameRules.RESPAWN_RADIUS);
-        if (radius == null || radius != WorldSpawn.RADIUS) {
-            world.setGameRule(GameRules.RESPAWN_RADIUS, WorldSpawn.RADIUS);
+        if (radius == null || radius != wantedRadius) {
+            world.setGameRule(GameRules.RESPAWN_RADIUS, wantedRadius);
         }
     }
 

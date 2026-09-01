@@ -21,6 +21,20 @@ final class CrateCatalog {
     static final int NO_LUCK_PERCENT = 100;
     /** Crate Luck V, and the ceiling once a live event has multiplied a potion. */
     static final int MAX_LUCK_PERCENT = 300;
+    /** Live tuning; the constants above stay the defaults and stand alone in tests. */
+    private static volatile java.util.function.ToDoubleFunction<String> tuning = key -> Double.NaN;
+
+    static void tuningSource(java.util.function.ToDoubleFunction<String> source) {
+        if (source != null) {
+            tuning = source;
+        }
+    }
+
+    private static double tuned(String key, double fallback) {
+        double value = tuning.applyAsDouble(key);
+        return Double.isNaN(value) ? fallback : value;
+    }
+
     /** 0.01% of {@link #TOTAL_WEIGHT}; the server-wide chime is reserved for rarer wins. */
     static final int JACKPOT_WEIGHT = TOTAL_WEIGHT / 10_000;
     static final int HIDDEN_AMETHYST_ONE_IN = CosmeticCatalog.HIDDEN_AMETHYST_ONE_IN;
@@ -393,7 +407,8 @@ final class CrateCatalog {
 
     /** No potion at all, and the ceiling a potion plus a live event may reach. */
     static int clampLuckPercent(int luckPercent) {
-        return Math.max(NO_LUCK_PERCENT, Math.min(MAX_LUCK_PERCENT, luckPercent));
+        return (int) Math.max(tuned("crates.luck.minimum-percent", NO_LUCK_PERCENT),
+                Math.min(tuned("crates.luck.maximum-percent", MAX_LUCK_PERCENT), luckPercent));
     }
 
     /**
@@ -402,7 +417,8 @@ final class CrateCatalog {
      * potion on its own never is.
      */
     static int clampRollPercent(int percent) {
-        return Math.max(CrateOddsBalance.FLOOR_PERCENT, Math.min(MAX_LUCK_PERCENT, percent));
+        return (int) Math.max(CrateOddsBalance.FLOOR_PERCENT,
+                Math.min(tuned("crates.luck.maximum-percent", MAX_LUCK_PERCENT), percent));
     }
 
     static String percentage(int weight) {

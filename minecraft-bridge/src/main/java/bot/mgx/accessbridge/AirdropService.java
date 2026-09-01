@@ -72,6 +72,24 @@ final class AirdropService implements Listener {
     private static final long COUNTDOWN_PERIOD_TICKS = 20L;
     private static final int DEFAULT_ATTEMPTS = 24;
     private static final int BORDER_MARGIN = 24;
+    /** Live tuning; the constants above stay the defaults and stand alone in tests. */
+    private static volatile java.util.function.ToDoubleFunction<String> tuning = key -> Double.NaN;
+
+    static void tuningSource(java.util.function.ToDoubleFunction<String> source) {
+        if (source != null) {
+            tuning = source;
+        }
+    }
+
+    private static double tuned(String key, double fallback) {
+        double value = tuning.applyAsDouble(key);
+        return Double.isNaN(value) ? fallback : value;
+    }
+
+    private static int borderMargin() {
+        return (int) tuned("airdrop.border-margin", BORDER_MARGIN);
+    }
+
     private static final String LABEL_TAG = "mgx_airdrop_label";
     private static final double LABEL_BOTTOM = 1.55d;
     private static final double LABEL_GAP = 0.28d;
@@ -497,7 +515,7 @@ final class AirdropService implements Listener {
         int originX = 0;
         int originZ = 0;
         Location borderCentre = border.getCenter();
-        int borderRadius = Math.max(1, (int) Math.floor(border.getSize() / 2d) - BORDER_MARGIN);
+        int borderRadius = Math.max(1, (int) Math.floor(border.getSize() / 2d) - borderMargin());
         int spawnOffset = Math.max(
                 Math.abs(originX - borderCentre.getBlockX()),
                 Math.abs(originZ - borderCentre.getBlockZ())

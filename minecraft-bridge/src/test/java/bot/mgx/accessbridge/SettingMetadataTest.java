@@ -192,8 +192,8 @@ final class SettingMetadataTest {
             }
         });
         assertTrue(broken.isEmpty(), "one-sided range pairs: " + broken);
-        assertEquals(66, partners.size(),
-                "expected 33 mutual minimum/maximum pairs across the catalogue");
+        assertEquals(68, partners.size(),
+                "expected 34 mutual minimum/maximum pairs across the catalogue");
     }
 
     /**
@@ -250,17 +250,17 @@ final class SettingMetadataTest {
         assertEquals(
                 Map.ofEntries(
                         Map.entry("crates", 157),
-                        Map.entry("airdrops", 118),
+                        Map.entry("airdrops", 119),
                         Map.entry("online_rewards", 67),
-                        Map.entry("huge_amethyst", 29),
+                        Map.entry("huge_amethyst", 30),
                         Map.entry("shop", 20),
-                        Map.entry("admin_events", 13),
+                        Map.entry("admin_events", 15),
+                        Map.entry("world", 14),
                         Map.entry("potions", 13),
+                        Map.entry("players", 9),
                         Map.entry("cosmetics", 9),
-                        Map.entry("players", 8),
-                        Map.entry("world", 8),
                         Map.entry("event_multipliers", 7),
-                        Map.entry("crate_balance", 5),
+                        Map.entry("crate_balance", 7),
                         Map.entry("clans", 4),
                         Map.entry("boss_bars", 4),
                         Map.entry("enchantments", 4),
@@ -272,7 +272,7 @@ final class SettingMetadataTest {
                 perGroup,
                 "the catalogue moved between panel pages"
         );
-        assertEquals(475, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
+        assertEquals(488, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
                 "group counts no longer add up to the catalogue");
     }
 

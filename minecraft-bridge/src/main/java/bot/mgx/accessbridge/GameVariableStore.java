@@ -106,6 +106,7 @@ final class GameVariableStore {
         definePresentationAndItems(config);
         defineShopPricing();
         defineEffectsAndGuards();
+        defineRemainingWorldValues();
         defineOnlineRewards();
         defineEventRewards(config);
         defineCrateRewards();
@@ -442,6 +443,55 @@ final class GameVariableStore {
                         + " corrects it, in standard deviations.", 2.0, 0.5, 6.0, "sigma");
         integer("crates.balance.window-openings", "Balancer window", "Crate Balance",
                 "Openings the balancer looks back over.", 4_000, 100, 1_000_000, "openings", false);
+    }
+
+    /**
+     * The long tail: spawn, the verification lobby, world geometry, and the last of the
+     * event tuning. Individually small, and each one a restart away from being changed.
+     */
+    private void defineRemainingWorldValues() {
+        integer("spawn.x", "Spawn X", "World",
+                "Where the Overworld spawn point sits. Anything that moves it is put back here.",
+                WorldSpawn.X, -100_000, 100_000, "X", false);
+        integer("spawn.y", "Spawn Y", "World", "Height of the Overworld spawn point.",
+                WorldSpawn.Y, -64, 320, "Y", false);
+        integer("spawn.z", "Spawn Z", "World", "Where the Overworld spawn point sits.",
+                WorldSpawn.Z, -100_000, 100_000, "Z", false);
+        integer("spawn.radius", "Spawn scatter", "World",
+                "How far from the spawn point a join may be placed. Zero pins everyone to"
+                        + " the exact block.",
+                WorldSpawn.RADIUS, 0, 256, "blocks", false);
+
+        integer("world.nether-scale", "Nether scale", "World",
+                "How much smaller the Nether border is than the Overworld's.",
+                (long) WorldLimits.NETHER_SCALE, 1, 64, "x", false);
+        integer("world.border-warning", "Border warning distance", "World",
+                "How far from the border the red fog and warning sounds begin.",
+                WorldLimits.WARNING_DISTANCE, 0, 1_000, "blocks", false);
+
+        integer("verification.request-cooldown-seconds", "Verification retry wait", "Players",
+                "Seconds a player in the lobby must wait between /verify attempts.",
+                10, 1, 3_600, "seconds", false);
+
+        integer("crates.luck.minimum-percent", "Lowest crate luck", "Crate Balance",
+                "Floor on a player's rare-reward luck, before the balancer.",
+                CrateCatalog.NO_LUCK_PERCENT, 1, 1_000, "percent", false);
+        integer("crates.luck.maximum-percent", "Highest crate luck", "Crate Balance",
+                "Ceiling on a player's rare-reward luck, including potions.",
+                CrateCatalog.MAX_LUCK_PERCENT, 1, 10_000, "percent", false);
+
+        integer("chaos.maximum-swarm", "Largest admin-event swarm", "Admin Event Rewards",
+                "Most entities one admin event may put in the world at once.",
+                120, 1, 2_000, "entities", false);
+        decimal("chaos.alfredo.scale", "Alfredo size", "Admin Event Rewards",
+                "How large Alfredo is, against an ordinary mob.", 16.0, 1.0, 64.0, "x");
+
+        integer("huge-amethyst.mine-reach", "Mining reach", "Huge Amethyst",
+                "How far a player may stand and still damage the block.",
+                7, 2, 32, "blocks", false);
+        integer("airdrop.border-margin", "Airdrop border margin", "Airdrops",
+                "How far inside the world border an Airdrop must land.",
+                24, 0, 1_000, "blocks", false);
     }
 
     private void definePotion(String id, String label, int minutes, int level) {
