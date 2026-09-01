@@ -68,6 +68,20 @@ tagline: Balance crates, airdrops, rewards and events from one place. Nothing go
       </div>
     </div>
 
+    <div class="con-modal" id="con-confirm" hidden>
+      <div class="con-modal-card is-narrow" role="dialog" aria-modal="true" aria-labelledby="con-confirm-title">
+        <header>
+          <h3 id="con-confirm-title">Are you sure?</h3>
+          <button type="button" class="con-close" data-close aria-label="Close">&times;</button>
+        </header>
+        <div id="con-confirm-body"></div>
+        <footer>
+          <button type="button" class="con-secondary" data-close>Cancel</button>
+          <button type="button" class="con-danger" id="con-confirm-go">Confirm</button>
+        </footer>
+      </div>
+    </div>
+
     <div class="con-modal" id="con-preview" hidden>
       <div class="con-modal-card" role="dialog" aria-modal="true" aria-labelledby="con-preview-title">
         <header>

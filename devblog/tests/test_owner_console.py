@@ -382,6 +382,29 @@ class ConsoleNavigation(unittest.TestCase):
         duplicates = sorted({label for label in labels if labels.count(label) > 1})
         self.assertEqual([], duplicates, "sidebar entries sharing a label: %s" % duplicates)
 
+    def test_nothing_asks_through_the_browser(self):
+        """Confirmation happens in the panel, not in the browser's own dialog.
+
+        window.confirm renders stamped with the page URL, cannot name the action on its
+        button, and cannot show which choice is the destructive one — in a styled console
+        it reads as something the page did not mean to do. It is also modal to the whole
+        tab, which headless checks cannot get past.
+        """
+        # Call sites only: the helper's own comment names what it replaced, and a whole
+        # 1,900-line file in an assertion message helps nobody.
+        calls = [
+            "line %d: %s" % (number, line.strip())
+            for number, line in enumerate(CONSOLE_JS.splitlines(), start=1)
+            if re.search(r"window\.(confirm|alert|prompt)\s*\(", line)
+        ]
+        self.assertEqual(
+            [], calls,
+            "these bypass the console's own confirmation dialog: %s" % calls,
+        )
+        self.assertIn("function confirmThat", CONSOLE_JS)
+        self.assertIn('id="con-confirm"', CONTROL_MD)
+        self.assertIn('id="con-confirm-go"', CONTROL_MD)
+
     def test_the_open_page_lives_in_the_address_bar(self):
         # Without this a refresh, a bookmark or a shared link all land on Overview.
         for fragment in ("function pageFromHash", "hashchange", "window.location.hash"):

@@ -1026,7 +1026,8 @@
           '<label class="con-field"><span>How many</span>' +
           '<input class="con-number" id="con-add-amount" type="number" min="1" max="64" value="1">' +
           "</label>" +
-          '<label class="con-field"><span>Group</span><select id="con-add-category">' +
+          '<label class="con-field"><span>Group</span>' +
+          '<select class="con-choice" id="con-add-category">' +
           CATEGORIES.map(function (category) {
             return '<option value="' + escapeHtml(category.id) + '">' +
               escapeHtml(category.label) + "</option>";
@@ -1108,13 +1109,14 @@
     }
   }
 
-  function removeRow(table, key) {
+  async function removeRow(table, key) {
     var crate = CRATE_OF_TABLE[table];
     var row = state.byKey[key];
     var label = row ? rowName(row) : key;
-    if (!window.confirm(
-      "Remove " + label + "? Built-in entries can be put back afterwards; ones you added"
-      + " cannot."
+    if (!await confirmThat(
+      "Remove " + label + "?",
+      "Built-in entries can be put back afterwards; ones you added cannot.",
+      "Remove it"
     )) return;
     if (crate) {
       var id = (/\.reward\.([a-z0-9_]+)\.weight$/.exec(key) || [])[1];
@@ -1426,7 +1428,8 @@
   async function runAction(id) {
     var action = state.actions.filter(function (entry) { return entry.id === id; })[0];
     if (!action) return;
-    if (action.confirm && !window.confirm(action.confirm + "\n\nGo ahead?")) return;
+    if (action.confirm &&
+        !await confirmThat(action.label, action.confirm, action.label)) return;
     var args = {};
     var missing = null;
     (action.params || []).forEach(function (param) {
@@ -1715,6 +1718,40 @@
     byId("con-page-title").textContent = page ? page.label : "";
   }
 
+  /**
+   * Ask before something that cannot simply be undone.
+   *
+   * Resolves true if the owner goes ahead. Replaces window.confirm, which renders as
+   * the browser's own dialog — stamped with the page URL, unable to name the action on
+   * its button, and unable to show which choice is the destructive one.
+   */
+  function confirmThat(title, body, label) {
+    return new Promise(function (resolve) {
+      var modal = byId("con-confirm");
+      var go = byId("con-confirm-go");
+      byId("con-confirm-title").textContent = title;
+      byId("con-confirm-body").innerHTML = "<p>" + escapeHtml(body) + "</p>";
+      go.textContent = label || "Confirm";
+      modal.hidden = false;
+
+      function finish(answer) {
+        modal.hidden = true;
+        go.removeEventListener("click", yes);
+        modal.removeEventListener("click", no);
+        resolve(answer);
+      }
+      function yes() { finish(true); }
+      function no(event) {
+        // The backdrop and every [data-close] dismiss it; nothing else does, so a
+        // stray click inside the card cannot cancel the thing being confirmed.
+        if (event.target === modal || event.target.closest("[data-close]")) finish(false);
+      }
+      go.addEventListener("click", yes);
+      modal.addEventListener("click", no);
+      go.focus();
+    });
+  }
+
   function clearSearch() {
     state.search = "";
     var box = byId("con-search");
@@ -1876,6 +1913,13 @@
         return;
       }
       if (event.key !== "Escape") return;
+      // The confirmation owns its own dismissal: closing it here would leave the promise
+      // it handed out unresolved, and whatever was waiting on it would never run again.
+      var confirming = byId("con-confirm");
+      if (confirming && !confirming.hidden) {
+        confirming.querySelector("[data-close]").click();
+        return;
+      }
       if (!byId("con-preview").hidden || !byId("con-add").hidden) {
         byId("con-preview").hidden = true;
         byId("con-add").hidden = true;
@@ -1927,8 +1971,11 @@
   }
 
   async function rollBack(publishId) {
-    if (!window.confirm(
-      "Put every value in this change back the way it was? This is recorded as a new change."
+    if (!await confirmThat(
+      "Roll this change back?",
+      "Every value in it goes back the way it was. The rollback is itself recorded as a "
+      + "new change, so it can be undone too.",
+      "Roll it back"
     )) return;
     try {
       var result = await post("/api/settings/rollback", {publish_id: publishId});

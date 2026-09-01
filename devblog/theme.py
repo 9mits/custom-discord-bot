@@ -1762,6 +1762,7 @@ body.cx .theme-switch button[aria-checked="true"] { background: var(--brand-oran
   padding: 1.5rem; background: rgba(4, 6, 10, .66);
   backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
 }
+.con-modal-card.is-narrow { width: min(26rem, 100%); }
 .con-modal-card {
   width: min(38rem, 100%); max-height: 85vh; display: flex; flex-direction: column;
   border: 1px solid var(--line-strong); border-radius: .6rem; background: var(--canvas);
@@ -1795,12 +1796,34 @@ body.cx .theme-switch button[aria-checked="true"] { background: var(--brand-oran
   background: var(--surface-raised); border-radius: .3rem; padding: .1rem .4rem; white-space: nowrap;
 }
 .con-materials { max-height: 14rem; overflow-y: auto; }
-.con-freq { display: flex; flex-direction: column; gap: .35rem; }
-.con-freq-option { display: flex; align-items: center; gap: .5rem; font-size: .8rem; cursor: pointer; }
+#con-add-body { display: flex; flex-direction: column; gap: .85rem; }
+#con-add-body .con-field-row { gap: 1rem; }
+#con-add-body .con-search-field, #con-add-body .con-choice { width: 100%; }
+#con-add-body .con-field-row .con-field { flex: 0 1 auto; }
+#con-add-body .con-field-row .con-number { width: 5rem; }
+#con-add-body .con-field-row .con-choice { width: 11rem; }
+#con-add-body .con-field > span {
+  font-size: .72rem; font-weight: 600; color: var(--text-muted);
+}
+#con-add-body .con-field > em { font-style: normal; font-size: .7rem; color: var(--grey); }
+#con-add-body .con-freq { margin-top: .25rem; }
+#con-add-body .con-help { font-size: .74rem; margin-top: .35rem; }
+.con-freq { display: flex; flex-direction: column; gap: .1rem; }
+.con-freq-option {
+  display: flex; align-items: center; gap: .55rem; font-size: .8rem; cursor: pointer;
+  padding: .3rem .4rem; border-radius: .35rem;
+}
+.con-freq-option:hover { background: var(--surface-raised); }
+/* The label and its blurb are adjacent inline elements: without a gap the bold ran
+   straight into the italic and read as one smeared word. */
+.con-freq-option > span { display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap; }
+.con-freq-option strong { color: var(--ink); font-weight: 600; }
+.con-freq-option em { font-style: normal; color: var(--grey); font-size: .76rem; }
+.con-freq-option.custom em { display: inline-flex; align-items: center; gap: .4rem; }
 .con-freq-option.custom input[type="number"] {
   width: 5rem; height: 1.7rem; padding: 0 .35rem; border-radius: .35rem;
   border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink);
-  font-family: var(--mono); font-size: .78rem;
+  font-family: var(--mono); font-size: .78rem; text-align: right;
 }
 
 /* ---------- the sign-in gate ---------- */
