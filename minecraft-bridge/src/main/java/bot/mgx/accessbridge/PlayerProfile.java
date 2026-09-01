@@ -37,8 +37,8 @@ record PlayerProfile(
      */
     double damageMultiplier() {
         return 1.0
-                + (elite ? PlayerPerkService.ELITE_DAMAGE_BONUS : 0.0)
-                + (booster ? PlayerPerkService.BOOSTER_DAMAGE_BONUS : 0.0);
+                + (elite ? PlayerPerkService.eliteDamageBonus() : 0.0)
+                + (booster ? PlayerPerkService.boosterDamageBonus() : 0.0);
     }
 
     boolean hasRank() {

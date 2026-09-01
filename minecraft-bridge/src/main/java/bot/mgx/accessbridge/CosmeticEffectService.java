@@ -90,6 +90,11 @@ final class CosmeticEffectService implements Listener {
         return blocks * blocks;
     }
 
+    private static double trailResetDistanceSquared() {
+        double blocks = tuned("cosmetics.trail.reset-distance", 12d);
+        return blocks * blocks;
+    }
+
     private static int trailHistory() {
         return (int) tuned("cosmetics.trail.history", 14d);
     }
@@ -130,7 +135,6 @@ final class CosmeticEffectService implements Listener {
     private static final long AURA_SOUND_FRAMES = 32L;
     /** Quiet on purpose; the listener's own cosmetic volume scales it further. */
     private static final float AURA_SOUND_VOLUME = 0.45f;
-    private static final double TRAIL_RESET_DISTANCE_SQUARED = 12d * 12d;
     private static final String MUSIC_AURA_ID = CosmeticCatalog.HIDDEN_AMETHYST_COSMETIC_ID;
     private static final String MUSIC_AURA_SOUND = "mgx:iridescent_imperium";
     private static final String RARITY_NAMEPLATE_TAG = "mgx_cosmetic_rarity_nameplate";
@@ -309,7 +313,7 @@ final class CosmeticEffectService implements Listener {
             );
             if (previous == null
                     || previous.getWorld() != now.getWorld()
-                    || previous.distanceSquared(now) > TRAIL_RESET_DISTANCE_SQUARED) {
+                    || previous.distanceSquared(now) > trailResetDistanceSquared()) {
                 history.clear();
             }
             history.addFirst(now.clone());
@@ -571,7 +575,7 @@ final class CosmeticEffectService implements Listener {
                 player.getPlayerTimeOffset(), player.isPlayerTimeRelative(),
                 player.getPlayerWeather()
         ));
-        player.setPlayerTime(intense ? SECRET_REVEAL_TIME : EXOTIC_REVEAL_TIME, false);
+        player.setPlayerTime(intense ? (long) tuned("cosmetics.reveal.secret-ms", SECRET_REVEAL_TIME) : (long) tuned("cosmetics.reveal.exotic-ms", EXOTIC_REVEAL_TIME), false);
         if (!intense) {
             return;
         }
@@ -3779,7 +3783,7 @@ final class CosmeticEffectService implements Listener {
      * is meant to be noticed once, not listened to.
      */
     private void playAuraAmbience(Player owner, CosmeticCatalog.Definition aura) {
-        if (frame % AURA_SOUND_FRAMES != 0L || aura.id().equals(MUSIC_AURA_ID)) {
+        if (frame % (long) tuned("cosmetics.aura.sound-every", AURA_SOUND_FRAMES) != 0L || aura.id().equals(MUSIC_AURA_ID)) {
             return;
         }
         String sound = auraAmbience(aura);

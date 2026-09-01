@@ -124,7 +124,7 @@ final class GuideService implements CommandExecutor, TabCompleter {
         player.sendMessage(milestone(20, "+3 total bonus hearts"));
         player.sendMessage(milestone(30, "+4 total bonus hearts"));
         player.sendMessage(milestone(40, "+5 total bonus hearts"));
-        player.sendMessage(milestone(50, "+" + Math.round(PlayerPerkService.ELITE_DAMAGE_BONUS * 100)
+        player.sendMessage(milestone(50, "+" + Math.round(PlayerPerkService.eliteDamageBonus() * 100)
                 + "% direct combat damage; no additional heart"));
         player.sendMessage(Component.empty());
         player.sendMessage(body("Your active level, hearts, and level-50 power appear on the scoreboard."));

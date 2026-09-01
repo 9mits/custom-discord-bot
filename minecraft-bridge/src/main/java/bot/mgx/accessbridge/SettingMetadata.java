@@ -81,6 +81,8 @@ record SettingMetadata(
         ENCHANTMENTS("Enchantments"),
         PRESENTATION("Presentation"),
         SHOP("Shop"),
+        PERKS("Perks"),
+        CLAN_BATTLES("Clan Battles"),
         COSMETICS("Cosmetics"),
         CRATE_BALANCE("Crate Balance"),
         /**
@@ -188,7 +190,8 @@ record SettingMetadata(
             case "seconds" -> Control.DURATION;
             case "chunks", "X", "Z" -> Control.COUNT;
             case "level" -> Control.LEVEL;
-            case "per frame", "volume", "sigma" -> Control.RATE;
+            case "per frame", "volume", "sigma", "fraction" -> Control.RATE;
+            case "milliseconds", "frames" -> Control.DURATION;
             default -> Control.QUANTITY;
         };
     }
@@ -236,6 +239,12 @@ record SettingMetadata(
         }
         if (key.startsWith("scoreboard.")) {
             return Group.PRESENTATION;
+        }
+        if (key.startsWith("perks.")) {
+            return Group.PERKS;
+        }
+        if (key.startsWith("clan-battle.")) {
+            return Group.CLAN_BATTLES;
         }
         if (key.startsWith("cosmetics.")) {
             return Group.COSMETICS;

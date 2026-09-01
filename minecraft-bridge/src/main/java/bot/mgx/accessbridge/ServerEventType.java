@@ -34,6 +34,20 @@ enum ServerEventType {
     /** A minute is the shortest worth announcing; a fortnight is the longest worth forgetting. */
     static final long MINIMUM_SECONDS = 60L;
     static final long MAXIMUM_SECONDS = 1_209_600L;
+    /** Live tuning; the constants above stay the defaults and stand alone in tests. */
+    private static volatile java.util.function.ToDoubleFunction<String> tuning = key -> Double.NaN;
+
+    static void tuningSource(java.util.function.ToDoubleFunction<String> source) {
+        if (source != null) {
+            tuning = source;
+        }
+    }
+
+    private static double tuned(String key, double fallback) {
+        double value = tuning.applyAsDouble(key);
+        return Double.isNaN(value) ? fallback : value;
+    }
+
 
     private final String id;
     private final int multiplier;
@@ -135,10 +149,12 @@ enum ServerEventType {
         } catch (NumberFormatException exception) {
             throw new IllegalArgumentException("Duration must be a whole number of seconds.");
         }
-        if (value < MINIMUM_SECONDS || value > MAXIMUM_SECONDS) {
+        long lowest = (long) tuned("events.minimum-seconds", MINIMUM_SECONDS);
+        long highest = (long) tuned("events.maximum-seconds", MAXIMUM_SECONDS);
+        if (value < lowest || value > highest) {
             throw new IllegalArgumentException(
-                    "Duration must be between " + MINIMUM_SECONDS + " and "
-                            + MAXIMUM_SECONDS + " seconds, or omitted to run until turned off."
+                    "Duration must be between " + lowest + " and "
+                            + highest + " seconds, or omitted to run until turned off."
             );
         }
         return value;

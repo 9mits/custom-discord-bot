@@ -243,6 +243,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             VerificationLobbyService.tuningSource(tuning);
             AmethystBlockEventService.tuningSource(tuning);
             AirdropService.tuningSource(tuning);
+            PlayerPerkService.tuningSource(tuning);
+            ClanBattleStore.tuningSource(tuning);
+            ServerEventType.tuningSource(tuning);
             CustomEnchants.capSource(
                     id -> gameVariables.integer("enchants." + id + ".maximum-level"));
             gameVariables.onChange(key -> {

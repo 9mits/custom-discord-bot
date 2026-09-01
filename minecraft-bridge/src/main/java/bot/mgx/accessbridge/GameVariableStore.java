@@ -107,6 +107,7 @@ final class GameVariableStore {
         defineShopPricing();
         defineEffectsAndGuards();
         defineRemainingWorldValues();
+        defineTail();
         defineOnlineRewards();
         defineEventRewards(config);
         defineCrateRewards();
@@ -492,6 +493,49 @@ final class GameVariableStore {
         integer("airdrop.border-margin", "Airdrop border margin", "Airdrops",
                 "How far inside the world border an Airdrop must land.",
                 24, 0, 1_000, "blocks", false);
+    }
+
+    /**
+     * The last of it: what perks are worth, what a Clan Battle pays, how long an event
+     * may run, and how long a crate reveal takes.
+     */
+    private void defineTail() {
+        decimal("perks.elite.damage-bonus", "Elite damage bonus", "Perks",
+                "Extra damage an Elite player deals, as a fraction. 0.15 is 15% more.",
+                0.15, 0.0, 5.0, "fraction");
+        decimal("perks.booster.damage-bonus", "Booster damage bonus", "Perks",
+                "Extra damage a boosting player deals, as a fraction.",
+                0.10, 0.0, 5.0, "fraction");
+        decimal("perks.booster.exhaustion", "Booster hunger rate", "Perks",
+                "How fast a boosting player gets hungry. 0.9 is 10% slower than normal.",
+                0.90, 0.1, 2.0, "x");
+
+        integer("clan-battle.gold-shards", "First place Shards", "Clan Battles",
+                "Shards paid to each member of the winning clan.", 10, 0, 1_000, "shards", false);
+        integer("clan-battle.silver-shards", "Second place Shards", "Clan Battles",
+                "Shards paid to each member of the runner-up clan.", 5, 0, 1_000, "shards", false);
+        integer("clan-battle.bronze-shards", "Third place Shards", "Clan Battles",
+                "Shards paid to each member of the third-placed clan.", 3, 0, 1_000, "shards", false);
+
+        integer("events.minimum-seconds", "Shortest event", "Event Multipliers",
+                "Least time a multiplier event may be set to run.",
+                60, 10, 86_400, "seconds", false);
+        integer("events.maximum-seconds", "Longest event", "Event Multipliers",
+                "Most time a multiplier event may be set to run.",
+                1_209_600, 60, 31_536_000, "seconds", false);
+
+        integer("cosmetics.reveal.exotic-ms", "Exotic reveal length", "Cosmetics",
+                "How long the Exotic crate reveal runs.", 15_500, 1_000, 120_000,
+                "milliseconds", false);
+        integer("cosmetics.reveal.secret-ms", "Secret reveal length", "Cosmetics",
+                "How long the Secret crate reveal runs.", 18_000, 1_000, 120_000,
+                "milliseconds", false);
+        integer("cosmetics.trail.reset-distance", "Trail reset distance", "Cosmetics",
+                "How far a player must move at once before their trail restarts.",
+                12, 1, 128, "blocks", false);
+        integer("cosmetics.aura.sound-every", "Aura sound interval", "Cosmetics",
+                "Frames between an aura's sounds. Higher is quieter.",
+                32, 1, 400, "frames", false);
     }
 
     private void definePotion(String id, String label, int minutes, int level) {
