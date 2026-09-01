@@ -17,7 +17,7 @@
     {id: "overview", label: "Overview", group: ""},
 
     {id: "actions", label: "Do something", group: "Operate"},
-    {id: "activity", label: "Activity log", group: "Operate"},
+    {id: "statistics", label: "Statistics", group: "Operate"},
     {id: "auction", label: "Live listings", group: "Operate"},
     {id: "history", label: "Change history", group: "Operate"},
 
@@ -288,6 +288,8 @@
     auction: null,
     logFilter: "all",
     stalePlugin: false,
+    stats: null,
+    statDays: 30,
     actions: [],
     online: [],
     materials: [],
@@ -1483,6 +1485,114 @@
   }
 
   /** What has happened in game lately, by category. */
+  /**
+   * Server statistics, drawn with the console's own components.
+   *
+   * These lived on a separate owner page with a separate stylesheet and a separate
+   * sign-in, which meant checking whether a change had worked involved leaving the place
+   * you made it. Same data, same shell.
+   */
+  function renderStatistics() {
+    var stats = state.stats;
+    if (!stats) {
+      return '<p class="con-empty">Loading statistics&hellip;</p>';
+    }
+    if (stats.error) {
+      return '<p class="con-empty">Statistics are unavailable: ' +
+        escapeHtml(stats.error) + "</p>";
+    }
+    var activity = stats.activity || {};
+    var access = stats.access || {};
+    var afk = stats.afk || {};
+    var tiles = [
+      ["Online now", activity.current || 0, "players connected"],
+      ["Busiest it got", activity.peak || 0,
+        activity.peak_at ? "on " + new Date(activity.peak_at * 1000).toLocaleDateString() : "no peak recorded"],
+      ["Joins", activity.joins || 0,
+        (activity.java_joins || 0) + " Java, " + (activity.bedrock_joins || 0) + " Bedrock"],
+      ["Verified accounts", access.VERIFIED || access.verified || 0, "cleared to play"]
+    ].map(function (tile) {
+      return '<div class="con-stat"><span>' + escapeHtml(tile[0]) + "</span><strong>" +
+        Number(tile[1]).toLocaleString() + "</strong><em>" + escapeHtml(tile[2]) +
+        "</em></div>";
+    }).join("");
+
+    var windows = [1, 7, 30, 90, 365].map(function (days) {
+      return '<button type="button" data-stat-days="' + days + '" aria-pressed="' +
+        (state.statDays === days ? "true" : "false") + '">' +
+        (days === 1 ? "24 hours" : days === 365 ? "1 year" : days + " days") + "</button>";
+    }).join("");
+
+    return '<p class="con-intro">How the server has actually been used over the window ' +
+      "you pick. These are observations, not settings &mdash; nothing here is editable.</p>" +
+      '<div class="con-category-rail">' + windows + "</div>" +
+      '<div class="con-stats">' + tiles + "</div>" +
+      busiestHours(activity.busiest || []) +
+      afkSection(afk);
+  }
+
+  /** When people actually play, as a weekday-by-hour grid. */
+  function busiestHours(busiest) {
+    if (!busiest.length) {
+      return '<section class="con-section"><h3>When people play</h3>' +
+        '<p class="con-empty">Not enough samples yet.</p></section>';
+    }
+    var peak = busiest.reduce(function (top, row) {
+      return Math.max(top, Number(row.average) || 0);
+    }, 0) || 1;
+    var days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    var grid = {};
+    busiest.forEach(function (row) {
+      grid[row.weekday + ":" + row.hour] = Number(row.average) || 0;
+    });
+    var head = '<tr><th></th>';
+    for (var hour = 0; hour < 24; hour++) {
+      // Not con-num: that sets width 1% for loot-table figures, which here would give
+      // every hour a sliver and hand the rest to the weekday label.
+      head += "<th>" + hour + "</th>";
+    }
+    head += "</tr>";
+    var body = days.map(function (name, index) {
+      var cells = "";
+      for (var h = 0; h < 24; h++) {
+        var value = grid[index + ":" + h];
+        var share = value === undefined ? 0 : value / peak;
+        cells += '<td class="con-heat" style="--heat:' + share.toFixed(3) + '" title="' +
+          name + " " + h + ":00 — " + (value === undefined ? "no samples"
+            : value.toFixed(1) + " players") + '"></td>';
+      }
+      return "<tr><th>" + name + "</th>" + cells + "</tr>";
+    }).join("");
+    return '<section class="con-section"><h3>When people play' +
+      '<span class="con-section-count">peak ' + peak.toFixed(1) + "</span></h3>" +
+      '<div class="con-table-scroll"><table class="con-heatmap"><thead>' + head +
+      "</thead><tbody>" + body + "</tbody></table></div>" +
+      '<p class="con-table-note">Average players online, by weekday and hour, in server ' +
+      "time. Darker is busier.</p></section>";
+  }
+
+  /** "1h 30m" — the idle column has one line, not a sentence. */
+  function shortDuration(seconds) {
+    var minutes = Math.max(0, Math.round(seconds / 60));
+    var hours = Math.floor(minutes / 60);
+    return hours ? hours + "h " + (minutes % 60) + "m" : minutes + "m";
+  }
+
+  function afkSection(afk) {
+    var players = afk.players || [];
+    if (!players.length) {
+      return "";
+    }
+    return '<section class="con-section"><h3>Most idle' +
+      '<span class="con-section-count">' + players.length + "</span></h3>" +
+      '<div class="con-log">' + players.slice(0, 10).map(function (row) {
+        return '<div class="con-log-row"><span class="con-log-cat">afk</span>' +
+          "<div><strong>" + escapeHtml(row.username || "unknown") + "</strong></div>" +
+          "<time>" + escapeHtml(shortDuration(Number(row.afk_seconds) || 0)) +
+          "</time></div>";
+      }).join("") + "</div></section>";
+  }
+
   function renderActivity() {
     var feed = state.activity || {};
     var entries = feed.entries || [];
@@ -1559,6 +1669,7 @@
 
   function pageCount(page) {
     if (page.id === "actions") return state.actions.length;
+    if (page.id === "statistics") return 0;
     if (page.id === "activity") return ((state.activity || {}).entries || []).length;
     if (page.id === "auction") return ((state.auction || {}).listings || []).length;
     if (page.id === "overview" || page.id === "history") return 0;
@@ -1747,6 +1858,9 @@
         '<datalist id="con-online">' + state.online.map(function (name) {
           return '<option value="' + escapeHtml(name) + '">';
         }).join("") + "</datalist>";
+    } else if (state.page === "statistics") {
+      main.innerHTML = banner + renderStatistics();
+      if (state.stats === null) loadStatistics();
     } else if (state.page === "activity") {
       main.innerHTML = banner + renderActivity();
     } else if (state.page === "auction") {
@@ -1876,6 +1990,14 @@
       if (restore) { restoreRow(restore.dataset.table, restore.dataset.restore); return; }
       var run = event.target.closest("[data-run]");
       if (run) { runAction(run.dataset.run); return; }
+      var window_ = event.target.closest("[data-stat-days]");
+      if (window_) {
+        state.statDays = Number(window_.dataset.statDays);
+        state.stats = null;
+        render();
+        loadStatistics();
+        return;
+      }
       var logged = event.target.closest("[data-log]");
       if (logged) { state.logFilter = logged.dataset.log; render(); return; }
       var jump = event.target.closest("[data-page]");
@@ -2030,6 +2152,15 @@
   }
 
   /* ---------- boot ---------- */
+
+  async function loadStatistics() {
+    try {
+      state.stats = await api("/api/stats?days=" + state.statDays);
+    } catch (error) {
+      state.stats = {error: error.message};
+    }
+    if (state.page === "statistics") render();
+  }
 
   async function loadSettings() {
     var snapshot = await api("/api/settings");

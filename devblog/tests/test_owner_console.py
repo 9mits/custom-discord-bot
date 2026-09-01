@@ -155,7 +155,10 @@ class ConsolePageContractTests(unittest.TestCase):
         # loose scrape reports "very_common" as an undocumented page.
         page_block = CONSOLE_JS.split("var PAGES = [", 1)[1].split("\n  ];", 1)[0]
         pages = set(re.findall(r'\{id: "([a-z_]+)"', page_block))
-        pages -= {"overview", "history", "actions", "activity", "auction"}
+        # Pages that are not lists of settings: they show what the server did, not what
+        # it is configured to do, so an introduction explaining "what these values mean"
+        # would be describing nothing.
+        pages -= {"overview", "history", "actions", "activity", "auction", "statistics"}
         self.assertGreater(len(pages), 15, "the page scrape stopped matching")
         intro_block = CONSOLE_JS.split("var PAGE_INTROS = {", 1)[1].split("\n  };", 1)[0]
         described = set(re.findall(r'^\s*([a-z_]+):', intro_block, re.M))
@@ -196,6 +199,10 @@ class ConsoleSnapshotContractTests(unittest.TestCase):
         read = set(re.findall(r'\brow(?:\.([a-z_]+)\b|\["([a-z_]+)"\])', CONSOLE_JS))
         wanted = {dotted or quoted for dotted, quoted in read}
         wanted -= {"filter", "map", "forEach", "some", "reduce", "indexOf", "slice", "push"}
+        # Statistics rows come from the bot's own database over /api/stats, not from the
+        # plugin's snapshot, so no store writes them and this check does not apply.
+        wanted -= {"average", "weekday", "hour", "username", "afk_seconds",
+                   "minecraft_uuid", "head_url", "discord_user_id"}
         self.assertIn("control", wanted, "the field scrape stopped matching")
 
         written = (

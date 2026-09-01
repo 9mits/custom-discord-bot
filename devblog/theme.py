@@ -1643,6 +1643,9 @@ body.cx .theme-switch button[aria-checked="true"] { background: var(--brand-oran
    ends up half a screen from the item it belongs to. */
 .con-table-scroll .con-num { text-align: right; white-space: nowrap; width: 1%; }
 .con-table-scroll th:first-child, .con-table-scroll td:first-child { width: auto; min-width: 12rem; }
+/* The heatmap is 24 equal columns; the loot table's wide first column would squash them. */
+.con-heatmap th:first-child, .con-heatmap td:first-child { min-width: 3rem; width: 3rem; }
+.con-heatmap th, .con-heatmap td { width: auto; }
 .con-table-scroll th.con-num { text-align: right; }
 .con-table-scroll td:last-child { padding-left: .2rem; }
 .con-muted { color: var(--grey); font-variant-numeric: tabular-nums; }
@@ -1712,7 +1715,7 @@ body.cx .theme-switch button[aria-checked="true"] { background: var(--brand-oran
 .con-log-row strong { color: var(--ink); font-weight: 500; }
 .con-log-row time {
   font-family: var(--mono); font-size: .7rem; color: var(--grey);
-  font-variant-numeric: tabular-nums; text-align: right;
+  font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap;
 }
 .con-log-cat {
   font-size: .58rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
@@ -1720,6 +1723,22 @@ body.cx .theme-switch button[aria-checked="true"] { background: var(--brand-oran
   padding: .05rem .3rem; justify-self: start; white-space: nowrap;
 }
 .con-log-actor { color: var(--brand-orange); font-size: .72rem; font-weight: 600; }
+
+/* ---------- statistics heatmap ---------- */
+/* Fixed layout, or auto-sizing hands the slack to the weekday column and squashes the
+   24 hours it exists to show. */
+.con-heatmap { width: 100%; border-collapse: collapse; font-size: .72rem; table-layout: fixed; }
+.con-heatmap th {
+  font-size: .62rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--grey); padding: .3rem .25rem; text-align: center; white-space: nowrap;
+}
+.con-heatmap tbody th { text-align: left; padding-left: .6rem; }
+/* One channel, so a busy hour reads as intensity rather than as a different thing. */
+.con-heat {
+  padding: 0; height: 1.35rem; min-width: 1.1rem;
+  background: color-mix(in srgb, var(--brand-orange) calc(var(--heat) * 100%), transparent);
+  border: 1px solid var(--line);
+}
 
 /* ---------- publish history ---------- */
 .con-history { display: flex; flex-direction: column; gap: .6rem; }
