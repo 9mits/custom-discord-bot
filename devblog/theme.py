@@ -1130,21 +1130,76 @@ img.live-minecraft-icon {
 .live-empty { grid-column: 1 / -1; color: var(--grey); }
 
 /* ---------- owner console ---------- */
+/* The console is an instrument, not an article. The dev-blog's warm cream-and-orange
+   is right for a page you read and wrong for one you operate: at this density the warm
+   ground muddies every surface boundary, and orange everywhere leaves nothing for the
+   controls that matter. So the console carries its own palette — cool graphite, so
+   surfaces separate by lightness alone, with the brand orange spent only on actions and
+   live state. Scoped to the root so nothing else on the site shifts. */
+#console-root {
+  --page-bg: #10131a;
+  --canvas: #171b23;
+  --surface: #1a1f28;
+  --surface-raised: #222834;
+  --ink: #eef2f8;
+  --text-muted: #9aa7bd;
+  --grey: #76839a;
+  --line: rgba(148, 163, 184, .16);
+  --line-strong: rgba(148, 163, 184, .32);
+  --bloom-2: rgba(240, 96, 0, .10);
+  --green: #35d07f;
+  --blue: #4aa8ff;
+  color: var(--text-muted);
+}
+:root[data-theme="light"] #console-root,
+html:not([data-theme="dark"]) #console-root {
+  --page-bg: #f5f7fa;
+  --canvas: #eaeef4;
+  --surface: #ffffff;
+  --surface-raised: #f2f5f9;
+  --ink: #101620;
+  --text-muted: #4b5768;
+  --grey: #6b7688;
+  --line: rgba(16, 22, 32, .12);
+  --line-strong: rgba(16, 22, 32, .24);
+}
+/* The page paints its own ground so the console is not a light card on a warm sheet. */
+body:has(#console-root) { background: var(--page-bg); }
+#console-root .doc-head h1, #console-root h2, #console-root h3, #console-root h4 {
+  letter-spacing: -.015em;
+}
+/* Denser than the article type scale: this is scanned, not read. */
+#console-root { font-size: 15px; line-height: 1.5; }
 .con-shell { display: grid; grid-template-columns: 13.5rem minmax(0, 1fr); gap: 1.6rem; align-items: start; }
 .con-rail { position: sticky; top: 1rem; display: flex; flex-direction: column; gap: .15rem; }
+#console-root .con-rail {
+  border-right: 1px solid var(--line); padding-right: .6rem; margin-right: .4rem;
+}
 .con-rail button {
   display: flex; align-items: center; gap: .5rem; width: 100%; text-align: left;
   padding: .5rem .65rem; border: 0; border-radius: .5rem; background: none; cursor: pointer;
   color: var(--text-muted); font: 600 .84rem inherit; font-family: inherit;
 }
 .con-rail button:hover { background: var(--surface-raised); color: var(--ink); }
-.con-rail button[aria-current="page"] { background: var(--surface-raised); color: var(--ink); box-shadow: inset 3px 0 0 var(--brand-orange); }
-.con-count { margin-left: auto; font: 500 .7rem ui-monospace, monospace; color: var(--grey); }
+.con-rail button[aria-current="page"] {
+  background: var(--surface-raised); color: var(--ink);
+  box-shadow: inset 2px 0 0 var(--brand-orange);
+}
+/* A count of zero is not the same as no count, and the old blank read as "empty". */
+.con-rail button .con-count::before { content: ""; }
+.con-count {
+  margin-left: auto; font: 500 .68rem ui-monospace, monospace; color: var(--grey);
+  font-variant-numeric: tabular-nums;
+}
 .con-dot {
   min-width: 1.15rem; padding: 0 .3rem; border-radius: 999px; text-align: center;
   background: var(--brand-ramp); color: #fff; font: 800 .66rem ui-monospace, monospace;
 }
-.con-head { display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; align-items: flex-end; margin-bottom: 1.4rem; }
+.con-head {
+  display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;
+  align-items: flex-end; margin-bottom: 1.3rem; padding-bottom: .9rem;
+  border-bottom: 1px solid var(--line);
+}
 .con-head h2 { margin: .2rem 0 0; }
 #con-search {
   flex: 1 1 16rem; max-width: 24rem; padding: .55rem .75rem; border-radius: .6rem;
@@ -1159,12 +1214,17 @@ img.live-minecraft-icon {
 
 .con-section { margin-bottom: 2rem; }
 .con-section h3 { margin: 0 0 .8rem; font-size: 1rem; color: var(--ink); }
-.con-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr)); gap: .7rem; }
+.con-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(16.5rem, 1fr)); gap: .6rem; }
 
 .con-setting {
-  display: flex; flex-direction: column; gap: .5rem; padding: .9rem 1rem;
-  border: 1px solid var(--line); border-radius: .75rem; background: var(--surface);
+  display: flex; flex-direction: column; gap: .45rem; padding: .8rem .9rem;
+  border: 1px solid var(--line); border-radius: .6rem; background: var(--surface);
 }
+/* Shadows read as depth on a warm sheet and as smudge on a dark one. At this density
+   the border is the separation, so the console drops the lift entirely. */
+#console-root .con-setting, #console-root .con-table, #console-root .con-publish,
+#console-root .con-stat, #console-root .con-task { box-shadow: none; }
+#console-root .con-setting:hover { border-color: var(--line-strong); }
 .con-setting.dirty { border-color: var(--brand-orange); box-shadow: 0 0 0 1px var(--brand-orange) inset; }
 .con-setting.invalid { border-color: #ef4444; box-shadow: 0 0 0 1px #ef4444 inset; }
 .con-setting-head { display: flex; align-items: baseline; gap: .5rem; justify-content: space-between; }
@@ -1183,19 +1243,23 @@ img.live-minecraft-icon {
   margin: 0; padding: .45rem .6rem; border-radius: .45rem; font-size: .76rem;
   background: rgba(239, 68, 68, .10); color: var(--ink);
 }
-.con-action .con-setting-foot { justify-content: flex-end; }
+.con-action .con-setting-foot { justify-content: flex-end; gap: .5rem; }
+.con-action .con-primary { flex: 0 1 auto; }
 .con-action .con-primary { margin-left: auto; }
 
 .con-odds { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
 .con-number {
-  flex: 0 1 7rem; min-width: 0; padding: .45rem .55rem; border-radius: .5rem;
+  /* Basis only where the parent is a row. .con-field stacks its label above its input,
+     and in a column container flex-basis sets the height — which is what made these
+     render as tall boxes rather than fields. */
+  flex: 0 1 auto; width: 7rem; min-width: 0; padding: .45rem .55rem; border-radius: .5rem;
   border: 1px solid var(--line); background: var(--surface-raised); color: var(--ink);
   font: 600 .85rem ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 .con-number.tight { flex-basis: 5.5rem; }
 .con-odds-read { font-size: .76rem; color: var(--text-muted); }
 .con-choice {
-  flex: 0 1 10rem; padding: .45rem .55rem; border-radius: .5rem; border: 1px solid var(--line);
+  flex: 0 1 auto; width: 10rem; padding: .45rem .55rem; border-radius: .5rem; border: 1px solid var(--line);
   background: var(--surface-raised); color: var(--ink); font: inherit; font-size: .84rem;
 }
 .con-swatch { width: 1rem; height: 1rem; border-radius: 50%; border: 1px solid var(--line); }
@@ -1304,8 +1368,9 @@ img.live-minecraft-icon {
 .con-strength strong { font-size: .88rem; color: var(--ink); }
 .con-strength em { font-style: normal; font-size: .72rem; color: var(--brand-orange); }
 .con-meaning {
-  margin: 0; padding: .4rem .55rem; border-radius: .45rem;
-  background: var(--surface-raised); color: var(--ink); font-size: .78rem; line-height: 1.5;
+  margin: 0; padding: .4rem .55rem; border-radius: .4rem;
+  border-left: 2px solid var(--blue);
+  background: var(--surface-raised); color: var(--ink); font-size: .77rem; line-height: 1.5;
 }
 .con-related { margin: 0; font-size: .73rem; color: var(--grey); line-height: 1.45; }
 .con-section h3 { display: flex; align-items: baseline; gap: .5rem; }
@@ -1345,7 +1410,8 @@ img.live-minecraft-icon {
 .con-publish li code { font-size: .74rem; background: none; color: var(--text-muted); white-space: nowrap; }
 
 .con-draftbar {
-  position: sticky; bottom: 0; z-index: 40; display: flex; flex-wrap: wrap; gap: 1rem;
+  position: sticky; bottom: 0; z-index: 40;
+  backdrop-filter: blur(8px); display: flex; flex-wrap: wrap; gap: 1rem;
   align-items: center; justify-content: space-between; margin-top: 1.6rem;
   padding: .8rem 1.1rem; border: 1px solid var(--brand-orange); border-radius: .8rem;
   background: var(--surface); box-shadow: var(--lift-3);
@@ -1355,8 +1421,11 @@ img.live-minecraft-icon {
 .con-draft-count span.bad { color: #ef4444; }
 .con-draft-actions { display: flex; gap: .5rem; }
 .con-primary, .con-secondary {
-  flex: 0 0 auto; white-space: nowrap; border-radius: .55rem; padding: .5rem .9rem;
+  flex: 0 1 auto; max-width: 100%; border-radius: .55rem; padding: .5rem .9rem;
   font: 700 .84rem inherit; font-family: inherit; cursor: pointer;
+  /* Was nowrap, which pushed a long label straight out of its card. Wrapping is the
+     lesser evil; the min-width keeps a short label from collapsing to two characters. */
+  white-space: normal; min-width: 6rem; text-align: center; line-height: 1.3;
 }
 .con-primary { border: 0; background: var(--brand-ramp); color: #fff; }
 .con-primary[disabled] { opacity: .5; cursor: not-allowed; }
@@ -1397,6 +1466,8 @@ img.live-minecraft-icon {
 .con-chip:hover { border-style: solid; color: var(--ink); }
 .con-chip em { font-style: normal; color: var(--brand-orange); font-size: .68rem; }
 .con-field { display: flex; flex-direction: column; gap: .3rem; margin-bottom: .9rem; }
+/* A field owns its full width; the row-context sizing above does not apply here. */
+.con-field .con-number, .con-field .con-choice { width: 100%; height: auto; }
 .con-field > span { font: 600 .8rem inherit; color: var(--ink); }
 .con-field > em { font-style: normal; font-size: .74rem; color: var(--grey); }
 .con-field-row { display: flex; gap: .8rem; flex-wrap: wrap; }
