@@ -1238,6 +1238,14 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         return activityFeed;
     }
 
+    ClanBattleService clanBattles() {
+        return clanBattles;
+    }
+
+    CosmeticStore cosmetics() {
+        return cosmeticStore;
+    }
+
     AuctionStore auctions() {
         return auctionStore;
     }

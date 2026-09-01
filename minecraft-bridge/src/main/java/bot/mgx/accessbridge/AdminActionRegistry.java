@@ -71,6 +71,16 @@ final class AdminActionRegistry {
         this.plugin = plugin;
     }
 
+    private static List<String> clanBattleKinds() {
+        return java.util.Arrays.stream(ClanBattleStore.Kind.values())
+                .map(ClanBattleStore.Kind::id).toList();
+    }
+
+    private static List<String> cosmeticIds() {
+        return CosmeticCatalog.visualEntries().stream()
+                .map(CosmeticCatalog.Definition::id).sorted().toList();
+    }
+
     private static List<String> eventIds() {
         return java.util.Arrays.stream(ServerEventType.values()).map(ServerEventType::id).toList();
     }
@@ -112,6 +122,24 @@ final class AdminActionRegistry {
                 new Action("update.publish", "Announce an update", "Server",
                         "Shows every player the NEW UPDATE banner on their next login.",
                         "", List.of()),
+                new Action("clanbattle.start", "Start a Clan Battle", "Events",
+                        "Opens a clan competition. Standings show on the leaderboards and"
+                                + " the winners are paid when it ends.",
+                        "", List.of(
+                        Param.choice("kind", "Contest", clanBattleKinds(), "What clans compete on."),
+                        Param.optionalNumber("hours", "Length",
+                                "Hours to run for. Empty means seven days.")
+                )),
+                new Action("clanbattle.end", "End the Clan Battle", "Events",
+                        "Closes the current battle and pays the winning clans.",
+                        "Winners are paid immediately and the battle cannot be reopened.",
+                        List.of()),
+                new Action("cosmetic.reserial", "Renumber a cosmetic", "Players",
+                        "Renumbers every copy of one cosmetic from 1 upwards. Custody and"
+                                + " equipped selections are kept; only the serials change.",
+                        "Every serial for this cosmetic changes. Tokens sitting in chests"
+                                + " show their old number until they are picked up.",
+                        List.of(Param.choice("cosmetic", "Cosmetic", cosmeticIds(), ""))),
                 new Action("give", "Give something to a player", "Players",
                         "Hands a reward straight to one player.", "", List.of(
                         Param.player("player", "Player", "Who receives it."),
@@ -188,6 +216,31 @@ final class AdminActionRegistry {
             case "update.publish" -> {
                 plugin.updateNotices().publish();
                 yield "Every player will see the update banner on their next login.";
+            }
+            case "clanbattle.start" -> {
+                ClanBattleStore.Kind kind = ClanBattleStore.Kind.from(text(arguments, "kind"))
+                        .orElseThrow(() -> new IllegalArgumentException("Unknown contest."));
+                long hours = number(arguments, "hours", 24 * 7);
+                if (hours < 1 || hours > 24 * 90) {
+                    throw new IllegalArgumentException("Length must be between 1 hour and 90 days.");
+                }
+                ClanBattleStore.ActiveView active = plugin.clanBattles().startBattle(
+                        kind, System.currentTimeMillis() + hours * 3_600_000L);
+                yield "Started " + active.kind().displayName() + ", ending in "
+                        + ClanBattleCountdown.remaining(
+                                active.endsAt() - System.currentTimeMillis()) + ".";
+            }
+            case "clanbattle.end" -> {
+                ClanBattleStore.CompletedView completed = plugin.clanBattles().endBattle();
+                yield "Ended " + completed.kind().displayName() + " and paid "
+                        + completed.winners().size() + " winning placement(s).";
+            }
+            case "cosmetic.reserial" -> {
+                String cosmetic = text(arguments, "cosmetic");
+                int renumbered = plugin.cosmetics().resetSerials(cosmetic);
+                yield renumbered == 0
+                        ? "Nobody owns " + cosmetic + ", so there was nothing to renumber."
+                        : "Renumbered " + renumbered + " copy/copies of " + cosmetic + " from 1.";
             }
             case "give" -> give(arguments);
             default -> throw new IllegalArgumentException("Unknown action '" + id + "'.");
