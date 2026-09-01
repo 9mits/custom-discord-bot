@@ -405,6 +405,21 @@ class ConsoleNavigation(unittest.TestCase):
         self.assertIn('id="con-confirm"', CONTROL_MD)
         self.assertIn('id="con-confirm-go"', CONTROL_MD)
 
+    def test_an_older_plugin_is_named_rather_than_rendering_empty(self):
+        """A plugin that predates page grouping must say so, not look broken.
+
+        Every page filters on `row.group`, which only 6.74.0 and later send. When the
+        server was still running 6.54.0 the panel drew twenty-nine empty pages and the
+        search-empty message fired with an empty query — "Nothing on this page matches
+        ''" — which reads as a broken panel rather than a server that has not been
+        restarted yet.
+        """
+        self.assertIn("state.stalePlugin", CONSOLE_JS)
+        self.assertIn("function pluginBanner", CONSOLE_JS)
+        # The empty-search message must not be reachable with no query.
+        self.assertIn("if (state.stalePlugin) return \"\";", CONSOLE_JS)
+        self.assertIn("This page has no settings to show.", CONSOLE_JS)
+
     def test_the_open_page_lives_in_the_address_bar(self):
         # Without this a refresh, a bookmark or a shared link all land on Overview.
         for fragment in ("function pageFromHash", "hashchange", "window.location.hash"):

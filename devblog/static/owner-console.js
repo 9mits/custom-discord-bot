@@ -287,6 +287,7 @@
     activity: null,
     auction: null,
     logFilter: "all",
+    stalePlugin: false,
     actions: [],
     online: [],
     materials: [],
@@ -1225,8 +1226,11 @@
     var intro = PAGE_INTROS[group]
       ? '<p class="con-intro">' + escapeHtml(PAGE_INTROS[group]) + "</p>" : "";
     if (!rows.length) {
-      return '<p class="con-empty">Nothing on this page matches &ldquo;' +
-        escapeHtml(state.search) + "&rdquo;.</p>";
+      if (state.stalePlugin) return "";
+      return state.search
+        ? '<p class="con-empty">Nothing on this page matches &ldquo;' +
+          escapeHtml(state.search) + "&rdquo;.</p>"
+        : '<p class="con-empty">This page has no settings to show.</p>';
     }
     var tables = [];
     rows.forEach(function (row) {
@@ -1612,6 +1616,15 @@
     return link.connected === false;
   }
 
+  function pluginBanner() {
+    if (!state.stalePlugin) return "";
+    return '<p class="con-offline"><strong>The Minecraft server is running an older ' +
+      "plugin.</strong> It sent " + (state.snapshot.variables || []).length +
+      " values with no page grouping, which this panel needs, so every page reads as " +
+      "empty. The newer build is already on the server &mdash; restart Minecraft to " +
+      "load it, and this page fills in.</p>";
+  }
+
   function staleBanner() {
     if (!offline()) return "";
     var link = state.snapshot.connection || {};
@@ -1721,7 +1734,7 @@
     renderNav();
     renderDraftBar();
     var main = byId("con-page");
-    var banner = staleBanner();
+    var banner = pluginBanner() + staleBanner();
     if (state.search) {
       main.innerHTML = banner + renderSearch();
       byId("con-page-title").textContent = "Search";
@@ -2021,7 +2034,15 @@
   async function loadSettings() {
     var snapshot = await api("/api/settings");
     state.snapshot = snapshot || {};
-    state.rows = (state.snapshot.variables || []).filter(function (row) {
+    var sent = state.snapshot.variables || [];
+    // Every page filters on row.group, which only plugins from 6.74.0 onward send. An
+    // older one answers with values that match no page, so all twenty-nine render empty
+    // and the search-empty message fires with an empty query — the panel looks broken
+    // when what is actually wrong is that the server has not loaded the new jar yet.
+    state.stalePlugin = sent.length > 0 && !sent.some(function (row) {
+      return typeof row.group === "string" && row.group !== "";
+    });
+    state.rows = sent.filter(function (row) {
       return row.group !== "unclassified";
     });
     state.byKey = {};
