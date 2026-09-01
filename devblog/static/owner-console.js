@@ -1494,6 +1494,91 @@
     return groupRows(page.id).length;
   }
 
+  /**
+   * What the search actually found, across every page.
+   *
+   * The sidebar already counts matches per page, so it is the map; this is the list.
+   * Rows keep their own page as a heading so a result is never shown without saying
+   * where it lives — the point of searching is usually to find out exactly that.
+   */
+  function renderSearch() {
+    var sections = [];
+    var total = 0;
+    PAGES.forEach(function (page) {
+      if (page.id === "overview" || page.id === "actions" || page.id === "activity"
+          || page.id === "auction" || page.id === "history") {
+        return;
+      }
+      var rows = groupRows(page.id);
+      if (!rows.length) return;
+      total += rows.length;
+      sections.push(
+        '<section class="con-section"><h3>' + escapeHtml(page.label) +
+        '<span class="con-section-count">' + rows.length + "</span>" +
+        '<button type="button" class="con-link" data-page="' + escapeHtml(page.id) +
+        '">Open page</button></h3><div class="con-grid">' +
+        rows.map(settingCard).join("") + "</div></section>"
+      );
+    });
+    if (!total) {
+      return '<p class="con-empty">Nothing matches &ldquo;' + escapeHtml(state.search) +
+        "&rdquo;. Try the name a player would use, or paste a setting key.</p>";
+    }
+    return '<p class="con-intro"><strong>' + total + "</strong> setting" +
+      (total === 1 ? "" : "s") + " match &ldquo;" + escapeHtml(state.search) +
+      "&rdquo;, across " + sections.length + " page" + (sections.length === 1 ? "" : "s") +
+      ". Edit them here; publishing works the same as anywhere else.</p>" +
+      sections.join("");
+  }
+
+  /**
+   * Whether what is on screen is what the server currently has.
+   *
+   * The panel is served the last snapshot the plugin sent, which outlives the
+   * connection that produced it. A stale copy that looks live is the one way this
+   * screen can mislead: every number would read as fact while the server had moved on.
+   */
+  function offline() {
+    var link = state.snapshot ? (state.snapshot.connection || {}) : {};
+    // Absent means an older backend that does not report it; assume connected rather
+    // than blocking every edit on a field it never sends.
+    return link.connected === false;
+  }
+
+  function staleBanner() {
+    if (!offline()) return "";
+    var link = state.snapshot.connection || {};
+    var age = link.captured_at && link.now
+      ? Math.max(1, Math.round((link.now - link.captured_at) / 60))
+      : null;
+    return '<p class="con-offline"><strong>The Minecraft server is not connected.</strong> ' +
+      "Everything below is the last snapshot it sent" +
+      (age === null ? "" : ", from about " + age + " minute" + (age === 1 ? "" : "s") + " ago") +
+      ". You can still edit and your draft is kept, but nothing can be published until " +
+      "the server is back.</p>";
+  }
+
+  function renderStatus() {
+    var pill = byId("con-status");
+    if (!pill) return;
+    var link = state.snapshot ? (state.snapshot.connection || {}) : {};
+    if (link.connected) {
+      pill.className = "cx-status";
+      pill.textContent = "Connected";
+      pill.title = "The plugin is connected; these are its live values.";
+      return;
+    }
+    pill.className = "cx-status off";
+    var age = link.captured_at && link.now
+      ? Math.max(0, Math.round((link.now - link.captured_at) / 60))
+      : null;
+    pill.textContent = "Server offline";
+    pill.title = age === null
+      ? "The plugin is not connected. These values are the last it sent."
+      : "The plugin is not connected. These values are " + age +
+        " minute(s) old and changes cannot reach it until it returns.";
+  }
+
   function renderNav() {
     var group = null;
     byId("con-nav").innerHTML = PAGES.map(function (page) {
@@ -1508,7 +1593,9 @@
       }).length;
       return heading +
         '<button type="button" data-page="' + escapeHtml(page.id) + '" aria-current="' +
-        (state.page === page.id ? "page" : "false") + '">' +
+        // Searching leaves every page: marking one as current would point at a page
+        // the work area is not showing.
+        (!state.search && state.page === page.id ? "page" : "false") + '">' +
         '<span class="cx-label">' + escapeHtml(page.label) + "</span>" +
         (dirty
           ? '<span class="con-dot" title="' + dirty + ' unpublished">' + dirty + "</span>"
@@ -1526,21 +1613,24 @@
       return;
     }
     var blocking = Object.keys(state.findings).length;
+    var unreachable = offline();
     bar.hidden = false;
     bar.innerHTML =
       '<div class="con-draft-count"><strong>' + pending.length + "</strong> unpublished change" +
       (pending.length === 1 ? "" : "s") +
-      (state.validating
-        ? "<span>checking&hellip;</span>"
-        : blocking
-          ? '<span class="bad">' + blocking + " problem" + (blocking === 1 ? "" : "s") + " to fix</span>"
-          : "<span>ready to publish</span>") +
+      (unreachable
+        ? '<span class="bad">the server is not connected</span>'
+        : state.validating
+          ? "<span>checking&hellip;</span>"
+          : blocking
+            ? '<span class="bad">' + blocking + " problem" + (blocking === 1 ? "" : "s") + " to fix</span>"
+            : "<span>ready to publish</span>") +
       "</div>" +
       '<div class="con-draft-actions">' +
       '<button type="button" class="con-secondary" id="con-discard">Discard</button>' +
       '<button type="button" class="con-secondary" id="con-review">Review</button>' +
       '<button type="button" class="con-primary" id="con-publish"' +
-      (blocking || state.validating || state.publishing ? " disabled" : "") + ">" +
+      (unreachable || blocking || state.validating || state.publishing ? " disabled" : "") + ">" +
       (state.publishing ? "Publishing&hellip;" : "Publish") + "</button></div>";
   }
 
@@ -1560,27 +1650,40 @@
 
   function render() {
     dropSettledEdits();
+    renderStatus();
     renderNav();
     renderDraftBar();
     var main = byId("con-page");
+    var banner = staleBanner();
+    if (state.search) {
+      main.innerHTML = banner + renderSearch();
+      byId("con-page-title").textContent = "Search";
+      return;
+    }
     if (state.page === "overview") {
-      main.innerHTML = renderOverview();
+      main.innerHTML = banner + renderOverview();
     } else if (state.page === "actions") {
-      main.innerHTML = renderActions() +
+      main.innerHTML = banner + renderActions() +
         '<datalist id="con-online">' + state.online.map(function (name) {
           return '<option value="' + escapeHtml(name) + '">';
         }).join("") + "</datalist>";
     } else if (state.page === "activity") {
-      main.innerHTML = renderActivity();
+      main.innerHTML = banner + renderActivity();
     } else if (state.page === "auction") {
-      main.innerHTML = renderAuction();
+      main.innerHTML = banner + renderAuction();
     } else if (state.page === "history") {
-      main.innerHTML = renderHistory();
+      main.innerHTML = banner + renderHistory();
     } else {
-      main.innerHTML = renderGroupPage(state.page);
+      main.innerHTML = banner + renderGroupPage(state.page);
     }
     var page = PAGES.filter(function (entry) { return entry.id === state.page; })[0];
     byId("con-page-title").textContent = page ? page.label : "";
+  }
+
+  function clearSearch() {
+    state.search = "";
+    var box = byId("con-search");
+    if (box) box.value = "";
   }
 
   /* ---------- routing ---------- */
@@ -1661,6 +1764,12 @@
       if (run) { runAction(run.dataset.run); return; }
       var logged = event.target.closest("[data-log]");
       if (logged) { state.logFilter = logged.dataset.log; render(); return; }
+      var jump = event.target.closest("[data-page]");
+      if (jump) {
+        clearSearch();
+        goTo(jump.dataset.page);
+        return;
+      }
       var task = event.target.closest("[data-task]");
       if (task) {
         state.task = task.dataset.task || null;
@@ -1721,10 +1830,29 @@
     });
 
     document.addEventListener("keydown", function (event) {
+      // Focus the search from anywhere. In a panel this size the search is the way in,
+      // so it gets the shortcut every tool that has one uses for it.
+      var typing = /^(input|select|textarea)$/i.test((event.target.tagName || ""));
+      if ((event.key === "k" && (event.metaKey || event.ctrlKey)) ||
+          (event.key === "/" && !typing)) {
+        event.preventDefault();
+        search.focus();
+        search.select();
+        return;
+      }
       if (event.key !== "Escape") return;
-      byId("con-preview").hidden = true;
-      byId("con-add").hidden = true;
-      state.adding = null;
+      if (!byId("con-preview").hidden || !byId("con-add").hidden) {
+        byId("con-preview").hidden = true;
+        byId("con-add").hidden = true;
+        state.adding = null;
+        return;
+      }
+      // Nothing is open, so Escape means "drop the query" — the one other thing it
+      // could plausibly do, and the only way back without reaching for the mouse.
+      if (state.search) {
+        clearSearch();
+        render();
+      }
     });
 
     window.addEventListener("beforeunload", function (event) {
@@ -1814,6 +1942,9 @@
     loadDraft();
     wire();
     window.addEventListener("hashchange", applyRoute);
+    // The count comes from the server, so the prompt cannot drift from what is there.
+    byId("con-search").placeholder =
+      "Search " + state.rows.length + " settings, or paste a key";
     state.page = pageFromHash();
     render();
     if (dirtyKeys().length) {

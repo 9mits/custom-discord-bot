@@ -333,7 +333,7 @@ class MinecraftStatisticsAssetTests(unittest.TestCase):
 class ConfigChangeSetEndpointTests(unittest.IsolatedAsyncioTestCase):
     """Draft, validate, publish, roll back — and what each one writes to the trail."""
 
-    def _dashboard(self, *, changeset=None, snapshot=None):
+    def _dashboard(self, *, changeset=None, snapshot=None, connected=True):
         config = SimpleNamespace(
             bridge_secret=b"x" * 32,
             dashboard_enabled=True,
@@ -350,6 +350,8 @@ class ConfigChangeSetEndpointTests(unittest.IsolatedAsyncioTestCase):
             config=config,
             data=data,
             bridge=SimpleNamespace(
+                connected=connected,
+                game_variables_at=1_700_000_000.0,
                 latest_game_variables=snapshot if snapshot is not None else {
                     "variables": [{"key": "crate.default.key-cost", "label": "Default crate key cost"}],
                     "history": [{"id": "abc", "changes": [], "change_count": 0}],
@@ -383,6 +385,35 @@ class ConfigChangeSetEndpointTests(unittest.IsolatedAsyncioTestCase):
         await client.start_server()
         self.addAsyncCleanup(client.close)
         return client
+
+    async def test_the_snapshot_says_whether_the_plugin_is_still_connected(self):
+        """A cached snapshot outlives the connection that produced it.
+
+        /api/settings answers from `latest_game_variables`, which is retained after the
+        plugin drops. Without this the panel would render a disconnected server exactly
+        like a live one — every value reading as current fact while the server had moved
+        on, and an owner editing against numbers that could not reach it.
+        """
+        for connected in (True, False):
+            with self.subTest(connected=connected):
+                dashboard = self._dashboard(connected=connected)
+                client = await self._owner_client(dashboard)
+                body = await (await client.get("/api/settings")).json()
+                self.assertIn("connection", body)
+                self.assertIs(body["connection"]["connected"], connected)
+                # The age is what makes "offline" actionable rather than alarming.
+                self.assertEqual(body["connection"]["captured_at"], 1_700_000_000.0)
+                self.assertGreater(body["connection"]["now"], 0)
+
+    async def test_the_connection_report_does_not_displace_the_snapshot(self):
+        # It is added alongside the plugin's own fields, not merged into them.
+        dashboard = self._dashboard()
+        client = await self._owner_client(dashboard)
+        body = await (await client.get("/api/settings")).json()
+        self.assertEqual(
+            "crate.default.key-cost", body["variables"][0]["key"],
+            "the variables the plugin sent must survive the added report",
+        )
 
     async def test_change_set_endpoints_require_the_owner_role(self):
         dashboard = self._dashboard()

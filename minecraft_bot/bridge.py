@@ -76,6 +76,10 @@ class MinecraftBridgeServer:
         self.latest_capabilities: dict[str, Any] = {}
         # Sensitive odds and live controls. Only authenticated dashboard routes expose it.
         self.latest_game_variables: dict[str, Any] = {}
+        # When that snapshot arrived. The panel serves the cached copy, so without this
+        # a disconnected plugin looks identical to a live one and an owner can edit
+        # against values the server stopped agreeing with.
+        self.game_variables_at: Optional[float] = None
         # Idempotency key -> future, for actions awaiting a real outcome from Paper
         # rather than the outbox flow application actions use.
         self._pending_results: dict[str, asyncio.Future] = {}
@@ -519,6 +523,7 @@ class MinecraftBridgeServer:
         if message_type == "GAME_VARIABLE_SNAPSHOT":
             if self._peer_protocol_version >= GAME_VARIABLE_PROTOCOL_VERSION:
                 self.latest_game_variables = payload
+                self.game_variables_at = time.time()
             return
         if message_type == "ACTION_RESULT":
             action_key = str(payload.get("action_idempotency_key", ""))
@@ -808,6 +813,16 @@ class MinecraftBridgeServer:
         earlier publish replaced. The detail carries per-key findings for a rejection
         and the before/after of each change for a publish.
         """
+        # Two different failures reach here and they need different answers: a plugin
+        # that is gone, and one that is present but predates change sets. Reporting
+        # "too old" for a disconnected server sends an owner looking for a version
+        # problem that does not exist.
+        if not self.connected:
+            return (
+                False,
+                "The Minecraft server is not connected, so nothing can be changed yet.",
+                {},
+            )
         if not self.supports_config_changesets:
             return (
                 False,

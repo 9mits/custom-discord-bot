@@ -40,8 +40,11 @@ tagline: Balance crates, airdrops, rewards and events from one place. Nothing go
             <h2 id="con-page-title">Overview</h2>
           </div>
           <div class="cx-top-right">
-            <input id="con-search" type="search" placeholder="Search settings, or paste a key" aria-label="Search settings">
-            <span class="cx-status" id="con-status">Connected</span>
+            <div class="cx-search">
+              <input id="con-search" type="search" placeholder="Search settings, or paste a key" aria-label="Search settings">
+              <kbd aria-hidden="true">/</kbd>
+            </div>
+            <span class="cx-status off" id="con-status">Checking</span>
           </div>
         </header>
 

@@ -332,7 +332,15 @@ class DashboardServer:
 
     async def settings(self, request: web.Request) -> web.Response:
         await self._require_owner(request)
-        payload = self.bot.bridge.latest_game_variables or {}
+        # The snapshot is served from cache, so it outlives the connection that
+        # produced it. Say which it is: editing against a stale copy is the one way
+        # this panel can mislead an owner about what the server currently does.
+        payload = dict(self.bot.bridge.latest_game_variables or {})
+        payload["connection"] = {
+            "connected": self.bot.bridge.connected,
+            "captured_at": self.bot.bridge.game_variables_at,
+            "now": time.time(),
+        }
         return web.json_response(payload, headers={"Cache-Control": "no-store"})
 
     def _variable_row(self, key: str) -> dict[str, Any]:
