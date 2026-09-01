@@ -509,9 +509,12 @@ final class AirdropService implements Listener {
         }
         World world = worlds.get(random.nextInt(worlds.size()));
         WorldBorder border = world.getWorldBorder();
-        // Every published distance is measured from the server origin. Keeping the
-        // same block bands in every world makes an announced 1,000-2,000 range mean
-        // exactly that rather than silently converting Nether coordinates.
+        // Every published distance is measured from the server origin, in Overworld
+        // blocks. The Nether is 1:8, so using the same raw numbers there sent a
+        // "10,000 block" drop on what is really an 80,000-block journey, and squeezed
+        // the Mythic 10,000-25,000 ring against a border only 12,500 wide until it was
+        // a sliver. Converting the band means a published distance describes the same
+        // trip in either world, and always fits the border it is drawn in.
         int originX = 0;
         int originZ = 0;
         Location borderCentre = border.getCenter();
@@ -520,8 +523,13 @@ final class AirdropService implements Listener {
                 Math.abs(originX - borderCentre.getBlockX()),
                 Math.abs(originZ - borderCentre.getBlockZ())
         );
-        int localMinimum = radius(rarity, "minimum");
-        int localMaximum = Math.min(radius(rarity, "maximum"), borderRadius - spawnOffset);
+        double scale = world.getEnvironment() == World.Environment.NETHER
+                ? Math.max(1d, WorldLimits.tuned("world.nether-scale", WorldLimits.NETHER_SCALE))
+                : 1d;
+        int localMinimum = (int) Math.round(radius(rarity, "minimum") / scale);
+        int localMaximum = Math.min(
+                (int) Math.round(radius(rarity, "maximum") / scale),
+                borderRadius - spawnOffset);
         if (localMaximum < localMinimum || localMaximum < 1) {
             plugin.getLogger().warning("The " + rarity.displayName()
                     + " Airdrop distance ring does not fit inside " + worldName(world) + ".");
