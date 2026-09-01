@@ -466,11 +466,11 @@ def rules_embed(*, agreement: bool = False) -> discord.Embed:
 
 
 def application_panel() -> discord.ui.View:
-    """The optional Discord-first path beside the primary join-first instructions."""
-    from .ui import VerifyButton
+    """Linking only. Verification itself is proved in game with /verify."""
+    from .ui import LinkAccountButton
 
     view = discord.ui.View(timeout=None)
-    view.add_item(VerifyButton())
+    view.add_item(LinkAccountButton())
     return view
 
 
