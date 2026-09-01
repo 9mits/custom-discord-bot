@@ -178,6 +178,29 @@ final class AuctionStore {
         return listings.stream().filter(listing -> listing.id().equals(listingId)).findFirst();
     }
 
+    /** What is on sale right now, for reading from outside the game. */
+    synchronized com.google.gson.JsonObject snapshot(long now) {
+        expire(now);
+        com.google.gson.JsonObject root = new com.google.gson.JsonObject();
+        com.google.gson.JsonArray rows = new com.google.gson.JsonArray();
+        long total = 0L;
+        for (Listing listing : browse("", now)) {
+            com.google.gson.JsonObject row = new com.google.gson.JsonObject();
+            row.addProperty("seller", listing.sellerName());
+            row.addProperty("material", listing.material());
+            row.addProperty("amount", listing.amount());
+            row.addProperty("display_name", listing.displayName());
+            row.addProperty("price", listing.price());
+            row.addProperty("expires_at", listing.expiresAt());
+            rows.add(row);
+            total += listing.price();
+        }
+        root.add("listings", rows);
+        root.addProperty("count", rows.size());
+        root.addProperty("total_value", total);
+        return root;
+    }
+
     synchronized List<Listing> browse(String query, long now) {
         expire(now);
         List<Listing> visible = new ArrayList<>();

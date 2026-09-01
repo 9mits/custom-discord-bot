@@ -109,6 +109,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private CrateItems crateItems;
     private UpdateNoticeStore updateNoticeStore;
     private final AdminActionRegistry adminActions = new AdminActionRegistry(this);
+    private final ActivityFeed activityFeed = new ActivityFeed();
+    private AuctionStore auctionStore;
     private volatile boolean gameVariableBroadcastPending;
     private ClanBattleStore clanBattleStore;
     private HomeIconStore homeIconStore;
@@ -607,7 +609,6 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         playerMenuService.useRecordDialogs(recordDialogs);
         clanService.useDirectory(clanDirectory);
         teleportMenus.useHomesDialog(homesDialogs);
-        AuctionStore auctionStore;
         try {
             auctionStore = new AuctionStore(getDataFolder().toPath().resolve("auctions.json"));
             auctionStore.limitSource(key -> gameVariables.integer(key));
@@ -1226,6 +1227,14 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         return crateItems;
     }
 
+    ActivityFeed activityFeed() {
+        return activityFeed;
+    }
+
+    AuctionStore auctions() {
+        return auctionStore;
+    }
+
     AdminActionRegistry adminActions() {
         return adminActions;
     }
@@ -1241,6 +1250,12 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     void republishGameVariables() {
         if (bridgeClient != null && gameVariables != null) {
             gameVariables.actionCatalogue(adminActions.snapshot());
+            gameVariables.liveReadings(
+                    activityFeed.snapshot(),
+                    auctionStore == null
+                            ? new com.google.gson.JsonObject()
+                            : auctionStore.snapshot(System.currentTimeMillis())
+            );
             bridgeClient.sendGameVariableSnapshot(gameVariables.snapshot());
         }
     }
@@ -1284,6 +1299,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
      * other half of the same control, and either alone is enough.
      */
     void recordServerEvent(ServerEvent event) {
+        // Kept before the routing checks, not after: an event the operator has muted in
+        // Discord is still something that happened, and the panel is where you go to
+        // find out what has been going on.
+        activityFeed.record(event);
         if (bridgeClient == null || event == null) {
             return;
         }

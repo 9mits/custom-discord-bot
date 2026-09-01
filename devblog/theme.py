@@ -1270,6 +1270,28 @@ img.live-minecraft-icon {
 .con-move { font: 500 .74rem ui-monospace, monospace; color: var(--brand-orange); }
 .con-table-note { margin: .8rem 0 0; font-size: .74rem; color: var(--grey); }
 .con-empty { padding: 2rem 0; color: var(--grey); }
+.con-category-rail { display: flex; flex-wrap: wrap; gap: .35rem; margin-bottom: 1rem; }
+.con-category-rail button {
+  display: inline-flex; align-items: center; gap: .35rem; padding: .3rem .6rem;
+  border: 1px solid var(--line); border-radius: 999px; background: var(--surface);
+  color: var(--text-muted); font: 600 .76rem inherit; font-family: inherit; cursor: pointer;
+}
+.con-category-rail button[aria-pressed="true"] {
+  border-color: var(--brand-orange); color: var(--ink);
+}
+.con-log { display: flex; flex-direction: column; gap: .2rem; }
+.con-log-row {
+  display: grid; grid-template-columns: 6.5rem 1fr auto; gap: .8rem; align-items: baseline;
+  padding: .45rem .6rem; border-radius: .5rem; font-size: .82rem;
+}
+.con-log-row:nth-child(odd) { background: var(--surface); }
+.con-log-cat {
+  font: 700 .64rem ui-monospace, monospace; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--brand-orange);
+}
+.con-log-row strong { color: var(--ink); font-weight: 600; }
+.con-log-actor { display: block; font-size: .72rem; color: var(--grey); }
+.con-log-row time { font-size: .72rem; color: var(--grey); white-space: nowrap; }
 
 .con-history { display: flex; flex-direction: column; gap: .7rem; }
 .con-publish { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: .75rem; background: var(--surface); }

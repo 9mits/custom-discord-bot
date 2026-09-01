@@ -1027,6 +1027,15 @@ final class GameVariableStore {
         this.actionCatalogue = catalogue == null ? new JsonObject() : catalogue;
     }
 
+    /** Live readings that ride along with the settings rather than needing their own call. */
+    private JsonObject activityFeed = new JsonObject();
+    private JsonObject auctionListings = new JsonObject();
+
+    void liveReadings(JsonObject activity, JsonObject auction) {
+        this.activityFeed = activity == null ? new JsonObject() : activity;
+        this.auctionListings = auction == null ? new JsonObject() : auction;
+    }
+
     synchronized JsonObject snapshot() {
         JsonObject root = new JsonObject();
         root.addProperty("generated_at", System.currentTimeMillis());
@@ -1082,6 +1091,8 @@ final class GameVariableStore {
         }
         root.add("materials", itemMaterials());
         root.add("action_catalogue", actionCatalogue);
+        root.add("activity", activityFeed);
+        root.add("auction", auctionListings);
         return root;
     }
 

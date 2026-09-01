@@ -41,6 +41,17 @@ CATALOG_JAVA = (
     ROOT / "minecraft-bridge" / "src" / "main" / "java" / "bot" / "mgx" / "accessbridge"
     / "CustomCatalogStore.java"
 ).read_text(encoding="utf-8")
+# Four producers now: the variable registry, the catalogue of what an owner changed,
+# the auction listings, and the activity feed. A check that knows about some of them
+# reports the others' fields as missing.
+AUCTION_JAVA = (
+    ROOT / "minecraft-bridge" / "src" / "main" / "java" / "bot" / "mgx" / "accessbridge"
+    / "AuctionStore.java"
+).read_text(encoding="utf-8")
+FEED_JAVA = (
+    ROOT / "minecraft-bridge" / "src" / "main" / "java" / "bot" / "mgx" / "accessbridge"
+    / "ActivityFeed.java"
+).read_text(encoding="utf-8")
 HISTORY_JAVA = (
     ROOT / "minecraft-bridge" / "src" / "main" / "java" / "bot" / "mgx" / "accessbridge"
     / "ConfigHistory.java"
@@ -150,7 +161,12 @@ class ConsoleSnapshotContractTests(unittest.TestCase):
         wanted -= {"filter", "map", "forEach", "some", "reduce", "indexOf", "slice", "push"}
         self.assertIn("control", wanted, "the field scrape stopped matching")
 
-        written = self._written_fields(STORE_JAVA) | self._written_fields(CATALOG_JAVA)
+        written = (
+            self._written_fields(STORE_JAVA)
+            | self._written_fields(CATALOG_JAVA)
+            | self._written_fields(AUCTION_JAVA)
+            | self._written_fields(FEED_JAVA)
+        )
         missing = wanted - written
         self.assertEqual(
             set(), missing,

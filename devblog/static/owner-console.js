@@ -32,6 +32,8 @@
     {id: "shop", label: "Shop"},
     {id: "cosmetics", label: "Cosmetics"},
     {id: "crate_balance", label: "Crate Balance"},
+    {id: "activity", label: "Activity log"},
+    {id: "auction", label: "Auction House"},
     {id: "history", label: "History"}
   ];
 
@@ -101,6 +103,9 @@
     validating: false,
     publishing: false,
     catalog: null,
+    activity: null,
+    auction: null,
+    logFilter: "all",
     actions: [],
     online: [],
     materials: [],
@@ -1012,6 +1017,70 @@
     }
   }
 
+  /** What has happened in game lately, by category. */
+  function renderActivity() {
+    var feed = state.activity || {};
+    var entries = feed.entries || [];
+    if (!entries.length) {
+      return '<p class="con-empty">Nothing has been recorded yet. The last ' +
+        escapeHtml(feed.retained || 300) + " in-game actions show here as they happen.</p>";
+    }
+    var categories = ["all"].concat(feed.categories || []);
+    var shown = entries.filter(function (entry) {
+      return state.logFilter === "all" || entry.category === state.logFilter;
+    });
+    return '<div class="con-category-rail">' + categories.map(function (name) {
+        var count = name === "all" ? entries.length : entries.filter(function (entry) {
+          return entry.category === name;
+        }).length;
+        return '<button type="button" data-log="' + escapeHtml(name) + '" aria-pressed="' +
+          (state.logFilter === name ? "true" : "false") + '">' + escapeHtml(titleCase(name)) +
+          '<span class="con-count">' + count + "</span></button>";
+      }).join("") + "</div>" +
+      '<div class="con-log">' + shown.map(function (entry) {
+        return '<div class="con-log-row"><span class="con-log-cat">' +
+          escapeHtml(entry.category || "other") + "</span>" +
+          '<div><strong>' + escapeHtml(entry.summary) + "</strong>" +
+          (entry.actor ? '<span class="con-log-actor">' + escapeHtml(entry.actor) + "</span>" : "") +
+          "</div><time>" + escapeHtml(new Date(Number(entry.at)).toLocaleTimeString()) +
+          "</time></div>";
+      }).join("") + "</div>" +
+      '<p class="con-table-note">The last ' + escapeHtml(feed.retained || 300) +
+      " actions, newest first. The durable record is still the Discord log.</p>";
+  }
+
+  /** What is on sale right now. */
+  function renderAuction() {
+    var house = state.auction || {};
+    var listings = house.listings || [];
+    if (!listings.length) {
+      return '<p class="con-empty">Nothing is listed for sale.</p>';
+    }
+    return '<div class="con-stats">' +
+      '<div class="con-stat"><span>Listings</span><strong>' + escapeHtml(house.count || 0) +
+      "</strong><em>on sale now</em></div>" +
+      '<div class="con-stat"><span>Combined asking price</span><strong>' +
+      escapeHtml(Number(house.total_value || 0).toLocaleString()) +
+      "</strong><em>if everything sold</em></div></div>" +
+      '<section class="con-table"><div class="con-table-scroll"><table><thead><tr>' +
+      "<th>Item</th><th>Seller</th><th class=\"con-num\">Amount</th>" +
+      "<th class=\"con-num\">Price</th><th class=\"con-num\">Expires</th>" +
+      "</tr></thead><tbody>" + listings.map(function (row) {
+        return "<tr><td><div class=\"con-entry\">" +
+          '<img class="con-icon" src="/assets/minecraft-items/' +
+          escapeHtml(String(row.material).toLowerCase()) +
+          '.png" alt="" loading="lazy" onerror="this.replaceWith(Object.assign(' +
+          "document.createElement('span'),{className:'con-icon-gap'}))\">" +
+          "<span>" + escapeHtml(row.display_name || titleCase(row.material)) +
+          "</span></div></td><td>" + escapeHtml(row.seller) +
+          '</td><td class="con-num">' + escapeHtml(row.amount) +
+          '</td><td class="con-num">' + escapeHtml(Number(row.price).toLocaleString()) +
+          '</td><td class="con-num con-muted">' +
+          escapeHtml(new Date(Number(row.expires_at)).toLocaleDateString()) +
+          "</td></tr>";
+      }).join("") + "</tbody></table></div></section>";
+  }
+
   function renderHistory() {
     var history = state.snapshot.history || [];
     if (!history.length) {
@@ -1025,9 +1094,11 @@
 
   function renderNav() {
     byId("con-nav").innerHTML = PAGES.map(function (page) {
-      var count = page.id === "overview" || page.id === "history"
-        ? 0
-        : (page.id === "actions" ? state.actions.length : groupRows(page.id).length);
+      var count = 0;
+      if (page.id === "actions") count = state.actions.length;
+      else if (page.id === "activity") count = ((state.activity || {}).entries || []).length;
+      else if (page.id === "auction") count = ((state.auction || {}).listings || []).length;
+      else if (page.id !== "overview" && page.id !== "history") count = groupRows(page.id).length;
       var dirty = dirtyKeys().filter(function (key) {
         return state.byKey[key].group === page.id;
       }).length;
@@ -1092,6 +1163,10 @@
         '<datalist id="con-online">' + state.online.map(function (name) {
           return '<option value="' + escapeHtml(name) + '">';
         }).join("") + "</datalist>";
+    } else if (state.page === "activity") {
+      main.innerHTML = renderActivity();
+    } else if (state.page === "auction") {
+      main.innerHTML = renderAuction();
     } else if (state.page === "history") {
       main.innerHTML = renderHistory();
     } else {
@@ -1153,7 +1228,9 @@
       var restore = event.target.closest("[data-restore]");
       if (restore) { restoreRow(restore.dataset.table, restore.dataset.restore); return; }
       var run = event.target.closest("[data-run]");
-      if (run) { runAction(run.dataset.run); }
+      if (run) { runAction(run.dataset.run); return; }
+      var logged = event.target.closest("[data-log]");
+      if (logged) { state.logFilter = logged.dataset.log; render(); }
     });
 
     byId("con-add").addEventListener("click", function (event) {
@@ -1272,6 +1349,8 @@
     state.rows.forEach(function (row) { state.byKey[row.key] = row; });
     state.catalog = state.snapshot.catalog || null;
     state.actions = (state.snapshot.action_catalogue || {}).actions || [];
+    state.activity = state.snapshot.activity || null;
+    state.auction = state.snapshot.auction || null;
     state.online = (state.snapshot.action_catalogue || {}).online || [];
     state.materials = state.snapshot.materials || [];
   }
