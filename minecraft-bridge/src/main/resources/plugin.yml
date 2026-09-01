@@ -128,8 +128,11 @@ commands:
     usage: /rtp
     aliases: [tpr]
     permission: mgx.rtp
+  mgx:
+    description: Mysterious SMP X administration. One root, one grammar.
+    usage: /mgx help
   mgxadmin:
-    description: Run Mysterious SMP X administration, events, rewards, rank sync, and resets.
+    description: Deprecated. Use /mgx — this still works and prints its replacement.
     usage: /mgxadmin help
     aliases: [mcadmin]
     permission: mgxaccessbridge.admin
@@ -163,4 +166,13 @@ permissions:
     default: true
   mgxaccessbridge.admin:
     description: Allows rank holds, administrative data resets, and joining while the server is held for maintenance when granted explicitly in LuckPerms.
+    default: false
+  mgx.admin.staff:
+    description: Day-to-day running — events, giving rewards, PvP status.
+    default: false
+  mgx.admin.manage:
+    description: Everything staff can do, plus world, economy, players and the server.
+    default: false
+  mgx.admin.owner:
+    description: Everything, including live configuration and anything that clears data.
     default: false

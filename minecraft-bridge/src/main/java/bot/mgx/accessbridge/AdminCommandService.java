@@ -149,6 +149,10 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         args = CommandArgs.withoutEchoedSender(sender.getName(), args);
+        // Only when typed directly; the router calls this with its own label.
+        if (label.equalsIgnoreCase("mgxadmin") || label.equalsIgnoreCase("mcadmin")) {
+            MgxCommandRouter.noteDeprecation(sender, "/" + label, args);
+        }
         String action = args.length == 0 ? "help" : args[0].toLowerCase(Locale.ROOT);
         if (action.equals("variables") || action.equals("variable") || action.equals("vars")) {
             if (sender instanceof Player player && !plugin.hasOwnerRankLoaded(player.getUniqueId())) {

@@ -412,6 +412,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 || getCommand("stats") == null
                 || getCommand("tpmenu") == null
                 || getCommand("mgxadmin") == null
+                || getCommand("mgx") == null
                 || getCommand("whitelisted") == null
                 || getCommand("leaderboard") == null
                 || getCommand("shop") == null
@@ -759,6 +760,12 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         );
         getCommand("mgxadmin").setExecutor(adminService);
         getCommand("mgxadmin").setTabCompleter(adminService);
+        // The new root delegates to the same handler, so both spellings behave
+        // identically while the old one is being retired.
+        MgxCommandRouter router = new MgxCommandRouter(
+                this, adminService, new HologramDirectory(holograms, crateDisplays));
+        getCommand("mgx").setExecutor(router);
+        getCommand("mgx").setTabCompleter(router);
         launchService = new LaunchService(this, getDataFolder().toPath());
         launchService.restoreOnEnable();
         activityLog = new ActivityLogService(this, getConfig().getConfigurationSection("activity-log"));
@@ -1418,6 +1425,18 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     private boolean bypassesMaintenance(UUID uuid) {
         return getServer().getOfflinePlayer(uuid).isOp() || hasExplicitAdmin(uuid);
+    }
+
+    /**
+     * Whether this player has been granted one specific node in LuckPerms.
+     *
+     * <p>Explicit only. Bukkit's own check honours {@code default:}, which Floodgate
+     * players can satisfy before their attachments exist, so access here is always
+     * something somebody granted rather than something inherited.
+     */
+    boolean hasExplicitPermission(org.bukkit.entity.Player player, String node) {
+        return luckPermsService != null
+                && luckPermsService.hasExplicitPermissionLoaded(player.getUniqueId(), node);
     }
 
     private boolean hasExplicitAdmin(UUID uuid) {
