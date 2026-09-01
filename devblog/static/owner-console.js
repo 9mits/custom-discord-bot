@@ -10,36 +10,45 @@
 (function () {
   "use strict";
 
+  /* Sections, in the order the sidebar shows them. A flat list of twenty-nine was a
+     wall to read, and two entries were both called "Auction House" — the settings that
+     govern the auction, and the live listings. They are named apart now. */
   var PAGES = [
-    {id: "overview", label: "Overview"},
-    {id: "actions", label: "Do something"},
-    {id: "crates", label: "Crates"},
-    {id: "airdrops", label: "Airdrops"},
-    {id: "online_rewards", label: "Online Rewards"},
-    {id: "huge_amethyst", label: "Huge Amethyst"},
-    {id: "admin_events", label: "Admin Events"},
-    {id: "amethyst_mobs", label: "Amethyst Mobs"},
-    {id: "event_multipliers", label: "Event Multipliers"},
-    {id: "event_schedule", label: "Event Schedule"},
-    {id: "players", label: "Players"},
-    {id: "world", label: "World"},
-    {id: "clans", label: "Clans"},
-    {id: "auction_house", label: "Auction House"},
-    {id: "potions", label: "Potions"},
-    {id: "enchantments", label: "Enchantments"},
-    {id: "boss_bars", label: "Boss Bars"},
-    {id: "presentation", label: "Presentation"},
-    {id: "shop", label: "Shop"},
-    {id: "cosmetics", label: "Cosmetics"},
-    {id: "perks", label: "Perks"},
-    {id: "clan_battles", label: "Clan Battles"},
-    {id: "amethyst_shop", label: "Amethyst Shop"},
-    {id: "economy", label: "Economy"},
-    {id: "launch", label: "Launch"},
-    {id: "crate_balance", label: "Crate Balance"},
-    {id: "activity", label: "Activity log"},
-    {id: "auction", label: "Auction House"},
-    {id: "history", label: "History"}
+    {id: "overview", label: "Overview", group: ""},
+
+    {id: "actions", label: "Do something", group: "Operate"},
+    {id: "activity", label: "Activity log", group: "Operate"},
+    {id: "auction", label: "Live listings", group: "Operate"},
+    {id: "history", label: "Change history", group: "Operate"},
+
+    {id: "crates", label: "Crates", group: "Rewards"},
+    {id: "crate_balance", label: "Crate balance", group: "Rewards"},
+    {id: "airdrops", label: "Airdrops", group: "Rewards"},
+    {id: "online_rewards", label: "Online rewards", group: "Rewards"},
+    {id: "shop", label: "Shop", group: "Rewards"},
+    {id: "amethyst_shop", label: "Amethyst shop", group: "Rewards"},
+    {id: "economy", label: "Economy", group: "Rewards"},
+    {id: "auction_house", label: "Auction rules", group: "Rewards"},
+
+    {id: "huge_amethyst", label: "Huge Amethyst", group: "Events"},
+    {id: "amethyst_mobs", label: "Amethyst mobs", group: "Events"},
+    {id: "admin_events", label: "Admin events", group: "Events"},
+    {id: "event_multipliers", label: "Multipliers", group: "Events"},
+    {id: "event_schedule", label: "Schedule", group: "Events"},
+    {id: "clan_battles", label: "Clan battles", group: "Events"},
+
+    {id: "world", label: "World", group: "World & players"},
+    {id: "players", label: "Players", group: "World & players"},
+    {id: "clans", label: "Clans", group: "World & players"},
+    {id: "launch", label: "Launch", group: "World & players"},
+
+    {id: "potions", label: "Potions", group: "Items & effects"},
+    {id: "enchantments", label: "Enchantments", group: "Items & effects"},
+    {id: "cosmetics", label: "Cosmetics", group: "Items & effects"},
+    {id: "perks", label: "Perks", group: "Items & effects"},
+
+    {id: "boss_bars", label: "Boss bars", group: "Presentation"},
+    {id: "presentation", label: "Presentation", group: "Presentation"}
   ];
 
   var TABLE_TITLES = {
@@ -1310,8 +1319,11 @@
       (groups[action.group] = groups[action.group] || []).push(action);
     });
     return Object.keys(groups).map(function (group) {
+      // Actions are small forms, not settings rows, so they tile instead of stacking
+      // full-width — a one-field card the width of the screen reads as a form to fill in.
       return '<section class="con-section"><h3>' + escapeHtml(group) + "</h3>" +
-        '<div class="con-grid">' + groups[group].map(actionCard).join("") + "</div></section>";
+        '<div class="con-grid con-cards">' + groups[group].map(actionCard).join("") +
+        "</div></section>";
     }).join("");
   }
 
@@ -1346,7 +1358,11 @@
       (action.confirm
         ? '<p class="con-warn">' + escapeHtml(action.confirm) + "</p>"
         : "") +
-      '<div class="con-setting-foot"><button type="button" class="con-primary" data-run="' +
+      // Colour carries consequence, not just clickability: an action that declares a
+      // confirmation is one that reaches every player, so it is the one that looks it.
+      // Eleven orange buttons on one page told an owner nothing about which to be careful with.
+      '<div class="con-setting-foot"><button type="button" class="' +
+      (action.confirm ? "con-danger" : "con-secondary") + '" data-run="' +
       escapeHtml(action.id) + '">' + escapeHtml(action.label) + "</button></div></article>";
   }
 
@@ -1470,20 +1486,33 @@
 
   /* ---------- chrome ---------- */
 
+  function pageCount(page) {
+    if (page.id === "actions") return state.actions.length;
+    if (page.id === "activity") return ((state.activity || {}).entries || []).length;
+    if (page.id === "auction") return ((state.auction || {}).listings || []).length;
+    if (page.id === "overview" || page.id === "history") return 0;
+    return groupRows(page.id).length;
+  }
+
   function renderNav() {
+    var group = null;
     byId("con-nav").innerHTML = PAGES.map(function (page) {
-      var count = 0;
-      if (page.id === "actions") count = state.actions.length;
-      else if (page.id === "activity") count = ((state.activity || {}).entries || []).length;
-      else if (page.id === "auction") count = ((state.auction || {}).listings || []).length;
-      else if (page.id !== "overview" && page.id !== "history") count = groupRows(page.id).length;
+      var heading = "";
+      if (page.group !== group) {
+        group = page.group;
+        if (group) heading = '<p class="cx-group">' + escapeHtml(group) + "</p>";
+      }
+      var count = pageCount(page);
       var dirty = dirtyKeys().filter(function (key) {
         return state.byKey[key].group === page.id;
       }).length;
-      return '<button type="button" data-page="' + escapeHtml(page.id) + '" aria-current="' +
-        (state.page === page.id ? "page" : "false") + '">' + escapeHtml(page.label) +
-        (count ? '<span class="con-count">' + count + "</span>" : "") +
-        (dirty ? '<span class="con-dot" title="' + dirty + ' unpublished">' + dirty + "</span>" : "") +
+      return heading +
+        '<button type="button" data-page="' + escapeHtml(page.id) + '" aria-current="' +
+        (state.page === page.id ? "page" : "false") + '">' +
+        '<span class="cx-label">' + escapeHtml(page.label) + "</span>" +
+        (dirty
+          ? '<span class="con-dot" title="' + dirty + ' unpublished">' + dirty + "</span>"
+          : count ? '<span class="con-count">' + count + "</span>" : "") +
         "</button>";
     }).join("");
   }
@@ -1554,15 +1583,38 @@
     byId("con-page-title").textContent = page ? page.label : "";
   }
 
+  /* ---------- routing ---------- */
+
+  /** The open page lives in the address bar, so a refresh or a shared link keeps it. */
+  function pageFromHash() {
+    var id = (window.location.hash || "").replace(/^#\/?/, "");
+    return PAGES.some(function (page) { return page.id === id; }) ? id : "overview";
+  }
+
+  function goTo(id) {
+    if (window.location.hash.replace(/^#\/?/, "") === id) {
+      applyRoute();
+      return;
+    }
+    window.location.hash = id;
+  }
+
+  function applyRoute() {
+    var id = pageFromHash();
+    if (state.page !== id) state.task = null;
+    state.page = id;
+    render();
+    var main = document.querySelector(".con-main");
+    if (main) main.scrollTop = 0;
+  }
+
   /* ---------- events ---------- */
 
   function wire() {
     byId("con-nav").addEventListener("click", function (event) {
       var button = event.target.closest("[data-page]");
       if (!button) return;
-      state.page = button.dataset.page;
-      render();
-      window.scrollTo({top: 0, behavior: "smooth"});
+      goTo(button.dataset.page);
     });
 
     byId("con-page").addEventListener("change", function (event) {
@@ -1613,7 +1665,8 @@
       if (task) {
         state.task = task.dataset.task || null;
         render();
-        window.scrollTo({top: 0, behavior: "smooth"});
+        // The work area scrolls, not the window: the shell is fixed to the viewport.
+        byId("con-page").parentElement.scrollTo({top: 0, behavior: "smooth"});
         return;
       }
       var strength = event.target.closest("[data-strength]");
@@ -1760,6 +1813,8 @@
     await loadSettings();
     loadDraft();
     wire();
+    window.addEventListener("hashchange", applyRoute);
+    state.page = pageFromHash();
     render();
     if (dirtyKeys().length) {
       toast("Picked up " + dirtyKeys().length + " unpublished change(s) from last time.", false);

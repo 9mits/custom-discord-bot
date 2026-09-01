@@ -255,5 +255,138 @@ class ConsoleSnapshotContractTests(unittest.TestCase):
         )
 
 
+class ConsoleShell(unittest.TestCase):
+    """The console is an application, not a page of the site.
+
+    It was rendered through the shared page shell for a while, which put the public
+    marketing nav and a Discord button above an operator's settings screen and squeezed
+    516 controls into a reading column. These hold the separation.
+    """
+
+    def setUp(self) -> None:
+        pages = {page.slug: page for page in build.load_pages(include_private=True)}
+        self.page = pages["control"]
+        self.html = theme.render_console(
+            page=self.page, body_html="<!--theme-switch-->", prefix="../",
+            site_url="https://example.test",
+        )
+
+    def test_the_console_carries_no_marketing_chrome(self):
+        for fragment in ('class="topbar"', "nav-cta", 'class="site-footer"',
+                         'class="brandbar"', 'class="doc-body"'):
+            self.assertNotIn(
+                fragment, self.html,
+                "%s belongs to the site's page shell, not to the console" % fragment,
+            )
+
+    def test_the_console_is_not_indexable(self):
+        # It is owner-only and behind an auth call; a search engine reaching it would
+        # only ever see the sign-in gate, but it should not be asked to try.
+        self.assertIn('content="noindex, nofollow"', self.html)
+
+    def test_the_console_body_is_marked_so_the_app_shell_applies(self):
+        # Every layout rule is scoped to body.cx. Losing the class silently returns the
+        # console to a document that scrolls as one piece.
+        self.assertIn('<body class="cx">', self.html)
+
+    def test_the_theme_switch_placeholder_is_filled(self):
+        # The console has no footer to inherit the site's switch from, so render_console
+        # substitutes one. If the placeholder stopped being replaced, an owner whose
+        # machine is in light mode would have no way back.
+        self.assertNotIn("<!--theme-switch-->", self.html)
+        self.assertIn('class="theme-switch"', self.html)
+        self.assertIn('data-theme="light"', self.html)
+
+    def test_the_control_page_still_asks_for_the_switch(self):
+        self.assertIn("<!--theme-switch-->", CONTROL_MD)
+
+
+class ConsoleStyling(unittest.TestCase):
+    """Every class the console draws has to be styled somewhere.
+
+    This is the failure that has no symptom in a test run and no error in a console:
+    the markup renders, the rule is simply absent, and the element shows up as an
+    unstyled box. It has already happened once — a rewrite of the stylesheet dropped
+    the seven boss-bar swatch colours and every swatch went blank.
+    """
+
+    #: Classes whose appearance is entirely inherited, or which exist only as a hook
+    #: for JavaScript to find an element by.
+    NOT_STYLED = {
+        "con-frequency",   # a radio group's name attribute, not a class
+        "con-online",      # the <datalist> id for the player picker
+        "con-materials",   # styled, but only inside the add dialog
+    }
+
+    def setUp(self) -> None:
+        self.css = theme.STYLESHEET
+
+    def test_every_class_the_console_emits_has_a_rule(self):
+        emitted = set(re.findall(r'class="([^"]*con-[^"]*)"', CONSOLE_JS))
+        emitted |= set(re.findall(r'class="([^"]*con-[^"]*)"', CONTROL_MD))
+        # Several classes are built by concatenation — `class="con-setting' + (dirty ?
+        # " dirty" : "")` — so the captured text can end mid-expression. Keep only the
+        # leading identifier of each token.
+        names = {
+            re.match(r"[a-z0-9-]+", name).group(0)
+            for group in emitted for name in group.split()
+            if name.startswith("con-")
+        }
+        # Classes built by concatenation, e.g. "con-dist-slice tone-" + index.
+        names |= {"con-dist-slice", "con-swatch"}
+        missing = sorted(
+            name for name in names
+            if name not in self.NOT_STYLED and (".%s" % name) not in self.css
+        )
+        self.assertEqual([], missing, "classes the console draws but nothing styles: %s" % missing)
+
+    def test_every_boss_bar_colour_has_a_swatch(self):
+        # The choices come from the plugin; the swatch is the only thing that shows
+        # which colour a name means.
+        colours = re.search(
+            r"List<String> colours = List\.of\(([^)]*)\)", STORE_JAVA, re.S
+        )
+        self.assertIsNotNone(
+            colours, "the plugin no longer declares the boss-bar colour choices as a list"
+        )
+        names = [
+            value.strip().strip('"').lower()
+            for value in colours.group(1).split(",") if value.strip()
+        ]
+        self.assertTrue(names, "no boss-bar colours parsed out of the plugin")
+        missing = [name for name in names if ".con-swatch.tone-%s" % name not in self.css]
+        self.assertEqual([], missing, "boss bar colours with no swatch: %s" % missing)
+
+
+class ConsoleNavigation(unittest.TestCase):
+    """The sidebar has to stay legible as pages are added."""
+
+    def _pages(self):
+        block = CONSOLE_JS.split("var PAGES = [", 1)[1].split("];", 1)[0]
+        return re.findall(r'\{id: "([a-z_]+)", label: "([^"]+)", group: "([^"]*)"\}', block)
+
+    def test_every_page_declares_a_group(self):
+        block = CONSOLE_JS.split("var PAGES = [", 1)[1].split("];", 1)[0]
+        entries = re.findall(r"\{id: \"([a-z_]+)\"[^}]*\}", block)
+        grouped = {page[0] for page in self._pages()}
+        missing = sorted(set(entries) - grouped)
+        self.assertEqual(
+            [], missing,
+            "pages with no group land in the sidebar with no heading: %s" % missing,
+        )
+
+    def test_no_two_pages_share_a_label(self):
+        # Two entries were both called "Auction House" — the settings that govern the
+        # auction, and the live listings — and there was no way to tell them apart.
+        labels = [label for _, label, _ in self._pages()]
+        duplicates = sorted({label for label in labels if labels.count(label) > 1})
+        self.assertEqual([], duplicates, "sidebar entries sharing a label: %s" % duplicates)
+
+    def test_the_open_page_lives_in_the_address_bar(self):
+        # Without this a refresh, a bookmark or a shared link all land on Overview.
+        for fragment in ("function pageFromHash", "hashchange", "window.location.hash"):
+            self.assertIn(fragment, CONSOLE_JS)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
