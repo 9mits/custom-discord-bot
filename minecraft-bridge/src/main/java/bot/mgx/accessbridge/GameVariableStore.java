@@ -109,6 +109,7 @@ final class GameVariableStore {
         defineRemainingWorldValues();
         defineTail();
         defineLastValues();
+        defineTeleportAndBounty();
         defineOnlineRewards();
         defineEventRewards(config);
         defineCrateRewards();
@@ -557,6 +558,19 @@ final class GameVariableStore {
         integer("launch.pvp-hold-hours", "PvP hold after launch", "Server",
                 "Hours PvP stays off after the launch countdown finishes.",
                 5, 0, 168, "hours", false);
+    }
+
+    /** Teleport warmups, the bounty floor, and the random-teleport border margin. */
+    private void defineTeleportAndBounty() {
+        integer("teleport.warmup-seconds", "Teleport warmup", "Players",
+                "Seconds a player must stand still before a teleport completes.",
+                5, 0, 60, "seconds", false);
+        integer("rtp.border-margin", "Random teleport margin", "Players",
+                "How far inside the world border a random teleport must land.",
+                32, 0, 1_000, "blocks", false);
+        integer("bounty.minimum", "Smallest bounty", "Economy",
+                "Least a player may put on someone's head.",
+                100, 1, 100_000_000, "money", false);
     }
 
     private void definePotion(String id, String label, int minutes, int level) {

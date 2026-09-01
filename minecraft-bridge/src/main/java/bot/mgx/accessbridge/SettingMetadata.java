@@ -82,6 +82,7 @@ record SettingMetadata(
         PRESENTATION("Presentation"),
         SHOP("Shop"),
         PERKS("Perks"),
+        ECONOMY("Economy"),
         AMETHYST_SHOP("Amethyst Shop"),
         LAUNCH("Server"),
         CLAN_BATTLES("Clan Battles"),
@@ -241,6 +242,12 @@ record SettingMetadata(
         }
         if (key.startsWith("scoreboard.")) {
             return Group.PRESENTATION;
+        }
+        if (key.startsWith("bounty.")) {
+            return Group.ECONOMY;
+        }
+        if (key.startsWith("teleport.")) {
+            return Group.PLAYERS;
         }
         if (key.startsWith("amethyst-shop.")) {
             return Group.AMETHYST_SHOP;

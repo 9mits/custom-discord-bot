@@ -21,6 +21,20 @@ import java.util.concurrent.ConcurrentHashMap;
 /** Money on a player's head. Stacks; paid to whoever lands the kill. */
 final class BountyStore {
     static final long MIN_BOUNTY = 100L;
+    /** Live tuning; the constants above stay the defaults and stand alone in tests. */
+    private static volatile java.util.function.ToDoubleFunction<String> tuning = key -> Double.NaN;
+
+    static void tuningSource(java.util.function.ToDoubleFunction<String> source) {
+        if (source != null) {
+            tuning = source;
+        }
+    }
+
+    private static double tuned(String key, double fallback) {
+        double value = tuning.applyAsDouble(key);
+        return Double.isNaN(value) ? fallback : value;
+    }
+
 
     record Entry(UUID target, long amount) {
     }
@@ -59,9 +73,10 @@ final class BountyStore {
         if (amount <= 0L) {
             throw new IllegalArgumentException("The amount must be at least $1.");
         }
-        if (enforceFloor && amount < MIN_BOUNTY) {
+        long floor = (long) tuned("bounty.minimum", MIN_BOUNTY);
+        if (enforceFloor && amount < floor) {
             throw new IllegalArgumentException(
-                    "Bounties start at " + EconomyFormat.dollars(MIN_BOUNTY) + "."
+                    "Bounties start at " + EconomyFormat.dollars(floor) + "."
             );
         }
         long before = amountOn(target);

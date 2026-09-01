@@ -98,7 +98,8 @@ final class RandomTeleportService implements CommandExecutor {
         }
         World world = player.getWorld();
         WorldBorder border = world.getWorldBorder();
-        double borderRadius = Math.max(0d, border.getSize() / 2d - BORDER_MARGIN);
+        double borderRadius = Math.max(0d, border.getSize() / 2d
+                - plugin.gameVariables().integer("rtp.border-margin"));
         double usableMaximum = Math.min(maximumRadius(), borderRadius);
         if (usableMaximum <= minimumRadius()) {
             searching.remove(player.getUniqueId());

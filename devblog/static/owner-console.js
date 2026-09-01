@@ -34,6 +34,7 @@
     {id: "perks", label: "Perks"},
     {id: "clan_battles", label: "Clan Battles"},
     {id: "amethyst_shop", label: "Amethyst Shop"},
+    {id: "economy", label: "Economy"},
     {id: "launch", label: "Launch"},
     {id: "crate_balance", label: "Crate Balance"},
     {id: "activity", label: "Activity log"},
