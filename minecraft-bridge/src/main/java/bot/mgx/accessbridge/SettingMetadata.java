@@ -81,6 +81,8 @@ record SettingMetadata(
         ENCHANTMENTS("Enchantments"),
         PRESENTATION("Presentation"),
         SHOP("Shop"),
+        COSMETICS("Cosmetics"),
+        CRATE_BALANCE("Crate Balance"),
         /**
          * A value whose prefix nothing here recognises.
          *
@@ -153,6 +155,10 @@ record SettingMetadata(
         // Kind before unit: a choice and a flag both declare no unit, so deciding on the
         // unit alone made one of them look like the other.
         switch (definition.type()) {
+            case DECIMAL:
+                // Falls through to the unit switch: a decimal is still a speed, a volume
+                // or a multiplier, and those already have controls.
+                break;
             case BOOLEAN:
                 return Control.TOGGLE;
             case CHOICE:
@@ -182,6 +188,7 @@ record SettingMetadata(
             case "seconds" -> Control.DURATION;
             case "chunks", "X", "Z" -> Control.COUNT;
             case "level" -> Control.LEVEL;
+            case "per frame", "volume", "sigma" -> Control.RATE;
             default -> Control.QUANTITY;
         };
     }
@@ -229,6 +236,12 @@ record SettingMetadata(
         }
         if (key.startsWith("scoreboard.")) {
             return Group.PRESENTATION;
+        }
+        if (key.startsWith("cosmetics.")) {
+            return Group.COSMETICS;
+        }
+        if (key.startsWith("crates.balance.")) {
+            return Group.CRATE_BALANCE;
         }
         if (key.startsWith("shop.")) {
             return Group.SHOP;

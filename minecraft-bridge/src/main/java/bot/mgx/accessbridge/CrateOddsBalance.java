@@ -47,6 +47,28 @@ final class CrateOddsBalance {
     static final double TOLERANCE_SIGMA = 2.0d;
     /** Counters halve here, so the table follows recent play rather than all of history. */
     static final long WINDOW_OPENS = 4_000L;
+    /** Live tuning; the constants above stay the defaults and stand alone in tests. */
+    private static volatile java.util.function.ToDoubleFunction<String> tuning = key -> Double.NaN;
+
+    static void tuningSource(java.util.function.ToDoubleFunction<String> source) {
+        if (source != null) {
+            tuning = source;
+        }
+    }
+
+    private static double tuned(String key, double fallback) {
+        double value = tuning.applyAsDouble(key);
+        return Double.isNaN(value) ? fallback : value;
+    }
+
+    private static int floorPercent() {
+        return (int) tuned("crates.balance.floor-percent", FLOOR_PERCENT);
+    }
+
+    private static int ceilingPercent() {
+        return (int) tuned("crates.balance.ceiling-percent", CEILING_PERCENT);
+    }
+
 
     private CrateOddsBalance() {
     }
@@ -76,14 +98,14 @@ final class CrateOddsBalance {
      */
     static int weightPercentForRate(double targetRate, double desiredRate) {
         if (targetRate <= 0d || targetRate >= 1d || desiredRate <= 0d) {
-            return FLOOR_PERCENT;
+            return floorPercent();
         }
         if (desiredRate >= 1d) {
-            return CEILING_PERCENT;
+            return ceilingPercent();
         }
         double percent = 100d * (desiredRate * (1d - targetRate))
                 / (targetRate * (1d - desiredRate));
-        return (int) Math.max(FLOOR_PERCENT, Math.min(CEILING_PERCENT, Math.round(percent)));
+        return (int) Math.max(floorPercent(), Math.min(ceilingPercent(), Math.round(percent)));
     }
 
     /**
@@ -96,31 +118,34 @@ final class CrateOddsBalance {
      * @param targetRate   the rate the published table advertises, 0..1
      */
     static int percent(long opens, long rareHits, double expectedHits, double targetRate) {
-        if (opens < MINIMUM_SAMPLE || expectedHits <= 0d || targetRate <= 0d) {
+        if (opens < tuned("crates.balance.minimum-sample", MINIMUM_SAMPLE)
+                || expectedHits <= 0d || targetRate <= 0d) {
             return NEUTRAL_PERCENT;
         }
         double deviation = rareHits - expectedHits;
         // sqrt(expected) slightly overstates the binomial deviation, which widens the
         // deadband rather than narrowing it. Erring towards leaving the table alone.
-        if (Math.abs(deviation) <= TOLERANCE_SIGMA * Math.sqrt(expectedHits)) {
+        if (Math.abs(deviation)
+                <= tuned("crates.balance.tolerance-sigma", TOLERANCE_SIGMA)
+                        * Math.sqrt(expectedHits)) {
             return NEUTRAL_PERCENT;
         }
         if (rareHits <= 0L) {
             // Nobody has hit anything rare in a full window: buff as hard as allowed.
-            return CEILING_PERCENT;
+            return ceilingPercent();
         }
         return weightPercentForRate(targetRate, targetRate * (expectedHits / rareHits));
     }
 
     /** True once the window is full and every counter should be halved. */
     static boolean shouldDecay(long opens) {
-        return opens >= WINDOW_OPENS;
+        return opens >= tuned("crates.balance.window-openings", WINDOW_OPENS);
     }
 
     /** Composes the balancer with a player's own luck, keeping each within its own band. */
     static int compose(int luckPercent, int balancePercent) {
         int luck = CrateCatalog.clampLuckPercent(luckPercent);
-        int balance = Math.max(FLOOR_PERCENT, Math.min(CEILING_PERCENT, balancePercent));
+        int balance = Math.max(floorPercent(), Math.min(ceilingPercent(), balancePercent));
         return (int) Math.max(1L, Math.round(luck * (balance / 100.0d)));
     }
 }

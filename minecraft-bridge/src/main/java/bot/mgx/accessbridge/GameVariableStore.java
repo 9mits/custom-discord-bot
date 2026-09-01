@@ -38,7 +38,7 @@ final class GameVariableStore {
      * footer and every boss-bar colour stayed in code: there was nowhere to put them.
      * CHOICE is one of a fixed set; TEXT is free text with a length cap.
      */
-    enum Type { INTEGER, BOOLEAN, CHOICE, TEXT }
+    enum Type { INTEGER, BOOLEAN, CHOICE, TEXT, DECIMAL }
 
     record Definition(
             String key,
@@ -51,7 +51,9 @@ final class GameVariableStore {
             Long maximum,
             String unit,
             boolean sensitive,
-            List<String> choices
+            List<String> choices,
+            Double minimumDecimal,
+            Double maximumDecimal
     ) {
         Definition {
             choices = choices == null ? List.of() : List.copyOf(choices);
@@ -103,6 +105,7 @@ final class GameVariableStore {
         definePlayerAndWorld(config);
         definePresentationAndItems(config);
         defineShopPricing();
+        defineEffectsAndGuards();
         defineOnlineRewards();
         defineEventRewards(config);
         defineCrateRewards();
@@ -389,6 +392,58 @@ final class GameVariableStore {
         }
     }
 
+    /**
+     * How cosmetics move, how Airdrop guards behave, and how the odds balancer judges a
+     * crate. All of it was in code, and all of it is the sort of thing an owner tunes by
+     * watching rather than by reasoning, which is exactly what a restart makes painful.
+     */
+    private void defineEffectsAndGuards() {
+        decimal("cosmetics.aura.scroll-speed", "Aura scroll speed", "Cosmetics",
+                "How fast an aura's pattern travels around the player.", 0.06, 0.001, 1.0, "per frame");
+        decimal("cosmetics.aura.scroll-spread", "Aura spread", "Cosmetics",
+                "How far an aura's particles sit from the player.", 0.34, 0.01, 3.0, "blocks");
+        decimal("cosmetics.aura.pulse-speed", "Aura pulse speed", "Cosmetics",
+                "How quickly an aura breathes in and out.", 0.045, 0.001, 1.0, "per frame");
+        decimal("cosmetics.shimmer.width", "Shimmer width", "Cosmetics",
+                "Width of the moving highlight on a cosmetic nameplate.", 5.0, 1.0, 40.0, "characters");
+        decimal("cosmetics.shimmer.drift", "Shimmer drift", "Cosmetics",
+                "How fast that highlight travels.", 0.02, 0.001, 1.0, "per frame");
+        integer("cosmetics.view-distance", "Cosmetic view distance", "Cosmetics",
+                "How far away a player's cosmetics stay visible.", 48, 8, 128, "blocks", false);
+        integer("cosmetics.hearing-distance", "Cosmetic hearing distance", "Cosmetics",
+                "How far away a cosmetic's sounds carry.", 16, 4, 64, "blocks", false);
+        decimal("cosmetics.aura.sound-volume", "Aura sound volume", "Cosmetics",
+                "Volume of the sound an aura makes.", 0.45, 0.0, 1.0, "volume");
+        integer("cosmetics.trail.history", "Trail length", "Cosmetics",
+                "Points of a player's path a trail remembers.", 14, 2, 64, "points", false);
+
+        integer("airdrop.guard.inner-ring", "Guard inner ring", "Airdrop Guards",
+                "How close the inner ring of guards stands to the drop.", 6, 1, 64, "blocks", false);
+        integer("airdrop.guard.outer-ring", "Guard outer ring", "Airdrop Guards",
+                "How far out the outer ring of guards stands.", 14, 2, 128, "blocks", false);
+        integer("airdrop.guard.hunt-radius", "Guard hunt radius", "Airdrop Guards",
+                "How far a guard looks for someone to chase.", 40, 4, 128, "blocks", false);
+        integer("airdrop.guard.follow-range", "Guard follow range", "Airdrop Guards",
+                "How far a guard will follow before giving up.", 48, 4, 128, "blocks", false);
+        decimal("airdrop.guard.speed", "Guard speed", "Airdrop Guards",
+                "Guard movement speed. 1 is an ordinary mob.", 1.2, 0.1, 4.0, "x");
+
+        integer("crates.balance.floor-percent", "Luck floor", "Crate Balance",
+                "Lowest the balancer will push a player's rare-reward luck.",
+                50, 1, 100, "percent", false);
+        integer("crates.balance.ceiling-percent", "Luck ceiling", "Crate Balance",
+                "Highest the balancer will push a player's rare-reward luck.",
+                200, 100, 1_000, "percent", false);
+        integer("crates.balance.minimum-sample", "Balancer sample size", "Crate Balance",
+                "Openings observed before the balancer will adjust anything.",
+                500, 10, 100_000, "openings", false);
+        decimal("crates.balance.tolerance-sigma", "Balancer tolerance", "Crate Balance",
+                "How far from the advertised rate a run must drift before the balancer"
+                        + " corrects it, in standard deviations.", 2.0, 0.5, 6.0, "sigma");
+        integer("crates.balance.window-openings", "Balancer window", "Crate Balance",
+                "Openings the balancer looks back over.", 4_000, 100, 1_000_000, "openings", false);
+    }
+
     private void definePotion(String id, String label, int minutes, int level) {
         String base = "potions." + id + ".";
         if (minutes > 0) {
@@ -629,14 +684,31 @@ final class GameVariableStore {
     ) {
         definitions.put(key, new Definition(
                 key, label, category, description, Type.INTEGER, value,
-                minimum, maximum, unit, sensitive, List.of()
+                minimum, maximum, unit, sensitive, List.of(), null, null
         ));
     }
 
     private void bool(String key, String label, String category, String description, boolean value) {
         definitions.put(key, new Definition(
                 key, label, category, description, Type.BOOLEAN, value,
-                null, null, "", false, List.of()
+                null, null, "", false, List.of(), null, null
+        ));
+    }
+
+    /**
+     * A fractional value, such as a speed or a multiplier below one.
+     *
+     * <p>Whole numbers covered most of the catalogue but not the ones that describe how
+     * something moves — an aura drifting at 0.06 has no sensible integer form, and
+     * rounding it to nothing was the alternative to leaving it in code.
+     */
+    private void decimal(
+            String key, String label, String category, String description,
+            double value, double minimum, double maximum, String unit
+    ) {
+        definitions.put(key, new Definition(
+                key, label, category, description, Type.DECIMAL, value,
+                null, null, unit, false, List.of(), minimum, maximum
         ));
     }
 
@@ -647,7 +719,7 @@ final class GameVariableStore {
     ) {
         definitions.put(key, new Definition(
                 key, label, category, description, Type.CHOICE, value,
-                null, null, "", false, options
+                null, null, "", false, options, null, null
         ));
     }
 
@@ -658,7 +730,7 @@ final class GameVariableStore {
     ) {
         definitions.put(key, new Definition(
                 key, label, category, description, Type.TEXT, value,
-                0L, (long) maximumLength, "characters", false, List.of()
+                0L, (long) maximumLength, "characters", false, List.of(), null, null
         ));
     }
 
@@ -696,6 +768,13 @@ final class GameVariableStore {
     synchronized String string(String key) {
         Definition definition = definition(key);
         return String.valueOf(overrides.getOrDefault(definition.key(), definition.defaultValue()));
+    }
+
+    /** A fractional value. */
+    synchronized double decimal(String key) {
+        Definition definition = definition(key);
+        Object value = overrides.getOrDefault(definition.key(), definition.defaultValue());
+        return ((Number) value).doubleValue();
     }
 
     synchronized boolean bool(String key) {
@@ -964,6 +1043,11 @@ final class GameVariableStore {
             addValue(row, "default", definition.defaultValue());
             if (definition.minimum() != null) row.addProperty("minimum", definition.minimum());
             if (definition.maximum() != null) row.addProperty("maximum", definition.maximum());
+            if (definition.minimumDecimal() != null) {
+                row.addProperty("minimum", definition.minimumDecimal());
+                row.addProperty("maximum", definition.maximumDecimal());
+                row.addProperty("step", "any");
+            }
             if (!definition.choices().isEmpty()) {
                 JsonArray options = new JsonArray();
                 definition.choices().forEach(options::add);
@@ -1279,6 +1363,20 @@ final class GameVariableStore {
             }
             return value;
         }
+        if (definition.type() == Type.DECIMAL) {
+            final double parsed;
+            try {
+                parsed = Double.parseDouble(value.replace(",", ""));
+            } catch (NumberFormatException notANumber) {
+                throw new IllegalArgumentException(definition.label() + " must be a number.");
+            }
+            if (!Double.isFinite(parsed)
+                    || parsed < definition.minimumDecimal() || parsed > definition.maximumDecimal()) {
+                throw new IllegalArgumentException(definition.label() + " must be between "
+                        + definition.minimumDecimal() + " and " + definition.maximumDecimal() + ".");
+            }
+            return parsed;
+        }
         if (definition.type() == Type.BOOLEAN) {
             return switch (value.toLowerCase(Locale.ROOT)) {
                 case "true", "on", "yes", "1" -> true;
@@ -1373,6 +1471,7 @@ final class GameVariableStore {
     private static void addValue(JsonObject object, String key, Object value) {
         if (value instanceof Boolean bool) object.addProperty(key, bool);
         else if (value instanceof String text) object.addProperty(key, text);
+        else if (value instanceof Double decimal) object.addProperty(key, decimal);
         else object.addProperty(key, ((Number) value).longValue());
     }
 
@@ -1404,6 +1503,7 @@ final class GameVariableStore {
                 Object value = switch (definition.type()) {
                     case BOOLEAN -> entry.getValue().getAsBoolean();
                     case CHOICE, TEXT -> entry.getValue().getAsString();
+                    case DECIMAL -> entry.getValue().getAsDouble();
                     case INTEGER -> entry.getValue().getAsLong();
                 };
                 parse(definition, String.valueOf(value));

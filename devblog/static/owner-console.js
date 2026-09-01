@@ -30,6 +30,8 @@
     {id: "boss_bars", label: "Boss Bars"},
     {id: "presentation", label: "Presentation"},
     {id: "shop", label: "Shop"},
+    {id: "cosmetics", label: "Cosmetics"},
+    {id: "crate_balance", label: "Crate Balance"},
     {id: "history", label: "History"}
   ];
 

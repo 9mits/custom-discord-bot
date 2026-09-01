@@ -168,8 +168,9 @@ final class CosmeticSoundAndTagTest {
      */
     @Test
     void cosmeticsAreHeardMuchCloserThanTheyAreSeen() {
-        double hearing = Math.sqrt(CosmeticEffectService.HEARING_DISTANCE_SQUARED);
-        double sight = Math.sqrt(CosmeticEffectService.VIEW_DISTANCE_SQUARED);
+        // Both are configurable now; these are the values they ship with.
+        double hearing = Math.sqrt(CosmeticEffectService.hearingDistanceSquared());
+        double sight = Math.sqrt(CosmeticEffectService.viewDistanceSquared());
 
         assertEquals(16d, hearing);
         assertEquals(48d, sight);

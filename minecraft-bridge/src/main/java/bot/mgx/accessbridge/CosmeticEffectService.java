@@ -63,6 +63,37 @@ final class CosmeticEffectService implements Listener {
      * of a second. Slow on purpose: the point is that it drifts, not that it flickers.
      */
     private static final double SCROLL_SPEED = 0.06d;
+    /**
+     * Live tuning, set once the registry exists. The constants above stay the defaults
+     * and stand alone in tests, which construct this directly.
+     */
+    private static volatile java.util.function.ToDoubleFunction<String> tuning = key -> Double.NaN;
+
+    static void tuningSource(java.util.function.ToDoubleFunction<String> source) {
+        if (source != null) {
+            tuning = source;
+        }
+    }
+
+    private static double tuned(String key, double fallback) {
+        double value = tuning.applyAsDouble(key);
+        return Double.isNaN(value) ? fallback : value;
+    }
+
+    static double viewDistanceSquared() {
+        double blocks = tuned("cosmetics.view-distance", 48d);
+        return blocks * blocks;
+    }
+
+    static double hearingDistanceSquared() {
+        double blocks = tuned("cosmetics.hearing-distance", 16d);
+        return blocks * blocks;
+    }
+
+    private static int trailHistory() {
+        return (int) tuned("cosmetics.trail.history", 14d);
+    }
+
     /** Palette entries between one character and the next along the line. */
     private static final double SCROLL_SPREAD = 0.34d;
     private static final double PULSE_SPEED = 0.045d;
@@ -80,7 +111,6 @@ final class CosmeticEffectService implements Listener {
     private static final double SHIMMER_WIDTH = 5d;
     /** How far the resting colour drifts per frame, under the highlight. */
     private static final double SHIMMER_DRIFT = 0.02d;
-    static final double VIEW_DISTANCE_SQUARED = 48d * 48d;
     /**
      * How close you have to be to hear a cosmetic.
      *
@@ -90,7 +120,6 @@ final class CosmeticEffectService implements Listener {
      * where its owner is standing long before they are in sight. Sixteen blocks is
      * close enough to be part of meeting somebody and short enough not to carry.
      */
-    static final double HEARING_DISTANCE_SQUARED = 16d * 16d;
     /**
      * Frames between one ambient note and the next.
      *
@@ -101,7 +130,6 @@ final class CosmeticEffectService implements Listener {
     private static final long AURA_SOUND_FRAMES = 32L;
     /** Quiet on purpose; the listener's own cosmetic volume scales it further. */
     private static final float AURA_SOUND_VOLUME = 0.45f;
-    private static final int TRAIL_HISTORY_SIZE = 14;
     private static final double TRAIL_RESET_DISTANCE_SQUARED = 12d * 12d;
     private static final String MUSIC_AURA_ID = CosmeticCatalog.HIDDEN_AMETHYST_COSMETIC_ID;
     private static final String MUSIC_AURA_SOUND = "mgx:iridescent_imperium";
@@ -285,7 +313,7 @@ final class CosmeticEffectService implements Listener {
                 history.clear();
             }
             history.addFirst(now.clone());
-            while (history.size() > TRAIL_HISTORY_SIZE) {
+            while (history.size() > trailHistory()) {
                 history.removeLast();
             }
             if (moving) {
@@ -461,27 +489,27 @@ final class CosmeticEffectService implements Listener {
     ) {
         double position = switch (motion) {
             // A gradient the length of the palette, drifting along the text.
-            case SCROLL -> frame * SCROLL_SPEED + index * SCROLL_SPREAD;
+            case SCROLL -> frame * tuned("cosmetics.aura.scroll-speed", SCROLL_SPEED) + index * tuned("cosmetics.aura.scroll-spread", SCROLL_SPREAD);
             // The whole line breathes together, so there is no spatial term.
-            case PULSE -> frame * PULSE_SPEED;
+            case PULSE -> frame * tuned("cosmetics.aura.pulse-speed", PULSE_SPEED);
             // One highlight sweeps the line and then rests: the travel past the end
             // is the pause between passes, which is what makes it read as a glint.
             // Eased so it swells and fades rather than switching on, and it enters
             // and leaves a full reach beyond either end — a head that reappears at
             // the first character is a jump however smooth the rest of the pass is.
             case SHIMMER -> {
-                double span = length + SHIMMER_REST + SHIMMER_WIDTH * 2d;
+                double span = length + SHIMMER_REST + tuned("cosmetics.shimmer.width", SHIMMER_WIDTH) * 2d;
                 double head = Math.floorMod(frame, (long) Math.ceil(span * SHIMMER_FRAMES))
-                        / SHIMMER_FRAMES - SHIMMER_WIDTH;
-                double distance = Math.min(SHIMMER_WIDTH, Math.abs(head - index));
+                        / SHIMMER_FRAMES - tuned("cosmetics.shimmer.width", SHIMMER_WIDTH);
+                double distance = Math.min(tuned("cosmetics.shimmer.width", SHIMMER_WIDTH), Math.abs(head - index));
                 // 1 under the head, 0 at the edge of the highlight, eased at both.
-                double glow = (1d + Math.cos(Math.PI * distance / SHIMMER_WIDTH)) / 2d;
+                double glow = (1d + Math.cos(Math.PI * distance / tuned("cosmetics.shimmer.width", SHIMMER_WIDTH))) / 2d;
                 // The line breathes underneath, so the glint travels over moving
                 // colour rather than over a base that sits on one palette entry
                 // between passes. The head lands on whole characters, so without
                 // this the whole motion samples the palette at a handful of fixed
                 // points and the glint is the only thing that is not static.
-                yield frame * SHIMMER_DRIFT + (palette.length - 1) * glow;
+                yield frame * tuned("cosmetics.shimmer.drift", SHIMMER_DRIFT) + (palette.length - 1) * glow;
             }
         };
         return blend(palette, position);
@@ -3734,7 +3762,7 @@ final class CosmeticEffectService implements Listener {
         Location centre = owner.getLocation();
         return viewers(owner, centre, PlayerSettingsStore.Setting.OWN_AURA_VISIBLE).stream()
                 .filter(viewer -> viewer.getWorld() == centre.getWorld()
-                        && viewer.getLocation().distanceSquared(centre) <= HEARING_DISTANCE_SQUARED)
+                        && viewer.getLocation().distanceSquared(centre) <= hearingDistanceSquared())
                 .toList();
     }
 
@@ -3768,7 +3796,7 @@ final class CosmeticEffectService implements Listener {
             }
             listener.playSound(
                     listener.getLocation(), sound, SoundCategory.PLAYERS,
-                    (volume / 100.0f) * AURA_SOUND_VOLUME, pitch
+                    (volume / 100.0f) * (float) tuned("cosmetics.aura.sound-volume", AURA_SOUND_VOLUME), pitch
             );
         }
     }
@@ -3801,7 +3829,7 @@ final class CosmeticEffectService implements Listener {
             return viewers;
         }
         for (Player viewer : world.getPlayers()) {
-            if (viewer.getLocation().distanceSquared(location) > VIEW_DISTANCE_SQUARED) {
+            if (viewer.getLocation().distanceSquared(location) > viewDistanceSquared()) {
                 continue;
             }
             boolean allowed;

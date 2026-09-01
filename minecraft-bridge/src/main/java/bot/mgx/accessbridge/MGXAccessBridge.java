@@ -225,6 +225,16 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             // give form offers is current rather than whatever it was at startup.
             gameVariables.actionCatalogue(adminActions.snapshot());
             ShopCatalog.multiplierSource(key -> gameVariables.integer(key));
+            // One reader for every tuning value that is a fraction rather than a count.
+            java.util.function.ToDoubleFunction<String> tuning = key ->
+                    gameVariables.find(key).map(definition ->
+                            definition.type() == GameVariableStore.Type.DECIMAL
+                                    ? gameVariables.decimal(key)
+                                    : (double) gameVariables.integer(key)
+                    ).orElse(Double.NaN);
+            CosmeticEffectService.tuningSource(tuning);
+            AirdropGuardService.tuningSource(tuning);
+            CrateOddsBalance.tuningSource(tuning);
             CustomEnchants.capSource(
                     id -> gameVariables.integer("enchants." + id + ".maximum-level"));
             gameVariables.onChange(key -> {

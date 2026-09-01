@@ -42,6 +42,20 @@ final class AirdropGuardService {
     private static final double HUNT_RADIUS = 40d;
     private static final double FOLLOW_RANGE = 48d;
     private static final double SPEED_MULTIPLIER = 1.2d;
+    /** Live tuning; the constants above stay the defaults and stand alone in tests. */
+    private static volatile java.util.function.ToDoubleFunction<String> tuning = key -> Double.NaN;
+
+    static void tuningSource(java.util.function.ToDoubleFunction<String> source) {
+        if (source != null) {
+            tuning = source;
+        }
+    }
+
+    private static double tuned(String key, double fallback) {
+        double value = tuning.applyAsDouble(key);
+        return Double.isNaN(value) ? fallback : value;
+    }
+
     private static final long PERIOD_TICKS = 5L;
     private static final int VERTICAL_SEARCH = 10;
     /** An Amethyst Golem is nearly three blocks tall. */
@@ -179,8 +193,8 @@ final class AirdropGuardService {
             // Guards must not wander off or despawn while the drop is still standing.
             guard.setPersistent(true);
             guard.setRemoveWhenFarAway(false);
-            scale(guard, Attribute.FOLLOW_RANGE, FOLLOW_RANGE);
-            multiply(guard, Attribute.MOVEMENT_SPEED, SPEED_MULTIPLIER);
+            scale(guard, Attribute.FOLLOW_RANGE, tuned("airdrop.guard.follow-range", FOLLOW_RANGE));
+            multiply(guard, Attribute.MOVEMENT_SPEED, tuned("airdrop.guard.speed", SPEED_MULTIPLIER));
             if (guard instanceof Mob mob) {
                 mob.setAware(true);
             }
@@ -200,7 +214,9 @@ final class AirdropGuardService {
         World world = post.getWorld();
         for (int attempt = 0; attempt < 64; attempt++) {
             double angle = random.nextDouble() * Math.PI * 2d;
-            double distance = INNER_RING + random.nextDouble() * (OUTER_RING - INNER_RING);
+            double inner = tuned("airdrop.guard.inner-ring", INNER_RING);
+            double outer = tuned("airdrop.guard.outer-ring", OUTER_RING);
+            double distance = inner + random.nextDouble() * (outer - inner);
             int x = post.getBlockX() + (int) Math.round(Math.cos(angle) * distance);
             int z = post.getBlockZ() + (int) Math.round(Math.sin(angle) * distance);
             Location standing = ground(world, x, post.getBlockY(), z, clearance);
@@ -266,7 +282,7 @@ final class AirdropGuardService {
         }
         Location post = standing.post;
 
-        Player hunted = nearestTarget(post, HUNT_RADIUS);
+        Player hunted = nearestTarget(post, tuned("airdrop.guard.hunt-radius", HUNT_RADIUS));
         if (hunted != null) {
             for (UUID id : standing.guards) {
                 if (!(plugin.getServer().getEntity(id) instanceof Mob guard)) {
