@@ -1724,6 +1724,33 @@ body.cx .theme-switch button[aria-checked="true"] { background: var(--brand-oran
 }
 .con-log-actor { color: var(--brand-orange); font-size: .72rem; font-weight: 600; }
 
+/* ---------- update notice ---------- */
+.con-announce { display: grid; gap: 1.25rem; grid-template-columns: minmax(0, 1fr) minmax(0, 22rem); align-items: start; }
+.con-announce-form { display: flex; flex-direction: column; gap: .75rem; min-width: 0; }
+.con-announce-form .con-search-field { width: 100%; }
+.con-textarea {
+  width: 100%; min-height: 8rem; padding: .5rem .6rem; resize: vertical;
+  border: 1px solid var(--line-strong); border-radius: .4rem;
+  background: var(--surface); color: var(--ink); font: inherit; font-size: .82rem;
+  line-height: 1.5;
+}
+.con-textarea:focus { border-color: var(--brand-orange); outline: none; }
+.con-announce-preview { min-width: 0; }
+.con-preview-label {
+  font-size: .62rem; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--grey); margin-bottom: .5rem;
+}
+/* Drawn the way Discord draws an embed, so the preview is worth trusting. */
+.con-embed {
+  border-left: 4px solid var(--embed, var(--brand-orange));
+  border-radius: .3rem; background: var(--surface); padding: .8rem .9rem;
+  display: flex; flex-direction: column; gap: .5rem;
+}
+.con-embed h4 { font-size: .9rem; font-weight: 650; }
+.con-embed p { font-size: .82rem; color: var(--text-muted); white-space: pre-wrap; }
+.con-embed img { width: 100%; border-radius: .3rem; }
+.con-embed footer { font-size: .7rem; color: var(--grey); }
+
 /* ---------- statistics heatmap ---------- */
 /* Fixed layout, or auto-sizing hands the slack to the weekday column and squashes the
    24 hours it exists to show. */
@@ -1893,6 +1920,7 @@ body.cx #control-lock p { font-size: .82rem; margin-bottom: 1.25rem; }
   }
   .con-draftbar { margin: 0 1rem 1rem; }
   .con-log-row { grid-template-columns: 1fr; gap: .2rem; }
+  .con-announce { grid-template-columns: 1fr; }
 }
 
 .live-toast {

@@ -18,6 +18,7 @@
 
     {id: "actions", label: "Do something", group: "Operate"},
     {id: "statistics", label: "Statistics", group: "Operate"},
+    {id: "announce", label: "Update notice", group: "Operate"},
     {id: "auction", label: "Live listings", group: "Operate"},
     {id: "history", label: "Change history", group: "Operate"},
 
@@ -292,6 +293,9 @@
     stalePlugin: false,
     stats: null,
     statDays: 30,
+    announce: null,
+    announceResult: null,
+    announceDraft: {title: "", description: "", colour: "f06000", footer: "", image: ""},
     actions: [],
     online: [],
     materials: [],
@@ -1595,6 +1599,110 @@
       }).join("") + "</div></section>";
   }
 
+  /**
+   * The update notice: one DM to everyone holding the member role.
+   *
+   * Written as an embed rather than plain text so a notice looks like an announcement
+   * and not like a stranger messaging you. The recipient count is shown before anything
+   * is sent, because "how many people am I about to message" is the question that
+   * decides whether you press the button.
+   */
+  function renderAnnounce() {
+    var state_ = state.announce;
+    if (!state_) return '<p class="con-empty">Loading&hellip;</p>';
+    if (state_.error) {
+      return '<p class="con-empty">Announcements are unavailable: ' +
+        escapeHtml(state_.error) + "</p>";
+    }
+    var draft = state.announceDraft;
+    var off = !state_.enabled;
+    return '<p class="con-intro">One direct message to everybody holding the member ' +
+      "role. Sending is paced and stops itself if too many inboxes refuse it &mdash; a " +
+      "high refusal rate is what gets a bot flagged, so it is treated as a reason to " +
+      "stop rather than a statistic.</p>" +
+      '<div class="con-stats">' +
+      '<div class="con-stat"><span>Will reach</span><strong>' +
+      Number(state_.recipients || 0).toLocaleString() +
+      "</strong><em>members with the role</em></div>" +
+      '<div class="con-stat"><span>Sending</span><strong>' +
+      (off ? "Off" : "On") + "</strong><em>" +
+      (off ? "switch it on to send" : "notices can be sent") + "</em></div>" +
+      '<div class="con-stat"><span>Takes about</span><strong>' +
+      Math.max(1, Math.round((state_.recipients || 0) * 1.2 / 60)) +
+      "</strong><em>minutes at this pace</em></div></div>" +
+
+      '<section class="con-section"><h3>Sending</h3><div class="con-grid">' +
+      '<article class="con-setting"><div class="con-setting-head">' +
+      "<h4>Update notices</h4></div>" +
+      '<p class="con-help">Off by default. Nothing can be sent while this is off.</p>' +
+      '<label class="con-switch"><input type="checkbox" data-announce-toggle' +
+      (state_.enabled ? " checked" : "") +
+      '><span class="con-track" aria-hidden="true"></span>' +
+      '<span class="con-switch-text">' + (state_.enabled ? "Enabled" : "Disabled") +
+      "</span></label></article></div></section>" +
+
+      '<section class="con-section"><h3>The notice</h3>' +
+      '<div class="con-announce">' +
+      '<div class="con-announce-form">' +
+      '<label class="con-field"><span>Title</span>' +
+      '<input class="con-search-field" data-announce="title" maxlength="256" value="' +
+      escapeHtml(draft.title) + '"></label>' +
+      '<label class="con-field"><span>Message</span>' +
+      '<textarea class="con-textarea" data-announce="description" rows="7" ' +
+      'maxlength="4000">' + escapeHtml(draft.description) + "</textarea></label>" +
+      '<div class="con-field-row">' +
+      '<label class="con-field"><span>Colour</span>' +
+      '<input class="con-search-field" data-announce="colour" maxlength="6" value="' +
+      escapeHtml(draft.colour) + '"></label>' +
+      '<label class="con-field"><span>Footer</span>' +
+      '<input class="con-search-field" data-announce="footer" maxlength="120" value="' +
+      escapeHtml(draft.footer) + '"></label></div>' +
+      '<label class="con-field"><span>Image URL (https only, optional)</span>' +
+      '<input class="con-search-field" data-announce="image" value="' +
+      escapeHtml(draft.image) + '"></label>' +
+      '<div class="con-table-actions"><button type="button" class="con-danger" ' +
+      'id="con-announce-send"' + (off || state_.sending ? " disabled" : "") + ">" +
+      (state_.sending ? "Sending&hellip;" : "Send to " + (state_.recipients || 0) +
+        " member" + (state_.recipients === 1 ? "" : "s")) +
+      "</button></div></div>" +
+      announcePreview(draft) +
+      "</div></section>" +
+      (state.announceResult ? announceOutcome(state.announceResult) : "");
+  }
+
+  /** What the DM will look like, drawn the way Discord draws an embed. */
+  function announcePreview(draft) {
+    var colour = /^[0-9a-f]{6}$/i.test(draft.colour) ? draft.colour : "f06000";
+    return '<div class="con-announce-preview"><p class="con-preview-label">Preview</p>' +
+      '<div class="con-embed" style="--embed:#' + colour + '">' +
+      (draft.title ? "<h4>" + escapeHtml(draft.title) + "</h4>" : "") +
+      (draft.description
+        ? "<p>" + escapeHtml(draft.description).replace(/\n/g, "<br>") + "</p>"
+        : '<p class="con-muted">Your message appears here.</p>') +
+      (draft.image && /^https:\/\//.test(draft.image)
+        ? '<img src="' + escapeHtml(draft.image) + '" alt="">' : "") +
+      (draft.footer ? "<footer>" + escapeHtml(draft.footer) + "</footer>" : "") +
+      "</div></div>";
+  }
+
+  function announceOutcome(result) {
+    return '<section class="con-section"><h3>Last send</h3>' +
+      '<div class="con-stats">' +
+      '<div class="con-stat"><span>Delivered</span><strong>' + result.delivered +
+      "</strong><em>notices sent</em></div>" +
+      '<div class="con-stat"><span>Refused</span><strong>' + result.refused +
+      "</strong><em>inboxes closed</em></div>" +
+      '<div class="con-stat"><span>Skipped</span><strong>' + result.skipped +
+      "</strong><em>messaged recently</em></div></div>" +
+      (result.stopped_early
+        ? '<p class="con-finding">' + escapeHtml(result.reason) + "</p>"
+        : "") +
+      (result.failures && result.failures.length
+        ? '<p class="con-table-note">' +
+          result.failures.map(escapeHtml).join("<br>") + "</p>"
+        : "");
+  }
+
   function renderActivity() {
     var feed = state.activity || {};
     var entries = feed.entries || [];
@@ -1671,7 +1779,7 @@
 
   function pageCount(page) {
     if (page.id === "actions") return state.actions.length;
-    if (page.id === "statistics") return 0;
+    if (page.id === "statistics" || page.id === "announce") return 0;
     if (page.id === "activity") return ((state.activity || {}).entries || []).length;
     if (page.id === "auction") return ((state.auction || {}).listings || []).length;
     if (page.id === "overview" || page.id === "history") return 0;
@@ -1860,6 +1968,9 @@
         '<datalist id="con-online">' + state.online.map(function (name) {
           return '<option value="' + escapeHtml(name) + '">';
         }).join("") + "</datalist>";
+    } else if (state.page === "announce") {
+      main.innerHTML = banner + renderAnnounce();
+      if (state.announce === null) loadAnnounce();
     } else if (state.page === "statistics") {
       main.innerHTML = banner + renderStatistics();
       if (state.stats === null) loadStatistics();
@@ -1950,8 +2061,27 @@
       goTo(button.dataset.page);
     });
 
+    // The announcement editor updates its preview as you type, so it listens for input
+    // rather than change; a preview that only appears when a field loses focus is not a
+    // preview of what you are writing.
+    byId("con-page").addEventListener("input", function (event) {
+      var field = event.target.dataset ? event.target.dataset.announce : null;
+      if (!field) return;
+      state.announceDraft[field] = event.target.value;
+      var preview = document.querySelector(".con-announce-preview");
+      if (preview) {
+        preview.outerHTML = announcePreview(state.announceDraft);
+      }
+    });
+
     byId("con-page").addEventListener("change", function (event) {
       var target = event.target;
+      if (target.dataset.announceToggle !== undefined) {
+        post("/api/announce", {enabled: target.checked})
+          .then(loadAnnounce)
+          .catch(function (error) { toast(error.message, true); });
+        return;
+      }
       if (target.dataset.toggle !== undefined) {
         setDraft(target.dataset.key, target.checked);
         return;
@@ -1992,6 +2122,7 @@
       if (restore) { restoreRow(restore.dataset.table, restore.dataset.restore); return; }
       var run = event.target.closest("[data-run]");
       if (run) { runAction(run.dataset.run); return; }
+      if (event.target.id === "con-announce-send") { sendAnnouncement(); return; }
       var window_ = event.target.closest("[data-stat-days]");
       if (window_) {
         state.statDays = Number(window_.dataset.statDays);
@@ -2154,6 +2285,40 @@
   }
 
   /* ---------- boot ---------- */
+
+  async function loadAnnounce() {
+    try {
+      state.announce = await api("/api/announce");
+    } catch (error) {
+      state.announce = {error: error.message};
+    }
+    if (state.page === "announce") render();
+  }
+
+  async function sendAnnouncement() {
+    var draft = state.announceDraft;
+    if (!draft.title.trim() && !draft.description.trim()) {
+      toast("Write a title or a message first.", true);
+      return;
+    }
+    if (!await confirmThat(
+      "Send this to " + (state.announce.recipients || 0) + " members?",
+      "Each one gets a direct message. Sending is paced, so it takes about " +
+      Math.max(1, Math.round((state.announce.recipients || 0) * 1.2 / 60)) +
+      " minutes and cannot be recalled once it starts.",
+      "Send it"
+    )) return;
+    state.announce.sending = true;
+    render();
+    try {
+      state.announceResult = await post("/api/announce", draft);
+      toast("Delivered to " + state.announceResult.delivered + " member(s).",
+            state.announceResult.stopped_early);
+    } catch (error) {
+      toast(error.message, true);
+    }
+    await loadAnnounce();
+  }
 
   async function loadStatistics() {
     try {
