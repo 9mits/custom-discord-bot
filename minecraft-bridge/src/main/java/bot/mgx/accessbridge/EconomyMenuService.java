@@ -1538,6 +1538,15 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
                 player.getUniqueId(), menu.subject(), money, System.currentTimeMillis()
         );
         give(player, item);
+        // A cosmetic is owned in the wardrobe, not carried in the inventory. Listing one
+        // clears its custody so the token can travel, and give() puts it straight into
+        // the buyer's inventory — which fires no pickup event, so nothing claimed it back.
+        // The buyer was left holding a token nobody owns: absent from their wardrobe, and
+        // gone from their inventory the moment anything tidied it up. Claim it here, while
+        // the purchase is still the thing happening.
+        if (wardrobe != null) {
+            wardrobe.vaultCarried(player);
+        }
         info(player, "Bought for " + EconomyFormat.dollars(purchase.paid()) + ".");
         Player seller = plugin.getServer().getPlayer(purchase.listing().seller());
         if (seller != null) {

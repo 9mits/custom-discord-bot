@@ -24,7 +24,6 @@ from minecraft_bot.presentation import (
     FOOTER_ICON_URL,
     FOOTER_PATH,
     LOGO_PATH,
-    RULES_ATTACHMENT_URI,
     ABOUT_PATH,
     APPLY_PATH,
     RULES_PATH,
@@ -43,13 +42,12 @@ from minecraft_bot.settings import MinecraftSettings
 from minecraft_bot.setup import MinecraftSetupView
 from minecraft_bot.ui import (
     application_card_view,
-    VerifyButton,
+    LinkAccountButton,
     ReverseLinkButton,
     CancelPendingConfirmationView,
     MinecraftControlView,
     MinecraftApplicationModal,
     LiveApplicationView,
-    RulesAgreementView,
 )
 
 
@@ -868,7 +866,7 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             [item.label for item in apply.kwargs["view"].children],
-            ["Verify From Discord"],
+            ["Link A Minecraft Account"],
         )
         for call in channel.send.await_args_list:
             for file in call.kwargs["files"]:
@@ -918,64 +916,6 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
             for file in message.edit.await_args.kwargs["attachments"]:
                 file.close()
 
-    async def test_apply_reveals_cancel_only_for_pending_verification(self):
-        application = MinecraftAccess(
-            id=42,
-            guild_id="10",
-            discord_user_id="99",
-            edition=Edition.JAVA,
-            claimed_username="PlayerOne",
-            normalized_username="playerone",
-            status=AccessStatus.PENDING_VERIFICATION,
-            verification_expires_at=2_000_000_000,
-            created_at=1_999_999_400,
-            updated_at=1_999_999_400,
-        )
-        response = SimpleNamespace(
-            send_message=AsyncMock(),
-            send_modal=AsyncMock(),
-        )
-        bot = SimpleNamespace(
-            config=SimpleNamespace(guild_id=10),
-            settings=SimpleNamespace(
-                application_channel_id=20,
-                java_address="java.example:25565",
-                bedrock_address="bedrock.example",
-                bedrock_port=19132,
-            ),
-            data=SimpleNamespace(
-                get_config=AsyncMock(return_value="30"),
-                get_active_access_for_user=AsyncMock(return_value=application),
-            ),
-            apply_rate_limit=SimpleNamespace(claim=lambda _user_id: True),
-            replace_application_card=AsyncMock(),
-        )
-        interaction = SimpleNamespace(
-            client=bot,
-            guild_id=10,
-            channel_id=20,
-            message=SimpleNamespace(id=30),
-            user=SimpleNamespace(id=99),
-            response=response,
-            original_response=AsyncMock(return_value=SimpleNamespace(id=99)),
-        )
-
-        await VerifyButton().callback(interaction)
-
-        response.send_modal.assert_not_awaited()
-        response.send_message.assert_awaited_once()
-        kwargs = response.send_message.await_args.kwargs
-        self.assertTrue(kwargs["ephemeral"])
-        # Both controls, not a cancel-only view: reopening the card through Apply
-        # used to silently drop Get Help.
-        self.assertEqual(
-            [item.label for item in kwargs["view"].children],
-            ["Cancel Pending Verification", "Get Help"],
-        )
-        self.assertEqual(kwargs["embed"].image.url, VERIFY_ATTACHMENT_URI)
-        self.assertEqual(kwargs["file"].filename, "mysterious_smp_x_verify.png")
-        kwargs["file"].close()
-
     async def test_cancel_confirmation_edits_the_existing_ephemeral(self):
         response = SimpleNamespace(defer=AsyncMock())
         interaction = SimpleNamespace(
@@ -992,67 +932,6 @@ class MinecraftApplyFlowTests(unittest.IsolatedAsyncioTestCase):
         response.defer.assert_awaited_once_with()
         interaction.edit_original_response.assert_awaited_once()
         kwargs = interaction.edit_original_response.await_args.kwargs
-        self.assertIsNone(kwargs["view"])
-        self.assertEqual(kwargs["attachments"], [])
-
-    async def test_new_application_requires_rules_agreement(self):
-        response = SimpleNamespace(send_message=AsyncMock(), send_modal=AsyncMock())
-        bot = SimpleNamespace(
-            config=SimpleNamespace(guild_id=10),
-            settings=SimpleNamespace(application_channel_id=20),
-            data=SimpleNamespace(
-                get_config=AsyncMock(return_value="30"),
-                get_active_access_for_user=AsyncMock(return_value=None),
-            ),
-            apply_rate_limit=SimpleNamespace(claim=lambda _user_id: True),
-        )
-        interaction = SimpleNamespace(
-            client=bot,
-            guild_id=10,
-            channel_id=20,
-            message=SimpleNamespace(id=30),
-            user=SimpleNamespace(id=99),
-            response=response,
-        )
-
-        await VerifyButton().callback(interaction)
-
-        response.send_modal.assert_not_awaited()
-        kwargs = response.send_message.await_args.kwargs
-        self.assertIsInstance(kwargs["view"], RulesAgreementView)
-        self.assertEqual(kwargs["view"].children[0].style, discord.ButtonStyle.success)
-        self.assertEqual(kwargs["view"].children[1].style, discord.ButtonStyle.secondary)
-        self.assertEqual(kwargs["embed"].image.url, RULES_ATTACHMENT_URI)
-        self.assertEqual(kwargs["embed"].footer.icon_url, FOOTER_ICON_URL)
-        self.assertEqual(kwargs["file"].filename, "mysterious_smp_x_rules.png")
-        kwargs["file"].close()
-
-    async def test_rules_agreement_opens_modal_and_disagreement_edits_message(self):
-        view = RulesAgreementView(99)
-        agree_response = SimpleNamespace(send_modal=AsyncMock())
-        agree_interaction = SimpleNamespace(
-            client=SimpleNamespace(bridge=SimpleNamespace(supports_auto_edition=True)),
-            message=SimpleNamespace(id=1),
-            user=SimpleNamespace(id=99),
-            response=agree_response,
-        )
-
-        await view.children[0].callback(agree_interaction)
-
-        agree_response.send_modal.assert_awaited_once()
-        self.assertIsInstance(
-            agree_response.send_modal.await_args.args[0],
-            MinecraftApplicationModal,
-        )
-
-        disagree_response = SimpleNamespace(edit_message=AsyncMock())
-        disagree_interaction = SimpleNamespace(
-            user=SimpleNamespace(id=99),
-            response=disagree_response,
-        )
-        await view.children[1].callback(disagree_interaction)
-
-        kwargs = disagree_response.edit_message.await_args.kwargs
         self.assertIsNone(kwargs["view"])
         self.assertEqual(kwargs["attachments"], [])
 
@@ -1384,6 +1263,71 @@ class MinecraftConfigurationTests(unittest.IsolatedAsyncioTestCase):
             await bot.update_settings(actor_id=123, application_channel_id=20)
 
         self.assertEqual(bot.settings.application_channel_id, 10)
+
+
+class LinkAccountButtonTests(unittest.IsolatedAsyncioTestCase):
+    """The panel links accounts; it no longer verifies them.
+
+    Verifying from Discord took a username on trust in a form, marked the account
+    pending, and left an approved player standing in the verification world having to
+    warp out by hand. Ownership is proved in game now, where the account running
+    /verify is itself the proof and cannot be typed wrong.
+    """
+
+    def _interaction(self, accounts, response):
+        bot = SimpleNamespace(
+            config=SimpleNamespace(guild_id=10),
+            settings=SimpleNamespace(
+                application_channel_id=20,
+                java_address="java.example:25565",
+                bedrock_address="bedrock.example",
+                bedrock_port=19132,
+            ),
+            data=SimpleNamespace(
+                list_accounts_for_user=AsyncMock(return_value=accounts),
+                # The guard compares this against the message the click came from.
+                get_config=AsyncMock(return_value="30"),
+            ),
+            build_link_edition_prompt=AsyncMock(
+                return_value=(discord.Embed(title="Link Other Accounts"), None)
+            ),
+        )
+        return SimpleNamespace(
+            client=bot,
+            guild_id=10,
+            channel_id=20,
+            message=SimpleNamespace(id=30),
+            user=SimpleNamespace(id=99, name="somebody"),
+            response=response,
+        )
+
+    async def test_a_first_time_player_is_sent_in_game_rather_than_given_a_form(self):
+        response = SimpleNamespace(send_message=AsyncMock(), send_modal=AsyncMock())
+        interaction = self._interaction([], response)
+
+        await LinkAccountButton().callback(interaction)
+
+        response.send_modal.assert_not_awaited()
+        kwargs = response.send_message.await_args.kwargs
+        self.assertTrue(kwargs["ephemeral"])
+        body = kwargs["embed"].description
+        # It must name the command and pre-fill the username they should type, because
+        # typing the wrong one is what silently produced no DM at all.
+        self.assertIn("/verify somebody", body)
+        self.assertIn("java.example:25565", body)
+        self.assertIn("19132", body)
+
+    async def test_someone_with_an_account_gets_the_linking_card(self):
+        response = SimpleNamespace(send_message=AsyncMock(), send_modal=AsyncMock())
+        interaction = self._interaction([{"edition": "java"}], response)
+
+        await LinkAccountButton().callback(interaction)
+
+        interaction.client.build_link_edition_prompt.assert_awaited_once_with(99)
+        self.assertEqual(
+            "Link Other Accounts",
+            response.send_message.await_args.kwargs["embed"].title,
+        )
 
 
 if __name__ == "__main__":
@@ -3157,65 +3101,6 @@ class QuoteFormattingTests(unittest.TestCase):
                                 line.startswith(">"),
                                 f"{name} / {field.name} is unquoted",
                             )
-
-
-class ApplyButtonExistingApplicationTests(unittest.IsolatedAsyncioTestCase):
-    """Pressing Apply with an application already running reprints its card.
-
-    This path used to build its own controls, which is how a Get Help button kept
-    appearing on the submitted card after being removed everywhere else. Every
-    surface asks application_card_view now.
-    """
-
-    async def _card(self, status):
-        bot = SimpleNamespace(
-            config=SimpleNamespace(guild_id=10),
-            settings=SimpleNamespace(
-                application_channel_id=20,
-                java_address="j",
-                bedrock_address="b",
-                bedrock_port=1,
-                maintenance_mode=False,
-            ),
-            data=SimpleNamespace(
-                get_active_access_for_user=AsyncMock(
-                    return_value=SimpleNamespace(
-                        id=1,
-                        status=status,
-                        edition=Edition.JAVA,
-                        claimed_username="PlayerOne",
-                        verified_username="PlayerOne",
-                        verification_expires_at=2_000_000_000,
-                        auto_detect_edition=False,
-                        verified_at=None,
-                    )
-                ),
-                get_config=AsyncMock(return_value="30"),
-            ),
-            replace_application_card=AsyncMock(),
-        )
-        response = SimpleNamespace(send_message=AsyncMock(), send_modal=AsyncMock())
-        interaction = SimpleNamespace(
-            client=bot,
-            guild_id=10,
-            channel_id=20,
-            message=SimpleNamespace(id=30),
-            user=SimpleNamespace(id=99),
-            response=response,
-            original_response=AsyncMock(return_value=SimpleNamespace(id=99)),
-        )
-
-        await VerifyButton().callback(interaction)
-
-        return response.send_message.await_args.kwargs
-
-    async def test_a_pending_verification_offers_cancelling_and_help(self):
-        kwargs = await self._card(AccessStatus.PENDING_VERIFICATION)
-
-        self.assertEqual(
-            [item.label for item in kwargs["view"].children],
-            ["Cancel Pending Verification", "Get Help"],
-        )
 
 
 class ApplicantVoiceTests(unittest.TestCase):

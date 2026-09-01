@@ -17,7 +17,8 @@
     {id: "overview", label: "Overview", group: ""},
 
     {id: "actions", label: "Do something", group: "Operate"},
-    {id: "activity", label: "Activity log", group: "Operate"},
+    {id: "statistics", label: "Statistics", group: "Operate"},
+    {id: "announce", label: "Update notice", group: "Operate"},
     {id: "auction", label: "Live listings", group: "Operate"},
     {id: "history", label: "Change history", group: "Operate"},
 
@@ -47,6 +48,7 @@
     {id: "cosmetics", label: "Cosmetics", group: "Items & effects"},
     {id: "perks", label: "Perks", group: "Items & effects"},
 
+    {id: "messages", label: "Messages", group: "Presentation"},
     {id: "boss_bars", label: "Boss bars", group: "Presentation"},
     {id: "presentation", label: "Presentation", group: "Presentation"}
   ];
@@ -100,6 +102,7 @@
     perks: "What Elite and Booster are worth in play.",
     clan_battles: "What each placement pays when a Clan Battle ends.",
     launch: "The opening countdown and how long PvP stays off afterwards.",
+    messages: "The exact words players see. Formatting is MiniMessage — <bold>text</bold> and <#b57edc>colour</#b57edc> work — and anything in angle brackets like <keys> is filled in by the server. Empty a message to switch it off entirely.",
     presentation: "Small pieces of what players see."
   };
 
@@ -288,6 +291,11 @@
     auction: null,
     logFilter: "all",
     stalePlugin: false,
+    stats: null,
+    statDays: 30,
+    announce: null,
+    announceResult: null,
+    announceDraft: {title: "", description: "", colour: "f06000", footer: "", image: ""},
     actions: [],
     online: [],
     materials: [],
@@ -1483,6 +1491,218 @@
   }
 
   /** What has happened in game lately, by category. */
+  /**
+   * Server statistics, drawn with the console's own components.
+   *
+   * These lived on a separate owner page with a separate stylesheet and a separate
+   * sign-in, which meant checking whether a change had worked involved leaving the place
+   * you made it. Same data, same shell.
+   */
+  function renderStatistics() {
+    var stats = state.stats;
+    if (!stats) {
+      return '<p class="con-empty">Loading statistics&hellip;</p>';
+    }
+    if (stats.error) {
+      return '<p class="con-empty">Statistics are unavailable: ' +
+        escapeHtml(stats.error) + "</p>";
+    }
+    var activity = stats.activity || {};
+    var access = stats.access || {};
+    var afk = stats.afk || {};
+    var tiles = [
+      ["Online now", activity.current || 0, "players connected"],
+      ["Busiest it got", activity.peak || 0,
+        activity.peak_at ? "on " + new Date(activity.peak_at * 1000).toLocaleDateString() : "no peak recorded"],
+      ["Joins", activity.joins || 0,
+        (activity.java_joins || 0) + " Java, " + (activity.bedrock_joins || 0) + " Bedrock"],
+      ["Verified accounts", access.VERIFIED || access.verified || 0, "cleared to play"]
+    ].map(function (tile) {
+      return '<div class="con-stat"><span>' + escapeHtml(tile[0]) + "</span><strong>" +
+        Number(tile[1]).toLocaleString() + "</strong><em>" + escapeHtml(tile[2]) +
+        "</em></div>";
+    }).join("");
+
+    var windows = [1, 7, 30, 90, 365].map(function (days) {
+      return '<button type="button" data-stat-days="' + days + '" aria-pressed="' +
+        (state.statDays === days ? "true" : "false") + '">' +
+        (days === 1 ? "24 hours" : days === 365 ? "1 year" : days + " days") + "</button>";
+    }).join("");
+
+    return '<p class="con-intro">How the server has actually been used over the window ' +
+      "you pick. These are observations, not settings &mdash; nothing here is editable.</p>" +
+      '<div class="con-category-rail">' + windows + "</div>" +
+      '<div class="con-stats">' + tiles + "</div>" +
+      busiestHours(activity.busiest || []) +
+      afkSection(afk);
+  }
+
+  /** When people actually play, as a weekday-by-hour grid. */
+  function busiestHours(busiest) {
+    if (!busiest.length) {
+      return '<section class="con-section"><h3>When people play</h3>' +
+        '<p class="con-empty">Not enough samples yet.</p></section>';
+    }
+    var peak = busiest.reduce(function (top, row) {
+      return Math.max(top, Number(row.average) || 0);
+    }, 0) || 1;
+    var days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    var grid = {};
+    busiest.forEach(function (row) {
+      grid[row.weekday + ":" + row.hour] = Number(row.average) || 0;
+    });
+    var head = '<tr><th></th>';
+    for (var hour = 0; hour < 24; hour++) {
+      // Not con-num: that sets width 1% for loot-table figures, which here would give
+      // every hour a sliver and hand the rest to the weekday label.
+      head += "<th>" + hour + "</th>";
+    }
+    head += "</tr>";
+    var body = days.map(function (name, index) {
+      var cells = "";
+      for (var h = 0; h < 24; h++) {
+        var value = grid[index + ":" + h];
+        var share = value === undefined ? 0 : value / peak;
+        cells += '<td class="con-heat" style="--heat:' + share.toFixed(3) + '" title="' +
+          name + " " + h + ":00 — " + (value === undefined ? "no samples"
+            : value.toFixed(1) + " players") + '"></td>';
+      }
+      return "<tr><th>" + name + "</th>" + cells + "</tr>";
+    }).join("");
+    return '<section class="con-section"><h3>When people play' +
+      '<span class="con-section-count">peak ' + peak.toFixed(1) + "</span></h3>" +
+      '<div class="con-table-scroll"><table class="con-heatmap"><thead>' + head +
+      "</thead><tbody>" + body + "</tbody></table></div>" +
+      '<p class="con-table-note">Average players online, by weekday and hour, in server ' +
+      "time. Darker is busier.</p></section>";
+  }
+
+  /** "1h 30m" — the idle column has one line, not a sentence. */
+  function shortDuration(seconds) {
+    var minutes = Math.max(0, Math.round(seconds / 60));
+    var hours = Math.floor(minutes / 60);
+    return hours ? hours + "h " + (minutes % 60) + "m" : minutes + "m";
+  }
+
+  function afkSection(afk) {
+    var players = afk.players || [];
+    if (!players.length) {
+      return "";
+    }
+    return '<section class="con-section"><h3>Most idle' +
+      '<span class="con-section-count">' + players.length + "</span></h3>" +
+      '<div class="con-log">' + players.slice(0, 10).map(function (row) {
+        return '<div class="con-log-row"><span class="con-log-cat">afk</span>' +
+          "<div><strong>" + escapeHtml(row.username || "unknown") + "</strong></div>" +
+          "<time>" + escapeHtml(shortDuration(Number(row.afk_seconds) || 0)) +
+          "</time></div>";
+      }).join("") + "</div></section>";
+  }
+
+  /**
+   * The update notice: one DM to everyone holding the member role.
+   *
+   * Written as an embed rather than plain text so a notice looks like an announcement
+   * and not like a stranger messaging you. The recipient count is shown before anything
+   * is sent, because "how many people am I about to message" is the question that
+   * decides whether you press the button.
+   */
+  function renderAnnounce() {
+    var state_ = state.announce;
+    if (!state_) return '<p class="con-empty">Loading&hellip;</p>';
+    if (state_.error) {
+      return '<p class="con-empty">Announcements are unavailable: ' +
+        escapeHtml(state_.error) + "</p>";
+    }
+    var draft = state.announceDraft;
+    var off = !state_.enabled;
+    return '<p class="con-intro">One direct message to everybody holding the member ' +
+      "role. Sending is paced and stops itself if too many inboxes refuse it &mdash; a " +
+      "high refusal rate is what gets a bot flagged, so it is treated as a reason to " +
+      "stop rather than a statistic.</p>" +
+      '<div class="con-stats">' +
+      '<div class="con-stat"><span>Will reach</span><strong>' +
+      Number(state_.recipients || 0).toLocaleString() +
+      "</strong><em>members with the role</em></div>" +
+      '<div class="con-stat"><span>Sending</span><strong>' +
+      (off ? "Off" : "On") + "</strong><em>" +
+      (off ? "switch it on to send" : "notices can be sent") + "</em></div>" +
+      '<div class="con-stat"><span>Takes about</span><strong>' +
+      Math.max(1, Math.round((state_.recipients || 0) * 1.2 / 60)) +
+      "</strong><em>minutes at this pace</em></div></div>" +
+
+      '<section class="con-section"><h3>Sending</h3><div class="con-grid">' +
+      '<article class="con-setting"><div class="con-setting-head">' +
+      "<h4>Update notices</h4></div>" +
+      '<p class="con-help">Off by default. Nothing can be sent while this is off.</p>' +
+      '<label class="con-switch"><input type="checkbox" data-announce-toggle' +
+      (state_.enabled ? " checked" : "") +
+      '><span class="con-track" aria-hidden="true"></span>' +
+      '<span class="con-switch-text">' + (state_.enabled ? "Enabled" : "Disabled") +
+      "</span></label></article></div></section>" +
+
+      '<section class="con-section"><h3>The notice</h3>' +
+      '<div class="con-announce">' +
+      '<div class="con-announce-form">' +
+      '<label class="con-field"><span>Title</span>' +
+      '<input class="con-search-field" data-announce="title" maxlength="256" value="' +
+      escapeHtml(draft.title) + '"></label>' +
+      '<label class="con-field"><span>Message</span>' +
+      '<textarea class="con-textarea" data-announce="description" rows="7" ' +
+      'maxlength="4000">' + escapeHtml(draft.description) + "</textarea></label>" +
+      '<div class="con-field-row">' +
+      '<label class="con-field"><span>Colour</span>' +
+      '<input class="con-search-field" data-announce="colour" maxlength="6" value="' +
+      escapeHtml(draft.colour) + '"></label>' +
+      '<label class="con-field"><span>Footer</span>' +
+      '<input class="con-search-field" data-announce="footer" maxlength="120" value="' +
+      escapeHtml(draft.footer) + '"></label></div>' +
+      '<label class="con-field"><span>Image URL (https only, optional)</span>' +
+      '<input class="con-search-field" data-announce="image" value="' +
+      escapeHtml(draft.image) + '"></label>' +
+      '<div class="con-table-actions"><button type="button" class="con-danger" ' +
+      'id="con-announce-send"' + (off || state_.sending ? " disabled" : "") + ">" +
+      (state_.sending ? "Sending&hellip;" : "Send to " + (state_.recipients || 0) +
+        " member" + (state_.recipients === 1 ? "" : "s")) +
+      "</button></div></div>" +
+      announcePreview(draft) +
+      "</div></section>" +
+      (state.announceResult ? announceOutcome(state.announceResult) : "");
+  }
+
+  /** What the DM will look like, drawn the way Discord draws an embed. */
+  function announcePreview(draft) {
+    var colour = /^[0-9a-f]{6}$/i.test(draft.colour) ? draft.colour : "f06000";
+    return '<div class="con-announce-preview"><p class="con-preview-label">Preview</p>' +
+      '<div class="con-embed" style="--embed:#' + colour + '">' +
+      (draft.title ? "<h4>" + escapeHtml(draft.title) + "</h4>" : "") +
+      (draft.description
+        ? "<p>" + escapeHtml(draft.description).replace(/\n/g, "<br>") + "</p>"
+        : '<p class="con-muted">Your message appears here.</p>') +
+      (draft.image && /^https:\/\//.test(draft.image)
+        ? '<img src="' + escapeHtml(draft.image) + '" alt="">' : "") +
+      (draft.footer ? "<footer>" + escapeHtml(draft.footer) + "</footer>" : "") +
+      "</div></div>";
+  }
+
+  function announceOutcome(result) {
+    return '<section class="con-section"><h3>Last send</h3>' +
+      '<div class="con-stats">' +
+      '<div class="con-stat"><span>Delivered</span><strong>' + result.delivered +
+      "</strong><em>notices sent</em></div>" +
+      '<div class="con-stat"><span>Refused</span><strong>' + result.refused +
+      "</strong><em>inboxes closed</em></div>" +
+      '<div class="con-stat"><span>Skipped</span><strong>' + result.skipped +
+      "</strong><em>messaged recently</em></div></div>" +
+      (result.stopped_early
+        ? '<p class="con-finding">' + escapeHtml(result.reason) + "</p>"
+        : "") +
+      (result.failures && result.failures.length
+        ? '<p class="con-table-note">' +
+          result.failures.map(escapeHtml).join("<br>") + "</p>"
+        : "");
+  }
+
   function renderActivity() {
     var feed = state.activity || {};
     var entries = feed.entries || [];
@@ -1559,6 +1779,7 @@
 
   function pageCount(page) {
     if (page.id === "actions") return state.actions.length;
+    if (page.id === "statistics" || page.id === "announce") return 0;
     if (page.id === "activity") return ((state.activity || {}).entries || []).length;
     if (page.id === "auction") return ((state.auction || {}).listings || []).length;
     if (page.id === "overview" || page.id === "history") return 0;
@@ -1747,6 +1968,12 @@
         '<datalist id="con-online">' + state.online.map(function (name) {
           return '<option value="' + escapeHtml(name) + '">';
         }).join("") + "</datalist>";
+    } else if (state.page === "announce") {
+      main.innerHTML = banner + renderAnnounce();
+      if (state.announce === null) loadAnnounce();
+    } else if (state.page === "statistics") {
+      main.innerHTML = banner + renderStatistics();
+      if (state.stats === null) loadStatistics();
     } else if (state.page === "activity") {
       main.innerHTML = banner + renderActivity();
     } else if (state.page === "auction") {
@@ -1834,8 +2061,27 @@
       goTo(button.dataset.page);
     });
 
+    // The announcement editor updates its preview as you type, so it listens for input
+    // rather than change; a preview that only appears when a field loses focus is not a
+    // preview of what you are writing.
+    byId("con-page").addEventListener("input", function (event) {
+      var field = event.target.dataset ? event.target.dataset.announce : null;
+      if (!field) return;
+      state.announceDraft[field] = event.target.value;
+      var preview = document.querySelector(".con-announce-preview");
+      if (preview) {
+        preview.outerHTML = announcePreview(state.announceDraft);
+      }
+    });
+
     byId("con-page").addEventListener("change", function (event) {
       var target = event.target;
+      if (target.dataset.announceToggle !== undefined) {
+        post("/api/announce", {enabled: target.checked})
+          .then(loadAnnounce)
+          .catch(function (error) { toast(error.message, true); });
+        return;
+      }
       if (target.dataset.toggle !== undefined) {
         setDraft(target.dataset.key, target.checked);
         return;
@@ -1876,6 +2122,15 @@
       if (restore) { restoreRow(restore.dataset.table, restore.dataset.restore); return; }
       var run = event.target.closest("[data-run]");
       if (run) { runAction(run.dataset.run); return; }
+      if (event.target.id === "con-announce-send") { sendAnnouncement(); return; }
+      var window_ = event.target.closest("[data-stat-days]");
+      if (window_) {
+        state.statDays = Number(window_.dataset.statDays);
+        state.stats = null;
+        render();
+        loadStatistics();
+        return;
+      }
       var logged = event.target.closest("[data-log]");
       if (logged) { state.logFilter = logged.dataset.log; render(); return; }
       var jump = event.target.closest("[data-page]");
@@ -2030,6 +2285,49 @@
   }
 
   /* ---------- boot ---------- */
+
+  async function loadAnnounce() {
+    try {
+      state.announce = await api("/api/announce");
+    } catch (error) {
+      state.announce = {error: error.message};
+    }
+    if (state.page === "announce") render();
+  }
+
+  async function sendAnnouncement() {
+    var draft = state.announceDraft;
+    if (!draft.title.trim() && !draft.description.trim()) {
+      toast("Write a title or a message first.", true);
+      return;
+    }
+    if (!await confirmThat(
+      "Send this to " + (state.announce.recipients || 0) + " members?",
+      "Each one gets a direct message. Sending is paced, so it takes about " +
+      Math.max(1, Math.round((state.announce.recipients || 0) * 1.2 / 60)) +
+      " minutes and cannot be recalled once it starts.",
+      "Send it"
+    )) return;
+    state.announce.sending = true;
+    render();
+    try {
+      state.announceResult = await post("/api/announce", draft);
+      toast("Delivered to " + state.announceResult.delivered + " member(s).",
+            state.announceResult.stopped_early);
+    } catch (error) {
+      toast(error.message, true);
+    }
+    await loadAnnounce();
+  }
+
+  async function loadStatistics() {
+    try {
+      state.stats = await api("/api/stats?days=" + state.statDays);
+    } catch (error) {
+      state.stats = {error: error.message};
+    }
+    if (state.page === "statistics") render();
+  }
 
   async function loadSettings() {
     var snapshot = await api("/api/settings");

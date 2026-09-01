@@ -19,9 +19,6 @@ from .presentation import (
     info_embed,
     application_card_files,
     live_status_embed,
-    rules_embed,
-    rules_image_file,
-    verification_image_file,
 )
 from .support import enqueue_support_request
 
@@ -120,10 +117,24 @@ async def _validate_application_panel(interaction: discord.Interaction) -> bool:
     return True
 
 
-class VerifyButton(discord.ui.Button):
+class LinkAccountButton(discord.ui.Button):
+    """The panel's only button now that verification starts in game.
+
+    Verifying from Discord used to open a form, take a username on trust, and mark the
+    account pending until somebody joined with it. It was the clunky half of the system:
+    an approved player still landed in the verification world and had to warp out by
+    hand, and a typo in the form was only discovered at the point of joining. Ownership
+    is proved by running /verify in game instead, which cannot be typo'd into somebody
+    else's account because the account running it *is* the proof.
+
+    So this button no longer verifies. For someone with no account yet it explains where
+    verification actually happens; for everyone else it is the linking card, which is the
+    one thing that still belongs on the Discord side.
+    """
+
     def __init__(self) -> None:
         super().__init__(
-            label="Verify From Discord",
+            label="Link A Minecraft Account",
             style=discord.ButtonStyle.primary,
             custom_id="minecraft:access:verify",
         )
@@ -132,91 +143,30 @@ class VerifyButton(discord.ui.Button):
         bot = interaction.client
         if not await _validate_application_panel(interaction):
             return
-        active = await bot.data.get_active_access_for_user(
-            guild_id=interaction.guild_id,
-            discord_user_id=interaction.user.id,
-        )
-        if active is not None:
-            pending_verification = active.status is AccessStatus.PENDING_VERIFICATION
-            message = {
-                **branded_send(live_status_embed(active, bot.settings)),
-                # Same controls the card gets anywhere else, including while it is
-                # awaiting verification: this path used to substitute a cancel-only
-                # view, so reopening the card through Apply silently dropped Get
-                # Help. Deciding controls here at all is also how a Get Help button
-                # survived being removed from the submitted card.
-                "view": application_card_view(active.status),
-                "ephemeral": True,
-            }
-            if pending_verification:
-                message["file"] = verification_image_file()
+        accounts = await bot.data.list_accounts_for_user(interaction.user.id)
+        if accounts:
+            embed, view = await bot.build_link_edition_prompt(interaction.user.id)
             await interaction.response.send_message(
-                **message,
-            )
-            if pending_verification:
-                await bot.replace_application_card(
-                    active.id, await interaction.original_response()
-                )
-            return
-        if not bot.apply_rate_limit.claim(interaction.user.id):
-            await interaction.response.send_message(
-                **branded_send(
-                    info_embed(
-                        "Please Wait",
-                        "> Verification was started moments ago.\n"
-                        "> Please wait a few seconds before opening it again.",
-                    )
-                ),
-                ephemeral=True,
+                **branded_send(embed), view=view, ephemeral=True
             )
             return
+        settings = bot.settings
         await interaction.response.send_message(
-            **branded_send(rules_embed(agreement=True)),
-            file=rules_image_file(),
-            view=RulesAgreementView(interaction.user.id),
+            **branded_send(info_embed(
+                "Verify In Game",
+                "> Verification happens on the Minecraft server, not here — it is how "
+                "the server knows the account is really yours.\n"
+                "> **1.** Join the server with the account you want to verify.\n"
+                "> **2.** Run `/verify " + f"{interaction.user.name}" + "` in game.\n"
+                "> **3.** Press **Yes, This Is Me** on the DM that arrives.\n\n"
+                "**Java — PC/Mac**\n"
+                f"```text\n{settings.java_address}\n```\n"
+                "**Bedrock — phone, console, or Windows**\n"
+                f"**Address**\n```text\n{settings.bedrock_address}\n```\n"
+                f"**Port**\n```text\n{settings.bedrock_port}\n```\n"
+                "> Once one account is verified, this button links any others you own.",
+            )),
             ephemeral=True,
-        )
-
-
-class RulesAgreementView(discord.ui.View):
-    def __init__(self, requester_id: int) -> None:
-        super().__init__(timeout=300)
-        self.requester_id = int(requester_id)
-
-    async def interaction_check(self, interaction: discord.Interaction) -> bool:
-        if interaction.user.id == self.requester_id:
-            return True
-        await interaction.response.send_message(
-            **branded_send(
-                info_embed(
-                    "Agreement Unavailable",
-                    "> This rules agreement belongs to another member.",
-                    error=True,
-                )
-            ),
-            ephemeral=True,
-        )
-        return False
-
-    @discord.ui.button(label="I Agree", style=discord.ButtonStyle.success)
-    async def agree(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
-        await interaction.response.send_modal(MinecraftApplicationModal(
-            require_edition=not interaction.client.bridge.supports_auto_edition,
-        ))
-
-    @discord.ui.button(label="I Disagree", style=discord.ButtonStyle.secondary)
-    async def disagree(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
-        await interaction.response.edit_message(
-            **branded_edit(
-                info_embed(
-                    "Verification Closed",
-                    "> The server rules were not accepted, so verification was "
-                    "not started.\n"
-                    "> Press **Verify** on the panel to begin again.",
-                )
-            ),
-            attachments=[],
-            view=None,
         )
 
 

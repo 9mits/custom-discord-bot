@@ -482,19 +482,46 @@ class MinecraftAccessBot(commands.Bot):
         except (discord.NotFound, discord.HTTPException):
             return None
 
+    @staticmethod
+    def _username_forms(member: discord.Member) -> list[str]:
+        """Every name a player could reasonably believe is "their Discord username".
+
+        Since Discord retired discriminators there are three, and only one of them is
+        the account's actual username: `name` is the unique handle, `global_name` is the
+        display name shown almost everywhere, and `nick` is their name in this server.
+        Matching only `name` meant anyone who typed what they could see was told they
+        were not in the Discord at all.
+        """
+        forms = [member.name, getattr(member, "global_name", None), member.nick]
+        return [form.casefold() for form in forms if form]
+
     async def _resolve_member_by_username(self, username: str) -> Optional[discord.Member]:
         guild = await self._configured_guild()
         if guild is None:
             return None
-        normalized = str(username).casefold()
-        cached = [member for member in guild.members if member.name.casefold() == normalized]
-        if cached:
-            return cached[0]
+        # People paste "@name" out of Discord, and mobile keyboards add a trailing space.
+        normalized = str(username).strip().lstrip("@").casefold()
+        if not normalized:
+            return None
+
+        def pick(members: list[discord.Member]) -> Optional[discord.Member]:
+            # The real username wins outright; it is unique, so it can never be
+            # ambiguous. A display name is not unique, so two people can answer to it
+            # and guessing between them would link the wrong account.
+            exact = [m for m in members if m.name.casefold() == normalized]
+            if exact:
+                return exact[0]
+            loose = [m for m in members if normalized in self._username_forms(m)]
+            return loose[0] if len(loose) == 1 else None
+
+        found = pick(list(guild.members))
+        if found is not None:
+            return found
         try:
-            queried = await guild.query_members(query=username, limit=20, cache=True)
+            queried = await guild.query_members(query=normalized, limit=20, cache=True)
         except (discord.Forbidden, discord.HTTPException):
             return None
-        return next((member for member in queried if member.name.casefold() == normalized), None)
+        return pick(list(queried))
 
     async def _send_configured_log(
         self,
@@ -1550,9 +1577,15 @@ class MinecraftAccessBot(commands.Bot):
     async def on_member_join(self, member: discord.Member) -> None:
         if member.guild.id != self.config.guild_id:
             return
-        requests = await self.data.waiting_reverse_links_for_username(member.name)
-        for request in requests:
-            await self._send_reverse_link_dm(request, member)
+        # Whatever they typed in game could have been any of their three names, so a
+        # join has to answer to all of them or the waiting request is never picked up.
+        seen: set[str] = set()
+        for form in self._username_forms(member):
+            for request in await self.data.waiting_reverse_links_for_username(form):
+                if request.request_id in seen:
+                    continue
+                seen.add(request.request_id)
+                await self._send_reverse_link_dm(request, member)
 
     async def handle_reverse_link_decision(
         self,

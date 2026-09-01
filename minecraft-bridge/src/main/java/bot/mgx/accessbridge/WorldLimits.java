@@ -24,7 +24,7 @@ final class WorldLimits {
         }
     }
 
-    private static double tuned(String key, double fallback) {
+    static double tuned(String key, double fallback) {
         double value = tuning.applyAsDouble(key);
         return Double.isNaN(value) ? fallback : value;
     }

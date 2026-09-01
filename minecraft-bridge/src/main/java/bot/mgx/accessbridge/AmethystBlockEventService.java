@@ -159,6 +159,7 @@ final class AmethystBlockEventService implements Listener {
     private final CrateItems crateItems;
     private final PlayerSettingsStore settings;
     private final GameVariableStore variables;
+    private final ServerMessages messages;
     private final RandomGenerator random;
     private final Path journal;
     private final Set<Item> visualKeys = new HashSet<>();
@@ -189,6 +190,7 @@ final class AmethystBlockEventService implements Listener {
         this.crateItems = crateItems;
         this.settings = settings;
         this.variables = variables;
+        this.messages = new ServerMessages(variables);
         this.random = random;
         journal = plugin.getDataFolder().toPath().resolve("amethyst-block-event.yml");
     }
@@ -728,42 +730,62 @@ final class AmethystBlockEventService implements Listener {
                 && healthPercent(block.health, block.maximumHealth)
                 <= variables.integer("huge-amethyst.wave."
                         + (block.nextMilestone + 1) + ".health-percent")) {
-            rewardEveryone(AmethystBlockRewards.rollMilestone(random, variables), false, block);
+            rewardContributors(AmethystBlockRewards.rollMilestone(random, variables), false, block);
             milestoneBurst(block);
             block.nextMilestone++;
         }
         if (block.health <= 0d) {
-            rewardEveryone(AmethystBlockRewards.completionBundle(random, variables), true, block);
+            rewardContributors(AmethystBlockRewards.completionBundle(random, variables), true, block);
             complete(block);
         }
     }
 
-    private void rewardEveryone(
+    /**
+     * Pays the players who actually broke the block, in proportion to what they broke.
+     *
+     * <p>This used to pay every online player an identical bundle and add a contribution
+     * bonus only at completion, which meant standing in spawn earned the same as mining
+     * the block — the opposite of what a cooperative event is for. Only contributors are
+     * paid now, and the damage-weighted keys apply to every wave rather than just the
+     * last, so hitting it harder is worth more at each threshold.
+     */
+    private void rewardContributors(
             AmethystBlockRewards.Bundle bundle, boolean completion, ActiveBlock block
     ) {
-        for (Player player : eligiblePlayers()) {
-            int bonus = completion
-                    ? AmethystBlockRewards.contributionKeys(
-                            player.getUniqueId(), block.damage,
-                            variables.integer("huge-amethyst.contribution-base-keys"),
-                            variables.integer("huge-amethyst.contribution-pool-keys")
-                    ) : 0;
-            giveOwned(player, crateItems.key(bundle.keys() + bonus));
+        for (Player player : contributors(block)) {
+            int bonus = AmethystBlockRewards.contributionKeys(
+                    player.getUniqueId(), block.damage,
+                    variables.integer("huge-amethyst.contribution-base-keys"),
+                    variables.integer("huge-amethyst.contribution-pool-keys")
+            );
+            int keys = Math.max(0, bundle.keys() + bonus);
+            giveOwned(player, crateItems.key(keys));
             giveOwned(player, new ItemStack(Material.DIAMOND, bundle.diamonds()));
             giveOwned(player, new ItemStack(Material.EMERALD, bundle.emeralds()));
             giveOwned(player, new ItemStack(Material.GOLD_INGOT, bundle.gold()));
             if (bundle.shards() > 0) {
                 giveOwned(player, crateItems.shard(bundle.shards()));
             }
-            player.sendMessage(PlayerMenuService.prefix()
-                    .append(Component.text(completion ? "Block broken! " : "Reward wave! ",
-                            AMETHYST, TextDecoration.BOLD))
-                    .append(Component.text("Your identical event bundle was delivered"
-                            + (bonus > 0 ? " plus " + bonus + " contribution keys." : "."),
-                            NamedTextColor.WHITE)));
+            player.sendMessage(PlayerMenuService.prefix().append(messages.render(
+                    completion ? "messages.amethyst.block-broken"
+                            : "messages.amethyst.reward-wave",
+                    "keys", String.valueOf(keys))));
             player.playSound(player.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f,
                     completion ? 1.35f : 1.1f);
         }
+    }
+
+    /**
+     * Everyone online who has dealt damage to this block and can still be paid.
+     *
+     * <p>Damage is recorded by UUID and survives a player leaving, but a reward can only
+     * be handed to somebody who is here to hold it; anyone offline keeps their share of
+     * the pool reserved by still counting toward the damage total.
+     */
+    private List<Player> contributors(ActiveBlock block) {
+        return eligiblePlayers().stream()
+                .filter(player -> block.damage.getOrDefault(player.getUniqueId(), 0d) > 0d)
+                .toList();
     }
 
     private void giveOwned(Player player, ItemStack stack) {
@@ -951,8 +973,13 @@ final class AmethystBlockEventService implements Listener {
                         7d, 8d, 7d, 0.4d);
                 world.playSound(centre, Sound.ENTITY_GENERIC_EXPLODE, 25f, 0.55f);
                 world.playSound(centre, Sound.UI_TOAST_CHALLENGE_COMPLETE, 20f, 1.1f);
-                removeActive(true,
-                        "The Huge Amethyst Block shattered! Every online player received rewards.");
+                // The shatter line is owner-editable, so it is announced as a rendered
+                // component rather than pushed through removeActive's plain-text path.
+                if (!messages.isSilenced("messages.amethyst.shattered")) {
+                    announce(Component.text("AMETHYST EVENT » ", AMETHYST, TextDecoration.BOLD)
+                            .append(messages.render("messages.amethyst.shattered")));
+                }
+                removeActive(false, null);
             }
         }.runTaskTimer(plugin, 0L, 2L);
     }

@@ -272,12 +272,13 @@ final class SettingMetadataTest {
                         Map.entry("economy", 3),
                         Map.entry("event_schedule", 2),
                         Map.entry("presentation", 2),
-                        Map.entry("launch", 2)
+                        Map.entry("launch", 2),
+                        Map.entry("messages", 5)
                 ),
                 perGroup,
                 "the catalogue moved between panel pages"
         );
-        assertEquals(516, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
+        assertEquals(521, perGroup.values().stream().mapToInt(Integer::intValue).sum(),
                 "group counts no longer add up to the catalogue");
     }
 

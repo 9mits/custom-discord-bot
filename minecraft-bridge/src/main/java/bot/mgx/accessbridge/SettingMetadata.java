@@ -80,6 +80,7 @@ record SettingMetadata(
         POTIONS("Potions"),
         ENCHANTMENTS("Enchantments"),
         PRESENTATION("Presentation"),
+        MESSAGES("Messages"),
         SHOP("Shop"),
         PERKS("Perks"),
         ECONOMY("Economy"),
@@ -230,6 +231,9 @@ record SettingMetadata(
         }
         if (key.startsWith("world.") || key.startsWith("spawn.")) {
             return Group.WORLD;
+        }
+        if (key.startsWith("messages.")) {
+            return Group.MESSAGES;
         }
         if (key.startsWith("bars.")) {
             return Group.BOSS_BARS;

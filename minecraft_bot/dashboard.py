@@ -57,6 +57,8 @@ class DashboardServer:
         self._app.router.add_post("/api/settings/rollback", self.rollback_publish)
         self._app.router.add_post("/api/catalog", self.change_catalog)
         self._app.router.add_post("/api/action", self.run_action)
+        self._app.router.add_get("/api/announce", self.announce_status)
+        self._app.router.add_post("/api/announce", self.send_announcement)
         # aiohttp resolves plain paths ahead of dynamic ones however they are ordered,
         # so this wildcard cannot swallow the fixed routes above. Listed last anyway,
         # because reading it the other way round invites the opposite conclusion.
@@ -573,6 +575,77 @@ class DashboardServer:
             {"ok": True, "message": message, "catalog": detail},
             headers={"Cache-Control": "no-store"},
         )
+
+    def _announcer(self):
+        from .announce import UpdateAnnouncer
+
+        existing = getattr(self.bot, "_update_announcer", None)
+        if existing is None:
+            existing = UpdateAnnouncer(self.bot)
+            self.bot._update_announcer = existing
+        return existing
+
+    async def announce_status(self, request: web.Request) -> web.Response:
+        """Who would receive an update notice, and whether sending is switched on."""
+        await self._require_owner(request)
+        announcer = self._announcer()
+        recipients = await announcer.recipients()
+        return web.json_response(
+            {
+                "enabled": await announcer.enabled(),
+                "sending": announcer.running,
+                "recipients": len(recipients),
+                "role_id": str(getattr(self.bot.settings, "member_role_id", 0) or 0),
+                "sample": [str(member) for member in recipients[:8]],
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    async def send_announcement(self, request: web.Request) -> web.Response:
+        """Sends one update notice, or flips the feature on and off.
+
+        The send is deliberately slow and stops itself if too many recipients refuse;
+        see minecraft_bot/announce.py for why that matters more than throughput.
+        """
+        session, member = await self._require_owner(request)
+        self._require_csrf(request, session)
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, TypeError):
+            raise web.HTTPBadRequest(text="A JSON request body is required.")
+
+        announcer = self._announcer()
+        if "enabled" in body and "title" not in body:
+            await announcer.set_enabled(bool(body.get("enabled")))
+            return web.json_response({"enabled": await announcer.enabled()})
+
+        title = str(body.get("title", "")).strip()
+        description = str(body.get("description", "")).strip()
+        if not title and not description:
+            raise web.HTTPBadRequest(text="An announcement needs a title or a body.")
+        if len(title) > 256:
+            raise web.HTTPBadRequest(text="The title must be 256 characters or fewer.")
+        if len(description) > 4000:
+            raise web.HTTPBadRequest(text="The body must be 4000 characters or fewer.")
+
+        colour = str(body.get("colour", "")).strip().lstrip("#")
+        try:
+            parsed = discord.Colour(int(colour, 16)) if colour else discord.Colour(0xF06000)
+        except ValueError:
+            raise web.HTTPBadRequest(text="The colour must be a hex value such as F06000.")
+
+        embed = discord.Embed(
+            title=title or None, description=description or None, colour=parsed
+        )
+        image = str(body.get("image", "")).strip()
+        if image.startswith("https://"):
+            embed.set_image(url=image)
+        footer = str(body.get("footer", "")).strip()
+        if footer:
+            embed.set_footer(text=footer[:2048])
+
+        result = await announcer.send(embed=embed, actor=str(member), content=None)
+        return web.json_response(result.as_dict())
 
     async def run_action(self, request: web.Request) -> web.Response:
         """Runs one declared administrative action.
