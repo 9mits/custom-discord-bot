@@ -12,6 +12,7 @@
 
   var PAGES = [
     {id: "overview", label: "Overview"},
+    {id: "actions", label: "Do something"},
     {id: "crates", label: "Crates"},
     {id: "airdrops", label: "Airdrops"},
     {id: "online_rewards", label: "Online Rewards"},
@@ -97,6 +98,8 @@
     validating: false,
     publishing: false,
     catalog: null,
+    actions: [],
+    online: [],
     materials: [],
     adding: null
   };
@@ -927,6 +930,85 @@
       "<ul>" + rows + "</ul></article>";
   }
 
+  /**
+   * The things an owner can do, as forms rather than commands.
+   *
+   * Each action declares its own arguments, so this draws whatever the plugin offers
+   * instead of hard-coding a list the two sides then have to keep in step.
+   */
+  function renderActions() {
+    if (!state.actions.length) {
+      return '<p class="con-empty">The connected server has not offered any actions. It ' +
+        "may be running a plugin older than the panel.</p>";
+    }
+    var groups = {};
+    state.actions.forEach(function (action) {
+      (groups[action.group] = groups[action.group] || []).push(action);
+    });
+    return Object.keys(groups).map(function (group) {
+      return '<section class="con-section"><h3>' + escapeHtml(group) + "</h3>" +
+        '<div class="con-grid">' + groups[group].map(actionCard).join("") + "</div></section>";
+    }).join("");
+  }
+
+  function actionField(action, param) {
+    var id = "act-" + action.id.replace(/\./g, "-") + "-" + param.name;
+    var control;
+    if (param.type === "choice") {
+      control = '<select class="con-choice" id="' + escapeHtml(id) + '">' +
+        (param.choices || []).map(function (option) {
+          return '<option value="' + escapeHtml(option) + '">' +
+            escapeHtml(titleCase(option)) + "</option>";
+        }).join("") + "</select>";
+    } else if (param.type === "player") {
+      control = '<input class="con-search-field" id="' + escapeHtml(id) +
+        '" list="con-online" placeholder="' +
+        (state.online.length ? escapeHtml(state.online[0]) : "Nobody is online") + '">';
+    } else {
+      control = '<input class="con-number" type="number" id="' + escapeHtml(id) + '"' +
+        (param.required ? "" : ' placeholder="optional"') + ">";
+    }
+    return '<label class="con-field"><span>' + escapeHtml(param.label) + "</span>" + control +
+      (param.help ? "<em>" + escapeHtml(param.help) + "</em>" : "") + "</label>";
+  }
+
+  function actionCard(action) {
+    return '<article class="con-setting con-action" data-action="' + escapeHtml(action.id) + '">' +
+      '<div class="con-setting-head"><h4>' + escapeHtml(action.label) + "</h4></div>" +
+      '<p class="con-help">' + escapeHtml(action.description) + "</p>" +
+      (action.params || []).map(function (param) {
+        return actionField(action, param);
+      }).join("") +
+      (action.confirm
+        ? '<p class="con-warn">' + escapeHtml(action.confirm) + "</p>"
+        : "") +
+      '<div class="con-setting-foot"><button type="button" class="con-primary" data-run="' +
+      escapeHtml(action.id) + '">' + escapeHtml(action.label) + "</button></div></article>";
+  }
+
+  async function runAction(id) {
+    var action = state.actions.filter(function (entry) { return entry.id === id; })[0];
+    if (!action) return;
+    if (action.confirm && !window.confirm(action.confirm + "\n\nGo ahead?")) return;
+    var args = {};
+    var missing = null;
+    (action.params || []).forEach(function (param) {
+      var field = byId("act-" + id.replace(/\./g, "-") + "-" + param.name);
+      var value = field ? String(field.value || "").trim() : "";
+      if (!value && param.required) missing = param.label;
+      if (value) args[param.name] = value;
+    });
+    if (missing) { toast(missing + " is required.", true); return; }
+    try {
+      var result = await post("/api/action", {id: id, arguments: args});
+      toast((result && result.message) || "Done.", false);
+      await loadSettings();
+      render();
+    } catch (error) {
+      toast(error.message, true);
+    }
+  }
+
   function renderHistory() {
     var history = state.snapshot.history || [];
     if (!history.length) {
@@ -942,7 +1024,7 @@
     byId("con-nav").innerHTML = PAGES.map(function (page) {
       var count = page.id === "overview" || page.id === "history"
         ? 0
-        : groupRows(page.id).length;
+        : (page.id === "actions" ? state.actions.length : groupRows(page.id).length);
       var dirty = dirtyKeys().filter(function (key) {
         return state.byKey[key].group === page.id;
       }).length;
@@ -1002,6 +1084,11 @@
     var main = byId("con-page");
     if (state.page === "overview") {
       main.innerHTML = renderOverview();
+    } else if (state.page === "actions") {
+      main.innerHTML = renderActions() +
+        '<datalist id="con-online">' + state.online.map(function (name) {
+          return '<option value="' + escapeHtml(name) + '">';
+        }).join("") + "</datalist>";
     } else if (state.page === "history") {
       main.innerHTML = renderHistory();
     } else {
@@ -1061,7 +1148,9 @@
       var remove = event.target.closest("[data-remove]");
       if (remove) { removeRow(remove.dataset.table, remove.dataset.remove); return; }
       var restore = event.target.closest("[data-restore]");
-      if (restore) { restoreRow(restore.dataset.table, restore.dataset.restore); }
+      if (restore) { restoreRow(restore.dataset.table, restore.dataset.restore); return; }
+      var run = event.target.closest("[data-run]");
+      if (run) { runAction(run.dataset.run); }
     });
 
     byId("con-add").addEventListener("click", function (event) {
@@ -1179,6 +1268,8 @@
     state.byKey = {};
     state.rows.forEach(function (row) { state.byKey[row.key] = row; });
     state.catalog = state.snapshot.catalog || null;
+    state.actions = (state.snapshot.action_catalogue || {}).actions || [];
+    state.online = (state.snapshot.action_catalogue || {}).online || [];
     state.materials = state.snapshot.materials || [];
   }
 

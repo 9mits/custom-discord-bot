@@ -14,7 +14,7 @@ import java.util.random.RandomGenerator;
 final class AmethystEventCoordinator {
     private static final long RETRY_MILLIS = Duration.ofMinutes(5).toMillis();
 
-    private enum Kind {
+    enum Kind {
         AIRDROP,
         HUGE_BLOCK;
 
@@ -129,6 +129,35 @@ final class AmethystEventCoordinator {
                     action.run();
                 }, Math.max(1L, millis / 50L)
         );
+    }
+
+    /**
+     * Starts one world event now, on demand.
+     *
+     * <p>The in-game command spawns near whoever ran it. Nobody is standing anywhere
+     * when the control panel asks, so this takes the scheduler's own path — it picks a
+     * site, announces it, and hands back to the normal rotation when it finishes.
+     *
+     * @return false when something is already standing, rather than stacking a second
+     *         event on top of it
+     */
+    synchronized boolean startNow(Kind requested) {
+        if (stopped || reserved) {
+            return false;
+        }
+        reserved = true;
+        boolean accepted = switch (requested) {
+            case AIRDROP -> airdrops.beginScheduled(
+                    () -> onSpawned(requested), this::onFinished, this::onFailed
+            );
+            case HUGE_BLOCK -> blocks.beginScheduled(
+                    () -> onSpawned(requested), this::onFinished, this::onFailed
+            );
+        };
+        if (!accepted) {
+            reserved = false;
+        }
+        return accepted;
     }
 
     private void tryStart() {

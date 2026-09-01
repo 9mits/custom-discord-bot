@@ -32,7 +32,8 @@ GAME_VARIABLE_PROTOCOL_VERSION = 11
 AFK_PROTOCOL_VERSION = 12
 CONFIG_CHANGESET_PROTOCOL_VERSION = 13
 CATALOG_ENTRY_PROTOCOL_VERSION = 14
-CURRENT_PROTOCOL_VERSION = CATALOG_ENTRY_PROTOCOL_VERSION
+ADMIN_ACTION_PROTOCOL_VERSION = 15
+CURRENT_PROTOCOL_VERSION = ADMIN_ACTION_PROTOCOL_VERSION
 
 VerificationHandler = Callable[..., Awaitable[None]]
 ActionResultHandler = Callable[[OutboxRecord, Optional[Any]], Awaitable[None]]
@@ -167,6 +168,11 @@ class MinecraftBridgeServer:
         back to — the request is refused with a reason rather than half-applied.
         """
         return self.connected and self._peer_protocol_version >= CATALOG_ENTRY_PROTOCOL_VERSION
+
+    @property
+    def supports_admin_actions(self) -> bool:
+        """Whether the plugin can run declared administrative actions from the panel."""
+        return self.connected and self._peer_protocol_version >= ADMIN_ACTION_PROTOCOL_VERSION
 
     async def start(self) -> None:
         ssl_context = None
@@ -867,6 +873,38 @@ class MinecraftBridgeServer:
             else:
                 payload[name] = str(value)[:160]
         return await self._send_awaiting_detail("ACTION", payload, timeout=20.0)
+
+    async def run_admin_action(
+        self,
+        *,
+        actor_uuid: str,
+        action_id: str,
+        arguments: dict[str, Any],
+    ) -> tuple[bool, str, dict[str, Any]]:
+        """Runs one declared administrative action — start an event, call an Airdrop.
+
+        The identifier is resolved against the plugin's own registry, so a payload the
+        panel did not mean to send cannot turn into an arbitrary console command.
+        """
+        if not self.supports_admin_actions:
+            return (
+                False,
+                "The connected Paper plugin is too old to run actions from the panel.",
+                {},
+            )
+        return await self._send_awaiting_detail(
+            "ACTION",
+            {
+                "action": "ADMIN_ACTION",
+                "actor_uuid": str(actor_uuid),
+                "id": str(action_id)[:64],
+                "arguments": {
+                    str(name)[:32]: str(value)[:160]
+                    for name, value in list(arguments.items())[:12]
+                },
+            },
+            timeout=25.0,
+        )
 
     async def send_maintenance(self, enabled: bool) -> bool:
         """Opens or closes the server to regular players.

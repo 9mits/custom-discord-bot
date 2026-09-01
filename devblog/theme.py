@@ -1179,6 +1179,12 @@ img.live-minecraft-icon {
 .con-key { margin-left: auto; font-size: .62rem; color: var(--grey); background: none; padding: 0; overflow-wrap: anywhere; }
 .con-link { border: 0; background: none; padding: 0; color: var(--brand-orange); font: 600 .72rem inherit; font-family: inherit; cursor: pointer; }
 .con-finding { margin: 0; font-size: .76rem; color: #ef4444; }
+.con-warn {
+  margin: 0; padding: .45rem .6rem; border-radius: .45rem; font-size: .76rem;
+  background: rgba(239, 68, 68, .10); color: var(--ink);
+}
+.con-action .con-setting-foot { justify-content: flex-end; }
+.con-action .con-primary { margin-left: auto; }
 
 .con-odds { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
 .con-number {

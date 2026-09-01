@@ -35,9 +35,10 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
      * server-event toggles; 10 added the Minecraft-first Discord linking lobby;
      * 11 added live game variables; 12 added AFK reporting; 13 added validated
      * configuration change sets, publish history and rollback; 14 added
-     * catalogue entries an owner can add and remove while the server runs.
+     * catalogue entries an owner can add and remove while the server runs; 15
+     * added declared administrative actions the control panel can run.
      */
-    static final int PROTOCOL_VERSION = 14;
+    static final int PROTOCOL_VERSION = 15;
 
     private final MGXAccessBridge plugin;
     private final BridgeConfig config;
@@ -371,6 +372,10 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             case "CATALOG_ENTRY" -> Bukkit.getScheduler().runTask(
                     plugin,
                     () -> executeCatalogEntry(idempotencyKey, payload)
+            );
+            case "ADMIN_ACTION" -> Bukkit.getScheduler().runTask(
+                    plugin,
+                    () -> executeAdminAction(idempotencyKey, payload)
             );
             case "APPROVE", "REVOKE", "KICK", "STATUS" -> Bukkit.getScheduler().runTask(
                     plugin,
@@ -723,6 +728,46 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
     private static int intOr(JsonObject payload, String name, int fallback) {
         return payload.has(name) && payload.get(name).isJsonPrimitive()
                 ? payload.get(name).getAsInt() : fallback;
+    }
+
+    /**
+     * Runs one declared administrative action, on the same owner gate as everything else.
+     *
+     * <p>The action's identifier is looked up in the registry rather than dispatched as
+     * text, so an unexpected payload cannot become an arbitrary console command.
+     */
+    private void executeAdminAction(String key, JsonObject payload) {
+        try {
+            UUID actor = UUID.fromString(payload.get("actor_uuid").getAsString());
+            String id = optionalString(payload, "id");
+            JsonObject arguments = payload.has("arguments") && payload.get("arguments").isJsonObject()
+                    ? payload.getAsJsonObject("arguments") : new JsonObject();
+            plugin.hasOwnerRank(actor).whenComplete((allowed, error) ->
+                    Bukkit.getScheduler().runTask(plugin, () -> {
+                        if (error != null || !Boolean.TRUE.equals(allowed)) {
+                            recordAndSend(key, new ProcessedActionStore.Result(
+                                    false,
+                                    "The linked Minecraft account does not hold the LuckPerms owner group."
+                            ));
+                            return;
+                        }
+                        try {
+                            recordAndSend(
+                                    key,
+                                    new ProcessedActionStore.Result(
+                                            true, plugin.adminActions().run(id, arguments)),
+                                    plugin.adminActions().snapshot()
+                            );
+                        } catch (RuntimeException exception) {
+                            recordAndSend(key, new ProcessedActionStore.Result(
+                                    false, safeError(exception)
+                            ));
+                        }
+                    })
+            );
+        } catch (RuntimeException exception) {
+            recordAndSend(key, new ProcessedActionStore.Result(false, safeError(exception)));
+        }
     }
 
     private void executeProfileSync(String key, JsonObject payload) {

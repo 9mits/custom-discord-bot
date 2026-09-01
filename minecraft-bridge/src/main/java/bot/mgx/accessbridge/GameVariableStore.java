@@ -916,6 +916,13 @@ final class GameVariableStore {
         return Optional.ofNullable(definitions.get(canonicalKey(key)));
     }
 
+    /** Set once the plugin is up, so the console gets actions alongside settings. */
+    private JsonObject actionCatalogue = new JsonObject();
+
+    void actionCatalogue(JsonObject catalogue) {
+        this.actionCatalogue = catalogue == null ? new JsonObject() : catalogue;
+    }
+
     synchronized JsonObject snapshot() {
         JsonObject root = new JsonObject();
         root.addProperty("generated_at", System.currentTimeMillis());
@@ -965,6 +972,7 @@ final class GameVariableStore {
             root.add("catalog", custom.snapshot());
         }
         root.add("materials", itemMaterials());
+        root.add("action_catalogue", actionCatalogue);
         return root;
     }
 

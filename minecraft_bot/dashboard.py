@@ -56,6 +56,7 @@ class DashboardServer:
         self._app.router.add_post("/api/settings/publish", self.publish_changeset)
         self._app.router.add_post("/api/settings/rollback", self.rollback_publish)
         self._app.router.add_post("/api/catalog", self.change_catalog)
+        self._app.router.add_post("/api/action", self.run_action)
         # aiohttp resolves plain paths ahead of dynamic ones however they are ordered,
         # so this wildcard cannot swallow the fixed routes above. Listed last anyway,
         # because reading it the other way round invites the opposite conclusion.
@@ -562,6 +563,49 @@ class DashboardServer:
             raise web.HTTPConflict(text=message)
         return web.json_response(
             {"ok": True, "message": message, "catalog": detail},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    async def run_action(self, request: web.Request) -> web.Response:
+        """Runs one declared administrative action.
+
+        Unlike a settings change there is nothing to draft: an action either happened or
+        it did not, so it applies at once and is recorded on its own.
+        """
+        member, actor_uuid = await self._changeset_actor(request)
+        body = await self._json_body(request)
+        action_id = str(body.get("id", "")).strip() if isinstance(body, dict) else ""
+        if not action_id:
+            raise web.HTTPBadRequest(text="Send the id of the action to run.")
+        arguments = body.get("arguments") if isinstance(body, dict) else None
+        if arguments is not None and not isinstance(arguments, dict):
+            raise web.HTTPBadRequest(text="Action arguments must be an object.")
+        started = time.monotonic()
+        success, message, detail = await self.bot.bridge.run_admin_action(
+            actor_uuid=actor_uuid, action_id=action_id, arguments=arguments or {}
+        )
+        await deliver(
+            self.bot,
+            CommandAuditRecord(
+                source=SOURCE_COMMAND,
+                command="dashboard action %s" % action_id,
+                user_id=member.id,
+                user_label=member.name,
+                guild_id=self.config.guild_id,
+                options=tuple(
+                    (str(name), str(value)[:120])
+                    for name, value in sorted((arguments or {}).items())
+                ),
+                outcome=OUTCOME_SUCCESS if success else OUTCOME_FAILED,
+                risk=RISK_CONFIGURATION,
+                duration_ms=int((time.monotonic() - started) * 1000),
+                detail=message,
+            ),
+        )
+        if not success:
+            raise web.HTTPConflict(text=message)
+        return web.json_response(
+            {"ok": True, "message": message, "actions": detail},
             headers={"Cache-Control": "no-store"},
         )
 

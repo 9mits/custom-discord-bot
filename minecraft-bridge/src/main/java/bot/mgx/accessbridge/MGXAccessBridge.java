@@ -106,6 +106,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private AfkStore afkStore;
     private GameVariableStore gameVariables;
     private CustomCatalogStore customCatalog;
+    private CrateItems crateItems;
+    private UpdateNoticeStore updateNoticeStore;
+    private final AdminActionRegistry adminActions = new AdminActionRegistry(this);
     private volatile boolean gameVariableBroadcastPending;
     private ClanBattleStore clanBattleStore;
     private HomeIconStore homeIconStore;
@@ -218,6 +221,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             // from it, so unlike everything else these have to be re-applied when they
             // change instead of simply being read again on next use.
             clanStore.limitSource(key -> gameVariables.integer(key));
+            // The action catalogue is rebuilt per snapshot so the online-player list the
+            // give form offers is current rather than whatever it was at startup.
+            gameVariables.actionCatalogue(adminActions.snapshot());
             CustomEnchants.capSource(
                     id -> gameVariables.integer("enchants." + id + ".maximum-level"));
             gameVariables.onChange(key -> {
@@ -342,7 +348,6 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 this, serverEventStore, personalNotifications
         );
         getServer().getPluginManager().registerEvents(serverEventService, this);
-        UpdateNoticeStore updateNoticeStore;
         try {
             updateNoticeStore = new UpdateNoticeStore(getDataFolder().toPath().resolve("update-notices.json"));
         } catch (java.io.IOException exception) {
@@ -440,7 +445,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         );
         amethystItems = new AmethystItemService(this);
         SpecialItemService specialItems = new SpecialItemService(this, amethystItems);
-        CrateItems crateItems = new CrateItems(this, cosmeticStore, specialItems);
+        crateItems = new CrateItems(this, cosmeticStore, specialItems);
         clanBattles = new ClanBattleService(
                 this, clanBattleStore, clanStore, crateItems, cosmeticStore,
                 leaderboardService, playerSettings
@@ -1190,6 +1195,30 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 : luckPermsService.hasGroup(minecraftUuid, "owner");
     }
 
+    UpdateNoticeStore updateNotices() {
+        return updateNoticeStore;
+    }
+
+    ServerEventStore serverEventStore() {
+        return serverEventStore;
+    }
+
+    AmethystEventCoordinator amethystEvents() {
+        return amethystEvents;
+    }
+
+    EconomyStore economy() {
+        return economyStore;
+    }
+
+    CrateItems crateItems() {
+        return crateItems;
+    }
+
+    AdminActionRegistry adminActions() {
+        return adminActions;
+    }
+
     GameVariableStore gameVariables() {
         return gameVariables;
     }
@@ -1200,6 +1229,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     void republishGameVariables() {
         if (bridgeClient != null && gameVariables != null) {
+            gameVariables.actionCatalogue(adminActions.snapshot());
             bridgeClient.sendGameVariableSnapshot(gameVariables.snapshot());
         }
     }
