@@ -82,6 +82,8 @@ record SettingMetadata(
         PRESENTATION("Presentation"),
         SHOP("Shop"),
         PERKS("Perks"),
+        AMETHYST_SHOP("Amethyst Shop"),
+        LAUNCH("Server"),
         CLAN_BATTLES("Clan Battles"),
         COSMETICS("Cosmetics"),
         CRATE_BALANCE("Crate Balance"),
@@ -239,6 +241,12 @@ record SettingMetadata(
         }
         if (key.startsWith("scoreboard.")) {
             return Group.PRESENTATION;
+        }
+        if (key.startsWith("amethyst-shop.")) {
+            return Group.AMETHYST_SHOP;
+        }
+        if (key.startsWith("launch.")) {
+            return Group.LAUNCH;
         }
         if (key.startsWith("perks.")) {
             return Group.PERKS;

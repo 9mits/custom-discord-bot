@@ -108,6 +108,7 @@ final class GameVariableStore {
         defineEffectsAndGuards();
         defineRemainingWorldValues();
         defineTail();
+        defineLastValues();
         defineOnlineRewards();
         defineEventRewards(config);
         defineCrateRewards();
@@ -536,6 +537,26 @@ final class GameVariableStore {
         integer("cosmetics.aura.sound-every", "Aura sound interval", "Cosmetics",
                 "Frames between an aura's sounds. Higher is quieter.",
                 32, 1, 400, "frames", false);
+    }
+
+    /** The genuinely last few: the Amethyst shop's daily stock, and the launch sequence. */
+    private void defineLastValues() {
+        integer("amethyst-shop.price", "Amethyst shop price", "Amethyst Shop",
+                "What one Amethyst shop item costs.",
+                5_000_000L, 1, 1_000_000_000, "money", false);
+        integer("amethyst-shop.minimum-stock", "Fewest items stocked", "Amethyst Shop",
+                "Smallest number of items the Amethyst shelf carries each day.",
+                2, 1, 27, "items", false);
+        integer("amethyst-shop.maximum-stock", "Most items stocked", "Amethyst Shop",
+                "Largest number of items the Amethyst shelf carries each day.",
+                3, 1, 27, "items", false);
+
+        integer("launch.countdown-seconds", "Launch countdown", "Server",
+                "Seconds counted down before the barriers come away.",
+                10, 3, 300, "seconds", false);
+        integer("launch.pvp-hold-hours", "PvP hold after launch", "Server",
+                "Hours PvP stays off after the launch countdown finishes.",
+                5, 0, 168, "hours", false);
     }
 
     private void definePotion(String id, String label, int minutes, int level) {
