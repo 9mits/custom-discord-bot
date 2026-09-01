@@ -102,6 +102,7 @@ final class GameVariableStore {
         defineWorldAndMobs(config);
         definePlayerAndWorld(config);
         definePresentationAndItems(config);
+        defineShopPricing();
         defineOnlineRewards();
         defineEventRewards(config);
         defineCrateRewards();
@@ -361,6 +362,30 @@ final class GameVariableStore {
                     "Highest level of " + capitalise(mark.getKey())
                             + " a crate book may carry.",
                     mark.getValue(), 1, 10, "level", false);
+        }
+    }
+
+    /**
+     * Shop pricing as multipliers rather than 400-odd individual prices.
+     *
+     * <p>One figure for all buying, one for all selling, and one per shelf, each a
+     * percentage of the catalogue price. 100 leaves a price exactly as it ships, 50
+     * halves it, 200 doubles it. The two stack: a shelf at 50 inside a shop at 200 sells
+     * at the catalogue price.
+     */
+    private void defineShopPricing() {
+        integer("shop.buy-percent", "All buy prices", "Shop",
+                "What players pay, as a percentage of the listed price.",
+                100, 1, 10_000, "percent", false);
+        integer("shop.sell-percent", "All sell prices", "Shop",
+                "What players receive for selling, as a percentage of the listed price.",
+                100, 1, 10_000, "percent", false);
+        for (ShopCatalog.Category category : ShopCatalog.Category.values()) {
+            integer("shop.category." + category.name().toLowerCase(Locale.ROOT) + ".buy-percent",
+                    category.title() + " prices", "Shop Shelves",
+                    "Buy prices on the " + category.title()
+                            + " shelf, as a percentage. Stacks with the shop-wide figure.",
+                    100, 1, 10_000, "percent", false);
         }
     }
 

@@ -80,6 +80,7 @@ record SettingMetadata(
         POTIONS("Potions"),
         ENCHANTMENTS("Enchantments"),
         PRESENTATION("Presentation"),
+        SHOP("Shop"),
         /**
          * A value whose prefix nothing here recognises.
          *
@@ -228,6 +229,9 @@ record SettingMetadata(
         }
         if (key.startsWith("scoreboard.")) {
             return Group.PRESENTATION;
+        }
+        if (key.startsWith("shop.")) {
+            return Group.SHOP;
         }
         if (key.startsWith("clans.")) {
             return Group.CLANS;

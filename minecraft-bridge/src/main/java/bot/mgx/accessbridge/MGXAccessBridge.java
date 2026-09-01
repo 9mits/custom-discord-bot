@@ -224,6 +224,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             // The action catalogue is rebuilt per snapshot so the online-player list the
             // give form offers is current rather than whatever it was at startup.
             gameVariables.actionCatalogue(adminActions.snapshot());
+            ShopCatalog.multiplierSource(key -> gameVariables.integer(key));
             CustomEnchants.capSource(
                     id -> gameVariables.integer("enchants." + id + ".maximum-level"));
             gameVariables.onChange(key -> {

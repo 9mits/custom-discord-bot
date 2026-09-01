@@ -142,22 +142,91 @@ final class ShopCatalog {
     private ShopCatalog() {
     }
 
+    /**
+     * Where the live price multipliers come from.
+     *
+     * <p>408 offers and as many sell quotes. Exposing each as its own setting would have
+     * roughly doubled the registry and buried the values anyone actually wants, so
+     * pricing is scaled instead: one figure for all buying, one for all selling, and one
+     * per shelf. 100 leaves a price exactly as the catalogue set it.
+     */
+    private static volatile java.util.function.ToIntFunction<String> multipliers = key -> 100;
+
+    static void multiplierSource(java.util.function.ToIntFunction<String> source) {
+        if (source != null) {
+            multipliers = source;
+        }
+    }
+
+    private static long scale(long price, int percent) {
+        // Never free and never negative: a shelf set to 0% would hand out stacks rather
+        // than close, which is not what setting a price to nothing should mean.
+        return Math.max(1L, Math.round(price * Math.max(0, percent) / 100d));
+    }
+
+    static int buyPercent(Category category) {
+        int global = multipliers.applyAsInt("shop.buy-percent");
+        int shelf = multipliers.applyAsInt(
+                "shop.category." + category.name().toLowerCase(Locale.ROOT) + ".buy-percent");
+        return Math.max(1, Math.round(global * shelf / 100f));
+    }
+
+    static int sellPercent() {
+        return multipliers.applyAsInt("shop.sell-percent");
+    }
+
     static List<Offer> offers(Category category) {
-        return BY_CATEGORY.getOrDefault(category, List.of());
+        int percent = buyPercent(category);
+        List<Offer> priced = new ArrayList<>();
+        for (Offer offer : BY_CATEGORY.getOrDefault(category, List.of())) {
+            priced.add(percent == 100
+                    ? offer
+                    : new Offer(offer.material(), offer.amount(), scale(offer.price(), percent)));
+        }
+        return List.copyOf(priced);
+    }
+
+    /** The shelf an item is sold from, so a buy price can be scaled by its own category. */
+    private static Category categoryOf(String material) {
+        for (Map.Entry<Category, List<Offer>> shelf : BY_CATEGORY.entrySet()) {
+            for (Offer offer : shelf.getValue()) {
+                if (offer.material().equals(material)) {
+                    return shelf.getKey();
+                }
+            }
+        }
+        return null;
     }
 
     static Optional<Offer> offer(String material) {
         if (material == null || material.isBlank()) {
             return Optional.empty();
         }
-        return Optional.ofNullable(BUY_BY_MATERIAL.get(material.toUpperCase(Locale.ROOT)));
+        Offer listed = BUY_BY_MATERIAL.get(material.toUpperCase(Locale.ROOT));
+        if (listed == null) {
+            return Optional.empty();
+        }
+        Category shelf = categoryOf(listed.material());
+        int percent = shelf == null
+                ? multipliers.applyAsInt("shop.buy-percent") : buyPercent(shelf);
+        return Optional.of(percent == 100
+                ? listed
+                : new Offer(listed.material(), listed.amount(), scale(listed.price(), percent)));
     }
 
     static Optional<SellQuote> sellQuote(String material) {
         if (material == null || material.isBlank()) {
             return Optional.empty();
         }
-        return Optional.ofNullable(SELL_BY_MATERIAL.get(material.toUpperCase(Locale.ROOT)));
+        SellQuote listed = SELL_BY_MATERIAL.get(material.toUpperCase(Locale.ROOT));
+        if (listed == null) {
+            return Optional.empty();
+        }
+        int percent = sellPercent();
+        return Optional.of(percent == 100
+                ? listed
+                : new SellQuote(listed.material(), listed.group(),
+                        scale(listed.unitPrice(), percent)));
     }
 
     static boolean isSellable(String material) {

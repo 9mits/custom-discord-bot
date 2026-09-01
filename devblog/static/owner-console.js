@@ -29,6 +29,7 @@
     {id: "enchantments", label: "Enchantments"},
     {id: "boss_bars", label: "Boss Bars"},
     {id: "presentation", label: "Presentation"},
+    {id: "shop", label: "Shop"},
     {id: "history", label: "History"}
   ];
 
