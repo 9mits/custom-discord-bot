@@ -66,6 +66,172 @@
 
   var DRAFT_STORAGE = "mgx-console-draft";
 
+  /** What each page is for, in the owner's terms rather than the code's. */
+  var PAGE_INTROS = {
+    crates: "What each crate can give and how often. The tables below are the whole reward pool — every row is something a player can open and receive.",
+    airdrops: "How often Airdrops arrive, how far out they land, and what is inside. Rarity is rolled first, then the contents for that rarity.",
+    online_rewards: "What players get for staying connected. Six tiers, reached by lifetime hours played, each with its own rewards and chances.",
+    huge_amethyst: "The cooperative block event: how tough it is, when it pays out, and what those payouts are.",
+    admin_events: "What the events you trigger by hand are worth. These do not happen on their own.",
+    amethyst_mobs: "How often an ordinary monster spawns as an Amethyst one, and what killing it drops.",
+    event_multipliers: "How much each server-wide event multiplies by. Players are told the figure, and the announcement follows whatever you set.",
+    event_schedule: "The gap between world events. Airdrops and Huge Amethyst Blocks share this timer and take turns.",
+    players: "Rules that apply to everyone: going AFK, teleporting, verifying, combat.",
+    world: "Spawn, the border, and how much of the world is kept loaded. The distance caps are the main lever on server load.",
+    clans: "How large a clan can get and how long its invitations stay open.",
+    auction_house: "Limits on player-to-player selling.",
+    economy: "Bounties and automatic payments.",
+    shop: "Prices, as percentages of what the catalogue set. 100 leaves a price alone, 50 halves it, 200 doubles it. The shop-wide figure and a shelf's own figure multiply together.",
+    amethyst_shop: "The limited Amethyst shelf and the items it sells.",
+    potions: "How strong and how long each custom potion is.",
+    enchantments: "The highest level a crate book may carry for each mark.",
+    cosmetics: "How auras, trails and reveals move and how far away they are visible. Mostly a matter of taste and a little of server load.",
+    crate_balance: "The system that quietly nudges an unlucky player's odds back toward the advertised rate. Leave it alone unless you know you want to.",
+    boss_bars: "The colour of each boss bar.",
+    perks: "What Elite and Booster are worth in play.",
+    clan_battles: "What each placement pays when a Clan Battle ends.",
+    launch: "The opening countdown and how long PvP stays off afterwards.",
+    presentation: "Small pieces of what players see."
+  };
+
+  /** Words an owner might search for, mapped to what the setting is actually called. */
+  var SEARCH_TERMS = {
+    "rare": "weight chance odds", "common": "weight chance odds",
+    "money": "economy shop price money balance", "cash": "money",
+    "loot": "reward weight loot", "drop": "airdrop loot drop",
+    "speed": "speed rate", "lag": "view simulation distance swarm",
+    "performance": "view simulation distance swarm active",
+    "colour": "colour color bar", "color": "colour color bar",
+    "reward": "reward keys shards prize", "keys": "key crate",
+    "time": "minutes seconds hours duration lifetime",
+    "how often": "one in chance weight delay interval",
+    "chance": "one in weight chance percent"
+  };
+
+  /**
+   * What an owner is actually trying to do, and the settings that do it.
+   *
+   * The catalogue is organised by what each value configures, which is right for finding
+   * something you already know the name of and useless for "crates feel stingy". A task
+   * starts from the intent, gathers the handful of settings that bear on it, and offers a
+   * change you can look at before publishing — so the panel does the part that needs
+   * knowing where things live.
+   *
+   * `apply` returns the edits for a strength, or null to just show the settings.
+   */
+  var TASKS = [
+    {
+      id: "crates-generous",
+      title: "Crates feel stingy",
+      blurb: "Players earn keys too slowly, or open too little of worth.",
+      keys: ["crate.keys-per-hour", "crate.booster-keys-per-hour",
+             "crate.default.key-cost", "crates.luck.minimum-percent"],
+      strengths: [
+        {label: "A little more generous", factor: 1.25},
+        {label: "Noticeably more", factor: 1.5},
+        {label: "Double the earn rate", factor: 2}
+      ],
+      apply: function (factor) {
+        return scaleEdits(["crate.keys-per-hour", "crate.booster-keys-per-hour"], factor);
+      }
+    },
+    {
+      id: "crates-tight",
+      title: "Crates are too generous",
+      blurb: "Keys are piling up, or rare rewards are showing too often.",
+      keys: ["crate.keys-per-hour", "crate.booster-keys-per-hour",
+             "crates.luck.maximum-percent", "crate.hidden-amethyst-one-in"],
+      strengths: [
+        {label: "Slightly tighter", factor: 0.8},
+        {label: "Noticeably tighter", factor: 0.6},
+        {label: "Half the earn rate", factor: 0.5}
+      ],
+      apply: function (factor) {
+        return scaleEdits(["crate.keys-per-hour", "crate.booster-keys-per-hour"], factor);
+      }
+    },
+    {
+      id: "airdrops-often",
+      title: "Airdrops should come round more often",
+      blurb: "The wait between world events is too long.",
+      keys: ["amethyst-events.minimum-delay-minutes", "amethyst-events.maximum-delay-minutes",
+             "airdrop.enabled", "airdrop.lifetime-minutes", "airdrop.maximum-active"],
+      strengths: [
+        {label: "A bit more often", factor: 0.75},
+        {label: "Twice as often", factor: 0.5},
+        {label: "Nearly constant", factor: 0.25}
+      ],
+      apply: function (factor) {
+        return scaleEdits(["amethyst-events.minimum-delay-minutes",
+                           "amethyst-events.maximum-delay-minutes"], factor);
+      }
+    },
+    {
+      id: "economy-hot",
+      title: "The economy is inflated",
+      blurb: "Too much money about. Raise what things cost, lower what selling pays.",
+      keys: ["shop.buy-percent", "shop.sell-percent", "auction.maximum-price",
+             "bounty.minimum"],
+      strengths: [
+        {label: "Gentle correction", buy: 125, sell: 85},
+        {label: "Firm correction", buy: 150, sell: 70},
+        {label: "Hard reset of prices", buy: 200, sell: 50}
+      ],
+      apply: function (strength) {
+        return [{key: "shop.buy-percent", value: String(strength.buy)},
+                {key: "shop.sell-percent", value: String(strength.sell)}];
+      }
+    },
+    {
+      id: "weekend-event",
+      title: "Run a weekend event",
+      blurb: "Turn up the multipliers, then start one from Do something.",
+      keys: ["events.key.multiplier", "events.money.multiplier",
+             "events.crateluck.multiplier", "events.maximum-seconds"],
+      strengths: null
+    },
+    {
+      id: "new-player-friendly",
+      title: "Make the first hours kinder",
+      blurb: "New players see the early reward tiers and the shop before anything else.",
+      keys: ["online-rewards.tier.1.minimum-hours", "online-rewards.tier.1.bonus-keys",
+             "online-rewards.tier.2.bonus-keys", "online-rewards.interval-minutes",
+             "shop.buy-percent"],
+      strengths: null
+    },
+    {
+      id: "quieter-server",
+      title: "Make the server calmer",
+      blurb: "Fewer world events, gentler cosmetics, less going on at once.",
+      keys: ["amethyst-events.minimum-delay-minutes", "airdrop.maximum-active",
+             "chaos.maximum-swarm", "cosmetics.view-distance", "cosmetics.aura.sound-volume"],
+      strengths: null
+    },
+    {
+      id: "performance",
+      title: "The server is struggling",
+      blurb: "The settings that cost the most to run.",
+      keys: ["world.max-view-distance", "world.max-simulation-distance",
+             "airdrop.maximum-active", "chaos.maximum-swarm", "cosmetics.view-distance",
+             "airdrop.guard.hunt-radius"],
+      strengths: null
+    }
+  ];
+
+  /** Edits that multiply the current value, clamped to what each setting allows. */
+  function scaleEdits(keys, factor) {
+    var edits = [];
+    keys.forEach(function (key) {
+      var row = state.byKey[key];
+      if (!row) return;
+      var next = Math.round(Number(draftedValue(key)) * factor);
+      next = Math.max(row.minimum === undefined ? next : row.minimum,
+              Math.min(row.maximum === undefined ? next : row.maximum, next));
+      if (next !== Number(row.value)) edits.push({key: key, value: String(next)});
+    });
+    return edits;
+  }
+
   /**
    * How often something should show up, in words.
    *
@@ -108,6 +274,7 @@
     validating: false,
     publishing: false,
     catalog: null,
+    task: null,
     activity: null,
     auction: null,
     logFilter: "all",
@@ -414,6 +581,131 @@
       '{className:\'con-icon-gap\'}))">';
   }
 
+  /* ---------- what a value actually means ---------- */
+
+  /**
+   * Plain language for what a setting does at its current value.
+   *
+   * A number on its own is not information. "Keys per online hour: 2" tells an owner
+   * nothing about whether that is generous; "a player online three hours a day earns
+   * about 6 keys" does. Every line here is computed from the value being shown, so it
+   * moves as the value moves and cannot go stale.
+   */
+  function meaning(row) {
+    var value = draftedValue(row.key);
+    var number = Number(value);
+    switch (row.control) {
+      case "weight_row": {
+        var share = chanceOf(row, true);
+        var rank = tableRows(row.table)
+          .filter(function (other) { return chanceOf(other, true) > share; }).length + 1;
+        var total = tableRows(row.table).length;
+        if (share <= 0) return "Never given while this is zero.";
+        return "About " + oneInFrom(share).replace("1 in ", "1 in every ") +
+          " — the " + ordinal(rank) + " most likely of " + total + ".";
+      }
+      case "odds":
+        return number > 0
+          ? "Happens about " + oneInFrom(100 / number).replace("1 in ", "1 time in every ") + "."
+          : "Never happens.";
+      case "multiplier":
+        return "Players see this advertised as " + number + "x.";
+      case "duration": {
+        var unit = row.unit === "hours" ? "hour" : (row.unit === "seconds" ? "second"
+          : (row.unit === "milliseconds" ? "millisecond" : (row.unit === "frames" ? "frame" : "minute")));
+        return humanTime(number, unit) + ".";
+      }
+      case "distance": {
+        var border = state.byKey["world.border-radius"];
+        if (border && row.key.indexOf("radius") >= 0) {
+          var pct = (number / Number(border.value)) * 100;
+          return number.toLocaleString() + " blocks — " + pct.toFixed(1) +
+            "% of the way to the world border.";
+        }
+        return number.toLocaleString() + " blocks. A chunk is 16.";
+      }
+      case "percent":
+        return number + "% — " + (number > 50 ? "past" : "before") + " the halfway point.";
+      case "rate":
+        if (row.unit === "per 10,000") {
+          return "About " + oneInFrom(number / 100).replace("1 in ", "1 in every ") + ".";
+        }
+        return "A fraction. 1 is unchanged; " + number + " is " +
+          (number < 1 ? Math.round((1 - number) * 100) + "% less" :
+            Math.round((number - 1) * 100) + "% more") + ".";
+      case "toggle":
+        return value ? "On. Turning this off stops it entirely." : "Off. Nothing is running.";
+      case "level":
+        return "Level " + number + (number > 1 ? " — the stronger variant." : " — the ordinary effect.");
+      case "quantity":
+        return quantityMeaning(row, number);
+      default:
+        return "";
+    }
+  }
+
+  /** Quantities get the most context, because a count means least on its own. */
+  function quantityMeaning(row, number) {
+    if (row.key === "crate.keys-per-hour" || row.key === "crate.booster-keys-per-hour") {
+      return "A player online three hours a day earns about " + (number * 3) +
+        " keys a day, " + (number * 21) + " a week.";
+    }
+    if (row.key.indexOf("online-rewards.population") === 0) {
+      return "Applies to the stay-online ladder as more players come on.";
+    }
+    if (row.unit === "money") {
+      return "$" + number.toLocaleString() + ".";
+    }
+    if (row.unit === "keys" || row.unit === "shards" || row.unit === "items"
+        || row.unit === "diamonds" || row.unit === "emeralds" || row.unit === "gold") {
+      return number === 0 ? "Nothing is given." :
+        number + " " + row.unit + (number === 1 ? "" : "") + " each time.";
+    }
+    return "";
+  }
+
+  function ordinal(n) {
+    var suffix = ["th", "st", "nd", "rd"][(n % 100 - n % 10 !== 10) * 1 && n % 10 < 4 ? n % 10 : 0];
+    return n + (suffix || "th");
+  }
+
+  function humanTime(value, unit) {
+    if (unit === "minute" && value >= 60) {
+      var hours = value / 60;
+      return value + " minutes — " + (hours === 1 ? "an hour" : hours.toFixed(1) + " hours");
+    }
+    if (unit === "second" && value >= 60) {
+      return value + " seconds — about " + Math.round(value / 60) + " minutes";
+    }
+    if (unit === "hour" && value >= 24) {
+      return value + " hours — " + (value / 24).toFixed(1) + " days";
+    }
+    if (unit === "millisecond") {
+      return (value / 1000).toFixed(1) + " seconds";
+    }
+    if (unit === "frame") {
+      return value + " frames — about " + (value / 20).toFixed(1) + " seconds";
+    }
+    return value + " " + unit + (value === 1 ? "" : "s");
+  }
+
+  /** What else moves when this does. */
+  function relatedTo(row) {
+    var notes = [];
+    if (row.table) {
+      var others = tableRows(row.table).length - 1;
+      notes.push("Shares a table with " + others + " other entr" + (others === 1 ? "y" : "ies") +
+        " — raising this lowers all of their chances.");
+    }
+    if (row.partner && state.byKey[row.partner]) {
+      notes.push("Paired with " + state.byKey[row.partner].label + "; one cannot pass the other.");
+    }
+    if (row.reload === "next_event") {
+      notes.push("Anything already standing in the world keeps the value it spawned with.");
+    }
+    return notes;
+  }
+
   /* ---------- controls ---------- */
 
   function unitLabel(row) {
@@ -499,6 +791,10 @@
       (dirty ? '<span class="con-flag">edited</span>' : "") + "</div>" +
       '<p class="con-help">' + escapeHtml(row.description) + "</p>" +
       controlFor(row) +
+      (meaning(row) ? '<p class="con-meaning">' + escapeHtml(meaning(row)) + "</p>" : "") +
+      relatedTo(row).map(function (note) {
+        return '<p class="con-related">' + escapeHtml(note) + "</p>";
+      }).join("") +
       (finding ? '<p class="con-finding">' + escapeHtml(finding) + "</p>" : "") +
       '<div class="con-setting-foot">' +
       (row.reload === "next_event"
@@ -824,11 +1120,23 @@
 
   /* ---------- pages ---------- */
 
+  /**
+   * Matches what an owner types, not only what the setting is called.
+   *
+   * Someone looking for "lag" will not type "simulation distance", and someone after
+   * "how often" will not type "one in". The map above widens the query rather than the
+   * haystack, so a search still lands on the same rows it always would.
+   */
   function matchesSearch(row) {
     if (!state.search) return true;
     var haystack = (row.key + " " + row.label + " " + row.description + " " +
-      (row.group_label || "") + " " + (row.unit || "")).toLowerCase();
-    return haystack.indexOf(state.search) >= 0;
+      (row.group_label || "") + " " + (row.unit || "") + " " + meaning(row)).toLowerCase();
+    if (haystack.indexOf(state.search) >= 0) return true;
+    var widened = SEARCH_TERMS[state.search];
+    if (!widened) return false;
+    return widened.split(" ").some(function (term) {
+      return haystack.indexOf(term) >= 0;
+    });
   }
 
   function groupRows(group) {
@@ -839,6 +1147,8 @@
 
   function renderGroupPage(group) {
     var rows = groupRows(group);
+    var intro = PAGE_INTROS[group]
+      ? '<p class="con-intro">' + escapeHtml(PAGE_INTROS[group]) + "</p>" : "";
     if (!rows.length) {
       return '<p class="con-empty">Nothing on this page matches &ldquo;' +
         escapeHtml(state.search) + "&rdquo;.</p>";
@@ -876,15 +1186,51 @@
       (sections[heading] = sections[heading] || []).push(card);
     });
 
-    var singleHtml = Object.keys(sections).map(function (heading) {
-      return '<section class="con-section"><h3>' + escapeHtml(heading) + "</h3>" +
+    var singleHtml = Object.keys(sections).sort(function (a, b) {
+      // Bigger groups first: a page opening with a two-card section reads as an
+      // afterthought before you reach what it is actually about.
+      return sections[b].length - sections[a].length;
+    }).map(function (heading) {
+      return '<section class="con-section"><h3>' + escapeHtml(heading) +
+        '<span class="con-section-count">' + sections[heading].length + "</span></h3>" +
         '<div class="con-grid">' + sections[heading].join("") + "</div></section>";
     }).join("");
 
-    return editors + singleHtml;
+    return intro + editors + singleHtml;
+  }
+
+  /** A task, opened. Shows only what bears on it, each explained. */
+  function renderTask(task) {
+    var rows = task.keys.map(function (key) { return state.byKey[key]; })
+      .filter(function (row) { return !!row; });
+    var strengths = task.strengths
+      ? '<div class="con-strengths">' + task.strengths.map(function (option, index) {
+          return '<button type="button" class="con-strength" data-strength="' +
+            escapeHtml(task.id) + ":" + index + '"><strong>' +
+            escapeHtml(option.label) + "</strong><em>preview the change</em></button>";
+        }).join("") + "</div>"
+      : '<p class="con-help wide">No single lever does this one — the settings below are ' +
+        "the ones that matter. Change what you like and publish when you are happy.</p>";
+    return '<article class="con-task-open"><header><button type="button" class="con-link" ' +
+      'data-task="">&larr; All tasks</button><h2>' + escapeHtml(task.title) + "</h2>" +
+      "<p>" + escapeHtml(task.blurb) + "</p></header>" + strengths +
+      '<h3>What this touches</h3><div class="con-grid">' +
+      rows.map(settingCard).join("") + "</div></article>";
+  }
+
+  function taskCard(task) {
+    return '<button type="button" class="con-task" data-task="' + escapeHtml(task.id) + '">' +
+      "<strong>" + escapeHtml(task.title) + "</strong>" +
+      "<span>" + escapeHtml(task.blurb) + "</span>" +
+      '<em>' + task.keys.length + " setting" + (task.keys.length === 1 ? "" : "s") +
+      "</em></button>";
   }
 
   function renderOverview() {
+    if (state.task) {
+      var open = TASKS.filter(function (entry) { return entry.id === state.task; })[0];
+      if (open) return renderTask(open);
+    }
     var overridden = state.rows.filter(function (row) { return row.overridden; });
     var lagging = state.rows.filter(function (row) { return row.reload === "next_event"; });
     var pending = dirtyKeys();
@@ -923,7 +1269,12 @@
         '<div class="con-history">' + recent.map(publishRow).join("") + "</div></section>"
       : "";
 
-    return '<div class="con-stats">' + cards + "</div>" + changed + lag + history;
+    var tasks = '<section class="con-section"><h3>What do you want to do?</h3>' +
+      '<p class="con-help wide">Pick the thing you are trying to change. Each one gathers ' +
+      "the settings that bear on it and explains what they do, so you do not have to know " +
+      "where anything lives. Or use the pages on the left to go straight to a value.</p>" +
+      '<div class="con-tasks">' + TASKS.map(taskCard).join("") + "</div></section>";
+    return tasks + '<div class="con-stats">' + cards + "</div>" + changed + lag + history;
   }
 
   function publishRow(publish) {
@@ -997,6 +1348,28 @@
         : "") +
       '<div class="con-setting-foot"><button type="button" class="con-primary" data-run="' +
       escapeHtml(action.id) + '">' + escapeHtml(action.label) + "</button></div></article>";
+  }
+
+  /**
+   * Stages a task's suggested change without publishing it.
+   *
+   * Deliberately a draft, not an action. The whole point is that you see exactly what it
+   * would do — in the cards below and in the review dialog — before anything reaches the
+   * server.
+   */
+  function applyStrength(token) {
+    var parts = token.split(":");
+    var task = TASKS.filter(function (entry) { return entry.id === parts[0]; })[0];
+    if (!task || !task.strengths) return;
+    var option = task.strengths[Number(parts[1])];
+    var edits = task.apply(option.factor !== undefined ? option.factor : option);
+    if (!edits.length) {
+      toast("That would not change anything from where the values are now.", false);
+      return;
+    }
+    edits.forEach(function (edit) { setDraft(edit.key, Number(edit.value)); });
+    toast(option.label + " staged — " + edits.length +
+      " change(s) below. Review before publishing.", false);
   }
 
   async function runAction(id) {
@@ -1235,7 +1608,16 @@
       var run = event.target.closest("[data-run]");
       if (run) { runAction(run.dataset.run); return; }
       var logged = event.target.closest("[data-log]");
-      if (logged) { state.logFilter = logged.dataset.log; render(); }
+      if (logged) { state.logFilter = logged.dataset.log; render(); return; }
+      var task = event.target.closest("[data-task]");
+      if (task) {
+        state.task = task.dataset.task || null;
+        render();
+        window.scrollTo({top: 0, behavior: "smooth"});
+        return;
+      }
+      var strength = event.target.closest("[data-strength]");
+      if (strength) { applyStrength(strength.dataset.strength); }
     });
 
     byId("con-add").addEventListener("click", function (event) {

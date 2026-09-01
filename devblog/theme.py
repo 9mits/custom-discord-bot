@@ -1270,6 +1270,49 @@ img.live-minecraft-icon {
 .con-move { font: 500 .74rem ui-monospace, monospace; color: var(--brand-orange); }
 .con-table-note { margin: .8rem 0 0; font-size: .74rem; color: var(--grey); }
 .con-empty { padding: 2rem 0; color: var(--grey); }
+
+/* ---- guidance ---- */
+.con-intro {
+  max-width: 68ch; margin: 0 0 1.6rem; padding: .85rem 1rem;
+  border-left: 3px solid var(--brand-orange); border-radius: 0 .55rem .55rem 0;
+  background: var(--surface); color: var(--text-muted); font-size: .86rem; line-height: 1.6;
+}
+.con-tasks { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: .7rem; }
+.con-task {
+  display: flex; flex-direction: column; gap: .3rem; padding: .95rem 1.05rem; text-align: left;
+  border: 1px solid var(--line); border-radius: .75rem; background: var(--surface);
+  cursor: pointer; font-family: inherit; transition: border-color var(--dur-fast) var(--ease);
+}
+.con-task:hover { border-color: var(--brand-orange); }
+.con-task strong { font-size: .92rem; color: var(--ink); }
+.con-task span { font-size: .79rem; color: var(--text-muted); line-height: 1.5; }
+.con-task em {
+  margin-top: .3rem; font-style: normal; font-size: .68rem; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--grey);
+}
+.con-task-open > header { margin-bottom: 1.4rem; }
+.con-task-open h2 { margin: .5rem 0 .3rem; color: var(--ink); }
+.con-task-open header p { max-width: 68ch; color: var(--text-muted); }
+.con-task-open h3 { margin: 1.8rem 0 .8rem; font-size: 1rem; color: var(--ink); }
+.con-strengths { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: .6rem; }
+.con-strength {
+  display: flex; flex-direction: column; gap: .2rem; padding: .8rem 1rem; text-align: left;
+  border: 1px solid var(--brand-orange); border-radius: .7rem; background: var(--surface);
+  cursor: pointer; font-family: inherit;
+}
+.con-strength:hover { background: var(--bloom-2); }
+.con-strength strong { font-size: .88rem; color: var(--ink); }
+.con-strength em { font-style: normal; font-size: .72rem; color: var(--brand-orange); }
+.con-meaning {
+  margin: 0; padding: .4rem .55rem; border-radius: .45rem;
+  background: var(--surface-raised); color: var(--ink); font-size: .78rem; line-height: 1.5;
+}
+.con-related { margin: 0; font-size: .73rem; color: var(--grey); line-height: 1.45; }
+.con-section h3 { display: flex; align-items: baseline; gap: .5rem; }
+.con-section-count {
+  font: 600 .68rem ui-monospace, monospace; color: var(--grey);
+  padding: .05rem .35rem; border-radius: .3rem; background: var(--surface-raised);
+}
 .con-category-rail { display: flex; flex-wrap: wrap; gap: .35rem; margin-bottom: 1rem; }
 .con-category-rail button {
   display: inline-flex; align-items: center; gap: .35rem; padding: .3rem .6rem;

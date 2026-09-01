@@ -126,6 +126,43 @@ class ConsolePageContractTests(unittest.TestCase):
                 "%s is revealed by the console but never hidden in control.md" % element,
             )
 
+    def test_every_guided_task_points_at_settings_that_exist(self):
+        """A task naming a key the plugin does not define renders an empty panel.
+
+        The failure is silent — the task opens, says it touches five settings, and shows
+        none of them — so it has to be caught here rather than by looking.
+        """
+        task_block = CONSOLE_JS.split("var TASKS = [", 1)[1].split("\n  ];", 1)[0]
+        named = set(re.findall(r'"([a-z][a-z0-9\-]*(?:\.[a-z0-9\-]+)+)"', task_block))
+        self.assertGreater(len(named), 20, "the task key scrape stopped matching")
+
+        defined = set(re.findall(r'\b(?:integer|bool|choice|text|decimal)\(\s*\n?\s*"([^"]+)"',
+                                 STORE_JAVA))
+        # Keys built in loops carry a prefix rather than a literal; keep the literals only.
+        missing = {key for key in named if key not in defined
+                   and not any(key.startswith(p) for p in
+                               ("crate.", "airdrop.", "online-rewards.", "huge-amethyst.",
+                                "events.", "shop.", "chaos.", "cosmetics.", "world.",
+                                "amethyst-events.", "crates.", "auction.", "bounty."))}
+        self.assertEqual(
+            set(), missing,
+            "guided tasks name setting(s) nothing defines: %s" % sorted(missing))
+
+    def test_every_settings_page_has_an_introduction(self):
+        # A page that opens straight into a grid of controls is the thing this rebuild
+        # exists to stop.
+        # Scoped to the PAGES array: the frequency presets share its literal shape, so a
+        # loose scrape reports "very_common" as an undocumented page.
+        page_block = CONSOLE_JS.split("var PAGES = [", 1)[1].split("\n  ];", 1)[0]
+        pages = set(re.findall(r'\{id: "([a-z_]+)"', page_block))
+        pages -= {"overview", "history", "actions", "activity", "auction"}
+        self.assertGreater(len(pages), 15, "the page scrape stopped matching")
+        intro_block = CONSOLE_JS.split("var PAGE_INTROS = {", 1)[1].split("\n  };", 1)[0]
+        described = set(re.findall(r'^\s*([a-z_]+):', intro_block, re.M))
+        self.assertEqual(
+            set(), pages - described,
+            "settings page(s) with no introduction: %s" % sorted(pages - described))
+
     def test_every_class_the_console_emits_is_styled(self):
         # A class with no rule renders as unstyled text in the middle of a panel, which
         # reads as a broken page rather than a missing stylesheet.
