@@ -204,6 +204,7 @@ final class AirdropService implements Listener {
     private final NamespacedKey cosmeticMarker;
     private final RandomGenerator random;
     private final GameVariableStore variables;
+    private final ServerMessages messages;
 
     /**
      * Every drop currently standing, newest last.
@@ -271,6 +272,7 @@ final class AirdropService implements Listener {
         this.settings = settings;
         this.guards = guards;
         this.variables = variables;
+        this.messages = new ServerMessages(variables);
         this.random = random;
         cosmeticMarker = new NamespacedKey(plugin, "airdrop_cosmetic");
     }
@@ -402,8 +404,7 @@ final class AirdropService implements Listener {
     int expireTest() {
         int expired = 0;
         for (ActiveAirdrop drop : List.copyOf(active.values())) {
-            remove(drop, true, "The " + drop.rarity.displayName()
-                    + " Amethyst Airdrop expired unclaimed.");
+            remove(drop, true, "messages.airdrop.expired");
             expired++;
         }
         return expired;
@@ -708,8 +709,7 @@ final class AirdropService implements Listener {
             startTickers();
             drop.expiryTask = plugin.getServer().getScheduler().runTaskLater(
                     plugin,
-                    () -> remove(drop, true, "The " + rarity.displayName()
-                            + " Amethyst Airdrop expired unclaimed."),
+                    () -> remove(drop, true, "messages.airdrop.expired"),
                     Math.max(1L, lifetimeMillis / 50L)
             );
             guards.deploy(drop.id, chestLocation, rarity);
@@ -1177,7 +1177,7 @@ final class AirdropService implements Listener {
     private void removeIfLooted(ActiveAirdrop drop) {
         BlockState state = drop.chest.getBlock().getState();
         if (!(state instanceof Chest chest)) {
-            remove(drop, true, "The Amethyst Airdrop vanished after its chest was disturbed.");
+            remove(drop, true, "messages.airdrop.disturbed");
             return;
         }
         for (ItemStack item : chest.getBlockInventory().getContents()) {
@@ -1287,9 +1287,11 @@ final class AirdropService implements Listener {
             playDisappearEffect(drop);
         }
         restore(drop.savedBlocks, drop.chunks);
-        if (announce && message != null && !message.isBlank()) {
+        // `message` is a messages.* key now rather than the sentence itself, so the
+        // owner can reword or silence it without a build.
+        if (announce && message != null && !messages.isSilenced(message)) {
             broadcast(Component.text("AIRDROP » ", AMETHYST, TextDecoration.BOLD)
-                    .append(Component.text(message, NamedTextColor.WHITE)));
+                    .append(messages.render(message, "rarity", drop.rarity.displayName())));
         }
         if (!drop.scheduled) {
             // A staff drop is not the scheduler's event, so finishing it must not start

@@ -47,6 +47,7 @@
     {id: "cosmetics", label: "Cosmetics", group: "Items & effects"},
     {id: "perks", label: "Perks", group: "Items & effects"},
 
+    {id: "messages", label: "Messages", group: "Presentation"},
     {id: "boss_bars", label: "Boss bars", group: "Presentation"},
     {id: "presentation", label: "Presentation", group: "Presentation"}
   ];
@@ -100,6 +101,7 @@
     perks: "What Elite and Booster are worth in play.",
     clan_battles: "What each placement pays when a Clan Battle ends.",
     launch: "The opening countdown and how long PvP stays off afterwards.",
+    messages: "The exact words players see. Formatting is MiniMessage — <bold>text</bold> and <#b57edc>colour</#b57edc> work — and anything in angle brackets like <keys> is filled in by the server. Empty a message to switch it off entirely.",
     presentation: "Small pieces of what players see."
   };
 

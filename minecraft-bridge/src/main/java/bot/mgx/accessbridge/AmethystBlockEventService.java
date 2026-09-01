@@ -159,6 +159,7 @@ final class AmethystBlockEventService implements Listener {
     private final CrateItems crateItems;
     private final PlayerSettingsStore settings;
     private final GameVariableStore variables;
+    private final ServerMessages messages;
     private final RandomGenerator random;
     private final Path journal;
     private final Set<Item> visualKeys = new HashSet<>();
@@ -189,6 +190,7 @@ final class AmethystBlockEventService implements Listener {
         this.crateItems = crateItems;
         this.settings = settings;
         this.variables = variables;
+        this.messages = new ServerMessages(variables);
         this.random = random;
         journal = plugin.getDataFolder().toPath().resolve("amethyst-block-event.yml");
     }
@@ -764,12 +766,10 @@ final class AmethystBlockEventService implements Listener {
             if (bundle.shards() > 0) {
                 giveOwned(player, crateItems.shard(bundle.shards()));
             }
-            player.sendMessage(PlayerMenuService.prefix()
-                    .append(Component.text(completion ? "Block broken! " : "Reward wave! ",
-                            AMETHYST, TextDecoration.BOLD))
-                    .append(Component.text(
-                            keys == 1 ? "You received 1 key." : "You received " + keys + " keys.",
-                            NamedTextColor.WHITE)));
+            player.sendMessage(PlayerMenuService.prefix().append(messages.render(
+                    completion ? "messages.amethyst.block-broken"
+                            : "messages.amethyst.reward-wave",
+                    "keys", String.valueOf(keys))));
             player.playSound(player.getLocation(), Sound.UI_TOAST_CHALLENGE_COMPLETE, 1f,
                     completion ? 1.35f : 1.1f);
         }
@@ -973,8 +973,13 @@ final class AmethystBlockEventService implements Listener {
                         7d, 8d, 7d, 0.4d);
                 world.playSound(centre, Sound.ENTITY_GENERIC_EXPLODE, 25f, 0.55f);
                 world.playSound(centre, Sound.UI_TOAST_CHALLENGE_COMPLETE, 20f, 1.1f);
-                removeActive(true,
-                        "The Huge Amethyst Block shattered! Everyone who helped break it was rewarded.");
+                // The shatter line is owner-editable, so it is announced as a rendered
+                // component rather than pushed through removeActive's plain-text path.
+                if (!messages.isSilenced("messages.amethyst.shattered")) {
+                    announce(Component.text("AMETHYST EVENT » ", AMETHYST, TextDecoration.BOLD)
+                            .append(messages.render("messages.amethyst.shattered")));
+                }
+                removeActive(false, null);
             }
         }.runTaskTimer(plugin, 0L, 2L);
     }

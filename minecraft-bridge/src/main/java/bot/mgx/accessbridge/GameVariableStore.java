@@ -111,6 +111,7 @@ final class GameVariableStore {
         defineLastValues();
         defineTeleportAndBounty();
         defineFinalValues();
+        defineMessages();
         defineOnlineRewards();
         defineEventRewards(config);
         defineCrateRewards();
@@ -624,6 +625,42 @@ final class GameVariableStore {
         integer(base + "maximum", label + " maximum distance", "Airdrop Distance",
                 "Farthest scheduled " + label + " Airdrop distance from 0,0.",
                 config.getLong(base + "maximum", maximum), 1, 100_000, "blocks", false);
+    }
+
+    /**
+     * Player-facing text, editable while the server runs.
+     *
+     * <p>These were Java string literals, so changing a word meant a build and a
+     * restart. MiniMessage keeps the colour and emphasis editable as text, and clearing
+     * one to empty is how a message is switched off entirely.
+     */
+    private void defineMessages() {
+        message("messages.amethyst.reward-wave",
+                "Amethyst reward wave",
+                "A contributor's message at each reward threshold. <keys> is how many they got.",
+                "<#b57edc><bold>Reward wave! </bold></#b57edc><white>You received <keys> keys.</white>");
+        message("messages.amethyst.block-broken",
+                "Amethyst block broken",
+                "A contributor's message when the block finally shatters. <keys> is their total.",
+                "<#b57edc><bold>Block broken! </bold></#b57edc><white>You received <keys> keys.</white>");
+        message("messages.amethyst.shattered",
+                "Amethyst shattered broadcast",
+                "Shown to the whole server when the Huge Amethyst Block is destroyed.",
+                "<#b57edc>The Huge Amethyst Block shattered! Everyone who helped break it was rewarded.</#b57edc>");
+        // The landing announcement is a designed banner rather than a line of text, so
+        // it has no template to edit; these two are the plain sentences that do.
+        message("messages.airdrop.expired",
+                "Airdrop expired broadcast",
+                "Shown when an Airdrop times out unclaimed. <rarity> is its rarity.",
+                "<white>The <rarity> Amethyst Airdrop expired unclaimed.</white>");
+        message("messages.airdrop.disturbed",
+                "Airdrop disturbed broadcast",
+                "Shown when an Airdrop is removed because its chest was interfered with.",
+                "<white>The Amethyst Airdrop vanished after its chest was disturbed.</white>");
+    }
+
+    private void message(String key, String label, String description, String value) {
+        text(key, label, "Messages", description, value, 240);
     }
 
     private void defineOnlineRewards() {
