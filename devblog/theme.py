@@ -1561,10 +1561,13 @@ body.cx .theme-switch button[aria-checked="true"] { background: var(--brand-oran
 }
 .con-task-open > header p { font-size: .84rem; color: var(--text-muted); max-width: 46rem; }
 .con-task-open > h3 {
-  font-size: .82rem; font-weight: 650; margin: 1.75rem 0 .25rem;
+  font-size: .82rem; font-weight: 650; margin: 2rem 0 .25rem;
   padding-bottom: .5rem; border-bottom: 1px solid var(--line);
 }
-.con-strengths { display: grid; gap: .6rem; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); }
+.con-strengths {
+  display: grid; gap: .6rem; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  margin-bottom: .5rem;
+}
 .con-strength {
   display: flex; flex-direction: column; gap: .15rem; text-align: left; cursor: pointer;
   border: 1px solid var(--line); border-radius: .5rem; background: var(--surface);

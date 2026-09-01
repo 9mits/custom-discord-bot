@@ -633,8 +633,27 @@
         }
         return number.toLocaleString() + " blocks. A chunk is 16.";
       }
-      case "percent":
-        return number + "% — " + (number > 50 ? "past" : "before") + " the halfway point.";
+      case "percent": {
+        // "past the halfway point" said nothing on any of the twenty-eight rows that
+        // reach here — a price multiplier has no halfway point. What a percentage means
+        // depends on what it is a percentage of, so each family answers for itself.
+        if (/health-percent$/.test(row.key)) {
+          return "Fires once the block is down to " + number + "% of its health.";
+        }
+        if (/\.(buy|sell)-percent$/.test(row.key)) {
+          var paying = /sell-percent$/.test(row.key) ? "Selling pays" : "Buying costs";
+          if (number === 100) return "Exactly what the catalogue lists.";
+          return number < 100
+            ? paying + " " + (100 - number) + "% less than the listed price."
+            : paying + " " + (number - 100) + "% more than the listed price.";
+        }
+        if (row.key.indexOf("crates.") === 0) {
+          return number === 100
+            ? "The ordinary rare-reward rate."
+            : number + "% of the ordinary rare-reward rate.";
+        }
+        return number + "%.";
+      }
       case "rate":
         if (row.unit === "per 10,000") {
           return "About " + oneInFrom(number / 100).replace("1 in ", "1 in every ") + ".";
@@ -667,8 +686,12 @@
     }
     if (row.unit === "keys" || row.unit === "shards" || row.unit === "items"
         || row.unit === "diamonds" || row.unit === "emeralds" || row.unit === "gold") {
+      // The unit is stored plural, so one of anything needs it back in the singular.
+      // "gold" is uncountable and must not become "gol".
       return number === 0 ? "Nothing is given." :
-        number + " " + row.unit + (number === 1 ? "" : "") + " each time.";
+        number + " " +
+        (number === 1 ? row.unit.replace(/(?!^)s$/, "") : row.unit) +
+        " each time.";
     }
     return "";
   }
@@ -779,8 +802,14 @@
         "&times;</strong> &middot; players are told this figure</span></div>";
     }
     if (row.control === "percent") {
+      // Only four of the twenty-eight percentages are about health; the rest are shop
+      // prices and luck bounds, and every one of them used to read "of full health".
+      var of = /health-percent$/.test(row.key) ? " of full health"
+        : /\.buy-percent$/.test(row.key) ? " of the listed price"
+        : /\.sell-percent$/.test(row.key) ? " of the listed price"
+        : "";
       return '<div class="con-odds">' + numberField(row, value) +
-        '<span class="con-odds-read">' + escapeHtml(value) + "% of full health</span></div>";
+        '<span class="con-odds-read">' + escapeHtml(value) + "%" + of + "</span></div>";
     }
     if (row.control === "duration" || row.control === "distance") {
       return '<div class="con-odds">' + numberField(row, value) +
