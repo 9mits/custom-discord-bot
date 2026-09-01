@@ -57,6 +57,24 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
     static final String WORLD_NAME = "mgx_verification";
     private static final Pattern DISCORD_USERNAME = Pattern.compile("[A-Za-z0-9_.]{2,32}");
     private static final long REQUEST_COOLDOWN_MILLIS = 10_000L;
+    /** Live tuning; the constants above stay the defaults and stand alone in tests. */
+    private static volatile java.util.function.ToDoubleFunction<String> tuning = key -> Double.NaN;
+
+    static void tuningSource(java.util.function.ToDoubleFunction<String> source) {
+        if (source != null) {
+            tuning = source;
+        }
+    }
+
+    private static double tuned(String key, double fallback) {
+        double value = tuning.applyAsDouble(key);
+        return Double.isNaN(value) ? fallback : value;
+    }
+
+    private static long requestCooldownMillis() {
+        return (long) (tuned("verification.request-cooldown-seconds", 10d) * 1000d);
+    }
+
     /** A sparse status line proves the otherwise-black lobby is still responsive. */
     private static final long PROMPT_INTERVAL_TICKS = 200L;
     private static final long PROMPT_INTERVAL_MILLIS = PROMPT_INTERVAL_TICKS * 50L;
@@ -487,8 +505,9 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
         }
         long now = System.currentTimeMillis();
         long previous = lastRequests.getOrDefault(player.getUniqueId(), 0L);
-        if (now - previous < REQUEST_COOLDOWN_MILLIS) {
-            long seconds = Math.max(1L, (REQUEST_COOLDOWN_MILLIS - (now - previous) + 999L) / 1000L);
+        long cooldown = requestCooldownMillis();
+        if (now - previous < cooldown) {
+            long seconds = Math.max(1L, (cooldown - (now - previous) + 999L) / 1000L);
             player.sendMessage(Component.text("A request was just sent. Check your newest Discord DM, "
                             + "or wait " + seconds + " seconds before trying again.",
                     NamedTextColor.YELLOW));

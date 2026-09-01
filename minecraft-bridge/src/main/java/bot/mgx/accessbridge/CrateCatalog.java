@@ -21,6 +21,20 @@ final class CrateCatalog {
     static final int NO_LUCK_PERCENT = 100;
     /** Crate Luck V, and the ceiling once a live event has multiplied a potion. */
     static final int MAX_LUCK_PERCENT = 300;
+    /** Live tuning; the constants above stay the defaults and stand alone in tests. */
+    private static volatile java.util.function.ToDoubleFunction<String> tuning = key -> Double.NaN;
+
+    static void tuningSource(java.util.function.ToDoubleFunction<String> source) {
+        if (source != null) {
+            tuning = source;
+        }
+    }
+
+    private static double tuned(String key, double fallback) {
+        double value = tuning.applyAsDouble(key);
+        return Double.isNaN(value) ? fallback : value;
+    }
+
     /** 0.01% of {@link #TOTAL_WEIGHT}; the server-wide chime is reserved for rarer wins. */
     static final int JACKPOT_WEIGHT = TOTAL_WEIGHT / 10_000;
     static final int HIDDEN_AMETHYST_ONE_IN = CosmeticCatalog.HIDDEN_AMETHYST_ONE_IN;
@@ -215,6 +229,69 @@ final class CrateCatalog {
         ).toList();
     }
 
+    /** The built-in reward list for one crate, before an owner's additions or removals. */
+    static List<Reward> builtIn(CrateKind kind) {
+        return switch (kind) {
+            case DEFAULT -> REWARDS;
+            case AMETHYST -> AMETHYST_REWARDS;
+            case SHARD -> SHARD_REWARDS;
+        };
+    }
+
+    static java.util.Set<String> builtInIds(CrateKind kind) {
+        return builtIn(kind).stream().map(Reward::id)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
+    static Optional<Reward> builtInReward(CrateKind kind, String id) {
+        return builtIn(kind).stream().filter(reward -> reward.id().equals(id)).findFirst();
+    }
+
+    /**
+     * What the crate actually contains right now: the built-ins an owner has not removed,
+     * plus the ones they added.
+     *
+     * <p>Order matters and is deliberate — built-ins keep their catalogue order so the
+     * odds pages do not reshuffle when something is added, and additions land at the end.
+     */
+    static List<Reward> effectiveRewards(CrateKind kind, CustomCatalogStore custom) {
+        if (custom == null) {
+            return builtIn(kind);
+        }
+        java.util.Set<String> removed = custom.disabledRewards(kind.key());
+        List<Reward> rewards = new java.util.ArrayList<>(
+                builtIn(kind).stream().filter(reward -> !removed.contains(reward.id())).toList()
+        );
+        for (CustomCatalogStore.CrateAddition addition : custom.addedRewards(kind.key())) {
+            rewards.add(fromAddition(addition));
+        }
+        return List.copyOf(rewards);
+    }
+
+    /**
+     * Turns a stored addition into a reward the rest of the crate engine can use.
+     *
+     * <p>The description is what the odds screen shows under the name. Rewards must have
+     * one, but making an owner write flavour text before they can add copper is friction
+     * for its own sake, so a blank one becomes a plain statement of what the reward is.
+     */
+    static Reward fromAddition(CustomCatalogStore.CrateAddition addition) {
+        String description = addition.description() == null ? "" : addition.description().strip();
+        if (description.isEmpty()) {
+            description = addition.amount() + "x "
+                    + addition.material().toLowerCase(Locale.ROOT).replace('_', ' ') + ".";
+        }
+        return item(
+                addition.id(),
+                addition.displayName(),
+                Category.valueOf(addition.category()),
+                Math.max(1, addition.weight()),
+                addition.material(),
+                addition.amount(),
+                description
+        );
+    }
+
     /** Every reward an administrator may grant, across permanent and limited crates. */
     static List<Reward> everyReward() {
         return java.util.stream.Stream.of(
@@ -330,7 +407,8 @@ final class CrateCatalog {
 
     /** No potion at all, and the ceiling a potion plus a live event may reach. */
     static int clampLuckPercent(int luckPercent) {
-        return Math.max(NO_LUCK_PERCENT, Math.min(MAX_LUCK_PERCENT, luckPercent));
+        return (int) Math.max(tuned("crates.luck.minimum-percent", NO_LUCK_PERCENT),
+                Math.min(tuned("crates.luck.maximum-percent", MAX_LUCK_PERCENT), luckPercent));
     }
 
     /**
@@ -339,7 +417,8 @@ final class CrateCatalog {
      * potion on its own never is.
      */
     static int clampRollPercent(int percent) {
-        return Math.max(CrateOddsBalance.FLOOR_PERCENT, Math.min(MAX_LUCK_PERCENT, percent));
+        return (int) Math.max(CrateOddsBalance.FLOOR_PERCENT,
+                Math.min(tuned("crates.luck.maximum-percent", MAX_LUCK_PERCENT), percent));
     }
 
     static String percentage(int weight) {

@@ -35,6 +35,20 @@ import java.util.UUID;
 final class LaunchService {
     private static final int COUNTDOWN_SECONDS = 10;
     private static final long PVP_HOLD_MILLIS = 5L * 60L * 60L * 1000L;
+    /** Live tuning; the constants above stay the defaults and stand alone in tests. */
+    private static volatile java.util.function.ToDoubleFunction<String> tuning = key -> Double.NaN;
+
+    static void tuningSource(java.util.function.ToDoubleFunction<String> source) {
+        if (source != null) {
+            tuning = source;
+        }
+    }
+
+    private static double tuned(String key, double fallback) {
+        double value = tuning.applyAsDouble(key);
+        return Double.isNaN(value) ? fallback : value;
+    }
+
     private static final long TEST_RESTORE_TICKS = 60L * 20L;
     private static final int SPAWN_CHUNK_RADIUS = 12;
     private static final int CHUNKS_PER_TICK = 8;
@@ -121,7 +135,7 @@ final class LaunchService {
         testRun = test;
         plugin.getLogger().info(sender.getName() + " started the "
                 + (test ? "test " : "") + "server launch countdown.");
-        tickCountdown(COUNTDOWN_SECONDS);
+        tickCountdown((int) tuned("launch.countdown-seconds", COUNTDOWN_SECONDS));
     }
 
     private void tickCountdown(int remaining) {
@@ -148,7 +162,8 @@ final class LaunchService {
         Bukkit.broadcast(Component.text("Server starting.", NamedTextColor.GOLD).decorate(TextDecoration.BOLD));
         clearForced();
         setPvp(false);
-        long until = System.currentTimeMillis() + PVP_HOLD_MILLIS;
+        long until = System.currentTimeMillis()
+                + (long) (tuned("launch.pvp-hold-hours", 5d) * 3_600_000d);
         writeHoldUntil(until);
         scheduleRestore(until);
         stripBarriers(false);

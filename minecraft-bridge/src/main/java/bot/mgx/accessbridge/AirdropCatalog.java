@@ -223,6 +223,42 @@ final class AirdropCatalog {
                 .toList();
     }
 
+    static java.util.Set<String> builtInLootMaterials() {
+        return LOOT.stream().map(LootDefinition::materialName)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
+    /**
+     * The loot table as it stands: built-in materials an owner has not removed, plus the
+     * ones they added.
+     *
+     * <p>Every weighted draw and every control-panel row reads through here, so a
+     * material added at runtime is drawn from on the next Airdrop without a restart.
+     */
+    static List<LootDefinitionView> effectiveLoot(CustomCatalogStore custom) {
+        if (custom == null) {
+            return lootDefinitions();
+        }
+        java.util.Set<String> removed = custom.disabledLoot();
+        List<LootDefinitionView> loot = new java.util.ArrayList<>(
+                lootDefinitions().stream()
+                        .filter(entry -> !removed.contains(entry.materialName()))
+                        .toList()
+        );
+        for (CustomCatalogStore.LootAddition addition : custom.addedLoot()) {
+            loot.add(new LootDefinitionView(
+                    addition.material(),
+                    addition.minimumAmount(),
+                    addition.maximumAmount(),
+                    addition.weights().getOrDefault("common", 0),
+                    addition.weights().getOrDefault("rare", 0),
+                    addition.weights().getOrDefault("legendary", 0),
+                    addition.weights().getOrDefault("mythic", 0)
+            ));
+        }
+        return List.copyOf(loot);
+    }
+
     static List<LootDefinitionView> lootDefinitions() {
         return LOOT.stream().map(value -> new LootDefinitionView(
                 value.materialName(), value.minimumAmount(), value.maximumAmount(),

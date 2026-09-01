@@ -17,6 +17,26 @@ import java.util.TreeMap;
  */
 final class CustomEnchants {
     /** Every mark a book may carry, and how high the crate lets it go. */
+    /**
+     * Where the live caps come from.
+     *
+     * <p>Set once the registry exists. The map below stays the default and stands alone
+     * in tests, which use this class directly.
+     */
+    private static volatile java.util.function.ToIntFunction<String> caps = id -> -1;
+
+    static void capSource(java.util.function.ToIntFunction<String> source) {
+        if (source != null) {
+            caps = source;
+        }
+    }
+
+    /** The highest level a book may carry for this mark. */
+    static int cap(String id) {
+        int live = caps.applyAsInt(id);
+        return live > 0 ? live : MAX_LEVEL.getOrDefault(id, 1);
+    }
+
     static final Map<String, Integer> MAX_LEVEL = Map.of(
             "unbreaking", 5,
             "protection", 5,
@@ -39,7 +59,7 @@ final class CustomEnchants {
                 continue;
             }
             String id = halves[0].trim().toLowerCase(Locale.ROOT);
-            Integer cap = MAX_LEVEL.get(id);
+            Integer cap = MAX_LEVEL.containsKey(id) ? cap(id) : null;
             if (cap == null) {
                 continue;
             }
@@ -75,7 +95,7 @@ final class CustomEnchants {
         Map<String, Integer> merged = new LinkedHashMap<>(new TreeMap<>(base));
         for (Map.Entry<String, Integer> entry : new TreeMap<>(addition).entrySet()) {
             String id = entry.getKey();
-            int cap = MAX_LEVEL.getOrDefault(id, 1);
+            int cap = cap(id);
             Integer existing = merged.get(id);
             int level = existing == null
                     ? entry.getValue()

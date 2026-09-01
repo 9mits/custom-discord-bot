@@ -40,6 +40,15 @@ import static bot.mgx.accessbridge.MenuItems.ORANGE;
  */
 final class AdminCommandService implements CommandExecutor, TabCompleter {
     static final String PERMISSION = "mgxaccessbridge.admin";
+    /**
+     * What completion offers at the root.
+     *
+     * <p>Deliberately excludes {@code airdrop}, {@code abuse} and {@code multiplier}:
+     * each still dispatches, but only as a legacy spelling of an {@code event} path
+     * that does the same work, so completion steers to the one event family instead of
+     * advertising two ways to do the same thing. {@code AdminCompletionCoverageTest}
+     * names them, and {@code AdminEventCommandTest} holds them out of this list.
+     */
     private static final List<String> SUBCOMMANDS = List.of(
             "startserver", "teststart", "pvp", "give", "ranks", "eco", "bounty", "hologram",
             "reset", "testverify", "testcrate", "testairdrop", "testamethystblock", "devblog", "update", "serials",
@@ -140,6 +149,10 @@ final class AdminCommandService implements CommandExecutor, TabCompleter {
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         args = CommandArgs.withoutEchoedSender(sender.getName(), args);
+        // Only when typed directly; the router calls this with its own label.
+        if (label.equalsIgnoreCase("mgxadmin") || label.equalsIgnoreCase("mcadmin")) {
+            MgxCommandRouter.noteDeprecation(sender, "/" + label, args);
+        }
         String action = args.length == 0 ? "help" : args[0].toLowerCase(Locale.ROOT);
         if (action.equals("variables") || action.equals("variable") || action.equals("vars")) {
             if (sender instanceof Player player && !plugin.hasOwnerRankLoaded(player.getUniqueId())) {

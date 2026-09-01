@@ -187,7 +187,7 @@ final class PlayerMenuService implements Listener {
             List<String> lore = new ArrayList<>();
             lore.add("+" + hearts[index] + (hearts[index] == 1 ? " bonus heart" : " total bonus hearts"));
             if (milestones[index] == 50) {
-                lore.add("+" + Math.round(PlayerPerkService.ELITE_DAMAGE_BONUS * 100)
+                lore.add("+" + Math.round(PlayerPerkService.eliteDamageBonus() * 100)
                         + "% direct combat damage");
             }
             inventory.setItem(10 + index, button(

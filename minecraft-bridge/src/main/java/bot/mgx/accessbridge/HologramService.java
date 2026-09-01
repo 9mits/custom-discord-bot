@@ -76,6 +76,10 @@ final class HologramService {
             };
         }
 
+        String key() {
+            return key;
+        }
+
         static String usage() {
             return "Usage: /mgxadmin hologram <wealth|kills|amethyst-crates|"
                     + "amethyst-airdrops|clans-wealth|clans-kills|clan-battle|remove>";
@@ -130,6 +134,29 @@ final class HologramService {
         }
         persistOrRestore(before);
         refresh();
+    }
+
+    /** Every placed board, for the directory listing. */
+    synchronized List<String> describeAll() {
+        List<String> lines = new ArrayList<>();
+        for (Placement row : placements) {
+            org.bukkit.World world = org.bukkit.Bukkit.getWorld(row.worldId());
+            lines.add(row.board().key() + "  "
+                    + (world == null ? "?" : world.getName()) + " "
+                    + (int) row.x() + " " + (int) row.y() + " " + (int) row.z());
+        }
+        return lines;
+    }
+
+    /** Removes one by name rather than by standing next to it. */
+    synchronized boolean removeBoard(Board board) throws IOException {
+        List<Placement> before = List.copyOf(placements);
+        if (!placements.removeIf(row -> row.board() == board)) {
+            return false;
+        }
+        persistOrRestore(before);
+        refresh();
+        return true;
     }
 
     void refresh() {

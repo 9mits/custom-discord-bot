@@ -21,6 +21,33 @@ import java.util.UUID;
 final class PlayerPerkService implements Listener {
     static final double ELITE_DAMAGE_BONUS = 0.15;
     static final double BOOSTER_DAMAGE_BONUS = 0.10;
+    /** Live tuning; the constants above stay the defaults and stand alone in tests. */
+    private static volatile java.util.function.ToDoubleFunction<String> tuning = key -> Double.NaN;
+
+    static void tuningSource(java.util.function.ToDoubleFunction<String> source) {
+        if (source != null) {
+            tuning = source;
+        }
+    }
+
+    private static double tuned(String key, double fallback) {
+        double value = tuning.applyAsDouble(key);
+        return Double.isNaN(value) ? fallback : value;
+    }
+
+    /** Read where they are used, so the guide, the menu and the maths never disagree. */
+    static double eliteDamageBonus() {
+        return tuned("perks.elite.damage-bonus", ELITE_DAMAGE_BONUS);
+    }
+
+    static double boosterDamageBonus() {
+        return tuned("perks.booster.damage-bonus", BOOSTER_DAMAGE_BONUS);
+    }
+
+    static float boosterExhaustion() {
+        return (float) tuned("perks.booster.exhaustion", BOOSTER_EXHAUSTION_MULTIPLIER);
+    }
+
     /** Boosters lose hunger 10% more slowly, which is how the saturation perk is felt. */
     static final float BOOSTER_EXHAUSTION_MULTIPLIER = 0.90f;
     private static final NamespacedKey HEART_MODIFIER_KEY = Objects.requireNonNull(
@@ -152,7 +179,7 @@ final class PlayerPerkService implements Listener {
         }
         float exhaustion = event.getExhaustion();
         if (profile(player.getUniqueId()).booster()) {
-            exhaustion *= BOOSTER_EXHAUSTION_MULTIPLIER;
+            exhaustion *= boosterExhaustion();
         }
         double saturation = clanPerks(player.getUniqueId()).saturation();
         if (saturation > 0) {

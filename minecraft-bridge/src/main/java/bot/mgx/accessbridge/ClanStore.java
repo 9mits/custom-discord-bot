@@ -24,6 +24,41 @@ import java.util.regex.Pattern;
 
 final class ClanStore {
     static final int MAX_MEMBERS = 25;
+    /**
+     * Where the live limits come from.
+     *
+     * <p>Set once the registry exists so these can move without a build. The constants
+     * remain the defaults, and stand alone in tests, which construct the store directly.
+     */
+    private volatile java.util.function.ToLongFunction<String> limits = key -> -1L;
+
+    void limitSource(java.util.function.ToLongFunction<String> source) {
+        if (source != null) {
+            this.limits = source;
+        }
+    }
+
+    private long limit(String key, long fallback) {
+        long value = limits.applyAsLong(key);
+        return value < 0 ? fallback : value;
+    }
+
+    int maxMembers() {
+        return (int) limit("clans.maximum-members", MAX_MEMBERS);
+    }
+
+    int maxAllies() {
+        return (int) limit("clans.maximum-allies", MAX_ALLIES);
+    }
+
+    private long inviteTtl() {
+        return limit("clans.invite-minutes", INVITE_TTL_MILLIS / 60_000L) * 60_000L;
+    }
+
+    private long allyOfferTtl() {
+        return limit("clans.ally-offer-minutes", ALLY_OFFER_TTL_MILLIS / 60_000L) * 60_000L;
+    }
+
     static final int DEFAULT_THEME_COLOR = 0xFF9900;
     static final long INVITE_TTL_MILLIS = 5 * 60 * 1000L;
     /**
@@ -316,7 +351,7 @@ final class ClanStore {
         SavedInvite invite = new SavedInvite();
         invite.clanId = clan.id;
         invite.invitedBy = actor.toString();
-        invite.expiresAt = now + INVITE_TTL_MILLIS;
+        invite.expiresAt = now + inviteTtl();
         state.invites.put(target.toString(), invite);
         persist();
         return cleanPlayerName(targetName);
@@ -389,7 +424,7 @@ final class ClanStore {
         offer.fromClanId = own.id;
         offer.toClanId = other.id;
         offer.offeredBy = actor.toString();
-        offer.expiresAt = now + ALLY_OFFER_TTL_MILLIS;
+        offer.expiresAt = now + allyOfferTtl();
         state.allyOffers.put(offerKey(own.id, other.id), offer);
         persist();
         return new AllyResult(view(own), view(other), false);
@@ -863,7 +898,7 @@ final class ClanStore {
                 if (clan.members == null || !clan.members.containsKey(leader.toString())) {
                     throw new IOException("A clan leader must be present in its member list");
                 }
-                if (clan.members.isEmpty() || clan.members.size() > MAX_MEMBERS) {
+                if (clan.members.isEmpty() || clan.members.size() > maxMembers()) {
                     throw new IOException("Clan member counts must be between 1 and " + MAX_MEMBERS);
                 }
                 if (clan.memberSlots == null) {
@@ -1088,9 +1123,9 @@ final class ClanStore {
         // Trim first, so a lowered MAX_ALLIES drops entries before the mutual pass
         // reads them and can strand the other half.
         for (SavedClan clan : state.clans) {
-            if (clan.allies != null && clan.allies.size() > MAX_ALLIES) {
+            if (clan.allies != null && clan.allies.size() > maxAllies()) {
                 clan.allies = new LinkedHashSet<>(
-                        new ArrayList<>(clan.allies).subList(0, MAX_ALLIES));
+                        new ArrayList<>(clan.allies).subList(0, maxAllies()));
                 changed = true;
             }
         }
@@ -1137,9 +1172,9 @@ final class ClanStore {
         return clan.allies;
     }
 
-    private static void requireAllyRoom(SavedClan clan) {
-        if (alliesOf(clan).size() >= MAX_ALLIES) {
-            throw new ClanException(clan.name + " already has " + MAX_ALLIES
+    private void requireAllyRoom(SavedClan clan) {
+        if (alliesOf(clan).size() >= maxAllies()) {
+            throw new ClanException(clan.name + " already has " + maxAllies()
                     + " allies, which is the limit.");
         }
     }

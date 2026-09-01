@@ -40,25 +40,31 @@ final class SpawnMobBarrierService implements Listener {
     private final MGXAccessBridge plugin;
     private final AmethystMobService amethystMobs;
     private final UUID worldId;
-    private final SpawnMobBarrier bounds;
-    private final boolean enabled;
     private BukkitTask sweep;
 
     SpawnMobBarrierService(MGXAccessBridge plugin, AmethystMobService amethystMobs) {
         this.plugin = plugin;
         this.amethystMobs = amethystMobs;
         this.worldId = plugin.getServer().getWorlds().getFirst().getUID();
-        this.enabled = plugin.getConfig().getBoolean("spawn.protection.enabled", true);
-        this.bounds = new SpawnMobBarrier(
-                plugin.getConfig().getInt("spawn.protection.min-x", -50),
-                plugin.getConfig().getInt("spawn.protection.max-x", 49),
-                plugin.getConfig().getInt("spawn.protection.min-z", -50),
-                plugin.getConfig().getInt("spawn.protection.max-z", 49)
+    }
+
+    private boolean enabled() {
+        return plugin.gameVariables().bool("spawn.protection.enabled");
+    }
+
+    /** Rebuilt per check so moving the box does not need a restart. */
+    private SpawnMobBarrier bounds() {
+        GameVariableStore variables = plugin.gameVariables();
+        return new SpawnMobBarrier(
+                variables.integer("spawn.protection.min-x"),
+                variables.integer("spawn.protection.max-x"),
+                variables.integer("spawn.protection.min-z"),
+                variables.integer("spawn.protection.max-z")
         );
     }
 
     void start() {
-        if (!enabled || sweep != null) {
+        if (!enabled() || sweep != null) {
             return;
         }
         sweep = plugin.getServer().getScheduler().runTaskTimer(plugin, this::removeInside, 1L, 20L);
@@ -73,7 +79,7 @@ final class SpawnMobBarrierService implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onCreatureSpawn(CreatureSpawnEvent event) {
-        if (enabled && isProtected(event.getEntity().getWorld(), event.getLocation().getX(),
+        if (enabled() && isProtected(event.getEntity().getWorld(), event.getLocation().getX(),
                 event.getLocation().getZ()) && hostile(event.getEntity())) {
             event.setCancelled(true);
         }
@@ -100,7 +106,7 @@ final class SpawnMobBarrierService implements Listener {
      */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onPvp(EntityDamageByEntityEvent event) {
-        if (!enabled || !(event.getEntity() instanceof Player victim)) {
+        if (!enabled() || !(event.getEntity() instanceof Player victim)) {
             return;
         }
         Entity source = event.getDamager();
@@ -115,7 +121,7 @@ final class SpawnMobBarrierService implements Listener {
     }
 
     private boolean denyBuild(Player player, Block block) {
-        return enabled
+        return enabled()
                 && !player.isOp()
                 && isProtected(block.getWorld(), block.getX() + 0.5d, block.getZ() + 0.5d);
     }
@@ -130,11 +136,11 @@ final class SpawnMobBarrierService implements Listener {
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onZombieMove(EntityMoveEvent event) {
-        if (!enabled || !hostile(event.getEntity())
+        if (!enabled() || !hostile(event.getEntity())
                 || !event.getEntity().getWorld().getUID().equals(worldId)) {
             return;
         }
-        if (bounds.enters(
+        if (bounds().enters(
                 event.getFrom().getX(), event.getFrom().getZ(),
                 event.getTo().getX(), event.getTo().getZ()
         )) {
@@ -148,13 +154,13 @@ final class SpawnMobBarrierService implements Listener {
             return;
         }
         for (Monster monster : world.getEntitiesByClass(Monster.class)) {
-            if (bounds.contains(monster.getX(), monster.getZ()) && hostile(monster)) {
+            if (bounds().contains(monster.getX(), monster.getZ()) && hostile(monster)) {
                 monster.remove();
             }
         }
     }
 
     private boolean isProtected(World world, double x, double z) {
-        return world.getUID().equals(worldId) && bounds.contains(x, z);
+        return world.getUID().equals(worldId) && bounds().contains(x, z);
     }
 }

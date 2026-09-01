@@ -71,6 +71,24 @@ final class AmethystBlockEventService implements Listener {
     private static final int DEFAULT_ATTEMPTS = 24;
     private static final int BORDER_MARGIN = 32;
     private static final int MINE_REACH = 7;
+    /** Live tuning; the constants above stay the defaults and stand alone in tests. */
+    private static volatile java.util.function.ToDoubleFunction<String> tuning = key -> Double.NaN;
+
+    static void tuningSource(java.util.function.ToDoubleFunction<String> source) {
+        if (source != null) {
+            tuning = source;
+        }
+    }
+
+    private static double tuned(String key, double fallback) {
+        double value = tuning.applyAsDouble(key);
+        return Double.isNaN(value) ? fallback : value;
+    }
+
+    private static int mineReach() {
+        return (int) tuned("huge-amethyst.mine-reach", MINE_REACH);
+    }
+
     private static final String ENTITY_TAG = "mgx_amethyst_block_event";
     private static final String MARKER_TAG = "mgx_amethyst_block_anchor";
     private static final TextColor AMETHYST = TextColor.color(0xB56CFF);
@@ -478,7 +496,9 @@ final class AmethystBlockEventService implements Listener {
                     maximumHealth
             );
             bossBar = BossBar.bossBar(
-                    bossTitle(active), 1f, BossBar.Color.PURPLE, BossBar.Overlay.NOTCHED_20
+                    bossTitle(active), 1f,
+                    variables.barColour("bars.huge-amethyst.colour", BossBar.Color.PURPLE),
+                    BossBar.Overlay.NOTCHED_20
             );
             for (Player player : plugin.getServer().getOnlinePlayers()) {
                 showBar(player);
@@ -659,7 +679,7 @@ final class AmethystBlockEventService implements Listener {
             for (Player miner : miners) {
                 double dealt = miningRate(miner) / 4d * multiplier;
                 block.damage.merge(miner.getUniqueId(), dealt, Double::sum);
-                Block target = miner.getTargetBlockExact(MINE_REACH);
+                Block target = miner.getTargetBlockExact(mineReach());
                 if (target != null && plugin.getServer().getCurrentTick() % 10 == 0) {
                     fracture(target.getLocation().add(0.5d, 0.5d, 0.5d), false);
                 }
@@ -675,7 +695,7 @@ final class AmethystBlockEventService implements Listener {
                 || miningRate(player) <= 0d) {
             return false;
         }
-        Block target = player.getTargetBlockExact(MINE_REACH);
+        Block target = player.getTargetBlockExact(mineReach());
         return target != null && contains(block, target);
     }
 

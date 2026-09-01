@@ -455,7 +455,7 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     private void openOdds(
             Player player, CrateKind kind, int requestedPage, boolean oddsSelectorBack
     ) {
-        List<CrateCatalog.Reward> rewards = kind.rewards();
+        List<CrateCatalog.Reward> rewards = variables.rewards(kind);
         int pageCount = Math.max(1, (rewards.size() + ODDS_PER_PAGE - 1) / ODDS_PER_PAGE);
         int page = Math.max(1, Math.min(pageCount, requestedPage));
         CrateMenu holder = new CrateMenu(Screen.ODDS, page, kind, oddsSelectorBack);
@@ -550,8 +550,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
     }
 
     /** Item rewards only, in the order the odds pages already show them. */
-    private static List<CrateCatalog.Reward> trashableRewards(CrateKind kind) {
-        return kind.rewards().stream().filter(reward -> !reward.cosmetic()).toList();
+    private List<CrateCatalog.Reward> trashableRewards(CrateKind kind) {
+        return variables.rewards(kind).stream().filter(reward -> !reward.cosmetic()).toList();
     }
 
     private ItemStack filterEntry(CrateCatalog.Reward reward, boolean discarded) {

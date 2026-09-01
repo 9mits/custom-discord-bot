@@ -25,6 +25,20 @@ final class ClanBattleStore {
     private static final int GOLD_SHARDS = 10;
     private static final int SILVER_SHARDS = 5;
     private static final int BRONZE_SHARDS = 3;
+    /** Live tuning; the constants above stay the defaults and stand alone in tests. */
+    private static volatile java.util.function.ToDoubleFunction<String> tuning = key -> Double.NaN;
+
+    static void tuningSource(java.util.function.ToDoubleFunction<String> source) {
+        if (source != null) {
+            tuning = source;
+        }
+    }
+
+    private static double tuned(String key, double fallback) {
+        double value = tuning.applyAsDouble(key);
+        return Double.isNaN(value) ? fallback : value;
+    }
+
 
     enum Kind {
         CRATES("crates", "Crates Clan Battle", "Open the most crates!");
@@ -427,9 +441,9 @@ final class ClanBattleStore {
 
     private static int shardReward(int rank) {
         return switch (rank) {
-            case 1 -> GOLD_SHARDS;
-            case 2 -> SILVER_SHARDS;
-            case 3 -> BRONZE_SHARDS;
+            case 1 -> (int) tuned("clan-battle.gold-shards", GOLD_SHARDS);
+            case 2 -> (int) tuned("clan-battle.silver-shards", SILVER_SHARDS);
+            case 3 -> (int) tuned("clan-battle.bronze-shards", BRONZE_SHARDS);
             default -> 0;
         };
     }

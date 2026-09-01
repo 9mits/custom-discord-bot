@@ -11,6 +11,7 @@ import java.net.http.HttpClient;
 import java.net.http.WebSocket;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -31,9 +32,13 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
      * 6 added the SYNC_WHITELIST directory snapshot; 7 added SERVER_EVENT, which
      * reports in-game actions to the Discord activity log; 8 added
      * SET_MAINTENANCE, which holds the server closed before launch; 9 added
-     * server-event toggles; 10 added the Minecraft-first Discord linking lobby.
+     * server-event toggles; 10 added the Minecraft-first Discord linking lobby;
+     * 11 added live game variables; 12 added AFK reporting; 13 added validated
+     * configuration change sets, publish history and rollback; 14 added
+     * catalogue entries an owner can add and remove while the server runs; 15
+     * added declared administrative actions the control panel can run.
      */
-    static final int PROTOCOL_VERSION = 12;
+    static final int PROTOCOL_VERSION = 15;
 
     private final MGXAccessBridge plugin;
     private final BridgeConfig config;
@@ -364,6 +369,14 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                     plugin,
                     () -> executeGameVariable(idempotencyKey, payload)
             );
+            case "CATALOG_ENTRY" -> Bukkit.getScheduler().runTask(
+                    plugin,
+                    () -> executeCatalogEntry(idempotencyKey, payload)
+            );
+            case "ADMIN_ACTION" -> Bukkit.getScheduler().runTask(
+                    plugin,
+                    () -> executeAdminAction(idempotencyKey, payload)
+            );
             case "APPROVE", "REVOKE", "KICK", "STATUS" -> Bukkit.getScheduler().runTask(
                     plugin,
                     () -> executeMainThreadAction(idempotencyKey, action, payload)
@@ -462,12 +475,289 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
                             return;
                         }
                         try {
-                            String outcome = switch (operation) {
-                                case "set" -> plugin.gameVariables().set(variable, value);
-                                case "reset" -> plugin.gameVariables().reset(variable);
-                                default -> throw new IllegalArgumentException("Use set or reset.");
-                            };
-                            recordAndSend(key, new ProcessedActionStore.Result(true, outcome));
+                            switch (operation) {
+                                case "set" -> recordAndSend(key, new ProcessedActionStore.Result(
+                                        true, plugin.gameVariables().set(variable, value)));
+                                case "reset" -> recordAndSend(key, new ProcessedActionStore.Result(
+                                        true, plugin.gameVariables().reset(variable)));
+                                case "validate" -> validateChangeSet(key, payload);
+                                case "publish" -> publishChangeSet(key, payload);
+                                case "rollback" -> rollbackPublish(key, payload);
+                                default -> throw new IllegalArgumentException(
+                                        "Use set, reset, validate, publish or rollback.");
+                            }
+                        } catch (GameVariableStore.InvalidChangeSet rejected) {
+                            recordAndSend(
+                                    key,
+                                    new ProcessedActionStore.Result(false, rejected.getMessage()),
+                                    findingDetail(rejected.findings())
+                            );
+                        } catch (RuntimeException exception) {
+                            recordAndSend(key, new ProcessedActionStore.Result(
+                                    false, safeError(exception)
+                            ));
+                        }
+                    })
+            );
+        } catch (RuntimeException exception) {
+            recordAndSend(key, new ProcessedActionStore.Result(false, safeError(exception)));
+        }
+    }
+
+    /**
+     * Reads the proposed edits out of a change-set payload.
+     *
+     * <p>An entry is either a value or a reset. Rejecting an empty list here rather than
+     * letting it through keeps "publish nothing" from looking like a successful publish.
+     */
+    private static List<GameVariableStore.Edit> readEdits(JsonObject payload) {
+        if (!payload.has("edits") || !payload.get("edits").isJsonArray()) {
+            throw new IllegalArgumentException("A change set needs an 'edits' array.");
+        }
+        List<GameVariableStore.Edit> edits = new ArrayList<>();
+        for (com.google.gson.JsonElement element : payload.getAsJsonArray("edits")) {
+            JsonObject entry = element.getAsJsonObject();
+            String variable = optionalString(entry, "key");
+            if (variable.isBlank()) {
+                throw new IllegalArgumentException("Every edit needs a key.");
+            }
+            edits.add(entry.has("reset") && entry.get("reset").getAsBoolean()
+                    ? GameVariableStore.Edit.reset(variable)
+                    : GameVariableStore.Edit.set(variable, optionalString(entry, "value")));
+        }
+        if (edits.isEmpty()) {
+            throw new IllegalArgumentException("A change set needs at least one edit.");
+        }
+        return edits;
+    }
+
+    /** Reports what a change set would do, without touching anything. */
+    private void validateChangeSet(String key, JsonObject payload) {
+        List<GameVariableStore.Finding> findings = plugin.gameVariables().validate(readEdits(payload));
+        recordAndSend(
+                key,
+                new ProcessedActionStore.Result(
+                        findings.isEmpty(),
+                        findings.isEmpty()
+                                ? "The change set is valid."
+                                : findings.stream().map(GameVariableStore.Finding::message)
+                                        .collect(java.util.stream.Collectors.joining(" "))
+                ),
+                findingDetail(findings)
+        );
+    }
+
+    private void publishChangeSet(String key, JsonObject payload) {
+        List<GameVariableStore.Edit> edits = readEdits(payload);
+        String actor = optionalString(payload, "actor_label");
+        Optional<ConfigHistory.Publish> published = plugin.gameVariables().publish(edits, actor);
+        recordAndSend(
+                key,
+                new ProcessedActionStore.Result(
+                        true,
+                        published.map(publish -> "Published " + publish.changes().size()
+                                + " change(s). No restart required.")
+                                .orElse("Nothing changed.")
+                ),
+                publishDetail(published.orElse(null))
+        );
+    }
+
+    private void rollbackPublish(String key, JsonObject payload) {
+        String publishId = optionalString(payload, "publish_id");
+        if (publishId.isBlank()) {
+            throw new IllegalArgumentException("A rollback needs the change to undo.");
+        }
+        plugin.gameVariables().rollback(publishId, optionalString(payload, "actor_label"));
+        Optional<ConfigHistory.Publish> restored =
+                plugin.gameVariables().history().recent(1).stream().findFirst();
+        recordAndSend(
+                key,
+                new ProcessedActionStore.Result(
+                        true,
+                        "Restored " + restored.map(publish -> publish.changes().size()).orElse(0)
+                                + " value(s). No restart required."
+                ),
+                publishDetail(restored.orElse(null))
+        );
+    }
+
+    private static JsonObject findingDetail(List<GameVariableStore.Finding> findings) {
+        JsonObject detail = new JsonObject();
+        JsonArray rows = new JsonArray();
+        for (GameVariableStore.Finding finding : findings) {
+            JsonObject row = new JsonObject();
+            row.addProperty("key", finding.key());
+            row.addProperty("message", finding.message());
+            rows.add(row);
+        }
+        detail.add("findings", rows);
+        return detail;
+    }
+
+    private static JsonObject publishDetail(ConfigHistory.Publish publish) {
+        JsonObject detail = new JsonObject();
+        if (publish == null) {
+            detail.add("changes", new JsonArray());
+            return detail;
+        }
+        detail.addProperty("publish_id", publish.id());
+        detail.addProperty("at", publish.at());
+        JsonArray rows = new JsonArray();
+        for (GameVariableStore.Change change : publish.changes()) {
+            JsonObject row = new JsonObject();
+            row.addProperty("key", change.key());
+            addChangeValue(row, "before", change.before());
+            addChangeValue(row, "after", change.after());
+            rows.add(row);
+        }
+        detail.add("changes", rows);
+        return detail;
+    }
+
+    private static void addChangeValue(JsonObject row, String name, Object value) {
+        if (value instanceof Boolean flag) {
+            row.addProperty(name, flag);
+        } else {
+            row.addProperty(name, ((Number) value).longValue());
+        }
+    }
+
+    /**
+     * Adds or removes a catalogue entry, gated on the same owner rank as a value change.
+     *
+     * <p>Changing what a crate contains is at least as consequential as changing how
+     * often it gives something, so it sits behind the same check rather than a looser
+     * one.
+     */
+    private void executeCatalogEntry(String key, JsonObject payload) {
+        try {
+            UUID actor = UUID.fromString(payload.get("actor_uuid").getAsString());
+            String operation = optionalString(payload, "operation").toLowerCase(java.util.Locale.ROOT);
+            plugin.hasOwnerRank(actor).whenComplete((allowed, error) ->
+                    Bukkit.getScheduler().runTask(plugin, () -> {
+                        if (error != null || !Boolean.TRUE.equals(allowed)) {
+                            recordAndSend(key, new ProcessedActionStore.Result(
+                                    false,
+                                    "The linked Minecraft account does not hold the LuckPerms owner group."
+                            ));
+                            return;
+                        }
+                        try {
+                            recordAndSend(
+                                    key,
+                                    new ProcessedActionStore.Result(true, runCatalogEntry(operation, payload)),
+                                    plugin.customCatalog().snapshot()
+                            );
+                        } catch (RuntimeException exception) {
+                            recordAndSend(key, new ProcessedActionStore.Result(
+                                    false, safeError(exception)
+                            ));
+                        }
+                    })
+            );
+        } catch (RuntimeException exception) {
+            recordAndSend(key, new ProcessedActionStore.Result(false, safeError(exception)));
+        }
+    }
+
+    private String runCatalogEntry(String operation, JsonObject payload) {
+        CustomCatalogStore catalog = plugin.customCatalog();
+        switch (operation) {
+            case "add_reward": {
+                CrateKind kind = crateKind(payload);
+                CustomCatalogStore.CrateAddition added = catalog.addReward(
+                        kind,
+                        optionalString(payload, "id"),
+                        optionalString(payload, "display_name"),
+                        optionalString(payload, "category"),
+                        optionalString(payload, "material"),
+                        intOr(payload, "amount", 1),
+                        intOr(payload, "weight", 100),
+                        optionalString(payload, "description")
+                );
+                return "Added " + added.displayName() + " to the " + kind.displayName() + ".";
+            }
+            case "remove_reward": {
+                CrateKind kind = crateKind(payload);
+                catalog.removeReward(kind, optionalString(payload, "id"));
+                return "Removed that reward from the " + kind.displayName() + ".";
+            }
+            case "restore_reward": {
+                CrateKind kind = crateKind(payload);
+                catalog.restoreReward(kind, optionalString(payload, "id"));
+                return "Put that reward back into the " + kind.displayName() + ".";
+            }
+            case "add_loot": {
+                java.util.Map<String, Integer> weights = new java.util.LinkedHashMap<>();
+                JsonObject raw = payload.has("weights") && payload.get("weights").isJsonObject()
+                        ? payload.getAsJsonObject("weights") : new JsonObject();
+                for (AirdropCatalog.Rarity rarity : AirdropCatalog.Rarity.values()) {
+                    String name = rarity.name().toLowerCase(java.util.Locale.ROOT);
+                    weights.put(name, raw.has(name) ? raw.get(name).getAsInt() : 0);
+                }
+                CustomCatalogStore.LootAddition added = catalog.addLoot(
+                        optionalString(payload, "material"),
+                        intOr(payload, "minimum_amount", 1),
+                        intOr(payload, "maximum_amount", 1),
+                        weights
+                );
+                return "Added " + added.material() + " to the Airdrop loot table.";
+            }
+            case "remove_loot":
+                catalog.removeLoot(optionalString(payload, "material"));
+                return "Removed that material from the Airdrop loot table.";
+            case "restore_loot":
+                catalog.restoreLoot(optionalString(payload, "material"));
+                return "Put that material back into the Airdrop loot table.";
+            default:
+                throw new IllegalArgumentException(
+                        "Use add_reward, remove_reward, restore_reward, add_loot, remove_loot"
+                                + " or restore_loot."
+                );
+        }
+    }
+
+    private static CrateKind crateKind(JsonObject payload) {
+        String raw = optionalString(payload, "crate");
+        return CrateKind.from(raw).orElseThrow(
+                () -> new IllegalArgumentException("Unknown crate '" + raw + "'.")
+        );
+    }
+
+    private static int intOr(JsonObject payload, String name, int fallback) {
+        return payload.has(name) && payload.get(name).isJsonPrimitive()
+                ? payload.get(name).getAsInt() : fallback;
+    }
+
+    /**
+     * Runs one declared administrative action, on the same owner gate as everything else.
+     *
+     * <p>The action's identifier is looked up in the registry rather than dispatched as
+     * text, so an unexpected payload cannot become an arbitrary console command.
+     */
+    private void executeAdminAction(String key, JsonObject payload) {
+        try {
+            UUID actor = UUID.fromString(payload.get("actor_uuid").getAsString());
+            String id = optionalString(payload, "id");
+            JsonObject arguments = payload.has("arguments") && payload.get("arguments").isJsonObject()
+                    ? payload.getAsJsonObject("arguments") : new JsonObject();
+            plugin.hasOwnerRank(actor).whenComplete((allowed, error) ->
+                    Bukkit.getScheduler().runTask(plugin, () -> {
+                        if (error != null || !Boolean.TRUE.equals(allowed)) {
+                            recordAndSend(key, new ProcessedActionStore.Result(
+                                    false,
+                                    "The linked Minecraft account does not hold the LuckPerms owner group."
+                            ));
+                            return;
+                        }
+                        try {
+                            recordAndSend(
+                                    key,
+                                    new ProcessedActionStore.Result(
+                                            true, plugin.adminActions().run(id, arguments)),
+                                    plugin.adminActions().snapshot()
+                            );
                         } catch (RuntimeException exception) {
                             recordAndSend(key, new ProcessedActionStore.Result(
                                     false, safeError(exception)
@@ -947,16 +1237,34 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
     }
 
     private void recordAndSend(String key, ProcessedActionStore.Result result) {
+        recordAndSend(key, result, null);
+    }
+
+    /**
+     * Sends an outcome with structured detail beside the human-readable message.
+     *
+     * <p>Only the success flag and the message are recorded for idempotency, because the
+     * store behind that is a flat properties file. A replayed action therefore returns
+     * the text but not the detail, which is the right trade: the detail tells the panel
+     * which fields to mark, and a replay is not the edit that raised them.
+     */
+    private void recordAndSend(String key, ProcessedActionStore.Result result, JsonObject detail) {
         processedActions.put(key, result).whenComplete((ignored, error) -> {
             if (error != null) {
                 plugin.getLogger().warning("Could not persist bridge idempotency result: " + safeError(error));
                 return;
             }
-            sendActionResult(key, result);
+            sendActionResult(key, result, detail);
         });
     }
 
     private void sendActionResult(String actionKey, ProcessedActionStore.Result result) {
+        sendActionResult(actionKey, result, null);
+    }
+
+    private void sendActionResult(
+            String actionKey, ProcessedActionStore.Result result, JsonObject detail
+    ) {
         JsonObject payload = new JsonObject();
         payload.addProperty("action_idempotency_key", actionKey);
         payload.addProperty("success", result.success());
@@ -965,6 +1273,9 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
         payload.addProperty("message", result.error());
         if (!result.success()) {
             payload.addProperty("error", result.error());
+        }
+        if (detail != null) {
+            payload.add("detail", detail);
         }
         sendRaw(protocol.create("ACTION_RESULT", UUID.randomUUID().toString(), payload));
     }

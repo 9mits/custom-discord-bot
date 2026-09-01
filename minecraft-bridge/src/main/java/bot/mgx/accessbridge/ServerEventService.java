@@ -107,8 +107,8 @@ final class ServerEventService implements Listener {
 
     private void announce(ServerEventType type, boolean enabled, long seconds) {
         Component headline = enabled
-                ? Component.text(type.motdLabel(), colourOf(type), TextDecoration.BOLD)
-                : Component.text(type.displayName() + " has ended", NamedTextColor.GRAY,
+                ? Component.text(type.motdLabel(store.factor(type)), colourOf(type), TextDecoration.BOLD)
+                : Component.text(type.displayName(store.factor(type)) + " has ended", NamedTextColor.GRAY,
                         TextDecoration.BOLD);
         Component sub = enabled
                 ? Component.text(
@@ -124,11 +124,11 @@ final class ServerEventService implements Listener {
                             .append(sub),
                     Component.text(
                             enabled
-                                    ? type.motdLabel() + "  •  "
+                                    ? type.motdLabel(store.factor(type)) + "  •  "
                                             + (seconds > 0
                                             ? humanDuration(seconds * 1_000L) + " remaining"
                                             : "Live now")
-                                    : type.displayName() + " has ended",
+                                    : type.displayName(store.factor(type)) + " has ended",
                             enabled ? colourOf(type) : NamedTextColor.GRAY,
                             TextDecoration.BOLD
                     )
@@ -182,7 +182,7 @@ final class ServerEventService implements Listener {
         String firstLine = legacy.serialize(event.motd()).split("\n", 2)[0];
         StringBuilder line = new StringBuilder();
         for (ServerEventType type : running) {
-            line.append(line.isEmpty() ? "" : " + ").append(type.motdLabel());
+            line.append(line.isEmpty() ? "" : " + ").append(type.motdLabel(store.factor(type)));
         }
         event.motd(legacy.deserialize(firstLine)
                 .append(Component.newline())
@@ -196,7 +196,7 @@ final class ServerEventService implements Listener {
             if (index > 0) {
                 body = body.append(Component.text("  and  ", NamedTextColor.GRAY));
             }
-            body = body.append(Component.text(type.displayName(), colourOf(type), TextDecoration.BOLD));
+            body = body.append(Component.text(type.displayName(store.factor(type)), colourOf(type), TextDecoration.BOLD));
         }
         return body.append(Component.text(" is live right now!", NamedTextColor.WHITE, TextDecoration.BOLD));
     }
@@ -250,7 +250,7 @@ final class ServerEventService implements Listener {
                     // Full and steady. Event lengths can differ, so one draining bar
                     // would lie about at least one of the stacked events.
                     1f,
-                    BossBar.Color.YELLOW,
+                    plugin.gameVariables().barColour("bars.event.colour", BossBar.Color.YELLOW),
                     BossBar.Overlay.PROGRESS
             );
         }

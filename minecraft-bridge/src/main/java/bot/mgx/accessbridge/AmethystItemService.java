@@ -58,6 +58,20 @@ final class AmethystItemService implements Listener {
     /** The three that break blocks, and so the three Efficiency means anything on. */
     private static final Set<String> DIGGING_KINDS = Set.of("pickaxe", "shovel", "axe");
     private static final int EFFICIENCY_LEVEL = 5;
+    /** Live tuning; the constants above stay the defaults and stand alone in tests. */
+    private static volatile java.util.function.ToDoubleFunction<String> tuning = key -> Double.NaN;
+
+    static void tuningSource(java.util.function.ToDoubleFunction<String> source) {
+        if (source != null) {
+            tuning = source;
+        }
+    }
+
+    private static double tuned(String key, double fallback) {
+        double value = tuning.applyAsDouble(key);
+        return Double.isNaN(value) ? fallback : value;
+    }
+
     private static final Map<Material, Material> SMELTED = Map.ofEntries(
             Map.entry(Material.RAW_IRON, Material.IRON_INGOT),
             Map.entry(Material.RAW_GOLD, Material.GOLD_INGOT),
@@ -152,7 +166,7 @@ final class AmethystItemService implements Listener {
         // deliberately not in this set: Efficiency does nothing on one, and forcing
         // an enchantment vanilla would refuse only adds a line to its tooltip.
         if (DIGGING_KINDS.contains(kind)) {
-            meta.addEnchant(Enchantment.EFFICIENCY, EFFICIENCY_LEVEL, true);
+            meta.addEnchant(Enchantment.EFFICIENCY, (int) tuned("amethyst-items.efficiency-level", EFFICIENCY_LEVEL), true);
         }
         NamespacedKey model = NamespacedKey.fromString(modelKey);
         if (model != null) {
@@ -258,7 +272,8 @@ final class AmethystItemService implements Listener {
             return false;
         }
         long now = System.currentTimeMillis();
-        long expires = now + ACTIVE_MILLIS;
+        long expires = now
+                + (long) (tuned("amethyst-items.active-hours", 24d) * 3_600_000d);
         ItemMeta meta = item.getItemMeta();
         PersistentDataContainer data = meta.getPersistentDataContainer();
         data.set(activatedKey, PersistentDataType.LONG, now);
@@ -641,8 +656,8 @@ final class AmethystItemService implements Listener {
         // and container sweeps, rather than staying slower than the ones bought today.
         // Only ever upwards: a player who put Efficiency V on by hand loses nothing.
         if (kind(item).filter(DIGGING_KINDS::contains).isPresent()
-                && meta.getEnchantLevel(Enchantment.EFFICIENCY) < EFFICIENCY_LEVEL) {
-            meta.addEnchant(Enchantment.EFFICIENCY, EFFICIENCY_LEVEL, true);
+                && meta.getEnchantLevel(Enchantment.EFFICIENCY) < (int) tuned("amethyst-items.efficiency-level", EFFICIENCY_LEVEL)) {
+            meta.addEnchant(Enchantment.EFFICIENCY, (int) tuned("amethyst-items.efficiency-level", EFFICIENCY_LEVEL), true);
             changed = true;
         }
         if (changed) {

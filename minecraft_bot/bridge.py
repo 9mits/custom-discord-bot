@@ -30,7 +30,10 @@ SERVER_EVENT_TOGGLE_PROTOCOL_VERSION = 9
 REVERSE_LINK_PROTOCOL_VERSION = 10
 GAME_VARIABLE_PROTOCOL_VERSION = 11
 AFK_PROTOCOL_VERSION = 12
-CURRENT_PROTOCOL_VERSION = AFK_PROTOCOL_VERSION
+CONFIG_CHANGESET_PROTOCOL_VERSION = 13
+CATALOG_ENTRY_PROTOCOL_VERSION = 14
+ADMIN_ACTION_PROTOCOL_VERSION = 15
+CURRENT_PROTOCOL_VERSION = ADMIN_ACTION_PROTOCOL_VERSION
 
 VerificationHandler = Callable[..., Awaitable[None]]
 ActionResultHandler = Callable[[OutboxRecord, Optional[Any]], Awaitable[None]]
@@ -73,6 +76,10 @@ class MinecraftBridgeServer:
         self.latest_capabilities: dict[str, Any] = {}
         # Sensitive odds and live controls. Only authenticated dashboard routes expose it.
         self.latest_game_variables: dict[str, Any] = {}
+        # When that snapshot arrived. The panel serves the cached copy, so without this
+        # a disconnected plugin looks identical to a live one and an owner can edit
+        # against values the server stopped agreeing with.
+        self.game_variables_at: Optional[float] = None
         # Idempotency key -> future, for actions awaiting a real outcome from Paper
         # rather than the outbox flow application actions use.
         self._pending_results: dict[str, asyncio.Future] = {}
@@ -147,6 +154,29 @@ class MinecraftBridgeServer:
     @property
     def supports_game_variables(self) -> bool:
         return self.connected and self._peer_protocol_version >= GAME_VARIABLE_PROTOCOL_VERSION
+
+    @property
+    def supports_config_changesets(self) -> bool:
+        """Whether the plugin can validate, publish and roll back a whole change set.
+
+        An older plugin still accepts one key at a time, so the panel falls back to
+        publishing edits individually rather than refusing to work at all.
+        """
+        return self.connected and self._peer_protocol_version >= CONFIG_CHANGESET_PROTOCOL_VERSION
+
+    @property
+    def supports_catalog_entries(self) -> bool:
+        """Whether the plugin can add and remove catalogue entries while it runs.
+
+        An older plugin has a fixed catalogue compiled in, so there is nothing to fall
+        back to — the request is refused with a reason rather than half-applied.
+        """
+        return self.connected and self._peer_protocol_version >= CATALOG_ENTRY_PROTOCOL_VERSION
+
+    @property
+    def supports_admin_actions(self) -> bool:
+        """Whether the plugin can run declared administrative actions from the panel."""
+        return self.connected and self._peer_protocol_version >= ADMIN_ACTION_PROTOCOL_VERSION
 
     async def start(self) -> None:
         ssl_context = None
@@ -493,6 +523,7 @@ class MinecraftBridgeServer:
         if message_type == "GAME_VARIABLE_SNAPSHOT":
             if self._peer_protocol_version >= GAME_VARIABLE_PROTOCOL_VERSION:
                 self.latest_game_variables = payload
+                self.game_variables_at = time.time()
             return
         if message_type == "ACTION_RESULT":
             action_key = str(payload.get("action_idempotency_key", ""))
@@ -503,10 +534,12 @@ class MinecraftBridgeServer:
                 if not pending.done():
                     # Newer plugins send the outcome text as "message" for successes and
                     # failures alike; older ones only set "error" on failure.
+                    detail = payload.get("detail")
                     pending.set_result(
                         (
                             payload.get("success") is True,
                             str(payload.get("message") or payload.get("error") or ""),
+                            detail if isinstance(detail, dict) else {},
                         )
                     )
                 self._sent_this_connection.pop(action_key, None)
@@ -561,7 +594,9 @@ class MinecraftBridgeServer:
         self._pending_results.clear()
         for future in pending:
             if not future.done():
-                future.set_result((False, message))
+                # Same three-value shape an ACTION_RESULT resolves with. A disconnect is
+                # exactly when a caller unpacking a result must not also hit a TypeError.
+                future.set_result((False, message, {}))
 
     async def _release_failed_event(self, idempotency_key: str, message_type: str) -> None:
         release = getattr(self.data, "release_bridge_event", None)
@@ -657,6 +692,24 @@ class MinecraftBridgeServer:
         the thing actually happened — a ban that silently failed is worse than one
         that visibly refuses.
         """
+        success, message, _detail = await self._send_awaiting_detail(
+            message_type, payload, timeout=timeout
+        )
+        return success, message
+
+    async def _send_awaiting_detail(
+        self,
+        message_type: str,
+        payload: dict[str, Any],
+        *,
+        timeout: float = 10.0,
+    ) -> tuple[bool, str, dict[str, Any]]:
+        """As `_send_awaiting_result`, but keeps the structured detail beside the text.
+
+        A change set needs more back than a sentence: the panel marks the individual
+        fields a rejection names, and shows what a publish actually moved. Callers that
+        only need the outcome keep using the two-value form.
+        """
         key = f"{message_type.lower()}:{secrets.token_hex(12)}"
         loop = asyncio.get_running_loop()
         future: asyncio.Future = loop.create_future()
@@ -665,13 +718,13 @@ class MinecraftBridgeServer:
             await self._send(message_type, payload, idempotency_key=key)
         except ConnectionError:
             self._pending_results.pop(key, None)
-            return False, "The Minecraft bridge is offline."
+            return False, "The Minecraft bridge is offline.", {}
         try:
-            success, message = await asyncio.wait_for(future, timeout=timeout)
+            success, message, detail = await asyncio.wait_for(future, timeout=timeout)
         except asyncio.TimeoutError:
             self._pending_results.pop(key, None)
-            return False, "The server did not respond in time."
-        return success, message
+            return False, "The server did not respond in time.", {}
+        return success, message, detail
 
     async def run_clan_action(
         self,
@@ -742,6 +795,130 @@ class MinecraftBridgeServer:
                 "value": str(value).strip()[:160],
             },
             timeout=15.0,
+        )
+
+    async def run_config_changeset(
+        self,
+        *,
+        actor_uuid: str,
+        actor_label: str,
+        operation: str,
+        edits: list[dict[str, Any]] | None = None,
+        publish_id: str = "",
+    ) -> tuple[bool, str, dict[str, Any]]:
+        """Validates, publishes or rolls back a whole configuration change set.
+
+        `validate` reports what a set would do without touching anything; `publish`
+        applies it atomically or not at all; `rollback` restores every value one
+        earlier publish replaced. The detail carries per-key findings for a rejection
+        and the before/after of each change for a publish.
+        """
+        # Two different failures reach here and they need different answers: a plugin
+        # that is gone, and one that is present but predates change sets. Reporting
+        # "too old" for a disconnected server sends an owner looking for a version
+        # problem that does not exist.
+        if not self.connected:
+            return (
+                False,
+                "The Minecraft server is not connected, so nothing can be changed yet.",
+                {},
+            )
+        if not self.supports_config_changesets:
+            return (
+                False,
+                "The connected Paper plugin is too old to publish a change set.",
+                {},
+            )
+        payload: dict[str, Any] = {
+            "action": "GAME_VARIABLE",
+            "actor_uuid": str(actor_uuid),
+            "actor_label": str(actor_label)[:80],
+            "operation": str(operation).strip().lower(),
+        }
+        if publish_id:
+            payload["publish_id"] = str(publish_id)[:64]
+        if edits is not None:
+            payload["edits"] = [
+                {
+                    "key": str(edit.get("key", "")).strip()[:160],
+                    **(
+                        {"reset": True}
+                        if edit.get("reset")
+                        else {"value": str(edit.get("value", "")).strip()[:160]}
+                    ),
+                }
+                # A publish is bounded so one request cannot carry the whole catalogue
+                # several times over; the panel edits a page at a time.
+                for edit in list(edits)[:400]
+            ]
+        return await self._send_awaiting_detail("ACTION", payload, timeout=20.0)
+
+    async def run_catalog_entry(
+        self,
+        *,
+        actor_uuid: str,
+        operation: str,
+        fields: dict[str, Any],
+    ) -> tuple[bool, str, dict[str, Any]]:
+        """Adds or removes one catalogue entry — a crate reward, or an Airdrop material.
+
+        The detail carries the catalogue as it stands afterwards, so the console can
+        redraw what an owner has changed without a second round trip.
+        """
+        if not self.supports_catalog_entries:
+            return (
+                False,
+                "The connected Paper plugin is too old to change what a crate contains.",
+                {},
+            )
+        payload: dict[str, Any] = {
+            "action": "CATALOG_ENTRY",
+            "actor_uuid": str(actor_uuid),
+            "operation": str(operation).strip().lower(),
+        }
+        for name, value in fields.items():
+            if name == "weights" and isinstance(value, dict):
+                payload["weights"] = {
+                    str(key)[:16]: int(weight) for key, weight in list(value.items())[:8]
+                }
+            elif isinstance(value, bool):
+                payload[name] = value
+            elif isinstance(value, int):
+                payload[name] = value
+            else:
+                payload[name] = str(value)[:160]
+        return await self._send_awaiting_detail("ACTION", payload, timeout=20.0)
+
+    async def run_admin_action(
+        self,
+        *,
+        actor_uuid: str,
+        action_id: str,
+        arguments: dict[str, Any],
+    ) -> tuple[bool, str, dict[str, Any]]:
+        """Runs one declared administrative action — start an event, call an Airdrop.
+
+        The identifier is resolved against the plugin's own registry, so a payload the
+        panel did not mean to send cannot turn into an arbitrary console command.
+        """
+        if not self.supports_admin_actions:
+            return (
+                False,
+                "The connected Paper plugin is too old to run actions from the panel.",
+                {},
+            )
+        return await self._send_awaiting_detail(
+            "ACTION",
+            {
+                "action": "ADMIN_ACTION",
+                "actor_uuid": str(actor_uuid),
+                "id": str(action_id)[:64],
+                "arguments": {
+                    str(name)[:32]: str(value)[:160]
+                    for name, value in list(arguments.items())[:12]
+                },
+            },
+            timeout=25.0,
         )
 
     async def send_maintenance(self, enabled: bool) -> bool:

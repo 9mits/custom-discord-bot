@@ -21,6 +21,20 @@ import java.util.concurrent.ConcurrentHashMap;
 /** Five seconds of standing still immediately before a command teleport lands. */
 final class TeleportWarmupService implements Listener {
     static final int WARMUP_SECONDS = 5;
+    /** Live tuning; the constant above stays the default and stands alone in tests. */
+    private static volatile java.util.function.ToDoubleFunction<String> tuning = key -> Double.NaN;
+
+    static void tuningSource(java.util.function.ToDoubleFunction<String> source) {
+        if (source != null) {
+            tuning = source;
+        }
+    }
+
+    private static double tuned(String key, double fallback) {
+        double value = tuning.applyAsDouble(key);
+        return Double.isNaN(value) ? fallback : value;
+    }
+
 
     private final MGXAccessBridge plugin;
     private final PersonalNotificationService notifications;
@@ -64,7 +78,7 @@ final class TeleportWarmupService implements Listener {
     ) {
         cancel(player, false);
         Location target = destination.clone();
-        int[] seconds = {WARMUP_SECONDS};
+        int[] seconds = {(int) tuned("teleport.warmup-seconds", WARMUP_SECONDS)};
         actionBarReservations.put(
                 player.getUniqueId(), notifications.reserveActionBar(player)
         );

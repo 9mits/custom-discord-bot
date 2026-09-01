@@ -32,6 +32,20 @@ record AmethystDailyStock(String rewardId, int stock, long rolledAt, long nextRo
     static final long PRICE = 5_000_000L;
     static final int MINIMUM_STOCK = 2;
     static final int MAXIMUM_STOCK = 3;
+    /** Live tuning; the constants above stay the defaults and stand alone in tests. */
+    private static volatile java.util.function.ToDoubleFunction<String> tuning = key -> Double.NaN;
+
+    static void tuningSource(java.util.function.ToDoubleFunction<String> source) {
+        if (source != null) {
+            tuning = source;
+        }
+    }
+
+    private static double tuned(String key, double fallback) {
+        double value = tuning.applyAsDouble(key);
+        return Double.isNaN(value) ? fallback : value;
+    }
+
 
     AmethystDailyStock {
         rewardId = rewardId == null ? "" : rewardId.strip().toLowerCase(java.util.Locale.ROOT);
@@ -47,7 +61,9 @@ record AmethystDailyStock(String rewardId, int stock, long rolledAt, long nextRo
      */
     static AmethystDailyStock roll(long now, ZoneId zone, RandomGenerator random) {
         String rewardId = REWARD_IDS.get(random.nextInt(REWARD_IDS.size()));
-        int stock = MINIMUM_STOCK + random.nextInt(MAXIMUM_STOCK - MINIMUM_STOCK + 1);
+        int lowest = (int) tuned("amethyst-shop.minimum-stock", MINIMUM_STOCK);
+        int highest = Math.max(lowest, (int) tuned("amethyst-shop.maximum-stock", MAXIMUM_STOCK));
+        int stock = lowest + random.nextInt(highest - lowest + 1);
         return new AmethystDailyStock(rewardId, stock, now, nextRollAt(now, zone, random));
     }
 

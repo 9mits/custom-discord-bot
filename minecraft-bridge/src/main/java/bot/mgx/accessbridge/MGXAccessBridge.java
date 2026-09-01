@@ -105,6 +105,13 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private CrateOddsStore crateOdds;
     private AfkStore afkStore;
     private GameVariableStore gameVariables;
+    private CustomCatalogStore customCatalog;
+    private CrateItems crateItems;
+    private UpdateNoticeStore updateNoticeStore;
+    private final AdminActionRegistry adminActions = new AdminActionRegistry(this);
+    private final ActivityFeed activityFeed = new ActivityFeed();
+    private AuctionStore auctionStore;
+    private volatile boolean gameVariableBroadcastPending;
     private ClanBattleStore clanBattleStore;
     private HomeIconStore homeIconStore;
     private ClanWarpMetaStore clanWarpMetaStore;
@@ -201,9 +208,72 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             afkStore = new AfkStore(
                     getDataFolder().toPath().resolve("afk.json")
             );
-            gameVariables = new GameVariableStore(
-                    getDataFolder().toPath().resolve("game-variables.json"), getConfig()
+            customCatalog = new CustomCatalogStore(
+                    getDataFolder().toPath().resolve("custom-catalog.json")
             );
+            gameVariables = new GameVariableStore(
+                    getDataFolder().toPath().resolve("game-variables.json"), getConfig(),
+                    customCatalog
+            );
+            // Event factors come from the live registry once it exists, so 2x Keys can
+            // become 3x without a build.
+            serverEventStore.factorSource(type ->
+                    gameVariables.integer("events." + type.id() + ".multiplier"));
+            // Distance caps and the border are pushed onto each world rather than read
+            // from it, so unlike everything else these have to be re-applied when they
+            // change instead of simply being read again on next use.
+            clanStore.limitSource(key -> gameVariables.integer(key));
+            // The action catalogue is rebuilt per snapshot so the online-player list the
+            // give form offers is current rather than whatever it was at startup.
+            gameVariables.actionCatalogue(adminActions.snapshot());
+            ShopCatalog.multiplierSource(key -> gameVariables.integer(key));
+            // One reader for every tuning value that is a fraction rather than a count.
+            java.util.function.ToDoubleFunction<String> tuning = key ->
+                    gameVariables.find(key).map(definition ->
+                            definition.type() == GameVariableStore.Type.DECIMAL
+                                    ? gameVariables.decimal(key)
+                                    : (double) gameVariables.integer(key)
+                    ).orElse(Double.NaN);
+            CosmeticEffectService.tuningSource(tuning);
+            AirdropGuardService.tuningSource(tuning);
+            CrateOddsBalance.tuningSource(tuning);
+            CrateCatalog.tuningSource(tuning);
+            WorldLimits.tuningSource(tuning);
+            ChaosService.tuningSource(tuning);
+            VerificationLobbyService.tuningSource(tuning);
+            AmethystBlockEventService.tuningSource(tuning);
+            AirdropService.tuningSource(tuning);
+            PlayerPerkService.tuningSource(tuning);
+            ClanBattleStore.tuningSource(tuning);
+            ServerEventType.tuningSource(tuning);
+            AmethystDailyStock.tuningSource(tuning);
+            LaunchService.tuningSource(tuning);
+            TeleportWarmupService.tuningSource(tuning);
+            BountyStore.tuningSource(tuning);
+            AdminGive.tuningSource(tuning);
+            AmethystItemService.tuningSource(tuning);
+            AutoPayStore.tuningSource(tuning);
+            ChaosTargeting.tuningSource(tuning);
+            ActivityFeed.tuningSource(tuning);
+            CustomEnchants.capSource(
+                    id -> gameVariables.integer("enchants." + id + ".maximum-level"));
+            gameVariables.onChange(key -> {
+                if (key.startsWith("world.") || key.startsWith("spawn.")) {
+                    getServer().getScheduler().runTask(this, () -> {
+                        for (World world : getServer().getWorlds()) {
+                            applyWorldMemory(world);
+                            applyWorldLimits(world);
+                            lockWorldSpawn(world);
+                        }
+                    });
+                }
+            });
+            // Adding or removing an entry changes which weight variables exist, so the
+            // registry is rebuilt before anything reads it, and the console is told.
+            customCatalog.onChange(() -> {
+                gameVariables.rebuildCatalogue();
+                scheduleGameVariableBroadcast();
+            });
             clanBattleStore = new ClanBattleStore(
                     getDataFolder().toPath().resolve("clan-battles.json")
             );
@@ -257,7 +327,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         bridgeClient = new BridgeClient(
                 this, bridgeConfig, pending, processed, verificationEvents, verifiedAccounts, networkExecutor
         );
-        gameVariables.onChange(() -> bridgeClient.sendGameVariableSnapshot(gameVariables.snapshot()));
+        gameVariables.onChange(this::scheduleGameVariableBroadcast);
         verificationLobby = new VerificationLobbyService(this, bridgeClient);
         chatRelayService = new ChatRelayService(bridgeClient, playerSettings);
         // Statistics live beside the main world, which is where the server writes them.
@@ -310,7 +380,6 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 this, serverEventStore, personalNotifications
         );
         getServer().getPluginManager().registerEvents(serverEventService, this);
-        UpdateNoticeStore updateNoticeStore;
         try {
             updateNoticeStore = new UpdateNoticeStore(getDataFolder().toPath().resolve("update-notices.json"));
         } catch (java.io.IOException exception) {
@@ -343,6 +412,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 || getCommand("stats") == null
                 || getCommand("tpmenu") == null
                 || getCommand("mgxadmin") == null
+                || getCommand("mgx") == null
                 || getCommand("whitelisted") == null
                 || getCommand("leaderboard") == null
                 || getCommand("shop") == null
@@ -408,7 +478,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         );
         amethystItems = new AmethystItemService(this);
         SpecialItemService specialItems = new SpecialItemService(this, amethystItems);
-        CrateItems crateItems = new CrateItems(this, cosmeticStore, specialItems);
+        crateItems = new CrateItems(this, cosmeticStore, specialItems);
         clanBattles = new ClanBattleService(
                 this, clanBattleStore, clanStore, crateItems, cosmeticStore,
                 leaderboardService, playerSettings
@@ -429,7 +499,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 crateOdds,
                 gameVariables
         );
-        amethystMobs = new AmethystMobService(this, crateItems);
+        amethystMobs = new AmethystMobService(
+                this, crateItems, java.util.concurrent.ThreadLocalRandom.current(), gameVariables
+        );
         airdrops = new AirdropService(
                 this, crateItems, cosmeticStore, cosmeticItems, amethystProgress, playerSettings,
                 new AirdropGuardService(this, amethystMobs), gameVariables
@@ -557,9 +629,9 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         playerMenuService.useRecordDialogs(recordDialogs);
         clanService.useDirectory(clanDirectory);
         teleportMenus.useHomesDialog(homesDialogs);
-        AuctionStore auctionStore;
         try {
             auctionStore = new AuctionStore(getDataFolder().toPath().resolve("auctions.json"));
+            auctionStore.limitSource(key -> gameVariables.integer(key));
         } catch (IOException exception) {
             getLogger().severe("MGXAccessBridge could not open the auction house: " + exception.getMessage());
             getServer().getPluginManager().disablePlugin(this);
@@ -688,6 +760,12 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         );
         getCommand("mgxadmin").setExecutor(adminService);
         getCommand("mgxadmin").setTabCompleter(adminService);
+        // The new root delegates to the same handler, so both spellings behave
+        // identically while the old one is being retired.
+        MgxCommandRouter router = new MgxCommandRouter(
+                this, adminService, new HologramDirectory(holograms, crateDisplays));
+        getCommand("mgx").setExecutor(router);
+        getCommand("mgx").setTabCompleter(router);
         launchService = new LaunchService(this, getDataFolder().toPath());
         launchService.restoreOnEnable();
         activityLog = new ActivityLogService(this, getConfig().getConfigurationSection("activity-log"));
@@ -1155,14 +1233,84 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
                 : luckPermsService.hasGroup(minecraftUuid, "owner");
     }
 
+    UpdateNoticeStore updateNotices() {
+        return updateNoticeStore;
+    }
+
+    ServerEventStore serverEventStore() {
+        return serverEventStore;
+    }
+
+    AmethystEventCoordinator amethystEvents() {
+        return amethystEvents;
+    }
+
+    EconomyStore economy() {
+        return economyStore;
+    }
+
+    CrateItems crateItems() {
+        return crateItems;
+    }
+
+    ActivityFeed activityFeed() {
+        return activityFeed;
+    }
+
+    ClanBattleService clanBattles() {
+        return clanBattles;
+    }
+
+    CosmeticStore cosmetics() {
+        return cosmeticStore;
+    }
+
+    AuctionStore auctions() {
+        return auctionStore;
+    }
+
+    AdminActionRegistry adminActions() {
+        return adminActions;
+    }
+
     GameVariableStore gameVariables() {
         return gameVariables;
     }
 
+    CustomCatalogStore customCatalog() {
+        return customCatalog;
+    }
+
     void republishGameVariables() {
         if (bridgeClient != null && gameVariables != null) {
+            gameVariables.actionCatalogue(adminActions.snapshot());
+            gameVariables.liveReadings(
+                    activityFeed.snapshot(),
+                    auctionStore == null
+                            ? new com.google.gson.JsonObject()
+                            : auctionStore.snapshot(System.currentTimeMillis())
+            );
             bridgeClient.sendGameVariableSnapshot(gameVariables.snapshot());
         }
+    }
+
+    /**
+     * Sends one snapshot per tick however many values moved.
+     *
+     * <p>The observer fires per key, which was right while a change was always one key.
+     * Publishing a rebalance moves dozens at once, and a snapshot carries the whole
+     * catalogue, so sending one each would put the same payload on the wire dozens of
+     * times for a single owner action.
+     */
+    private void scheduleGameVariableBroadcast() {
+        if (gameVariableBroadcastPending || bridgeClient == null || gameVariables == null) {
+            return;
+        }
+        gameVariableBroadcastPending = true;
+        getServer().getScheduler().runTask(this, () -> {
+            gameVariableBroadcastPending = false;
+            republishGameVariables();
+        });
     }
 
     /**
@@ -1185,6 +1333,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
      * other half of the same control, and either alone is enough.
      */
     void recordServerEvent(ServerEvent event) {
+        // Kept before the routing checks, not after: an event the operator has muted in
+        // Discord is still something that happened, and the panel is where you go to
+        // find out what has been going on.
+        activityFeed.record(event);
         if (bridgeClient == null || event == null) {
             return;
         }
@@ -1273,6 +1425,18 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     private boolean bypassesMaintenance(UUID uuid) {
         return getServer().getOfflinePlayer(uuid).isOp() || hasExplicitAdmin(uuid);
+    }
+
+    /**
+     * Whether this player has been granted one specific node in LuckPerms.
+     *
+     * <p>Explicit only. Bukkit's own check honours {@code default:}, which Floodgate
+     * players can satisfy before their attachments exist, so access here is always
+     * something somebody granted rather than something inherited.
+     */
+    boolean hasExplicitPermission(org.bukkit.entity.Player player, String node) {
+        return luckPermsService != null
+                && luckPermsService.hasExplicitPermissionLoaded(player.getUniqueId(), node);
     }
 
     private boolean hasExplicitAdmin(UUID uuid) {
@@ -1625,22 +1789,30 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         if (world.getEnvironment() != World.Environment.NORMAL) {
             return;
         }
+        // The lock stays; what it locks to is now configurable. Moving spawn from the
+        // panel and having something quietly drag it back to 0 69 0 would be worse than
+        // not being able to move it at all.
+        int wantedX = gameVariables.integer("spawn.x");
+        int wantedY = gameVariables.integer("spawn.y");
+        int wantedZ = gameVariables.integer("spawn.z");
+        int wantedRadius = gameVariables.integer("spawn.radius");
         Location current = world.getSpawnLocation();
-        if (!WorldSpawn.isExact(current.getBlockX(), current.getBlockY(), current.getBlockZ())) {
-            world.setSpawnLocation(WorldSpawn.X, WorldSpawn.Y, WorldSpawn.Z);
+        if (current.getBlockX() != wantedX || current.getBlockY() != wantedY
+                || current.getBlockZ() != wantedZ) {
+            world.setSpawnLocation(wantedX, wantedY, wantedZ);
             getLogger().info("World spawn locked to "
-                    + WorldSpawn.X + " " + WorldSpawn.Y + " " + WorldSpawn.Z + ".");
+                    + wantedX + " " + wantedY + " " + wantedZ + ".");
         }
         Integer radius = world.getGameRuleValue(GameRules.RESPAWN_RADIUS);
-        if (radius == null || radius != WorldSpawn.RADIUS) {
-            world.setGameRule(GameRules.RESPAWN_RADIUS, WorldSpawn.RADIUS);
+        if (radius == null || radius != wantedRadius) {
+            world.setGameRule(GameRules.RESPAWN_RADIUS, wantedRadius);
         }
     }
 
     private void applyWorldMemory(World world) {
         int view = WorldMemory.capDistance(
                 world.getViewDistance(),
-                getConfig().getInt("world.max-view-distance", WorldMemory.MAX_VIEW_DISTANCE)
+                gameVariables.integer("world.max-view-distance")
         );
         if (view != world.getViewDistance()) {
             world.setViewDistance(view);
@@ -1648,7 +1820,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
         }
         int simulation = WorldMemory.capSimulation(
                 world.getSimulationDistance(),
-                getConfig().getInt("world.max-simulation-distance", WorldMemory.MAX_SIMULATION_DISTANCE),
+                gameVariables.integer("world.max-simulation-distance"),
                 view
         );
         if (simulation != world.getSimulationDistance()) {
@@ -1659,7 +1831,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     }
 
     private void applyWorldLimits(World world) {
-        double radius = getConfig().getDouble("world.border-radius", WorldLimits.OVERWORLD_RADIUS);
+        double radius = gameVariables.integer("world.border-radius");
         if (radius < 0) {
             return;
         }

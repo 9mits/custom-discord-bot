@@ -38,7 +38,6 @@ final class AfkService implements Listener, CommandExecutor {
     private final boolean invincible;
     private final Map<UUID, Long> lastActivity = new ConcurrentHashMap<>();
     private final Map<UUID, Long> lastCombat = new ConcurrentHashMap<>();
-    private final long combatWindowMillis;
     private final Set<UUID> afk = ConcurrentHashMap.newKeySet();
     /** When each live AFK stretch began, so it can be closed into {@link AfkStore}. */
     private final Map<UUID, Long> afkSince = new ConcurrentHashMap<>();
@@ -47,9 +46,7 @@ final class AfkService implements Listener, CommandExecutor {
 
     AfkService(MGXAccessBridge plugin, long timeoutSeconds, boolean invincible, AfkStore store) {
         this.store = store;
-        this.combatWindowMillis = Math.max(0L, plugin.getConfig().getLong(
-                "afk-combat-tag-seconds", CombatTag.DEFAULT_SECONDS
-        )) * 1000L;
+        // Live: the combat window is a balance figure, not a startup one.
         this.plugin = plugin;
         this.timeoutMillis = Math.max(60L, timeoutSeconds) * 1_000L;
         this.invincible = invincible;
@@ -169,14 +166,14 @@ final class AfkService implements Listener, CommandExecutor {
     boolean inCombat(Player player) {
         return CombatTag.inCombat(
                 lastCombat.getOrDefault(player.getUniqueId(), 0L),
-                System.currentTimeMillis(), combatWindowMillis
+                System.currentTimeMillis(), plugin.gameVariables().integer("afk.combat-tag-seconds") * 1000L
         );
     }
 
     private long remainingCombatSeconds(Player player) {
         return CombatTag.remainingSeconds(
                 lastCombat.getOrDefault(player.getUniqueId(), 0L),
-                System.currentTimeMillis(), combatWindowMillis
+                System.currentTimeMillis(), plugin.gameVariables().integer("afk.combat-tag-seconds") * 1000L
         );
     }
 

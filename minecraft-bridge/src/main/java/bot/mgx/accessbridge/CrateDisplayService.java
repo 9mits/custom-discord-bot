@@ -86,12 +86,24 @@ final class CrateDisplayService implements CommandExecutor, TabCompleter, Listen
 
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
-        if (!(sender instanceof Player player)) {
-            sender.sendMessage("Place physical crates in game.");
+        // One admin gate for the whole plugin. Bukkit's own `permission:` check on this
+        // command currently makes the difference invisible, but the moment that line
+        // moves — as the administrative redesign requires — a second, differently
+        // spelled check would start answering differently from every other command.
+        // Bukkit hasPermission also honours `default:`, which Floodgate players can
+        // satisfy before their attachments exist; mayAdminister is isOp plus an
+        // explicit LuckPerms node, and is what the rest of the plugin asks.
+        MgxCommandRouter.noteDeprecation(sender, "/cratehologram", args);
+        if (!plugin.mayAdminister(sender)) {
+            if (sender instanceof Player player) {
+                PlayerMenuService.error(player, "You do not have permission to place crates.");
+            } else {
+                sender.sendMessage("You do not have permission to place crates.");
+            }
             return true;
         }
-        if (!player.hasPermission("mgxaccessbridge.admin")) {
-            PlayerMenuService.error(player, "You do not have permission to place crates.");
+        if (!(sender instanceof Player player)) {
+            sender.sendMessage("Place physical crates in game.");
             return true;
         }
         try {
@@ -131,7 +143,45 @@ final class CrateDisplayService implements CommandExecutor, TabCompleter, Listen
         return List.of();
     }
 
-    private void place(Player player, CrateKind kind) throws IOException {
+    /** Every placed crate, for the directory listing. */
+    synchronized List<String> describeAll() {
+        List<String> lines = new ArrayList<>();
+        for (Placement row : placements) {
+            org.bukkit.World world = org.bukkit.Bukkit.getWorld(row.worldId());
+            lines.add("crate:" + row.kind().key() + "  "
+                    + (world == null ? "?" : world.getName()) + " "
+                    + row.x() + " " + row.y() + " " + row.z());
+        }
+        return lines;
+    }
+
+    /** Removes the crate the player is looking at, if that is one. */
+    synchronized boolean removeLookedAt(Player player) throws IOException {
+        org.bukkit.block.Block block = player.getTargetBlockExact(7);
+        if (block == null) {
+            return false;
+        }
+        List<Placement> before = List.copyOf(placements);
+        if (!placements.removeIf(row -> sameBlock(row, block.getLocation()))) {
+            return false;
+        }
+        persistOrRestore(before);
+        refresh();
+        return true;
+    }
+
+    /** Removes one by kind rather than by looking at it. */
+    synchronized boolean removeKind(CrateKind kind) throws IOException {
+        List<Placement> before = List.copyOf(placements);
+        if (!placements.removeIf(row -> row.kind() == kind)) {
+            return false;
+        }
+        persistOrRestore(before);
+        refresh();
+        return true;
+    }
+
+    void place(Player player, CrateKind kind) throws IOException {
         org.bukkit.block.Block block = player.getTargetBlockExact(7);
         if (block == null || block.getType() != Material.CHEST) {
             throw new IllegalArgumentException("Look directly at the chest to turn into a crate.");

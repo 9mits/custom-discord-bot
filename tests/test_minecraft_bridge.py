@@ -474,9 +474,11 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
         self.server._fail_pending_results("The Minecraft bridge disconnected.")
 
+        # Three values, matching what an ACTION_RESULT resolves with: callers unpack the
+        # result, and a disconnect must not be the one path that hands back a short tuple.
         self.assertEqual(
             await future,
-            (False, "The Minecraft bridge disconnected."),
+            (False, "The Minecraft bridge disconnected.", {}),
         )
         self.assertEqual(self.server._pending_results, {})
 
@@ -537,6 +539,111 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertFalse(self.server.supports_maintenance)
         self.assertFalse(await self.server.send_maintenance(True))
+        await socket.close()
+
+    async def test_protocol_v13_publishes_a_change_set_and_returns_what_moved(self):
+        socket = await self._connected_socket(version=13, key="hello-v13-changeset")
+        self.assertTrue(self.server.supports_config_changesets)
+
+        publish = asyncio.create_task(self.server.run_config_changeset(
+            actor_uuid="11111111-1111-1111-1111-111111111111",
+            actor_label="mits",
+            operation="publish",
+            edits=[
+                {"key": "crate.default.key-cost", "value": "3"},
+                {"key": "crate.keys-per-hour", "reset": True},
+            ],
+        ))
+        action = await socket.receive_json()
+        self.assertEqual(action["payload"]["action"], "GAME_VARIABLE")
+        self.assertEqual(action["payload"]["operation"], "publish")
+        self.assertEqual(action["payload"]["actor_label"], "mits")
+        self.assertEqual(
+            action["payload"]["edits"],
+            [
+                {"key": "crate.default.key-cost", "value": "3"},
+                {"key": "crate.keys-per-hour", "reset": True},
+            ],
+        )
+
+        await socket.send_json(create_envelope(self.secret, "ACTION_RESULT", {
+            "action_idempotency_key": action["idempotency_key"],
+            "success": True,
+            "message": "Published 2 change(s). No restart required.",
+            "detail": {
+                "publish_id": "abc",
+                "changes": [
+                    {"key": "crate.default.key-cost", "before": 1, "after": 3},
+                    {"key": "crate.keys-per-hour", "before": 30, "after": 20},
+                ],
+            },
+        }, idempotency_key="result-publish"))
+        success, message, detail = await publish
+
+        self.assertTrue(success)
+        self.assertEqual(detail["publish_id"], "abc")
+        self.assertEqual(detail["changes"][0]["before"], 1)
+        self.assertEqual(detail["changes"][0]["after"], 3)
+        await socket.close()
+
+    async def test_a_rejected_change_set_returns_findings_per_key(self):
+        socket = await self._connected_socket(version=13, key="hello-v13-findings")
+
+        pending = asyncio.create_task(self.server.run_config_changeset(
+            actor_uuid="11111111-1111-1111-1111-111111111111",
+            actor_label="mits",
+            operation="validate",
+            edits=[{"key": "airdrop.rarity.common.weight", "value": "0"}],
+        ))
+        action = await socket.receive_json()
+        await socket.send_json(create_envelope(self.secret, "ACTION_RESULT", {
+            "action_idempotency_key": action["idempotency_key"],
+            "success": False,
+            "message": "Every weight in airdrop.rarity would be zero.",
+            "detail": {"findings": [
+                {"key": "airdrop.rarity.common.weight", "message": "Leave one above zero."}
+            ]},
+        }, idempotency_key="result-findings"))
+        success, _message, detail = await pending
+
+        self.assertFalse(success)
+        self.assertEqual(detail["findings"][0]["key"], "airdrop.rarity.common.weight")
+        await socket.close()
+
+    async def test_an_older_plugin_is_not_offered_change_sets(self):
+        # It would apply the edits one at a time, which is the behaviour the change set
+        # exists to replace: a half-applied rebalance, and no way to undo it.
+        socket = await self._connected_socket(version=12, key="hello-v12-changeset")
+
+        self.assertFalse(self.server.supports_config_changesets)
+        success, message, detail = await self.server.run_config_changeset(
+            actor_uuid="11111111-1111-1111-1111-111111111111",
+            actor_label="mits",
+            operation="publish",
+            edits=[{"key": "crate.default.key-cost", "value": "3"}],
+        )
+        self.assertFalse(success)
+        self.assertIn("too old", message)
+        self.assertEqual(detail, {})
+        await socket.close()
+
+    async def test_a_disconnect_mid_change_set_still_returns_three_values(self):
+        # The caller unpacks three values. A short tuple here would raise inside the
+        # request handler instead of reporting that the bridge went away.
+        socket = await self._connected_socket(version=13, key="hello-v13-drop")
+        pending = asyncio.create_task(self.server.run_config_changeset(
+            actor_uuid="11111111-1111-1111-1111-111111111111",
+            actor_label="mits",
+            operation="publish",
+            edits=[{"key": "crate.default.key-cost", "value": "3"}],
+        ))
+        await socket.receive_json()
+        self.server._fail_pending_results("The Minecraft bridge disconnected.")
+
+        success, message, detail = await pending
+        self.assertFalse(success)
+        self.assertEqual(message, "The Minecraft bridge disconnected.")
+        self.assertEqual(detail, {})
         await socket.close()
 
     async def test_protocol_v10_forwards_minecraft_first_link_request_and_acks(self):

@@ -463,6 +463,21 @@ final class SpecialItemService implements Listener {
         return marks;
     }
 
+    /**
+     * One custom potion, at the strength and duration currently configured.
+     *
+     * <p>A level of 1 is the ordinary effect and 2 the II variant, which is why the
+     * amplifier is one less than the level. Instant effects ignore duration, so those
+     * pass zero minutes and keep the single-tick length the game expects.
+     */
+    private PotionEffect potion(PotionEffectType type, String id, int fallbackMinutes) {
+        GameVariableStore variables = plugin.gameVariables();
+        int level = Math.max(1, variables.integer("potions." + id + ".level"));
+        int minutes = fallbackMinutes <= 0
+                ? 0 : Math.max(1, variables.integer("potions." + id + ".minutes"));
+        return new PotionEffect(type, minutes <= 0 ? 1 : minutes * 60 * 20, level - 1);
+    }
+
     private ItemStack vanillaPotion(String id) {
         ItemStack item = new ItemStack(Material.POTION);
         PotionMeta meta = (PotionMeta) item.getItemMeta();
@@ -472,37 +487,37 @@ final class SpecialItemService implements Listener {
         switch (id) {
             case "potion_healing_ii" -> {
                 name = "Potion of Healing II";
-                effect = new PotionEffect(PotionEffectType.INSTANT_HEALTH, 1, 1);
+                effect = potion(PotionEffectType.INSTANT_HEALTH, "healing", 0);
                 color = Color.fromRGB(245, 55, 90);
             }
             case "potion_strength_ii" -> {
                 name = "Potion of Strength II";
-                effect = new PotionEffect(PotionEffectType.STRENGTH, 5 * 60 * 20, 1);
+                effect = potion(PotionEffectType.STRENGTH, "strength", 5);
                 color = Color.fromRGB(175, 45, 45);
             }
             case "potion_swiftness_ii" -> {
                 name = "Potion of Swiftness II";
-                effect = new PotionEffect(PotionEffectType.SPEED, 5 * 60 * 20, 1);
+                effect = potion(PotionEffectType.SPEED, "swiftness", 5);
                 color = Color.fromRGB(85, 175, 245);
             }
             case "potion_regeneration_ii" -> {
                 name = "Potion of Regeneration II";
-                effect = new PotionEffect(PotionEffectType.REGENERATION, 90 * 20, 1);
+                effect = potion(PotionEffectType.REGENERATION, "regeneration", 2);
                 color = Color.fromRGB(205, 70, 135);
             }
             case "potion_night_vision" -> {
                 name = "Potion of Night Vision";
-                effect = new PotionEffect(PotionEffectType.NIGHT_VISION, 8 * 60 * 20, 0);
+                effect = potion(PotionEffectType.NIGHT_VISION, "night_vision", 8);
                 color = Color.fromRGB(55, 80, 175);
             }
             case "potion_water_breathing" -> {
                 name = "Potion of Water Breathing";
-                effect = new PotionEffect(PotionEffectType.WATER_BREATHING, 8 * 60 * 20, 0);
+                effect = potion(PotionEffectType.WATER_BREATHING, "water_breathing", 8);
                 color = Color.fromRGB(45, 105, 205);
             }
             default -> {
                 name = "Potion of Fire Resistance";
-                effect = new PotionEffect(PotionEffectType.FIRE_RESISTANCE, 5 * 60 * 20, 0);
+                effect = potion(PotionEffectType.FIRE_RESISTANCE, "fire_resistance", 5);
                 color = Color.fromRGB(245, 135, 35);
             }
         }

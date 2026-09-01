@@ -146,7 +146,7 @@ class Page:
         # /leaderboards/ shares their layout and is deliberately public.
         self.private = str(meta.get("private") or "").lower() in {"1", "true", "yes"}
         self.layout = str(meta.get("layout") or "document").strip().lower()
-        if self.layout not in {"document", "dashboard", "statistics"}:
+        if self.layout not in {"document", "dashboard", "statistics", "console"}:
             raise PostError("%s: unknown page layout %r" % (path.name, self.layout))
         self.body_md = body_md
 
@@ -421,16 +421,22 @@ def build(
         md = markdown.Markdown(extensions=MD_EXTENSIONS)
         out = DIST_DIR / page.slug / "index.html"
         out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(
-            theme.render_page(
+        body_html = md.convert(page.body_md)
+        # The console is an application, not a page of the site, so it gets its own
+        # document shell rather than the shared topbar-article-footer one.
+        if page.layout == "console":
+            rendered = theme.render_console(
+                page=page, body_html=body_html, prefix=prefix, site_url=site_url
+            )
+        else:
+            rendered = theme.render_page(
                 page=page,
-                body_html=md.convert(page.body_md),
+                body_html=body_html,
                 prefix=prefix,
                 site_url=site_url,
                 nav=nav,
-            ),
-            encoding="utf-8",
-        )
+            )
+        out.write_text(rendered, encoding="utf-8")
 
     for post in posts:
         prefix = "../"

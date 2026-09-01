@@ -29,6 +29,20 @@ final class AutoPayStore {
     /** Fast enough for a farm, slow enough not to be a transfer every tick. */
     static final int MINIMUM_INTERVAL_SECONDS = 5;
     static final int MAXIMUM_INTERVAL_SECONDS = 3_600;
+    /** Live tuning; the constants above stay the defaults and stand alone in tests. */
+    private static volatile java.util.function.ToDoubleFunction<String> tuning = key -> Double.NaN;
+
+    static void tuningSource(java.util.function.ToDoubleFunction<String> source) {
+        if (source != null) {
+            tuning = source;
+        }
+    }
+
+    private static double tuned(String key, double fallback) {
+        double value = tuning.applyAsDouble(key);
+        return Double.isNaN(value) ? fallback : value;
+    }
+
     static final int DEFAULT_INTERVAL_SECONDS = 30;
 
     /** @param amount ignored when {@code sendAll} is set */
@@ -37,11 +51,11 @@ final class AutoPayStore {
             if (target == null) {
                 throw new IllegalArgumentException("Autopay needs somebody to pay.");
             }
-            if (intervalSeconds < MINIMUM_INTERVAL_SECONDS
-                    || intervalSeconds > MAXIMUM_INTERVAL_SECONDS) {
+            if (intervalSeconds < (int) tuned("autopay.minimum-interval-seconds", MINIMUM_INTERVAL_SECONDS)
+                    || intervalSeconds > (int) tuned("autopay.maximum-interval-seconds", MAXIMUM_INTERVAL_SECONDS)) {
                 throw new IllegalArgumentException(
-                        "Interval must be between " + MINIMUM_INTERVAL_SECONDS + " and "
-                                + MAXIMUM_INTERVAL_SECONDS + " seconds."
+                        "Interval must be between " + (int) tuned("autopay.minimum-interval-seconds", MINIMUM_INTERVAL_SECONDS) + " and "
+                                + (int) tuned("autopay.maximum-interval-seconds", MAXIMUM_INTERVAL_SECONDS) + " seconds."
                 );
             }
             if (!sendAll && amount < 1L) {

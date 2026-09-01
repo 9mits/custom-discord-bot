@@ -127,6 +127,11 @@ STYLESHEET = """
 /* ===== base ============================================================== */
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+/* Any author `display` beats the hidden attribute's UA rule, so a flex or grid
+   component toggled with `el.hidden` stays on screen — empty, and often on top of
+   everything else. Patching it per element is what let that happen twice; this makes
+   `hidden` mean hidden for anything added later. */
+[hidden] { display: none !important; }
 
 body {
   margin: 0;
@@ -804,7 +809,6 @@ a { color: inherit; }
 }
 .live-view-tabs button[aria-selected="true"] { color: #fff; background: var(--brand-ramp); box-shadow: var(--lift-1); }
 .live-view-panel { display: grid; gap: 1.5rem; }
-.live-view-panel[hidden] { display: none; }
 .live-eyebrow {
   color: var(--brand-orange); font-size: .72rem; font-weight: 900;
   letter-spacing: .16em; text-transform: uppercase;
@@ -971,7 +975,6 @@ img.live-minecraft-icon {
 .live-user-pill strong { display: block; color: var(--ink); }
 .live-user-pill button { border: 0; padding: 0; background: none; color: var(--brand-orange); cursor: pointer; }
 #owner-content { display: grid; gap: 1.5rem; }
-#owner-content[hidden] { display: none; }
 .live-control-actions { display: flex; gap: .55rem; }
 .live-control-actions input {
   min-width: 17rem; border: 1px solid var(--line); background: var(--surface-raised);
@@ -1094,6 +1097,10 @@ img.live-minecraft-icon {
   background: var(--surface); color: var(--ink); padding: .55rem;
 }
 .live-setting-input button {
+  /* The field beside this is width:100%, so without flex-shrink:0 the button is the
+     only thing that can give — and "Apply" breaks across two lines. Both properties
+     are load-bearing: nowrap alone still lets the box shrink narrower than its text. */
+  flex: 0 0 auto; white-space: nowrap;
   border: 0; border-radius: .55rem; padding: .55rem .7rem;
   background: var(--brand-ramp); color: #fff; font-weight: 800; cursor: pointer;
 }
@@ -1109,7 +1116,766 @@ img.live-minecraft-icon {
 .live-log-row strong { color: var(--ink); }
 .live-log-row .ok { color: var(--green); }
 .live-log-row .failed { color: #ef4444; }
+.live-log-change {
+  display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: .4rem; margin-top: .2rem;
+}
+.live-log-change code { font-size: .7rem; color: var(--grey); background: none; padding: 0; }
+.live-log-from, .live-log-to {
+  font: 500 .78rem ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: .05rem .35rem; border-radius: .3rem; background: var(--surface); border: 1px solid var(--line);
+}
+.live-log-from { color: var(--grey); text-decoration: line-through; }
+.live-log-to { color: var(--ink); }
+.live-log-arrow { color: var(--brand-orange); font-weight: 800; }
 .live-empty { grid-column: 1 / -1; color: var(--grey); }
+
+/* ---------- owner console ---------- */
+/* An instrument, not an article. It gets its own document shell (theme.render_console):
+   no marketing nav, no footer, no centred article column — a fixed sidebar and a work
+   area that scrolls on its own, which is how every panel this stands next to is built.
+   Putting it through the blog layout is what made it read as a web page with forms on it.
+
+   The dev-blog's warm cream is right for a page you read and wrong for one you operate:
+   at this density it muddies every surface boundary, and orange on everything leaves
+   nothing for the controls that matter. Cool graphite here, with the brand orange spent
+   only on the active section, the primary action and live state. The shared --token
+   names are overridden rather than shadowed by a parallel set, so the .live-* components
+   reused inside the console inherit the console's palette automatically. */
+body.cx {
+  --page-bg: #0b0d11;
+  --canvas: #101319;
+  --surface: #14181f;
+  --surface-raised: #1b2029;
+  --ink: #e9edf4;
+  --text-muted: #97a1b2;
+  --grey: #6b7688;
+  --line: #212734;
+  --line-strong: #2f3746;
+  --green: #35d17f;
+  --blue: #57a9ff;
+  --amber: #f2b23e;
+  --red: #ef5b47;
+  --focus: 0 0 0 2px var(--page-bg), 0 0 0 4px rgba(255, 122, 26, .55);
+  /* Outfit is a geometric display face: at 13px in a dense row its apertures close up
+     and adjacent letters run together — that merging is why the console looked smeared.
+     UI text uses the system face, which is drawn for this size. Outfit stays on the page
+     title and the wordmark, so the brand still reads where there is room for it. */
+  --ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-family: var(--ui);
+  font-size: 13.5px;
+  line-height: 1.5;
+  letter-spacing: 0;
+  background: var(--page-bg);
+  color: var(--text-muted);
+  height: 100dvh;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) body.cx {
+    --page-bg: #eef1f6;
+    --canvas: #e6eaf1;
+    --surface: #ffffff;
+    --surface-raised: #f4f6fa;
+    --ink: #0f1621;
+    --text-muted: #4a5566;
+    --grey: #6c7889;
+    --line: #dde2ea;
+    --line-strong: #c3cbd8;
+    --green: #17915a;
+    --blue: #1f6fd0;
+    --amber: #a86b06;
+    --red: #c33720;
+  }
+}
+:root[data-theme="light"] body.cx {
+  --page-bg: #eef1f6;
+  --canvas: #e6eaf1;
+  --surface: #ffffff;
+  --surface-raised: #f4f6fa;
+  --ink: #0f1621;
+  --text-muted: #4a5566;
+  --grey: #6c7889;
+  --line: #dde2ea;
+  --line-strong: #c3cbd8;
+  --green: #17915a;
+  --blue: #1f6fd0;
+  --amber: #a86b06;
+  --red: #c33720;
+}
+body.cx h1, body.cx h2, body.cx h3, body.cx h4 {
+  color: var(--ink); font-weight: 650; letter-spacing: -.012em; margin: 0;
+}
+body.cx p { margin: 0; }
+body.cx ::selection { background: rgba(255, 122, 26, .3); }
+body.cx :focus-visible { outline: none; box-shadow: var(--focus); border-radius: .3rem; }
+
+/* Every rung of the chain has to carry the height or the app shell collapses back into
+   a document that scrolls as one piece. */
+#console-root { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+#owner-content { flex: 1; min-height: 0; }
+.con-shell { display: grid; grid-template-columns: 15.5rem minmax(0, 1fr); height: 100%; min-height: 0; }
+
+/* ---------- sidebar ---------- */
+.con-rail {
+  display: flex; flex-direction: column; min-height: 0;
+  background: var(--canvas); border-right: 1px solid var(--line);
+}
+.cx-brand {
+  display: flex; align-items: center; gap: .55rem; flex: none;
+  height: 3.25rem; padding: 0 .9rem; border-bottom: 1px solid var(--line);
+}
+.cx-brand img { width: 1.35rem; height: 1.35rem; border-radius: .3rem; }
+.cx-brand b {
+  font-family: "Outfit", var(--ui); font-size: .95rem; font-weight: 700;
+  color: var(--ink); letter-spacing: -.02em;
+}
+.cx-brand small {
+  margin-left: auto; font-size: .6rem; font-weight: 700; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--grey);
+  border: 1px solid var(--line-strong); border-radius: 2rem; padding: .1rem .4rem;
+}
+.cx-nav { flex: 1; min-height: 0; overflow-y: auto; padding: .5rem .5rem 1rem; }
+.cx-nav::-webkit-scrollbar, .con-main::-webkit-scrollbar { width: 9px; }
+.cx-nav::-webkit-scrollbar-thumb, .con-main::-webkit-scrollbar-thumb {
+  background: var(--line-strong); border-radius: 9px;
+  border: 3px solid transparent; background-clip: content-box;
+}
+.cx-group {
+  padding: .95rem .55rem .3rem; font-size: .625rem; font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase; color: var(--grey);
+}
+.cx-group:first-child { padding-top: .35rem; }
+.con-rail button {
+  display: flex; align-items: center; gap: .5rem; width: 100%;
+  padding: .38rem .55rem; border: 0; border-radius: .4rem; background: none;
+  color: var(--text-muted); font: inherit; font-size: .82rem; text-align: left;
+  cursor: pointer; position: relative;
+}
+.con-rail button:hover { background: var(--surface-raised); color: var(--ink); }
+.con-rail button[aria-current="page"] { background: var(--surface-raised); color: var(--ink); font-weight: 600; }
+/* The spine reads as "you are here" without spending the accent on a whole filled row. */
+.con-rail button[aria-current="page"]::before {
+  content: ""; position: absolute; left: -.5rem; top: .28rem; bottom: .28rem;
+  width: 2px; border-radius: 0 2px 2px 0; background: var(--brand-orange);
+}
+.con-rail button .cx-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.con-count {
+  flex: none; font-family: var(--mono); font-size: .68rem; font-variant-numeric: tabular-nums;
+  color: var(--grey);
+}
+.con-rail button[aria-current="page"] .con-count { color: var(--text-muted); }
+.con-dot {
+  flex: none; min-width: 1.1rem; height: 1.1rem; padding: 0 .25rem; border-radius: 1rem;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--brand-orange); color: #1a0d02;
+  font-size: .62rem; font-weight: 800; font-variant-numeric: tabular-nums;
+}
+.cx-side-foot {
+  flex: none; border-top: 1px solid var(--line); padding: .55rem .7rem;
+  display: flex; align-items: center; gap: .5rem;
+}
+.cx-side-foot .live-owner-account { flex: 1; min-width: 0; }
+body.cx .theme-switch {
+  display: flex; gap: 1px; flex: none; padding: 2px; border-radius: .4rem;
+  background: var(--surface-raised); border: 1px solid var(--line);
+}
+body.cx .theme-switch button {
+  display: grid; place-items: center; width: 1.4rem; height: 1.4rem;
+  border: 0; border-radius: .3rem; background: none; color: var(--grey); cursor: pointer;
+}
+body.cx .theme-switch button svg { width: .8rem; height: .8rem; }
+body.cx .theme-switch button:hover { color: var(--ink); }
+body.cx .theme-switch button[aria-checked="true"] { background: var(--brand-orange); color: #180c02; }
+
+/* ---------- work area ---------- */
+.con-main { min-height: 0; overflow-y: auto; background: var(--page-bg); display: flex; flex-direction: column; }
+.con-head {
+  position: sticky; top: 0; z-index: 20; flex: none;
+  display: flex; align-items: center; gap: 1rem;
+  height: 3.25rem; padding: 0 1.5rem;
+  background: color-mix(in srgb, var(--page-bg) 88%, transparent);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+}
+.con-head h2 { font-family: "Outfit", var(--ui); font-size: 1.05rem; font-weight: 700; }
+.con-head .cx-crumb { font-size: .78rem; color: var(--grey); }
+.con-head .cx-crumb::after { content: "/"; margin: 0 .45rem; color: var(--line-strong); }
+.con-head-title { display: flex; align-items: baseline; gap: 0; min-width: 0; }
+.cx-top-right { margin-left: auto; display: flex; align-items: center; gap: .6rem; }
+.cx-search { position: relative; display: flex; align-items: center; }
+.cx-search kbd {
+  position: absolute; right: .4rem; pointer-events: none;
+  font-family: var(--mono); font-size: .68rem; color: var(--grey);
+  border: 1px solid var(--line-strong); border-radius: .25rem;
+  padding: 0 .3rem; line-height: 1.3; background: var(--surface-raised);
+}
+.cx-search:focus-within kbd { display: none; }
+#con-search {
+  width: 19rem; height: 1.9rem; padding: 0 1.7rem 0 .6rem;
+  border: 1px solid var(--line); border-radius: .4rem;
+  background: var(--surface); color: var(--ink); font: inherit; font-size: .8rem;
+}
+#con-search::placeholder { color: var(--grey); }
+#con-search:focus { border-color: var(--line-strong); }
+.cx-status {
+  display: inline-flex; align-items: center; gap: .35rem; flex: none;
+  font-size: .72rem; font-weight: 600; color: var(--text-muted);
+  padding: .2rem .5rem; border: 1px solid var(--line); border-radius: 2rem;
+}
+.cx-status::before {
+  content: ""; width: .45rem; height: .45rem; border-radius: 50%; background: var(--green);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 22%, transparent);
+}
+.cx-status.off { color: var(--grey); }
+.cx-status.off::before { background: var(--grey); box-shadow: none; }
+#con-page { flex: 1; padding: 1.5rem 1.5rem 5rem; max-width: 78rem; width: 100%; }
+.con-offline {
+  display: block; margin-bottom: 1.5rem; padding: .65rem .8rem; font-size: .8rem;
+  border: 1px solid color-mix(in srgb, var(--amber) 45%, transparent);
+  border-left-width: 3px; border-radius: .4rem;
+  background: color-mix(in srgb, var(--amber) 10%, transparent); color: var(--text-muted);
+}
+.con-offline strong { color: var(--amber); }
+.con-intro { max-width: 52rem; margin-bottom: 1.75rem; color: var(--text-muted); font-size: .84rem; }
+.con-intro strong { color: var(--ink); font-weight: 600; }
+
+/* ---------- sections ---------- */
+/* .con-section wraps a heading and its content; the heading carries the rule. */
+.con-section { margin: 0 0 2.25rem; }
+.con-intro + .con-section, .con-table + .con-section { margin-top: .5rem; }
+.con-section > h3 {
+  display: flex; align-items: baseline; gap: .5rem;
+  font-size: .82rem; font-weight: 650;
+  padding-bottom: .5rem; margin-bottom: .25rem; border-bottom: 1px solid var(--line);
+}
+.con-section-count {
+  font-family: var(--mono); font-size: .7rem; color: var(--grey);
+  font-variant-numeric: tabular-nums; font-weight: 500;
+}
+.con-help.wide { max-width: 52rem; margin: .6rem 0 1rem; }
+.con-section > .con-help.wide { margin-top: .75rem; }
+
+/* ---------- a setting, as a list row ---------- */
+/* Cards floating in a grid is what made 516 values look like a toy. A settings row is a
+   label and its control on one line, hairline dividers between, controls aligned down a
+   single column — the shape of every settings screen a person has already learned. */
+.con-grid { display: flex; flex-direction: column; }
+.con-setting {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(12rem, 19rem);
+  column-gap: 2.5rem; align-items: start;
+  padding: .85rem .9rem; border-bottom: 1px solid var(--line);
+  border-left: 2px solid transparent; position: relative;
+}
+.con-setting:hover { background: color-mix(in srgb, var(--surface) 55%, transparent); }
+.con-setting > * { grid-column: 1; min-width: 0; }
+/* controlFor() only ever returns one of these at the top level. The control spans the
+   title and description rows rather than sitting in the title's alone: a two-line control
+   (a text field with its character count) otherwise stretched row one and left a gap
+   above the description. */
+.con-setting > .con-odds, .con-setting > .con-switch, .con-setting > .con-range-fields {
+  grid-column: 2; grid-row: 1 / span 2; align-self: center; justify-self: end;
+}
+.con-setting.dirty {
+  border-left-color: var(--brand-orange);
+  background: color-mix(in srgb, var(--brand-orange) 6%, transparent);
+}
+.con-setting.invalid {
+  border-left-color: var(--red);
+  background: color-mix(in srgb, var(--red) 7%, transparent);
+}
+.con-setting-head { display: flex; align-items: center; gap: .5rem; }
+.con-setting-head h4 { font-size: .84rem; font-weight: 600; }
+.con-help { font-size: .78rem; color: var(--text-muted); margin-top: .1rem; max-width: 44rem; }
+.con-meaning {
+  font-size: .78rem; color: var(--ink); margin-top: .35rem;
+  padding-left: .55rem; border-left: 2px solid var(--blue);
+}
+.con-related { font-size: .74rem; color: var(--grey); margin-top: .25rem; }
+.con-finding {
+  grid-column: 1 / -1; margin-top: .5rem; font-size: .76rem; color: var(--red);
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--red) 35%, transparent);
+  border-radius: .35rem; padding: .35rem .5rem;
+}
+/* The footer spans both columns so the key it pushes right lands on the row's real
+   right edge; inside column one it stopped mid-page and read as stranded. */
+.con-setting-foot {
+  grid-column: 1 / -1; display: flex; align-items: center; gap: .6rem; margin-top: .5rem;
+  font-size: .7rem; color: var(--grey); flex-wrap: wrap;
+}
+.con-flag {
+  font-size: .6rem; font-weight: 800; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--brand-orange);
+}
+.con-live, .con-lag { display: inline-flex; align-items: center; gap: .3rem; font-weight: 600; }
+.con-live { color: var(--green); }
+.con-lag { color: var(--amber); }
+.con-live::before, .con-lag::before {
+  content: ""; width: .4rem; height: .4rem; border-radius: 50%; background: currentColor;
+}
+/* No separator glyph: the footer is a flex row with its own gap, and a CSS-escaped
+   middot here rendered as replacement text in Chromium. */
+.con-limits { color: var(--grey); font-variant-numeric: tabular-nums; }
+.con-key {
+  margin-left: auto; font-family: var(--mono); font-size: .66rem; color: var(--grey);
+  background: var(--surface-raised); border-radius: .25rem; padding: .05rem .3rem;
+}
+.con-link {
+  border: 0; background: none; padding: 0; cursor: pointer;
+  font: inherit; font-size: .72rem; color: var(--blue); text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.con-link:hover { color: var(--ink); }
+.con-range-fields { display: flex; align-items: flex-end; gap: .4rem; }
+.con-range-fields label {
+  display: flex; flex-direction: column; gap: .2rem; font-size: .64rem; color: var(--grey);
+}
+.con-range-fields .con-number { width: 5rem; }
+.con-range-dash { font-size: .7rem; color: var(--grey); padding-bottom: .5rem; }
+.con-setting .con-unit { font-size: .7rem; color: var(--grey); padding-bottom: .5rem; }
+
+/* ---------- inputs ---------- */
+.con-odds { display: flex; align-items: center; gap: .5rem; justify-content: flex-end; flex-wrap: wrap; }
+.con-odds-read {
+  font-size: .72rem; color: var(--grey); text-align: right;
+  font-variant-numeric: tabular-nums; order: -1;
+}
+.con-odds-read strong { color: var(--ink); font-weight: 650; }
+.con-number, .con-choice, .con-search-field {
+  height: 1.9rem; padding: 0 .5rem; border: 1px solid var(--line-strong);
+  border-radius: .4rem; background: var(--surface); color: var(--ink);
+  font: inherit; font-size: .82rem;
+}
+.con-number {
+  width: 6rem; flex: none; text-align: right;
+  font-family: var(--mono); font-variant-numeric: tabular-nums;
+}
+.con-number.tight { width: 5rem; }
+.con-choice { width: 10rem; flex: none; padding-right: .3rem; }
+.con-search-field { width: 12rem; }
+.con-number:focus, .con-choice:focus, .con-search-field:focus, .con-pct:focus {
+  border-color: var(--brand-orange);
+}
+.con-unit { font-size: .72rem; color: var(--grey); }
+/* Fields inside a stacked label take the label's width; the parent is a column, so a
+   flex-basis here would set their height instead. */
+.con-field { display: flex; flex-direction: column; gap: .2rem; min-width: 0; }
+.con-field > span { font-size: .7rem; color: var(--grey); font-weight: 600; }
+.con-field > em { font-size: .68rem; color: var(--grey); font-style: normal; }
+.con-field .con-number, .con-field .con-choice, .con-field .con-search-field {
+  width: 100%; text-align: left;
+}
+.con-field-row { display: flex; gap: .75rem; flex-wrap: wrap; }
+
+.con-switch { display: inline-flex; align-items: center; gap: .5rem; cursor: pointer; }
+.con-switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.con-track {
+  width: 2.1rem; height: 1.2rem; border-radius: 1rem; background: var(--line-strong);
+  position: relative; flex: none; transition: background .15s ease;
+}
+.con-track::after {
+  content: ""; position: absolute; top: .15rem; left: .15rem;
+  width: .9rem; height: .9rem; border-radius: 50%; background: #fff;
+  transition: transform .15s ease;
+}
+.con-switch input:checked + .con-track { background: var(--brand-orange); }
+.con-switch input:checked + .con-track::after { transform: translateX(.9rem); }
+.con-switch input:focus-visible + .con-track { box-shadow: var(--focus); }
+.con-switch-text { font-size: .78rem; color: var(--text-muted); font-weight: 600; min-width: 4rem; }
+/* The swatch leads the select: the colour is the value, the name only labels it. */
+.con-swatch {
+  width: 1.05rem; height: 1.05rem; border-radius: .25rem; order: -2;
+  border: 1px solid var(--line-strong); flex: none; background: var(--surface-raised);
+}
+.con-swatch.tone-pink { background: #f472b6; }
+.con-swatch.tone-blue { background: #3b82f6; }
+.con-swatch.tone-red { background: #ef4444; }
+.con-swatch.tone-green { background: #34c46b; }
+.con-swatch.tone-yellow { background: #eab308; }
+.con-swatch.tone-purple { background: #8b5cf6; }
+.con-swatch.tone-white { background: #f8fafc; }
+
+/* ---------- buttons ---------- */
+.con-primary, .con-secondary, .con-danger {
+  display: inline-flex; align-items: center; justify-content: center; gap: .35rem;
+  min-height: 1.95rem; padding: .25rem .75rem; border-radius: .4rem;
+  font: inherit; font-size: .8rem; font-weight: 600; cursor: pointer;
+  white-space: normal; text-align: center; line-height: 1.25; max-width: 100%;
+}
+.con-primary { border: 1px solid var(--brand-orange); background: var(--brand-orange); color: #180c02; }
+.con-primary:hover:not(:disabled) { filter: brightness(1.08); }
+.con-secondary { border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink); }
+.con-secondary:hover { background: var(--surface-raised); }
+.con-danger {
+  border: 1px solid color-mix(in srgb, var(--red) 60%, transparent);
+  background: color-mix(in srgb, var(--red) 14%, transparent); color: var(--red);
+}
+.con-danger:hover { background: var(--red); color: #fff; border-color: var(--red); }
+.con-primary:disabled, .con-secondary:disabled, .con-danger:disabled { opacity: .45; cursor: not-allowed; }
+.con-remove, .con-move {
+  border: 1px solid var(--line-strong); background: var(--surface); color: var(--text-muted);
+  border-radius: .3rem; padding: 0 .35rem; font: inherit; font-size: .74rem; cursor: pointer;
+  line-height: 1.5;
+}
+.con-remove:hover { border-color: var(--red); color: var(--red); }
+
+/* ---------- overview: stats, tasks, actions ---------- */
+.con-stats { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); margin-bottom: 2rem; }
+.con-stat {
+  border: 1px solid var(--line); border-radius: .5rem; background: var(--surface);
+  padding: .85rem .95rem; display: flex; flex-direction: column; gap: .1rem; min-width: 0;
+}
+.con-stat > span {
+  font-size: .62rem; font-weight: 700; letter-spacing: .09em; text-transform: uppercase;
+  color: var(--grey);
+}
+.con-stat > strong {
+  font-family: "Outfit", var(--ui); font-size: 1.6rem; font-weight: 700; color: var(--ink);
+  font-variant-numeric: tabular-nums; line-height: 1.15;
+}
+.con-stat > em { font-style: normal; font-size: .73rem; color: var(--grey); }
+
+.con-tasks { display: grid; gap: .7rem; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); }
+.con-task {
+  display: flex; flex-direction: column; gap: .3rem; min-width: 0; text-align: left;
+  border: 1px solid var(--line); border-radius: .5rem; background: var(--surface);
+  padding: .85rem .95rem; font: inherit; color: inherit; cursor: pointer;
+}
+.con-task:hover { border-color: var(--brand-orange); background: var(--surface-raised); }
+.con-task > strong { font-size: .84rem; font-weight: 600; color: var(--ink); }
+.con-task > span { font-size: .77rem; color: var(--text-muted); }
+.con-task > em {
+  margin-top: auto; padding-top: .35rem; font-style: normal;
+  font-size: .64rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--grey);
+}
+
+/* An opened task: a header, the one-click options, then the settings behind them. */
+.con-task-open { display: block; }
+.con-task-open > header { margin-bottom: 1.25rem; }
+.con-task-open > header h2 {
+  font-family: "Outfit", var(--ui); font-size: 1.3rem; font-weight: 700; margin: .5rem 0 .3rem;
+}
+.con-task-open > header p { font-size: .84rem; color: var(--text-muted); max-width: 46rem; }
+.con-task-open > h3 {
+  font-size: .82rem; font-weight: 650; margin: 2rem 0 .25rem;
+  padding-bottom: .5rem; border-bottom: 1px solid var(--line);
+}
+.con-strengths {
+  display: grid; gap: .6rem; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  margin-bottom: .5rem;
+}
+.con-strength {
+  display: flex; flex-direction: column; gap: .15rem; text-align: left; cursor: pointer;
+  border: 1px solid var(--line); border-radius: .5rem; background: var(--surface);
+  padding: .7rem .85rem; font: inherit; color: inherit;
+}
+.con-strength:hover { border-color: var(--brand-orange); background: var(--surface-raised); }
+.con-strength > strong { font-size: .82rem; font-weight: 600; color: var(--ink); }
+.con-strength > em { font-style: normal; font-size: .68rem; color: var(--grey); }
+
+.con-grid.con-cards {
+  display: grid; gap: .7rem; grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
+  align-items: start;
+}
+/* An action is a small form, so it leaves the two-column settings row behind. */
+.con-setting.con-action {
+  display: flex; flex-direction: column; gap: .45rem; align-items: stretch;
+  border: 1px solid var(--line); border-left-width: 1px; border-radius: .5rem;
+  background: var(--surface); padding: .9rem; margin-bottom: .7rem;
+}
+.con-setting.con-action:hover { background: var(--surface); border-color: var(--line-strong); }
+.con-action .con-field-row { margin-top: .1rem; }
+.con-action .con-field { max-width: 100%; }
+.con-action .con-field .con-choice, .con-action .con-field .con-search-field,
+.con-action .con-field .con-number { width: 100%; max-width: 16rem; }
+.con-action .con-warn {
+  font-size: .73rem; display: flex; gap: .4rem; align-items: flex-start;
+  color: var(--amber); margin-top: .2rem;
+}
+.con-action .con-warn::before { content: "!"; font-weight: 800; flex: none; }
+.con-action .con-setting-foot { margin-top: .35rem; }
+.con-action .con-setting-foot .con-primary { margin-left: auto; }
+
+/* ---------- loot tables ---------- */
+/* .con-table is the section around the editor, not the <table> itself. */
+.con-table {
+  border: 1px solid var(--line); border-radius: .6rem; background: var(--surface);
+  padding: .95rem; margin-bottom: 1.5rem;
+}
+.con-table.invalid { border-color: var(--red); }
+.con-table > header {
+  display: flex; align-items: flex-start; gap: 1rem; flex-wrap: wrap; margin-bottom: .3rem;
+}
+.con-table > header h3 { font-size: .92rem; font-weight: 650; }
+.con-table > header p { font-size: .78rem; color: var(--text-muted); margin-top: .1rem; }
+.con-table-actions { display: flex; gap: .9rem; align-items: center; margin-left: auto; flex: none; }
+.con-table > header > div:first-child { min-width: 0; flex: 1; }
+.con-table-total {
+  display: flex; flex-direction: column; align-items: flex-end;
+  font-size: .72rem; color: var(--grey); line-height: 1.35;
+}
+.con-table-total strong { color: var(--ink); font-size: .82rem; font-variant-numeric: tabular-nums; }
+.con-table-note { font-size: .74rem; color: var(--grey); margin-top: .55rem; }
+.con-table-scroll {
+  overflow-x: auto; border: 1px solid var(--line); border-radius: .45rem;
+  background: var(--canvas);
+}
+.con-table-scroll table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+.con-table-scroll th {
+  text-align: left; font-size: .62rem; font-weight: 700; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--grey);
+  padding: .45rem .6rem; border-bottom: 1px solid var(--line); white-space: nowrap;
+}
+.con-table-scroll td {
+  padding: .3rem .6rem; border-bottom: 1px solid var(--line); vertical-align: middle;
+}
+.con-table-scroll tbody tr:last-child td { border-bottom: 0; }
+.con-table-scroll tbody tr:hover { background: var(--surface-raised); }
+.con-table-scroll tr.dirty td { background: color-mix(in srgb, var(--brand-orange) 8%, transparent); }
+.con-table-scroll tr.invalid td { background: color-mix(in srgb, var(--red) 9%, transparent); }
+.con-table-scroll tr.jackpot td { background: color-mix(in srgb, var(--blue) 7%, transparent); }
+/* Numeric columns shrink to their content so the data sits together and the entry name
+   takes the slack. Without this the table stretches every column evenly and a weight
+   ends up half a screen from the item it belongs to. */
+.con-table-scroll .con-num { text-align: right; white-space: nowrap; width: 1%; }
+.con-table-scroll th:first-child, .con-table-scroll td:first-child { width: auto; min-width: 12rem; }
+.con-table-scroll th.con-num { text-align: right; }
+.con-table-scroll td:last-child { padding-left: .2rem; }
+.con-muted { color: var(--grey); font-variant-numeric: tabular-nums; }
+.con-pct {
+  width: 5.5rem; height: 1.7rem; padding: 0 .35rem; text-align: right;
+  border: 1px solid var(--line-strong); border-radius: .35rem;
+  background: var(--surface); color: var(--ink);
+  font-family: var(--mono); font-size: .78rem; font-variant-numeric: tabular-nums;
+}
+.con-move { border: 0; background: none; padding: 0; color: var(--brand-orange); font-size: .72rem; }
+.con-move:not(.shown) { visibility: hidden; }
+.con-entry { display: flex; align-items: center; gap: .45rem; min-width: 0; }
+.con-entry > span { display: inline-flex; align-items: center; gap: .4rem; min-width: 0; }
+.con-icon { width: 1.05rem; height: 1.05rem; image-rendering: pixelated; flex: none; }
+.con-icon-gap { width: 1.05rem; height: 1.05rem; flex: none; display: inline-block; }
+.con-tag {
+  font-style: normal; font-size: .58rem; font-weight: 800; letter-spacing: .06em;
+  text-transform: uppercase; padding: .05rem .3rem; border-radius: .25rem;
+  border: 1px solid var(--line-strong); color: var(--grey); white-space: nowrap;
+}
+.con-added { color: var(--green); font-weight: 800; margin-left: .25rem; }
+.con-dist {
+  display: flex; height: .35rem; border-radius: 1rem; overflow: hidden;
+  background: var(--surface-raised); margin: .5rem 0 .65rem; gap: 1px;
+}
+.con-dist-slice { height: 100%; background: var(--line-strong); }
+.con-dist-slice.tone-0 { background: #ff7a1a; }
+.con-dist-slice.tone-1 { background: #57a9ff; }
+.con-dist-slice.tone-2 { background: #35d17f; }
+.con-dist-slice.tone-3 { background: #b98bff; }
+.con-dist-slice.tone-4 { background: #f2b23e; }
+.con-dist-slice.tone-5 { background: #ff6f91; }
+.con-removed {
+  display: flex; flex-wrap: wrap; gap: .4rem; align-items: center;
+  margin-bottom: .65rem; font-size: .74rem; color: var(--grey);
+}
+.con-chip {
+  display: inline-flex; align-items: center; gap: .3rem; padding: .1rem .45rem;
+  border: 1px dashed var(--line-strong); border-radius: 2rem;
+  font-size: .72rem; color: var(--text-muted);
+}
+.con-empty { color: var(--grey); font-size: .82rem; padding: 1.5rem 0; }
+.con-warn { color: var(--red); }
+
+/* ---------- activity log ---------- */
+.con-category-rail { display: flex; flex-wrap: wrap; gap: .35rem; margin-bottom: .9rem; }
+.con-category-rail button {
+  display: inline-flex; align-items: center; gap: .35rem;
+  border: 1px solid var(--line-strong); background: var(--surface); color: var(--text-muted);
+  border-radius: 2rem; padding: .2rem .65rem; font: inherit; font-size: .74rem; cursor: pointer;
+}
+.con-category-rail button:hover { color: var(--ink); }
+.con-category-rail button[aria-pressed="true"] {
+  background: var(--brand-orange); border-color: var(--brand-orange);
+  color: #180c02; font-weight: 650;
+}
+.con-category-rail .con-count { color: inherit; opacity: .7; }
+.con-log { border: 1px solid var(--line); border-radius: .5rem; background: var(--surface); overflow: hidden; }
+.con-log-row {
+  display: grid; grid-template-columns: 6.5rem minmax(0, 1fr) 5.5rem;
+  gap: .75rem; align-items: baseline; padding: .4rem .7rem;
+  border-bottom: 1px solid var(--line); font-size: .78rem;
+}
+.con-log-row:last-child { border-bottom: 0; }
+.con-log-row:hover { background: var(--surface-raised); }
+.con-log-row > div { display: flex; align-items: baseline; gap: .5rem; min-width: 0; flex-wrap: wrap; }
+.con-log-row strong { color: var(--ink); font-weight: 500; }
+.con-log-row time {
+  font-family: var(--mono); font-size: .7rem; color: var(--grey);
+  font-variant-numeric: tabular-nums; text-align: right;
+}
+.con-log-cat {
+  font-size: .58rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--grey); border: 1px solid var(--line-strong); border-radius: .25rem;
+  padding: .05rem .3rem; justify-self: start; white-space: nowrap;
+}
+.con-log-actor { color: var(--brand-orange); font-size: .72rem; font-weight: 600; }
+
+/* ---------- publish history ---------- */
+.con-history { display: flex; flex-direction: column; gap: .6rem; }
+.con-publish {
+  border: 1px solid var(--line); border-radius: .5rem; background: var(--surface); padding: .8rem .9rem;
+}
+.con-publish > header { display: flex; align-items: flex-start; gap: 1rem; }
+.con-publish > header > div { display: flex; flex-direction: column; min-width: 0; }
+.con-publish > header strong { font-size: .84rem; color: var(--ink); font-weight: 600; }
+.con-publish > header span { font-size: .72rem; color: var(--grey); }
+.con-publish > header button { margin-left: auto; flex: none; }
+.con-publish ul { list-style: none; margin: .6rem 0 0; padding: 0; display: flex; flex-direction: column; }
+.con-publish li {
+  display: flex; align-items: baseline; gap: 1rem; padding: .3rem 0;
+  border-top: 1px solid var(--line); font-size: .77rem;
+}
+.con-publish li span { color: var(--text-muted); min-width: 0; }
+.con-publish li code {
+  margin-left: auto; font-family: var(--mono); font-size: .72rem; color: var(--ink);
+  background: var(--surface-raised); border-radius: .3rem; padding: .05rem .35rem; white-space: nowrap;
+}
+
+/* ---------- save bar ---------- */
+/* Docked to the work column, not floated over the viewport, so it can never sit on top
+   of the sidebar or a dialog. */
+.con-draftbar {
+  position: sticky; bottom: 0; z-index: 30; flex: none;
+  display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+  margin: 0 1.5rem 1.5rem; padding: .6rem .9rem;
+  border: 1px solid var(--line-strong); border-radius: .5rem;
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, .38);
+}
+.con-draft-count { display: flex; align-items: baseline; gap: .5rem; font-size: .8rem; color: var(--text-muted); }
+.con-draft-count strong { color: var(--ink); font-size: .95rem; font-variant-numeric: tabular-nums; }
+.con-draft-count .bad { color: var(--red); font-weight: 600; }
+.con-draft-actions { margin-left: auto; display: flex; gap: .45rem; }
+
+/* ---------- dialogs ---------- */
+.con-modal {
+  position: fixed; inset: 0; z-index: 200; display: flex; align-items: center; justify-content: center;
+  padding: 1.5rem; background: rgba(4, 6, 10, .66);
+  backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px);
+}
+.con-modal-card.is-narrow { width: min(26rem, 100%); }
+.con-modal-card {
+  width: min(38rem, 100%); max-height: 85vh; display: flex; flex-direction: column;
+  border: 1px solid var(--line-strong); border-radius: .6rem; background: var(--canvas);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, .5); overflow: hidden;
+}
+.con-modal-card > header {
+  display: flex; align-items: center; gap: .75rem; padding: .8rem 1rem;
+  border-bottom: 1px solid var(--line); flex: none;
+}
+.con-modal-card > header h3 { font-size: .92rem; }
+.con-modal-card > div { padding: 1rem; overflow-y: auto; flex: 1; min-height: 0; font-size: .82rem; }
+.con-modal-card > footer {
+  display: flex; justify-content: flex-end; gap: .45rem; padding: .75rem 1rem;
+  border-top: 1px solid var(--line); flex: none; background: var(--surface);
+}
+.con-close {
+  margin-left: auto; border: 0; background: none; color: var(--grey);
+  font-size: 1.3rem; line-height: 1; cursor: pointer; padding: 0 .2rem;
+}
+.con-close:hover { color: var(--ink); }
+.con-preview-list { list-style: none; margin: .75rem 0 0; padding: 0; display: flex; flex-direction: column; }
+.con-preview-list li {
+  display: flex; align-items: center; gap: 1rem; padding: .5rem 0;
+  border-top: 1px solid var(--line); font-size: .8rem;
+}
+.con-preview-list li > div { display: flex; flex-direction: column; min-width: 0; }
+.con-preview-list strong { color: var(--ink); font-weight: 600; }
+.con-preview-list span { color: var(--grey); font-size: .72rem; }
+.con-preview-list code {
+  margin-left: auto; font-family: var(--mono); font-size: .74rem; color: var(--ink);
+  background: var(--surface-raised); border-radius: .3rem; padding: .1rem .4rem; white-space: nowrap;
+}
+.con-materials { max-height: 14rem; overflow-y: auto; }
+#con-add-body { display: flex; flex-direction: column; gap: .85rem; }
+#con-add-body .con-field-row { gap: 1rem; }
+#con-add-body .con-search-field, #con-add-body .con-choice { width: 100%; }
+#con-add-body .con-field-row .con-field { flex: 0 1 auto; }
+#con-add-body .con-field-row .con-number { width: 5rem; }
+#con-add-body .con-field-row .con-choice { width: 11rem; }
+#con-add-body .con-field > span {
+  font-size: .72rem; font-weight: 600; color: var(--text-muted);
+}
+#con-add-body .con-field > em { font-style: normal; font-size: .7rem; color: var(--grey); }
+#con-add-body .con-freq { margin-top: .25rem; }
+#con-add-body .con-help { font-size: .74rem; margin-top: .35rem; }
+.con-freq { display: flex; flex-direction: column; gap: .1rem; }
+.con-freq-option {
+  display: flex; align-items: center; gap: .55rem; font-size: .8rem; cursor: pointer;
+  padding: .3rem .4rem; border-radius: .35rem;
+}
+.con-freq-option:hover { background: var(--surface-raised); }
+/* The label and its blurb are adjacent inline elements: without a gap the bold ran
+   straight into the italic and read as one smeared word. */
+.con-freq-option > span { display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap; }
+.con-freq-option strong { color: var(--ink); font-weight: 600; }
+.con-freq-option em { font-style: normal; color: var(--grey); font-size: .76rem; }
+.con-freq-option.custom em { display: inline-flex; align-items: center; gap: .4rem; }
+.con-freq-option.custom input[type="number"] {
+  width: 5rem; height: 1.7rem; padding: 0 .35rem; border-radius: .35rem;
+  border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink);
+  font-family: var(--mono); font-size: .78rem; text-align: right;
+}
+
+/* ---------- the sign-in gate ---------- */
+body.cx #control-lock {
+  margin: auto; max-width: 24rem; text-align: center;
+  border: 1px solid var(--line); border-radius: .6rem; background: var(--surface); padding: 2rem;
+}
+body.cx #control-lock img { width: 2.5rem; height: 2.5rem; margin: 0 auto .75rem; display: block; }
+body.cx #control-lock h2 { font-size: 1.05rem; margin-bottom: .5rem; }
+body.cx #control-lock p { font-size: .82rem; margin-bottom: 1.25rem; }
+.live-owner-account { display: flex; align-items: center; gap: .5rem; font-size: .78rem; }
+.live-user-pill { display: flex; align-items: center; gap: .45rem; min-width: 0; color: var(--ink); }
+.live-user-pill img { width: 1.35rem; height: 1.35rem; border-radius: 50%; flex: none; }
+.live-user-pill span { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.live-user-pill strong { font-size: .78rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#owner-logout {
+  align-self: flex-start; border: 0; background: none; padding: 0; cursor: pointer;
+  font: inherit; font-size: .68rem; color: var(--grey); text-decoration: underline;
+  text-underline-offset: 2px;
+}
+#owner-logout:hover { color: var(--ink); }
+
+@media (max-width: 900px) {
+  body.cx { height: auto; overflow: auto; }
+  #console-root, #owner-content { height: auto; }
+  .con-shell { grid-template-columns: 1fr; height: auto; }
+  .con-rail { border-right: 0; border-bottom: 1px solid var(--line); }
+  /* A capped-height column clipped a heading mid-word behind a scrollbar nobody could
+     see. The sections wrap as chips instead: nothing is hidden and nothing scrolls. */
+  .cx-nav { display: flex; flex-wrap: wrap; gap: .3rem; overflow: visible; padding: .6rem; }
+  .cx-group { width: 100%; padding: .5rem 0 .1rem; }
+  .cx-group:first-child { padding-top: 0; }
+  .con-rail button {
+    width: auto; border: 1px solid var(--line); border-radius: 2rem; padding: .25rem .65rem;
+  }
+  .con-rail button[aria-current="page"] { border-color: var(--brand-orange); }
+  .con-rail button[aria-current="page"]::before { display: none; }
+  .con-main { overflow: visible; }
+  .con-head { flex-wrap: wrap; height: auto; padding: .6rem 1rem; gap: .5rem; }
+  #con-search { width: 100%; }
+  #con-page { padding: 1rem 1rem 4rem; }
+  .con-setting { grid-template-columns: 1fr; row-gap: .6rem; }
+  .con-setting > .con-odds, .con-setting > .con-switch, .con-setting > .con-range-fields {
+    grid-column: 1; grid-row: auto; justify-self: start;
+  }
+  .con-draftbar { margin: 0 1rem 1rem; }
+  .con-log-row { grid-template-columns: 1fr; gap: .2rem; }
+}
+
 .live-toast {
   position: fixed; z-index: 300; right: 1.5rem; bottom: 1.5rem; max-width: 26rem;
   padding: .9rem 1rem; border: 1px solid var(--line); border-radius: .75rem;
@@ -1933,9 +2699,13 @@ def render_page(page, body_html: str, prefix: str, site_url: str,
                 nav: Sequence[Dict[str, str]] = ()) -> str:
     """A guide, rules or how-to page: left-aligned prose, no dateline."""
     tagline = '<p class="page-tagline">%s</p>' % _esc(page.tagline) if page.tagline else ""
-    # The statistics page is a dashboard that also loads its own charting script.
-    statistics = getattr(page, "layout", "document") == "statistics"
-    dashboard = getattr(page, "layout", "document") == "dashboard" or statistics
+    # The statistics page is a dashboard that also loads its own charting script, and
+    # the owner console is a dashboard that replaces the shared one entirely — it draws
+    # typed controls and loot tables rather than the leaderboard's cards.
+    layout = getattr(page, "layout", "document")
+    statistics = layout == "statistics"
+    console = layout == "console"
+    dashboard = layout == "dashboard" or statistics or console
     doc_class = "doc live-doc" if dashboard else "doc"
     body_class = "doc-body live-body" if dashboard else "doc-body"
     body = (
@@ -1944,10 +2714,12 @@ def render_page(page, body_html: str, prefix: str, site_url: str,
         '<article class="%s">%s</article>'
         "</div></div></div>" % (doc_class, _esc(page.title), tagline, body_class, body_html)
     )
-    scripts = (
-        '<script src="%sassets/server-dashboard.js" defer></script>' % prefix
-        if dashboard else ""
-    )
+    if console:
+        scripts = '<script src="%sassets/owner-console.js" defer></script>' % prefix
+    elif dashboard:
+        scripts = '<script src="%sassets/server-dashboard.js" defer></script>' % prefix
+    else:
+        scripts = ""
     if statistics:
         scripts += (
             '<script src="%sassets/server-statistics.js" defer></script>' % prefix
@@ -1957,6 +2729,49 @@ def render_page(page, body_html: str, prefix: str, site_url: str,
         page.tagline or "%s — %s" % (SITE_NAME, page.title),
         prefix, body, None, "%s/%s" % (site_url.rstrip("/"), page.url),
         current=page.slug, nav=nav, scripts=scripts,
+    )
+
+
+def render_console(page, body_html: str, prefix: str, site_url: str) -> str:
+    """The owner console: its own document, not a page of the site.
+
+    Everything else here is a document — a topbar to navigate the site with, an article
+    column, a footer. The console is an application: a fixed sidebar, a work area that
+    scrolls by itself, and a save bar docked to the bottom of that area. Rendering it
+    through _page() put a public marketing nav and a Discord button above an operator's
+    settings screen and squeezed 516 controls into a reading column, which is what made
+    it read as a web page with forms on it rather than a control panel. So it gets its
+    own shell: no topbar, no footer, no .doc wrapper, and noindex because it is private.
+    """
+    tags = [
+        '<meta charset="utf-8">',
+        '<meta name="viewport" content="width=device-width, initial-scale=1">',
+        "<title>%s | %s</title>" % (_esc(page.title), _esc(SITE_NAME)),
+        '<meta name="robots" content="noindex, nofollow">',
+        '<meta name="theme-color" content="#0b0d11">',
+        '<link rel="icon" href="%sassets/icon.png">' % prefix,
+        '<link rel="preconnect" href="https://fonts.googleapis.com">',
+        '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>',
+        '<link rel="stylesheet" href="%s">' % FONT_URL,
+        '<link rel="stylesheet" href="%sassets/style.css">' % prefix,
+        THEME_BOOT,
+    ]
+    switch_markup = (
+        '<div class="theme-switch" role="radiogroup" aria-label="Theme">'
+        '<button type="button" role="radio" aria-checked="false" tabindex="-1"'
+        ' data-theme="light" aria-label="Light theme">%s</button>'
+        '<button type="button" role="radio" aria-checked="true" tabindex="0"'
+        ' data-theme="system" aria-label="System theme">%s</button>'
+        '<button type="button" role="radio" aria-checked="false" tabindex="-1"'
+        ' data-theme="dark" aria-label="Dark theme">%s</button>'
+        "</div>" % (_icon("sun"), _icon("monitor"), _icon("moon"))
+    )
+    body_html = body_html.replace("<!--theme-switch-->", switch_markup, 1)
+    return (
+        "<!doctype html>\n"
+        '<html lang="en">\n<head>\n%s\n</head>\n<body class="cx">\n%s\n%s\n'
+        '<script src="%sassets/owner-console.js" defer></script>\n</body>\n</html>\n'
+        % ("\n".join(tags), body_html, THEME_SCRIPT, prefix)
     )
 
 
