@@ -1642,7 +1642,10 @@ body.cx .theme-switch button[aria-checked="true"] { background: var(--brand-oran
    takes the slack. Without this the table stretches every column evenly and a weight
    ends up half a screen from the item it belongs to. */
 .con-table-scroll .con-num { text-align: right; white-space: nowrap; width: 1%; }
-.con-table-scroll th:first-child, .con-table-scroll td:first-child { width: auto; min-width: 12rem; }
+/* Scoped to the loot editor: its entry column needs room, but the same rule applied to
+   every table in the console made a "#" column twelve rems wide. */
+.con-table > .con-table-scroll th:first-child,
+.con-table > .con-table-scroll td:first-child { width: auto; min-width: 12rem; }
 /* The heatmap is 24 equal columns; the loot table's wide first column would squash them. */
 .con-heatmap th:first-child, .con-heatmap td:first-child { min-width: 3rem; width: 3rem; }
 .con-heatmap th, .con-heatmap td { width: auto; }
@@ -1750,6 +1753,85 @@ body.cx .theme-switch button[aria-checked="true"] { background: var(--brand-oran
 .con-embed p { font-size: .82rem; color: var(--text-muted); white-space: pre-wrap; }
 .con-embed img { width: 100%; border-radius: .3rem; }
 .con-embed footer { font-size: .7rem; color: var(--grey); }
+
+/* ---------- statistics charts ---------- */
+.con-chart-grid {
+  display: grid; gap: .75rem; grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
+}
+.con-chart-card {
+  border: 1px solid var(--line); border-radius: .5rem; background: var(--surface);
+  padding: .85rem .95rem; min-width: 0; position: relative;
+}
+.con-chart-card > header {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: .75rem; margin-bottom: .5rem; flex-wrap: wrap;
+}
+.con-chart-card h4 { font-size: .8rem; font-weight: 600; }
+.con-chart-card > header > div { display: flex; align-items: baseline; gap: .5rem; }
+.con-chart-card strong {
+  font-family: "Outfit", var(--ui); font-size: 1.15rem; font-weight: 700;
+  color: var(--ink); font-variant-numeric: tabular-nums;
+}
+.con-delta { font-size: .68rem; font-variant-numeric: tabular-nums; }
+.con-delta.up { color: var(--green); }
+.con-delta.down { color: var(--red); }
+.con-delta.flat { color: var(--grey); }
+.con-chart { display: block; width: 100%; height: 7rem; overflow: visible; }
+.con-chart-grid-line, .con-chart-grid { stroke: var(--line); stroke-width: 1; }
+.con-chart-area { fill: color-mix(in srgb, var(--brand-orange) 18%, transparent); stroke: none; }
+.con-chart-line {
+  fill: none; stroke: var(--brand-orange); stroke-width: 1.75;
+  stroke-linejoin: round; stroke-linecap: round;
+  /* The viewBox is stretched to the card, so an unscaled stroke keeps its weight. */
+  vector-effect: non-scaling-stroke;
+}
+.con-chart-point { fill: var(--brand-orange); stroke: var(--surface); stroke-width: 1.5; }
+/* The two numbers bound the y axis, so they sit at the top and bottom of the plot.
+   Side by side under it they read as a start and an end, which is the x axis. */
+.con-chart-wrap { position: relative; }
+.con-chart-scale {
+  position: absolute; inset: 0 0 auto auto; height: 7rem;
+  display: flex; flex-direction: column; justify-content: space-between;
+  align-items: flex-end; padding: .1rem .1rem;
+  font-family: var(--mono); font-size: .62rem; color: var(--grey);
+  font-variant-numeric: tabular-nums; pointer-events: none;
+}
+.con-chart-scale span {
+  background: color-mix(in srgb, var(--surface) 85%, transparent);
+  padding: 0 .15rem; border-radius: .15rem;
+}
+.con-chart-empty { font-size: .76rem; color: var(--grey); padding: 1.5rem 0; text-align: center; }
+
+/* ---------- standings ---------- */
+.con-boards { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr)); }
+.con-board {
+  border: 1px solid var(--line); border-radius: .5rem; background: var(--surface);
+  padding: .8rem .9rem; min-width: 0;
+}
+.con-board h4 { font-size: .78rem; font-weight: 650; margin-bottom: .45rem; }
+.con-board ol { list-style: none; margin: 0; padding: 0; counter-reset: rank; }
+.con-board li {
+  display: flex; align-items: center; gap: .5rem; padding: .22rem 0;
+  border-top: 1px solid var(--line); font-size: .78rem; counter-increment: rank;
+}
+.con-board li:first-child { border-top: 0; }
+.con-board li::before {
+  content: counter(rank); flex: none; width: 1.1rem; text-align: right;
+  font-family: var(--mono); font-size: .66rem; color: var(--grey);
+}
+.con-board li span {
+  display: flex; align-items: center; gap: .4rem; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.con-board li b {
+  margin-left: auto; color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 650;
+}
+.con-head {
+  width: 1.1rem; height: 1.1rem; border-radius: .2rem; image-rendering: pixelated;
+  flex: none; background: var(--surface-raised);
+}
+/* A head that will not load becomes a quiet square rather than a broken-image glyph. */
+.con-head.missing { visibility: hidden; }
 
 /* ---------- statistics heatmap ---------- */
 /* Fixed layout, or auto-sizing hands the slack to the weekday column and squashes the

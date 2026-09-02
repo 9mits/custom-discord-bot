@@ -203,7 +203,9 @@ class ConsoleSnapshotContractTests(unittest.TestCase):
         # Statistics rows come from the bot's own database over /api/stats, not from the
         # plugin's snapshot, so no store writes them and this check does not apply.
         wanted -= {"average", "weekday", "hour", "username", "afk_seconds",
-                   "minecraft_uuid", "head_url", "discord_user_id"}
+                   "minecraft_uuid", "head_url", "discord_user_id",
+                   # AFK detail and leaderboard rows, same source.
+                   "edition", "sessions", "name", "score"}
         self.assertIn("control", wanted, "the field scrape stopped matching")
 
         written = (
