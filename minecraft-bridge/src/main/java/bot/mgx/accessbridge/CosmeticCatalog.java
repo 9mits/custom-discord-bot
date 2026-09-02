@@ -526,15 +526,56 @@ final class CosmeticCatalog {
     static final String MASKED_DESCRIPTION = "A black silhouette conceals its true effect.";
     static final String MASKED_MODEL_KEY = "mgx:cosmetic/secret_silhouette";
 
+    /**
+     * Cosmetics the owner added, and which built-in effect each one wears.
+     *
+     * <p>A cosmetic's visual is dispatched by its id, so an invented id would be a name
+     * with nothing behind it. An added cosmetic therefore names an existing effect to
+     * wear: it can have its own name, category, rarity and description, and it can be put
+     * in a crate, but what a player sees is one of the effects that already ships. New
+     * artwork still needs a build, which is honest — the alternative is a control that
+     * adds an invisible cosmetic.
+     */
+    private static volatile java.util.function.Supplier<Map<Definition, String>> additions =
+            Map::of;
+
+    static void additionSource(java.util.function.Supplier<Map<Definition, String>> source) {
+        if (source != null) {
+            additions = source;
+        }
+    }
+
+    /** The built-in effect an added cosmetic wears, or its own id when it is built in. */
+    static String effectId(Definition definition) {
+        if (definition == null) {
+            return "";
+        }
+        String worn = additions.get().get(definition);
+        return worn == null || worn.isBlank() ? definition.id() : worn;
+    }
+
     static Optional<Definition> find(String id) {
         if (id == null || id.isBlank()) {
             return Optional.empty();
         }
-        return Optional.ofNullable(BY_ID.get(id.strip().toLowerCase(Locale.ROOT)));
+        String wanted = id.strip().toLowerCase(Locale.ROOT);
+        Definition builtIn = BY_ID.get(wanted);
+        if (builtIn != null) {
+            return Optional.of(builtIn);
+        }
+        return additions.get().keySet().stream()
+                .filter(definition -> definition.id().equals(wanted))
+                .findFirst();
     }
 
     static List<Definition> all() {
-        return DEFINITIONS;
+        Map<Definition, String> added = additions.get();
+        if (added.isEmpty()) {
+            return DEFINITIONS;
+        }
+        List<Definition> everything = new java.util.ArrayList<>(DEFINITIONS);
+        everything.addAll(added.keySet());
+        return List.copyOf(everything);
     }
 
     static List<Definition> amethystRewards() {

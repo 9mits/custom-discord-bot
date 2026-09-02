@@ -1117,7 +1117,9 @@ final class CosmeticEffectService implements Listener {
             drawSecretAura(owner, definition, centre, phase, step);
             return;
         }
-        switch (definition.id()) {
+        // An owner-added cosmetic wears a built-in effect, so dispatch on what it wears
+        // rather than on its own id — which nothing here would recognise.
+        switch (CosmeticCatalog.effectId(definition)) {
             case "solar_orbit" -> drawSolarAura(owner, centre, phase, step);
             case "crimson_orbit" -> drawCrimsonAura(owner, centre, phase, step);
             case "emerald_orbit" -> drawEmeraldAura(owner, centre, phase, step);
@@ -1842,7 +1844,7 @@ final class CosmeticEffectService implements Listener {
             drawSecretTrail(owner, definition, history);
             return;
         }
-        switch (definition.id()) {
+        switch (CosmeticCatalog.effectId(definition)) {
             case "ember_trail" -> drawEmberTrail(owner, history);
             case "blood_trail" -> drawBloodTrail(owner, history);
             case "frost_trail" -> drawFrostTrail(owner, history);
@@ -2142,7 +2144,7 @@ final class CosmeticEffectService implements Listener {
             drawSecretKill(owner, definition, centre);
             return;
         }
-        switch (definition.id()) {
+        switch (CosmeticCatalog.effectId(definition)) {
             case "blood_burst" -> animateBloodKill(owner, centre);
             case "frozen_shatter" -> animateFrozenKill(owner, centre);
             case "shining_light" -> animateShiningKill(owner, centre);
@@ -2249,7 +2251,7 @@ final class CosmeticEffectService implements Listener {
         if (definition.leaderboardOnly()) {
             return new KillAccent(podiumColour(definition.leaderboardRank()), 21, 34);
         }
-        return switch (definition.id()) {
+        return switch (CosmeticCatalog.effectId(definition)) {
             case "blood_burst" -> new KillAccent(Color.fromRGB(225, 12, 38), 10, 24);
             case "frozen_shatter" -> new KillAccent(Color.fromRGB(175, 225, 255), 13, 25);
             case "shining_light" -> new KillAccent(Color.fromRGB(255, 205, 70), 20, 28);
@@ -2897,7 +2899,7 @@ final class CosmeticEffectService implements Listener {
             Player owner, CosmeticCatalog.Definition definition, Location centre,
             double phase, int step
     ) {
-        switch (definition.id()) {
+        switch (CosmeticCatalog.effectId(definition)) {
             case "astral_sovereign" -> {
                 Color violet = Color.fromRGB(120, 85, 255);
                 Color starlight = Color.fromRGB(120, 235, 255);
@@ -3119,7 +3121,7 @@ final class CosmeticEffectService implements Listener {
     private void drawSecretTrail(
             Player owner, CosmeticCatalog.Definition definition, List<Location> history
     ) {
-        switch (definition.id()) {
+        switch (CosmeticCatalog.effectId(definition)) {
             case "galaxy_wake" -> drawGalaxyWake(owner, history);
             case "phantom_chains" -> {
                 Vector side = trailSide(history);
@@ -3277,7 +3279,7 @@ final class CosmeticEffectService implements Listener {
     private void drawSecretKill(
             Player owner, CosmeticCatalog.Definition definition, Location centre
     ) {
-        switch (definition.id()) {
+        switch (CosmeticCatalog.effectId(definition)) {
             case "event_horizon" -> animateEventHorizon(owner, centre);
             case "reapers_verdict" -> animateReapersVerdict(owner, centre);
             case "divine_rupture" -> animateDivineRupture(owner, centre);

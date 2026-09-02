@@ -57,6 +57,8 @@ class DashboardServer:
         self._app.router.add_post("/api/settings/rollback", self.rollback_publish)
         self._app.router.add_post("/api/catalog", self.change_catalog)
         self._app.router.add_post("/api/action", self.run_action)
+        self._app.router.add_get("/api/schedule", self.list_schedule)
+        self._app.router.add_post("/api/schedule", self.save_schedule)
         self._app.router.add_get("/api/presets", self.list_presets)
         self._app.router.add_post("/api/presets", self.save_preset)
         self._app.router.add_get("/api/announce", self.announce_status)
@@ -576,6 +578,40 @@ class DashboardServer:
         return web.json_response(
             {"ok": True, "message": message, "catalog": detail},
             headers={"Cache-Control": "no-store"},
+        )
+
+    async def list_schedule(self, request: web.Request) -> web.Response:
+        """Everything booked, plus the actions that can be booked."""
+        await self._require_owner(request)
+        await self.bot.schedule.load()
+        catalogue = (self.bot.bridge.latest_game_variables or {}).get("action_catalogue", {})
+        return web.json_response(
+            {
+                "entries": [entry.as_dict() for entry in self.bot.schedule.entries],
+                "actions": catalogue.get("actions", []),
+                "now": int(time.time()),
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    async def save_schedule(self, request: web.Request) -> web.Response:
+        """Books, edits or cancels one scheduled action."""
+        session, _member = await self._require_owner(request)
+        self._require_csrf(request, session)
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, TypeError):
+            raise web.HTTPBadRequest(text="A JSON request body is required.")
+        try:
+            if body.get("delete"):
+                await self.bot.schedule.remove(str(body.get("id", "")))
+            else:
+                await self.bot.schedule.upsert(body)
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text=str(exc))
+        await self.bot.schedule.load()
+        return web.json_response(
+            {"entries": [entry.as_dict() for entry in self.bot.schedule.entries]}
         )
 
     #: Where named setting sets live. Kept in the bot's own config rather than the

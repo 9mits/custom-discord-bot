@@ -21,6 +21,7 @@
     {id: "announce", label: "Update notice", group: "Operate"},
     {id: "auction", label: "Live listings", group: "Operate"},
     {id: "history", label: "Change history", group: "Operate"},
+    {id: "schedule_actions", label: "Scheduled", group: "Operate"},
     {id: "presets", label: "Presets & backup", group: "Operate"},
 
     {id: "crates", label: "Crates", group: "Rewards"},
@@ -298,6 +299,7 @@
     statSeries: {},
     shopShelf: null,
     presets: null,
+    schedule: null,
     announce: null,
     announceResult: null,
     announceDraft: {title: "", description: "", colour: "f06000", footer: "", image: ""},
@@ -1107,7 +1109,28 @@
     if (!context) return;
     var material = String(byId("con-add-material").value || "").trim().toUpperCase()
       .replace(/ /g, "_");
-    if (!material) { toast("Pick an item first.", true); return; }
+    if (!material) {
+      toast(context.cosmetic ? "Give it an identifier first." : "Pick an item first.", true);
+      return;
+    }
+    if (context.cosmetic) {
+      var effect = byId("con-add-category").value;
+      var effects = (state.catalog || {}).cosmetic_effects || [];
+      var worn = effects.filter(function (e) { return e.id === effect; })[0];
+      byId("con-add").hidden = true;
+      state.adding = null;
+      catalogCall("add_cosmetic", {
+        id: String(byId("con-add-material").value || "").trim().toLowerCase()
+          .replace(/ /g, "_"),
+        display_name: String(byId("con-add-name").value || "").trim(),
+        // The category follows the effect it wears: a trail cannot be worn as an aura.
+        category: worn ? worn.category : "AURA",
+        weight: Number(byId("con-add-amount").value || 100),
+        wears_effect: effect,
+        description: ""
+      });
+      return;
+    }
     if (context.shop) {
       // The shop dialog has no reward name or weight; it is an item, a shelf and a price.
       byId("con-add").hidden = true;
@@ -1311,6 +1334,69 @@
       escapeHtml(String(material).toLowerCase()) + '.png" alt="" loading="lazy">';
   }
 
+  /**
+   * Cosmetics an owner has added, and the effect each one wears.
+   *
+   * <p>A cosmetic's visual is dispatched by its id, so an invented one would be a name
+   * with nothing behind it. An added cosmetic therefore borrows an effect that already
+   * ships: it gets its own name, category, rarity and description, and it can go in a
+   * crate, but what a player sees is one of the existing effects. Genuinely new artwork
+   * still needs a build, which is stated rather than pretended away.
+   */
+  function cosmeticEditor() {
+    var catalog = state.catalog || {};
+    var effects = catalog.cosmetic_effects || [];
+    if (!effects.length) return "";
+    var added = catalog.cosmetics_added || [];
+    var rows = added.map(function (row) {
+      var worn = effects.filter(function (e) { return e.id === row.wears_effect; })[0];
+      return "<tr><td><strong>" + escapeHtml(row.display_name) + "</strong>" +
+        '<div class="con-muted">' + escapeHtml(row.id) + "</div></td>" +
+        "<td>" + escapeHtml(titleCase(row.category)) + "</td>" +
+        "<td>" + escapeHtml(worn ? worn.label : row.wears_effect) + "</td>" +
+        '<td class="con-num">' + escapeHtml(row.weight) + "</td>" +
+        '<td class="con-num"><button type="button" class="con-remove" ' +
+        'data-cosmetic-remove="' + escapeHtml(row.id) + '">&times;</button></td></tr>';
+    }).join("");
+    return '<section class="con-table"><header><div><h3>Cosmetics you added</h3>' +
+      "<p>An added cosmetic wears an effect that already ships. Its name, category, " +
+      "rarity and description are yours; the visual is borrowed. New artwork needs a " +
+      "build.</p></div><div class=\"con-table-actions\">" +
+      '<button type="button" class="con-secondary" id="con-cosmetic-add">Add a cosmetic</button>' +
+      "</div></header>" +
+      (rows
+        ? '<div class="con-table-scroll"><table><thead><tr><th>Cosmetic</th>' +
+          "<th>Category</th><th>Wears</th><th class=\"con-num\">Weight</th>" +
+          "<th class=\"con-num\"></th></tr></thead><tbody>" + rows + "</tbody></table></div>"
+        : '<p class="con-empty">You have not added any cosmetics.</p>') +
+      "</section>";
+  }
+
+  function openCosmeticDialog() {
+    var effects = (state.catalog || {}).cosmetic_effects || [];
+    byId("con-add-title").textContent = "Add a cosmetic";
+    byId("con-add-body").innerHTML =
+      '<div class="con-field-row">' +
+      '<label class="con-field"><span>Name players see</span>' +
+      '<input class="con-search-field" id="con-add-name" placeholder="Midnight Orbit"></label>' +
+      '<label class="con-field"><span>Identifier</span>' +
+      '<input class="con-search-field" id="con-add-material" placeholder="midnight_orbit"></label>' +
+      "</div>" +
+      '<label class="con-field"><span>Wears this effect</span>' +
+      '<select class="con-choice" id="con-add-category">' + effects.map(function (effect) {
+        return '<option value="' + escapeHtml(effect.id) + '">' +
+          escapeHtml(effect.label) + " (" + escapeHtml(titleCase(effect.category)) +
+          ")</option>";
+      }).join("") + "</select>" +
+      "<em>The visual is borrowed from this one; the category follows it.</em></label>" +
+      '<label class="con-field"><span>Rarity weight</span>' +
+      '<input class="con-number" id="con-add-amount" type="number" min="1" value="100">' +
+      "<em>Higher is more common, the same scale as a crate reward.</em></label>";
+    state.adding = {cosmetic: true};
+    byId("con-add").hidden = false;
+    window.setTimeout(function () { byId("con-add-name").focus(); }, 30);
+  }
+
   function renderGroupPage(group) {
     var rows = groupRows(group);
     var intro = PAGE_INTROS[group]
@@ -1365,7 +1451,10 @@
         '<div class="con-grid">' + sections[heading].join("") + "</div></section>";
     }).join("");
 
-    return intro + editors + (group === "shop" ? shopEditor() : "") + singleHtml;
+    return intro + editors +
+      (group === "shop" ? shopEditor() : "") +
+      (group === "cosmetics" ? cosmeticEditor() : "") +
+      singleHtml;
   }
 
   /** A task, opened. Shows only what bears on it, each explained. */
@@ -1942,6 +2031,80 @@
             : '<p class="con-empty">No presets saved yet.</p>') + "</section>";
   }
 
+  /**
+   * Actions booked ahead of time.
+   *
+   * <p>"Do something" runs an event now; this runs one on Saturday at six. The bot keeps
+   * the clock because it survives a Minecraft restart, and nothing fires while the plugin
+   * is away — an event announced to a server that cannot hear it is worse than one that
+   * did not run.
+   */
+  function renderSchedule() {
+    var data = state.schedule;
+    if (!data) return '<p class="con-empty">Loading&hellip;</p>';
+    if (data.error) {
+      return '<p class="con-empty">The schedule is unavailable: ' +
+        escapeHtml(data.error) + "</p>";
+    }
+    var actions = data.actions || [];
+    if (!actions.length) {
+      return '<p class="con-empty">The connected server has not offered any actions to ' +
+        "schedule.</p>";
+    }
+    var rows = (data.entries || []).slice().sort(function (a, b) {
+      return a.run_at - b.run_at;
+    }).map(function (entry) {
+      var action = actions.filter(function (row) { return row.id === entry.action; })[0];
+      var when = new Date(entry.run_at * 1000);
+      var overdue = entry.run_at < (data.now || 0);
+      return '<tr class="' + (entry.enabled ? "" : "con-muted") + '">' +
+        "<td><strong>" + escapeHtml(action ? action.label : entry.action) + "</strong>" +
+        (entry.label ? '<div class="con-muted">' + escapeHtml(entry.label) + "</div>" : "") +
+        "</td>" +
+        "<td>" + escapeHtml(when.toLocaleString()) +
+        (overdue && entry.enabled ? '<div class="con-warn">due</div>' : "") + "</td>" +
+        "<td>" + (entry.repeat_days
+          ? "every " + entry.repeat_days + " day" + (entry.repeat_days === 1 ? "" : "s")
+          : '<span class="con-muted">once</span>') + "</td>" +
+        "<td>" + (entry.last_run_at
+          ? '<span class="con-muted">' + escapeHtml(entry.last_result || "ran") + "</span>"
+          : '<span class="con-muted">not yet</span>') + "</td>" +
+        '<td class="con-num"><button type="button" class="con-remove" ' +
+        'data-schedule-delete="' + escapeHtml(entry.id) + '">&times;</button></td></tr>';
+    }).join("");
+
+    var options = actions.map(function (action) {
+      return '<option value="' + escapeHtml(action.id) + '">' +
+        escapeHtml(action.label) + "</option>";
+    }).join("");
+
+    return '<p class="con-intro">Book an action for later. It runs once at the time you ' +
+      "pick, or every so many days from then. Anything more than fifteen minutes overdue " +
+      "is skipped rather than run late &mdash; nobody wants Saturday\u2019s event starting " +
+      "on Sunday morning.</p>" +
+      '<section class="con-section"><h3>Book something</h3>' +
+      '<div class="con-field-row">' +
+      '<label class="con-field"><span>What</span>' +
+      '<select class="con-choice" id="con-sched-action">' + options + "</select></label>" +
+      '<label class="con-field"><span>When</span>' +
+      '<input class="con-search-field" id="con-sched-at" type="datetime-local"></label>' +
+      '<label class="con-field"><span>Repeat every (days, 0 = once)</span>' +
+      '<input class="con-number" id="con-sched-repeat" type="number" min="0" max="365" value="0">' +
+      "</label>" +
+      '<div class="con-table-actions">' +
+      '<button type="button" class="con-primary" id="con-sched-add">Book it</button>' +
+      "</div></div>" +
+      '<p class="con-table-note">Times are read in this browser\u2019s timezone.</p>' +
+      "</section>" +
+      '<section class="con-section"><h3>Booked' +
+      '<span class="con-section-count">' + (data.entries || []).length + "</span></h3>" +
+      (rows
+        ? '<div class="con-table-scroll"><table><thead><tr><th>Action</th><th>When</th>' +
+          "<th>Repeat</th><th>Last run</th><th class=\"con-num\"></th></tr></thead>" +
+          "<tbody>" + rows + "</tbody></table></div>"
+        : '<p class="con-empty">Nothing is booked.</p>') + "</section>";
+  }
+
   function renderActivity() {
     var feed = state.activity || {};
     var entries = feed.entries || [];
@@ -2020,6 +2183,7 @@
     if (page.id === "actions") return state.actions.length;
     if (page.id === "statistics" || page.id === "announce") return 0;
     if (page.id === "presets") return ((state.presets || {}).list || []).length;
+    if (page.id === "schedule_actions") return ((state.schedule || {}).entries || []).length;
     if (page.id === "activity") return ((state.activity || {}).entries || []).length;
     if (page.id === "auction") return ((state.auction || {}).listings || []).length;
     if (page.id === "overview" || page.id === "history") return 0;
@@ -2208,6 +2372,9 @@
         '<datalist id="con-online">' + state.online.map(function (name) {
           return '<option value="' + escapeHtml(name) + '">';
         }).join("") + "</datalist>";
+    } else if (state.page === "schedule_actions") {
+      main.innerHTML = banner + renderSchedule();
+      if (state.schedule === null) loadSchedule();
     } else if (state.page === "presets") {
       main.innerHTML = banner + renderPresets();
       if (state.presets === null) loadPresets();
@@ -2382,6 +2549,15 @@
       var shopBack = event.target.closest("[data-shop-restore]");
       if (shopBack) { catalogCall("restore_shop_offer", {material: shopBack.dataset.shopRestore}); return; }
       if (event.target.id === "con-shop-add") { openShopDialog(); return; }
+      if (event.target.id === "con-cosmetic-add") { openCosmeticDialog(); return; }
+      var dropCosmetic = event.target.closest("[data-cosmetic-remove]");
+      if (dropCosmetic) {
+        catalogCall("remove_cosmetic", {id: dropCosmetic.dataset.cosmeticRemove});
+        return;
+      }
+      if (event.target.id === "con-sched-add") { bookAction(); return; }
+      var unbook = event.target.closest("[data-schedule-delete]");
+      if (unbook) { cancelBooking(unbook.dataset.scheduleDelete); return; }
       if (event.target.id === "con-preset-save") { savePreset(); return; }
       if (event.target.id === "con-preset-export") { exportPreset(); return; }
       if (event.target.id === "con-preset-import") { byId("con-preset-file").click(); return; }
@@ -2654,6 +2830,52 @@
     state.adding = {shop: true};
     byId("con-add").hidden = false;
     window.setTimeout(function () { byId("con-add-material").focus(); }, 30);
+  }
+
+  async function loadSchedule() {
+    try {
+      state.schedule = await api("/api/schedule");
+    } catch (error) {
+      state.schedule = {error: error.message};
+    }
+    if (state.page === "schedule_actions") render();
+  }
+
+  async function bookAction() {
+    var when = byId("con-sched-at").value;
+    if (!when) { toast("Pick a date and time first.", true); return; }
+    // datetime-local has no timezone, so it is read in the browser's own — which is what
+    // an owner means when they type six o'clock.
+    var at = Math.floor(new Date(when).getTime() / 1000);
+    if (!at || at <= Date.now() / 1000) {
+      toast("Pick a time in the future.", true);
+      return;
+    }
+    try {
+      await post("/api/schedule", {
+        action: byId("con-sched-action").value,
+        arguments: {},
+        run_at: at,
+        repeat_days: Number(byId("con-sched-repeat").value || 0)
+      });
+      toast("Booked.", false);
+      state.schedule = null;
+      await loadSchedule();
+    } catch (error) {
+      toast(error.message, true);
+    }
+  }
+
+  async function cancelBooking(id) {
+    if (!await confirmThat("Cancel this booking?",
+      "It will not run. Nothing that has already happened is undone.", "Cancel it")) return;
+    try {
+      await post("/api/schedule", {id: id, delete: true});
+      state.schedule = null;
+      await loadSchedule();
+    } catch (error) {
+      toast(error.message, true);
+    }
   }
 
   async function loadPresets() {

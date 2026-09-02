@@ -724,14 +724,29 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             case "remove_shop_offer":
                 catalog.removeShopOffer(optionalString(payload, "material"));
                 return "Took that item off the shop shelf.";
+            case "add_cosmetic": {
+                CustomCatalogStore.CosmeticAddition added = catalog.addCosmetic(
+                        optionalString(payload, "id"),
+                        optionalString(payload, "display_name"),
+                        optionalString(payload, "category"),
+                        intOr(payload, "weight", 100),
+                        optionalString(payload, "wears_effect"),
+                        optionalString(payload, "description")
+                );
+                return "Added " + added.displayName() + ", wearing the "
+                        + added.wearsEffect() + " effect.";
+            }
+            case "remove_cosmetic":
+                catalog.removeCosmetic(optionalString(payload, "id"));
+                return "Removed that cosmetic.";
             case "restore_shop_offer":
                 catalog.restoreShopOffer(optionalString(payload, "material"));
                 return "Put that item back at its catalogue price.";
             default:
                 throw new IllegalArgumentException(
                         "Use add_reward, remove_reward, restore_reward, add_loot, remove_loot,"
-                                + " restore_loot, set_shop_offer, remove_shop_offer or"
-                                + " restore_shop_offer."
+                                + " restore_loot, set_shop_offer, remove_shop_offer,"
+                                + " restore_shop_offer, add_cosmetic or remove_cosmetic."
                 );
         }
     }

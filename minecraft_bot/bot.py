@@ -251,11 +251,13 @@ class MinecraftAccessBot(commands.Bot):
         await self.bridge.start()
         await self.dashboard.start()
         self.application_maintenance.start()
+        self.scheduled_actions.start()
         self.leaderboard_refresh.start()
         self.stat_sampler.start()
 
     async def close(self) -> None:
         self.application_maintenance.cancel()
+        self.scheduled_actions.cancel()
         self.leaderboard_refresh.cancel()
         await self.dashboard.close()
         await self.bridge.close()
@@ -494,6 +496,16 @@ class MinecraftAccessBot(commands.Bot):
         """
         forms = [member.name, getattr(member, "global_name", None), member.nick]
         return [form.casefold() for form in forms if form]
+
+    @property
+    def schedule(self):
+        from .schedule import Schedule
+
+        existing = getattr(self, "_schedule", None)
+        if existing is None:
+            existing = Schedule(self)
+            self._schedule = existing
+        return existing
 
     async def _resolve_member_by_username(self, username: str) -> Optional[discord.Member]:
         guild = await self._configured_guild()
@@ -2205,6 +2217,36 @@ class MinecraftAccessBot(commands.Bot):
             return "I could not post there. Check my permissions in that channel."
         await self.data.set_config(message_key, posted.id)
         return None
+
+    @tasks.loop(seconds=60)
+    async def scheduled_actions(self) -> None:
+        """Runs whatever the owner booked for now.
+
+        Held here rather than in the plugin because the bot is the side that survives a
+        Minecraft restart. Nothing fires while the plugin is away — an event announced to
+        a server that cannot hear it is worse than one that simply did not run.
+        """
+        if not self.bridge.connected:
+            return
+        try:
+            for entry in await self.schedule.due():
+                ok, message, _detail = await self.bridge.run_admin_action(
+                    actor_uuid="00000000-0000-0000-0000-000000000000",
+                    action_id=entry.action,
+                    arguments=entry.arguments,
+                )
+                await self.schedule.record(
+                    entry.id, ("" if ok else "failed: ") + (message or "")
+                )
+                logger.info(
+                    "Scheduled %s: %s", entry.action, message or ("ok" if ok else "failed")
+                )
+        except Exception:
+            logger.exception("The scheduled-action loop failed")
+
+    @scheduled_actions.before_loop
+    async def _before_scheduled_actions(self) -> None:
+        await self.wait_until_ready()
 
     @tasks.loop(seconds=30)
     async def application_maintenance(self) -> None:

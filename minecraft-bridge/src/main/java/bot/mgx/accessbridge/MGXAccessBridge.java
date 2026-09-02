@@ -232,6 +232,25 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             // The compiled catalogue is the shop's shape; this is what the owner has
             // since changed about it. Read at point of use, so an edit reaches the next
             // player to open the menu rather than the next restart.
+            // An added cosmetic wears a built-in effect; the catalogue needs both the
+            // definition and which effect it borrows.
+            CosmeticCatalog.additionSource(() -> {
+                Map<CosmeticCatalog.Definition, String> added = new LinkedHashMap<>();
+                for (CustomCatalogStore.CosmeticAddition row : customCatalog.addedCosmetics()) {
+                    CosmeticCatalog.Definition worn =
+                            CosmeticCatalog.find(row.wearsEffect()).orElse(null);
+                    if (worn == null) {
+                        continue;
+                    }
+                    added.put(new CosmeticCatalog.Definition(
+                            row.id(), row.displayName(),
+                            CosmeticCatalog.Category.valueOf(row.category()),
+                            row.weight(), false, worn.materialName(), worn.modelKey(),
+                            row.description(), 0
+                    ), row.wearsEffect());
+                }
+                return added;
+            });
             ShopCatalog.overlaySource(() -> {
                 Map<String, ShopCatalog.Offer> edits = new LinkedHashMap<>();
                 Map<String, ShopCatalog.Category> shelves = new LinkedHashMap<>();

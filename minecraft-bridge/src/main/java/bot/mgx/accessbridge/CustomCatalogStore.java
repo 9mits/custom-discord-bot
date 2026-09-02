@@ -69,7 +69,18 @@ final class CustomCatalogStore {
             long price
     ) { }
 
+    /** A cosmetic an owner added, wearing one of the built-in effects. */
+    record CosmeticAddition(
+            String id,
+            String displayName,
+            String category,
+            int weight,
+            String wearsEffect,
+            String description
+    ) { }
+
     private final Path file;
+    private final List<CosmeticAddition> addedCosmetics = new ArrayList<>();
     private final Map<String, ShopEdit> shopEdits = new LinkedHashMap<>();
     private final Set<String> disabledShopOffers = new LinkedHashSet<>();
     private final Map<String, List<CrateAddition>> addedRewards = new LinkedHashMap<>();
@@ -240,6 +251,76 @@ final class CustomCatalogStore {
     }
 
     /** Everything an owner has changed about the catalogues, for the console. */
+    /* ---------- cosmetics ---------- */
+
+    synchronized List<CosmeticAddition> addedCosmetics() {
+        return List.copyOf(addedCosmetics);
+    }
+
+    /**
+     * Adds a cosmetic that wears an existing effect.
+     *
+     * <p>The effect must already exist: a cosmetic's visual is dispatched by id, so an
+     * invented one would be a name with nothing behind it.
+     */
+    synchronized CosmeticAddition addCosmetic(
+            String id, String displayName, String category, int weight,
+            String wearsEffect, String description
+    ) {
+        String key = requireSlug(id);
+        if (CosmeticCatalog.find(key).isPresent()) {
+            throw new IllegalArgumentException("A cosmetic called " + key + " already exists.");
+        }
+        String worn = requireSlug(wearsEffect);
+        if (CosmeticCatalog.find(worn).isEmpty()) {
+            throw new IllegalArgumentException(
+                    "There is no cosmetic called " + worn + " to take the effect from.");
+        }
+        CosmeticAddition addition = new CosmeticAddition(
+                key,
+                requireText(displayName, "Display name"),
+                requireCosmeticCategory(category),
+                requireRange(weight, 1, 10_000_000, "Weight"),
+                worn,
+                description == null ? "" : description.strip()
+        );
+        addedCosmetics.add(addition);
+        saveAndNotify();
+        return addition;
+    }
+
+    synchronized void removeCosmetic(String id) {
+        String key = requireSlug(id);
+        if (addedCosmetics.removeIf(row -> row.id().equals(key))) {
+            saveAndNotify();
+        }
+    }
+
+    private static String requireCosmeticCategory(String raw) {
+        if (raw == null || raw.isBlank()) {
+            throw new IllegalArgumentException("Choose a cosmetic category.");
+        }
+        String wanted = raw.strip().toUpperCase(Locale.ROOT);
+        for (CosmeticCatalog.Category category : CosmeticCatalog.Category.values()) {
+            if (category.name().equals(wanted)) {
+                return category.name();
+            }
+        }
+        throw new IllegalArgumentException("There is no cosmetic category called " + raw + ".");
+    }
+
+    private static String requireSlug(String raw) {
+        if (raw == null || raw.isBlank()) {
+            throw new IllegalArgumentException("An identifier is required.");
+        }
+        String slug = raw.strip().toLowerCase(Locale.ROOT).replace(' ', '_');
+        if (!slug.matches("[a-z0-9_]{2,40}")) {
+            throw new IllegalArgumentException(
+                    "Use two to forty letters, digits or underscores: " + raw);
+        }
+        return slug;
+    }
+
     /* ---------- shop ---------- */
 
     synchronized Map<String, ShopEdit> shopEdits() {
@@ -322,6 +403,27 @@ final class CustomCatalogStore {
         JsonArray shopRemoved = new JsonArray();
         disabledShopOffers.forEach(shopRemoved::add);
         root.add("shop_removed", shopRemoved);
+        JsonArray cosmetics = new JsonArray();
+        for (CosmeticAddition addition : addedCosmetics) {
+            JsonObject row = new JsonObject();
+            row.addProperty("id", addition.id());
+            row.addProperty("display_name", addition.displayName());
+            row.addProperty("category", addition.category());
+            row.addProperty("weight", addition.weight());
+            row.addProperty("wears_effect", addition.wearsEffect());
+            row.addProperty("description", addition.description());
+            cosmetics.add(row);
+        }
+        root.add("cosmetics_added", cosmetics);
+        JsonArray effects = new JsonArray();
+        for (CosmeticCatalog.Definition definition : CosmeticCatalog.all()) {
+            JsonObject row = new JsonObject();
+            row.addProperty("id", definition.id());
+            row.addProperty("label", definition.displayName());
+            row.addProperty("category", definition.category().name());
+            effects.add(row);
+        }
+        root.add("cosmetic_effects", effects);
         // The whole shelf, priced as a player would see it, so the panel can edit any
         // offer rather than only the ones an owner has already touched.
         JsonArray shelves = new JsonArray();
@@ -511,6 +613,19 @@ final class CustomCatalogStore {
                         Map.copyOf(weights)
                 ));
             }
+            if (root.has("cosmetics_added")) {
+                for (JsonElement element : root.getAsJsonArray("cosmetics_added")) {
+                    JsonObject row = element.getAsJsonObject();
+                    addedCosmetics.add(new CosmeticAddition(
+                            row.get("id").getAsString(),
+                            row.get("display_name").getAsString(),
+                            row.get("category").getAsString(),
+                            row.get("weight").getAsInt(),
+                            row.get("wears_effect").getAsString(),
+                            row.has("description") ? row.get("description").getAsString() : ""
+                    ));
+                }
+            }
             if (root.has("shop_edits")) {
                 for (JsonElement element : root.getAsJsonArray("shop_edits")) {
                     JsonObject row = element.getAsJsonObject();
@@ -550,6 +665,18 @@ final class CustomCatalogStore {
         JsonArray shopRemoved = new JsonArray();
         disabledShopOffers.forEach(shopRemoved::add);
         root.add("shop_removed", shopRemoved);
+        JsonArray cosmetics = new JsonArray();
+        for (CosmeticAddition addition : addedCosmetics) {
+            JsonObject row = new JsonObject();
+            row.addProperty("id", addition.id());
+            row.addProperty("display_name", addition.displayName());
+            row.addProperty("category", addition.category());
+            row.addProperty("weight", addition.weight());
+            row.addProperty("wears_effect", addition.wearsEffect());
+            row.addProperty("description", addition.description());
+            cosmetics.add(row);
+        }
+        root.add("cosmetics_added", cosmetics);
         JsonArray crates = new JsonArray();
         for (CrateKind kind : CrateKind.values()) {
             JsonObject entry = new JsonObject();
