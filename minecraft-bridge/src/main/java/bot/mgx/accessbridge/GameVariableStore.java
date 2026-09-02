@@ -655,6 +655,10 @@ final class GameVariableStore {
                 "Airdrop expired broadcast",
                 "Shown when an Airdrop times out unclaimed. <rarity> is its rarity.",
                 "<white>The <rarity> Amethyst Airdrop expired unclaimed.</white>");
+        message("messages.airdrop.looted",
+                "Airdrop looted broadcast",
+                "Shown when an Airdrop is emptied by players. <rarity> is its rarity.",
+                "<white>The <rarity> Amethyst Airdrop was looted.</white>");
         message("messages.airdrop.disturbed",
                 "Airdrop disturbed broadcast",
                 "Shown when an Airdrop is removed because its chest was interfered with.",

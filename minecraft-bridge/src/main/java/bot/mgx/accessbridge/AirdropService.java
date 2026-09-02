@@ -1186,8 +1186,7 @@ final class AirdropService implements Listener {
                 return;
             }
         }
-        remove(drop, true, "The " + drop.rarity.displayName()
-                + " Amethyst Airdrop was looted.");
+        remove(drop, true, "messages.airdrop.looted");
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = false)
@@ -1265,7 +1264,7 @@ final class AirdropService implements Listener {
      * blocks. Restoring twice would write the drop's own structure back over whatever
      * a player has built there since.
      */
-    private void remove(ActiveAirdrop drop, boolean announce, String message) {
+    private void remove(ActiveAirdrop drop, boolean announce, String messageKey) {
         if (drop == null || active.remove(drop.id) == null) {
             return;
         }
@@ -1288,11 +1287,12 @@ final class AirdropService implements Listener {
             playDisappearEffect(drop);
         }
         restore(drop.savedBlocks, drop.chunks);
-        // `message` is a messages.* key now rather than the sentence itself, so the
-        // owner can reword or silence it without a build.
-        if (announce && message != null && !messages.isSilenced(message)) {
+        // A messages.* key rather than the sentence itself, so the owner can reword or
+        // silence it without a build. The parameter is named for what it is: passing a
+        // sentence here threw out of the scheduled task on every looted drop.
+        if (announce && messageKey != null && !messages.isSilenced(messageKey)) {
             broadcast(Component.text("AIRDROP » ", AMETHYST, TextDecoration.BOLD)
-                    .append(messages.render(message, "rarity", drop.rarity.displayName())));
+                    .append(messages.render(messageKey, "rarity", drop.rarity.displayName())));
         }
         if (!drop.scheduled) {
             // A staff drop is not the scheduler's event, so finishing it must not start
