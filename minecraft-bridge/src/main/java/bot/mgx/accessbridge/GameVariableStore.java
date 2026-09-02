@@ -789,6 +789,12 @@ final class GameVariableStore {
                 "Minimum Overworld distance from spawn for scheduled blocks.",
                 config.getLong("amethyst-block-event.minimum-radius", 500),
                 0, 100_000, "blocks", false);
+        integer("huge-amethyst.maximum-radius", "Huge Amethyst maximum radius", "Huge Amethyst",
+                "Farthest Overworld distance from spawn for scheduled blocks. Without this "
+                        + "the only limit was the world border, so a block could land "
+                        + "100,000 blocks out and effectively never be found.",
+                config.getLong("amethyst-block-event.maximum-radius", 2_500),
+                1, 100_000, "blocks", false);
         integer("huge-amethyst.location-attempts", "Huge Amethyst location attempts", "Huge Amethyst",
                 "Safe-ground candidates checked before the scheduler retries later.",
                 config.getLong("amethyst-block-event.location-attempts", 24),

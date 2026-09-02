@@ -358,11 +358,23 @@ final class AmethystBlockEventService implements Listener {
         World world = worlds.get(random.nextInt(worlds.size()));
         WorldBorder border = world.getWorldBorder();
         Location centre = border.getCenter();
-        int limit = Math.max(1, (int) Math.floor(border.getSize() / 2d) - BORDER_MARGIN);
+        int borderLimit = Math.max(1, (int) Math.floor(border.getSize() / 2d) - BORDER_MARGIN);
+        int minimumRadius = variables.integer("huge-amethyst.minimum-radius");
+        // The border used to be the only ceiling, so a block could land a hundred thousand
+        // blocks out and never be found by anybody. Whichever is nearer wins: an owner
+        // cannot accidentally send one outside the world by raising this.
+        int limit = Math.min(borderLimit, Math.max(1, variables.integer("huge-amethyst.maximum-radius")));
+        if (limit < minimumRadius) {
+            // A maximum below the minimum describes no ring at all. Rather than loop
+            // twenty-four times and give up silently, say so once and use the minimum.
+            plugin.getLogger().warning(
+                    "Huge Amethyst maximum radius (" + limit + ") is below the minimum ("
+                            + minimumRadius + "); using the minimum.");
+            limit = minimumRadius;
+        }
         for (int index = 0; index < 24; index++) {
             int x = centre.getBlockX() + random.nextInt(-limit, limit + 1);
             int z = centre.getBlockZ() + random.nextInt(-limit, limit + 1);
-            int minimumRadius = variables.integer("huge-amethyst.minimum-radius");
             if ((long) x * x + (long) z * z < (long) minimumRadius * minimumRadius) {
                 continue;
             }
