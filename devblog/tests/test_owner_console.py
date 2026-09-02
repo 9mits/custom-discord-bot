@@ -159,7 +159,7 @@ class ConsolePageContractTests(unittest.TestCase):
         # it is configured to do, so an introduction explaining "what these values mean"
         # would be describing nothing.
         pages -= {"overview", "history", "actions", "activity", "auction",
-                  "statistics", "announce", "presets", "schedule_actions"}
+                  "statistics", "announce", "presets", "schedule_actions", "player"}
         self.assertGreater(len(pages), 15, "the page scrape stopped matching")
         intro_block = CONSOLE_JS.split("var PAGE_INTROS = {", 1)[1].split("\n  };", 1)[0]
         described = set(re.findall(r'^\s*([a-z_]+):', intro_block, re.M))
@@ -205,7 +205,10 @@ class ConsoleSnapshotContractTests(unittest.TestCase):
         wanted -= {"average", "weekday", "hour", "username", "afk_seconds",
                    "minecraft_uuid", "head_url", "discord_user_id",
                    # AFK detail and leaderboard rows, same source.
-                   "edition", "sessions", "name", "score"}
+                   "edition", "sessions", "name", "score",
+                   # The player profile is assembled by the bot from its own tables and
+                   # the last plugin snapshot, so no store writes these either.
+                   "board", "rank"}
         self.assertIn("control", wanted, "the field scrape stopped matching")
 
         written = (

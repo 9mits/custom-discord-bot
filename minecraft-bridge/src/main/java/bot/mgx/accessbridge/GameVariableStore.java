@@ -1255,6 +1255,15 @@ final class GameVariableStore {
         this.auctionListings = auction == null ? new JsonObject() : auction;
     }
 
+    /** Live server figures, supplied by the plugin because this store owns none of them. */
+    private volatile java.util.function.Supplier<JsonObject> metricsSupplier = JsonObject::new;
+
+    void metricsSource(java.util.function.Supplier<JsonObject> source) {
+        if (source != null) {
+            metricsSupplier = source;
+        }
+    }
+
     synchronized JsonObject snapshot() {
         JsonObject root = new JsonObject();
         root.addProperty("generated_at", System.currentTimeMillis());
@@ -1312,6 +1321,9 @@ final class GameVariableStore {
         root.add("action_catalogue", actionCatalogue);
         root.add("activity", activityFeed);
         root.add("auction", auctionListings);
+        // The figures an owner is actually tuning. The panel samples these on its own
+        // schedule and keeps the history, so a change can be read against its effect.
+        root.add("metrics", metricsSupplier.get());
         return root;
     }
 

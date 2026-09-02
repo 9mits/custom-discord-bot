@@ -1787,6 +1787,29 @@ body.cx .theme-switch button[aria-checked="true"] { background: var(--brand-oran
 .con-preset span { font-size: .72rem; color: var(--grey); }
 .con-preset .con-table-actions { margin-left: auto; margin-top: 0; }
 
+/* ---------- command bar ---------- */
+/* An instruction understood, shown as a proposal. Accented because it is the one thing
+   on a search results page that will change something. */
+.con-command {
+  border: 1px solid var(--brand-orange); border-radius: .5rem;
+  background: color-mix(in srgb, var(--brand-orange) 6%, var(--surface));
+  padding: .9rem 1rem; margin-bottom: 1.5rem;
+}
+.con-command > header h3 { font-size: .9rem; font-weight: 650; }
+.con-command > header p { font-size: .78rem; color: var(--text-muted); margin-top: .15rem; }
+.con-command .con-preview-list { margin: .6rem 0 .2rem; }
+.con-command .con-table-actions { margin-top: .6rem; }
+
+/* ---------- noticeboard ---------- */
+.con-notices { display: flex; flex-direction: column; gap: .4rem; }
+.con-notice {
+  font-size: .8rem; padding: .5rem .7rem; border-radius: .4rem;
+  border: 1px solid var(--line); border-left-width: 3px; background: var(--surface);
+  color: var(--text-muted);
+}
+.con-notice.up { border-left-color: var(--green); }
+.con-notice.down { border-left-color: var(--amber); }
+
 /* ---------- statistics charts ---------- */
 .con-chart-grid {
   display: grid; gap: .75rem; grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
@@ -1819,6 +1842,12 @@ body.cx .theme-switch button[aria-checked="true"] { background: var(--brand-oran
   vector-effect: non-scaling-stroke;
 }
 .con-chart-point { fill: var(--brand-orange); stroke: var(--surface); stroke-width: 1.5; }
+/* Where settings were published. Dashed and cool, so it reads as an annotation on the
+   data rather than as another series in it. */
+.con-chart-mark {
+  stroke: var(--blue); stroke-width: 1; stroke-dasharray: 3 3; opacity: .75;
+  vector-effect: non-scaling-stroke;
+}
 /* The two numbers bound the y axis, so they sit at the top and bottom of the plot.
    Side by side under it they read as a start and an end, which is the x axis. */
 .con-chart-wrap { position: relative; }
@@ -1958,6 +1987,9 @@ body.cx .theme-switch button[aria-checked="true"] { background: var(--brand-oran
 .con-preview-list li > div { display: flex; flex-direction: column; min-width: 0; }
 .con-preview-list strong { color: var(--ink); font-weight: 600; }
 .con-preview-list span { color: var(--grey); font-size: .72rem; }
+/* The consequence, not the number: struck-through is what it means today. */
+.con-shift { display: block; font-style: normal; font-size: .72rem; color: var(--ink); margin-top: .15rem; }
+.con-shift s { color: var(--grey); text-decoration-color: var(--line-strong); }
 .con-preview-list code {
   margin-left: auto; font-family: var(--mono); font-size: .74rem; color: var(--ink);
   background: var(--surface-raised); border-radius: .3rem; padding: .1rem .4rem; white-space: nowrap;

@@ -220,6 +220,13 @@ final class CosmeticStore {
         return count;
     }
 
+    /** How many real cosmetics exist, ignoring the session-only preview tokens. */
+    synchronized int mintedCount() {
+        return (int) tokens.values().stream()
+                .filter(token -> token.generation() == generation && token.serialNumber() > 0)
+                .count();
+    }
+
     synchronized Optional<Token> withdraw(UUID owner, UUID serial) {
         Token token = tokens.get(serial);
         if (token == null || token.generation() != generation || !owner.equals(token.storedOwner())) {

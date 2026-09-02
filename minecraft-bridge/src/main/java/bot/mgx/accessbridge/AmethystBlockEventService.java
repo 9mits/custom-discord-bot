@@ -903,6 +903,7 @@ final class AmethystBlockEventService implements Listener {
                 .detail("event_id", block.id.toString())
                 .record();
 
+        plugin.metricCounters().increment(ServerMetrics.AMETHYST_EVENTS);
         launchKeyFountain(block.anchor, 14, 24, true);
         beginShatterAnimation(block);
     }

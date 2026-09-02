@@ -18,6 +18,7 @@
 
     {id: "actions", label: "Do something", group: "Operate"},
     {id: "statistics", label: "Statistics", group: "Operate"},
+    {id: "player", label: "Look up a player", group: "Operate"},
     {id: "announce", label: "Update notice", group: "Operate"},
     {id: "auction", label: "Live listings", group: "Operate"},
     {id: "history", label: "Change history", group: "Operate"},
@@ -238,7 +239,14 @@
     keys.forEach(function (key) {
       var row = state.byKey[key];
       if (!row) return;
-      var next = Math.round(Number(draftedValue(key)) * factor);
+      var current = Number(draftedValue(key));
+      var next = Math.round(current * factor);
+      // A 20% raise on a value of 2 rounds straight back to 2, so the setting an owner
+      // pointed at silently does not move. Nudge by one in the direction asked for:
+      // "a bit more" on a small number means the next number up, not nothing.
+      if (next === current && factor !== 1) {
+        next = current + (factor > 1 ? 1 : -1);
+      }
       next = Math.max(row.minimum === undefined ? next : row.minimum,
               Math.min(row.maximum === undefined ? next : row.maximum, next));
       if (next !== Number(row.value)) edits.push({key: key, value: String(next)});
@@ -299,6 +307,8 @@
     statSeries: {},
     shopShelf: null,
     presets: null,
+    player: null,
+    playerQuery: "",
     schedule: null,
     announce: null,
     announceResult: null,
@@ -1484,6 +1494,77 @@
       "</em></button>";
   }
 
+  /**
+   * What moved, without being asked.
+   *
+   * <p>Spotting that the economy doubled or that airdrop claims stopped is the actual
+   * job, and until now it meant going and looking. These are computed from the same
+   * series the charts use: a large move over the window, or a counter that has stopped
+   * moving at all. Deliberately few and deliberately dull — a noticeboard that cries
+   * wolf gets ignored, which is worse than not having one.
+   */
+  function noticeboard() {
+    var series = state.statSeries || {};
+    var names = Object.keys(series);
+    if (!names.length) return "";
+    var notes = [];
+    names.forEach(function (name) {
+      var points = series[name] || [];
+      if (points.length < 4) return;
+      var first = Number(points[0].value) || 0;
+      var last = Number(points[points.length - 1].value) || 0;
+      var label = metricLabel(name);
+      if (first > 0) {
+        var move = ((last - first) / first) * 100;
+        if (Math.abs(move) >= 25) {
+          notes.push({
+            tone: move > 0 ? "up" : "down",
+            text: label + " " + (move > 0 ? "rose" : "fell") + " " +
+              Math.abs(Math.round(move)) + "% over this window, " +
+              compactNumber(first) + " to " + compactNumber(last) + "."
+          });
+        }
+      }
+      // A counter that stopped is the quiet failure: nothing errors, the thing just
+      // stops happening. Only meaningful for counters, which never decrease.
+      var half = points.slice(Math.floor(points.length / 2));
+      var moved = half.some(function (point, index) {
+        return index > 0 && Number(point.value) !== Number(half[index - 1].value);
+      });
+      if (!moved && /opened|claimed|spawned|sales|completed/.test(name) && last > 0) {
+        notes.push({
+          tone: "down",
+          text: label + " has not moved in the second half of this window."
+        });
+      }
+    });
+    var concentration = economyConcentration();
+    if (concentration) notes.push(concentration);
+    if (!notes.length) return "";
+    return '<section class="con-section"><h3>Worth a look' +
+      '<span class="con-section-count">' + notes.length + "</span></h3>" +
+      '<div class="con-notices">' + notes.slice(0, 6).map(function (note) {
+        return '<p class="con-notice ' + note.tone + '">' + escapeHtml(note.text) + "</p>";
+      }).join("") + "</div></section>";
+  }
+
+  /** One player holding most of the money is worth saying out loud. */
+  function economyConcentration() {
+    var series = state.statSeries || {};
+    var total = (series["economy.total_balance"] || []).slice(-1)[0];
+    var richest = (series["economy.richest_balance"] || []).slice(-1)[0];
+    if (!total || !richest || !Number(total.value)) return null;
+    var share = (Number(richest.value) / Number(total.value)) * 100;
+    // One player cannot hold more than all of it. Above 100 means the two samples were
+    // taken at different moments or a counter reset, and reporting it as a finding is
+    // how a noticeboard stops being believed.
+    if (share < 30 || share > 100) return null;
+    return {
+      tone: "down",
+      text: "One player holds " + Math.round(share) + "% of all the money on the server."
+    };
+  }
+
   function renderOverview() {
     if (state.task) {
       var open = TASKS.filter(function (entry) { return entry.id === state.task; })[0];
@@ -1532,7 +1613,8 @@
       "the settings that bear on it and explains what they do, so you do not have to know " +
       "where anything lives. Or use the pages on the left to go straight to a value.</p>" +
       '<div class="con-tasks">' + TASKS.map(taskCard).join("") + "</div></section>";
-    return tasks + '<div class="con-stats">' + cards + "</div>" + changed + lag + history;
+    return noticeboard() + tasks + '<div class="con-stats">' + cards + "</div>" +
+      changed + lag + history;
   }
 
   function publishRow(publish) {
@@ -1699,6 +1781,29 @@
    * be a large dependency for something the page can express exactly. SVG also stays
    * sharp at any size and needs no canvas sizing dance on a hidden tab.
    */
+  /**
+   * When settings were published, as marks on a chart.
+   *
+   * <p>The panel already knew both halves and never joined them: publish history has
+   * timestamps, the series has values over time. Drawing one against the other is the
+   * difference between "the economy grew" and "the economy grew after you did that".
+   */
+  function publishMarks(first, span) {
+    return ((state.snapshot || {}).history || []).map(function (publish) {
+      var at = Math.floor(Number(publish.at) / 1000);
+      if (!at || at < first || at > first + span) return null;
+      return {
+        at: at,
+        count: publish.change_count || (publish.changes || []).length,
+        actor: publish.actor || "",
+        labels: (publish.changes || []).slice(0, 4).map(function (change) {
+          var row = state.byKey[change.key];
+          return (row ? row.label : change.key) + " " + change.before + " \u2192 " + change.after;
+        })
+      };
+    }).filter(Boolean);
+  }
+
   function areaChart(points) {
     var width = 560;
     var height = 130;
@@ -1736,11 +1841,21 @@
         '" y2="' + y + '" class="con-chart-grid"/>';
     }).join("");
 
+    var marks = publishMarks(first, span).map(function (mark) {
+      var x = (pad.left + ((mark.at - first) / span) * innerW).toFixed(1);
+      return '<line x1="' + x + '" x2="' + x + '" y1="' + pad.top + '" y2="' +
+        (pad.top + innerH) + '" class="con-chart-mark"><title>' +
+        escapeHtml(new Date(mark.at * 1000).toLocaleString() + " \u2014 " + mark.count +
+          " setting(s) published" + (mark.actor ? " by " + mark.actor : "") +
+          (mark.labels.length ? "\n" + mark.labels.join("\n") : "")) +
+        "</title></line>";
+    }).join("");
+
     return '<div class="con-chart-wrap"><svg class="con-chart" viewBox="0 0 ' + width + " " + height +
       '" preserveAspectRatio="none" role="img" aria-label="' +
       escapeHtml(compactNumber(values[values.length - 1]) + " now, " +
         compactNumber(low) + " to " + compactNumber(high) + " over the window") + '">' +
-      gridlines +
+      gridlines + marks +
       '<path d="' + area + '" class="con-chart-area"/>' +
       '<path d="' + line + '" class="con-chart-line"/>' +
       '<circle cx="' + last[0].toFixed(1) + '" cy="' + last[1].toFixed(1) +
@@ -2105,6 +2220,100 @@
         : '<p class="con-empty">Nothing is booked.</p>') + "</section>";
   }
 
+  /**
+   * Everything the panel knows about one player, in one place.
+   *
+   * <p>There was no per-player view anywhere, which made the most common thing an owner
+   * does — someone reports a problem, you go and look at them — the one thing the panel
+   * could not help with. Assembled from what the bot holds and the plugin's last
+   * snapshot, so it still answers when the server is disconnected, with what was true
+   * when it last spoke.
+   */
+  function renderPlayer() {
+    var found = state.player;
+    var box = '<section class="con-section"><h3>Look up a player</h3>' +
+      '<div class="con-field-row">' +
+      '<label class="con-field"><span>Name</span>' +
+      '<input class="con-search-field" id="con-player-name" placeholder="Fatcat1440" value="' +
+      escapeHtml(state.playerQuery || "") + '"></label>' +
+      '<div class="con-table-actions">' +
+      '<button type="button" class="con-primary" id="con-player-find">Look up</button>' +
+      "</div></div></section>";
+    if (!found) {
+      return '<p class="con-intro">Balances, standings, linked accounts and idle time ' +
+        "for one player. Partial names work.</p>" + box;
+    }
+    if (found.error) {
+      return box + '<p class="con-empty">' + escapeHtml(found.error) + "</p>";
+    }
+    if (!found.found) {
+      return box + '<p class="con-empty">Nobody matching &ldquo;' +
+        escapeHtml(found.query) + "&rdquo; has a linked account.</p>";
+    }
+    var account = found.account || {};
+    var others = (found.matches || []).filter(function (name) {
+      return name && name !== account.username;
+    });
+    var tiles = [
+      ["Edition", account.edition === "BEDROCK" ? "Bedrock" : "Java", "how they connect"],
+      ["Last seen", account.last_seen_at
+        ? new Date(account.last_seen_at * 1000).toLocaleDateString() : "unknown",
+        "most recent session"],
+      ["Idle time", duration((found.afk || {}).seconds || 0),
+        ((found.afk || {}).sessions || 0) + " stretch(es), 30 days"],
+      ["Linked accounts", String((found.linked_accounts || []).length),
+        "on the same Discord"]
+    ].map(function (tile) {
+      return '<div class="con-stat"><span>' + escapeHtml(tile[0]) + "</span><strong>" +
+        escapeHtml(tile[1]) + "</strong><em>" + escapeHtml(tile[2]) + "</em></div>";
+    }).join("");
+
+    var standings = (found.standings || []).map(function (row) {
+      return "<tr><td>" + escapeHtml(titleCase(row.board.replace(/_/g, " "))) + "</td>" +
+        '<td class="con-num">#' + escapeHtml(row.rank) + "</td>" +
+        '<td class="con-num">' + escapeHtml(compactNumber(row.value)) + "</td></tr>";
+    }).join("");
+
+    var linked = (found.linked_accounts || []).map(function (row) {
+      return '<span class="con-chip">' + escapeHtml(row.username || "?") + " &middot; " +
+        (row.edition === "BEDROCK" ? "Bedrock" : "Java") + "</span>";
+    }).join("");
+
+    var listings = (found.listings || []).map(function (row) {
+      return "<tr><td>" + escapeHtml(row.display_name || titleCase(row.material || "")) +
+        '</td><td class="con-num">' + escapeHtml(row.amount || 1) +
+        '</td><td class="con-num">' + escapeHtml(compactNumber(row.price || 0)) +
+        "</td></tr>";
+    }).join("");
+
+    return box +
+      '<section class="con-section"><h3>' + escapeHtml(account.username || "") +
+      (found.discord_user_id
+        ? '<span class="con-section-count">Discord ' +
+          escapeHtml(found.discord_user_id) + "</span>"
+        : '<span class="con-section-count">no Discord link</span>') + "</h3>" +
+      '<div class="con-stats">' + tiles + "</div>" +
+      (linked ? '<div class="con-removed">Also plays as: ' + linked + "</div>" : "") +
+      (others.length
+        ? '<p class="con-table-note">Other names matching that search: ' +
+          others.map(escapeHtml).join(", ") + "</p>"
+        : "") + "</section>" +
+      (standings
+        ? '<section class="con-section"><h3>Standings</h3>' +
+          '<div class="con-table-scroll"><table><thead><tr><th>Board</th>' +
+          '<th class="con-num">Rank</th><th class="con-num">Value</th></tr></thead>' +
+          "<tbody>" + standings + "</tbody></table></div></section>"
+        : "") +
+      (listings
+        ? '<section class="con-section"><h3>Selling right now' +
+          '<span class="con-section-count">' + (found.listings || []).length +
+          "</span></h3>" +
+          '<div class="con-table-scroll"><table><thead><tr><th>Item</th>' +
+          '<th class="con-num">Amount</th><th class="con-num">Price</th></tr></thead>' +
+          "<tbody>" + listings + "</tbody></table></div></section>"
+        : "");
+  }
+
   function renderActivity() {
     var feed = state.activity || {};
     var entries = feed.entries || [];
@@ -2181,7 +2390,7 @@
 
   function pageCount(page) {
     if (page.id === "actions") return state.actions.length;
-    if (page.id === "statistics" || page.id === "announce") return 0;
+    if (page.id === "statistics" || page.id === "announce" || page.id === "player") return 0;
     if (page.id === "presets") return ((state.presets || {}).list || []).length;
     if (page.id === "schedule_actions") return ((state.schedule || {}).entries || []).length;
     if (page.id === "activity") return ((state.activity || {}).entries || []).length;
@@ -2197,6 +2406,98 @@
    * Rows keep their own page as a heading so a result is never shown without saying
    * where it lives — the point of searching is usually to find out exactly that.
    */
+  /**
+   * The search box, read as an instruction rather than a filter.
+   *
+   * <p>The panel's whole premise was "say what you want and it happens", and the way in
+   * was still a filter over 527 keys. This parses a small, honest grammar — a direction,
+   * an amount, and something to point them at — and answers with a *proposal*: the exact
+   * settings, their before and after. Nothing is applied; it stages a draft, so the
+   * review and publish path is the same as for anything typed by hand.
+   *
+   * <p>Deliberately not a natural-language pretence. It understands what it understands
+   * and says nothing when it does not, which is better than confidently changing the
+   * wrong thing.
+   */
+  var COMMAND_VERBS = [
+    {match: /\b(double|twice)\b/, factor: 2},
+    {match: /\b(halve|half)\b/, factor: 0.5},
+    {match: /\b(triple)\b/, factor: 3},
+    {match: /\b(raise|increase|up|more|boost|generous)\b/, factor: 1.25, soft: true},
+    {match: /\b(lower|reduce|down|less|cut|cheaper|stingy)\b/, factor: 0.8, soft: true}
+  ];
+
+  function parseCommand(text) {
+    var lowered = String(text || "").toLowerCase();
+    var percent = /(-?\d+(?:\.\d+)?)\s*%/.exec(lowered);
+    var times = /\bx\s*(\d+(?:\.\d+)?)|\b(\d+(?:\.\d+)?)\s*x\b/.exec(lowered);
+    var factor = null;
+    var direction = 1;
+
+    for (var i = 0; i < COMMAND_VERBS.length; i++) {
+      if (COMMAND_VERBS[i].match.test(lowered)) {
+        factor = COMMAND_VERBS[i].factor;
+        direction = factor >= 1 ? 1 : -1;
+        break;
+      }
+    }
+    if (percent) {
+      var size = Math.abs(Number(percent[1])) / 100;
+      // "20% more" and "20% less" differ only by the verb, so the verb decides the sign.
+      factor = direction < 0 ? 1 - size : 1 + size;
+    } else if (times) {
+      factor = Number(times[1] || times[2]);
+    }
+    if (!factor || !isFinite(factor) || factor <= 0 || factor === 1) return null;
+
+    // What to point it at: the words that are not the instruction.
+    var subject = lowered
+      .replace(/(-?\d+(?:\.\d+)?)\s*%/g, " ")
+      .replace(/\bx\s*\d+(?:\.\d+)?|\b\d+(?:\.\d+)?\s*x\b/g, " ")
+      .replace(/\b(double|twice|halve|half|triple|raise|increase|up|more|boost|generous|lower|reduce|down|less|cut|cheaper|stingy|make|the|by|a|to|all|and|please)\b/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (subject.length < 3) return null;
+
+    var words = subject.split(" ");
+    var targets = state.rows.filter(function (row) {
+      if (row.control === "toggle" || row.control === "choice" || row.control === "text") {
+        return false;
+      }
+      var hay = (row.key + " " + row.label + " " + row.group_label).toLowerCase();
+      return words.every(function (word) { return hay.indexOf(word) >= 0; });
+    });
+    if (!targets.length || targets.length > 40) return null;
+    var edits = scaleEdits(targets.map(function (row) { return row.key; }), factor);
+    if (!edits.length) return null;
+    return {factor: factor, subject: subject, edits: edits};
+  }
+
+  function commandCard() {
+    var parsed = parseCommand(state.search);
+    if (!parsed) return "";
+    var percent = Math.round((parsed.factor - 1) * 100);
+    var rows = parsed.edits.slice(0, 8).map(function (edit) {
+      var row = state.byKey[edit.key];
+      return "<li><div><strong>" + escapeHtml(row.label) + "</strong><span>" +
+        escapeHtml(row.group_label) + "</span></div><code>" +
+        escapeHtml(row.value) + " &rarr; " + escapeHtml(edit.value) + "</code></li>";
+    }).join("");
+    return '<section class="con-command"><header><h3>' +
+      escapeHtml(percent > 0 ? "Raise " + parsed.subject + " by " + percent + "%"
+                             : "Lower " + parsed.subject + " by " + Math.abs(percent) + "%") +
+      "</h3><p>" + parsed.edits.length + " setting" +
+      (parsed.edits.length === 1 ? "" : "s") +
+      " would change. Nothing is applied until you publish.</p></header>" +
+      '<ul class="con-preview-list">' + rows +
+      (parsed.edits.length > 8
+        ? "<li><div><span>and " + (parsed.edits.length - 8) +
+          " more</span></div></li>" : "") + "</ul>" +
+      '<div class="con-table-actions">' +
+      '<button type="button" class="con-primary" id="con-command-stage">Stage these changes</button>' +
+      "</div></section>";
+  }
+
   function renderSearch() {
     var sections = [];
     var total = 0;
@@ -2217,10 +2518,15 @@
       );
     });
     if (!total) {
-      return '<p class="con-empty">Nothing matches &ldquo;' + escapeHtml(state.search) +
+      var command = commandCard();
+      // An understood instruction is an answer; following it with "nothing matches"
+      // reads as a failure when the panel just told you exactly what it would do.
+      return command || '<p class="con-empty">Nothing matches &ldquo;' +
+        escapeHtml(state.search) +
         "&rdquo;. Try the name a player would use, or paste a setting key.</p>";
     }
-    return '<p class="con-intro"><strong>' + total + "</strong> setting" +
+    return commandCard() +
+      '<p class="con-intro"><strong>' + total + "</strong> setting" +
       (total === 1 ? "" : "s") + " match &ldquo;" + escapeHtml(state.search) +
       "&rdquo;, across " + sections.length + " page" + (sections.length === 1 ? "" : "s") +
       ". Edit them here; publishing works the same as anywhere else.</p>" +
@@ -2339,12 +2645,34 @@
       (state.publishing ? "Publishing&hellip;" : "Publish") + "</button></div>";
   }
 
+  /**
+   * What a setting will mean once published, in the same words it means now.
+   *
+   * <p>meaning() already turns a value into a sentence — "a player online three hours a
+   * day earns about 6 keys". Running it against the live value and the drafted one turns
+   * the review from a list of numbers into a list of consequences, which is the question
+   * being asked at that moment: not what the number becomes, but what it does.
+   */
+  function meaningShift(row) {
+    var after = meaning(row);
+    var live = state.draft[row.key];
+    delete state.draft[row.key];
+    var before = meaning(row);
+    state.draft[row.key] = live;
+    if (!before || !after || before === after) {
+      return after ? '<em class="con-shift">' + escapeHtml(after) + "</em>" : "";
+    }
+    return '<em class="con-shift"><s>' + escapeHtml(before) + "</s> " +
+      escapeHtml(after) + "</em>";
+  }
+
   function renderPreview() {
     var pending = dirtyKeys();
     var body = pending.map(function (key) {
       var row = state.byKey[key];
       return "<li><div><strong>" + escapeHtml(row.label) + "</strong><span>" +
-        escapeHtml(row.group_label) + "</span></div><code>" +
+        escapeHtml(row.group_label) + "</span>" + meaningShift(row) +
+        "</div><code>" +
         escapeHtml(row.value) + " &rarr; " + escapeHtml(draftedValue(key)) + "</code></li>";
     }).join("");
     byId("con-preview-body").innerHTML =
@@ -2367,11 +2695,16 @@
     }
     if (state.page === "overview") {
       main.innerHTML = banner + renderOverview();
+      // The noticeboard reads the same series the charts do; fetch them once so the
+      // overview can say what moved without being opened twice.
+      if (state.stats === null) loadStatistics();
     } else if (state.page === "actions") {
       main.innerHTML = banner + renderActions() +
         '<datalist id="con-online">' + state.online.map(function (name) {
           return '<option value="' + escapeHtml(name) + '">';
         }).join("") + "</datalist>";
+    } else if (state.page === "player") {
+      main.innerHTML = banner + renderPlayer();
     } else if (state.page === "schedule_actions") {
       main.innerHTML = banner + renderSchedule();
       if (state.schedule === null) loadSchedule();
@@ -2474,6 +2807,13 @@
     // The announcement editor updates its preview as you type, so it listens for input
     // rather than change; a preview that only appears when a field loses focus is not a
     // preview of what you are writing.
+    byId("con-page").addEventListener("keydown", function (event) {
+      if (event.key === "Enter" && event.target.id === "con-player-name") {
+        event.preventDefault();
+        lookUpPlayer();
+      }
+    });
+
     byId("con-page").addEventListener("input", function (event) {
       var field = event.target.dataset ? event.target.dataset.announce : null;
       if (!field) return;
@@ -2555,6 +2895,16 @@
         catalogCall("remove_cosmetic", {id: dropCosmetic.dataset.cosmeticRemove});
         return;
       }
+      if (event.target.id === "con-command-stage") {
+        var parsed = parseCommand(state.search);
+        if (!parsed) return;
+        var values = {};
+        parsed.edits.forEach(function (edit) { values[edit.key] = edit.value; });
+        clearSearch();
+        stageValues(values, "That instruction");
+        return;
+      }
+      if (event.target.id === "con-player-find") { lookUpPlayer(); return; }
       if (event.target.id === "con-sched-add") { bookAction(); return; }
       var unbook = event.target.closest("[data-schedule-delete]");
       if (unbook) { cancelBooking(unbook.dataset.scheduleDelete); return; }
@@ -2832,6 +3182,18 @@
     window.setTimeout(function () { byId("con-add-material").focus(); }, 30);
   }
 
+  async function lookUpPlayer() {
+    var name = String(byId("con-player-name").value || "").trim();
+    if (!name) { toast("Type a player name first.", true); return; }
+    state.playerQuery = name;
+    try {
+      state.player = await api("/api/player?name=" + encodeURIComponent(name));
+    } catch (error) {
+      state.player = {error: error.message};
+    }
+    render();
+  }
+
   async function loadSchedule() {
     try {
       state.schedule = await api("/api/schedule");
@@ -3020,7 +3382,8 @@
     } catch (error) {
       state.stats = {error: error.message};
     }
-    if (state.page === "statistics") render();
+    // Overview reads the same series for its noticeboard, so both pages care.
+    if (state.page === "statistics" || state.page === "overview") render();
     // The charts are a second request: the overview is what the page needs to appear,
     // and a wide metric selection can be several queries behind it.
     if (state.stats && !state.stats.error) {
@@ -3049,7 +3412,8 @@
     } catch (error) {
       wanted.forEach(function (name) { state.statSeries[name] = []; });
     }
-    if (state.page === "statistics") render();
+    // Overview reads the same series for its noticeboard, so both pages care.
+    if (state.page === "statistics" || state.page === "overview") render();
   }
 
   async function loadSettings() {
