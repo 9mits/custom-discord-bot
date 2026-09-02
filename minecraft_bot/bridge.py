@@ -306,16 +306,20 @@ class MinecraftBridgeServer:
                         await socket.close(code=1007, message=b"Invalid JSON")
                         break
                     if not await self._verify_incoming(incoming):
-                        # Naming what failed, because "invalid" covers a bad signature,
-                        # a clock too far out and a replayed nonce, and those have
-                        # completely different fixes. This connection has been dropping
-                        # every ~36 seconds and the old line could not say which.
-                        logger.warning(
-                            "Rejected invalid signed bridge message: %s",
-                            self._describe_rejection(incoming),
-                        )
-                        await socket.close(code=1008, message=b"Invalid signature, timestamp, or nonce")
-                        break
+                        severity, detail = self._classify_rejection(incoming)
+                        logger.warning("Rejected signed bridge message: %s", detail)
+                        if severity == "hostile":
+                            await socket.close(
+                                code=1008, message=b"Invalid signature"
+                            )
+                            break
+                        # Only a late timestamp reaches here, and it is dropped on its
+                        # own. Closing over one turned a single stale event into a
+                        # permanent reconnect loop: the plugin re-flushed its outbox on
+                        # every handshake, the same message arrived late again, and
+                        # production dropped the bridge every ~36 seconds — 508 times in
+                        # a day. A forged signature or a replayed nonce still closes.
+                        continue
                     if self._socket is not socket:
                         break
                     await self._handle_message(incoming, source_socket=socket)
@@ -338,21 +342,34 @@ class MinecraftBridgeServer:
             logger.info("Minecraft bridge disconnected")
         return socket
 
-    def _describe_rejection(self, envelope: Any) -> str:
-        """Why a message was refused, in terms that point at a fix."""
+    def _classify_rejection(self, envelope: Any) -> tuple[str, str]:
+        """Why a message was refused, and whether it is worth dropping the link over.
+
+        Returns ``(severity, description)`` where severity is ``"hostile"`` or
+        ``"stale"``.
+
+        Only one of the three failures is benign. A signature that does not match cannot
+        be produced without the secret, and a replayed nonce is the textbook replay
+        attack the nonce exists to stop — both stay hard closes. A timestamp that simply
+        arrived late is neither: it is an ordinary, self-correcting delay, and tearing
+        down the connection over it is what turned one late event into a permanent
+        reconnect loop.
+        """
         if not isinstance(envelope, dict):
-            return "payload was not an object"
+            return "hostile", "payload was not an object"
         kind = str(envelope.get("type", "?"))
         try:
             timestamp = int(envelope["timestamp"])
         except (KeyError, TypeError, ValueError):
-            return f"type={kind} malformed envelope"
+            return "hostile", f"type={kind} malformed envelope"
         skew = int(time.time()) - timestamp
         if abs(skew) > MAX_CLOCK_SKEW_SECONDS:
-            return f"type={kind} clock skew {skew}s exceeds {MAX_CLOCK_SKEW_SECONDS}s"
+            return "stale", (
+                f"type={kind} clock skew {skew}s exceeds {MAX_CLOCK_SKEW_SECONDS}s"
+            )
         if not verify_envelope(self.config.bridge_secret, envelope, used_nonces=set()):
-            return f"type={kind} signature did not match (skew {skew}s)"
-        return f"type={kind} nonce already used (replay), skew {skew}s"
+            return "hostile", f"type={kind} signature did not match (skew {skew}s)"
+        return "hostile", f"type={kind} nonce already used (replay), skew {skew}s"
 
     async def _verify_incoming(self, envelope: dict[str, Any]) -> bool:
         one_message_nonce_set: set[str] = set()
