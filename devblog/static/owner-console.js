@@ -293,6 +293,8 @@
     stalePlugin: false,
     stats: null,
     statDays: 30,
+    statMetrics: [],
+    statSeries: {},
     announce: null,
     announceResult: null,
     announceDraft: {title: "", description: "", colour: "f06000", footer: "", image: ""},
@@ -1491,53 +1493,186 @@
   }
 
   /** What has happened in game lately, by category. */
+  /* ---------- statistics ---------- */
+
+  var STEVE_HEAD =
+    "https://minotar.net/helm/8667ba71-b85a-4004-af54-457a9734eed7/32.png";
+
+  /** Metric keys are stored machine-side; nobody wants to read snake_case in a chart. */
+  function metricLabel(name) {
+    return titleCase(String(name).replace(/[._]/g, " "));
+  }
+
+  function compactNumber(value) {
+    var n = Number(value) || 0;
+    if (Math.abs(n) >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, "") + "B";
+    if (Math.abs(n) >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, "") + "M";
+    if (Math.abs(n) >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, "") + "K";
+    return String(Math.round(n * 100) / 100);
+  }
+
+  function duration(seconds) {
+    var total = Math.max(0, Math.round(Number(seconds) || 0));
+    var hours = Math.floor(total / 3600);
+    var minutes = Math.round((total % 3600) / 60);
+    if (hours >= 24) {
+      var days = Math.floor(hours / 24);
+      return days + "d " + (hours % 24) + "h";
+    }
+    return hours ? hours + "h " + minutes + "m" : minutes + "m";
+  }
+
   /**
-   * Server statistics, drawn with the console's own components.
+   * One metric drawn as an area chart, in SVG.
    *
-   * These lived on a separate owner page with a separate stylesheet and a separate
-   * sign-in, which meant checking whether a change had worked involved leaving the place
-   * you made it. Same data, same shell.
+   * Hand-drawn rather than pulled from a charting library: the whole series is a few
+   * hundred points, the shapes needed are a filled area and a line, and a library would
+   * be a large dependency for something the page can express exactly. SVG also stays
+   * sharp at any size and needs no canvas sizing dance on a hidden tab.
    */
-  function renderStatistics() {
-    var stats = state.stats;
-    if (!stats) {
-      return '<p class="con-empty">Loading statistics&hellip;</p>';
+  function areaChart(points) {
+    var width = 560;
+    var height = 130;
+    var pad = {top: 10, right: 6, bottom: 16, left: 6};
+    if (!points || points.length < 2) {
+      return '<p class="con-chart-empty">Not enough samples yet — a chart needs at ' +
+        "least two.</p>";
     }
-    if (stats.error) {
-      return '<p class="con-empty">Statistics are unavailable: ' +
-        escapeHtml(stats.error) + "</p>";
+    var values = points.map(function (p) { return Number(p.value) || 0; });
+    var low = Math.min.apply(null, values);
+    var high = Math.max.apply(null, values);
+    // A flat series would divide by zero and draw on the baseline; give it headroom so
+    // "steady at 12" still reads as a line rather than as nothing.
+    if (high === low) { high = low + 1; }
+    var innerW = width - pad.left - pad.right;
+    var innerH = height - pad.top - pad.bottom;
+    var first = points[0].at;
+    var span = Math.max(1, points[points.length - 1].at - first);
+
+    var coords = points.map(function (p) {
+      var x = pad.left + ((p.at - first) / span) * innerW;
+      var y = pad.top + innerH - (((Number(p.value) || 0) - low) / (high - low)) * innerH;
+      return [x, y];
+    });
+    var line = coords.map(function (c, i) {
+      return (i ? "L" : "M") + c[0].toFixed(1) + " " + c[1].toFixed(1);
+    }).join(" ");
+    var area = line + " L" + coords[coords.length - 1][0].toFixed(1) + " " +
+      (pad.top + innerH) + " L" + coords[0][0].toFixed(1) + " " + (pad.top + innerH) + " Z";
+    var last = coords[coords.length - 1];
+
+    var gridlines = [0, 0.5, 1].map(function (fraction) {
+      var y = (pad.top + innerH - fraction * innerH).toFixed(1);
+      return '<line x1="' + pad.left + '" x2="' + (width - pad.right) + '" y1="' + y +
+        '" y2="' + y + '" class="con-chart-grid"/>';
+    }).join("");
+
+    return '<div class="con-chart-wrap"><svg class="con-chart" viewBox="0 0 ' + width + " " + height +
+      '" preserveAspectRatio="none" role="img" aria-label="' +
+      escapeHtml(compactNumber(values[values.length - 1]) + " now, " +
+        compactNumber(low) + " to " + compactNumber(high) + " over the window") + '">' +
+      gridlines +
+      '<path d="' + area + '" class="con-chart-area"/>' +
+      '<path d="' + line + '" class="con-chart-line"/>' +
+      '<circle cx="' + last[0].toFixed(1) + '" cy="' + last[1].toFixed(1) +
+      '" r="3" class="con-chart-point"/>' +
+      "</svg>" +
+      '<div class="con-chart-scale"><span>' + compactNumber(high) + "</span><span>" +
+      compactNumber(low) + "</span></div></div>";
+  }
+
+  function chartCard(name, points) {
+    var values = (points || []).map(function (p) { return Number(p.value) || 0; });
+    var now = values.length ? values[values.length - 1] : 0;
+    var previous = values.length > 1 ? values[0] : now;
+    var delta = now - previous;
+    var direction = delta > 0 ? "up" : delta < 0 ? "down" : "flat";
+    return '<article class="con-chart-card"><header><h4>' +
+      escapeHtml(metricLabel(name)) + "</h4>" +
+      '<div><strong>' + compactNumber(now) + "</strong>" +
+      '<span class="con-delta ' + direction + '">' +
+      (direction === "flat" ? "no change"
+        : (delta > 0 ? "+" : "") + compactNumber(delta) + " over the window") +
+      "</span></div></header>" + areaChart(points) + "</article>";
+  }
+
+  function seriesSection() {
+    var stats = state.stats || {};
+    var metrics = stats.metrics || [];
+    if (!metrics.length) {
+      return '<section class="con-section"><h3>Over time</h3>' +
+        '<p class="con-empty">Nothing has been sampled yet. The first charts appear ' +
+        "once two samples exist.</p></section>";
     }
+    var chosen = state.statMetrics.length ? state.statMetrics : metrics.slice(0, 4);
+    var rail = metrics.map(function (name) {
+      return '<button type="button" data-metric="' + escapeHtml(name) + '" aria-pressed="' +
+        (chosen.indexOf(name) >= 0 ? "true" : "false") + '">' +
+        escapeHtml(metricLabel(name)) + "</button>";
+    }).join("");
+    var charts = chosen.map(function (name) {
+      var points = (state.statSeries || {})[name];
+      return points === undefined
+        ? '<article class="con-chart-card"><header><h4>' + escapeHtml(metricLabel(name)) +
+          "</h4></header><p class=\"con-chart-empty\">Loading&hellip;</p></article>"
+        : chartCard(name, points);
+    }).join("");
+    return '<section class="con-section"><h3>Over time' +
+      '<span class="con-section-count">' + chosen.length + " of " + metrics.length +
+      "</span></h3>" +
+      '<p class="con-help wide">Sampled every ' +
+      Math.round((stats.sampled_every_seconds || 900) / 60) +
+      " minutes. History starts when sampling was switched on &mdash; earlier periods " +
+      "cannot be reconstructed. Pick what to chart:</p>" +
+      '<div class="con-category-rail">' + rail + "</div>" +
+      '<div class="con-chart-grid">' + charts + "</div></section>";
+  }
+
+  /** Where the players actually come from, as one bar rather than a caption. */
+  function editionSplit(activity) {
+    var java = Number(activity.java_joins) || 0;
+    var bedrock = Number(activity.bedrock_joins) || 0;
+    var total = java + bedrock;
+    if (!total) return "";
+    var javaShare = (java / total) * 100;
+    return '<section class="con-section"><h3>Where players join from</h3>' +
+      '<div class="con-dist" role="img" aria-label="' + java + ' Java, ' + bedrock +
+      ' Bedrock">' +
+      '<span class="con-dist-slice tone-1" style="width:' + javaShare.toFixed(2) +
+      '%" title="Java ' + java + '"></span>' +
+      '<span class="con-dist-slice tone-2" style="width:' + (100 - javaShare).toFixed(2) +
+      '%" title="Bedrock ' + bedrock + '"></span></div>' +
+      '<p class="con-table-note"><strong>' + java.toLocaleString() + "</strong> Java (" +
+      javaShare.toFixed(1) + "%) &middot; <strong>" + bedrock.toLocaleString() +
+      "</strong> Bedrock (" + (100 - javaShare).toFixed(1) + "%)</p></section>";
+  }
+
+  function statTiles(stats) {
     var activity = stats.activity || {};
     var access = stats.access || {};
     var afk = stats.afk || {};
-    var tiles = [
-      ["Online now", activity.current || 0, "players connected"],
-      ["Busiest it got", activity.peak || 0,
-        activity.peak_at ? "on " + new Date(activity.peak_at * 1000).toLocaleDateString() : "no peak recorded"],
-      ["Joins", activity.joins || 0,
+    var records = Object.keys(access).reduce(function (sum, key) {
+      return sum + (Number(access[key]) || 0);
+    }, 0);
+    return '<div class="con-stats">' + [
+      ["Online now", Number(activity.current || 0).toLocaleString(), "players connected"],
+      ["Busiest it got", Number(activity.peak || 0).toLocaleString(),
+        activity.peak_at
+          ? "on " + new Date(activity.peak_at * 1000).toLocaleString()
+          : "no peak recorded yet"],
+      ["Joins", Number(activity.joins || 0).toLocaleString(),
         (activity.java_joins || 0) + " Java, " + (activity.bedrock_joins || 0) + " Bedrock"],
-      ["Verified accounts", access.VERIFIED || access.verified || 0, "cleared to play"]
+      ["Verified accounts", Number(access.VERIFIED || 0).toLocaleString(),
+        records.toLocaleString() + " access records in total"],
+      ["Time spent idle", duration(afk.total_seconds || 0),
+        "peak " + (afk.peak_afk || 0) + " AFK at once"]
     ].map(function (tile) {
       return '<div class="con-stat"><span>' + escapeHtml(tile[0]) + "</span><strong>" +
-        Number(tile[1]).toLocaleString() + "</strong><em>" + escapeHtml(tile[2]) +
-        "</em></div>";
-    }).join("");
-
-    var windows = [1, 7, 30, 90, 365].map(function (days) {
-      return '<button type="button" data-stat-days="' + days + '" aria-pressed="' +
-        (state.statDays === days ? "true" : "false") + '">' +
-        (days === 1 ? "24 hours" : days === 365 ? "1 year" : days + " days") + "</button>";
-    }).join("");
-
-    return '<p class="con-intro">How the server has actually been used over the window ' +
-      "you pick. These are observations, not settings &mdash; nothing here is editable.</p>" +
-      '<div class="con-category-rail">' + windows + "</div>" +
-      '<div class="con-stats">' + tiles + "</div>" +
-      busiestHours(activity.busiest || []) +
-      afkSection(afk);
+        escapeHtml(tile[1]) + "</strong><em>" + escapeHtml(tile[2]) + "</em></div>";
+    }).join("") + "</div>";
   }
 
-  /** When people actually play, as a weekday-by-hour grid. */
+  /** When people play, as a weekday-by-hour grid. */
   function busiestHours(busiest) {
     if (!busiest.length) {
       return '<section class="con-section"><h3>When people play</h3>' +
@@ -1551,7 +1686,7 @@
     busiest.forEach(function (row) {
       grid[row.weekday + ":" + row.hour] = Number(row.average) || 0;
     });
-    var head = '<tr><th></th>';
+    var head = "<tr><th></th>";
     for (var hour = 0; hour < 24; hour++) {
       // Not con-num: that sets width 1% for loot-table figures, which here would give
       // every hour a sliver and hand the rest to the weekday label.
@@ -1577,130 +1712,98 @@
       "time. Darker is busier.</p></section>";
   }
 
-  /** "1h 30m" — the idle column has one line, not a sentence. */
-  function shortDuration(seconds) {
-    var minutes = Math.max(0, Math.round(seconds / 60));
-    var hours = Math.floor(minutes / 60);
-    return hours ? hours + "h " + (minutes % 60) + "m" : minutes + "m";
+  function head(url) {
+    return '<img class="con-head" src="' + escapeHtml(url || STEVE_HEAD) +
+      '" alt="" loading="lazy">';
   }
 
   function afkSection(afk) {
     var players = afk.players || [];
-    if (!players.length) {
+    var byEdition = afk.by_edition || {};
+    if (!players.length && !afk.total_seconds) {
       return "";
     }
-    return '<section class="con-section"><h3>Most idle' +
-      '<span class="con-section-count">' + players.length + "</span></h3>" +
-      '<div class="con-log">' + players.slice(0, 10).map(function (row) {
-        return '<div class="con-log-row"><span class="con-log-cat">afk</span>' +
-          "<div><strong>" + escapeHtml(row.username || "unknown") + "</strong></div>" +
-          "<time>" + escapeHtml(shortDuration(Number(row.afk_seconds) || 0)) +
-          "</time></div>";
-      }).join("") + "</div></section>";
+    var summary = '<div class="con-stats">' + [
+      ["Idle on Java", duration(byEdition.JAVA || 0), "across the window"],
+      ["Idle on Bedrock", duration(byEdition.BEDROCK || 0), "across the window"],
+      ["Players who went idle", String(players.length), "at least once"]
+    ].map(function (tile) {
+      return '<div class="con-stat"><span>' + escapeHtml(tile[0]) + "</span><strong>" +
+        escapeHtml(tile[1]) + "</strong><em>" + escapeHtml(tile[2]) + "</em></div>";
+    }).join("") + "</div>";
+    var rows = players.slice(0, 25).map(function (row, index) {
+      return "<tr><td class=\"con-num con-muted\">" + (index + 1) + "</td>" +
+        '<td><div class="con-entry">' + head(row.head_url) + "<span>" +
+        escapeHtml(row.username || "unknown") + "</span></div></td>" +
+        "<td>" + (row.edition === "BEDROCK" ? "Bedrock" : "Java") + "</td>" +
+        '<td class="con-num">' + escapeHtml(duration(row.afk_seconds)) + "</td>" +
+        '<td class="con-num con-muted">' + escapeHtml(String(row.sessions || 0)) +
+        "</td></tr>";
+    }).join("");
+    return '<section class="con-section"><h3>Idle time' +
+      '<span class="con-section-count">' + players.length + "</span></h3>" + summary +
+      (rows
+        ? '<div class="con-table-scroll"><table><thead><tr><th class="con-num">#</th>' +
+          "<th>Player</th><th>Edition</th><th class=\"con-num\">Idle</th>" +
+          "<th class=\"con-num\">Stretches</th></tr></thead><tbody>" + rows +
+          "</tbody></table></div>"
+        : "") + "</section>";
+  }
+
+  /** The standings the server pushes, individual and clan. */
+  function boardsSection(snapshot) {
+    var html = "";
+    ["individual", "clan"].forEach(function (group) {
+      var boards = (snapshot || {})[group] || {};
+      Object.keys(boards).forEach(function (key) {
+        var rows = boards[key];
+        if (!Array.isArray(rows) || !rows.length) return;
+        html += '<article class="con-board"><h4>' +
+          escapeHtml(titleCase(key.replace(/_/g, " "))) + "</h4><ol>" +
+          rows.slice(0, 10).map(function (row) {
+            return "<li><span>" + head(row.head_url) +
+              escapeHtml(row.username || row.name || "") + "</span><b>" +
+              escapeHtml(compactNumber(row.value != null ? row.value : row.score || 0)) +
+              "</b></li>";
+          }).join("") + "</ol></article>";
+      });
+    });
+    if (!html) return "";
+    return '<section class="con-section"><h3>Standings</h3>' +
+      '<div class="con-boards">' + html + "</div></section>";
   }
 
   /**
-   * The update notice: one DM to everyone holding the member role.
+   * Server statistics, drawn with the console's own components.
    *
-   * Written as an embed rather than plain text so a notice looks like an announcement
-   * and not like a stranger messaging you. The recipient count is shown before anything
-   * is sent, because "how many people am I about to message" is the question that
-   * decides whether you press the button.
+   * These lived on a separate owner page with a separate stylesheet and a separate
+   * sign-in, which meant checking whether a change had worked involved leaving the place
+   * you made it. Same data, same shell — and all of it, including the sampled history
+   * and the standings, not just the headline figures.
    */
-  function renderAnnounce() {
-    var state_ = state.announce;
-    if (!state_) return '<p class="con-empty">Loading&hellip;</p>';
-    if (state_.error) {
-      return '<p class="con-empty">Announcements are unavailable: ' +
-        escapeHtml(state_.error) + "</p>";
+  function renderStatistics() {
+    var stats = state.stats;
+    if (!stats) {
+      return '<p class="con-empty">Loading statistics&hellip;</p>';
     }
-    var draft = state.announceDraft;
-    var off = !state_.enabled;
-    return '<p class="con-intro">One direct message to everybody holding the member ' +
-      "role. Sending is paced and stops itself if too many inboxes refuse it &mdash; a " +
-      "high refusal rate is what gets a bot flagged, so it is treated as a reason to " +
-      "stop rather than a statistic.</p>" +
-      '<div class="con-stats">' +
-      '<div class="con-stat"><span>Will reach</span><strong>' +
-      Number(state_.recipients || 0).toLocaleString() +
-      "</strong><em>members with the role</em></div>" +
-      '<div class="con-stat"><span>Sending</span><strong>' +
-      (off ? "Off" : "On") + "</strong><em>" +
-      (off ? "switch it on to send" : "notices can be sent") + "</em></div>" +
-      '<div class="con-stat"><span>Takes about</span><strong>' +
-      Math.max(1, Math.round((state_.recipients || 0) * 1.2 / 60)) +
-      "</strong><em>minutes at this pace</em></div></div>" +
-
-      '<section class="con-section"><h3>Sending</h3><div class="con-grid">' +
-      '<article class="con-setting"><div class="con-setting-head">' +
-      "<h4>Update notices</h4></div>" +
-      '<p class="con-help">Off by default. Nothing can be sent while this is off.</p>' +
-      '<label class="con-switch"><input type="checkbox" data-announce-toggle' +
-      (state_.enabled ? " checked" : "") +
-      '><span class="con-track" aria-hidden="true"></span>' +
-      '<span class="con-switch-text">' + (state_.enabled ? "Enabled" : "Disabled") +
-      "</span></label></article></div></section>" +
-
-      '<section class="con-section"><h3>The notice</h3>' +
-      '<div class="con-announce">' +
-      '<div class="con-announce-form">' +
-      '<label class="con-field"><span>Title</span>' +
-      '<input class="con-search-field" data-announce="title" maxlength="256" value="' +
-      escapeHtml(draft.title) + '"></label>' +
-      '<label class="con-field"><span>Message</span>' +
-      '<textarea class="con-textarea" data-announce="description" rows="7" ' +
-      'maxlength="4000">' + escapeHtml(draft.description) + "</textarea></label>" +
-      '<div class="con-field-row">' +
-      '<label class="con-field"><span>Colour</span>' +
-      '<input class="con-search-field" data-announce="colour" maxlength="6" value="' +
-      escapeHtml(draft.colour) + '"></label>' +
-      '<label class="con-field"><span>Footer</span>' +
-      '<input class="con-search-field" data-announce="footer" maxlength="120" value="' +
-      escapeHtml(draft.footer) + '"></label></div>' +
-      '<label class="con-field"><span>Image URL (https only, optional)</span>' +
-      '<input class="con-search-field" data-announce="image" value="' +
-      escapeHtml(draft.image) + '"></label>' +
-      '<div class="con-table-actions"><button type="button" class="con-danger" ' +
-      'id="con-announce-send"' + (off || state_.sending ? " disabled" : "") + ">" +
-      (state_.sending ? "Sending&hellip;" : "Send to " + (state_.recipients || 0) +
-        " member" + (state_.recipients === 1 ? "" : "s")) +
-      "</button></div></div>" +
-      announcePreview(draft) +
-      "</div></section>" +
-      (state.announceResult ? announceOutcome(state.announceResult) : "");
-  }
-
-  /** What the DM will look like, drawn the way Discord draws an embed. */
-  function announcePreview(draft) {
-    var colour = /^[0-9a-f]{6}$/i.test(draft.colour) ? draft.colour : "f06000";
-    return '<div class="con-announce-preview"><p class="con-preview-label">Preview</p>' +
-      '<div class="con-embed" style="--embed:#' + colour + '">' +
-      (draft.title ? "<h4>" + escapeHtml(draft.title) + "</h4>" : "") +
-      (draft.description
-        ? "<p>" + escapeHtml(draft.description).replace(/\n/g, "<br>") + "</p>"
-        : '<p class="con-muted">Your message appears here.</p>') +
-      (draft.image && /^https:\/\//.test(draft.image)
-        ? '<img src="' + escapeHtml(draft.image) + '" alt="">' : "") +
-      (draft.footer ? "<footer>" + escapeHtml(draft.footer) + "</footer>" : "") +
-      "</div></div>";
-  }
-
-  function announceOutcome(result) {
-    return '<section class="con-section"><h3>Last send</h3>' +
-      '<div class="con-stats">' +
-      '<div class="con-stat"><span>Delivered</span><strong>' + result.delivered +
-      "</strong><em>notices sent</em></div>" +
-      '<div class="con-stat"><span>Refused</span><strong>' + result.refused +
-      "</strong><em>inboxes closed</em></div>" +
-      '<div class="con-stat"><span>Skipped</span><strong>' + result.skipped +
-      "</strong><em>messaged recently</em></div></div>" +
-      (result.stopped_early
-        ? '<p class="con-finding">' + escapeHtml(result.reason) + "</p>"
-        : "") +
-      (result.failures && result.failures.length
-        ? '<p class="con-table-note">' +
-          result.failures.map(escapeHtml).join("<br>") + "</p>"
-        : "");
+    if (stats.error) {
+      return '<p class="con-empty">Statistics are unavailable: ' +
+        escapeHtml(stats.error) + "</p>";
+    }
+    var windows = [1, 7, 30, 90, 365].map(function (days) {
+      return '<button type="button" data-stat-days="' + days + '" aria-pressed="' +
+        (state.statDays === days ? "true" : "false") + '">' +
+        (days === 1 ? "24 hours" : days === 365 ? "1 year" : days + " days") + "</button>";
+    }).join("");
+    return '<p class="con-intro">How the server has actually been used over the window ' +
+      "you pick. These are observations, not settings &mdash; nothing here is editable.</p>" +
+      '<div class="con-category-rail">' + windows + "</div>" +
+      statTiles(stats) +
+      seriesSection() +
+      busiestHours((stats.activity || {}).busiest || []) +
+      editionSplit(stats.activity || {}) +
+      afkSection(stats.afk || {}) +
+      boardsSection(stats.leaderboards || {});
   }
 
   function renderActivity() {
@@ -2123,10 +2226,23 @@
       var run = event.target.closest("[data-run]");
       if (run) { runAction(run.dataset.run); return; }
       if (event.target.id === "con-announce-send") { sendAnnouncement(); return; }
+      var metric = event.target.closest("[data-metric]");
+      if (metric) {
+        var name = metric.dataset.metric;
+        var at = state.statMetrics.indexOf(name);
+        if (at >= 0) state.statMetrics.splice(at, 1);
+        else state.statMetrics.push(name);
+        render();
+        loadSeries();
+        return;
+      }
       var window_ = event.target.closest("[data-stat-days]");
       if (window_) {
         state.statDays = Number(window_.dataset.statDays);
         state.stats = null;
+        // A different window means different samples; keeping the old ones would chart
+        // thirty days of history under a "24 hours" heading.
+        state.statSeries = {};
         render();
         loadStatistics();
         return;
@@ -2191,6 +2307,17 @@
         publish();
       }
     });
+
+    byId("con-page").addEventListener("error", function (event) {
+      var image = event.target;
+      if (!image || !image.classList || !image.classList.contains("con-head")) return;
+      if (image.src !== STEVE_HEAD) {
+        image.src = STEVE_HEAD;
+        return;
+      }
+      // The fallback failed too, so stop trying and leave a quiet square.
+      image.classList.add("missing");
+    }, true);
 
     var search = byId("con-search");
     search.addEventListener("input", function () {
@@ -2325,6 +2452,35 @@
       state.stats = await api("/api/stats?days=" + state.statDays);
     } catch (error) {
       state.stats = {error: error.message};
+    }
+    if (state.page === "statistics") render();
+    // The charts are a second request: the overview is what the page needs to appear,
+    // and a wide metric selection can be several queries behind it.
+    if (state.stats && !state.stats.error) {
+      if (!state.statMetrics.length) {
+        state.statMetrics = (state.stats.metrics || []).slice(0, 4);
+      }
+      await loadSeries();
+    }
+  }
+
+  async function loadSeries() {
+    var wanted = state.statMetrics.filter(function (name) {
+      return state.statSeries[name] === undefined;
+    });
+    if (!wanted.length) return;
+    try {
+      var answer = await api("/api/stats/series?days=" + state.statDays +
+        "&metric=" + wanted.map(encodeURIComponent).join(","));
+      Object.keys(answer.series || {}).forEach(function (name) {
+        state.statSeries[name] = answer.series[name] || [];
+      });
+      // Anything the server did not answer for still has to stop saying "loading".
+      wanted.forEach(function (name) {
+        if (state.statSeries[name] === undefined) state.statSeries[name] = [];
+      });
+    } catch (error) {
+      wanted.forEach(function (name) { state.statSeries[name] = []; });
     }
     if (state.page === "statistics") render();
   }
