@@ -1787,6 +1787,19 @@ body.cx .theme-switch button[aria-checked="true"] { background: var(--brand-oran
 .con-preset span { font-size: .72rem; color: var(--grey); }
 .con-preset .con-table-actions { margin-left: auto; margin-top: 0; }
 
+/* ---------- command bar ---------- */
+/* An instruction understood, shown as a proposal. Accented because it is the one thing
+   on a search results page that will change something. */
+.con-command {
+  border: 1px solid var(--brand-orange); border-radius: .5rem;
+  background: color-mix(in srgb, var(--brand-orange) 6%, var(--surface));
+  padding: .9rem 1rem; margin-bottom: 1.5rem;
+}
+.con-command > header h3 { font-size: .9rem; font-weight: 650; }
+.con-command > header p { font-size: .78rem; color: var(--text-muted); margin-top: .15rem; }
+.con-command .con-preview-list { margin: .6rem 0 .2rem; }
+.con-command .con-table-actions { margin-top: .6rem; }
+
 /* ---------- noticeboard ---------- */
 .con-notices { display: flex; flex-direction: column; gap: .4rem; }
 .con-notice {

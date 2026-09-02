@@ -18,6 +18,7 @@
 
     {id: "actions", label: "Do something", group: "Operate"},
     {id: "statistics", label: "Statistics", group: "Operate"},
+    {id: "player", label: "Look up a player", group: "Operate"},
     {id: "announce", label: "Update notice", group: "Operate"},
     {id: "auction", label: "Live listings", group: "Operate"},
     {id: "history", label: "Change history", group: "Operate"},
@@ -238,7 +239,14 @@
     keys.forEach(function (key) {
       var row = state.byKey[key];
       if (!row) return;
-      var next = Math.round(Number(draftedValue(key)) * factor);
+      var current = Number(draftedValue(key));
+      var next = Math.round(current * factor);
+      // A 20% raise on a value of 2 rounds straight back to 2, so the setting an owner
+      // pointed at silently does not move. Nudge by one in the direction asked for:
+      // "a bit more" on a small number means the next number up, not nothing.
+      if (next === current && factor !== 1) {
+        next = current + (factor > 1 ? 1 : -1);
+      }
       next = Math.max(row.minimum === undefined ? next : row.minimum,
               Math.min(row.maximum === undefined ? next : row.maximum, next));
       if (next !== Number(row.value)) edits.push({key: key, value: String(next)});
@@ -299,6 +307,8 @@
     statSeries: {},
     shopShelf: null,
     presets: null,
+    player: null,
+    playerQuery: "",
     schedule: null,
     announce: null,
     announceResult: null,
@@ -2210,6 +2220,100 @@
         : '<p class="con-empty">Nothing is booked.</p>') + "</section>";
   }
 
+  /**
+   * Everything the panel knows about one player, in one place.
+   *
+   * <p>There was no per-player view anywhere, which made the most common thing an owner
+   * does — someone reports a problem, you go and look at them — the one thing the panel
+   * could not help with. Assembled from what the bot holds and the plugin's last
+   * snapshot, so it still answers when the server is disconnected, with what was true
+   * when it last spoke.
+   */
+  function renderPlayer() {
+    var found = state.player;
+    var box = '<section class="con-section"><h3>Look up a player</h3>' +
+      '<div class="con-field-row">' +
+      '<label class="con-field"><span>Name</span>' +
+      '<input class="con-search-field" id="con-player-name" placeholder="Fatcat1440" value="' +
+      escapeHtml(state.playerQuery || "") + '"></label>' +
+      '<div class="con-table-actions">' +
+      '<button type="button" class="con-primary" id="con-player-find">Look up</button>' +
+      "</div></div></section>";
+    if (!found) {
+      return '<p class="con-intro">Balances, standings, linked accounts and idle time ' +
+        "for one player. Partial names work.</p>" + box;
+    }
+    if (found.error) {
+      return box + '<p class="con-empty">' + escapeHtml(found.error) + "</p>";
+    }
+    if (!found.found) {
+      return box + '<p class="con-empty">Nobody matching &ldquo;' +
+        escapeHtml(found.query) + "&rdquo; has a linked account.</p>";
+    }
+    var account = found.account || {};
+    var others = (found.matches || []).filter(function (name) {
+      return name && name !== account.username;
+    });
+    var tiles = [
+      ["Edition", account.edition === "BEDROCK" ? "Bedrock" : "Java", "how they connect"],
+      ["Last seen", account.last_seen_at
+        ? new Date(account.last_seen_at * 1000).toLocaleDateString() : "unknown",
+        "most recent session"],
+      ["Idle time", duration((found.afk || {}).seconds || 0),
+        ((found.afk || {}).sessions || 0) + " stretch(es), 30 days"],
+      ["Linked accounts", String((found.linked_accounts || []).length),
+        "on the same Discord"]
+    ].map(function (tile) {
+      return '<div class="con-stat"><span>' + escapeHtml(tile[0]) + "</span><strong>" +
+        escapeHtml(tile[1]) + "</strong><em>" + escapeHtml(tile[2]) + "</em></div>";
+    }).join("");
+
+    var standings = (found.standings || []).map(function (row) {
+      return "<tr><td>" + escapeHtml(titleCase(row.board.replace(/_/g, " "))) + "</td>" +
+        '<td class="con-num">#' + escapeHtml(row.rank) + "</td>" +
+        '<td class="con-num">' + escapeHtml(compactNumber(row.value)) + "</td></tr>";
+    }).join("");
+
+    var linked = (found.linked_accounts || []).map(function (row) {
+      return '<span class="con-chip">' + escapeHtml(row.username || "?") + " &middot; " +
+        (row.edition === "BEDROCK" ? "Bedrock" : "Java") + "</span>";
+    }).join("");
+
+    var listings = (found.listings || []).map(function (row) {
+      return "<tr><td>" + escapeHtml(row.display_name || titleCase(row.material || "")) +
+        '</td><td class="con-num">' + escapeHtml(row.amount || 1) +
+        '</td><td class="con-num">' + escapeHtml(compactNumber(row.price || 0)) +
+        "</td></tr>";
+    }).join("");
+
+    return box +
+      '<section class="con-section"><h3>' + escapeHtml(account.username || "") +
+      (found.discord_user_id
+        ? '<span class="con-section-count">Discord ' +
+          escapeHtml(found.discord_user_id) + "</span>"
+        : '<span class="con-section-count">no Discord link</span>') + "</h3>" +
+      '<div class="con-stats">' + tiles + "</div>" +
+      (linked ? '<div class="con-removed">Also plays as: ' + linked + "</div>" : "") +
+      (others.length
+        ? '<p class="con-table-note">Other names matching that search: ' +
+          others.map(escapeHtml).join(", ") + "</p>"
+        : "") + "</section>" +
+      (standings
+        ? '<section class="con-section"><h3>Standings</h3>' +
+          '<div class="con-table-scroll"><table><thead><tr><th>Board</th>' +
+          '<th class="con-num">Rank</th><th class="con-num">Value</th></tr></thead>' +
+          "<tbody>" + standings + "</tbody></table></div></section>"
+        : "") +
+      (listings
+        ? '<section class="con-section"><h3>Selling right now' +
+          '<span class="con-section-count">' + (found.listings || []).length +
+          "</span></h3>" +
+          '<div class="con-table-scroll"><table><thead><tr><th>Item</th>' +
+          '<th class="con-num">Amount</th><th class="con-num">Price</th></tr></thead>' +
+          "<tbody>" + listings + "</tbody></table></div></section>"
+        : "");
+  }
+
   function renderActivity() {
     var feed = state.activity || {};
     var entries = feed.entries || [];
@@ -2286,7 +2390,7 @@
 
   function pageCount(page) {
     if (page.id === "actions") return state.actions.length;
-    if (page.id === "statistics" || page.id === "announce") return 0;
+    if (page.id === "statistics" || page.id === "announce" || page.id === "player") return 0;
     if (page.id === "presets") return ((state.presets || {}).list || []).length;
     if (page.id === "schedule_actions") return ((state.schedule || {}).entries || []).length;
     if (page.id === "activity") return ((state.activity || {}).entries || []).length;
@@ -2302,6 +2406,98 @@
    * Rows keep their own page as a heading so a result is never shown without saying
    * where it lives — the point of searching is usually to find out exactly that.
    */
+  /**
+   * The search box, read as an instruction rather than a filter.
+   *
+   * <p>The panel's whole premise was "say what you want and it happens", and the way in
+   * was still a filter over 527 keys. This parses a small, honest grammar — a direction,
+   * an amount, and something to point them at — and answers with a *proposal*: the exact
+   * settings, their before and after. Nothing is applied; it stages a draft, so the
+   * review and publish path is the same as for anything typed by hand.
+   *
+   * <p>Deliberately not a natural-language pretence. It understands what it understands
+   * and says nothing when it does not, which is better than confidently changing the
+   * wrong thing.
+   */
+  var COMMAND_VERBS = [
+    {match: /\b(double|twice)\b/, factor: 2},
+    {match: /\b(halve|half)\b/, factor: 0.5},
+    {match: /\b(triple)\b/, factor: 3},
+    {match: /\b(raise|increase|up|more|boost|generous)\b/, factor: 1.25, soft: true},
+    {match: /\b(lower|reduce|down|less|cut|cheaper|stingy)\b/, factor: 0.8, soft: true}
+  ];
+
+  function parseCommand(text) {
+    var lowered = String(text || "").toLowerCase();
+    var percent = /(-?\d+(?:\.\d+)?)\s*%/.exec(lowered);
+    var times = /\bx\s*(\d+(?:\.\d+)?)|\b(\d+(?:\.\d+)?)\s*x\b/.exec(lowered);
+    var factor = null;
+    var direction = 1;
+
+    for (var i = 0; i < COMMAND_VERBS.length; i++) {
+      if (COMMAND_VERBS[i].match.test(lowered)) {
+        factor = COMMAND_VERBS[i].factor;
+        direction = factor >= 1 ? 1 : -1;
+        break;
+      }
+    }
+    if (percent) {
+      var size = Math.abs(Number(percent[1])) / 100;
+      // "20% more" and "20% less" differ only by the verb, so the verb decides the sign.
+      factor = direction < 0 ? 1 - size : 1 + size;
+    } else if (times) {
+      factor = Number(times[1] || times[2]);
+    }
+    if (!factor || !isFinite(factor) || factor <= 0 || factor === 1) return null;
+
+    // What to point it at: the words that are not the instruction.
+    var subject = lowered
+      .replace(/(-?\d+(?:\.\d+)?)\s*%/g, " ")
+      .replace(/\bx\s*\d+(?:\.\d+)?|\b\d+(?:\.\d+)?\s*x\b/g, " ")
+      .replace(/\b(double|twice|halve|half|triple|raise|increase|up|more|boost|generous|lower|reduce|down|less|cut|cheaper|stingy|make|the|by|a|to|all|and|please)\b/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (subject.length < 3) return null;
+
+    var words = subject.split(" ");
+    var targets = state.rows.filter(function (row) {
+      if (row.control === "toggle" || row.control === "choice" || row.control === "text") {
+        return false;
+      }
+      var hay = (row.key + " " + row.label + " " + row.group_label).toLowerCase();
+      return words.every(function (word) { return hay.indexOf(word) >= 0; });
+    });
+    if (!targets.length || targets.length > 40) return null;
+    var edits = scaleEdits(targets.map(function (row) { return row.key; }), factor);
+    if (!edits.length) return null;
+    return {factor: factor, subject: subject, edits: edits};
+  }
+
+  function commandCard() {
+    var parsed = parseCommand(state.search);
+    if (!parsed) return "";
+    var percent = Math.round((parsed.factor - 1) * 100);
+    var rows = parsed.edits.slice(0, 8).map(function (edit) {
+      var row = state.byKey[edit.key];
+      return "<li><div><strong>" + escapeHtml(row.label) + "</strong><span>" +
+        escapeHtml(row.group_label) + "</span></div><code>" +
+        escapeHtml(row.value) + " &rarr; " + escapeHtml(edit.value) + "</code></li>";
+    }).join("");
+    return '<section class="con-command"><header><h3>' +
+      escapeHtml(percent > 0 ? "Raise " + parsed.subject + " by " + percent + "%"
+                             : "Lower " + parsed.subject + " by " + Math.abs(percent) + "%") +
+      "</h3><p>" + parsed.edits.length + " setting" +
+      (parsed.edits.length === 1 ? "" : "s") +
+      " would change. Nothing is applied until you publish.</p></header>" +
+      '<ul class="con-preview-list">' + rows +
+      (parsed.edits.length > 8
+        ? "<li><div><span>and " + (parsed.edits.length - 8) +
+          " more</span></div></li>" : "") + "</ul>" +
+      '<div class="con-table-actions">' +
+      '<button type="button" class="con-primary" id="con-command-stage">Stage these changes</button>' +
+      "</div></section>";
+  }
+
   function renderSearch() {
     var sections = [];
     var total = 0;
@@ -2322,10 +2518,15 @@
       );
     });
     if (!total) {
-      return '<p class="con-empty">Nothing matches &ldquo;' + escapeHtml(state.search) +
+      var command = commandCard();
+      // An understood instruction is an answer; following it with "nothing matches"
+      // reads as a failure when the panel just told you exactly what it would do.
+      return command || '<p class="con-empty">Nothing matches &ldquo;' +
+        escapeHtml(state.search) +
         "&rdquo;. Try the name a player would use, or paste a setting key.</p>";
     }
-    return '<p class="con-intro"><strong>' + total + "</strong> setting" +
+    return commandCard() +
+      '<p class="con-intro"><strong>' + total + "</strong> setting" +
       (total === 1 ? "" : "s") + " match &ldquo;" + escapeHtml(state.search) +
       "&rdquo;, across " + sections.length + " page" + (sections.length === 1 ? "" : "s") +
       ". Edit them here; publishing works the same as anywhere else.</p>" +
@@ -2502,6 +2703,8 @@
         '<datalist id="con-online">' + state.online.map(function (name) {
           return '<option value="' + escapeHtml(name) + '">';
         }).join("") + "</datalist>";
+    } else if (state.page === "player") {
+      main.innerHTML = banner + renderPlayer();
     } else if (state.page === "schedule_actions") {
       main.innerHTML = banner + renderSchedule();
       if (state.schedule === null) loadSchedule();
@@ -2604,6 +2807,13 @@
     // The announcement editor updates its preview as you type, so it listens for input
     // rather than change; a preview that only appears when a field loses focus is not a
     // preview of what you are writing.
+    byId("con-page").addEventListener("keydown", function (event) {
+      if (event.key === "Enter" && event.target.id === "con-player-name") {
+        event.preventDefault();
+        lookUpPlayer();
+      }
+    });
+
     byId("con-page").addEventListener("input", function (event) {
       var field = event.target.dataset ? event.target.dataset.announce : null;
       if (!field) return;
@@ -2685,6 +2895,16 @@
         catalogCall("remove_cosmetic", {id: dropCosmetic.dataset.cosmeticRemove});
         return;
       }
+      if (event.target.id === "con-command-stage") {
+        var parsed = parseCommand(state.search);
+        if (!parsed) return;
+        var values = {};
+        parsed.edits.forEach(function (edit) { values[edit.key] = edit.value; });
+        clearSearch();
+        stageValues(values, "That instruction");
+        return;
+      }
+      if (event.target.id === "con-player-find") { lookUpPlayer(); return; }
       if (event.target.id === "con-sched-add") { bookAction(); return; }
       var unbook = event.target.closest("[data-schedule-delete]");
       if (unbook) { cancelBooking(unbook.dataset.scheduleDelete); return; }
@@ -2960,6 +3180,18 @@
     state.adding = {shop: true};
     byId("con-add").hidden = false;
     window.setTimeout(function () { byId("con-add-material").focus(); }, 30);
+  }
+
+  async function lookUpPlayer() {
+    var name = String(byId("con-player-name").value || "").trim();
+    if (!name) { toast("Type a player name first.", true); return; }
+    state.playerQuery = name;
+    try {
+      state.player = await api("/api/player?name=" + encodeURIComponent(name));
+    } catch (error) {
+      state.player = {error: error.message};
+    }
+    render();
   }
 
   async function loadSchedule() {

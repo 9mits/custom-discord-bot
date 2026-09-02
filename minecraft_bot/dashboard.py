@@ -57,6 +57,7 @@ class DashboardServer:
         self._app.router.add_post("/api/settings/rollback", self.rollback_publish)
         self._app.router.add_post("/api/catalog", self.change_catalog)
         self._app.router.add_post("/api/action", self.run_action)
+        self._app.router.add_get("/api/player", self.player_profile)
         self._app.router.add_get("/api/schedule", self.list_schedule)
         self._app.router.add_post("/api/schedule", self.save_schedule)
         self._app.router.add_get("/api/presets", self.list_presets)
@@ -577,6 +578,107 @@ class DashboardServer:
             raise web.HTTPConflict(text=message)
         return web.json_response(
             {"ok": True, "message": message, "catalog": detail},
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @staticmethod
+    def _board_rows(snapshot: dict[str, Any], username: str) -> list[dict[str, Any]]:
+        """Every standing this player appears in, with their rank on it."""
+        found: list[dict[str, Any]] = []
+        wanted = username.casefold()
+        for group in ("individual", "clan"):
+            for board, rows in (snapshot.get(group) or {}).items():
+                if not isinstance(rows, list):
+                    continue
+                for index, row in enumerate(rows, start=1):
+                    name = str(row.get("username") or row.get("name") or "")
+                    if name.casefold() == wanted:
+                        found.append(
+                            {"board": board, "rank": index, "value": row.get("value", 0)}
+                        )
+        return found
+
+    async def player_profile(self, request: web.Request) -> web.Response:
+        """Everything the panel knows about one player, in one answer.
+
+        Assembled rather than queried: the bot holds accounts, access and activity, and
+        the plugin's last snapshot holds standings and listings. Joining them here avoids
+        a round trip to a server that may not be connected, and means the page still works
+        when it is not — with what was true at the last snapshot.
+        """
+        await self._require_owner(request)
+        wanted = str(request.query.get("name", "")).strip()
+        if not wanted:
+            raise web.HTTPBadRequest(text="Give a player name to look up.")
+
+        accounts = await self.bot.data.find_accounts_by_username(wanted, limit=10)
+        if not accounts:
+            return web.json_response({"found": False, "query": wanted})
+
+        account = accounts[0]
+        uuid = str(account.get("minecraft_uuid", ""))
+        owner_id = account.get("discord_user_id")
+
+        linked: list[dict[str, Any]] = []
+        if owner_id:
+            linked = await self.bot.data.list_accounts_for_user(owner_id)
+
+        access = []
+        if owner_id:
+            for row in await self.bot.data.list_access_for_user(owner_id, limit=5):
+                access.append(
+                    {"status": row.status.value, "updated_at": getattr(row, "updated_at", None)}
+                )
+
+        boards = self._board_rows(
+            self.bot.bridge.latest_leaderboard or {}, str(account.get("current_username", ""))
+        )
+        listings = [
+            row
+            for row in ((self.bot.bridge.latest_game_variables or {})
+                        .get("auction", {}) or {}).get("listings", [])
+            if str(row.get("seller_name", row.get("seller", ""))).casefold()
+            == str(account.get("current_username", "")).casefold()
+        ]
+
+        afk = {}
+        reader = getattr(self.bot.data, "afk_metrics", None)
+        if reader is not None:
+            window = await reader(days=30)
+            for row in window.get("players", []):
+                if str(row.get("minecraft_uuid", "")) == uuid:
+                    afk = {
+                        "seconds": row.get("afk_seconds", 0),
+                        "sessions": row.get("sessions", 0),
+                    }
+                    break
+
+        return web.json_response(
+            {
+                "found": True,
+                "query": wanted,
+                "account": {
+                    "username": account.get("current_username"),
+                    "uuid": uuid,
+                    "edition": account.get("edition"),
+                    "last_seen_at": account.get("last_seen_at"),
+                    "head_url": head_url(uuid, str(account.get("current_username", ""))),
+                },
+                "discord_user_id": str(owner_id) if owner_id else None,
+                "linked_accounts": [
+                    {
+                        "username": row.get("current_username"),
+                        "edition": row.get("edition"),
+                        "last_seen_at": row.get("last_seen_at"),
+                    }
+                    for row in linked
+                ],
+                "access": access,
+                "standings": boards,
+                "listings": listings,
+                "afk": afk,
+                "matches": [row.get("current_username") for row in accounts[:10]],
+            },
             headers={"Cache-Control": "no-store"},
         )
 
