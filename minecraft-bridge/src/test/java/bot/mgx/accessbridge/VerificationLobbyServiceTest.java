@@ -18,8 +18,10 @@ class VerificationLobbyServiceTest {
     @Test
     void initialPromptMakesTheFirstActionUnmissable() {
         PlainTextComponentSerializer serializer = PlainTextComponentSerializer.plainText();
-        String prompt = serializer.serialize(VerificationLobbyService.VERIFY_PROMPT);
-        String action = serializer.serialize(VerificationLobbyService.VERIFY_ACTION);
+        // Rendered on demand now rather than held as constants, so that an owner can
+        // reword them; with no message store wired the built-in text is what comes back.
+        String prompt = serializer.serialize(VerificationLobbyService.verifyPrompt());
+        String action = serializer.serialize(VerificationLobbyService.verifyAction());
 
         assertTrue(prompt.contains("Step 1 of 2"));
         assertTrue(prompt.contains("/verify <your Discord username>"));

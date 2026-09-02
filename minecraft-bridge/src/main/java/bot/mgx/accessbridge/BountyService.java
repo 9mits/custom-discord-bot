@@ -42,6 +42,7 @@ final class BountyService implements CommandExecutor, TabCompleter, Listener {
     private static final int REFRESH_SLOT = 50;
 
     private final MGXAccessBridge plugin;
+    private final ServerMessages messages;
     private final EconomyStore money;
     private final BountyStore bounties;
     private final ClanStore clans;
@@ -58,6 +59,7 @@ final class BountyService implements CommandExecutor, TabCompleter, Listener {
             PlayerSettingsStore settings
     ) {
         this.plugin = plugin;
+        this.messages = new ServerMessages(plugin.gameVariables());
         this.money = money;
         this.bounties = bounties;
         this.clans = clans;
@@ -265,15 +267,15 @@ final class BountyService implements CommandExecutor, TabCompleter, Listener {
         notifications.notify(
                 killer,
                 prefix().append(Component.text(collected, NamedTextColor.GREEN)),
-                Component.text("Bounty claimed  •  +" + EconomyFormat.dollars(payout),
-                        NamedTextColor.GREEN)
+                messages.render("messages.bounty.claimed",
+                        "amount", EconomyFormat.dollars(payout))
         );
         String claimed = killer.getName() + " claimed the " + EconomyFormat.dollars(payout)
                 + " bounty on you.";
         notifications.notify(
                 victim,
                 prefix().append(Component.text(claimed, NamedTextColor.GRAY)),
-                Component.text("Your bounty was claimed by " + killer.getName(), NamedTextColor.RED)
+                messages.render("messages.bounty.taken", "player", killer.getName())
         );
         PlayerBroadcast.broadcast(settings,
                 PlayerSettingsStore.Setting.BOUNTY_MESSAGES, prefix().append(Component.text(

@@ -242,6 +242,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             // The action catalogue is rebuilt per snapshot so the online-player list the
             // give form offers is current rather than whatever it was at startup.
             gameVariables.actionCatalogue(adminActions.snapshot());
+            // The verification prompts render on demand, so they need the store to read.
+            VerificationLobbyService.messageSource(new ServerMessages(gameVariables));
             gameVariables.metricsSource(() -> ServerMetrics.gather(
                     economyStore, cosmeticStore, clanStore, auctionStore, metricCounters));
             ShopCatalog.multiplierSource(key -> gameVariables.integer(key));

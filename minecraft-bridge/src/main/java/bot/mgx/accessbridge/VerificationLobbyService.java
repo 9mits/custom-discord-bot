@@ -81,16 +81,46 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
     private static final int ROOM_RADIUS = 24;
     private static final int ROOM_FLOOR_Y = 64;
     private static final int ROOM_CEILING_Y = 72;
-    static final Component VERIFY_PROMPT = statusLine(
-            "Step 1 of 2: type /verify <your Discord username>"
-    );
-    static final Component VERIFY_ACTION = Component.text("STEP 1 OF 2  •  ", NamedTextColor.GOLD,
-                    TextDecoration.BOLD)
-            .append(Component.text("/verify <Discord username>", NamedTextColor.YELLOW));
-    private static final Component CONFIRM_ACTION = Component.text("STEP 2 OF 2  •  ",
-                    NamedTextColor.GOLD,
-                    TextDecoration.BOLD)
-            .append(Component.text("Open newest DM → Yes, This Is Me", NamedTextColor.YELLOW));
+    /**
+     * The verification prompts, rendered on demand rather than held as constants.
+     *
+     * <p>These were {@code static final Component}s, resolved once at class load. Making
+     * them editable therefore meant making them methods: a control that pointed at a
+     * constant would have changed the stored text and nothing a player ever saw, which
+     * is worse than no control at all.
+     */
+    private static ServerMessages messages;
+
+    static void messageSource(ServerMessages source) {
+        messages = source;
+    }
+
+    private static Component rendered(String key, Component fallback) {
+        ServerMessages source = messages;
+        if (source == null || source.isSilenced(key)) {
+            return fallback;
+        }
+        return source.render(key);
+    }
+
+    static Component verifyPrompt() {
+        return rendered("messages.verify.step-one-chat",
+                statusLine("Step 1 of 2: type /verify <your Discord username>"));
+    }
+
+    static Component verifyAction() {
+        return rendered("messages.verify.step-one",
+                Component.text("STEP 1 OF 2  \u2022  ", NamedTextColor.GOLD, TextDecoration.BOLD)
+                        .append(Component.text("/verify <Discord username>", NamedTextColor.YELLOW)));
+    }
+
+    private static Component confirmAction() {
+        return rendered("messages.verify.step-two",
+                Component.text("STEP 2 OF 2  \u2022  ", NamedTextColor.GOLD, TextDecoration.BOLD)
+                        .append(Component.text("Open newest DM \u2192 Yes, This Is Me",
+                                NamedTextColor.YELLOW)));
+    }
+
     private static final Title.Times PERSISTENT_TITLE_TIMES = Title.Times.times(
             Duration.ZERO, Duration.ofSeconds(2), Duration.ZERO
     );
@@ -199,7 +229,7 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
                 updatePrompt(
                         player,
                         statusLine("Step 2 of 2: open the newest bot DM and confirm"),
-                        CONFIRM_ACTION,
+                        confirmAction(),
                         CONFIRM_TITLE
                 );
             }
@@ -331,8 +361,8 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
             online.hidePlayer(plugin, player);
             player.hidePlayer(plugin, online);
         }
-        prompts.put(player.getUniqueId(), VERIFY_PROMPT);
-        actionBars.put(player.getUniqueId(), VERIFY_ACTION);
+        prompts.put(player.getUniqueId(), verifyPrompt());
+        actionBars.put(player.getUniqueId(), verifyAction());
         centerTitles.put(player.getUniqueId(), VERIFY_TITLE);
         // Essentials and other join listeners may speak later in the same event.
         // Limbo should begin as a clean black screen with one queue line, so draw it
@@ -397,10 +427,10 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
                         .clickEvent(ClickEvent.runCommand("/discord"))));
         UUID uuid = player.getUniqueId();
         prompts.put(uuid, prompt);
-        actionBars.put(uuid, VERIFY_ACTION);
+        actionBars.put(uuid, verifyAction());
         centerTitles.put(uuid, VERIFY_TITLE);
         lastPromptMessages.put(uuid, System.currentTimeMillis());
-        player.sendActionBar(VERIFY_ACTION);
+        player.sendActionBar(verifyAction());
     }
 
     private void updatePrompt(
@@ -437,7 +467,7 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
             Player player = Bukkit.getPlayer(uuid);
             long lastMessage = lastPromptMessages.getOrDefault(uuid, 0L);
             if (player != null && now - lastMessage >= PROMPT_INTERVAL_MILLIS) {
-                Component prompt = prompts.getOrDefault(uuid, VERIFY_PROMPT);
+                Component prompt = prompts.getOrDefault(uuid, verifyPrompt());
                 player.sendMessage(prompt);
                 lastPromptMessages.put(uuid, now);
             }
@@ -531,7 +561,7 @@ final class VerificationLobbyService implements Listener, CommandExecutor {
             updatePrompt(
                     player,
                     statusLine("Step 2 of 2: open the newest bot DM and confirm"),
-                    CONFIRM_ACTION,
+                    confirmAction(),
                     CONFIRM_TITLE
             );
         } else {
