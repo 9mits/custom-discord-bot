@@ -1537,6 +1537,7 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
         AuctionStore.Purchase purchase = auctions.buy(
                 player.getUniqueId(), menu.subject(), money, System.currentTimeMillis()
         );
+        plugin.metricCounters().increment(ServerMetrics.AUCTION_SALES);
         give(player, item);
         // A cosmetic is owned in the wardrobe, not carried in the inventory. Listing one
         // clears its custody so the token can travel, and give() puts it straight into

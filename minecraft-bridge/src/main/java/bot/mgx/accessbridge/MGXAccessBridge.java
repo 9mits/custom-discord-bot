@@ -108,6 +108,7 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
     private AfkStore afkStore;
     private GameVariableStore gameVariables;
     private CustomCatalogStore customCatalog;
+    private MetricCounters metricCounters;
     private CrateItems crateItems;
     private UpdateNoticeStore updateNoticeStore;
     private final AdminActionRegistry adminActions = new AdminActionRegistry(this);
@@ -210,6 +211,19 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             afkStore = new AfkStore(
                     getDataFolder().toPath().resolve("afk.json")
             );
+            metricCounters = new MetricCounters(
+                    getDataFolder().toPath().resolve("metric-counters.json"));
+            // Batched rather than written on every increment: losing a handful of crate
+            // openings to a hard kill is a rounding error, and a disk write per crate is not.
+            getServer().getScheduler().runTaskTimerAsynchronously(
+                    this, () -> {
+                        try {
+                            metricCounters.flush();
+                        } catch (RuntimeException failure) {
+                            getLogger().warning(
+                                    "Could not save metric counters: " + failure.getMessage());
+                        }
+                    }, 1200L, 1200L);
             customCatalog = new CustomCatalogStore(
                     getDataFolder().toPath().resolve("custom-catalog.json")
             );
@@ -228,6 +242,8 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             // The action catalogue is rebuilt per snapshot so the online-player list the
             // give form offers is current rather than whatever it was at startup.
             gameVariables.actionCatalogue(adminActions.snapshot());
+            gameVariables.metricsSource(() -> ServerMetrics.gather(
+                    economyStore, cosmeticStore, clanStore, auctionStore, metricCounters));
             ShopCatalog.multiplierSource(key -> gameVariables.integer(key));
             // The compiled catalogue is the shop's shape; this is what the owner has
             // since changed about it. Read at point of use, so an edit reaches the next
@@ -1310,6 +1326,10 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
 
     GameVariableStore gameVariables() {
         return gameVariables;
+    }
+
+    MetricCounters metricCounters() {
+        return metricCounters;
     }
 
     CustomCatalogStore customCatalog() {

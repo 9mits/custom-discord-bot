@@ -713,6 +713,7 @@ final class AirdropService implements Listener {
                     Math.max(1L, lifetimeMillis / 50L)
             );
             guards.deploy(drop.id, chestLocation, rarity);
+            plugin.metricCounters().increment(ServerMetrics.AIRDROPS_SPAWNED);
             announceSpawn(drop);
             plugin.getLogger().info("Spawned " + rarity.displayName() + " Amethyst Airdrop at "
                     + coordinates(chestLocation) + " in " + worldName(anchor.getWorld())

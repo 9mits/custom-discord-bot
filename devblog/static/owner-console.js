@@ -1699,6 +1699,29 @@
    * be a large dependency for something the page can express exactly. SVG also stays
    * sharp at any size and needs no canvas sizing dance on a hidden tab.
    */
+  /**
+   * When settings were published, as marks on a chart.
+   *
+   * <p>The panel already knew both halves and never joined them: publish history has
+   * timestamps, the series has values over time. Drawing one against the other is the
+   * difference between "the economy grew" and "the economy grew after you did that".
+   */
+  function publishMarks(first, span) {
+    return ((state.snapshot || {}).history || []).map(function (publish) {
+      var at = Math.floor(Number(publish.at) / 1000);
+      if (!at || at < first || at > first + span) return null;
+      return {
+        at: at,
+        count: publish.change_count || (publish.changes || []).length,
+        actor: publish.actor || "",
+        labels: (publish.changes || []).slice(0, 4).map(function (change) {
+          var row = state.byKey[change.key];
+          return (row ? row.label : change.key) + " " + change.before + " \u2192 " + change.after;
+        })
+      };
+    }).filter(Boolean);
+  }
+
   function areaChart(points) {
     var width = 560;
     var height = 130;
@@ -1736,11 +1759,21 @@
         '" y2="' + y + '" class="con-chart-grid"/>';
     }).join("");
 
+    var marks = publishMarks(first, span).map(function (mark) {
+      var x = (pad.left + ((mark.at - first) / span) * innerW).toFixed(1);
+      return '<line x1="' + x + '" x2="' + x + '" y1="' + pad.top + '" y2="' +
+        (pad.top + innerH) + '" class="con-chart-mark"><title>' +
+        escapeHtml(new Date(mark.at * 1000).toLocaleString() + " \u2014 " + mark.count +
+          " setting(s) published" + (mark.actor ? " by " + mark.actor : "") +
+          (mark.labels.length ? "\n" + mark.labels.join("\n") : "")) +
+        "</title></line>";
+    }).join("");
+
     return '<div class="con-chart-wrap"><svg class="con-chart" viewBox="0 0 ' + width + " " + height +
       '" preserveAspectRatio="none" role="img" aria-label="' +
       escapeHtml(compactNumber(values[values.length - 1]) + " now, " +
         compactNumber(low) + " to " + compactNumber(high) + " over the window") + '">' +
-      gridlines +
+      gridlines + marks +
       '<path d="' + area + '" class="con-chart-area"/>' +
       '<path d="' + line + '" class="con-chart-line"/>' +
       '<circle cx="' + last[0].toFixed(1) + '" cy="' + last[1].toFixed(1) +

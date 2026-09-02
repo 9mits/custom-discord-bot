@@ -358,6 +358,15 @@ final class AuctionStore {
      * them to their owners. Used when the thing they hold has stopped existing: handing
      * a wiped cosmetic back to its seller would only move the dead item somewhere else.
      */
+    synchronized int listingCount() {
+        return listings.size();
+    }
+
+    /** What every standing listing would fetch if it all sold at the asking price. */
+    synchronized long totalAsking() {
+        return listings.stream().mapToLong(Listing::price).sum();
+    }
+
     synchronized int removeMatching(Predicate<String> matches) {
         List<Listing> listingsBefore = List.copyOf(listings);
         List<Mail> mailboxBefore = List.copyOf(mailbox);

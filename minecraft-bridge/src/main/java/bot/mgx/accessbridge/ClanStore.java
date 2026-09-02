@@ -318,6 +318,10 @@ final class ClanStore {
                 .map(this::view);
     }
 
+    synchronized int clanCount() {
+        return list().size();
+    }
+
     synchronized List<ClanView> list() {
         return state.clans.stream()
                 .map(this::view)

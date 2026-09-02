@@ -1819,6 +1819,12 @@ body.cx .theme-switch button[aria-checked="true"] { background: var(--brand-oran
   vector-effect: non-scaling-stroke;
 }
 .con-chart-point { fill: var(--brand-orange); stroke: var(--surface); stroke-width: 1.5; }
+/* Where settings were published. Dashed and cool, so it reads as an annotation on the
+   data rather than as another series in it. */
+.con-chart-mark {
+  stroke: var(--blue); stroke-width: 1; stroke-dasharray: 3 3; opacity: .75;
+  vector-effect: non-scaling-stroke;
+}
 /* The two numbers bound the y axis, so they sit at the top and bottom of the plot.
    Side by side under it they read as a start and an end, which is the x axis. */
 .con-chart-wrap { position: relative; }

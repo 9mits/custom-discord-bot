@@ -1089,6 +1089,15 @@ class MinecraftAccessBot(commands.Bot):
                 by_edition = window.get("by_edition", {})
                 metrics["afk.java_seconds_24h"] = float(by_edition.get("JAVA", 0))
                 metrics["afk.bedrock_seconds_24h"] = float(by_edition.get("BEDROCK", 0))
+            # The figures the owner actually tunes. Eleven activity numbers were being
+            # kept and nothing economic, so a setting change had no observable effect —
+            # there was no record of what the setting produced.
+            live = (self.bridge.latest_game_variables or {}).get("metrics") or {}
+            for name, value in live.items():
+                try:
+                    metrics[str(name)] = float(value)
+                except (TypeError, ValueError):
+                    continue
             await self.data.record_stat_snapshot(metrics)
         except Exception:
             logger.exception("Stat sampling failed; retrying on the next interval")
