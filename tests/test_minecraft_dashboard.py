@@ -415,6 +415,77 @@ class ConfigChangeSetEndpointTests(unittest.IsolatedAsyncioTestCase):
             "the variables the plugin sent must survive the added report",
         )
 
+    def _automation_dashboard(self, token="tok-abc"):
+        dashboard = self._dashboard()
+        dashboard.config.dashboard_automation_token = token
+        dashboard.config.dashboard_automation_uuid = "uuid-owner"
+        return dashboard
+
+    async def test_an_automation_token_can_publish_and_is_named_as_itself(self):
+        """Automation may change settings, and the trail must say a person did not.
+
+        The whole value of publish history is that it records who. A token signed with a
+        human's name would make that record fiction the first time it was used.
+        """
+        dashboard = self._automation_dashboard()
+        client = TestClient(TestServer(dashboard._app))
+        await client.start_server()
+        self.addAsyncCleanup(client.close)
+
+        response = await client.post(
+            "/api/settings/publish",
+            json={"edits": [{"key": "crate.default.key-cost", "value": "3"}]},
+            headers={"X-MGX-Automation": "tok-abc"},
+        )
+
+        self.assertEqual(200, response.status)
+        call = dashboard.bot.bridge.run_config_changeset.await_args.kwargs
+        self.assertEqual("Claude (automation)", call["actor_label"])
+        # The plugin authorises on a real Minecraft account, so one has to be named.
+        self.assertEqual("uuid-owner", call["actor_uuid"])
+
+    async def test_a_wrong_or_absent_token_is_still_refused(self):
+        dashboard = self._automation_dashboard()
+        client = TestClient(TestServer(dashboard._app))
+        await client.start_server()
+        self.addAsyncCleanup(client.close)
+
+        for headers in ({}, {"X-MGX-Automation": "not-the-token"}):
+            response = await client.post(
+                "/api/settings/publish",
+                json={"edits": [{"key": "a", "value": "1"}]},
+                headers=headers,
+            )
+            self.assertEqual(401, response.status, headers)
+
+    async def test_the_token_does_not_exist_until_it_is_configured(self):
+        # An unset token must not match an unset header, or every request is an owner.
+        dashboard = self._automation_dashboard(token="")
+        client = TestClient(TestServer(dashboard._app))
+        await client.start_server()
+        self.addAsyncCleanup(client.close)
+
+        response = await client.post(
+            "/api/settings/publish",
+            json={"edits": [{"key": "a", "value": "1"}]},
+            headers={"X-MGX-Automation": ""},
+        )
+        self.assertEqual(401, response.status)
+
+    async def test_automation_may_not_send_update_notices(self):
+        """Everything else it can do is reversible inside the server. A DM is not."""
+        dashboard = self._automation_dashboard()
+        client = TestClient(TestServer(dashboard._app))
+        await client.start_server()
+        self.addAsyncCleanup(client.close)
+
+        response = await client.post(
+            "/api/announce",
+            json={"title": "hello", "description": "everyone"},
+            headers={"X-MGX-Automation": "tok-abc"},
+        )
+        self.assertEqual(403, response.status)
+
     async def test_change_set_endpoints_require_the_owner_role(self):
         dashboard = self._dashboard()
         client = TestClient(TestServer(dashboard._app))

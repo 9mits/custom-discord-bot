@@ -69,6 +69,12 @@ class MinecraftConfig:
     dashboard_port: int = 8090
     dashboard_public_url: str = "http://127.0.0.1:8090"
     dashboard_client_secret: str = ""
+    #: Header token letting automation drive the settings API without a Discord session.
+    #: Empty disables it entirely, which is the default and the safe state.
+    dashboard_automation_token: str = ""
+    #: The Minecraft account an automated change is attributed to. The plugin authorises
+    #: against LuckPerms owner on a real account, so automation has to name one.
+    dashboard_automation_uuid: str = ""
 
     @property
     def database_path(self) -> Path:
@@ -143,6 +149,12 @@ class MinecraftConfig:
             dashboard_public_url=os.environ.get(
                 "MINECRAFT_DASHBOARD_PUBLIC_URL", "http://127.0.0.1:8090"
             ).strip().rstrip("/"),
+            dashboard_automation_token=os.environ.get(
+                "MINECRAFT_DASHBOARD_AUTOMATION_TOKEN", ""
+            ).strip(),
+            dashboard_automation_uuid=os.environ.get(
+                "MINECRAFT_DASHBOARD_AUTOMATION_UUID", ""
+            ).strip(),
             dashboard_client_secret=os.environ.get(
                 "MINECRAFT_DASHBOARD_CLIENT_SECRET", ""
             ).strip(),

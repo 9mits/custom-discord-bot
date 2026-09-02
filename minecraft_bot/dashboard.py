@@ -9,6 +9,7 @@ import json
 import logging
 import secrets
 import time
+from types import SimpleNamespace
 from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urlencode
@@ -431,6 +432,13 @@ class DashboardServer:
         """
         session, member = await self._require_owner(request)
         self._require_csrf(request, session)
+        if session.get("automation"):
+            actor_uuid = str(getattr(self.config, "dashboard_automation_uuid", "") or "")
+            if not actor_uuid:
+                raise web.HTTPConflict(
+                    text="Automation has no Minecraft account configured to act as."
+                )
+            return member, actor_uuid
         accounts = await self.bot.data.list_accounts_for_user(member.id)
         actor_uuid = next(
             (str(row.get("minecraft_uuid") or "") for row in accounts if row.get("minecraft_uuid")),
@@ -823,6 +831,12 @@ class DashboardServer:
         except (json.JSONDecodeError, TypeError):
             raise web.HTTPBadRequest(text="A JSON request body is required.")
 
+        if session.get("automation"):
+            # Everything else here is reversible inside the server. A mass DM is not: it
+            # reaches real people and cannot be recalled, so it stays a human action.
+            raise web.HTTPForbidden(
+                text="Update notices must be sent by a signed-in owner, not by automation."
+            )
         announcer = self._announcer()
         if "enabled" in body and "title" not in body:
             await announcer.set_enabled(bool(body.get("enabled")))
@@ -985,9 +999,33 @@ class DashboardServer:
                 return None
         return member if any(role.id == OWNER_ROLE_ID for role in member.roles) else None
 
+    #: What an automated change is signed as. Never a person's name: publish history has
+    #: to say plainly that nobody typed this, or the trail quietly becomes fiction.
+    AUTOMATION_LABEL = "Claude (automation)"
+
+    def _automation_session(self, request: web.Request) -> Optional[dict[str, Any]]:
+        """An automation token presented as a header, or None.
+
+        A header, deliberately, not a cookie: a browser cannot attach a custom header to
+        a cross-origin request, so this carries no CSRF exposure the way an ambient
+        cookie would. Absent or unset config means the door does not exist.
+        """
+        expected = str(getattr(self.config, "dashboard_automation_token", "") or "")
+        if not expected:
+            return None
+        supplied = request.headers.get("X-MGX-Automation", "")
+        if not supplied or not hmac.compare_digest(supplied, expected):
+            return None
+        return {"automation": True, "username": self.AUTOMATION_LABEL}
+
     async def _require_owner(
         self, request: web.Request, *, optional: bool = False
     ) -> tuple[Optional[dict[str, Any]], Optional[discord.Member]]:
+        automated = self._automation_session(request)
+        if automated is not None:
+            # No Discord member exists behind a token, so stand in for one. Only .name and
+            # .id are ever read, and both say clearly that this was not a person.
+            return automated, SimpleNamespace(name=self.AUTOMATION_LABEL, id=0)
         session = self._unsign(request.cookies.get("mgx_dashboard_session", ""))
         member = await self._owner_member(int(session.get("user_id", 0))) if session else None
         if session is None or member is None:
@@ -998,6 +1036,10 @@ class DashboardServer:
 
     @staticmethod
     def _require_csrf(request: web.Request, session: dict[str, Any]) -> None:
+        # A token in a header is already un-forgeable cross-origin, so there is no
+        # ambient authority for CSRF to protect against.
+        if session.get("automation"):
+            return
         supplied = request.headers.get("X-MGX-CSRF", "")
         if not supplied or not hmac.compare_digest(supplied, str(session.get("csrf", ""))):
             raise web.HTTPForbidden(text="The dashboard security token is missing or expired.")
