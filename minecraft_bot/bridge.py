@@ -306,7 +306,14 @@ class MinecraftBridgeServer:
                         await socket.close(code=1007, message=b"Invalid JSON")
                         break
                     if not await self._verify_incoming(incoming):
-                        logger.warning("Rejected invalid signed bridge message")
+                        # Naming what failed, because "invalid" covers a bad signature,
+                        # a clock too far out and a replayed nonce, and those have
+                        # completely different fixes. This connection has been dropping
+                        # every ~36 seconds and the old line could not say which.
+                        logger.warning(
+                            "Rejected invalid signed bridge message: %s",
+                            self._describe_rejection(incoming),
+                        )
                         await socket.close(code=1008, message=b"Invalid signature, timestamp, or nonce")
                         break
                     if self._socket is not socket:
@@ -330,6 +337,22 @@ class MinecraftBridgeServer:
                     self._fail_pending_results("The Minecraft bridge disconnected.")
             logger.info("Minecraft bridge disconnected")
         return socket
+
+    def _describe_rejection(self, envelope: Any) -> str:
+        """Why a message was refused, in terms that point at a fix."""
+        if not isinstance(envelope, dict):
+            return "payload was not an object"
+        kind = str(envelope.get("type", "?"))
+        try:
+            timestamp = int(envelope["timestamp"])
+        except (KeyError, TypeError, ValueError):
+            return f"type={kind} malformed envelope"
+        skew = int(time.time()) - timestamp
+        if abs(skew) > MAX_CLOCK_SKEW_SECONDS:
+            return f"type={kind} clock skew {skew}s exceeds {MAX_CLOCK_SKEW_SECONDS}s"
+        if not verify_envelope(self.config.bridge_secret, envelope, used_nonces=set()):
+            return f"type={kind} signature did not match (skew {skew}s)"
+        return f"type={kind} nonce already used (replay), skew {skew}s"
 
     async def _verify_incoming(self, envelope: dict[str, Any]) -> bool:
         one_message_nonce_set: set[str] = set()
