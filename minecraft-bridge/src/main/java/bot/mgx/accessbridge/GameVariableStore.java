@@ -1294,7 +1294,27 @@ final class GameVariableStore {
         }
     }
 
-    synchronized JsonObject snapshot() {
+    /**
+     * The whole snapshot, with the live server figures gathered *before* the lock.
+     *
+     * <p>This method is deliberately not synchronised. The metrics supplier reaches into
+     * the auction, clan, cosmetic and economy stores, and those stores read their own
+     * limits back through {@code variables.integer(...)}, which locks this object. Doing
+     * that while already holding this lock inverted the order against any game thread
+     * doing the reverse, and the two deadlocked: the snapshot thread held this and wanted
+     * the auction, a game thread held the auction and wanted this. The bridge stopped
+     * answering and the scheduler stopped spawning events, because both were parked on
+     * the same monitors.
+     */
+    JsonObject snapshot() {
+        JsonObject metrics = metricsSupplier.get();
+        // The catalogue reads shop prices back through variables.integer(...) for the
+        // same reason, so it is gathered out here too rather than under the lock.
+        JsonObject catalogue = custom == null ? null : custom.snapshot();
+        return snapshotWith(metrics, catalogue);
+    }
+
+    private synchronized JsonObject snapshotWith(JsonObject metrics, JsonObject catalogue) {
         JsonObject root = new JsonObject();
         root.addProperty("generated_at", System.currentTimeMillis());
         JsonArray variables = new JsonArray();
@@ -1344,16 +1364,16 @@ final class GameVariableStore {
         root.add("history", history.snapshot(ConfigHistory.RETAINED_PUBLISHES));
         // What an owner has added to or taken out of the catalogues, so the console can
         // show removed built-ins as restorable rather than simply absent.
-        if (custom != null) {
-            root.add("catalog", custom.snapshot());
+        if (catalogue != null) {
+            root.add("catalog", catalogue);
         }
         root.add("materials", itemMaterials());
         root.add("action_catalogue", actionCatalogue);
         root.add("activity", activityFeed);
         root.add("auction", auctionListings);
-        // The figures an owner is actually tuning. The panel samples these on its own
-        // schedule and keeps the history, so a change can be read against its effect.
-        root.add("metrics", metricsSupplier.get());
+        // The figures an owner is actually tuning. Gathered before this lock was taken;
+        // see snapshot() for why that matters.
+        root.add("metrics", metrics);
         return root;
     }
 
