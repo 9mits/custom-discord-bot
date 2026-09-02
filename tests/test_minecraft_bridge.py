@@ -66,6 +66,55 @@ class MinecraftBridgeIntegrationTests(unittest.IsolatedAsyncioTestCase):
         await self.data.close()
         self.directory.cleanup()
 
+    def _classifier(self):
+        from types import SimpleNamespace
+        from minecraft_bot.bridge import MinecraftBridgeServer
+        bridge = MinecraftBridgeServer.__new__(MinecraftBridgeServer)
+        bridge.config = SimpleNamespace(bridge_secret=b"s" * 32)
+        return bridge
+
+    def test_a_late_message_is_dropped_but_a_forged_one_closes_the_link(self):
+        """One stale message must not cost the connection.
+
+        Closing on any rejection turned a single late event into a permanent reconnect
+        loop: the plugin re-flushed its outbox on every handshake, the same message
+        arrived late again, and production dropped the bridge every ~36 seconds — 508
+        times on one day. A signature that does not match is different, and so is a
+        replayed nonce: nobody without the secret can produce the first, and the second
+        is the replay attack the nonce exists to stop. Both stay hard closes.
+        """
+        import time as _time
+        from minecraft_bot.security import create_envelope
+
+        bridge = self._classifier()
+        secret = b"s" * 32
+
+        fresh = create_envelope(secret, "SERVER_EVENT", {"a": 1}, idempotency_key="k1")
+        stale = dict(fresh)
+        stale["timestamp"] = int(_time.time()) - 300
+        severity, detail = bridge._classify_rejection(stale)
+        self.assertEqual("stale", severity)
+        self.assertIn("clock skew", detail)
+
+        forged = create_envelope(secret, "SERVER_EVENT", {"a": 1}, idempotency_key="k2")
+        forged["signature"] = "0" * 64
+        severity, detail = bridge._classify_rejection(forged)
+        self.assertEqual("hostile", severity)
+        self.assertIn("signature did not match", detail)
+
+        # A well-formed envelope that fails for neither reason is a replay, and the
+        # nonce exists precisely to make that fatal.
+        severity, detail = bridge._classify_rejection(
+            create_envelope(secret, "SERVER_EVENT", {"a": 1}, idempotency_key="k3")
+        )
+        self.assertEqual("hostile", severity)
+        self.assertIn("replay", detail)
+
+    def test_a_rejection_that_is_not_an_object_is_treated_as_hostile(self):
+        bridge = self._classifier()
+        self.assertEqual("hostile", bridge._classify_rejection("not-json")[0])
+        self.assertEqual("hostile", bridge._classify_rejection({"type": "X"})[0])
+
     async def test_signed_handshake_full_sync_and_verification(self):
         socket = await self.session.ws_connect(
             f"http://127.0.0.1:{self.port}/minecraft-bridge"
