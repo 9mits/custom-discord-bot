@@ -21,6 +21,7 @@
     {id: "announce", label: "Update notice", group: "Operate"},
     {id: "auction", label: "Live listings", group: "Operate"},
     {id: "history", label: "Change history", group: "Operate"},
+    {id: "presets", label: "Presets & backup", group: "Operate"},
 
     {id: "crates", label: "Crates", group: "Rewards"},
     {id: "crate_balance", label: "Crate balance", group: "Rewards"},
@@ -296,6 +297,7 @@
     statMetrics: [],
     statSeries: {},
     shopShelf: null,
+    presets: null,
     announce: null,
     announceResult: null,
     announceDraft: {title: "", description: "", colour: "f06000", footer: "", image: ""},
@@ -1884,6 +1886,62 @@
       boardsSection(stats.leaderboards || {});
   }
 
+  /**
+   * Named setting sets, and a file you can keep.
+   *
+   * <p>Publish history undoes one mistake; it does not put everything back the way it
+   * was on Tuesday. A preset is that: the values that differ from default, saved under a
+   * name. Applying one *stages* it as a draft rather than writing it, so a preset goes
+   * through the same validation, review and audit trail as anything typed by hand — and
+   * so you see exactly what it would change before it changes.
+   */
+  function renderPresets() {
+    var presets = state.presets;
+    if (!presets) return '<p class="con-empty">Loading&hellip;</p>';
+    if (presets.error) {
+      return '<p class="con-empty">Presets are unavailable: ' +
+        escapeHtml(presets.error) + "</p>";
+    }
+    var changed = state.rows.filter(function (row) { return row.overridden; });
+    var list = (presets.list || []).map(function (preset) {
+      return '<article class="con-preset"><div><h4>' + escapeHtml(preset.name) + "</h4>" +
+        "<span>" + preset.count + " setting" + (preset.count === 1 ? "" : "s") +
+        (preset.saved_at
+          ? " &middot; saved " + new Date(preset.saved_at * 1000).toLocaleDateString()
+          : "") + "</span></div>" +
+        '<div class="con-table-actions">' +
+        '<button type="button" class="con-secondary" data-preset-apply="' +
+        escapeHtml(preset.name) + '">Stage it</button>' +
+        '<button type="button" class="con-remove" data-preset-delete="' +
+        escapeHtml(preset.name) + '">Delete</button></div></article>';
+    }).join("");
+
+    return '<p class="con-intro">A preset is the values that differ from default, saved ' +
+      "under a name. Applying one stages it as a draft, so you review and publish it like " +
+      "any other change &mdash; nothing is written behind your back.</p>" +
+      '<section class="con-section"><h3>Save what is set now' +
+      '<span class="con-section-count">' + changed.length + " changed</span></h3>" +
+      '<div class="con-field-row">' +
+      '<label class="con-field"><span>Name it</span>' +
+      '<input class="con-search-field" id="con-preset-name" placeholder="Weekend event" ' +
+      'maxlength="60"></label>' +
+      '<div class="con-table-actions">' +
+      '<button type="button" class="con-primary" id="con-preset-save"' +
+      (changed.length ? "" : " disabled") + ">Save preset</button>" +
+      '<button type="button" class="con-secondary" id="con-preset-export">Export a file</button>' +
+      '<button type="button" class="con-secondary" id="con-preset-import">Import a file</button>' +
+      '<input type="file" id="con-preset-file" accept="application/json" hidden>' +
+      "</div></div>" +
+      (changed.length
+        ? ""
+        : '<p class="con-table-note">Everything is at its default, so there is nothing ' +
+          "to save yet.</p>") + "</section>" +
+      '<section class="con-section"><h3>Saved presets' +
+      '<span class="con-section-count">' + (presets.list || []).length + "</span></h3>" +
+      (list ? '<div class="con-presets">' + list + "</div>"
+            : '<p class="con-empty">No presets saved yet.</p>') + "</section>";
+  }
+
   function renderActivity() {
     var feed = state.activity || {};
     var entries = feed.entries || [];
@@ -1961,6 +2019,7 @@
   function pageCount(page) {
     if (page.id === "actions") return state.actions.length;
     if (page.id === "statistics" || page.id === "announce") return 0;
+    if (page.id === "presets") return ((state.presets || {}).list || []).length;
     if (page.id === "activity") return ((state.activity || {}).entries || []).length;
     if (page.id === "auction") return ((state.auction || {}).listings || []).length;
     if (page.id === "overview" || page.id === "history") return 0;
@@ -2149,6 +2208,9 @@
         '<datalist id="con-online">' + state.online.map(function (name) {
           return '<option value="' + escapeHtml(name) + '">';
         }).join("") + "</datalist>";
+    } else if (state.page === "presets") {
+      main.innerHTML = banner + renderPresets();
+      if (state.presets === null) loadPresets();
     } else if (state.page === "announce") {
       main.innerHTML = banner + renderAnnounce();
       if (state.announce === null) loadAnnounce();
@@ -2257,6 +2319,11 @@
 
     byId("con-page").addEventListener("change", function (event) {
       var target = event.target;
+      if (target.id === "con-preset-file") {
+        if (target.files && target.files[0]) importPreset(target.files[0]);
+        target.value = "";
+        return;
+      }
       if (target.dataset.shopPrice !== undefined || target.dataset.shopAmount !== undefined) {
         saveShopOffer(target.dataset.shopPrice || target.dataset.shopAmount);
         return;
@@ -2315,6 +2382,19 @@
       var shopBack = event.target.closest("[data-shop-restore]");
       if (shopBack) { catalogCall("restore_shop_offer", {material: shopBack.dataset.shopRestore}); return; }
       if (event.target.id === "con-shop-add") { openShopDialog(); return; }
+      if (event.target.id === "con-preset-save") { savePreset(); return; }
+      if (event.target.id === "con-preset-export") { exportPreset(); return; }
+      if (event.target.id === "con-preset-import") { byId("con-preset-file").click(); return; }
+      var applyPreset = event.target.closest("[data-preset-apply]");
+      if (applyPreset) {
+        var wanted = (state.presets.list || []).filter(function (row) {
+          return row.name === applyPreset.dataset.presetApply;
+        })[0];
+        if (wanted) stageValues(wanted.values || {}, wanted.name);
+        return;
+      }
+      var dropPreset = event.target.closest("[data-preset-delete]");
+      if (dropPreset) { deletePreset(dropPreset.dataset.presetDelete); return; }
       var metric = event.target.closest("[data-metric]");
       if (metric) {
         var name = metric.dataset.metric;
@@ -2574,6 +2654,108 @@
     state.adding = {shop: true};
     byId("con-add").hidden = false;
     window.setTimeout(function () { byId("con-add-material").focus(); }, 30);
+  }
+
+  async function loadPresets() {
+    try {
+      var answer = await api("/api/presets");
+      state.presets = {list: answer.presets || []};
+    } catch (error) {
+      state.presets = {error: error.message};
+    }
+    if (state.page === "presets") render();
+  }
+
+  /** The values that differ from default — the only part of a snapshot worth keeping. */
+  function changedValues() {
+    var values = {};
+    state.rows.forEach(function (row) {
+      if (row.overridden) values[row.key] = row.value;
+    });
+    return values;
+  }
+
+  async function savePreset() {
+    var name = String(byId("con-preset-name").value || "").trim();
+    if (!name) { toast("Give the preset a name first.", true); return; }
+    try {
+      await post("/api/presets", {name: name, values: changedValues()});
+      toast("Saved \u201c" + name + "\u201d.", false);
+      state.presets = null;
+      await loadPresets();
+    } catch (error) {
+      toast(error.message, true);
+    }
+  }
+
+  async function deletePreset(name) {
+    if (!await confirmThat("Delete \u201c" + name + "\u201d?",
+      "The preset is removed. Nothing on the server changes.", "Delete it")) return;
+    try {
+      await post("/api/presets", {name: name, delete: true});
+      state.presets = null;
+      await loadPresets();
+    } catch (error) {
+      toast(error.message, true);
+    }
+  }
+
+  /**
+   * Stages a preset as a draft.
+   *
+   * <p>Deliberately not applied. Everything it would change appears in the review dialog
+   * and the save bar first, which is the difference between restoring a known-good tune
+   * and finding out afterwards what it moved.
+   */
+  function stageValues(values, label) {
+    var staged = 0;
+    var unknown = 0;
+    Object.keys(values).forEach(function (key) {
+      var row = state.byKey[key];
+      if (!row) { unknown += 1; return; }
+      if (String(values[key]) === String(row.value)) return;
+      state.draft[key] = {value: values[key]};
+      staged += 1;
+    });
+    saveDraft();
+    scheduleValidate();
+    render();
+    toast(staged
+      ? label + ": " + staged + " change(s) staged for review" +
+        (unknown ? ", " + unknown + " unknown setting(s) ignored" : "") + "."
+      : label + " matches what is already live; nothing staged.", false);
+  }
+
+  function exportPreset() {
+    var payload = {
+      exported_at: new Date().toISOString(),
+      settings: changedValues()
+    };
+    var blob = new Blob([JSON.stringify(payload, null, 2)], {type: "application/json"});
+    var link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "mysterious-smp-x-settings.json";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(link.href);
+  }
+
+  function importPreset(file) {
+    var reader = new FileReader();
+    reader.onload = function () {
+      try {
+        var parsed = JSON.parse(String(reader.result));
+        var values = parsed.settings || parsed.values || parsed;
+        if (!values || typeof values !== "object") {
+          throw new Error("That file has no settings in it.");
+        }
+        stageValues(values, "Imported file");
+      } catch (error) {
+        toast("Could not read that file: " + error.message, true);
+      }
+    };
+    reader.readAsText(file);
   }
 
   async function loadAnnounce() {

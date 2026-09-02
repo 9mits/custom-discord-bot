@@ -159,7 +159,7 @@ class ConsolePageContractTests(unittest.TestCase):
         # it is configured to do, so an introduction explaining "what these values mean"
         # would be describing nothing.
         pages -= {"overview", "history", "actions", "activity", "auction",
-                  "statistics", "announce"}
+                  "statistics", "announce", "presets"}
         self.assertGreater(len(pages), 15, "the page scrape stopped matching")
         intro_block = CONSOLE_JS.split("var PAGE_INTROS = {", 1)[1].split("\n  };", 1)[0]
         described = set(re.findall(r'^\s*([a-z_]+):', intro_block, re.M))

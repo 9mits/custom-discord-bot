@@ -1775,6 +1775,18 @@ body.cx .theme-switch button[aria-checked="true"] { background: var(--brand-oran
 .con-embed img { width: 100%; border-radius: .3rem; }
 .con-embed footer { font-size: .7rem; color: var(--grey); }
 
+/* ---------- presets ---------- */
+.con-presets { display: grid; gap: .6rem; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); }
+.con-preset {
+  display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+  border: 1px solid var(--line); border-radius: .5rem; background: var(--surface);
+  padding: .7rem .85rem; min-width: 0;
+}
+.con-preset > div:first-child { display: flex; flex-direction: column; min-width: 0; }
+.con-preset h4 { font-size: .82rem; font-weight: 600; }
+.con-preset span { font-size: .72rem; color: var(--grey); }
+.con-preset .con-table-actions { margin-left: auto; margin-top: 0; }
+
 /* ---------- statistics charts ---------- */
 .con-chart-grid {
   display: grid; gap: .75rem; grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));

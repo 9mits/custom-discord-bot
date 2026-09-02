@@ -57,6 +57,8 @@ class DashboardServer:
         self._app.router.add_post("/api/settings/rollback", self.rollback_publish)
         self._app.router.add_post("/api/catalog", self.change_catalog)
         self._app.router.add_post("/api/action", self.run_action)
+        self._app.router.add_get("/api/presets", self.list_presets)
+        self._app.router.add_post("/api/presets", self.save_preset)
         self._app.router.add_get("/api/announce", self.announce_status)
         self._app.router.add_post("/api/announce", self.send_announcement)
         # aiohttp resolves plain paths ahead of dynamic ones however they are ordered,
@@ -575,6 +577,75 @@ class DashboardServer:
             {"ok": True, "message": message, "catalog": detail},
             headers={"Cache-Control": "no-store"},
         )
+
+    #: Where named setting sets live. Kept in the bot's own config rather than the
+    #: plugin's, because a preset is a thing the panel remembers about how you like the
+    #: server tuned, not a thing the server needs to run.
+    _PRESET_KEY = "minecraft_setting_presets"
+
+    async def _presets(self) -> dict[str, Any]:
+        raw = await self.bot.data.get_config(self._PRESET_KEY, "{}")
+        try:
+            stored = json.loads(raw) if isinstance(raw, str) else (raw or {})
+        except (json.JSONDecodeError, TypeError):
+            return {}
+        return stored if isinstance(stored, dict) else {}
+
+    async def list_presets(self, request: web.Request) -> web.Response:
+        """Every saved preset, with what it covers but not its whole payload."""
+        await self._require_owner(request)
+        presets = await self._presets()
+        return web.json_response(
+            {
+                "presets": [
+                    {
+                        "name": name,
+                        "values": body.get("values", {}),
+                        "saved_at": body.get("saved_at"),
+                        "count": len(body.get("values", {})),
+                    }
+                    for name, body in sorted(presets.items())
+                ]
+            },
+            headers={"Cache-Control": "no-store"},
+        )
+
+    async def save_preset(self, request: web.Request) -> web.Response:
+        """Saves or deletes one preset.
+
+        A preset is only ever *staged* by the panel, never applied here: it becomes a
+        draft the owner reviews and publishes through the same path as any other change,
+        so a preset cannot bypass validation or skip the audit trail.
+        """
+        session, member = await self._require_owner(request)
+        self._require_csrf(request, session)
+        try:
+            body = await request.json()
+        except (json.JSONDecodeError, TypeError):
+            raise web.HTTPBadRequest(text="A JSON request body is required.")
+
+        name = str(body.get("name", "")).strip()
+        if not name or len(name) > 60:
+            raise web.HTTPBadRequest(text="A preset needs a name of 60 characters or fewer.")
+
+        presets = await self._presets()
+        if body.get("delete"):
+            presets.pop(name, None)
+        else:
+            values = body.get("values")
+            if not isinstance(values, dict) or not values:
+                raise web.HTTPBadRequest(text="A preset needs at least one setting.")
+            if len(values) > 2000:
+                raise web.HTTPBadRequest(text="That is more settings than a preset may hold.")
+            presets[name] = {
+                "values": {str(k): values[k] for k in list(values)[:2000]},
+                "saved_at": int(time.time()),
+                "saved_by": str(member),
+            }
+        if len(presets) > 50:
+            raise web.HTTPBadRequest(text="Fifty presets is the limit; delete one first.")
+        await self.bot.data.set_config(self._PRESET_KEY, json.dumps(presets))
+        return web.json_response({"presets": sorted(presets)})
 
     def _announcer(self):
         from .announce import UpdateAnnouncer
