@@ -40,6 +40,26 @@ final class ClanBattleService implements Listener {
     /** Warnings already broadcast for the running battle, cleared when one starts. */
     private final java.util.Set<Long> warned = new java.util.HashSet<>();
 
+    private final ServerMessages messages;
+
+    /**
+     * One server-wide clan-battle line, in whatever words the owner has chosen.
+     *
+     * <p>Respects the same per-player announcement toggle the literals did: somebody who
+     * turned clan battles off does not start hearing about them because the text moved
+     * into configuration.
+     */
+    private void announce(String key, String... placeholders) {
+        if (messages.isSilenced(key)) {
+            return;
+        }
+        PlayerBroadcast.broadcast(
+                settings,
+                PlayerSettingsStore.Setting.CLAN_BATTLE_ANNOUNCEMENTS,
+                prefix().append(messages.render(key, placeholders))
+        );
+    }
+
     ClanBattleService(
             MGXAccessBridge plugin,
             ClanBattleStore store,
@@ -50,6 +70,7 @@ final class ClanBattleService implements Listener {
             PlayerSettingsStore settings
     ) {
         this.plugin = plugin;
+        this.messages = new ServerMessages(plugin.gameVariables());
         this.store = store;
         this.clans = clans;
         this.items = items;
@@ -63,16 +84,11 @@ final class ClanBattleService implements Listener {
         ClanBattleStore.ActiveView active = store.start(kind, now, endsAt, clans);
         warned.clear();
         leaderboards.publishNow();
-        PlayerBroadcast.broadcast(settings,
-                PlayerSettingsStore.Setting.CLAN_BATTLE_ANNOUNCEMENTS, prefix()
-                .append(Component.text(active.kind().displayName(), GOLD, TextDecoration.BOLD))
-                .append(Component.text(" has begun! ", NamedTextColor.WHITE))
-                .append(Component.text(active.kind().objective(), NamedTextColor.YELLOW)));
-        PlayerBroadcast.broadcast(settings,
-                PlayerSettingsStore.Setting.CLAN_BATTLE_ANNOUNCEMENTS, prefix().append(Component.text(
-                "Ends in " + ClanBattleCountdown.remaining(active.endsAt() - now) + ".",
-                NamedTextColor.YELLOW
-        )));
+        announce("messages.clanbattle.started",
+                "battle", active.kind().displayName(),
+                "objective", active.kind().objective());
+        announce("messages.clanbattle.ends-in",
+                "remaining", ClanBattleCountdown.remaining(active.endsAt() - now));
         for (Player player : Bukkit.getOnlinePlayers()) {
             if (settings.isEnabled(
                     player.getUniqueId(), PlayerSettingsStore.Setting.EVENT_SOUNDS
@@ -103,10 +119,7 @@ final class ClanBattleService implements Listener {
         store.cancel();
         warned.clear();
         leaderboards.publishNow();
-        PlayerBroadcast.broadcast(settings,
-                PlayerSettingsStore.Setting.CLAN_BATTLE_ANNOUNCEMENTS, prefix().append(Component.text(
-                name + " was cancelled. No rewards were awarded.", NamedTextColor.GRAY
-        )));
+        announce("messages.clanbattle.cancelled", "battle", name);
     }
 
     String status() {
@@ -165,14 +178,9 @@ final class ClanBattleService implements Listener {
         long left = active.endsAt() - now;
         for (long milestone : WARNING_MILLIS) {
             if (left <= milestone && warned.add(milestone)) {
-                PlayerBroadcast.broadcast(settings,
-                PlayerSettingsStore.Setting.CLAN_BATTLE_ANNOUNCEMENTS, prefix()
-                        .append(Component.text(active.kind().displayName(), GOLD,
-                                TextDecoration.BOLD))
-                        .append(Component.text(" ends in ", NamedTextColor.WHITE))
-                        .append(Component.text(ClanBattleCountdown.remaining(milestone),
-                                NamedTextColor.YELLOW, TextDecoration.BOLD))
-                        .append(Component.text("!", NamedTextColor.WHITE)));
+                announce("messages.clanbattle.warning",
+                        "battle", active.kind().displayName(),
+                        "remaining", ClanBattleCountdown.remaining(milestone));
                 break;
             }
         }
@@ -279,15 +287,9 @@ final class ClanBattleService implements Listener {
     }
 
     private void announceResults(ClanBattleStore.CompletedView completed) {
-        PlayerBroadcast.broadcast(settings,
-                PlayerSettingsStore.Setting.CLAN_BATTLE_ANNOUNCEMENTS, prefix().append(Component.text(
-                completed.kind().displayName() + " has ended!", GOLD, TextDecoration.BOLD
-        )));
+        announce("messages.clanbattle.ended", "battle", completed.kind().displayName());
         if (completed.winners().isEmpty()) {
-            PlayerBroadcast.broadcast(settings,
-                PlayerSettingsStore.Setting.CLAN_BATTLE_ANNOUNCEMENTS, prefix().append(Component.text(
-                    "No clan recorded an opening, so no rewards were awarded.", NamedTextColor.GRAY
-            )));
+            announce("messages.clanbattle.no-winner");
             return;
         }
         for (ClanBattleStore.Standing winner : completed.winners()) {

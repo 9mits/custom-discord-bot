@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Shop is building and convenience. Sell is Donut-style bulk farming.
@@ -158,6 +159,54 @@ final class ShopCatalog {
         }
     }
 
+    /**
+     * The owner's edits laid over the compiled catalogue.
+     *
+     * <p>The 251 offers stay in code because they are the shop's shape; this is what an
+     * owner has since changed about it — items added, items taken off the shelf, prices
+     * overridden. Read at point of use like every other live value, so an edit reaches
+     * the next player to open the menu rather than the next restart.
+     */
+    private static volatile java.util.function.Supplier<ShopOverlay> overlay =
+            () -> ShopOverlay.EMPTY;
+
+    /** Added and repriced offers, plus the materials taken off the shelf. */
+    record ShopOverlay(Map<String, Offer> edits, Map<String, Category> shelves, Set<String> removed) {
+        static final ShopOverlay EMPTY = new ShopOverlay(Map.of(), Map.of(), Set.of());
+    }
+
+    static void overlaySource(java.util.function.Supplier<ShopOverlay> source) {
+        if (source != null) {
+            overlay = source;
+        }
+    }
+
+    /** Whether the compiled catalogue lists this material, ignoring any owner edits. */
+    static boolean isBuiltIn(String material) {
+        return material != null
+                && BUY_BY_MATERIAL.containsKey(material.toUpperCase(Locale.ROOT));
+    }
+
+    /** The catalogue's own offers for a shelf, with the owner's edits applied. */
+    private static List<Offer> shelf(Category category) {
+        ShopOverlay live = overlay.get();
+        List<Offer> base = new ArrayList<>();
+        for (Offer offer : BY_CATEGORY.getOrDefault(category, List.of())) {
+            if (live.removed().contains(offer.material())) {
+                continue;
+            }
+            Offer edited = live.edits().get(offer.material());
+            base.add(edited == null ? offer : edited);
+        }
+        // Offers the owner added to this shelf that the catalogue never had.
+        live.edits().forEach((material, offer) -> {
+            if (!isBuiltIn(material) && live.shelves().get(material) == category) {
+                base.add(offer);
+            }
+        });
+        return base;
+    }
+
     private static long scale(long price, int percent) {
         // Never free and never negative: a shelf set to 0% would hand out stacks rather
         // than close, which is not what setting a price to nothing should mean.
@@ -178,7 +227,7 @@ final class ShopCatalog {
     static List<Offer> offers(Category category) {
         int percent = buyPercent(category);
         List<Offer> priced = new ArrayList<>();
-        for (Offer offer : BY_CATEGORY.getOrDefault(category, List.of())) {
+        for (Offer offer : shelf(category)) {
             priced.add(percent == 100
                     ? offer
                     : new Offer(offer.material(), offer.amount(), scale(offer.price(), percent)));
@@ -188,6 +237,10 @@ final class ShopCatalog {
 
     /** The shelf an item is sold from, so a buy price can be scaled by its own category. */
     private static Category categoryOf(String material) {
+        Category added = overlay.get().shelves().get(material);
+        if (added != null) {
+            return added;
+        }
         for (Map.Entry<Category, List<Offer>> shelf : BY_CATEGORY.entrySet()) {
             for (Offer offer : shelf.getValue()) {
                 if (offer.material().equals(material)) {
@@ -202,7 +255,13 @@ final class ShopCatalog {
         if (material == null || material.isBlank()) {
             return Optional.empty();
         }
-        Offer listed = BUY_BY_MATERIAL.get(material.toUpperCase(Locale.ROOT));
+        String name = material.toUpperCase(Locale.ROOT);
+        ShopOverlay live = overlay.get();
+        if (live.removed().contains(name)) {
+            // Taken off the shelf, so it cannot be bought by name either.
+            return Optional.empty();
+        }
+        Offer listed = live.edits().getOrDefault(name, BUY_BY_MATERIAL.get(name));
         if (listed == null) {
             return Optional.empty();
         }
@@ -243,7 +302,9 @@ final class ShopCatalog {
 
     static List<Offer> allOffers() {
         List<Offer> all = new ArrayList<>();
-        BY_CATEGORY.values().forEach(all::addAll);
+        for (Category category : Category.values()) {
+            all.addAll(shelf(category));
+        }
         return all;
     }
 

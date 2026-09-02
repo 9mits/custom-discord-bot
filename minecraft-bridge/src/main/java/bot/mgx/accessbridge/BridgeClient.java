@@ -710,10 +710,28 @@ final class BridgeClient implements WebSocket.Listener, AutoCloseable {
             case "restore_loot":
                 catalog.restoreLoot(optionalString(payload, "material"));
                 return "Put that material back into the Airdrop loot table.";
+            case "set_shop_offer": {
+                CustomCatalogStore.ShopEdit edit = catalog.setShopOffer(
+                        optionalString(payload, "material"),
+                        optionalString(payload, "category"),
+                        intOr(payload, "amount", 1),
+                        intOr(payload, "price", 1)
+                );
+                return (ShopCatalog.isBuiltIn(edit.material()) ? "Repriced " : "Added ")
+                        + edit.material() + " at " + edit.price() + " for "
+                        + edit.amount() + ".";
+            }
+            case "remove_shop_offer":
+                catalog.removeShopOffer(optionalString(payload, "material"));
+                return "Took that item off the shop shelf.";
+            case "restore_shop_offer":
+                catalog.restoreShopOffer(optionalString(payload, "material"));
+                return "Put that item back at its catalogue price.";
             default:
                 throw new IllegalArgumentException(
-                        "Use add_reward, remove_reward, restore_reward, add_loot, remove_loot"
-                                + " or restore_loot."
+                        "Use add_reward, remove_reward, restore_reward, add_loot, remove_loot,"
+                                + " restore_loot, set_shop_offer, remove_shop_offer or"
+                                + " restore_shop_offer."
                 );
         }
     }

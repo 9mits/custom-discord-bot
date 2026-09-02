@@ -295,6 +295,7 @@
     statDays: 30,
     statMetrics: [],
     statSeries: {},
+    shopShelf: null,
     announce: null,
     announceResult: null,
     announceDraft: {title: "", description: "", colour: "f06000", footer: "", image: ""},
@@ -1105,6 +1106,18 @@
     var material = String(byId("con-add-material").value || "").trim().toUpperCase()
       .replace(/ /g, "_");
     if (!material) { toast("Pick an item first.", true); return; }
+    if (context.shop) {
+      // The shop dialog has no reward name or weight; it is an item, a shelf and a price.
+      byId("con-add").hidden = true;
+      state.adding = null;
+      catalogCall("set_shop_offer", {
+        material: material,
+        category: byId("con-add-category").value,
+        amount: Number(byId("con-add-amount").value || 1),
+        price: Number(byId("con-add-min").value || 1)
+      });
+      return;
+    }
     var name = String(byId("con-add-name").value || "").trim() || titleCase(material);
     var weight = weightForShare(context.table, chosenShare());
     var payload;
@@ -1231,6 +1244,71 @@
     });
   }
 
+  /**
+   * The shop, item by item.
+   *
+   * <p>The 251 offers stay compiled into the plugin because they are the shop's shape.
+   * What an owner changes about it — a price, an amount, an item added or taken off the
+   * shelf — is an overlay, so this shows the whole shelf as a player would see it and
+   * marks which rows have been touched.
+   */
+  function shopEditor() {
+    var shelves = (state.catalog || {}).shop_shelves || [];
+    if (!shelves.length) return "";
+    var removed = (state.catalog || {}).shop_removed || [];
+    var open = state.shopShelf || shelves[0].id;
+    var rail = shelves.map(function (shelf) {
+      return '<button type="button" data-shelf="' + escapeHtml(shelf.id) + '" aria-pressed="' +
+        (shelf.id === open ? "true" : "false") + '">' + escapeHtml(shelf.label) +
+        '<span class="con-count">' + (shelf.offers || []).length + "</span></button>";
+    }).join("");
+    var shelf = shelves.filter(function (row) { return row.id === open; })[0] || shelves[0];
+    var body = (shelf.offers || []).map(function (offer) {
+      return '<tr class="' + (offer.edited ? "dirty" : "") + '">' +
+        '<td><div class="con-entry">' + itemIcon(offer.material) + "<span>" +
+        escapeHtml(titleCase(offer.material)) +
+        (offer.edited ? '<em class="con-tag con-added">edited</em>' : "") +
+        (offer.built_in ? "" : '<em class="con-tag con-added">added</em>') +
+        "</span></div></td>" +
+        '<td class="con-num"><input class="con-number tight" type="number" min="1" max="64" ' +
+        'data-shop-amount="' + escapeHtml(offer.material) + '" value="' +
+        escapeHtml(offer.amount) + '"></td>' +
+        '<td class="con-num"><input class="con-number" type="number" min="1" ' +
+        'data-shop-price="' + escapeHtml(offer.material) + '" value="' +
+        escapeHtml(offer.price) + '"></td>' +
+        '<td class="con-num"><button type="button" class="con-remove" data-shop-remove="' +
+        escapeHtml(offer.material) + '" title="Take off the shelf">&times;</button>' +
+        (offer.edited || !offer.built_in
+          ? '<button type="button" class="con-move shown" data-shop-restore="' +
+            escapeHtml(offer.material) + '">reset</button>'
+          : "") + "</td></tr>";
+    }).join("");
+    var back = removed.length
+      ? '<div class="con-removed">Off the shelf: ' + removed.map(function (material) {
+          return '<button type="button" class="con-chip" data-shop-restore="' +
+            escapeHtml(material) + '">' + escapeHtml(titleCase(material)) +
+            " &#8635;</button>";
+        }).join("") + "</div>"
+      : "";
+    return '<section class="con-table"><header><div><h3>Every item on sale</h3>' +
+      "<p>Prices here are what a player pays, after the percentages above. Changing one " +
+      "overrides the catalogue for that item only.</p></div>" +
+      '<div class="con-table-actions">' +
+      '<button type="button" class="con-secondary" id="con-shop-add">Add an item</button>' +
+      "</div></header>" +
+      '<div class="con-category-rail">' + rail + "</div>" + back +
+      '<div class="con-table-scroll"><table><thead><tr><th>Item</th>' +
+      '<th class="con-num">Amount</th><th class="con-num">Price</th>' +
+      '<th class="con-num"></th></tr></thead><tbody>' + body + "</tbody></table></div>" +
+      '<p class="con-table-note">An edit applies to the next player who opens the shop. ' +
+      "Reset puts a built-in item back at its catalogue price.</p></section>";
+  }
+
+  function itemIcon(material) {
+    return '<img class="con-icon" src="/assets/minecraft-items/' +
+      escapeHtml(String(material).toLowerCase()) + '.png" alt="" loading="lazy">';
+  }
+
   function renderGroupPage(group) {
     var rows = groupRows(group);
     var intro = PAGE_INTROS[group]
@@ -1285,7 +1363,7 @@
         '<div class="con-grid">' + sections[heading].join("") + "</div></section>";
     }).join("");
 
-    return intro + editors + singleHtml;
+    return intro + editors + (group === "shop" ? shopEditor() : "") + singleHtml;
   }
 
   /** A task, opened. Shows only what bears on it, each explained. */
@@ -2179,6 +2257,10 @@
 
     byId("con-page").addEventListener("change", function (event) {
       var target = event.target;
+      if (target.dataset.shopPrice !== undefined || target.dataset.shopAmount !== undefined) {
+        saveShopOffer(target.dataset.shopPrice || target.dataset.shopAmount);
+        return;
+      }
       if (target.dataset.announceToggle !== undefined) {
         post("/api/announce", {enabled: target.checked})
           .then(loadAnnounce)
@@ -2226,6 +2308,13 @@
       var run = event.target.closest("[data-run]");
       if (run) { runAction(run.dataset.run); return; }
       if (event.target.id === "con-announce-send") { sendAnnouncement(); return; }
+      var shelf = event.target.closest("[data-shelf]");
+      if (shelf) { state.shopShelf = shelf.dataset.shelf; render(); return; }
+      var shopOut = event.target.closest("[data-shop-remove]");
+      if (shopOut) { removeShopOffer(shopOut.dataset.shopRemove); return; }
+      var shopBack = event.target.closest("[data-shop-restore]");
+      if (shopBack) { catalogCall("restore_shop_offer", {material: shopBack.dataset.shopRestore}); return; }
+      if (event.target.id === "con-shop-add") { openShopDialog(); return; }
       var metric = event.target.closest("[data-metric]");
       if (metric) {
         var name = metric.dataset.metric;
@@ -2412,6 +2501,80 @@
   }
 
   /* ---------- boot ---------- */
+
+  /** One catalogue operation, then a reload so the page shows what the server did. */
+  async function catalogCall(operation, payload) {
+    try {
+      var answer = await post("/api/catalog",
+        Object.assign({operation: operation}, payload));
+      toast(answer.message || "Done.", false);
+      await loadSettings();
+      render();
+    } catch (error) {
+      toast(error.message, true);
+    }
+  }
+
+  function shopRowOf(material) {
+    var shelves = (state.catalog || {}).shop_shelves || [];
+    for (var i = 0; i < shelves.length; i++) {
+      var found = (shelves[i].offers || []).filter(function (offer) {
+        return offer.material === material;
+      })[0];
+      if (found) return {offer: found, shelf: shelves[i].id};
+    }
+    return null;
+  }
+
+  function saveShopOffer(material) {
+    var found = shopRowOf(material);
+    if (!found) return;
+    var page = byId("con-page");
+    var price = page.querySelector('[data-shop-price="' + material + '"]');
+    var amount = page.querySelector('[data-shop-amount="' + material + '"]');
+    catalogCall("set_shop_offer", {
+      material: material,
+      category: found.shelf,
+      amount: Number(amount ? amount.value : found.offer.amount),
+      price: Number(price ? price.value : found.offer.price)
+    });
+  }
+
+  async function removeShopOffer(material) {
+    if (!await confirmThat(
+      "Take " + titleCase(material) + " off the shelf?",
+      "Players will no longer be able to buy it. A built-in item can be put back at its "
+      + "catalogue price afterwards.",
+      "Take it off"
+    )) return;
+    catalogCall("remove_shop_offer", {material: material});
+  }
+
+  function openShopDialog() {
+    var shelves = (state.catalog || {}).shop_shelves || [];
+    var open = state.shopShelf || (shelves[0] || {}).id;
+    byId("con-add-title").textContent = "Add an item to the shop";
+    byId("con-add-body").innerHTML =
+      '<label class="con-field"><span>Item</span>' + materialPicker() +
+      "<em>Anything the server can hand a player.</em></label>" +
+      '<div class="con-field-row">' +
+      '<label class="con-field"><span>Shelf</span>' +
+      '<select class="con-choice" id="con-add-category">' + shelves.map(function (shelf) {
+        return '<option value="' + escapeHtml(shelf.id) + '"' +
+          (shelf.id === open ? " selected" : "") + ">" + escapeHtml(shelf.label) + "</option>";
+      }).join("") + "</select></label>" +
+      '<label class="con-field"><span>How many</span>' +
+      '<input class="con-number" id="con-add-amount" type="number" min="1" max="64" value="1">' +
+      "</label>" +
+      '<label class="con-field"><span>Price</span>' +
+      '<input class="con-number" id="con-add-min" type="number" min="1" value="100">' +
+      "</label></div>" +
+      '<p class="con-help">The price is what a player pays before the shelf percentage ' +
+      "above is applied.</p>";
+    state.adding = {shop: true};
+    byId("con-add").hidden = false;
+    window.setTimeout(function () { byId("con-add-material").focus(); }, 30);
+  }
 
   async function loadAnnounce() {
     try {
