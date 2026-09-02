@@ -1484,6 +1484,77 @@
       "</em></button>";
   }
 
+  /**
+   * What moved, without being asked.
+   *
+   * <p>Spotting that the economy doubled or that airdrop claims stopped is the actual
+   * job, and until now it meant going and looking. These are computed from the same
+   * series the charts use: a large move over the window, or a counter that has stopped
+   * moving at all. Deliberately few and deliberately dull — a noticeboard that cries
+   * wolf gets ignored, which is worse than not having one.
+   */
+  function noticeboard() {
+    var series = state.statSeries || {};
+    var names = Object.keys(series);
+    if (!names.length) return "";
+    var notes = [];
+    names.forEach(function (name) {
+      var points = series[name] || [];
+      if (points.length < 4) return;
+      var first = Number(points[0].value) || 0;
+      var last = Number(points[points.length - 1].value) || 0;
+      var label = metricLabel(name);
+      if (first > 0) {
+        var move = ((last - first) / first) * 100;
+        if (Math.abs(move) >= 25) {
+          notes.push({
+            tone: move > 0 ? "up" : "down",
+            text: label + " " + (move > 0 ? "rose" : "fell") + " " +
+              Math.abs(Math.round(move)) + "% over this window, " +
+              compactNumber(first) + " to " + compactNumber(last) + "."
+          });
+        }
+      }
+      // A counter that stopped is the quiet failure: nothing errors, the thing just
+      // stops happening. Only meaningful for counters, which never decrease.
+      var half = points.slice(Math.floor(points.length / 2));
+      var moved = half.some(function (point, index) {
+        return index > 0 && Number(point.value) !== Number(half[index - 1].value);
+      });
+      if (!moved && /opened|claimed|spawned|sales|completed/.test(name) && last > 0) {
+        notes.push({
+          tone: "down",
+          text: label + " has not moved in the second half of this window."
+        });
+      }
+    });
+    var concentration = economyConcentration();
+    if (concentration) notes.push(concentration);
+    if (!notes.length) return "";
+    return '<section class="con-section"><h3>Worth a look' +
+      '<span class="con-section-count">' + notes.length + "</span></h3>" +
+      '<div class="con-notices">' + notes.slice(0, 6).map(function (note) {
+        return '<p class="con-notice ' + note.tone + '">' + escapeHtml(note.text) + "</p>";
+      }).join("") + "</div></section>";
+  }
+
+  /** One player holding most of the money is worth saying out loud. */
+  function economyConcentration() {
+    var series = state.statSeries || {};
+    var total = (series["economy.total_balance"] || []).slice(-1)[0];
+    var richest = (series["economy.richest_balance"] || []).slice(-1)[0];
+    if (!total || !richest || !Number(total.value)) return null;
+    var share = (Number(richest.value) / Number(total.value)) * 100;
+    // One player cannot hold more than all of it. Above 100 means the two samples were
+    // taken at different moments or a counter reset, and reporting it as a finding is
+    // how a noticeboard stops being believed.
+    if (share < 30 || share > 100) return null;
+    return {
+      tone: "down",
+      text: "One player holds " + Math.round(share) + "% of all the money on the server."
+    };
+  }
+
   function renderOverview() {
     if (state.task) {
       var open = TASKS.filter(function (entry) { return entry.id === state.task; })[0];
@@ -1532,7 +1603,8 @@
       "the settings that bear on it and explains what they do, so you do not have to know " +
       "where anything lives. Or use the pages on the left to go straight to a value.</p>" +
       '<div class="con-tasks">' + TASKS.map(taskCard).join("") + "</div></section>";
-    return tasks + '<div class="con-stats">' + cards + "</div>" + changed + lag + history;
+    return noticeboard() + tasks + '<div class="con-stats">' + cards + "</div>" +
+      changed + lag + history;
   }
 
   function publishRow(publish) {
@@ -2372,12 +2444,34 @@
       (state.publishing ? "Publishing&hellip;" : "Publish") + "</button></div>";
   }
 
+  /**
+   * What a setting will mean once published, in the same words it means now.
+   *
+   * <p>meaning() already turns a value into a sentence — "a player online three hours a
+   * day earns about 6 keys". Running it against the live value and the drafted one turns
+   * the review from a list of numbers into a list of consequences, which is the question
+   * being asked at that moment: not what the number becomes, but what it does.
+   */
+  function meaningShift(row) {
+    var after = meaning(row);
+    var live = state.draft[row.key];
+    delete state.draft[row.key];
+    var before = meaning(row);
+    state.draft[row.key] = live;
+    if (!before || !after || before === after) {
+      return after ? '<em class="con-shift">' + escapeHtml(after) + "</em>" : "";
+    }
+    return '<em class="con-shift"><s>' + escapeHtml(before) + "</s> " +
+      escapeHtml(after) + "</em>";
+  }
+
   function renderPreview() {
     var pending = dirtyKeys();
     var body = pending.map(function (key) {
       var row = state.byKey[key];
       return "<li><div><strong>" + escapeHtml(row.label) + "</strong><span>" +
-        escapeHtml(row.group_label) + "</span></div><code>" +
+        escapeHtml(row.group_label) + "</span>" + meaningShift(row) +
+        "</div><code>" +
         escapeHtml(row.value) + " &rarr; " + escapeHtml(draftedValue(key)) + "</code></li>";
     }).join("");
     byId("con-preview-body").innerHTML =
@@ -2400,6 +2494,9 @@
     }
     if (state.page === "overview") {
       main.innerHTML = banner + renderOverview();
+      // The noticeboard reads the same series the charts do; fetch them once so the
+      // overview can say what moved without being opened twice.
+      if (state.stats === null) loadStatistics();
     } else if (state.page === "actions") {
       main.innerHTML = banner + renderActions() +
         '<datalist id="con-online">' + state.online.map(function (name) {
@@ -3053,7 +3150,8 @@
     } catch (error) {
       state.stats = {error: error.message};
     }
-    if (state.page === "statistics") render();
+    // Overview reads the same series for its noticeboard, so both pages care.
+    if (state.page === "statistics" || state.page === "overview") render();
     // The charts are a second request: the overview is what the page needs to appear,
     // and a wide metric selection can be several queries behind it.
     if (state.stats && !state.stats.error) {
@@ -3082,7 +3180,8 @@
     } catch (error) {
       wanted.forEach(function (name) { state.statSeries[name] = []; });
     }
-    if (state.page === "statistics") render();
+    // Overview reads the same series for its noticeboard, so both pages care.
+    if (state.page === "statistics" || state.page === "overview") render();
   }
 
   async function loadSettings() {

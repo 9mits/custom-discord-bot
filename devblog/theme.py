@@ -1787,6 +1787,16 @@ body.cx .theme-switch button[aria-checked="true"] { background: var(--brand-oran
 .con-preset span { font-size: .72rem; color: var(--grey); }
 .con-preset .con-table-actions { margin-left: auto; margin-top: 0; }
 
+/* ---------- noticeboard ---------- */
+.con-notices { display: flex; flex-direction: column; gap: .4rem; }
+.con-notice {
+  font-size: .8rem; padding: .5rem .7rem; border-radius: .4rem;
+  border: 1px solid var(--line); border-left-width: 3px; background: var(--surface);
+  color: var(--text-muted);
+}
+.con-notice.up { border-left-color: var(--green); }
+.con-notice.down { border-left-color: var(--amber); }
+
 /* ---------- statistics charts ---------- */
 .con-chart-grid {
   display: grid; gap: .75rem; grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
@@ -1964,6 +1974,9 @@ body.cx .theme-switch button[aria-checked="true"] { background: var(--brand-oran
 .con-preview-list li > div { display: flex; flex-direction: column; min-width: 0; }
 .con-preview-list strong { color: var(--ink); font-weight: 600; }
 .con-preview-list span { color: var(--grey); font-size: .72rem; }
+/* The consequence, not the number: struck-through is what it means today. */
+.con-shift { display: block; font-style: normal; font-size: .72rem; color: var(--ink); margin-top: .15rem; }
+.con-shift s { color: var(--grey); text-decoration-color: var(--line-strong); }
 .con-preview-list code {
   margin-left: auto; font-family: var(--mono); font-size: .74rem; color: var(--ink);
   background: var(--surface-raised); border-radius: .3rem; padding: .1rem .4rem; white-space: nowrap;
