@@ -113,6 +113,7 @@ final class GameVariableStore {
         defineFinalValues();
         defineMessages();
         defineMoreMessages();
+        defineVerificationMessages();
         defineOnlineRewards();
         defineEventRewards(config);
         defineCrateRewards();
@@ -685,6 +686,29 @@ final class GameVariableStore {
                 "Clan battle with no winner",
                 "Server-wide when a battle ends with nobody having scored.",
                 "<gray>No clan recorded an opening, so no rewards were awarded.</gray>");
+    }
+
+    private void defineVerificationMessages() {
+        message("messages.verify.step-one",
+                "Verification step one",
+                "The line a new player reads in the verification room, telling them what to type.",
+                "<gold><bold>STEP 1 OF 2 \u2022 </bold></gold><yellow>/verify <Discord username></yellow>");
+        message("messages.verify.step-one-chat",
+                "Verification step one, in chat",
+                "The same instruction in chat, where it stays readable after the action bar fades.",
+                "<yellow>Step 1 of 2: type /verify <your Discord username></yellow>");
+        message("messages.verify.step-two",
+                "Verification step two",
+                "Shown once the request is sent and the player is waiting on their Discord DM.",
+                "<gold><bold>STEP 2 OF 2 \u2022 </bold></gold><yellow>Open newest DM \u2192 Yes, This Is Me</yellow>");
+        message("messages.bounty.claimed",
+                "Bounty claimed",
+                "The claimer's message. <amount> is what they were paid.",
+                "<green>Bounty claimed \u2022 +<amount></green>");
+        message("messages.bounty.taken",
+                "Bounty taken from you",
+                "Shown to the player whose bounty was collected. <player> is who claimed it.",
+                "<red>Your bounty was claimed by <player>.</red>");
     }
 
     private void message(String key, String label, String description, String value) {
