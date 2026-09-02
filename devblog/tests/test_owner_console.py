@@ -350,6 +350,32 @@ class ConsoleStyling(unittest.TestCase):
         )
         self.assertEqual([], missing, "classes the console draws but nothing styles: %s" % missing)
 
+    #: Classes that name the application shell itself. control.md builds these once and
+    #: the stylesheet sizes them; nothing the console draws into the page may reuse one.
+    SHELL_ONLY = {
+        "con-shell", "con-rail", "con-main", "con-head", "con-head-title", "con-draftbar",
+    }
+
+    def test_the_shell_class_names_are_not_reused_for_content(self):
+        """A shell class reused for content silently resizes the shell.
+
+        `.con-head` is the console's page header. Naming a 1.1rem player avatar the same
+        thing gave the header `width: 1.1rem`, which clamped to its own padding: a 48px
+        grey block where the page title belonged, and no room for the title itself. The
+        page still rendered, so nothing failed — it just looked broken.
+        """
+        emitted = set(re.findall(r'class="([^"]*con-[^"]*)"', CONSOLE_JS))
+        names = {
+            re.match(r"[a-z0-9-]+", name).group(0)
+            for group in emitted for name in group.split()
+            if name.startswith("con-")
+        }
+        clashes = sorted(names & self.SHELL_ONLY)
+        self.assertEqual(
+            [], clashes,
+            "the console draws content using shell class name(s): %s" % clashes,
+        )
+
     def test_every_boss_bar_colour_has_a_swatch(self):
         # The choices come from the plugin; the swatch is the only thing that shows
         # which colour a name means.

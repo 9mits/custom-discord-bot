@@ -1294,16 +1294,35 @@ body.cx .theme-switch button[aria-checked="true"] { background: var(--brand-oran
 .con-head {
   position: sticky; top: 0; z-index: 20; flex: none;
   display: flex; align-items: center; gap: 1rem;
-  height: 3.25rem; padding: 0 1.5rem;
+  /* min-height, not height: a hard height clipped the title instead of letting the
+     row grow, so an overflow became invisible text rather than a visible squeeze. */
+  min-height: 3.25rem; padding: 0 1.5rem;
   background: color-mix(in srgb, var(--page-bg) 88%, transparent);
   backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--line);
 }
-.con-head h2 { font-family: "Outfit", var(--ui); font-size: 1.05rem; font-weight: 700; }
-.con-head .cx-crumb { font-size: .78rem; color: var(--grey); }
+.con-head h2 {
+  font-family: "Outfit", var(--ui); font-size: 1.05rem; font-weight: 700;
+  /* The title truncates rather than wrapping: a flex item with no basis will happily
+     shrink to one character per line and disappear behind whatever crowded it. */
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+.con-head .cx-crumb { font-size: .78rem; color: var(--grey); white-space: nowrap; flex: none; }
 .con-head .cx-crumb::after { content: "/"; margin: 0 .45rem; color: var(--line-strong); }
-.con-head-title { display: flex; align-items: baseline; gap: 0; min-width: 0; }
-.cx-top-right { margin-left: auto; display: flex; align-items: center; gap: .6rem; }
+.con-head-title {
+  /* No overflow:hidden here — it makes this a separate paint context, which stops it
+     inheriting the header's backdrop blur and leaves a darker rectangle behind the
+     title. The h2 truncates itself, so the container does not need to. */
+  display: flex; align-items: baseline; gap: 0;
+  /* A floor, not min-width: 0. Which page you are on is the header's whole job, so the
+     search box gives up room first — with no floor the title shrank to nothing and the
+     header read as empty. */
+  flex: 1 1 auto; min-width: 8rem;
+}
+.cx-top-right {
+  margin-left: auto; display: flex; align-items: center; gap: .6rem;
+  flex: 0 1 auto; min-width: 0;
+}
 .cx-search { position: relative; display: flex; align-items: center; }
 .cx-search kbd {
   position: absolute; right: .4rem; pointer-events: none;
@@ -1313,7 +1332,9 @@ body.cx .theme-switch button[aria-checked="true"] { background: var(--brand-oran
 }
 .cx-search:focus-within kbd { display: none; }
 #con-search {
-  width: 19rem; height: 1.9rem; padding: 0 1.7rem 0 .6rem;
+  /* Shrinkable: at 19rem fixed it pushed the page title out of the header entirely. */
+  width: 19rem; min-width: 6rem; max-width: 100%;
+  height: 1.9rem; padding: 0 1.7rem 0 .6rem;
   border: 1px solid var(--line); border-radius: .4rem;
   background: var(--surface); color: var(--ink); font: inherit; font-size: .8rem;
 }
@@ -1826,12 +1847,15 @@ body.cx .theme-switch button[aria-checked="true"] { background: var(--brand-oran
 .con-board li b {
   margin-left: auto; color: var(--ink); font-variant-numeric: tabular-nums; font-weight: 650;
 }
-.con-head {
+/* Not .con-head: that is the console's own page header, and naming a 1.1rem avatar the
+   same thing sized the header to 1.1rem too, which clamped to its padding and left a
+   48px grey block where the page title should have been. */
+.con-avatar {
   width: 1.1rem; height: 1.1rem; border-radius: .2rem; image-rendering: pixelated;
   flex: none; background: var(--surface-raised);
 }
-/* A head that will not load becomes a quiet square rather than a broken-image glyph. */
-.con-head.missing { visibility: hidden; }
+/* An avatar that will not load becomes a quiet square rather than a broken-image glyph. */
+.con-avatar.missing { visibility: hidden; }
 
 /* ---------- statistics heatmap ---------- */
 /* Fixed layout, or auto-sizing hands the slack to the weekday column and squashes the
@@ -1976,6 +2000,11 @@ body.cx #control-lock p { font-size: .82rem; margin-bottom: 1.25rem; }
   text-underline-offset: 2px;
 }
 #owner-logout:hover { color: var(--ink); }
+
+/* The site name is context, not identity — it goes before the title is squeezed. */
+@media (max-width: 1200px) {
+  .con-head .cx-crumb { display: none; }
+}
 
 @media (max-width: 900px) {
   body.cx { height: auto; overflow: auto; }

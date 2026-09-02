@@ -1713,7 +1713,7 @@
   }
 
   function head(url) {
-    return '<img class="con-head" src="' + escapeHtml(url || STEVE_HEAD) +
+    return '<img class="con-avatar" src="' + escapeHtml(url || STEVE_HEAD) +
       '" alt="" loading="lazy">';
   }
 
@@ -2310,7 +2310,7 @@
 
     byId("con-page").addEventListener("error", function (event) {
       var image = event.target;
-      if (!image || !image.classList || !image.classList.contains("con-head")) return;
+      if (!image || !image.classList || !image.classList.contains("con-avatar")) return;
       if (image.src !== STEVE_HEAD) {
         image.src = STEVE_HEAD;
         return;
