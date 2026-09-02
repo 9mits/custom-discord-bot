@@ -112,6 +112,7 @@ final class GameVariableStore {
         defineTeleportAndBounty();
         defineFinalValues();
         defineMessages();
+        defineMoreMessages();
         defineOnlineRewards();
         defineEventRewards(config);
         defineCrateRewards();
@@ -657,6 +658,33 @@ final class GameVariableStore {
                 "Airdrop disturbed broadcast",
                 "Shown when an Airdrop is removed because its chest was interfered with.",
                 "<white>The Amethyst Airdrop vanished after its chest was disturbed.</white>");
+    }
+
+    private void defineMoreMessages() {
+        message("messages.clanbattle.started",
+                "Clan battle started",
+                "Server-wide when a clan battle begins. <battle> and <objective> are filled in.",
+                "<gold><bold><battle></bold></gold><white> has begun! </white><yellow><objective></yellow>");
+        message("messages.clanbattle.ends-in",
+                "Clan battle time remaining",
+                "The countdown line that follows the start announcement. <remaining> is the time left.",
+                "<yellow>Ends in <remaining>.</yellow>");
+        message("messages.clanbattle.warning",
+                "Clan battle ending soon",
+                "Server-wide at each countdown milestone. <battle> and <remaining> are filled in.",
+                "<gold><bold><battle></bold></gold><white> ends in </white><yellow><bold><remaining></bold></yellow><white>!</white>");
+        message("messages.clanbattle.cancelled",
+                "Clan battle cancelled",
+                "Server-wide when a battle is called off. <battle> is its name.",
+                "<gray><battle> was cancelled. No rewards were awarded.</gray>");
+        message("messages.clanbattle.ended",
+                "Clan battle ended",
+                "Server-wide when a battle finishes. <battle> is its name.",
+                "<gold><bold><battle> has ended!</bold></gold>");
+        message("messages.clanbattle.no-winner",
+                "Clan battle with no winner",
+                "Server-wide when a battle ends with nobody having scored.",
+                "<gray>No clan recorded an opening, so no rewards were awarded.</gray>");
     }
 
     private void message(String key, String label, String description, String value) {

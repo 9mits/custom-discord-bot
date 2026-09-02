@@ -29,7 +29,9 @@ import org.geysermc.floodgate.api.player.FloodgatePlayer;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -227,6 +229,39 @@ public final class MGXAccessBridge extends JavaPlugin implements Listener {
             // give form offers is current rather than whatever it was at startup.
             gameVariables.actionCatalogue(adminActions.snapshot());
             ShopCatalog.multiplierSource(key -> gameVariables.integer(key));
+            // The compiled catalogue is the shop's shape; this is what the owner has
+            // since changed about it. Read at point of use, so an edit reaches the next
+            // player to open the menu rather than the next restart.
+            // An added cosmetic wears a built-in effect; the catalogue needs both the
+            // definition and which effect it borrows.
+            CosmeticCatalog.additionSource(() -> {
+                Map<CosmeticCatalog.Definition, String> added = new LinkedHashMap<>();
+                for (CustomCatalogStore.CosmeticAddition row : customCatalog.addedCosmetics()) {
+                    CosmeticCatalog.Definition worn =
+                            CosmeticCatalog.find(row.wearsEffect()).orElse(null);
+                    if (worn == null) {
+                        continue;
+                    }
+                    added.put(new CosmeticCatalog.Definition(
+                            row.id(), row.displayName(),
+                            CosmeticCatalog.Category.valueOf(row.category()),
+                            row.weight(), false, worn.materialName(), worn.modelKey(),
+                            row.description(), 0
+                    ), row.wearsEffect());
+                }
+                return added;
+            });
+            ShopCatalog.overlaySource(() -> {
+                Map<String, ShopCatalog.Offer> edits = new LinkedHashMap<>();
+                Map<String, ShopCatalog.Category> shelves = new LinkedHashMap<>();
+                customCatalog.shopEdits().forEach((material, edit) -> {
+                    edits.put(material, new ShopCatalog.Offer(
+                            edit.material(), edit.amount(), edit.price()));
+                    shelves.put(material, ShopCatalog.Category.valueOf(edit.category()));
+                });
+                return new ShopCatalog.ShopOverlay(
+                        edits, shelves, customCatalog.disabledShopOffers());
+            });
             // One reader for every tuning value that is a fraction rather than a count.
             java.util.function.ToDoubleFunction<String> tuning = key ->
                     gameVariables.find(key).map(definition ->

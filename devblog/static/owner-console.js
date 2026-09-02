@@ -21,6 +21,8 @@
     {id: "announce", label: "Update notice", group: "Operate"},
     {id: "auction", label: "Live listings", group: "Operate"},
     {id: "history", label: "Change history", group: "Operate"},
+    {id: "schedule_actions", label: "Scheduled", group: "Operate"},
+    {id: "presets", label: "Presets & backup", group: "Operate"},
 
     {id: "crates", label: "Crates", group: "Rewards"},
     {id: "crate_balance", label: "Crate balance", group: "Rewards"},
@@ -295,6 +297,9 @@
     statDays: 30,
     statMetrics: [],
     statSeries: {},
+    shopShelf: null,
+    presets: null,
+    schedule: null,
     announce: null,
     announceResult: null,
     announceDraft: {title: "", description: "", colour: "f06000", footer: "", image: ""},
@@ -1104,7 +1109,40 @@
     if (!context) return;
     var material = String(byId("con-add-material").value || "").trim().toUpperCase()
       .replace(/ /g, "_");
-    if (!material) { toast("Pick an item first.", true); return; }
+    if (!material) {
+      toast(context.cosmetic ? "Give it an identifier first." : "Pick an item first.", true);
+      return;
+    }
+    if (context.cosmetic) {
+      var effect = byId("con-add-category").value;
+      var effects = (state.catalog || {}).cosmetic_effects || [];
+      var worn = effects.filter(function (e) { return e.id === effect; })[0];
+      byId("con-add").hidden = true;
+      state.adding = null;
+      catalogCall("add_cosmetic", {
+        id: String(byId("con-add-material").value || "").trim().toLowerCase()
+          .replace(/ /g, "_"),
+        display_name: String(byId("con-add-name").value || "").trim(),
+        // The category follows the effect it wears: a trail cannot be worn as an aura.
+        category: worn ? worn.category : "AURA",
+        weight: Number(byId("con-add-amount").value || 100),
+        wears_effect: effect,
+        description: ""
+      });
+      return;
+    }
+    if (context.shop) {
+      // The shop dialog has no reward name or weight; it is an item, a shelf and a price.
+      byId("con-add").hidden = true;
+      state.adding = null;
+      catalogCall("set_shop_offer", {
+        material: material,
+        category: byId("con-add-category").value,
+        amount: Number(byId("con-add-amount").value || 1),
+        price: Number(byId("con-add-min").value || 1)
+      });
+      return;
+    }
     var name = String(byId("con-add-name").value || "").trim() || titleCase(material);
     var weight = weightForShare(context.table, chosenShare());
     var payload;
@@ -1231,6 +1269,134 @@
     });
   }
 
+  /**
+   * The shop, item by item.
+   *
+   * <p>The 251 offers stay compiled into the plugin because they are the shop's shape.
+   * What an owner changes about it — a price, an amount, an item added or taken off the
+   * shelf — is an overlay, so this shows the whole shelf as a player would see it and
+   * marks which rows have been touched.
+   */
+  function shopEditor() {
+    var shelves = (state.catalog || {}).shop_shelves || [];
+    if (!shelves.length) return "";
+    var removed = (state.catalog || {}).shop_removed || [];
+    var open = state.shopShelf || shelves[0].id;
+    var rail = shelves.map(function (shelf) {
+      return '<button type="button" data-shelf="' + escapeHtml(shelf.id) + '" aria-pressed="' +
+        (shelf.id === open ? "true" : "false") + '">' + escapeHtml(shelf.label) +
+        '<span class="con-count">' + (shelf.offers || []).length + "</span></button>";
+    }).join("");
+    var shelf = shelves.filter(function (row) { return row.id === open; })[0] || shelves[0];
+    var body = (shelf.offers || []).map(function (offer) {
+      return '<tr class="' + (offer.edited ? "dirty" : "") + '">' +
+        '<td><div class="con-entry">' + itemIcon(offer.material) + "<span>" +
+        escapeHtml(titleCase(offer.material)) +
+        (offer.edited ? '<em class="con-tag con-added">edited</em>' : "") +
+        (offer.built_in ? "" : '<em class="con-tag con-added">added</em>') +
+        "</span></div></td>" +
+        '<td class="con-num"><input class="con-number tight" type="number" min="1" max="64" ' +
+        'data-shop-amount="' + escapeHtml(offer.material) + '" value="' +
+        escapeHtml(offer.amount) + '"></td>' +
+        '<td class="con-num"><input class="con-number" type="number" min="1" ' +
+        'data-shop-price="' + escapeHtml(offer.material) + '" value="' +
+        escapeHtml(offer.price) + '"></td>' +
+        '<td class="con-num"><button type="button" class="con-remove" data-shop-remove="' +
+        escapeHtml(offer.material) + '" title="Take off the shelf">&times;</button>' +
+        (offer.edited || !offer.built_in
+          ? '<button type="button" class="con-move shown" data-shop-restore="' +
+            escapeHtml(offer.material) + '">reset</button>'
+          : "") + "</td></tr>";
+    }).join("");
+    var back = removed.length
+      ? '<div class="con-removed">Off the shelf: ' + removed.map(function (material) {
+          return '<button type="button" class="con-chip" data-shop-restore="' +
+            escapeHtml(material) + '">' + escapeHtml(titleCase(material)) +
+            " &#8635;</button>";
+        }).join("") + "</div>"
+      : "";
+    return '<section class="con-table"><header><div><h3>Every item on sale</h3>' +
+      "<p>Prices here are what a player pays, after the percentages above. Changing one " +
+      "overrides the catalogue for that item only.</p></div>" +
+      '<div class="con-table-actions">' +
+      '<button type="button" class="con-secondary" id="con-shop-add">Add an item</button>' +
+      "</div></header>" +
+      '<div class="con-category-rail">' + rail + "</div>" + back +
+      '<div class="con-table-scroll"><table><thead><tr><th>Item</th>' +
+      '<th class="con-num">Amount</th><th class="con-num">Price</th>' +
+      '<th class="con-num"></th></tr></thead><tbody>' + body + "</tbody></table></div>" +
+      '<p class="con-table-note">An edit applies to the next player who opens the shop. ' +
+      "Reset puts a built-in item back at its catalogue price.</p></section>";
+  }
+
+  function itemIcon(material) {
+    return '<img class="con-icon" src="/assets/minecraft-items/' +
+      escapeHtml(String(material).toLowerCase()) + '.png" alt="" loading="lazy">';
+  }
+
+  /**
+   * Cosmetics an owner has added, and the effect each one wears.
+   *
+   * <p>A cosmetic's visual is dispatched by its id, so an invented one would be a name
+   * with nothing behind it. An added cosmetic therefore borrows an effect that already
+   * ships: it gets its own name, category, rarity and description, and it can go in a
+   * crate, but what a player sees is one of the existing effects. Genuinely new artwork
+   * still needs a build, which is stated rather than pretended away.
+   */
+  function cosmeticEditor() {
+    var catalog = state.catalog || {};
+    var effects = catalog.cosmetic_effects || [];
+    if (!effects.length) return "";
+    var added = catalog.cosmetics_added || [];
+    var rows = added.map(function (row) {
+      var worn = effects.filter(function (e) { return e.id === row.wears_effect; })[0];
+      return "<tr><td><strong>" + escapeHtml(row.display_name) + "</strong>" +
+        '<div class="con-muted">' + escapeHtml(row.id) + "</div></td>" +
+        "<td>" + escapeHtml(titleCase(row.category)) + "</td>" +
+        "<td>" + escapeHtml(worn ? worn.label : row.wears_effect) + "</td>" +
+        '<td class="con-num">' + escapeHtml(row.weight) + "</td>" +
+        '<td class="con-num"><button type="button" class="con-remove" ' +
+        'data-cosmetic-remove="' + escapeHtml(row.id) + '">&times;</button></td></tr>';
+    }).join("");
+    return '<section class="con-table"><header><div><h3>Cosmetics you added</h3>' +
+      "<p>An added cosmetic wears an effect that already ships. Its name, category, " +
+      "rarity and description are yours; the visual is borrowed. New artwork needs a " +
+      "build.</p></div><div class=\"con-table-actions\">" +
+      '<button type="button" class="con-secondary" id="con-cosmetic-add">Add a cosmetic</button>' +
+      "</div></header>" +
+      (rows
+        ? '<div class="con-table-scroll"><table><thead><tr><th>Cosmetic</th>' +
+          "<th>Category</th><th>Wears</th><th class=\"con-num\">Weight</th>" +
+          "<th class=\"con-num\"></th></tr></thead><tbody>" + rows + "</tbody></table></div>"
+        : '<p class="con-empty">You have not added any cosmetics.</p>') +
+      "</section>";
+  }
+
+  function openCosmeticDialog() {
+    var effects = (state.catalog || {}).cosmetic_effects || [];
+    byId("con-add-title").textContent = "Add a cosmetic";
+    byId("con-add-body").innerHTML =
+      '<div class="con-field-row">' +
+      '<label class="con-field"><span>Name players see</span>' +
+      '<input class="con-search-field" id="con-add-name" placeholder="Midnight Orbit"></label>' +
+      '<label class="con-field"><span>Identifier</span>' +
+      '<input class="con-search-field" id="con-add-material" placeholder="midnight_orbit"></label>' +
+      "</div>" +
+      '<label class="con-field"><span>Wears this effect</span>' +
+      '<select class="con-choice" id="con-add-category">' + effects.map(function (effect) {
+        return '<option value="' + escapeHtml(effect.id) + '">' +
+          escapeHtml(effect.label) + " (" + escapeHtml(titleCase(effect.category)) +
+          ")</option>";
+      }).join("") + "</select>" +
+      "<em>The visual is borrowed from this one; the category follows it.</em></label>" +
+      '<label class="con-field"><span>Rarity weight</span>' +
+      '<input class="con-number" id="con-add-amount" type="number" min="1" value="100">' +
+      "<em>Higher is more common, the same scale as a crate reward.</em></label>";
+    state.adding = {cosmetic: true};
+    byId("con-add").hidden = false;
+    window.setTimeout(function () { byId("con-add-name").focus(); }, 30);
+  }
+
   function renderGroupPage(group) {
     var rows = groupRows(group);
     var intro = PAGE_INTROS[group]
@@ -1285,7 +1451,10 @@
         '<div class="con-grid">' + sections[heading].join("") + "</div></section>";
     }).join("");
 
-    return intro + editors + singleHtml;
+    return intro + editors +
+      (group === "shop" ? shopEditor() : "") +
+      (group === "cosmetics" ? cosmeticEditor() : "") +
+      singleHtml;
   }
 
   /** A task, opened. Shows only what bears on it, each explained. */
@@ -1806,6 +1975,136 @@
       boardsSection(stats.leaderboards || {});
   }
 
+  /**
+   * Named setting sets, and a file you can keep.
+   *
+   * <p>Publish history undoes one mistake; it does not put everything back the way it
+   * was on Tuesday. A preset is that: the values that differ from default, saved under a
+   * name. Applying one *stages* it as a draft rather than writing it, so a preset goes
+   * through the same validation, review and audit trail as anything typed by hand — and
+   * so you see exactly what it would change before it changes.
+   */
+  function renderPresets() {
+    var presets = state.presets;
+    if (!presets) return '<p class="con-empty">Loading&hellip;</p>';
+    if (presets.error) {
+      return '<p class="con-empty">Presets are unavailable: ' +
+        escapeHtml(presets.error) + "</p>";
+    }
+    var changed = state.rows.filter(function (row) { return row.overridden; });
+    var list = (presets.list || []).map(function (preset) {
+      return '<article class="con-preset"><div><h4>' + escapeHtml(preset.name) + "</h4>" +
+        "<span>" + preset.count + " setting" + (preset.count === 1 ? "" : "s") +
+        (preset.saved_at
+          ? " &middot; saved " + new Date(preset.saved_at * 1000).toLocaleDateString()
+          : "") + "</span></div>" +
+        '<div class="con-table-actions">' +
+        '<button type="button" class="con-secondary" data-preset-apply="' +
+        escapeHtml(preset.name) + '">Stage it</button>' +
+        '<button type="button" class="con-remove" data-preset-delete="' +
+        escapeHtml(preset.name) + '">Delete</button></div></article>';
+    }).join("");
+
+    return '<p class="con-intro">A preset is the values that differ from default, saved ' +
+      "under a name. Applying one stages it as a draft, so you review and publish it like " +
+      "any other change &mdash; nothing is written behind your back.</p>" +
+      '<section class="con-section"><h3>Save what is set now' +
+      '<span class="con-section-count">' + changed.length + " changed</span></h3>" +
+      '<div class="con-field-row">' +
+      '<label class="con-field"><span>Name it</span>' +
+      '<input class="con-search-field" id="con-preset-name" placeholder="Weekend event" ' +
+      'maxlength="60"></label>' +
+      '<div class="con-table-actions">' +
+      '<button type="button" class="con-primary" id="con-preset-save"' +
+      (changed.length ? "" : " disabled") + ">Save preset</button>" +
+      '<button type="button" class="con-secondary" id="con-preset-export">Export a file</button>' +
+      '<button type="button" class="con-secondary" id="con-preset-import">Import a file</button>' +
+      '<input type="file" id="con-preset-file" accept="application/json" hidden>' +
+      "</div></div>" +
+      (changed.length
+        ? ""
+        : '<p class="con-table-note">Everything is at its default, so there is nothing ' +
+          "to save yet.</p>") + "</section>" +
+      '<section class="con-section"><h3>Saved presets' +
+      '<span class="con-section-count">' + (presets.list || []).length + "</span></h3>" +
+      (list ? '<div class="con-presets">' + list + "</div>"
+            : '<p class="con-empty">No presets saved yet.</p>') + "</section>";
+  }
+
+  /**
+   * Actions booked ahead of time.
+   *
+   * <p>"Do something" runs an event now; this runs one on Saturday at six. The bot keeps
+   * the clock because it survives a Minecraft restart, and nothing fires while the plugin
+   * is away — an event announced to a server that cannot hear it is worse than one that
+   * did not run.
+   */
+  function renderSchedule() {
+    var data = state.schedule;
+    if (!data) return '<p class="con-empty">Loading&hellip;</p>';
+    if (data.error) {
+      return '<p class="con-empty">The schedule is unavailable: ' +
+        escapeHtml(data.error) + "</p>";
+    }
+    var actions = data.actions || [];
+    if (!actions.length) {
+      return '<p class="con-empty">The connected server has not offered any actions to ' +
+        "schedule.</p>";
+    }
+    var rows = (data.entries || []).slice().sort(function (a, b) {
+      return a.run_at - b.run_at;
+    }).map(function (entry) {
+      var action = actions.filter(function (row) { return row.id === entry.action; })[0];
+      var when = new Date(entry.run_at * 1000);
+      var overdue = entry.run_at < (data.now || 0);
+      return '<tr class="' + (entry.enabled ? "" : "con-muted") + '">' +
+        "<td><strong>" + escapeHtml(action ? action.label : entry.action) + "</strong>" +
+        (entry.label ? '<div class="con-muted">' + escapeHtml(entry.label) + "</div>" : "") +
+        "</td>" +
+        "<td>" + escapeHtml(when.toLocaleString()) +
+        (overdue && entry.enabled ? '<div class="con-warn">due</div>' : "") + "</td>" +
+        "<td>" + (entry.repeat_days
+          ? "every " + entry.repeat_days + " day" + (entry.repeat_days === 1 ? "" : "s")
+          : '<span class="con-muted">once</span>') + "</td>" +
+        "<td>" + (entry.last_run_at
+          ? '<span class="con-muted">' + escapeHtml(entry.last_result || "ran") + "</span>"
+          : '<span class="con-muted">not yet</span>') + "</td>" +
+        '<td class="con-num"><button type="button" class="con-remove" ' +
+        'data-schedule-delete="' + escapeHtml(entry.id) + '">&times;</button></td></tr>';
+    }).join("");
+
+    var options = actions.map(function (action) {
+      return '<option value="' + escapeHtml(action.id) + '">' +
+        escapeHtml(action.label) + "</option>";
+    }).join("");
+
+    return '<p class="con-intro">Book an action for later. It runs once at the time you ' +
+      "pick, or every so many days from then. Anything more than fifteen minutes overdue " +
+      "is skipped rather than run late &mdash; nobody wants Saturday\u2019s event starting " +
+      "on Sunday morning.</p>" +
+      '<section class="con-section"><h3>Book something</h3>' +
+      '<div class="con-field-row">' +
+      '<label class="con-field"><span>What</span>' +
+      '<select class="con-choice" id="con-sched-action">' + options + "</select></label>" +
+      '<label class="con-field"><span>When</span>' +
+      '<input class="con-search-field" id="con-sched-at" type="datetime-local"></label>' +
+      '<label class="con-field"><span>Repeat every (days, 0 = once)</span>' +
+      '<input class="con-number" id="con-sched-repeat" type="number" min="0" max="365" value="0">' +
+      "</label>" +
+      '<div class="con-table-actions">' +
+      '<button type="button" class="con-primary" id="con-sched-add">Book it</button>' +
+      "</div></div>" +
+      '<p class="con-table-note">Times are read in this browser\u2019s timezone.</p>' +
+      "</section>" +
+      '<section class="con-section"><h3>Booked' +
+      '<span class="con-section-count">' + (data.entries || []).length + "</span></h3>" +
+      (rows
+        ? '<div class="con-table-scroll"><table><thead><tr><th>Action</th><th>When</th>' +
+          "<th>Repeat</th><th>Last run</th><th class=\"con-num\"></th></tr></thead>" +
+          "<tbody>" + rows + "</tbody></table></div>"
+        : '<p class="con-empty">Nothing is booked.</p>') + "</section>";
+  }
+
   function renderActivity() {
     var feed = state.activity || {};
     var entries = feed.entries || [];
@@ -1883,6 +2182,8 @@
   function pageCount(page) {
     if (page.id === "actions") return state.actions.length;
     if (page.id === "statistics" || page.id === "announce") return 0;
+    if (page.id === "presets") return ((state.presets || {}).list || []).length;
+    if (page.id === "schedule_actions") return ((state.schedule || {}).entries || []).length;
     if (page.id === "activity") return ((state.activity || {}).entries || []).length;
     if (page.id === "auction") return ((state.auction || {}).listings || []).length;
     if (page.id === "overview" || page.id === "history") return 0;
@@ -2071,6 +2372,12 @@
         '<datalist id="con-online">' + state.online.map(function (name) {
           return '<option value="' + escapeHtml(name) + '">';
         }).join("") + "</datalist>";
+    } else if (state.page === "schedule_actions") {
+      main.innerHTML = banner + renderSchedule();
+      if (state.schedule === null) loadSchedule();
+    } else if (state.page === "presets") {
+      main.innerHTML = banner + renderPresets();
+      if (state.presets === null) loadPresets();
     } else if (state.page === "announce") {
       main.innerHTML = banner + renderAnnounce();
       if (state.announce === null) loadAnnounce();
@@ -2179,6 +2486,15 @@
 
     byId("con-page").addEventListener("change", function (event) {
       var target = event.target;
+      if (target.id === "con-preset-file") {
+        if (target.files && target.files[0]) importPreset(target.files[0]);
+        target.value = "";
+        return;
+      }
+      if (target.dataset.shopPrice !== undefined || target.dataset.shopAmount !== undefined) {
+        saveShopOffer(target.dataset.shopPrice || target.dataset.shopAmount);
+        return;
+      }
       if (target.dataset.announceToggle !== undefined) {
         post("/api/announce", {enabled: target.checked})
           .then(loadAnnounce)
@@ -2226,6 +2542,35 @@
       var run = event.target.closest("[data-run]");
       if (run) { runAction(run.dataset.run); return; }
       if (event.target.id === "con-announce-send") { sendAnnouncement(); return; }
+      var shelf = event.target.closest("[data-shelf]");
+      if (shelf) { state.shopShelf = shelf.dataset.shelf; render(); return; }
+      var shopOut = event.target.closest("[data-shop-remove]");
+      if (shopOut) { removeShopOffer(shopOut.dataset.shopRemove); return; }
+      var shopBack = event.target.closest("[data-shop-restore]");
+      if (shopBack) { catalogCall("restore_shop_offer", {material: shopBack.dataset.shopRestore}); return; }
+      if (event.target.id === "con-shop-add") { openShopDialog(); return; }
+      if (event.target.id === "con-cosmetic-add") { openCosmeticDialog(); return; }
+      var dropCosmetic = event.target.closest("[data-cosmetic-remove]");
+      if (dropCosmetic) {
+        catalogCall("remove_cosmetic", {id: dropCosmetic.dataset.cosmeticRemove});
+        return;
+      }
+      if (event.target.id === "con-sched-add") { bookAction(); return; }
+      var unbook = event.target.closest("[data-schedule-delete]");
+      if (unbook) { cancelBooking(unbook.dataset.scheduleDelete); return; }
+      if (event.target.id === "con-preset-save") { savePreset(); return; }
+      if (event.target.id === "con-preset-export") { exportPreset(); return; }
+      if (event.target.id === "con-preset-import") { byId("con-preset-file").click(); return; }
+      var applyPreset = event.target.closest("[data-preset-apply]");
+      if (applyPreset) {
+        var wanted = (state.presets.list || []).filter(function (row) {
+          return row.name === applyPreset.dataset.presetApply;
+        })[0];
+        if (wanted) stageValues(wanted.values || {}, wanted.name);
+        return;
+      }
+      var dropPreset = event.target.closest("[data-preset-delete]");
+      if (dropPreset) { deletePreset(dropPreset.dataset.presetDelete); return; }
       var metric = event.target.closest("[data-metric]");
       if (metric) {
         var name = metric.dataset.metric;
@@ -2412,6 +2757,228 @@
   }
 
   /* ---------- boot ---------- */
+
+  /** One catalogue operation, then a reload so the page shows what the server did. */
+  async function catalogCall(operation, payload) {
+    try {
+      var answer = await post("/api/catalog",
+        Object.assign({operation: operation}, payload));
+      toast(answer.message || "Done.", false);
+      await loadSettings();
+      render();
+    } catch (error) {
+      toast(error.message, true);
+    }
+  }
+
+  function shopRowOf(material) {
+    var shelves = (state.catalog || {}).shop_shelves || [];
+    for (var i = 0; i < shelves.length; i++) {
+      var found = (shelves[i].offers || []).filter(function (offer) {
+        return offer.material === material;
+      })[0];
+      if (found) return {offer: found, shelf: shelves[i].id};
+    }
+    return null;
+  }
+
+  function saveShopOffer(material) {
+    var found = shopRowOf(material);
+    if (!found) return;
+    var page = byId("con-page");
+    var price = page.querySelector('[data-shop-price="' + material + '"]');
+    var amount = page.querySelector('[data-shop-amount="' + material + '"]');
+    catalogCall("set_shop_offer", {
+      material: material,
+      category: found.shelf,
+      amount: Number(amount ? amount.value : found.offer.amount),
+      price: Number(price ? price.value : found.offer.price)
+    });
+  }
+
+  async function removeShopOffer(material) {
+    if (!await confirmThat(
+      "Take " + titleCase(material) + " off the shelf?",
+      "Players will no longer be able to buy it. A built-in item can be put back at its "
+      + "catalogue price afterwards.",
+      "Take it off"
+    )) return;
+    catalogCall("remove_shop_offer", {material: material});
+  }
+
+  function openShopDialog() {
+    var shelves = (state.catalog || {}).shop_shelves || [];
+    var open = state.shopShelf || (shelves[0] || {}).id;
+    byId("con-add-title").textContent = "Add an item to the shop";
+    byId("con-add-body").innerHTML =
+      '<label class="con-field"><span>Item</span>' + materialPicker() +
+      "<em>Anything the server can hand a player.</em></label>" +
+      '<div class="con-field-row">' +
+      '<label class="con-field"><span>Shelf</span>' +
+      '<select class="con-choice" id="con-add-category">' + shelves.map(function (shelf) {
+        return '<option value="' + escapeHtml(shelf.id) + '"' +
+          (shelf.id === open ? " selected" : "") + ">" + escapeHtml(shelf.label) + "</option>";
+      }).join("") + "</select></label>" +
+      '<label class="con-field"><span>How many</span>' +
+      '<input class="con-number" id="con-add-amount" type="number" min="1" max="64" value="1">' +
+      "</label>" +
+      '<label class="con-field"><span>Price</span>' +
+      '<input class="con-number" id="con-add-min" type="number" min="1" value="100">' +
+      "</label></div>" +
+      '<p class="con-help">The price is what a player pays before the shelf percentage ' +
+      "above is applied.</p>";
+    state.adding = {shop: true};
+    byId("con-add").hidden = false;
+    window.setTimeout(function () { byId("con-add-material").focus(); }, 30);
+  }
+
+  async function loadSchedule() {
+    try {
+      state.schedule = await api("/api/schedule");
+    } catch (error) {
+      state.schedule = {error: error.message};
+    }
+    if (state.page === "schedule_actions") render();
+  }
+
+  async function bookAction() {
+    var when = byId("con-sched-at").value;
+    if (!when) { toast("Pick a date and time first.", true); return; }
+    // datetime-local has no timezone, so it is read in the browser's own — which is what
+    // an owner means when they type six o'clock.
+    var at = Math.floor(new Date(when).getTime() / 1000);
+    if (!at || at <= Date.now() / 1000) {
+      toast("Pick a time in the future.", true);
+      return;
+    }
+    try {
+      await post("/api/schedule", {
+        action: byId("con-sched-action").value,
+        arguments: {},
+        run_at: at,
+        repeat_days: Number(byId("con-sched-repeat").value || 0)
+      });
+      toast("Booked.", false);
+      state.schedule = null;
+      await loadSchedule();
+    } catch (error) {
+      toast(error.message, true);
+    }
+  }
+
+  async function cancelBooking(id) {
+    if (!await confirmThat("Cancel this booking?",
+      "It will not run. Nothing that has already happened is undone.", "Cancel it")) return;
+    try {
+      await post("/api/schedule", {id: id, delete: true});
+      state.schedule = null;
+      await loadSchedule();
+    } catch (error) {
+      toast(error.message, true);
+    }
+  }
+
+  async function loadPresets() {
+    try {
+      var answer = await api("/api/presets");
+      state.presets = {list: answer.presets || []};
+    } catch (error) {
+      state.presets = {error: error.message};
+    }
+    if (state.page === "presets") render();
+  }
+
+  /** The values that differ from default — the only part of a snapshot worth keeping. */
+  function changedValues() {
+    var values = {};
+    state.rows.forEach(function (row) {
+      if (row.overridden) values[row.key] = row.value;
+    });
+    return values;
+  }
+
+  async function savePreset() {
+    var name = String(byId("con-preset-name").value || "").trim();
+    if (!name) { toast("Give the preset a name first.", true); return; }
+    try {
+      await post("/api/presets", {name: name, values: changedValues()});
+      toast("Saved \u201c" + name + "\u201d.", false);
+      state.presets = null;
+      await loadPresets();
+    } catch (error) {
+      toast(error.message, true);
+    }
+  }
+
+  async function deletePreset(name) {
+    if (!await confirmThat("Delete \u201c" + name + "\u201d?",
+      "The preset is removed. Nothing on the server changes.", "Delete it")) return;
+    try {
+      await post("/api/presets", {name: name, delete: true});
+      state.presets = null;
+      await loadPresets();
+    } catch (error) {
+      toast(error.message, true);
+    }
+  }
+
+  /**
+   * Stages a preset as a draft.
+   *
+   * <p>Deliberately not applied. Everything it would change appears in the review dialog
+   * and the save bar first, which is the difference between restoring a known-good tune
+   * and finding out afterwards what it moved.
+   */
+  function stageValues(values, label) {
+    var staged = 0;
+    var unknown = 0;
+    Object.keys(values).forEach(function (key) {
+      var row = state.byKey[key];
+      if (!row) { unknown += 1; return; }
+      if (String(values[key]) === String(row.value)) return;
+      state.draft[key] = {value: values[key]};
+      staged += 1;
+    });
+    saveDraft();
+    scheduleValidate();
+    render();
+    toast(staged
+      ? label + ": " + staged + " change(s) staged for review" +
+        (unknown ? ", " + unknown + " unknown setting(s) ignored" : "") + "."
+      : label + " matches what is already live; nothing staged.", false);
+  }
+
+  function exportPreset() {
+    var payload = {
+      exported_at: new Date().toISOString(),
+      settings: changedValues()
+    };
+    var blob = new Blob([JSON.stringify(payload, null, 2)], {type: "application/json"});
+    var link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = "mysterious-smp-x-settings.json";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(link.href);
+  }
+
+  function importPreset(file) {
+    var reader = new FileReader();
+    reader.onload = function () {
+      try {
+        var parsed = JSON.parse(String(reader.result));
+        var values = parsed.settings || parsed.values || parsed;
+        if (!values || typeof values !== "object") {
+          throw new Error("That file has no settings in it.");
+        }
+        stageValues(values, "Imported file");
+      } catch (error) {
+        toast("Could not read that file: " + error.message, true);
+      }
+    };
+    reader.readAsText(file);
+  }
 
   async function loadAnnounce() {
     try {
