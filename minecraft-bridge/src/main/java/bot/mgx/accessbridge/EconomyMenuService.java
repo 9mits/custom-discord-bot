@@ -823,49 +823,70 @@ final class EconomyMenuService implements CommandExecutor, TabCompleter, Listene
             return;
         }
         long now = autoTick;
-        autoOrders.entrySet().removeIf(entry -> {
-            Player player = plugin.getServer().getPlayer(entry.getKey());
-            AutoOrder order = entry.getValue();
-            if (player == null || !player.isOnline()) {
-                return true;
+        // ConcurrentHashMap hands removeIf an immutable entry, so calling setValue on it
+        // throws UnsupportedOperationException and aborts the whole pass. That is worse
+        // than it sounds: the throw landed *after* the money was taken and the items were
+        // dropped, but before lastRun was recorded, so every standing order stayed
+        // permanently due and fired again one second later instead of one interval later.
+        // A single /autobuy drop order was enough to bury the world in item entities,
+        // stall the server thread merging them, and trip the watchdog. Walk the keys and
+        // write back through the map instead.
+        for (UUID id : List.copyOf(autoOrders.keySet())) {
+            AutoOrder order = autoOrders.get(id);
+            if (order == null) {
+                continue;
             }
-            if (!AutoBuy.due(now, order.lastRun(), order.intervalSeconds())) {
-                return false;
+            switch (runAutoOrder(id, order, now)) {
+                case STOP -> autoOrders.remove(id, order);
+                case RAN -> autoOrders.replace(id, order, order.withLastRun(now));
+                case WAIT -> { }
             }
-            if (!AutoBuy.affordable(money.balance(entry.getKey()), order.unitPrice(), order.quantity())) {
-                info(player, "Auto buy stopped: you ran out of money.");
-                return true;
+        }
+    }
+
+    /** What one standing order did this pass. */
+    private enum AutoOutcome { STOP, RAN, WAIT }
+
+    private AutoOutcome runAutoOrder(UUID id, AutoOrder order, long now) {
+        Player player = plugin.getServer().getPlayer(id);
+        if (player == null || !player.isOnline()) {
+            return AutoOutcome.STOP;
+        }
+        if (!AutoBuy.due(now, order.lastRun(), order.intervalSeconds())) {
+            return AutoOutcome.WAIT;
+        }
+        if (!AutoBuy.affordable(money.balance(id), order.unitPrice(), order.quantity())) {
+            info(player, "Auto buy stopped: you ran out of money.");
+            return AutoOutcome.STOP;
+        }
+        Material material = materialOf(order.material());
+        if (order.drop() && itemsAround(player) >= AutoBuy.GROUND_LIMIT) {
+            // The floor has not been cleared yet; try again next tick rather than
+            // stacking more on top of it. Saying so once matters: waiting and being
+            // broken look identical from the player's side, and a full floor is the
+            // usual reason a dropping order appears to do nothing at all.
+            if (warnedGroundFull.add(id)) {
+                info(player, "Auto buy is waiting: " + AutoBuy.GROUND_LIMIT
+                        + " or more dropped items are already around you.");
             }
-            Material material = materialOf(order.material());
-            if (order.drop() && itemsAround(player) >= AutoBuy.GROUND_LIMIT) {
-                // The floor has not been cleared yet; try again next tick rather than
-                // stacking more on top of it. Saying so once matters: waiting and being
-                // broken look identical from the player's side, and a full floor is the
-                // usual reason a dropping order appears to do nothing at all.
-                if (warnedGroundFull.add(entry.getKey())) {
-                    info(player, "Auto buy is waiting: " + AutoBuy.GROUND_LIMIT
-                            + " or more dropped items are already around you.");
-                }
-                return false;
-            }
-            warnedGroundFull.remove(entry.getKey());
-            if (!order.drop() && spaceFor(player, material) < order.quantity()) {
-                info(player, "Auto buy stopped: your inventory is full.");
-                return true;
-            }
-            long cost = order.unitPrice() * (long) order.quantity();
-            if (!money.tryWithdraw(entry.getKey(), cost)) {
-                info(player, "Auto buy stopped: you ran out of money.");
-                return true;
-            }
-            if (order.drop()) {
-                dropAtFeet(player, material, order.quantity());
-            } else {
-                give(player, new ItemStack(material, order.quantity()));
-            }
-            entry.setValue(order.withLastRun(now));
-            return false;
-        });
+            return AutoOutcome.WAIT;
+        }
+        warnedGroundFull.remove(id);
+        if (!order.drop() && spaceFor(player, material) < order.quantity()) {
+            info(player, "Auto buy stopped: your inventory is full.");
+            return AutoOutcome.STOP;
+        }
+        long cost = order.unitPrice() * (long) order.quantity();
+        if (!money.tryWithdraw(id, cost)) {
+            info(player, "Auto buy stopped: you ran out of money.");
+            return AutoOutcome.STOP;
+        }
+        if (order.drop()) {
+            dropAtFeet(player, material, order.quantity());
+        } else {
+            give(player, new ItemStack(material, order.quantity()));
+        }
+        return AutoOutcome.RAN;
     }
 
     private record AutoOrder(

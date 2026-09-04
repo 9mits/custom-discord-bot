@@ -157,11 +157,12 @@ final class CrateOddsStore {
 
     /** Quotas halve with the window, or a player at their cap would never contribute again. */
     private static void decayContributions(Map<UUID, Long> players) {
-        players.entrySet().removeIf(entry -> {
-            long halved = entry.getValue() / 2L;
-            entry.setValue(halved);
-            return halved <= 0L;
-        });
+        // Halve first, then drop what reached zero. Writing through the entry inside
+        // removeIf works on this map only because it is a LinkedHashMap; the same shape
+        // on a ConcurrentHashMap throws and aborts the pass, which is what broke
+        // /autobuy. Not worth leaving as a trap for whoever changes the map type.
+        players.replaceAll((id, contributed) -> contributed / 2L);
+        players.values().removeIf(remaining -> remaining <= 0L);
     }
 
     synchronized void reset() {
