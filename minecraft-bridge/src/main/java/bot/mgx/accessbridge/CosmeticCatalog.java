@@ -172,7 +172,8 @@ final class CosmeticCatalog {
 
         int oneIn() {
             if (hiddenAmethystJackpot()) {
-                return HIDDEN_AMETHYST_ONE_IN;
+                // The live setting, not the shipped default: this number is shown.
+                return CrateCatalog.hiddenAmethystOneIn();
             }
             return Math.max(1, (int) Math.round(CrateCatalog.TOTAL_WEIGHT / (double) weight));
         }

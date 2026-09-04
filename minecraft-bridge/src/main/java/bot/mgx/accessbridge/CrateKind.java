@@ -241,28 +241,6 @@ enum CrateKind {
         return (double) rare / (double) total;
     }
 
-    CrateCatalog.Reward randomReward(int luckPercent) {
-        if (this == AMETHYST) {
-            int jackpotTicket = java.util.concurrent.ThreadLocalRandom.current()
-                    .nextInt(CrateCatalog.HIDDEN_AMETHYST_ONE_IN);
-            Optional<CrateCatalog.Reward> jackpot = CrateCatalog.hiddenAmethystAt(jackpotTicket);
-            if (jackpot.isPresent()) {
-                return jackpot.get();
-            }
-        }
-        if (this == SHARD) {
-            int jackpotTicket = java.util.concurrent.ThreadLocalRandom.current()
-                    .nextInt(CrateCatalog.HIDDEN_AMETHYST_ONE_IN);
-            Optional<CrateCatalog.Reward> jackpot = CrateCatalog.hiddenAmethystAt(jackpotTicket);
-            if (jackpot.isPresent()) {
-                return jackpot.get();
-            }
-        }
-        int total = CrateCatalog.luckyTotalWeight(rewards, luckPercent);
-        int ticket = java.util.concurrent.ThreadLocalRandom.current().nextInt(total);
-        return CrateCatalog.rewardAtLucky(rewards, ticket, luckPercent);
-    }
-
     CrateCatalog.Reward randomPreview() {
         int ticket = java.util.concurrent.ThreadLocalRandom.current()
                 .nextInt(CrateCatalog.TOTAL_WEIGHT);

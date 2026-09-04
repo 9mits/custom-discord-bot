@@ -39,6 +39,19 @@ final class CrateCatalog {
     static final int JACKPOT_WEIGHT = TOTAL_WEIGHT / 10_000;
     static final int HIDDEN_AMETHYST_ONE_IN = CosmeticCatalog.HIDDEN_AMETHYST_ONE_IN;
 
+    /**
+     * The live jackpot odds, not the value they shipped as.
+     *
+     * <p>{@code crate.hidden-amethyst-one-in} is an owner-editable setting, so the
+     * constant above is only its default. Reading the constant where the number is shown
+     * to a player made the reveal announce "1 in 500,000" on a server that had been
+     * retuned to 250,000 — the roll honoured the setting and the caption did not.
+     */
+    static int hiddenAmethystOneIn() {
+        return (int) Math.max(1L, (long) tuned("crate.hidden-amethyst-one-in",
+                HIDDEN_AMETHYST_ONE_IN));
+    }
+
     enum RevealTier {
         NONE,
         LEGENDARY,
@@ -132,14 +145,14 @@ final class CrateCatalog {
 
         String displayedChance() {
             if (isHiddenAmethyst(this)) {
-                return String.format(Locale.ROOT, "1 in %,d", HIDDEN_AMETHYST_ONE_IN);
+                return String.format(Locale.ROOT, "1 in %,d", hiddenAmethystOneIn());
             }
             return secret() ? "???" : percentage(weight);
         }
 
         String actualChance() {
             if (isHiddenAmethyst(this)) {
-                return String.format(Locale.ROOT, "1 in %,d", HIDDEN_AMETHYST_ONE_IN);
+                return String.format(Locale.ROOT, "1 in %,d", hiddenAmethystOneIn());
             }
             return percentage(weight);
         }

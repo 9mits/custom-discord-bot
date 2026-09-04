@@ -1163,7 +1163,8 @@ final class CrateService implements CommandExecutor, TabCompleter, Listener {
                 .append(Component.text(" from the " + crateName + "!", NamedTextColor.WHITE));
         if (tier == CrateCatalog.RevealTier.GENUINE_SECRET) {
             announcement = announcement.append(Component.text(
-                    " • 1 in " + String.format(Locale.ROOT, "%,d", CrateCatalog.HIDDEN_AMETHYST_ONE_IN),
+                    " • 1 in " + String.format(Locale.ROOT, "%,d",
+                            CrateCatalog.hiddenAmethystOneIn()),
                     NamedTextColor.AQUA, TextDecoration.BOLD
             ));
         }
